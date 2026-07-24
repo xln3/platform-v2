@@ -1,0 +1,40 @@
+{
+  "name": "geo-platform-v2",
+  "private": true,
+  "packageManager": "pnpm@11.17.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "CHOKIDAR_USEPOLLING=true turbo run build --concurrency=1",
+    "dev:web": "turbo run dev --filter='./apps/*'",
+    "lint": "turbo run lint && pnpm lint:python",
+    "lint:python": ".venv/bin/ruff check api domain workflows migrations tests tools scripts",
+    "format": "prettier --write . && .venv/bin/ruff format api domain workflows migrations tests tools scripts",
+    "format:check": "prettier --check . && .venv/bin/ruff format --check api domain workflows migrations tests tools scripts",
+    "typecheck": "turbo run typecheck && .venv/bin/mypy api workflows domain",
+    "test": "turbo run test && .venv/bin/pytest -q",
+    "test:e2e": "playwright test",
+    "generate:api": ".venv/bin/python scripts/export_openapi.py && openapi-typescript contracts/openapi.json -o packages/api-client/src/schema.generated.ts",
+    "check:api": "pnpm generate:api && .venv/bin/python scripts/check_generated.py && .venv/bin/python scripts/check_frontend_contracts.py",
+    "check:legacy-routes": ".venv/bin/python scripts/check_legacy_routes.py",
+    "check": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm test && pnpm check:api && pnpm build && pnpm check:legacy-routes",
+    "infra:up": "docker compose -f compose.yaml up -d --wait",
+    "infra:down": "docker compose -f compose.yaml down",
+    "dev": "bash scripts/dev.sh",
+    "smoke": "bash scripts/smoke.sh"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
+    "@playwright/test": "^1.61.1",
+    "@testing-library/jest-dom": "^7.0.0",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/node": "24.1.0",
+    "jsdom": "^29.1.1",
+    "openapi-typescript": "7.13.0",
+    "prettier": "3.6.2",
+    "turbo": "2.10.6",
+    "typescript": "5.9.3"
+  }
+}

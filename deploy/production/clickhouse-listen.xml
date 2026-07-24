@@ -1,0 +1,4 @@
+<clickhouse>
+    <!-- Avoid dual-stack wildcard conflicts on hosts where :: also claims IPv4. -->
+    <listen_host replace="replace">0.0.0.0</listen_host>
+</clickhouse>

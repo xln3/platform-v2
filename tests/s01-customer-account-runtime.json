@@ -1,0 +1,40 @@
+{
+  "verified_at": "2026-07-24T15:19:44.790221+00:00",
+  "account_pub_id": "pac_05663T57XS06B9RMMK5YAP2518",
+  "account_mask": "customer-runtime-***",
+  "pairing_state_before_revoke": "completed",
+  "customer_projection_state": "revoked",
+  "revocation_receipt_pub_id": "rev_0JK0RRRB7KGJ0SDZ1GT1RVM3KZ",
+  "revoked_at": "2026-07-24T15:19:44.747106Z",
+  "workflow_result": {
+    "account_pub_id": "pac_05663T57XS06B9RMMK5YAP2518",
+    "deletion_verified": true,
+    "purged_profile_versions": [],
+    "released_leases": 0,
+    "sessions_closed": true
+  },
+  "event_types": [
+    "account.revocation.completed",
+    "intervention.completed",
+    "customer_pairing.requested",
+    "customer_authorization.updated"
+  ],
+  "projection_keys": [
+    "account_mask",
+    "admission_level",
+    "authorization_expires_at",
+    "custody_mode",
+    "intervention_status",
+    "last_verified_at",
+    "owner_label",
+    "platform_label",
+    "pub_id",
+    "region_label",
+    "revocation_receipt_pub_id",
+    "revoked_at",
+    "scopes",
+    "session_health"
+  ],
+  "customer_received_pairing_token": false,
+  "contains_secret": false
+}

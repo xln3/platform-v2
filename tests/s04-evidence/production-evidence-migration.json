@@ -1,0 +1,25 @@
+{
+  "schema_version": "1.0",
+  "source_snapshot_sha256": "e6ce86fcde2c920f2af3b178570c0c3088e4556124e35964a7964c87c37a1bea",
+  "source_hash_verified_before_upload": true,
+  "target_hash_verified_after_upload": true,
+  "quarantine_policy": [
+    "captcha",
+    "har"
+  ],
+  "quarantine_counts": {
+    "har": 149,
+    "captcha": 6
+  },
+  "raw_paths_included": false,
+  "secret_values_included": false,
+  "counts": {
+    "seen": 688,
+    "migrated": 533,
+    "already_mapped": 0,
+    "quarantined": 155,
+    "source_bytes_verified": 241351596,
+    "target_bytes_verified": 241334032,
+    "failed": 0
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "schema_version": "1.0",
+  "result": "interrupted_as_injected",
+  "phase": "collection_history",
+  "secret_values_included": false
+}

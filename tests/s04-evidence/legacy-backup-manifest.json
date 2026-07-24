@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "created_at": "2026-07-24T15:59:01.062560+00:00",
+  "source_path_digest": "9c16f31bbb4da1a57f642802f37c5ab4e2bcba9c0352538b47c1d6b2c2bbf013",
+  "backup_path_digest": "c5350dd38cd9476c080439035ca371adb1d150f539f0d31182374338afd4ff8c",
+  "backup_sha256": "eee30c3e06d1bcecd6a8adac7219fb85092b3e7070c8bd2a6f48edd1f0e42136",
+  "size_bytes": 7868416,
+  "mode": "0o400",
+  "sqlite_integrity": "ok",
+  "source_modified_at": "2026-07-24T08:35:27.113269+00:00",
+  "contains_secret_values": false,
+  "raw_paths_included": false
+}

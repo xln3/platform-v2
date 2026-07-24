@@ -1,0 +1,8 @@
+{
+  "server/geosys/app.py": "e1877f0383ccaa31619216b7ae842049d13c9bab5a58e9b2cb0f72a80de2379c",
+  "server/geosys/client.py": "45ecf21304a58f8c9668e4c08380195f7f4a5511ce5f5e08f5d555a5a34cab47",
+  "server/geosys/portal.py": "42812c5223509fb2b7d95a6c7e24c47fe3c2c9cb45dc2c26d1794f53063b0005",
+  "server/geosys/console.py": "1e5f282acf78653cf77470a1e387d4dbfad9c8973afae3637ff18d19ed0ff357",
+  "server/geosys/collect_console.py": "fbfdff5198bbc3861ab5cb2efa17615f706902c9516d514e09dc4ac3b0800562",
+  "server/geosys/pipeline.py": "aee9f7a6d98a022839ee1358e2c1373dea5b26e7b74149865b1b5a72b40523e4"
+}

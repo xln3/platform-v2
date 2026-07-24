@@ -1,0 +1,43 @@
+{
+  "schema_version": "1.0",
+  "source_snapshot_sha256": "eee30c3e06d1bcecd6a8adac7219fb85092b3e7070c8bd2a6f48edd1f0e42136",
+  "run_pub_id": "mig_M7TLWEA4S99DFRGDKZ49564TCM",
+  "excluded": ["password_hash", "session", "otp", "browser_profile"],
+  "counts": {
+    "tenant": {
+      "seen": 1,
+      "written": 1,
+      "skipped": 0
+    },
+    "app_user": {
+      "seen": 1,
+      "written": 1,
+      "skipped": 0
+    },
+    "membership": {
+      "seen": 1,
+      "written": 1,
+      "skipped": 0
+    },
+    "customer": {
+      "seen": 3,
+      "written": 3,
+      "skipped": 0
+    },
+    "project": {
+      "seen": 5,
+      "written": 5,
+      "skipped": 0
+    },
+    "query_item": {
+      "seen": 77,
+      "written": 77,
+      "skipped": 0
+    },
+    "answer": {
+      "seen": 146,
+      "written": 146,
+      "skipped": 0
+    }
+  }
+}

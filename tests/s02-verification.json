@@ -1,0 +1,65 @@
+{
+  "schema_version": "1.0",
+  "recorded_at": "2026-07-25T01:15:00+08:00",
+  "status": "complete",
+  "goal_complete": true,
+  "checks": {
+    "ruff": {
+      "status": "pass",
+      "scope": "all S02-owned domain, API, workflow, test, and migration files"
+    },
+    "mypy_strict": {
+      "status": "pass",
+      "source_files": 42
+    },
+    "pytest_s02": {
+      "status": "pass",
+      "passed": 49,
+      "duration_seconds": 69.24,
+      "real_services": [
+        "postgresql_pgvector",
+        "clickhouse",
+        "minio",
+        "temporal"
+      ]
+    }
+  },
+  "storage": {
+    "postgresql_s02_tables": 49,
+    "pgvector_version": "0.8.5",
+    "embedding_type": "vector(384)",
+    "clickhouse_database": "geo_analytics",
+    "clickhouse_tables": [
+      "answer_fact",
+      "citation_fact",
+      "feature_fact",
+      "metric_daily",
+      "run_event"
+    ],
+    "clickhouse_row_counts": {
+      "answer_fact": 261,
+      "citation_fact": 2773,
+      "feature_fact": 44,
+      "metric_daily": 1323,
+      "run_event": 191
+    },
+    "minio_cas": "pass"
+  },
+  "completion_gates": {
+    "answer_to_report": "pass",
+    "post_to_human_verdict": "pass",
+    "storage_consistency_recovery": "pass_s02_scope",
+    "workflow_interruption_recovery": "pass",
+    "opaque_provenance_no_secrets": "pass_s02_scope",
+    "real_s01_capability_gateway": "pass",
+    "status_evidence_contract_gaps": "pass"
+  },
+  "blocking_contracts": [],
+  "runtime_integration": {
+    "database_head": "s04_0005",
+    "openapi_paths": 71,
+    "s02_paths": 27,
+    "real_gateway_evidence": "tests/s02-real-gateway-runtime.json"
+  },
+  "anti_geo_claim": "probabilistic_assistance_only_with_human_verdict"
+}

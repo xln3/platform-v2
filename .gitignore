@@ -1,0 +1,17 @@
+node_modules/
+.turbo/
+build/
+dist/
+.venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.env
+*.pyc
+
+# 生产数据备份绝不入库（同 server 侧 *.db 纪律）
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+tests/s04-evidence/backups/

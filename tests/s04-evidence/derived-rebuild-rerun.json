@@ -1,0 +1,10 @@
+{
+  "schema_version": "1.0",
+  "source_snapshot_sha256": "eee30c3e06d1bcecd6a8adac7219fb85092b3e7070c8bd2a6f48edd1f0e42136",
+  "derived_values_copied_from_legacy": false,
+  "counts": {
+    "seen": 146,
+    "rebuilt": 146,
+    "failed": 0
+  }
+}

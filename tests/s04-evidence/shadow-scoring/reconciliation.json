@@ -1,0 +1,52 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-07-24T16:16:20.264611+00:00",
+  "legacy_snapshot_hash": "d5e22ce8e18bef45fb7ad501e4ce0b377d9fd1c680f5aec2f8ea1fcf283f0965",
+  "v2_snapshot_hash": "d5e22ce8e18bef45fb7ad501e4ce0b377d9fd1c680f5aec2f8ea1fcf283f0965",
+  "secret_values_included": false,
+  "raw_business_values_included": false,
+  "sections": {
+    "task_matrix": {
+      "legacy": 3,
+      "v2": 3,
+      "differences": 0
+    },
+    "answers": {
+      "legacy": 35,
+      "v2": 35,
+      "differences": 0
+    },
+    "eligibility": {
+      "legacy": 35,
+      "v2": 35,
+      "differences": 0
+    },
+    "citations": {
+      "legacy": 539,
+      "v2": 539,
+      "differences": 0
+    },
+    "kpis": {
+      "legacy": 5,
+      "v2": 5,
+      "differences": 0
+    },
+    "reports": {
+      "legacy": 0,
+      "v2": 0,
+      "differences": 0
+    },
+    "evidence": {
+      "legacy": 688,
+      "v2": 688,
+      "differences": 0
+    }
+  },
+  "differences": [],
+  "summary": {
+    "differences": 0,
+    "approved": 0,
+    "unapproved": 0,
+    "passed": true
+  }
+}

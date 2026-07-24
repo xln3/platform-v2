@@ -1,0 +1,37 @@
+{
+  "verified_at": "2026-07-24T08:41:49.271859+00:00",
+  "workflow_id": "geo-collection/tnt_51BCSPQND78W69QAGDYVNGVD94/prj_08HGNZYYNPRW7C88XS3N0RPC19/run_5TWJBG6YC57Y2A03ZGREAZ6DEJ",
+  "temporal_run_id": "019f9349-6cab-713a-86aa-37f8028be3ae",
+  "project_pub_id": "prj_08HGNZYYNPRW7C88XS3N0RPC19",
+  "config_version_pub_id": "cfv_494DJKF0H82374DXPW1DXDP34V",
+  "account_pub_id": "pac_65RGK0PG94Z3R82GP1W1JDAE4P",
+  "account_mask": "fixture-***42",
+  "admission_level": "adapter_ready",
+  "profile_version": 1,
+  "intervention_type": "otp",
+  "intervention_platform_result": "verified",
+  "workflow_result": {
+    "completed": [
+      {
+        "answer_text": "[fixed-adapter] Which GEO platform is reliable? (fixed/CN-BJ/fast)",
+        "business_key": "b319b206f7438238bbb8d3d2ad84a9d58d28b6bb63483364effec7a51bbe6885",
+        "quality_state": "fixture_valid",
+        "screenshot_ref": "fixture://screenshots/49a1bb88ac95b436a71c9ecd36a03141331ebb82b7f318db156b1394e4fc69bf.png"
+      }
+    ],
+    "downstream_event": "collection.completed:run_5TWJBG6YC57Y2A03ZGREAZ6DEJ",
+    "state": "completed"
+  },
+  "postgres": {
+    "run_state": "completed",
+    "completed_tasks": 1,
+    "task_count": 1,
+    "quality_states": [
+      "fixture_valid"
+    ],
+    "released_lease_observed": true
+  },
+  "contains_live_claim": false,
+  "contains_secret": false,
+  "worker_restart_exercised": true
+}

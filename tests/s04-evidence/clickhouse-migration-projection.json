@@ -1,0 +1,10 @@
+{
+  "schema_version": "1.0",
+  "consumer": "analytics-clickhouse-v2",
+  "projected_events": 146,
+  "clickhouse_answer_rows": 146,
+  "unique_answer_ids": 146,
+  "unique_event_ids": 146,
+  "remaining": 0,
+  "secret_values_included": false
+}

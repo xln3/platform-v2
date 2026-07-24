@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "verified_at": "2026-07-24T17:14:28.107657+00:00",
+  "gateway_url": "http://127.0.0.1:45200",
+  "workflow_id": "evidence-capture/tnt_0E88DHG2S6SDK3B7Q7Z2J3939X/evd_f8b6d54c399746669e323e594ca7242d/op_f8b6d54c399746669e323e594ca7242d",
+  "tenant_pub_id": "tnt_0E88DHG2S6SDK3B7Q7Z2J3939X",
+  "platform_account_pub_id": "pac_0TYGA88GCD2Q06FFQABQVJK9V8",
+  "lease_pub_id": "cpl_78Y4SGP1J4DNHB7ZWAMZ93VCE3",
+  "captured": true,
+  "authorized_session_capture": true,
+  "rejected_after_revoke": true,
+  "gateway_issuer_verified": true,
+  "contains_service_token": false,
+  "contains_secret": false,
+  "admission_claim": "adapter_ready"
+}

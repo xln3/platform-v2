@@ -1,0 +1,65 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-07-24T17:30:57.441928+00:00",
+  "legacy_snapshot_hash": "088fe45a2444cdf2907e71552152daf6159b9b9b14861f6c824eea5569494a66",
+  "v2_snapshot_hash": "10ffc8929608d64f350d7e0a1b393fc96ff28422a19a4b3420141a4082e65dae",
+  "secret_values_included": false,
+  "raw_business_values_included": false,
+  "sections": {
+    "task_matrix": {
+      "legacy": 3,
+      "v2": 3,
+      "differences": 0
+    },
+    "answers": {
+      "legacy": 35,
+      "v2": 35,
+      "differences": 0
+    },
+    "eligibility": {
+      "legacy": 146,
+      "v2": 146,
+      "differences": 0
+    },
+    "citations": {
+      "legacy": 539,
+      "v2": 539,
+      "differences": 0
+    },
+    "kpis": {
+      "legacy": 5,
+      "v2": 5,
+      "differences": 0
+    },
+    "reports": {
+      "legacy": 0,
+      "v2": 0,
+      "differences": 0
+    },
+    "evidence": {
+      "legacy": 533,
+      "v2": 533,
+      "differences": 0
+    }
+  },
+  "differences": [],
+  "summary": {
+    "differences": 0,
+    "approved": 0,
+    "unapproved": 0,
+    "passed": true
+  },
+  "scope": {
+    "evidence_admitted_kinds": [
+      "screenshot",
+      "share_image",
+      "share_link",
+      "sse"
+    ],
+    "evidence_quarantined_by_policy": {
+      "har": 149,
+      "captcha": 6
+    },
+    "target_persisted_rows_compared": true
+  }
+}

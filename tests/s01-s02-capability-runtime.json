@@ -1,0 +1,19 @@
+{
+  "verified_at": "2026-07-24T15:18:40.441398+00:00",
+  "lease_pub_id": "cpl_7TV9QBBXGZ4DE6E9QAV12FEQGS",
+  "tenant_pub_id": "tnt_14K9SFS6KD7SZGXTTZHZMY1913",
+  "platform_account_pub_id": "pac_1G90S7WP66F4NSQHEZHKFEHVZ3",
+  "allowed_domains": [
+    "secure.example"
+  ],
+  "allowed_actions": [
+    "capture"
+  ],
+  "authorization_scope": [
+    "read"
+  ],
+  "subject_workflow_id": "evidence-capture/runtime-proof",
+  "signature_verified": true,
+  "revoked_validation_rejected": true,
+  "contains_secret": false
+}

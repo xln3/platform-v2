@@ -1,0 +1,22 @@
+[Unit]
+Description=GEO Platform V2 API
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=xln
+Group=xln
+WorkingDirectory=/home/xln/geo-system/platform-v2
+EnvironmentFile=/etc/geo-platform-v2/platform.env
+ExecStart=/home/xln/geo-system/platform-v2/.venv/bin/uvicorn geo_platform.main:app --app-dir api --host 127.0.0.1 --port 8020 --workers 2 --proxy-headers --forwarded-allow-ips=127.0.0.1
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/xln/geo-system/platform-v2
+
+[Install]
+WantedBy=multi-user.target

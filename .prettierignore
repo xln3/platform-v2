@@ -1,0 +1,10 @@
+node_modules
+.turbo
+build
+.venv
+.react-router
+pnpm-lock.yaml
+contracts/openapi.json
+packages/api-client/src/schema.generated.ts
+tests/*.json
+tests/e2e-results

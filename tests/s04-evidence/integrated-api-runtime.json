@@ -1,0 +1,23 @@
+{
+  "schema_version": "1.0",
+  "verified_at": "2026-07-24T15:53:22.390048+00:00",
+  "base_url": "http://127.0.0.1:45201",
+  "openapi_path_count": 69,
+  "required_paths_present": [
+    "/api/v2/analytics/overview",
+    "/api/v2/customer/platform-accounts",
+    "/api/v2/evidence/assets",
+    "/api/v2/exports/metrics",
+    "/api/v2/intelligence/search",
+    "/api/v2/reports"
+  ],
+  "tenant_pub_id": "tnt_6RQ63MY3RYYVS50ZBFG45NESQB",
+  "project_pub_id": "prj_4W8MEDA8SJS7JDMR652HB18VGH",
+  "analytics_empty_state": true,
+  "reports_empty_state": true,
+  "evidence_empty_state": true,
+  "role_spoof_rejected": true,
+  "stable_error_envelope": true,
+  "request_value_reflected": false,
+  "contains_secret": false
+}

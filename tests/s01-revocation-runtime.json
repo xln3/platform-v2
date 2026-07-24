@@ -1,0 +1,26 @@
+{
+  "verified_at": "2026-07-24T15:12:15.069916+00:00",
+  "workflow_id": "account-revocation/tnt_3Z6RQ0DPSXD1B6X5W45R3VXQXN/pac_4SZ4FYH33KAX66PZ34REGF7EYS/rev_42W3SAK40CHDDSNG6A0BK99JZ2",
+  "workflow_result": {
+    "account_pub_id": "pac_4SZ4FYH33KAX66PZ34REGF7EYS",
+    "deletion_verified": true,
+    "purged_profile_versions": [
+      1
+    ],
+    "released_leases": 0,
+    "sessions_closed": true
+  },
+  "postgres": {
+    "account_state": "revoked",
+    "profile_state": "PURGED",
+    "ciphertext_present": false,
+    "nonce_present": false,
+    "wrapped_dek_present": false,
+    "active_lease_count": 0,
+    "capability_lease_revoked": true,
+    "request_state": "completed",
+    "deletion_verified_at": "2026-07-24T15:12:14.962043+00:00"
+  },
+  "contains_secret": false,
+  "revoked_capability_validation_rejected": true
+}

@@ -1,0 +1,39 @@
+{
+  "generated_at": "2026-07-24T17:23:30+00:00",
+  "environment": "production",
+  "schema_version": "s04_0005",
+  "counts": {
+    "tenants": 1,
+    "users": 1,
+    "memberships": 1,
+    "projects": 5,
+    "monitoring_configs": 5,
+    "queries": 77,
+    "runs": 7,
+    "tasks": 192,
+    "answers": 146,
+    "analyses": 146,
+    "citations": 2754,
+    "evidence_assets": 533,
+    "reports": 0,
+    "outbox_total": 146,
+    "outbox_unpublished": 0,
+    "migration_runs": 1,
+    "watermarks": 13
+  },
+  "clickhouse_projection": {
+    "answer_fact": 146,
+    "citation_fact": 2754,
+    "run_event": 146,
+    "metric_daily": 1022,
+    "feature_fact": 0
+  },
+  "duplicate_delivery_check": {
+    "republished": true,
+    "consumer_receipts_before": 1,
+    "consumer_receipts_after": 1,
+    "answer_fact_before": 146,
+    "answer_fact_after": 146,
+    "idempotent": true
+  }
+}

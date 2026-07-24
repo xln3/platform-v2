@@ -1,0 +1,54 @@
+name: platform-v2-ci
+on:
+  pull_request:
+    paths: ['platform-v2/**', 'server/geosys/**']
+  push:
+    paths: ['platform-v2/**', 'server/geosys/**']
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: platform-v2 } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - run: python -m venv .venv && .venv/bin/pip install -e '.[dev]'
+      - run: .venv/bin/ruff check api domain workflows migrations tests tools scripts
+      - run: .venv/bin/ruff format --check api domain workflows migrations tests tools scripts
+      - run: .venv/bin/mypy api workflows domain
+      - run: .venv/bin/pytest -q
+
+  typescript:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: platform-v2 } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '24', cache: pnpm, cache-dependency-path: platform-v2/pnpm-lock.yaml }
+      - run: corepack enable && pnpm install --frozen-lockfile
+      - run: pnpm format:check
+      - run: pnpm turbo run lint typecheck test build
+
+  contract:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: platform-v2 } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - uses: actions/setup-node@v4
+        with: { node-version: '24' }
+      - run: corepack enable && pnpm install --frozen-lockfile
+      - run: python -m venv .venv && .venv/bin/pip install -e '.[dev]'
+      - run: pnpm check:api
+      - run: pnpm check:legacy-routes
+
+  compose-smoke:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: platform-v2 } }
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/smoke.sh
+      - if: always()
+        run: docker compose logs --no-color
