@@ -76,3 +76,8 @@ by the review session.
    answer persisted, screenshot evidence written under the evidence dir.
    (2026-07-27 live smoke with the Shanghai profile copy + wukong proxy, headed: SMOKE-OK,
    real answer captured end-to-end.)
+
+## 20260727 补记（冒烟后）
+
+- 驱动定案 **patchright**（与旧链生产同款）：vanilla playwright 的 webdriver 指纹会被豆包风控静默吞发送（live 实证）。venv 已装 patchright==1.59.1，pyproject 声明仍留 S04 补。
+- live 冒烟通过：上海号 profile 副本+悟空代理，headed，SMOKE-OK len=54 真实回答。冒烟 profile 副本用后已删（会话秘密不留痕），`runtime/` 已加 .gitignore（与 workers/main.py、pyproject.toml 同为未提交，随 S04 一并审查）。
