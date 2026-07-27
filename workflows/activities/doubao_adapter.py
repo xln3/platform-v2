@@ -62,6 +62,7 @@ log = structlog.get_logger()
 ENV_PROFILE_DIR = "GEO_DOUBAO_PROFILE_DIR"
 ENV_PROXY_URL = "GEO_DOUBAO_PROXY_URL"
 ENV_EVIDENCE_DIR = "GEO_DOUBAO_EVIDENCE_DIR"
+ENV_SHARED_EVIDENCE_DIR = "GEO_ADAPTER_EVIDENCE_DIR"  # 多平台共享证据目录（兜底于专属项之后）
 ENV_HEADLESS = "GEO_DOUBAO_HEADLESS"
 
 _DEFAULT_EVIDENCE_DIR = Path(__file__).resolve().parents[2] / "runtime" / "doubao-evidence"
@@ -298,7 +299,10 @@ class DoubaoAdapterConfig:
                 type="adapter_not_configured",
                 non_retryable=True,
             )
-        raw_evidence = os.environ.get(ENV_EVIDENCE_DIR, "").strip()
+        raw_evidence = (
+            os.environ.get(ENV_EVIDENCE_DIR, "").strip()
+            or os.environ.get(ENV_SHARED_EVIDENCE_DIR, "").strip()
+        )
         evidence_dir = Path(raw_evidence) if raw_evidence else _DEFAULT_EVIDENCE_DIR
         headless = os.environ.get(ENV_HEADLESS, "1").strip() != "0"
         return cls(
@@ -399,14 +403,23 @@ async def collect_with_adapter(item: CollectionTaskInput) -> CollectionTaskResul
 async def run_doubao_collection(
     item: CollectionTaskInput,
     *,
-    session_factory: SessionFactory,
-    heartbeat: Callable[[dict[str, Any]], None],
+    session_factory: SessionFactory | None = None,
+    heartbeat: Callable[[dict[str, Any]], None] | None = None,
     attempt: int = 1,
 ) -> CollectionTaskResult:
     """activity 核心：配置门 → mode 门 → to_thread 跑浏览器 → 墙/结果映射。
 
     与 activity 上下文解耦（heartbeat/attempt 注入），测试全程 mock 浏览器层。
+    session_factory/heartbeat 缺省用真实实现与 no-op——platform_registry dispatcher
+    只传 ``(item, heartbeat=...)``，与本签名对齐。
     """
+    if session_factory is None:
+        session_factory = _PlaywrightDoubaoSession
+    if heartbeat is None:
+
+        def heartbeat(payload: dict[str, Any]) -> None:
+            del payload
+
     if item.mode != "normal":
         raise ApplicationError(
             "deep_think not enabled in adapter v1",
