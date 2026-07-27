@@ -1,11 +1,11 @@
 """DeepSeek 网页采集适配器 v1（chat.deepseek.com；注册表统一包 ``@activity.defn``）。
 
 结构严格镜像 ``doubao_adapter.py``（已 live 验证的同款 v1 契约）。DeepSeek 平台知识
-移植自旧链（**未 live 校准**，选择器均为 GUESS，见各常量行内标注）：
-
-- ``server/proxyllm/engines/deepseek.py``（输入框/发送/登录墙/推理链剥离/参考来源；
-  文件头自承 "SELECTOR CONFIDENCE … LIVE VERIFICATION IS PENDING A SEEDED LOGIN"）
-- ``server/geosys/collector_deepseek.py``（诚实边界：登录墙→人工；绝不放松口径）
+移植自旧链（``server/proxyllm/engines/deepseek.py``、``server/geosys/collector_deepseek.py``），
+关键面 2026-07-27 已 live 校准：输入框 placeholder / 回答气泡
+``div.ds-markdown.ds-assistant-message-main-content`` / SSE JSON-patch 增量流 schema
+（见 ``_collect_event_text``，含 answer_len=1 根因记录）；登录墙 /sign_in 跳转为旧链
+CONFIRMED 信号。仍未校准项在各常量行内标注（发送按钮锚点、尾部噪声词表等）。
 
 DeepSeek 特性：``/api/v0/chat/completion`` 每请求带 WASM PoW（``x-ds-pow-*``），
 真实浏览器管线自动解题——故坚持 DOM/浏览器路径，绝不直连 API、绝不重实现 wasm。
@@ -85,7 +85,8 @@ _COMPLETION_URL_HINTS: tuple[str, ...] = (
     "/chat/completion",
 )
 
-# 聊天输入框（⚠ 全部 GUESS，未 live 校准——旧链 bundle 推断 + zh placeholder 常识）
+# 聊天输入框（textarea[placeholder*="给 DeepSeek"] 2026-07-27 live 校准 CONFIRMED：
+# placeholder="给 DeepSeek 发送消息"；其余为防御兜底）
 _INPUT_SELECTORS: tuple[str, ...] = (
     "textarea#chat-input",
     'textarea[placeholder*="给 DeepSeek"]',
@@ -94,7 +95,9 @@ _INPUT_SELECTORS: tuple[str, ...] = (
     "textarea",
 )
 
-# 助手消息气泡（最后一个为准；⚠ GUESS，未校准——ds-markdown 为旧链推断锚点）
+# 助手消息气泡（最后一个为准；div[class*="ds-markdown"] 2026-07-27 live 校准
+# CONFIRMED：class="ds-markdown ds-assistant-message-main-content"；
+# div.markdown / .markdown-body 实测不存在，留作防御兜底）
 _ASSISTANT_SELECTORS: tuple[str, ...] = (
     'div[class*="ds-markdown"]',
     "div.markdown",
@@ -1062,7 +1065,7 @@ def _capture_full_page(page: Any, out_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# SSE 解析（DeepSeek completion 流：防御式多形态组装，⚠ schema 未 live 校准；
+# SSE 解析（DeepSeek completion 流 = JSON-patch 增量流，2026-07-27 live 校准；
 # 解析不出即返回 None → DOM 兜底，绝不臆造正文）
 # ---------------------------------------------------------------------------
 
@@ -1201,28 +1204,51 @@ def _walk_references(node: Any, sink: list[dict[str, Any]], seen_urls: set[str])
             _walk_references(item, sink, seen_urls)
 
 
-def _collect_delta_strings(node: Any, sink: list[str]) -> None:
-    """递归收集增量正文字符串，覆盖两类已知/猜测 schema（⚠ 未校准，宁缺毋滥）：
-
-    A. OpenAI 兼容流式形：choices[].delta.content（str；只用 delta，message.content
-       快照与 delta 并存时会重复收集，宁可不覆盖）。
-    B. JSON-patch 形：{"o": "APPEND", "v": "..."}（DeepSeek web 曾有此观察报告）。
-    """
+def _walk_snapshot_fragments(node: Any, sink: list[str]) -> None:
+    """初始快照 {"v":{"response":{...,"fragments":[...]}}} 里取 type=="RESPONSE" 的
+    fragment.content 正文碎片（THINK/SEARCH 等痕迹碎片不进正文）。"""
     if isinstance(node, dict):
-        container = node.get("delta")
-        if isinstance(container, dict):
-            content = container.get("content")
-            if isinstance(content, str) and content:
-                sink.append(content)
-        if node.get("o") == "APPEND" and isinstance(node.get("v"), str) and node.get("v"):
-            sink.append(str(node["v"]))
-        for key, value in node.items():
-            if key == "references":
-                continue  # 引用卡片不是正文增量（避免 snippet/title 混进正文）
-            _collect_delta_strings(value, sink)
+        fragments = node.get("fragments")
+        if isinstance(fragments, list):
+            for frag in fragments:
+                if not isinstance(frag, dict):
+                    continue
+                if frag.get("type") != "RESPONSE":
+                    continue
+                content = frag.get("content")
+                if isinstance(content, str) and content:
+                    sink.append(content)
+        for value in node.values():
+            _walk_snapshot_fragments(value, sink)
     elif isinstance(node, list):
         for item in node:
-            _collect_delta_strings(item, sink)
+            _walk_snapshot_fragments(item, sink)
+
+
+def _collect_event_text(data: Any, sink: list[str]) -> None:
+    """按 live 实测 schema（2026-07-27 校准）收集单个 SSE 事件的正文增量：
+
+    - ``{"v":{"response":{...fragments...}}}`` 初始快照 → fragments[type=RESPONSE].content；
+    - ``{"p":"response/fragments/-1/content","o":"APPEND","v":"..."}`` patch 追加；
+    - ``{"v":"..."}`` 裸增量（无 p/o 单键——实测主流式形态；首版只认 APPEND 导致
+      整流只抽到 patch 形式的 "！" 一个字符，answer_len=1 的根因）；
+    - ``{"o":"SET"/"BATCH",...}`` 状态/批处理 op 一律跳过（防 "FINISHED" 混入正文）。
+    """
+    if not isinstance(data, dict):
+        return
+    v = data.get("v")
+    if isinstance(v, dict):
+        _walk_snapshot_fragments(v, sink)
+        return
+    if not (isinstance(v, str) and v):
+        return
+    o = data.get("o")
+    p = data.get("p") or ""
+    if o == "APPEND":
+        if not p or p.endswith("/content"):
+            sink.append(v)
+    elif o is None and not p:
+        sink.append(v)
 
 
 def _assemble_deepseek_record(events: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -1234,7 +1260,7 @@ def _assemble_deepseek_record(events: list[dict[str, Any]]) -> dict[str, Any] | 
         data = ev.get("data")
         if data is None:
             continue
-        _collect_delta_strings(data, parts)
+        _collect_event_text(data, parts)
         _walk_references(data, references, seen_urls)
     answer_text = _recover_mojibake("".join(parts)).strip()
     if not answer_text:

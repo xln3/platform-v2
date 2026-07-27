@@ -17,6 +17,7 @@ from workflows.activities.collection import CollectionTaskInput
 from workflows.activities.deepseek_adapter import (
     CollectedAnswer,
     DeepseekAdapterConfig,
+    _rich_record_from_sse,
     _WallError,
     mask_proxy_url,
     run_deepseek_collection,
@@ -186,3 +187,63 @@ def test_proxy_url_masking_never_leaks_credentials() -> None:
     assert mask_proxy_url("http://proxy.example.com:8080") == "http://proxy.example.com:8080"
     assert mask_proxy_url(None) is None
     assert mask_proxy_url("not-a-url") == "<invalid-proxy-url>"
+
+
+def test_sse_assembly_real_patch_stream() -> None:
+    """回归：2026-07-27 live 实测 JSON-patch 流必须组装出完整正文。
+
+    首版只认 {"o":"APPEND"} 形增量，漏掉无 p/o 的裸增量 {"v":"..."}（主流式形态），
+    整流只抽到 patch 形式的 "！"（answer_len=1）；SET/BATCH op 的 "FINISHED" 等状态
+    字符串也不得混入正文。
+    """
+    body = (
+        "event: ready\n"
+        'data: {"request_message_id":1,"response_message_id":2,"model_type":"default"}\n\n'
+        "event: update_session\n"
+        'data: {"updated_at":1785151127.1688528}\n\n'
+        'data: {"v":{"response":{"message_id":2,"parent_id":1,"role":"ASSISTANT",'
+        '"thinking_enabled":false,"status":"WIP","search_enabled":true,"fragments":'
+        '[{"id":2,"type":"RESPONSE","content":"你好","references":[],"stage_id":1}]}}}\n\n'
+        'data: {"p":"response/fragments/-1/content","o":"APPEND","v":"！"}\n\n'
+        'data: {"v":"我是"}\n\n'
+        'data: {"v":"DeepSeek"}\n\n'
+        'data: {"v":"，由深度求索公司打造的AI助手。"}\n\n'
+        'data: {"p":"response","o":"BATCH","v":[{"p":"accumulated_token_usage","v":66},'
+        '{"p":"quasi_status","v":"FINISHED"}]}\n\n'
+        'data: {"p":"response/status","o":"SET","v":"FINISHED"}\n\n'
+        "event: title\n"
+        'data: {"content":"一句话自我介绍"}\n\n'
+        "event: close\n"
+        'data: {"click_behavior":"none"}\n\n'
+    )
+    rich = _rich_record_from_sse(body)
+    assert rich is not None
+    assert rich["answer_text"] == "你好！我是DeepSeek，由深度求索公司打造的AI助手。"
+    assert "FINISHED" not in rich["answer_text"]
+    # title 事件的 {"content":...} 不是正文碎片，不得混入
+    assert "一句话自我介绍" not in rich["answer_text"]
+    assert rich["references"] == []
+
+
+def test_sse_assembly_think_fragment_excluded() -> None:
+    """THINK 碎片（推理链）不进正文；references 卡片从碎片里抽出。"""
+    body = (
+        'data: {"v":{"response":{"fragments":['
+        '{"id":1,"type":"THINK","content":"先想一下","references":[]},'
+        '{"id":2,"type":"RESPONSE","content":"正文","references":['
+        '{"url":"https://example.com/a","title":"标题A","site_name":"example.com"}]'
+        "}]}}"
+        "}\n\n"
+        'data: {"v":"。"}\n\n'
+    )
+    rich = _rich_record_from_sse(body)
+    assert rich is not None
+    assert rich["answer_text"] == "正文。"
+    assert rich["references"] == [
+        {
+            "url": "https://example.com/a",
+            "title": "标题A",
+            "sitename": "example.com",
+            "summary": None,
+        }
+    ]
