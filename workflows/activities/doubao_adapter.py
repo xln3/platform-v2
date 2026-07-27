@@ -23,10 +23,12 @@ v1 边界：
   形如 http://user:pass@host:port——只从 env 读，日志只出现打码后的 scheme://host:port）；
   ``GEO_DOUBAO_EVIDENCE_DIR``（截图目录，默认 ``platform-v2/runtime/doubao-evidence/``，
   自动建目录）；``GEO_DOUBAO_HEADLESS``（默认 1 headless；0=headed 需 DISPLAY）。
-- 执行模型：sync Playwright 包在 ``asyncio.to_thread`` 里跑（activity 是 async；sync PW
+- 执行模型：sync 浏览器驱动包在 ``asyncio.to_thread`` 里跑（activity 是 async；sync PW
   绝不能进事件循环——旧系统 greenlet 坑）。每次执行全新 context、结束即关。activity
   协程侧每 10s 泵一次 heartbeat（workflow heartbeat_timeout=30s）。注意：activity 被取消时
   to_thread 内的浏览器线程无法强杀，会随 context 关闭自然收场（v1 接受）。
+- 浏览器驱动首选 patchright（旧链生产同款反检测补丁版）；vanilla playwright 的
+  webdriver 指纹会触发豆包风控静默吞发送（旧链 2026-07-15 live 实证），仅作开发兜底。
 - 墙分类（先截屏存证再抛，错误 message 带证据路径、绝不含秘密）：
   登录墙/实名墙 → ``wall_login_required`` non_retryable；验证码 → ``wall_captcha``
   non_retryable；发送墙/限流/cloak → ``wall_send`` non_retryable（重试只是再撞）。
@@ -509,9 +511,18 @@ class _PlaywrightDoubaoSession:
         self._file_stem = file_stem
 
     def collect(self, query: str, on_stage: Callable[[str], None]) -> CollectedAnswer:
-        # 延迟导入：模块加载不硬依赖 playwright（worker 未装依赖时仍可注册 fail-closed 实现）
-        from playwright.sync_api import TimeoutError as PWTimeout
-        from playwright.sync_api import sync_playwright
+        # 延迟导入：模块加载不硬依赖浏览器驱动（worker 未装依赖时仍可注册 fail-closed 实现）。
+        # 驱动首选 patchright（旧链生产同款，反检测补丁版）：vanilla playwright 的
+        # webdriver 指纹会触发豆包风控静默吞发送（composer 不清空、/completion 不触发，
+        # 旧链 2026-07-15 live 实证）——这正是 v1 冒烟 send-not-accepted 的根因。
+        driver = "patchright"
+        try:
+            from patchright.sync_api import TimeoutError as PWTimeout
+            from patchright.sync_api import sync_playwright
+        except ImportError:
+            driver = "playwright"
+            from playwright.sync_api import TimeoutError as PWTimeout
+            from playwright.sync_api import sync_playwright
 
         on_stage("browser_launch")
         with sync_playwright() as pw:
@@ -525,11 +536,10 @@ class _PlaywrightDoubaoSession:
                     timezone_id="Asia/Shanghai",
                     extra_http_headers={"Accept-Language": "zh-CN,zh;q=0.9,en;q=0.5"},
                     user_agent=_USER_AGENT,
-                    viewport={"width": 1280, "height": 800},
                 )
             except Exception as exc:
                 raise _IncompleteCapture(
-                    f"browser-launch-failed: {type(exc).__name__}: {exc}"
+                    f"browser-launch-failed({driver}): {type(exc).__name__}: {exc}"
                 ) from exc
             try:
                 context.set_default_timeout(_NAV_TIMEOUT_MS)
@@ -681,7 +691,11 @@ class _PlaywrightDoubaoSession:
                     answer_text=answer_text,
                     references=references,
                     screenshot_path=shot_path,
-                    meta={"stream": meta, "sse_body_bytes": len(sse_body)},
+                    meta={
+                        "stream": meta,
+                        "sse_body_bytes": len(sse_body),
+                        "driver": driver,
+                    },
                 )
             finally:
                 try:

@@ -32,7 +32,12 @@ negotiation flow; S04 must review it before the uncommitted wiring below is comm
 - `workflows/workers/main.py` — registration gate: reads `GEO_COLLECTION_ADAPTER` (default
   empty = original fail-closed stub untouched); when `doubao`, the `collect_with_adapter`
   registration is swapped to the new adapter implementation.
-- `pyproject.toml` — adds `playwright==1.61.0` to dependencies.
+- `pyproject.toml` — adds `playwright==1.61.0` to dependencies. **Review follow-up:** the
+  live smoke showed vanilla Playwright's webdriver fingerprint makes Doubao silently swallow
+  the send (risk-control no-op; legacy live evidence 2026-07-15). The adapter now prefers
+  `patchright` (legacy production driver, anti-detection patched build) and falls back to
+  `playwright` for development only. `patchright==1.59.1` is already installed in the venv
+  and should be declared in `pyproject.toml` alongside (or instead of) `playwright`.
 
 Both files carry other sessions' in-flight changes and were intentionally left uncommitted
 by the review session.
@@ -60,11 +65,14 @@ by the review session.
 
 ## Rollout steps
 
-1. `.venv/bin/pip install playwright==1.61.0` then `.venv/bin/playwright install chromium`
-   (done on this host; chromium-1228 present).
+1. `.venv/bin/pip install patchright==1.59.1 playwright==1.61.0` then `.venv/bin/playwright
+   install chromium` (both done on this host; chromium-1228 present). Production runs must
+   go through patchright (see the dependency note above).
 2. Provision a logged-in Doubao profile into `GEO_DOUBAO_PROFILE_DIR` (reuse the legacy
    OTP login flow), set `GEO_DOUBAO_EVIDENCE_DIR` / `GEO_DOUBAO_PROXY_URL` /
    `GEO_DOUBAO_HEADLESS` as needed.
 3. Set `GEO_COLLECTION_ADAPTER=doubao` in the worker environment and restart the V2 worker.
 4. Start one collection run and verify: task completes with `quality_state=live_valid`,
    answer persisted, screenshot evidence written under the evidence dir.
+   (2026-07-27 live smoke with the Shanghai profile copy + wukong proxy, headed: SMOKE-OK,
+   real answer captured end-to-end.)
