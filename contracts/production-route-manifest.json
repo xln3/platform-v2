@@ -1,0 +1,19 @@
+{
+  "deployment_template": {
+    "path": "deploy/production/geo-platform-v2.conf",
+    "sha256": "b9b022ec781db9c7ddd35f85537248a6ae4f476062c8c39df39dbd31a0a5c16a"
+  },
+  "v2_include": {
+    "path": "deploy/production/nginx-v2-locations.conf",
+    "sha256": "7133548dc7ec66538c5c449cf9ea55339f9bea1f7c8a05a5015b0457e6aa19be"
+  },
+  "required_routes": [
+    "/api/v2/",
+    "/platform/customer/",
+    "/platform/operations/",
+    "/platform/intelligence/",
+    "/platform/reports/",
+    "/platform/intake-form/"
+  ],
+  "forbidden_markers": ["127.0.0.1:8010", "/api/otp/", "/novnc/"]
+}
