@@ -1,0 +1,49 @@
+# 常驻浏览器（W8 跨 run CDP 复用）——一平台一实例，实例参数 %i = 平台 slug（doubao/...）。
+# 采集侧（geo-platform-v2-worker）经 GEO_<PLATFORM>_CDP_URL attach 本浏览器；
+# 未配置 CDP_URL 时采集回退旧 launch 行为（本服务可以不开）。
+#
+# 安装与启用（以 doubao 为例）：
+#   sudo install -m 0644 deploy/production/geo-platform-v2-browser@.service \
+#       /etc/systemd/system/geo-platform-v2-browser@.service
+#   sudo install -m 0600 deploy/production/browser-doubao.env.example \
+#       /etc/geo-platform-v2/browser-doubao.env   # 安装后按注释编辑
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now geo-platform-v2-browser@doubao
+#   journalctl -u geo-platform-v2-browser@doubao -f   # 看到 resident_browser_up + CDP URL 即就绪
+# worker 侧打开 attach：在 /etc/geo-platform-v2/worker-adapters.env 取消注释
+#   GEO_DOUBAO_CDP_URL=http://127.0.0.1:19222 （端口须与 browser-doubao.env 一致）
+#   sudo systemctl restart geo-platform-v2-worker
+#
+# 运维注意：
+# - 常驻浏览器持有 profile 目录锁与 CDP 端口；换代理/换 profile/换端口 = 改 env 后
+#   systemctl restart geo-platform-v2-browser@doubao（重启期间采集 attach 断连，
+#   按 browser-launch-failed 诚实重试，重启完自愈）。
+# - 停止常驻而 worker 仍配着 CDP_URL → 采集全部 browser-launch-failed 重试；
+#   下线请先把 worker 的 GEO_DOUBAO_CDP_URL 注掉再停本服务。
+[Unit]
+Description=GEO Platform V2 resident browser (%i) — CDP attach target for collectors
+After=network-online.target display-manager.service
+Wants=network-online.target
+# headed Chromium 需要 DISPLAY 就绪（RESIDENT_DISPLAY，缺省 :1 本机 GNOME 桌面）；
+# display-manager 起来后再启动，避免 X 未就绪导致 launch 失败空转重启。
+After=graphical.target
+
+[Service]
+Type=simple
+User=xln
+Group=xln
+WorkingDirectory=/home/xln/geo-system/platform-v2
+EnvironmentFile=/etc/geo-platform-v2/browser-%i.env
+ExecStart=/home/xln/geo-system/platform-v2/.venv/bin/python tools/resident_browser.py
+# 失败即死（profile 锁/端口占用/崩溃/探活失败）→ 10s 后重启兜底。
+Restart=always
+RestartSec=10
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+# profile 目录（RESIDENT_PROFILE_DIR）必须落在可写路径内。
+ReadWritePaths=/home/xln/geo-system/platform-v2
+
+[Install]
+WantedBy=multi-user.target

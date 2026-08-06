@@ -1,0 +1,25 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/rules/*.yaml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['127.0.0.1:19093']
+
+scrape_configs:
+  - job_name: geo-platform-v2-api
+    static_configs:
+      - targets: ['127.0.0.1:8020']
+  - job_name: geo-platform-v2-business-metrics
+    static_configs:
+      - targets: ['127.0.0.1:18092']
+  - job_name: geo-platform-v2-otel-collector
+    static_configs:
+      - targets: ['127.0.0.1:18888']
+  - job_name: prometheus
+    static_configs:
+      - targets: ['127.0.0.1:19090']

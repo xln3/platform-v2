@@ -30,6 +30,8 @@ services:
     volumes:
       - clickhouse-data:/var/lib/clickhouse
       - ../clickhouse/001_s02_analytics.sql:/docker-entrypoint-initdb.d/001_s02_analytics.sql:ro
+      - ../clickhouse/002_w2_source_audit.sql:/docker-entrypoint-initdb.d/002_w2_source_audit.sql:ro
+      - ../clickhouse/003_w3_disparagement.sql:/docker-entrypoint-initdb.d/003_w3_disparagement.sql:ro
       - ./clickhouse-listen.xml:/etc/clickhouse-server/config.d/zz-listen.xml:ro
     healthcheck:
       test:
@@ -108,9 +110,113 @@ services:
     environment:
       GEO_PROD_REDIS_PASSWORD: ${GEO_PROD_REDIS_PASSWORD:?required}
 
+  vault:
+    image: hashicorp/vault:2.0.3
+    restart: unless-stopped
+    cap_add: [IPC_LOCK]
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    command: ['server']
+    environment:
+      VAULT_ADDR: https://127.0.0.1:8200
+      VAULT_SKIP_VERIFY: 'true'
+    ports: ['127.0.0.1:18200:8200']
+    volumes:
+      - vault-data:/vault/data
+      - ./vault.hcl:/vault/config/vault.hcl:ro
+      - /etc/geo-platform-v2/vault-tls:/vault/tls:ro
+    healthcheck:
+      test: ['CMD', 'vault', 'status', '-tls-skip-verify']
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.153.0
+    restart: unless-stopped
+    network_mode: host
+    command: ['--config=/etc/otelcol-contrib/config.yaml']
+    volumes:
+      - ./observability/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+      - otel-data:/var/lib/otel
+
+  prometheus:
+    image: prom/prometheus:v3.13.0
+    restart: unless-stopped
+    network_mode: host
+    command:
+      [
+        '--config.file=/etc/prometheus/prometheus.yml',
+        '--storage.tsdb.path=/prometheus',
+        '--web.listen-address=127.0.0.1:19090',
+      ]
+    volumes:
+      - ./observability/prometheus.yaml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/business-alerts.yaml:/etc/prometheus/rules/business-alerts.yaml:ro
+      - prometheus-data:/prometheus
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    restart: unless-stopped
+    network_mode: host
+    command:
+      [
+        '--config.file=/etc/alertmanager/alertmanager.yml',
+        '--storage.path=/alertmanager',
+        '--web.listen-address=127.0.0.1:19093',
+      ]
+    volumes:
+      - ./observability/alertmanager.yaml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+
+  loki:
+    image: grafana/loki:3.7.2
+    restart: unless-stopped
+    network_mode: host
+    command: ['-config.file=/etc/loki/config.yaml']
+    volumes:
+      - ./observability/loki.yaml:/etc/loki/config.yaml:ro
+      - loki-data:/loki
+
+  alloy:
+    image: grafana/alloy:v1.18.0
+    restart: unless-stopped
+    network_mode: host
+    command: ['run', '/etc/alloy/config.alloy', '--server.http.listen-addr=127.0.0.1:12345']
+    volumes:
+      - ./observability/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/log/journal:/var/log/journal:ro
+      - /run/log/journal:/run/log/journal:ro
+      - /etc/machine-id:/etc/machine-id:ro
+      - alloy-data:/var/lib/alloy
+
+  grafana:
+    image: grafana/grafana:13.0.2
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      GF_SERVER_HTTP_ADDR: 127.0.0.1
+      GF_SERVER_HTTP_PORT: 13000
+      GF_SECURITY_ADMIN_USER: geo-admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GEO_PROD_GRAFANA_PASSWORD:?required}
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./observability/grafana-provisioning:/etc/grafana/provisioning:ro
+
 volumes:
   postgres-data:
   clickhouse-data:
   temporal-postgres-data:
   minio-data:
   redis-data:
+  otel-data:
+  prometheus-data:
+  alertmanager-data:
+  loki-data:
+  alloy-data:
+  grafana-data:
+  vault-data:

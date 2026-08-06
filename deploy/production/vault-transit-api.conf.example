@@ -1,0 +1,9 @@
+# Install as a systemd drop-in only after the external Vault policy is approved.
+# The source file must be root-owned mode 0600; systemd materializes it in a
+# private read-only credential directory for the API service.
+[Service]
+LoadCredential=vault-token:/etc/geo-platform-v2/vault-runtime-token
+Environment=GEO_KMS_PROVIDER=vault_transit
+Environment=GEO_VAULT_TRANSIT_ADDRESS=https://127.0.0.1:18200
+Environment=GEO_VAULT_TRANSIT_TOKEN_FILE=/run/credentials/geo-platform-v2-api.service/vault-token
+Environment=GEO_VAULT_TRANSIT_KEY_NAME=geo-platform-profile

@@ -7,7 +7,9 @@ import json
 import sqlite3
 from pathlib import Path
 
+import psycopg
 from geo_platform.analytics.service import AnalyticsService
+from psycopg.rows import dict_row
 
 from domain.evidence.provenance import AccessClass, CaptureChannel, RedactedProvenance
 from domain.scoring.analyzer import CitationInput
@@ -89,11 +91,14 @@ def rebuild(source_path: Path, *, dsn: str) -> dict[str, object]:
                 model_version="deterministic-v2",
             )
             counts["rebuilt"] += 1
+    with psycopg.connect(dsn, row_factory=dict_row) as target:
+        completion_reconciliation = migrator.reconcile_migrated_completion_events(target)
     return {
         "schema_version": "1.0",
         "source_snapshot_sha256": migrator.snapshot_hash,
         "derived_values_copied_from_legacy": False,
         "counts": counts,
+        "completion_reconciliation": completion_reconciliation,
     }
 
 

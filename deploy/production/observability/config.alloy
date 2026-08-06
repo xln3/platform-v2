@@ -1,0 +1,14 @@
+loki.write "production" {
+  endpoint {
+    url = "http://127.0.0.1:13100/loki/api/v1/push"
+  }
+}
+
+loki.source.journal "production" {
+  path       = "/var/log/journal"
+  forward_to = [loki.write.production.receiver]
+  labels     = {
+    environment = "production",
+    job         = "systemd-journal",
+  }
+}

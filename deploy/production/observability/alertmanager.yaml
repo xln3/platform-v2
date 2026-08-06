@@ -1,0 +1,15 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: geo-platform-local-receiver
+  group_by: [alertname, severity, category]
+  group_wait: 10s
+  group_interval: 1m
+  repeat_interval: 4h
+
+receivers:
+  - name: geo-platform-local-receiver
+    webhook_configs:
+      - url: http://127.0.0.1:18091/alerts
+        send_resolved: true

@@ -1,0 +1,23 @@
+[Unit]
+Description=GEO Platform V2 Local Alert Receiver
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=xln
+Group=xln
+WorkingDirectory=/home/xln/geo-system/platform-v2
+Environment=GEO_ENV=production
+Environment=GEO_LOG_LEVEL=INFO
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/home/xln/geo-system/platform-v2/.venv/bin/python -m geo_platform.alert_receiver
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadOnlyPaths=/home/xln/geo-system/platform-v2
+
+[Install]
+WantedBy=multi-user.target

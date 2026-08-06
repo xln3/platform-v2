@@ -1,0 +1,5 @@
+[Service]
+# The source file must be root-owned and mode 0600. systemd exposes an
+# owner-readable copy to the API process without placing the key in environment
+# variables or the repository.
+LoadCredential=terminal-task-signing-key:/etc/geo-platform-v2/terminal-task-signing-key

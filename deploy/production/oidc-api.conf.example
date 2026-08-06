@@ -1,0 +1,6 @@
+# Install as a systemd API-service drop-in only after the IdP client and
+# redirect URI are approved. The source must be root-owned mode 0600.
+# Generate 32 random bytes, encode them as unpadded base64url and never log or
+# commit the value. systemd exposes it in the API's private credential mount.
+[Service]
+LoadCredential=oidc-cookie-key:/etc/geo-platform-v2/oidc-cookie-key

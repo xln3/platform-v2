@@ -1,6 +1,6 @@
 # S01-002 — Downstream session and customer-safe account contracts
 
-Status: implemented; S04 mounting handoff remains  
+Status: implemented, mounted and production-verified by S04
 Owner: S01  
 Consumers: S02, S03, S04  
 Date: 2026-07-24

@@ -1,0 +1,23 @@
+[Unit]
+Description=GEO Platform V2 Business Metrics Exporter
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=xln
+Group=xln
+WorkingDirectory=/home/xln/geo-system/platform-v2
+EnvironmentFile=/etc/geo-platform-v2/platform.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/home/xln/geo-system/platform-v2/.venv/bin/python -m geo_platform.business_metrics
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadOnlyPaths=/home/xln/geo-system/platform-v2
+
+[Install]
+WantedBy=multi-user.target

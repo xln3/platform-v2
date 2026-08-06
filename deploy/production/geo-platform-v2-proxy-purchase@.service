@@ -1,0 +1,19 @@
+[Unit]
+Description=CONFIRMED PAID Wukong proxy acquisition for V2 region %I
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=xln
+Group=xln
+WorkingDirectory=/home/xln/geo-system/platform-v2
+EnvironmentFile=/etc/geo-platform-v2/worker-adapters.env
+EnvironmentFile=/etc/geo-platform-v2/wukong.env
+UMask=0077
+ExecStart=/home/xln/geo-system/platform-v2/.venv/bin/python tools/manage_region_proxy.py acquire-paid --region %I --confirm-spend
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/xln/geo-system/platform-v2
+TimeoutStartSec=5min

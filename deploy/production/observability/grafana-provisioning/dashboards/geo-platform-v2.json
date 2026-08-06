@@ -1,0 +1,75 @@
+{
+  "annotations": { "list": [] },
+  "editable": false,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "API request rate",
+      "datasource": "Prometheus",
+      "targets": [{ "expr": "sum(rate(geo_http_requests_total[5m])) by (route, status)" }],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 }
+    },
+    {
+      "type": "timeseries",
+      "title": "API p95 latency",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(geo_http_request_duration_seconds_bucket[5m])) by (le, route))"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 }
+    },
+    {
+      "type": "logs",
+      "title": "Production service logs",
+      "datasource": "Loki",
+      "targets": [{ "expr": "{environment=\"production\"}" }],
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 8 }
+    },
+    {
+      "type": "stat",
+      "title": "Firing production alerts",
+      "datasource": "Prometheus",
+      "targets": [{ "expr": "sum(ALERTS{alertstate=\"firing\"})" }],
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 18 }
+    },
+    {
+      "type": "stat",
+      "title": "Stale workflow commands",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "geo_business_workflow_start_stale + geo_business_workflow_signal_stale"
+        }
+      ],
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 18 }
+    },
+    {
+      "type": "stat",
+      "title": "Expired session leases",
+      "datasource": "Prometheus",
+      "targets": [{ "expr": "geo_business_expired_session_leases" }],
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 18 }
+    },
+    {
+      "type": "stat",
+      "title": "Analysis admission backlog",
+      "datasource": "Prometheus",
+      "targets": [
+        {
+          "expr": "sum(geo_business_collection_analysis_admission_backlog)"
+        }
+      ],
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 18 }
+    }
+  ],
+  "schemaVersion": 41,
+  "tags": ["geo", "production"],
+  "templating": { "list": [] },
+  "time": { "from": "now-6h", "to": "now" },
+  "timezone": "browser",
+  "title": "GEO Platform V2 Production",
+  "uid": "geo-platform-v2-production",
+  "version": 1
+}

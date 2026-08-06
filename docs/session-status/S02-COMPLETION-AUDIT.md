@@ -7,7 +7,7 @@ Rule: PASS requires executable current-state evidence; schema or intent alone is
 
 | Requirement                                                                     | Status | Authoritative evidence                                                                                                                                |
 | ------------------------------------------------------------------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| PostgreSQL analytics/evidence/report/investigation graph                        | PASS   | `s02_0001`–`s02_0008`; integrated PostgreSQL has 49 S02 tables                                                                                         |
+| PostgreSQL analytics/evidence/report/investigation graph                        | PASS   | `s02_0001`–`s02_0008`; integrated PostgreSQL has 49 S02 tables                                                                                        |
 | ClickHouse answer/citation/run/feature/aggregate facts                          | PASS   | `deploy/clickhouse/001_s02_analytics.sql`; five real `geo_analytics` tables; store/projection tests                                                   |
 | MinIO SHA-256 CAS and short authorization                                       | PASS   | `evidence/object_store.py`; real hash/tamper/presign tests                                                                                            |
 | Native pgvector + FTS hybrid retrieval                                          | PASS   | vector 0.8.5, `vector(384)`, HNSW index; real hybrid-search vertical test                                                                             |
@@ -32,18 +32,18 @@ Rule: PASS requires executable current-state evidence; schema or intent alone is
 
 ## Evidence
 
-| Requirement                                                           | Status             | Authoritative evidence                                                                                                                        |
-| --------------------------------------------------------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| EvidenceCaptureWorkflow                                               | PASS               | real Temporal lease → DLP → MinIO → PostgreSQL test                                                                                           |
-| Answer/source screenshot, HTML/PDF/text snapshots                     | PASS               | evidence kind-agnostic capture plus real binary/text/container artifact tests                                                                 |
-| OCR interface and text/bbox anchors                                   | PASS               | `persist_ocr`, span validation and real PostgreSQL bbox test                                                                                  |
-| Answer/citation/source/screenshot linking                             | PASS               | evidence relation and claim-evidence graph vertical tests                                                                                     |
-| Numbered history, text and visual diff                                | PASS               | snapshot sequence and perceptual/text diff integration test                                                                                   |
-| Evidence center API/package/share/revoke/expiry/audit                 | PASS in S02 router | isolated API plus real package access lifecycle tests                                                                                         |
-| Published-report evidence retention                                   | PASS               | `s02_0008` reference FKs and trigger tests for both artifacts and cited screenshots                                                           |
-| Public/private/paid access classes and authorized-session provenance  | PASS               | package/public-conclusion filtering and workflow provenance assertions                                                                        |
-| DLP before screenshot/HTML/HAR/OCR/exception/export/package admission | PASS               | DLP matrix, CAS boundary and binary fail-closed Temporal test                                                                                 |
-| Login capture only through scoped S01 lease                           | PASS               | current real-gateway EvidenceCapture persisted after S01 validation and rejected capture after explicit lease revocation                       |
+| Requirement                                                           | Status             | Authoritative evidence                                                                                                   |
+| --------------------------------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| EvidenceCaptureWorkflow                                               | PASS               | real Temporal lease → DLP → MinIO → PostgreSQL test                                                                      |
+| Answer/source screenshot, HTML/PDF/text snapshots                     | PASS               | evidence kind-agnostic capture plus real binary/text/container artifact tests                                            |
+| OCR interface and text/bbox anchors                                   | PASS               | `persist_ocr`, span validation and real PostgreSQL bbox test                                                             |
+| Answer/citation/source/screenshot linking                             | PASS               | evidence relation and claim-evidence graph vertical tests                                                                |
+| Numbered history, text and visual diff                                | PASS               | snapshot sequence and perceptual/text diff integration test                                                              |
+| Evidence center API/package/share/revoke/expiry/audit                 | PASS in S02 router | isolated API plus real package access lifecycle tests                                                                    |
+| Published-report evidence retention                                   | PASS               | `s02_0008` reference FKs and trigger tests for both artifacts and cited screenshots                                      |
+| Public/private/paid access classes and authorized-session provenance  | PASS               | package/public-conclusion filtering and workflow provenance assertions                                                   |
+| DLP before screenshot/HTML/HAR/OCR/exception/export/package admission | PASS               | DLP matrix, CAS boundary and binary fail-closed Temporal test                                                            |
+| Login capture only through scoped S01 lease                           | PASS               | current real-gateway EvidenceCapture persisted after S01 validation and rejected capture after explicit lease revocation |
 
 ## Reports and exports
 
@@ -78,15 +78,15 @@ Rule: PASS requires executable current-state evidence; schema or intent alone is
 
 ## Reliability and completion gates
 
-| Gate                                                          | Status            | Evidence or blocker                                                                      |
-| ------------------------------------------------------------- | ----------------- | ---------------------------------------------------------------------------------------- |
-| 1. Answer → KPI/trace/screenshot/report runs                  | PASS              | real vertical test and persisted Temporal activities                                     |
-| 2. Post → claim/multi-source/score/verdict runs               | PASS              | real vertical test and persisted Temporal verdict                                        |
-| 3. PostgreSQL/ClickHouse/MinIO consistency/recovery           | PASS              | real service integration and injected failure/replay tests                               |
-| 4. Four workflows interrupt/recover/idempotent                | PASS              | real Temporal tests and durable workflow-operation keys                                  |
-| 5. Opaque provenance traceable without secrets                | PASS | DLP/projection/ClickHouse/report/public-conclusion tests |
-| 6. Login evidence uses real S01 gateway; revoke stops capture | PASS | current `tests/s02-real-gateway-runtime.json` plus S04 independent proof |
-| 7. S02 status contains tests/data/evidence/gaps               | PASS | `S02.md`, this audit, `s02-verification.json`, contract-gap document |
+| Gate                                                          | Status | Evidence or blocker                                                      |
+| ------------------------------------------------------------- | ------ | ------------------------------------------------------------------------ |
+| 1. Answer → KPI/trace/screenshot/report runs                  | PASS   | real vertical test and persisted Temporal activities                     |
+| 2. Post → claim/multi-source/score/verdict runs               | PASS   | real vertical test and persisted Temporal verdict                        |
+| 3. PostgreSQL/ClickHouse/MinIO consistency/recovery           | PASS   | real service integration and injected failure/replay tests               |
+| 4. Four workflows interrupt/recover/idempotent                | PASS   | real Temporal tests and durable workflow-operation keys                  |
+| 5. Opaque provenance traceable without secrets                | PASS   | DLP/projection/ClickHouse/report/public-conclusion tests                 |
+| 6. Login evidence uses real S01 gateway; revoke stops capture | PASS   | current `tests/s02-real-gateway-runtime.json` plus S04 independent proof |
+| 7. S02 status contains tests/data/evidence/gaps               | PASS   | `S02.md`, this audit, `s02-verification.json`, contract-gap document     |
 
 ## Shared integration resolution
 

@@ -1,0 +1,114 @@
+groups:
+  - name: geo-platform-availability
+    rules:
+      - alert: GeoPlatformV2ApiDown
+        expr: up{job="geo-platform-v2-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          category: availability
+          service: api
+        annotations:
+          summary: GEO Platform V2 API target is unavailable
+      - alert: GeoBusinessMetricsExporterDown
+        expr: up{job="geo-platform-v2-business-metrics"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          category: availability
+          service: business-metrics
+        annotations:
+          summary: GEO business metrics exporter is unavailable
+      - alert: GeoBusinessMetricsCollectionFailed
+        expr: geo_business_metrics_collection_success == 0
+        for: 2m
+        labels:
+          severity: critical
+          category: observability
+          service: business-metrics
+        annotations:
+          summary: GEO business metrics cannot read authoritative state
+      - alert: GeoApiServerErrorRateHigh
+        expr: sum(rate(geo_http_requests_total{status=~"5.."}[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          category: api
+          service: api
+        annotations:
+          summary: GEO API server error rate is elevated
+      - alert: GeoApiP95LatencyHigh
+        expr: histogram_quantile(0.95, sum(rate(geo_http_request_duration_seconds_bucket[5m])) by (le)) > 2
+        for: 10m
+        labels:
+          severity: warning
+          category: api
+          service: api
+        annotations:
+          summary: GEO API p95 latency exceeds two seconds
+
+  - name: geo-platform-business-state
+    rules:
+      - alert: GeoWorkflowStartBacklogStale
+        expr: geo_business_workflow_start_stale > 0
+        for: 5m
+        labels:
+          severity: critical
+          category: workflow
+          service: outbox-worker
+        annotations:
+          summary: Workflow start commands are stale
+      - alert: GeoWorkflowSignalBacklogStale
+        expr: geo_business_workflow_signal_stale > 0
+        for: 5m
+        labels:
+          severity: critical
+          category: workflow
+          service: outbox-worker
+        annotations:
+          summary: Workflow signal commands are stale
+      - alert: GeoCollectionRunStalled
+        expr: geo_business_collection_run_stalled > 0
+        for: 5m
+        labels:
+          severity: warning
+          category: collection
+          service: collection-worker
+        annotations:
+          summary: Collection runs have not changed for one hour
+      - alert: GeoRevocationStalled
+        expr: geo_business_revocation_stalled > 0
+        for: 2m
+        labels:
+          severity: critical
+          category: custody
+          service: collection-worker
+        annotations:
+          summary: Account revocation requests are stalled
+      - alert: GeoExpiredSessionLease
+        expr: geo_business_expired_session_leases > 0
+        for: 2m
+        labels:
+          severity: critical
+          category: custody
+          service: collection-worker
+        annotations:
+          summary: Expired session leases remain authoritative
+      - alert: GeoCollectionAnalysisAdmissionBlocked
+        expr: sum(geo_business_collection_analysis_admission_backlog) > 0
+        for: 1m
+        labels:
+          severity: warning
+          category: analysis
+          service: s02-worker
+        annotations:
+          summary: Completed collections await analysis admission
+      - alert: GeoReportDeliveryConfirmationOverdue
+        expr: geo_business_report_delivery_confirmation_overdue > 0
+        for: 15m
+        labels:
+          severity: warning
+          category: reporting
+          service: api
+        annotations:
+          summary: Published report delivery confirmation is overdue

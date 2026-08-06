@@ -189,6 +189,7 @@ class CoreMigrator:
             target.commit()
             self._maybe_inject_failure("collection_history")
             self._migrate_answers(source, target, projects)
+            self.reconcile_migrated_completion_events(target)
             target.commit()
             self._maybe_inject_failure("answers")
             summary = {
@@ -211,6 +212,96 @@ class CoreMigrator:
     def _maybe_inject_failure(self, phase: str) -> None:
         if self.inject_failure_after == phase:
             raise RuntimeError(f"injected migration interruption after {phase}")
+
+    def reconcile_migrated_completion_events(
+        self, target: psycopg.Connection[Any]
+    ) -> dict[str, int]:
+        """Acknowledge legacy completion events only after a full V2 rebuild.
+
+        Migration ``s04_0022`` backfilled completion events for old runs, but
+        those histories never executed the newer downstream Activity.  The
+        event may converge without replaying a collection only when every
+        persisted task answer has deterministic run/config lineage and a V2
+        rebuilt analysis.  Live workflow events are deliberately excluded.
+        """
+        row = target.execute(
+            """
+            WITH coverage AS (
+              SELECT
+                event.id AS event_id,
+                (
+                  SELECT count(*)
+                  FROM platform.collection_task task
+                  WHERE task.run_id=run.id AND task.answer_text IS NOT NULL
+                ) AS task_answers,
+                (
+                  SELECT count(*)
+                  FROM analytics.answer answer
+                  WHERE answer.tenant_pub_id=event.tenant_pub_id
+                    AND answer.run_pub_id=run.pub_id
+                ) AS rebuilt_answers,
+                (
+                  SELECT count(*)
+                  FROM analytics.answer answer
+                  WHERE answer.tenant_pub_id=event.tenant_pub_id
+                    AND answer.run_pub_id=run.pub_id
+                    AND answer.config_version_pub_id IS NOT NULL
+                ) AS configured_answers,
+                (
+                  SELECT count(DISTINCT answer.pub_id)
+                  FROM analytics.answer answer
+                  JOIN analytics.answer_analysis analysis
+                    ON analysis.tenant_pub_id=answer.tenant_pub_id
+                   AND analysis.answer_pub_id=answer.pub_id
+                  WHERE answer.tenant_pub_id=event.tenant_pub_id
+                    AND answer.run_pub_id=run.pub_id
+                ) AS analyzed_answers
+              FROM integration.outbox_event event
+              JOIN platform.collection_run run
+                ON run.pub_id=event.aggregate_pub_id
+              WHERE event.event_type='collection.run.completed'
+                AND event.published_at IS NULL
+                AND run.workflow_id LIKE 'legacy-history/%'
+            ),
+            admissible AS (
+              SELECT *
+              FROM coverage
+              WHERE task_answers > 0
+                AND task_answers=rebuilt_answers
+                AND rebuilt_answers=configured_answers
+                AND rebuilt_answers=analyzed_answers
+            ),
+            updated AS (
+              UPDATE integration.outbox_event event
+              SET payload=event.payload || jsonb_build_object(
+                    'analysis_admission','migrated_v2_rebuild',
+                    'analysis_expected',admissible.rebuilt_answers,
+                    'analysis_commands',0,
+                    'analysis_rebuilt',admissible.analyzed_answers
+                  ),
+                  published_at=COALESCE(event.published_at,now()),
+                  attempts=event.attempts+1
+              FROM admissible
+              WHERE event.id=admissible.event_id
+              RETURNING event.id
+            )
+            SELECT
+              (SELECT count(*) FROM coverage) AS seen,
+              (SELECT count(*) FROM updated) AS written
+            """
+        ).fetchone()
+        if row is None:
+            raise RuntimeError("completion reconciliation counts unavailable")
+        seen = int(row["seen"])
+        written = int(row["written"])
+        self._watermark(
+            target,
+            "collection_completion_reconciliation",
+            "coverage_scan",
+            seen,
+            written,
+        )
+        return {"seen": seen, "written": written, "skipped": seen - written}
 
     def _migrate_identity(
         self, source: sqlite3.Connection, target: psycopg.Connection[Any]
@@ -434,10 +525,32 @@ class CoreMigrator:
                 )
             config_pub = self._pub("cfg", "monitoring_config", config_id)
             config_uuid = self._uuid("monitoring_config", config_id)
+            legacy_queries = source.execute(
+                """
+                SELECT text,enabled
+                FROM query_item
+                WHERE monitoring_config_id=?
+                ORDER BY id
+                """,
+                (config_id,),
+            ).fetchall()
+            platforms = json.loads(row["platforms_json"] or "[]")
             snapshot = {
-                "platforms": json.loads(row["platforms_json"] or "[]"),
+                # Keep the source-facing name for audit/reconciliation while also
+                # materializing the V2 executable contract consumed by collection.
+                "platforms": platforms,
+                "models": platforms,
                 "regions": json.loads(row["regions_json"] or "[]"),
                 "modes": json.loads(row["modes_json"] or "[]"),
+                "query_groups": [
+                    {
+                        "name": "Legacy default",
+                        "items": [
+                            {"text": query["text"], "enabled": bool(query["enabled"])}
+                            for query in legacy_queries
+                        ],
+                    }
+                ],
                 "cadence": row["cadence"],
                 "legacy_enabled": bool(row["enabled"]),
                 "migration_activation": "review_required",
@@ -465,7 +578,10 @@ class CoreMigrator:
                   (id,pub_id,tenant_id,version,created_at,updated_at,config_id,revision,
                    effective_at,frozen_at,snapshot_json,snapshot_hash)
                 VALUES (%s,%s,%s,1,%s,%s,%s,1,%s,%s,%s,%s)
-                ON CONFLICT (pub_id) DO NOTHING
+                ON CONFLICT (pub_id) DO UPDATE SET
+                  snapshot_json=EXCLUDED.snapshot_json,
+                  snapshot_hash=EXCLUDED.snapshot_hash,
+                  updated_at=EXCLUDED.updated_at
                 """,
                 (
                     self._uuid("monitoring_config_version", config_id),
@@ -827,7 +943,7 @@ class CoreMigrator:
     ) -> None:
         answers = source.execute(
             """
-            SELECT a.*,w.monitoring_config_id,w.query_item_id
+            SELECT a.*,w.monitoring_config_id,w.query_item_id,w.schedule_tick_id
             FROM answer a JOIN work_item w ON w.id=a.work_item_id ORDER BY a.id
             """
         ).fetchall()
@@ -836,13 +952,37 @@ class CoreMigrator:
             row = dict(raw)
             context = projects[int(row["monitoring_config_id"])]
             pub = self._pub("ans", "answer", row["id"])
-            target.execute(
+            run_pub_id = (
+                self._pub("run", "collection_run", row["schedule_tick_id"])
+                if row["schedule_tick_id"] is not None
+                else None
+            )
+            config_version_pub_id = self._pub(
+                "cfv", "monitoring_config_version", row["monitoring_config_id"]
+            )
+            persisted_lineage = target.execute(
                 """
                 INSERT INTO analytics.answer
                   (pub_id,tenant_pub_id,project_pub_id,query_pub_id,query_text,response_text,
-                   model,region,mode,eligible,degraded,channel,adapter_version,capture_time)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'api','legacy-migration-v1',%s)
-                ON CONFLICT (tenant_pub_id,pub_id) DO NOTHING
+                   model,region,mode,eligible,degraded,channel,adapter_version,capture_time,
+                   run_pub_id,config_version_pub_id)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'api','legacy-migration-v1',%s,%s,%s)
+                ON CONFLICT (tenant_pub_id,pub_id) DO UPDATE SET
+                  run_pub_id=COALESCE(analytics.answer.run_pub_id,EXCLUDED.run_pub_id),
+                  config_version_pub_id=COALESCE(
+                    analytics.answer.config_version_pub_id,
+                    EXCLUDED.config_version_pub_id
+                  )
+                WHERE (
+                    analytics.answer.run_pub_id IS NULL
+                    OR analytics.answer.run_pub_id IS NOT DISTINCT FROM EXCLUDED.run_pub_id
+                  )
+                  AND (
+                    analytics.answer.config_version_pub_id IS NULL
+                    OR analytics.answer.config_version_pub_id
+                       IS NOT DISTINCT FROM EXCLUDED.config_version_pub_id
+                  )
+                RETURNING run_pub_id,config_version_pub_id
                 """,
                 (
                     pub,
@@ -857,8 +997,16 @@ class CoreMigrator:
                     bool(row["eligible"]),
                     bool(row["degraded_flag"]),
                     parse_time(row["tick_time"]),
+                    run_pub_id,
+                    config_version_pub_id,
                 ),
-            )
+            ).fetchone()
+            if (
+                persisted_lineage is None
+                or persisted_lineage["run_pub_id"] != run_pub_id
+                or persisted_lineage["config_version_pub_id"] != config_version_pub_id
+            ):
+                raise RuntimeError("target lineage drift detected for answer")
             safe_source = {
                 key: row[key]
                 for key in (

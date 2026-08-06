@@ -45,7 +45,7 @@ by the review session.
 ## v1 boundaries
 
 - `mode='normal'` only; `deep_think` → `ApplicationError(type="unsupported_mode",
-  non_retryable=True)` (the 5-minute activity budget cannot hold a deep-think stream).
+non_retryable=True)` (the 5-minute activity budget cannot hold a deep-think stream).
 - Single account via env: `GEO_DOUBAO_PROFILE_DIR` (required persistent browser profile;
   missing → `adapter_not_configured` non-retryable). The logged-in profile must be placed
   there manually (legacy OTP login path); Vault-decrypted profile injection is an open S04
@@ -66,7 +66,7 @@ by the review session.
 ## Rollout steps
 
 1. `.venv/bin/pip install patchright==1.59.1 playwright==1.61.0` then `.venv/bin/playwright
-   install chromium` (both done on this host; chromium-1228 present). Production runs must
+install chromium` (both done on this host; chromium-1228 present). Production runs must
    go through patchright (see the dependency note above).
 2. Provision a logged-in Doubao profile into `GEO_DOUBAO_PROFILE_DIR` (reuse the legacy
    OTP login flow), set `GEO_DOUBAO_EVIDENCE_DIR` / `GEO_DOUBAO_PROXY_URL` /
