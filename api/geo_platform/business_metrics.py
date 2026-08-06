@@ -1,0 +1,158 @@
+from __future__ import annotations
+
+import asyncio
+import os
+import signal
+import time
+from dataclasses import dataclass, field
+
+import psycopg
+import structlog
+from prometheus_client import Gauge, start_http_server
+from psycopg.rows import dict_row
+
+from .config import get_settings
+from .logging import configure_logging
+
+ADMISSION_REASONS = (
+    "not_requested",
+    "missing_brand",
+    "missing_completed_answers",
+    "partial_fanout",
+    "unknown",
+)
+
+COLLECTION_ANALYSIS_ADMISSION = Gauge(
+    "geo_business_collection_analysis_admission_backlog",
+    "Completed collection events awaiting an admitted analysis fan-out",
+    ("reason",),
+)
+WORKFLOW_START_STALE = Gauge(
+    "geo_business_workflow_start_stale",
+    "Workflow start commands not dispatched within five minutes",
+)
+WORKFLOW_SIGNAL_STALE = Gauge(
+    "geo_business_workflow_signal_stale",
+    "Workflow signal commands not delivered within five minutes",
+)
+COLLECTION_RUN_STALLED = Gauge(
+    "geo_business_collection_run_stalled",
+    "Nonterminal collection runs unchanged for at least one hour",
+)
+REVOCATION_STALLED = Gauge(
+    "geo_business_revocation_stalled",
+    "Account revocation requests unchanged for at least fifteen minutes",
+)
+EXPIRED_SESSION_LEASES = Gauge(
+    "geo_business_expired_session_leases",
+    "Expired session leases that have not been released",
+)
+REPORT_DELIVERY_OVERDUE = Gauge(
+    "geo_business_report_delivery_confirmation_overdue",
+    "Published report deliveries unconfirmed for at least seven days",
+)
+COLLECTION_SUCCESS = Gauge(
+    "geo_business_metrics_collection_success",
+    "Whether the most recent business metrics collection completed successfully",
+)
+COLLECTION_LAST_SUCCESS = Gauge(
+    "geo_business_metrics_collection_last_success_unixtime",
+    "Unix timestamp of the most recent successful business metrics collection",
+)
+
+
+@dataclass
+class BusinessMetricsSnapshot:
+    tenant_count: int = 0
+    workflow_start_stale: int = 0
+    workflow_signal_stale: int = 0
+    collection_run_stalled: int = 0
+    revocation_stalled: int = 0
+    expired_session_leases: int = 0
+    report_delivery_overdue: int = 0
+    analysis_admission_backlog: dict[str, int] = field(
+        default_factory=lambda: dict.fromkeys(ADMISSION_REASONS, 0)
+    )
+
+
+def _psycopg_dsn(value: str) -> str:
+    return value.replace("postgresql+psycopg://", "postgresql://", 1)
+
+
+def collect_business_metrics(dsn: str) -> BusinessMetricsSnapshot:
+    snapshot = BusinessMetricsSnapshot()
+    with psycopg.connect(_psycopg_dsn(dsn), row_factory=dict_row) as connection:
+        connection.execute("SET TRANSACTION READ ONLY")
+        rows = connection.execute(
+            "SELECT metric,dimension,value FROM integration.business_alert_snapshot()"
+        ).fetchall()
+    scalar_fields = {
+        "tenant_count": "tenant_count",
+        "workflow_start_stale": "workflow_start_stale",
+        "workflow_signal_stale": "workflow_signal_stale",
+        "collection_run_stalled": "collection_run_stalled",
+        "revocation_stalled": "revocation_stalled",
+        "expired_session_leases": "expired_session_leases",
+        "report_delivery_overdue": "report_delivery_overdue",
+    }
+    for row in rows:
+        metric = str(row["metric"])
+        value = int(row["value"])
+        if metric == "analysis_admission_backlog":
+            reason = str(row["dimension"])
+            if reason not in ADMISSION_REASONS:
+                reason = "unknown"
+            snapshot.analysis_admission_backlog[reason] += value
+        elif metric in scalar_fields:
+            setattr(snapshot, scalar_fields[metric], value)
+    return snapshot
+
+
+def apply_business_metrics(snapshot: BusinessMetricsSnapshot) -> None:
+    WORKFLOW_START_STALE.set(snapshot.workflow_start_stale)
+    WORKFLOW_SIGNAL_STALE.set(snapshot.workflow_signal_stale)
+    COLLECTION_RUN_STALLED.set(snapshot.collection_run_stalled)
+    REVOCATION_STALLED.set(snapshot.revocation_stalled)
+    EXPIRED_SESSION_LEASES.set(snapshot.expired_session_leases)
+    REPORT_DELIVERY_OVERDUE.set(snapshot.report_delivery_overdue)
+    for reason in ADMISSION_REASONS:
+        COLLECTION_ANALYSIS_ADMISSION.labels(reason=reason).set(
+            snapshot.analysis_admission_backlog[reason]
+        )
+    COLLECTION_SUCCESS.set(1)
+    COLLECTION_LAST_SUCCESS.set(time.time())
+
+
+async def run_exporter() -> None:
+    settings = get_settings()
+    configure_logging(settings.log_level)
+    log = structlog.get_logger()
+    address = os.getenv("GEO_BUSINESS_METRICS_ADDRESS", "127.0.0.1")
+    port = int(os.getenv("GEO_BUSINESS_METRICS_PORT", "18092"))
+    interval = max(5.0, float(os.getenv("GEO_BUSINESS_METRICS_INTERVAL_SECONDS", "15")))
+    dsn = settings.worker_postgres_dsn or settings.postgres_dsn
+    start_http_server(port, addr=address)
+    stopping = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, stopping.set)
+    log.info("business_metrics_exporter_started", address=address, port=port)
+    while not stopping.is_set():
+        try:
+            snapshot = await asyncio.to_thread(collect_business_metrics, dsn)
+            apply_business_metrics(snapshot)
+        except Exception as error:
+            COLLECTION_SUCCESS.set(0)
+            log.error(
+                "business_metrics_collection_failed",
+                error_type=type(error).__name__,
+            )
+        try:
+            await asyncio.wait_for(stopping.wait(), timeout=interval)
+        except TimeoutError:
+            pass
+    log.info("business_metrics_exporter_stopped")
+
+
+if __name__ == "__main__":
+    asyncio.run(run_exporter())
