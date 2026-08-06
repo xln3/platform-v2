@@ -22,21 +22,36 @@ const fixture: ExperienceFixture = {
   actorRole: 'customer',
 };
 
-function installStorage(values: Record<string, string> = {}) {
+function createStorage(values: Record<string, string>) {
   const data = new Map(Object.entries(values));
   const storage = {
     getItem: vi.fn((key: string) => data.get(key) ?? null),
     setItem: vi.fn((key: string, value: string) => data.set(key, value)),
     removeItem: vi.fn((key: string) => data.delete(key)),
     clear: vi.fn(() => data.clear()),
-    key: vi.fn(() => null),
+    key: vi.fn((index: number) => [...data.keys()][index] ?? null),
     get length() {
       return data.size;
     },
   };
-  vi.stubGlobal('window', { localStorage: storage });
-  vi.stubGlobal('localStorage', storage);
   return { data, storage };
+}
+
+function installStorage(
+  values: Record<string, string> = {},
+  sessionValues: Record<string, string> = {},
+) {
+  const local = createStorage(values);
+  const session = createStorage(sessionValues);
+  vi.stubGlobal('window', { localStorage: local.storage, sessionStorage: session.storage });
+  vi.stubGlobal('localStorage', local.storage);
+  vi.stubGlobal('sessionStorage', session.storage);
+  return {
+    data: local.data,
+    storage: local.storage,
+    sessionData: session.data,
+    sessionStorage: session.storage,
+  };
 }
 
 describe('createExperienceLoader', () => {
@@ -70,6 +85,63 @@ describe('createExperienceLoader', () => {
     await expect(createExperienceLoader(fixture)()).resolves.toEqual({ kind: 'forbidden' });
     expect(getIdentitySession).not.toHaveBeenCalled();
     expect(secret.data.size).toBe(0);
+
+    vi.clearAllMocks();
+    const control = installStorage({
+      'geo.session.tenant': 'tnt_safe\u0000actor_collision',
+      'geo.session.actor': 'subject-live',
+      'geo.session.role': 'customer',
+    });
+    await expect(createExperienceLoader(fixture)()).resolves.toEqual({ kind: 'forbidden' });
+    expect(getIdentitySession).not.toHaveBeenCalled();
+    expect(control.data.size).toBe(0);
+  });
+
+  it('scrubs normalized secret keys and values from both browser stores before identity use', async () => {
+    const browserStorage = installStorage(
+      {
+        'geo.session.tenant': 'tnt_live',
+        'geo.session.actor': 'subject-live',
+        'geo.session.role': 'customer',
+        'geo.ａｃｃｅｓｓ＿ｔｏｋｅｎ': 'opaque-fullwidth-key-canary',
+        'geo.preference.theme': 'dark',
+        'geo.legacy.note': '联系人 １３８００１３８０００',
+      },
+      {
+        'geo.to\u200bken': 'opaque-zero-width-key-canary',
+        'geo.legacy.profile': String.raw`profile_dir=C:\Users\runner\Profile 1`,
+        'geo.preference.panel': 'expanded',
+      },
+    );
+    getIdentitySession.mockResolvedValue({ kind: 'unavailable' });
+
+    await expect(createExperienceLoader(fixture)()).resolves.toEqual({ kind: 'unavailable' });
+    expect(getIdentitySession).toHaveBeenCalledOnce();
+    expect(Object.fromEntries(browserStorage.data)).toEqual({
+      'geo.session.tenant': 'tnt_live',
+      'geo.session.actor': 'subject-live',
+      'geo.session.role': 'customer',
+      'geo.preference.theme': 'dark',
+    });
+    expect(Object.fromEntries(browserStorage.sessionData)).toEqual({
+      'geo.preference.panel': 'expanded',
+    });
+  });
+
+  it('clears an oversized browser store and fails closed without probing identity', async () => {
+    const oversized = Object.fromEntries(
+      Array.from({ length: 10_001 }, (_, index) => [`geo.legacy.${index}`, 'safe']),
+    );
+    const browserStorage = installStorage({
+      ...oversized,
+      'geo.session.tenant': 'tnt_live',
+      'geo.session.actor': 'subject-live',
+      'geo.session.role': 'customer',
+    });
+
+    await expect(createExperienceLoader(fixture)()).resolves.toEqual({ kind: 'forbidden' });
+    expect(getIdentitySession).not.toHaveBeenCalled();
+    expect(browserStorage.data.size).toBe(0);
   });
 
   it('never falls back after an explicit forbidden or unavailable identity response', async () => {
@@ -122,6 +194,71 @@ describe('createExperienceLoader', () => {
     expect(JSON.stringify(result)).not.toContain('Cookie=canary');
   });
 
+  it('lets only the newest concurrent bootstrap own validated request headers', async () => {
+    const browserStorage = installStorage({
+      'geo.session.tenant': 'tnt_live',
+      'geo.session.actor': 'subject-first',
+      'geo.session.role': 'customer',
+    });
+    let resolveFirst!: (value: unknown) => void;
+    let resolveSecond!: (value: unknown) => void;
+    getIdentitySession
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirst = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveSecond = resolve;
+          }),
+      );
+
+    const load = createExperienceLoader(fixture);
+    const first = load();
+    browserStorage.storage.setItem('geo.session.actor', 'subject-second');
+    const second = load();
+    resolveSecond({
+      kind: 'ready',
+      session: {
+        tenant_pub_id: 'tnt_live',
+        user_pub_id: 'usr_second',
+        role: 'customer',
+        permissions: [],
+      },
+      projects: { data: [], next_cursor: null },
+    });
+
+    await expect(second).resolves.toMatchObject({
+      kind: 'ready',
+      value: { userPubId: 'usr_second' },
+    });
+    expect(getValidatedIdentityHeaders()).toEqual({
+      'X-Tenant-Id': 'tnt_live',
+      'X-Actor-Id': 'subject-second',
+      'X-Actor-Role': 'customer',
+    });
+
+    resolveFirst({
+      kind: 'ready',
+      session: {
+        tenant_pub_id: 'tnt_live',
+        user_pub_id: 'usr_first',
+        role: 'customer',
+        permissions: [],
+      },
+      projects: { data: [], next_cursor: null },
+    });
+    await expect(first).resolves.toEqual({ kind: 'unavailable' });
+    expect(getValidatedIdentityHeaders()).toEqual({
+      'X-Tenant-Id': 'tnt_live',
+      'X-Actor-Id': 'subject-second',
+      'X-Actor-Role': 'customer',
+    });
+  });
+
   it('does not mistake numeric public-id suffixes for standalone OTP values', async () => {
     installStorage({
       'geo.session.tenant': 'tnt_live_123456',
@@ -158,6 +295,18 @@ describe('createExperienceLoader', () => {
       session: {
         tenant_pub_id: 'tnt_live',
         user_pub_id: 'Bearer secret',
+        role: 'customer',
+        permissions: [],
+      },
+      projects: { data: [], next_cursor: null },
+    });
+    await expect(createExperienceLoader(fixture)()).resolves.toEqual({ kind: 'forbidden' });
+
+    getIdentitySession.mockResolvedValueOnce({
+      kind: 'ready',
+      session: {
+        tenant_pub_id: 'tnt_live',
+        user_pub_id: 'usr_safe\u202e',
         role: 'customer',
         permissions: [],
       },

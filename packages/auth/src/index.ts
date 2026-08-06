@@ -1,10 +1,12 @@
 import {
   getIdentitySession,
   type IdentitySessionHeaders,
-  type IdentitySessionResponse,
+  type IdentitySessionProjection,
 } from '@geo/api-client';
 import {
   containsClientSecret,
+  containsUnsafeClientControlCharacter,
+  scrubClientStorage,
   type ExperienceContextValue,
   type ExperienceLoadResult,
 } from '@geo/design-system';
@@ -13,9 +15,10 @@ export type TenantContext = { tenantId: string; userId: string; roles: readonly 
 export const hasRole = (context: TenantContext, role: string): boolean =>
   context.roles.includes(role);
 
-type BrowserRole = IdentitySessionResponse['role'];
+type BrowserRole = IdentitySessionProjection['role'];
 type ProductRole = ExperienceContextValue['roles'][number];
 let validatedRequestHeaders: IdentitySessionHeaders | null = null;
+let experienceLoadGeneration = 0;
 
 /**
  * Returns only the already validated non-secret S01 request projection. It is memory-only and
@@ -41,19 +44,19 @@ const browserRoles = new Set<BrowserRole>([
 ]);
 const safeLabel = (prefix: string, pubId: string) => `${prefix} · ${pubId.slice(-6)}`;
 const isSafeProjectedValue = (value: string, maxLength: number): boolean =>
-  value.length > 0 && value.length <= maxLength && !containsClientSecret(value);
+  value.length > 0 &&
+  value.length <= maxLength &&
+  !containsUnsafeClientControlCharacter(value) &&
+  !containsClientSecret(value);
 const safeProjectLabel = (value: string | undefined): string =>
   value && isSafeProjectedValue(value, 120) ? value : '未命名项目';
-const buildEnvironment = (
-  import.meta as ImportMeta & {
-    env?: { DEV?: boolean; VITE_ALLOW_CONTRACT_FIXTURES?: string };
-  }
-).env;
 const allowContractFixtures =
-  buildEnvironment?.DEV === true || buildEnvironment?.VITE_ALLOW_CONTRACT_FIXTURES === 'true';
+  import.meta.env.DEV || import.meta.env.VITE_ALLOW_CONTRACT_FIXTURES === 'true';
+const sessionHintKeys = ['geo.session.tenant', 'geo.session.actor', 'geo.session.role'] as const;
+const sessionHintKeySet = new Set<string>(sessionHintKeys);
 
-function readBrowserHints(fixture: ExperienceFixture): {
-  headers: IdentitySessionHeaders;
+function readBrowserHints(fixture?: ExperienceFixture): {
+  headers: IdentitySessionHeaders | null;
   explicit: boolean;
   invalid: boolean;
 } {
@@ -61,40 +64,53 @@ function readBrowserHints(fixture: ExperienceFixture): {
     return {
       explicit: false,
       invalid: false,
-      headers: {
-        'X-Tenant-Id': fixture.tenantPubId,
-        'X-Actor-Id': fixture.actorSubject,
-        'X-Actor-Role': fixture.actorRole,
-      },
+      headers: fixture
+        ? {
+            'X-Tenant-Id': fixture.tenantPubId,
+            'X-Actor-Id': fixture.actorSubject,
+            'X-Actor-Role': fixture.actorRole,
+          }
+        : null,
     };
+  }
+  const explicit = sessionHintKeys.some((key) => localStorage.getItem(key) !== null);
+  const localStorageScrub = scrubClientStorage(localStorage, sessionHintKeySet);
+  scrubClientStorage(sessionStorage);
+  if (!allowContractFixtures) {
+    // Production human identity is cookie/provider-owned. Never forward browser-controlled
+    // actor claims, even when a backend currently ignores them.
+    for (const key of sessionHintKeys) localStorage.removeItem(key);
+    return { explicit: false, invalid: false, headers: {} };
   }
   const tenant = localStorage.getItem('geo.session.tenant');
   const actor = localStorage.getItem('geo.session.actor');
   const role = localStorage.getItem('geo.session.role');
-  const explicit = tenant !== null || actor !== null || role !== null;
   const invalid =
-    explicit &&
-    (!tenant ||
-      !actor ||
-      !role ||
-      tenant.length > 120 ||
-      actor.length > 255 ||
-      containsClientSecret(`${tenant ?? ''} ${actor ?? ''} ${role ?? ''}`) ||
-      !browserRoles.has(role as BrowserRole));
+    localStorageScrub.clearedOversizedStorage ||
+    (explicit &&
+      (localStorageScrub.removedRequiredHint ||
+        !tenant ||
+        !actor ||
+        !role ||
+        tenant.length > 120 ||
+        actor.length > 255 ||
+        containsUnsafeClientControlCharacter(`${tenant ?? ''}${actor ?? ''}${role ?? ''}`) ||
+        containsClientSecret(`${tenant ?? ''} ${actor ?? ''} ${role ?? ''}`) ||
+        !browserRoles.has(role as BrowserRole)));
   if (invalid) {
-    localStorage.removeItem('geo.session.tenant');
-    localStorage.removeItem('geo.session.actor');
-    localStorage.removeItem('geo.session.role');
+    for (const key of sessionHintKeys) localStorage.removeItem(key);
   }
   if (!tenant || !actor || !role || invalid) {
     return {
       explicit,
       invalid,
-      headers: {
-        'X-Tenant-Id': fixture.tenantPubId,
-        'X-Actor-Id': fixture.actorSubject,
-        'X-Actor-Role': fixture.actorRole,
-      },
+      headers: fixture
+        ? {
+            'X-Tenant-Id': fixture.tenantPubId,
+            'X-Actor-Id': fixture.actorSubject,
+            'X-Actor-Role': fixture.actorRole,
+          }
+        : null,
     };
   }
   return {
@@ -109,25 +125,34 @@ function readBrowserHints(fixture: ExperienceFixture): {
 }
 
 export function createExperienceLoader(
-  fixture: ExperienceFixture,
+  fixture?: ExperienceFixture,
 ): () => Promise<ExperienceLoadResult> {
   return async () => {
+    const loadGeneration = ++experienceLoadGeneration;
     validatedRequestHeaders = null;
-    const { headers, explicit, invalid } = readBrowserHints(fixture);
+    const browserHints = readBrowserHints(fixture);
+    let { headers } = browserHints;
+    const { explicit, invalid } = browserHints;
     if (invalid) return { kind: 'forbidden' };
-    if (allowContractFixtures && !explicit) {
+    if (allowContractFixtures && fixture && !explicit) {
       return { kind: 'fixture', value: { ...fixture, source: 'contract-fixture' } };
     }
+    headers ??= {};
     const result = await getIdentitySession(headers);
+    if (loadGeneration !== experienceLoadGeneration) return { kind: 'unavailable' };
     if (result.kind === 'forbidden') {
       return explicit || !allowContractFixtures
         ? { kind: 'forbidden' }
-        : { kind: 'fixture', value: { ...fixture, source: 'contract-fixture' } };
+        : !fixture
+          ? { kind: 'forbidden' }
+          : { kind: 'fixture', value: { ...fixture, source: 'contract-fixture' } };
     }
     if (result.kind === 'unavailable') {
       return explicit || !allowContractFixtures
         ? { kind: 'unavailable' }
-        : { kind: 'fixture', value: { ...fixture, source: 'contract-fixture' } };
+        : !fixture
+          ? { kind: 'unavailable' }
+          : { kind: 'fixture', value: { ...fixture, source: 'contract-fixture' } };
     }
     if (!productRoles.has(result.session.role as ProductRole)) return { kind: 'forbidden' };
     if (

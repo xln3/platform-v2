@@ -2,17 +2,21 @@ import { Links, Meta, Outlet, Scripts, ScrollRestoration } from 'react-router';
 import { ValidatedExperienceProvider } from '@geo/design-system';
 import { createExperienceLoader } from '@geo/auth';
 import '@geo/design-system/styles.css';
-const loadExperience = createExperienceLoader({
-  tenantPubId: 'tnt_01K0CONTRACTFIXTURE0000000',
-  tenantLabel: '云岫智能',
-  projectPubId: 'prj_01K0CONTRACTFIXTURE0000000',
-  projectLabel: 'Q3 监测报告',
-  userPubId: 'usr_01K0CONTRACTFIXTURE0000000',
-  userLabel: '沈禾',
-  roles: ['analyst', 'reviewer'],
-  actorSubject: 'analyst-contract-fixture',
-  actorRole: 'analyst',
-});
+const loadExperience = createExperienceLoader(
+  import.meta.env.VITE_ALLOW_CONTRACT_FIXTURES === 'true'
+    ? {
+        tenantPubId: 'tnt_01K0CONTRACTFIXTURE0000000',
+        tenantLabel: '云岫智能',
+        projectPubId: 'prj_01K0CONTRACTFIXTURE0000000',
+        projectLabel: 'Q3 监测报告',
+        userPubId: 'usr_01K0CONTRACTFIXTURE0000000',
+        userLabel: '沈禾',
+        roles: ['analyst', 'reviewer'],
+        actorSubject: 'analyst-contract-fixture',
+        actorRole: 'analyst',
+      }
+    : undefined,
+);
 export default function Root() {
   return (
     <html lang="zh-CN">

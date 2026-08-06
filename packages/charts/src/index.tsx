@@ -69,7 +69,7 @@ export function GeoBarChart({
     };
   }, [data, valueSuffix]);
   return (
-    <section className="geo-chart" aria-labelledby={tableId}>
+    <section className="geo-chart" aria-labelledby={tableId} tabIndex={0}>
       <div ref={canvasRef} className="geo-chart-canvas" aria-hidden="true" />
       <span className="sr-only" role="status">
         {rendered ? `${title}图表已渲染` : `${title}图表加载中`}

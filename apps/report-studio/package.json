@@ -14,13 +14,16 @@
     "@geo/auth": "workspace:*",
     "@geo/design-system": "workspace:*",
     "@geo/workflow-ui": "workspace:*",
+    "@hookform/resolvers": "^5.4.0",
     "isbot": "^5",
     "konva": "^10.3.0",
     "pdfjs-dist": "^6.1.200",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "react-hook-form": "^7.82.0",
     "react-konva": "^19.2.5",
-    "react-router": "8.3.0"
+    "react-router": "8.3.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@react-router/dev": "8.3.0",
