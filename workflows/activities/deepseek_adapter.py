@@ -100,7 +100,6 @@ import structlog
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from domain.evidence.dlp import assert_secret_free
 from workflows.activities.browser_driver import load_sync_browser_driver
 from workflows.activities.collection import (
     CollectionBatchInput,
@@ -108,6 +107,7 @@ from workflows.activities.collection import (
     CollectionBatchResult,
     CollectionTaskInput,
     CollectionTaskResult,
+    batch_result_with_captcha_pause,
 )
 from workflows.activities.doubao_adapter import _clean_profile_crash_state
 from workflows.activities.human_like import (
@@ -169,10 +169,15 @@ _ASSISTANT_SELECTORS: tuple[str, ...] = (
     ".markdown-body",
 )
 
-# 「新对话」入口（batch fresh-chat 纪律；⚠ GUESS，未 live 校准——DeepSeek 侧边栏
-# 有「开启新对话」入口，命中第一个可见者即点；全部缺失时调用方导航回聊天首页兜底，
-# DeepSeek / 默认即全新会话）
+# 「新对话」入口（batch fresh-chat 纪律）。
+# 2026-08-07 headed live 校准（CDP attach deepseek-tj 常驻浏览器，旧会话计数 2→0 实证）：
+# 侧边栏顶部新建入口 = <div class="_5a8ac7a">「开启新对话」（div 非 button、无
+# aria-label；class 为构建 hash 不稳定，文本才是锚点）——Playwright text 精确匹配
+# 命中即点。其余为结构候选兜底；全部缺失时调用方导航回聊天首页兜底（DeepSeek /
+# 默认即全新会话）。
 _NEW_CHAT_SELECTORS: tuple[str, ...] = (
+    'text="开启新对话"',
+    "text=开启新对话",
     '[aria-label*="新对话"]',
     'button:has-text("新对话")',
     '[role="button"]:has-text("新对话")',
@@ -678,7 +683,7 @@ async def run_deepseek_batch(
         failed=sum(1 for r in results if r.status != "ok"),
         stage=progress["stage"],
     )
-    return CollectionBatchResult(results=results)
+    return batch_result_with_captcha_pause(results)
 
 
 def _failure_batch_item(
@@ -689,18 +694,8 @@ def _failure_batch_item(
     error_message: str,
     evidence_path: Path | None,
 ) -> CollectionBatchItemResult:
-    """失败/未执行题 → CollectionBatchItemResult（含出界 DLP 自检）。"""
+    """失败/未执行题 → CollectionBatchItemResult。DLP 由 persist 层统一脱敏。"""
     screenshot_ref = f"file://{evidence_path}" if evidence_path is not None else None
-    try:
-        assert_secret_free(error_message)
-        if screenshot_ref:
-            assert_secret_free(screenshot_ref)
-    except ValueError as error:
-        raise ApplicationError(
-            "collection result rejected by DLP",
-            type="collection_result_dlp_rejected",
-            non_retryable=True,
-        ) from error
     return CollectionBatchItemResult(
         business_key=item.business_key,
         status=status,
@@ -826,16 +821,7 @@ def _task_result_from_collected(
     run_deepseek_collection 与 batch per-item ok 映射共用。"""
     answer_text = _compose_answer_text(collected.answer_text, collected.references)
     screenshot_ref = f"file://{collected.screenshot_path}"
-    # 出界前 DLP 自检：persist 层对两字段 assert_secret_free，这里提前到同语义 fail-closed
-    try:
-        assert_secret_free(answer_text)
-        assert_secret_free(screenshot_ref)
-    except ValueError as error:
-        raise ApplicationError(
-            "collection result rejected by DLP",
-            type="collection_result_dlp_rejected",
-            non_retryable=True,
-        ) from error
+    # DLP 统一由 persist 层脱敏处理（单一权威边界，2026-08-06 起）。
     return CollectionTaskResult(
         business_key=item.business_key,
         answer_text=answer_text,

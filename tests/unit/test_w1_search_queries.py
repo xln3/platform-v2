@@ -49,9 +49,10 @@ def test_normalize_search_queries_rejects_bad_shapes() -> None:
         )
 
 
-def test_normalize_search_queries_rejects_secret_leak() -> None:
-    with pytest.raises(ValueError):
-        _normalize_search_queries([{"query": "password= hunter2", "ordinal": 1}])
+def test_normalize_search_queries_secret_like_text_stored_raw() -> None:
+    """秘密样式文本原文存储（2026-08-06 原始采集原则）：公开检索词不是平台秘密。"""
+    rows = _normalize_search_queries([{"query": "password= hunter2", "ordinal": 1}])
+    assert rows == [{"query": "password= hunter2", "ordinal": 1}]
 
 
 def test_collection_task_result_search_queries_default_empty() -> None:

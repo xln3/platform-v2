@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from opentelemetry import context
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
+from .collection.assist_router import router as assist_router
 from .collection.capability_router import router as capability_router
 from .collection.customer_account_router import router as customer_account_router
 from .collection.governance_router import router as governance_router
@@ -163,6 +164,7 @@ app.include_router(confirmation_router)
 app.include_router(customer_router)
 app.include_router(onboarding_router)
 app.include_router(collection_router)
+app.include_router(assist_router)
 app.include_router(schedule_router)
 app.include_router(operations_router)
 app.include_router(governance_router)

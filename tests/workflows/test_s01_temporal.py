@@ -8,7 +8,13 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
+from workflows.activities.captcha_assist import (
+    CaptchaAssistInput,
+    CaptchaAssistStarted,
+    CaptchaAssistStopInput,
+)
 from workflows.activities.collection import (
+    CaptchaPause,
     CollectionBatchInput,
     CollectionBatchItemResult,
     CollectionBatchResult,
@@ -572,9 +578,10 @@ async def test_doubao_segments_routed_to_batch_and_per_task() -> None:
     assert persisted_items == [("d-1", "ok"), ("d-2", "ok"), ("f-1", "ok"), ("d-3", "ok")]
 
 
-async def test_doubao_batch_wall_persists_failures_and_fails_run() -> None:
-    """batch 内第 2 题 wall、第 3 题 aborted：逐题诚实落库（含失败/未执行题）
-    后 run 记 failed（真人撞墙后停下，不硬闯后续题）。"""
+async def test_doubao_batch_wall_persists_failures_and_run_continues() -> None:
+    """batch 内第 2 题 wall、第 3 题 aborted：题级失败是数据不是工作流故障——
+    逐题诚实落库（含失败/未执行题）后 run 继续走完后续任务与分析扇出，
+    终态由 persist 推导为 completed_with_failures（s04_0019 词表），不硬闯。"""
     batch_calls.clear()
     persisted_items.clear()
     terminal_run_states.clear()
@@ -591,33 +598,35 @@ async def test_doubao_batch_wall_persists_failures_and_fails_run() -> None:
                 mark_collection_run_terminal,
             ],
         ):
-            with pytest.raises(WorkflowFailureError):
-                await environment.client.execute_workflow(
-                    GeoCollectionWorkflow.run,
-                    GeoCollectionInput(
-                        tenant_pub_id="tnt_batch_wall",
-                        project_pub_id="prj_batch_wall",
-                        run_pub_id="run_batch_wall",
-                        config_version_pub_id="cfv_batch_wall",
-                        tasks=[
-                            _batch_task("w-1", "doubao"),
-                            _batch_task("w-2", "doubao"),
-                            _batch_task("w-3", "doubao"),
-                            _batch_task("w-4", "fixed"),
-                        ],
-                        persist_results=True,
-                        inter_task_delay_max_s=0.0,
-                    ),
-                    id="geo-collection/batch-wall-test",
-                    task_queue="s01-batch-wall-test",
-                )
-    # batch 只调用一次（3 题一段）；墙后 workflow 停止——fixed 题 w-4 未执行
+            result = await environment.client.execute_workflow(
+                GeoCollectionWorkflow.run,
+                GeoCollectionInput(
+                    tenant_pub_id="tnt_batch_wall",
+                    project_pub_id="prj_batch_wall",
+                    run_pub_id="run_batch_wall",
+                    config_version_pub_id="cfv_batch_wall",
+                    tasks=[
+                        _batch_task("w-1", "doubao"),
+                        _batch_task("w-2", "doubao"),
+                        _batch_task("w-3", "doubao"),
+                        _batch_task("w-4", "fixed"),
+                    ],
+                    persist_results=True,
+                    inter_task_delay_max_s=0.0,
+                ),
+                id="geo-collection/batch-wall-test",
+                task_queue="s01-batch-wall-test",
+            )
+    assert result.state == "completed"
+    # batch 只调用一次（3 题一段）；墙不阻断后续 fixed 题
     assert batch_calls == [["w-1", "w-2", "w-3"]]
-    # 逐题 persist：ok + wall + aborted 全部落库（不丢已完成题、不编造未执行题）
-    assert persisted_items == [("w-1", "ok"), ("w-2", "wall"), ("w-3", "aborted")]
-    # run 终态词汇与 per-task 时代墙失败一致
+    # 逐题 persist：ok + wall + aborted + 后续 fixed ok 全部落库
+    assert persisted_items == [
+        ("w-1", "ok"), ("w-2", "wall"), ("w-3", "aborted"), ("w-4", "ok"),
+    ]
+    # 终态按 completed 标记（persist 侧 derive 落 completed_with_failures，mark 不降级）
     assert terminal_run_states == [
-        ("tnt_batch_wall", "run_batch_wall", "failed", "workflow_failed")
+        ("tnt_batch_wall", "run_batch_wall", "completed", None)
     ]
 
 
@@ -708,3 +717,306 @@ async def test_all_adapters_routed_to_named_batch_activities() -> None:
     assert persisted_items == [
         ("d-1", "ok"), ("s-1", "ok"), ("s-2", "ok"), ("f-1", "ok"), ("y-1", "ok"),
     ]
+
+
+# ---------------------------------------------------------------------------
+# captcha-assist-v1：撞码挂起 → 手机人工接管 → 断点续跑
+# ---------------------------------------------------------------------------
+
+assist_events: list[tuple[str, str, str]] = []
+
+
+@activity.defn(name="captcha_assist_start")
+async def captcha_assist_start_fixture(input: CaptchaAssistInput) -> CaptchaAssistStarted:
+    """每次接管铸造递增 session_id（连撞时各次挂起互不串扰）。
+
+    序号从 assist_events 里已记录的 start 数推导——测试间清空 assist_events
+    即自然复位，不留跨测试的全局序号泄漏。"""
+    session_id = f"sess-{sum(1 for e in assist_events if e[0] == 'start') + 1}"
+    assist_events.append(("start", input.run_pub_id, f"{input.business_key}|{session_id}"))
+    return CaptchaAssistStarted(
+        session_id=session_id,
+        assist_url="https://fixture.local/api/v2/assist/ticket",
+        pushed=True,
+    )
+
+
+@activity.defn(name="captcha_assist_stop")
+async def captcha_assist_stop_fixture(input: CaptchaAssistStopInput) -> None:
+    assist_events.append(("stop", input.run_pub_id, input.session_id))
+
+
+@activity.defn(name="captcha_assist_start")
+async def captcha_assist_start_unavailable(input: CaptchaAssistInput) -> CaptchaAssistStarted:
+    del input
+    raise ApplicationError(
+        "no resident browser (fixture)",
+        type="assist_no_resident_browser",
+        non_retryable=True,
+    )
+
+
+def _ok_batch_result(items: list[CollectionTaskInput]) -> CollectionBatchResult:
+    return CollectionBatchResult(
+        results=[
+            CollectionBatchItemResult(
+                business_key=item.business_key,
+                status="ok",
+                answer_text=f"[batch-fixture] {item.query}",
+                screenshot_ref="fixture://screenshots/batch.png",
+                quality_state="fixture_valid",
+            )
+            for item in items
+        ]
+    )
+
+
+def _captcha_pause_batch_result(
+    items: list[CollectionTaskInput], pause_index: int
+) -> CollectionBatchResult:
+    """等长全占位结果 + captcha_pause 标注（live 适配器的生产形状）。"""
+    results: list[CollectionBatchItemResult] = []
+    for index, item in enumerate(items):
+        if index < pause_index:
+            results.append(
+                CollectionBatchItemResult(
+                    business_key=item.business_key,
+                    status="ok",
+                    answer_text=f"[batch-fixture] {item.query}",
+                    screenshot_ref="fixture://screenshots/batch.png",
+                    quality_state="fixture_valid",
+                )
+            )
+        elif index == pause_index:
+            results.append(
+                CollectionBatchItemResult(
+                    business_key=item.business_key,
+                    status="wall",
+                    error_type="wall_captcha",
+                    error_message="captcha challenge appeared post-send (fixture)",
+                    screenshot_ref="fixture://screenshots/wall.png",
+                )
+            )
+        else:
+            results.append(
+                CollectionBatchItemResult(
+                    business_key=item.business_key,
+                    status="aborted",
+                    error_type="aborted_after_failure",
+                    error_message="not executed: batch stopped after failure (fixture)",
+                )
+            )
+    return CollectionBatchResult(
+        results=results,
+        captcha_pause=CaptchaPause(
+            resume_index=pause_index,
+            business_key=items[pause_index].business_key,
+            evidence_ref="fixture://screenshots/wall.png",
+        ),
+    )
+
+
+@activity.defn(name="collect_doubao_batch")
+async def collect_doubao_batch_captcha_once(batch: CollectionBatchInput) -> CollectionBatchResult:
+    """首段（c-1 开头）第 2 题撞码并标注 pause；续跑段全题 ok。"""
+    batch_calls.append([item.business_key for item in batch.items])
+    if batch.items[0].business_key == "c-1":
+        return _captcha_pause_batch_result(batch.items, 1)
+    return _ok_batch_result(batch.items)
+
+
+@activity.defn(name="collect_doubao_batch")
+async def collect_doubao_batch_captcha_always(batch: CollectionBatchInput) -> CollectionBatchResult:
+    """每次都首题撞码（连撞护栏测试用）。"""
+    batch_calls.append([item.business_key for item in batch.items])
+    return _captcha_pause_batch_result(batch.items, 0)
+
+
+async def _await_assist_starts(count: int) -> None:
+    for _ in range(500):
+        if sum(1 for e in assist_events if e[0] == "start") >= count:
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError(f"assist start events did not reach {count}: {assist_events}")
+
+
+async def test_captcha_pause_solved_resumes_from_breakpoint() -> None:
+    """第 2 题撞码 → 挂起等人工 → 手机确认解决（signal）→ 从断点起重采：
+    撞码题的 wall 结果绝不落库，续跑段的 ok 覆盖之；run 终态 completed。"""
+    batch_calls.clear()
+    persisted_items.clear()
+    assist_events.clear()
+    async with await WorkflowEnvironment.start_time_skipping() as environment:
+        async with Worker(
+            environment.client,
+            task_queue="s01-captcha-resume-test",
+            workflows=[GeoCollectionWorkflow],
+            activities=[
+                collect_doubao_batch_captcha_once,
+                captcha_assist_start_fixture,
+                captcha_assist_stop_fixture,
+                persist_collection_result_fixture,
+                publish_downstream_event,
+                mark_collection_run_terminal,
+            ],
+        ):
+            handle = await environment.client.start_workflow(
+                GeoCollectionWorkflow.run,
+                GeoCollectionInput(
+                    tenant_pub_id="tnt_captcha",
+                    project_pub_id="prj_captcha",
+                    run_pub_id="run_captcha",
+                    config_version_pub_id="cfv_captcha",
+                    tasks=[
+                        _batch_task("c-1", "doubao"),
+                        _batch_task("c-2", "doubao"),
+                        _batch_task("c-3", "doubao"),
+                    ],
+                    persist_results=True,
+                    inter_task_delay_max_s=0.0,
+                ),
+                id="geo-collection/captcha-resume-test",
+                task_queue="s01-captcha-resume-test",
+            )
+            await _await_assist_starts(1)
+            await handle.signal(GeoCollectionWorkflow.captcha_solved, "sess-1")
+            result = await handle.result()
+    assert result.state == "completed"
+    # 首段全量一次 + 断点续跑段（撞码题 c-2 重发）
+    assert batch_calls == [["c-1", "c-2", "c-3"], ["c-2", "c-3"]]
+    # 撞码题的 wall 不落库：落库序列 = 前缀 ok + 续跑 ok
+    assert persisted_items == [("c-1", "ok"), ("c-2", "ok"), ("c-3", "ok")]
+    assert ("start", "run_captcha", "c-2|sess-1") in assist_events
+    assert ("stop", "run_captcha", "sess-1") in assist_events
+
+
+async def test_captcha_pause_timeout_falls_back_to_wall_abort() -> None:
+    """无人接管（时间跳跃自动越过 60min 等待）→ 回退现行语义：撞码题 wall +
+    余题 aborted 全量落库，不续跑，run 照常走完（终态 persist 侧推导）。"""
+    batch_calls.clear()
+    persisted_items.clear()
+    assist_events.clear()
+    async with await WorkflowEnvironment.start_time_skipping() as environment:
+        async with Worker(
+            environment.client,
+            task_queue="s01-captcha-timeout-test",
+            workflows=[GeoCollectionWorkflow],
+            activities=[
+                collect_doubao_batch_captcha_once,
+                captcha_assist_start_fixture,
+                captcha_assist_stop_fixture,
+                persist_collection_result_fixture,
+                publish_downstream_event,
+                mark_collection_run_terminal,
+            ],
+        ):
+            result = await environment.client.execute_workflow(
+                GeoCollectionWorkflow.run,
+                GeoCollectionInput(
+                    tenant_pub_id="tnt_captcha_to",
+                    project_pub_id="prj_captcha_to",
+                    run_pub_id="run_captcha_to",
+                    config_version_pub_id="cfv_captcha_to",
+                    tasks=[
+                        _batch_task("c-1", "doubao"),
+                        _batch_task("c-2", "doubao"),
+                        _batch_task("c-3", "doubao"),
+                    ],
+                    persist_results=True,
+                    inter_task_delay_max_s=0.0,
+                ),
+                id="geo-collection/captcha-timeout-test",
+                task_queue="s01-captcha-timeout-test",
+            )
+    assert result.state == "completed"
+    assert batch_calls == [["c-1", "c-2", "c-3"]]
+    assert persisted_items == [("c-1", "ok"), ("c-2", "wall"), ("c-3", "aborted")]
+    assert ("stop", "run_captcha_to", "sess-1") in assist_events
+
+
+async def test_captcha_pause_assist_unavailable_falls_back() -> None:
+    """assist 基建不可用（无常驻浏览器）→ 立即回退，绝不阻断/空等。"""
+    batch_calls.clear()
+    persisted_items.clear()
+    assist_events.clear()
+    async with await WorkflowEnvironment.start_time_skipping() as environment:
+        async with Worker(
+            environment.client,
+            task_queue="s01-captcha-noassist-test",
+            workflows=[GeoCollectionWorkflow],
+            activities=[
+                collect_doubao_batch_captcha_once,
+                captcha_assist_start_unavailable,
+                captcha_assist_stop_fixture,
+                persist_collection_result_fixture,
+                publish_downstream_event,
+                mark_collection_run_terminal,
+            ],
+        ):
+            result = await environment.client.execute_workflow(
+                GeoCollectionWorkflow.run,
+                GeoCollectionInput(
+                    tenant_pub_id="tnt_captcha_na",
+                    project_pub_id="prj_captcha_na",
+                    run_pub_id="run_captcha_na",
+                    config_version_pub_id="cfv_captcha_na",
+                    tasks=[
+                        _batch_task("c-1", "doubao"),
+                        _batch_task("c-2", "doubao"),
+                    ],
+                    persist_results=True,
+                    inter_task_delay_max_s=0.0,
+                ),
+                id="geo-collection/captcha-noassist-test",
+                task_queue="s01-captcha-noassist-test",
+            )
+    assert result.state == "completed"
+    assert batch_calls == [["c-1", "c-2"]]
+    assert persisted_items == [("c-1", "ok"), ("c-2", "wall")]
+    # assist_stop 无从谈起（start 都没成），但绝不影响落库
+    assert [e for e in assist_events if e[0] == "stop"] == []
+
+
+async def test_captcha_pause_limit_falls_back_after_three_interventions() -> None:
+    """连撞护栏：单 run 挂起上限 3 次——前三次人工解围续跑，第 4 次撞码直接
+    回退 wall+abort（不再推送打扰人工，账号大概率已敏感化）。"""
+    batch_calls.clear()
+    persisted_items.clear()
+    assist_events.clear()
+    async with await WorkflowEnvironment.start_time_skipping() as environment:
+        async with Worker(
+            environment.client,
+            task_queue="s01-captcha-limit-test",
+            workflows=[GeoCollectionWorkflow],
+            activities=[
+                collect_doubao_batch_captcha_always,
+                captcha_assist_start_fixture,
+                captcha_assist_stop_fixture,
+                persist_collection_result_fixture,
+                publish_downstream_event,
+                mark_collection_run_terminal,
+            ],
+        ):
+            handle = await environment.client.start_workflow(
+                GeoCollectionWorkflow.run,
+                GeoCollectionInput(
+                    tenant_pub_id="tnt_captcha_lim",
+                    project_pub_id="prj_captcha_lim",
+                    run_pub_id="run_captcha_lim",
+                    config_version_pub_id="cfv_captcha_lim",
+                    tasks=[_batch_task("c-1", "doubao"), _batch_task("c-2", "doubao")],
+                    persist_results=True,
+                    inter_task_delay_max_s=0.0,
+                ),
+                id="geo-collection/captcha-limit-test",
+                task_queue="s01-captcha-limit-test",
+            )
+            for seq in (1, 2, 3):
+                await _await_assist_starts(seq)
+                await handle.signal(GeoCollectionWorkflow.captcha_solved, f"sess-{seq}")
+            result = await handle.result()
+    assert result.state == "completed"
+    # 3 次接管 + 第 4 次撞码直接回退：batch 共 4 调，assist_start 恰 3 次
+    assert len(batch_calls) == 4
+    assert sum(1 for e in assist_events if e[0] == "start") == 3
+    assert persisted_items == [("c-1", "wall"), ("c-2", "aborted")]

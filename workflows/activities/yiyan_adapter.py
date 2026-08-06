@@ -67,9 +67,10 @@ v1 边界：
 - await_input 后 ``_ensure_fresh_chat`` 验证：composer 为空且页面无已存在
   答案节点 → 放行；否则优先点「新对话」按钮，仍不新则导航回聊天首页兜底；
   最终验证不过 → ``_IncompleteCapture`` 诚实失败（可重试），绝不静默沿用旧会话。
-- 注意：「新对话」入口选择器尚未 live 校准（20260727 校准时未覆盖）；候选
-  词表为通用梯度，导航回首页兜底是当前的权威路径——候选全失效时即走导航，
-  行为仍正确，只是少一次点击。
+- 2026-08-07 headed live 校准（CDP attach yiyan-sh 常驻浏览器，wenxin.baidu.com
+  旧会话计数 1→0 实证）：「开启新对话」入口 = 侧边栏顶部文本元素（div 非
+  button、无 aria-label）——Playwright text 精确匹配实证命中切新，已提为首选；
+  其余通用候选兜底，仍全失效时导航回首页兜底（行为仍正确，只是少一次点击）。
 
 优雅关闭（profile 崩溃标记根治，与豆包同款）：
 
@@ -118,7 +119,6 @@ import structlog
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from domain.evidence.dlp import assert_secret_free
 from workflows.activities.browser_driver import load_sync_browser_driver
 from workflows.activities.collection import (
     CollectionBatchInput,
@@ -126,6 +126,7 @@ from workflows.activities.collection import (
     CollectionBatchResult,
     CollectionTaskInput,
     CollectionTaskResult,
+    batch_result_with_captcha_pause,
 )
 from workflows.activities.doubao_adapter import _clean_profile_crash_state
 from workflows.activities.human_like import (
@@ -189,9 +190,13 @@ _LOADING_HINTS: tuple[str, ...] = (
 )
 
 # 「新对话」入口（新会话纪律；命中第一个可见者即点，顺序即优先级）。
-# 未 live 校准（20260727 校准时未覆盖该入口）：通用候选梯度 + 导航回首页兜底，
-# 候选全失效时 _ensure_fresh_chat 自动走导航路径，行为仍正确。
+# 2026-08-07 headed live 校准（wenxin.baidu.com）：新建入口 = 侧边栏顶部
+# 「开启新对话」文本元素（div 非 button、无 aria-label）——text 精确匹配实证
+# 命中（消息计数 1→0）。其余候选兜底；全失效时 _ensure_fresh_chat 自动走导航
+# 回首页兜底，行为仍正确。
 _NEW_CHAT_SELECTORS: tuple[str, ...] = (
+    'text="开启新对话"',
+    "text=开启新对话",
     '[aria-label*="新对话"]',
     'button:has-text("新对话")',
     '[role="button"]:has-text("新对话")',
@@ -617,7 +622,7 @@ async def run_yiyan_batch(
         failed=sum(1 for r in results if r.status != "ok"),
         stage=progress["stage"],
     )
-    return CollectionBatchResult(results=results)
+    return batch_result_with_captcha_pause(results)
 
 
 def _failure_batch_item(
@@ -628,18 +633,8 @@ def _failure_batch_item(
     error_message: str,
     evidence_path: Path | None,
 ) -> CollectionBatchItemResult:
-    """失败/未执行题 → CollectionBatchItemResult（含出界 DLP 自检）。"""
+    """失败/未执行题 → CollectionBatchItemResult。DLP 由 persist 层统一脱敏。"""
     screenshot_ref = f"file://{evidence_path}" if evidence_path is not None else None
-    try:
-        assert_secret_free(error_message)
-        if screenshot_ref:
-            assert_secret_free(screenshot_ref)
-    except ValueError as error:
-        raise ApplicationError(
-            "collection result rejected by DLP",
-            type="collection_result_dlp_rejected",
-            non_retryable=True,
-        ) from error
     return CollectionBatchItemResult(
         business_key=item.business_key,
         status=status,
@@ -762,16 +757,7 @@ def _task_result_from_collected(
     run_yiyan_collection 与 batch per-item ok 映射共用。"""
     answer_text = _compose_answer_text(collected.answer_text, collected.references)
     screenshot_ref = f"file://{collected.screenshot_path}"
-    # 出界前 DLP 自检：persist 层对两字段 assert_secret_free，这里提前到同语义 fail-closed
-    try:
-        assert_secret_free(answer_text)
-        assert_secret_free(screenshot_ref)
-    except ValueError as error:
-        raise ApplicationError(
-            "collection result rejected by DLP",
-            type="collection_result_dlp_rejected",
-            non_retryable=True,
-        ) from error
+    # DLP 统一由 persist 层脱敏处理（单一权威边界，2026-08-06 起）。
     return CollectionTaskResult(
         business_key=item.business_key,
         answer_text=answer_text,

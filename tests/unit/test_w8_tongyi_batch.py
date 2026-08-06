@@ -5,7 +5,8 @@
 证据逐题 / CDP 逐题 detach）、wall→后续 aborted 零交互、activity 层
 （outcome 映射 / session 级墙 / session 级 incomplete / mode 门 / 配置门 /
 空 batch / 契约违背 / 默认 session 必须 to_thread）、fresh-chat 纪律四态、
-CDP 常驻 attach 路径（不 close context、不动 profile）、per-task 拟人化全链路。
+CDP 常驻 attach 路径（不 close context、不动 profile）、per-task 拟人化全链路、
+容器级抽取（卡片段拼接/噪声过滤）与 DOM 稳定门（2026-08-07 截断案回归）。
 """
 
 from __future__ import annotations
@@ -238,6 +239,12 @@ class _FakePage:
         self.body_text = ""
         self.answer_visible = False
         self.answer_text = "这是答案"
+        # 容器级抽取探针（_ANSWER_EXTRACT_JS）注入面：非 None 时原样返回
+        # （测卡片段/噪声过滤）；answer_grows_forever 模拟「流已完但 DOM 仍增长」
+        # （2026-08-07 截断案回归）——每次抽取文本追加递增后缀，DOM 永不静默。
+        self.extract_payload: dict[str, Any] | None = None
+        self.answer_grows_forever = False
+        self._extract_calls = 0
         # 发送吞没模拟（风控静默吞发送）：第 N 次（1-based）起 send 区点击不再
         # 清空 composer、不再触发 event-stream——驱动 wall_send 路径。
         self.swallow_sends_from = swallow_sends_from
@@ -289,6 +296,21 @@ class _FakePage:
             return self.messages
         if script == tongyi_adapter._FLATTEN_FOR_SCREENSHOT_JS:
             return {}
+        if script == tongyi_adapter._ANSWER_EXTRACT_JS:
+            if self.extract_payload is not None:
+                return self.extract_payload
+            if not self.answer_visible:
+                return {"segments": [], "refs": []}
+            text = self.answer_text
+            if self.answer_grows_forever:
+                self._extract_calls += 1
+                text = f"{self.answer_text}{self._extract_calls}"
+            return {
+                "segments": [
+                    {"kind": "markdown", "cls": "qk-markdown", "text": text}
+                ],
+                "refs": [],
+            }
         return None
 
     def goto(self, url: str, **_kw: Any) -> None:
@@ -1004,10 +1026,105 @@ def test_overlay_cleanup_clicks_only_visible_overlay() -> None:
     """弹层清理拟人化：候选先 count/visible 粗筛，真实存在的遮罩才 human_click。"""
     page = _FakePage(visible_overlays={'button:has-text("知道了")'})
     tongyi_adapter._try_close_overlays(page, random.Random(2))
-
     assert ("press", "Escape") in page.events
     overlay_clicks = [
         e for e in page.events if e[0] == "mouse_click" and _in_bb(_OVERLAY_BB, e[1], e[2])
     ]
     assert len(overlay_clicks) == 1  # 可见遮罩被拟人化点击关闭
     assert not [e for e in page.events if e[0] == "locator_click"]
+
+
+# ---------------------------------------------------------------------------
+# 容器级抽取（卡片段拼接/噪声过滤）+ DOM 稳定门（2026-08-07，215 字截断案）
+# ---------------------------------------------------------------------------
+
+
+def test_compose_answer_segments_concatenates_markdown_and_card() -> None:
+    """markdown 多段 + 富文本卡片段按文档序拼接（供应商卡片不再损失）。"""
+    segments = [
+        {"kind": "markdown", "cls": "qk-markdown", "text": "正文开头"},
+        {"kind": "widget", "cls": "supplier-rich-card", "text": "盛邦安全 DayDayMap 卡片"},
+        {"kind": "markdown", "cls": "qk-markdown", "text": "正文结尾"},
+    ]
+    text = tongyi_adapter._compose_answer_segments(segments)
+    assert text == "正文开头\n盛邦安全 DayDayMap 卡片\n正文结尾"
+
+
+def test_compose_answer_segments_filters_toolbar_noise() -> None:
+    """工具栏/按钮类卡片段丢弃：操作条类名、纯按钮短文本、过短段、非 dict 段。"""
+    segments = [
+        {"kind": "markdown", "cls": "qk-markdown", "text": "正文"},
+        {"kind": "widget", "cls": "answer-action-bar", "text": "复制 点赞 重新生成"},
+        {"kind": "widget", "cls": "some-card", "text": "分享"},
+        {"kind": "widget", "cls": "x", "text": "短"},
+        {"kind": "widget", "cls": "", "text": ""},
+        "garbage",
+        {"kind": "widget", "cls": "vendor-card", "text": "真正的供应商卡片内容"},
+    ]
+    text = tongyi_adapter._compose_answer_segments(segments)
+    assert text == "正文\n真正的供应商卡片内容"
+
+
+def test_extract_response_container_path_includes_card_segments() -> None:
+    """_extract_response 走 _ANSWER_EXTRACT_JS 容器路径：卡片段并入正文、
+    引用透传、尾部 UI 噪声仍裁剪。"""
+    page = _FakePage(messages=0)
+    page.answer_visible = True
+    page.extract_payload = {
+        "segments": [
+            {"kind": "markdown", "cls": "qk-markdown", "text": "正文一"},
+            {"kind": "widget", "cls": "supplier-card", "text": "供应商卡片：甲公司"},
+            {"kind": "markdown", "cls": "qk-markdown", "text": "正文二"},
+        ],
+        "refs": [{"url": "https://example.com/a", "title": "例", "sitename": None}],
+    }
+    text, refs = tongyi_adapter._extract_response(page)
+    assert text == "正文一\n供应商卡片：甲公司\n正文二"
+    assert refs == [{"url": "https://example.com/a", "title": "例", "sitename": None}]
+
+
+def test_extract_response_falls_back_to_selector_chain_without_js_payload() -> None:
+    """evaluate 产出非 dict（JS 异常/结构剧变）→ 回退旧猜测选择器链（.qk-markdown
+    已由 JS 路径覆盖，fake 走剩余候选时返回空）。"""
+    page = _FakePage(messages=0)
+    page.answer_visible = True
+    page.extract_payload = "js-broken"  # 非 dict：JS 路径跳过
+    # fake 的 locator 只对 .qk-markdown 出元素（JS 路径已覆盖，不在回退链内），
+    # 其余猜测候选 inner_text 为 body_text（空）→ 整体落空返回空串
+    text, refs = tongyi_adapter._extract_response(page)
+    assert text == "" and refs == []
+
+
+def test_collect_batch_dom_still_growing_after_stream_fails_honestly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """2026-08-07 截断案回归：CDP 判流完成但 DOM 仍持续增长（多阶段流生成段
+    走 WebSocket 的场景）→ DOM 稳定门不过 → 该题诚实 incomplete、后续题
+    aborted，绝不把截断答案当 live_valid。"""
+    page = _FakePage(messages=0)
+    page.answer_grows_forever = True  # 每次抽取文本追加后缀：DOM 永不静默
+    session = _make_session(tmp_path, monkeypatch, page)
+    specs = _batch_specs(2)
+
+    outcomes = session.collect_batch(specs, on_stage=lambda s: None)
+
+    assert [o.status for o in outcomes] == ["incomplete", "aborted"]
+    assert outcomes[0].error_type == "answer_capture_incomplete"
+    assert outcomes[0].error_message and "dom-still-growing" in outcomes[0].error_message
+    assert outcomes[0].answer is None
+    assert outcomes[1].error_type == "aborted_after_failure"
+    # 存证截图逐题区分（dom_unstable 后缀）
+    evidence = tmp_path / "evidence"
+    assert (evidence / f"{specs[0].file_stem}-dom_unstable.png").is_file()
+
+
+def test_collect_batch_stable_dom_after_stream_passes_settle_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """稳定门正常通过路径：流完成 + 文本静默 → 照常成功（回归防过度拦截）。"""
+    page = _FakePage(messages=0)
+    session = _make_session(tmp_path, monkeypatch, page)
+    outcomes = session.collect_batch(_batch_specs(1), on_stage=lambda s: None)
+    assert [o.status for o in outcomes] == ["ok"]
+    assert outcomes[0].answer is not None
+    assert outcomes[0].answer.answer_text == "这是答案"

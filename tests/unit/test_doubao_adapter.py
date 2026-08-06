@@ -1312,3 +1312,117 @@ async def test_run_doubao_batch_default_session_runs_in_thread(
     )
     assert seen["on_main_thread"] is False
     assert result.results[0].error_type == "aborted_after_failure"
+
+
+async def test_run_doubao_batch_marks_captcha_pause(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """captcha-assist-v1：撞码题（error_type=wall_captcha）→ 结果仍等长全占位，
+    并标注 captcha_pause(resume_index=撞码题下标) 供 workflow 挂起续跑。"""
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
+    monkeypatch.setenv("GEO_DOUBAO_PROFILE_DIR", str(tmp_path))
+    monkeypatch.setenv("GEO_DOUBAO_EVIDENCE_DIR", str(evidence))
+    wall_shot = evidence / "wall.png"
+    wall_shot.write_bytes(b"\x89PNG-fake")
+
+    class _CaptchaSession:
+        def collect_batch(
+            self,
+            items: list[doubao_adapter.DoubaoBatchItemSpec],
+            on_stage: Callable[[str], None],
+        ) -> list[doubao_adapter.DoubaoBatchItemOutcome]:
+            return [
+                doubao_adapter.DoubaoBatchItemOutcome(
+                    business_key=items[0].business_key,
+                    status="ok",
+                    answer=CollectedAnswer(
+                        answer_text="真实回答", references=[], screenshot_path=wall_shot
+                    ),
+                ),
+                doubao_adapter.DoubaoBatchItemOutcome(
+                    business_key=items[1].business_key,
+                    status="wall",
+                    error_type="wall_captcha",
+                    error_message="captcha challenge appeared post-send",
+                    evidence_path=wall_shot,
+                ),
+                doubao_adapter.DoubaoBatchItemOutcome(
+                    business_key=items[2].business_key,
+                    status="aborted",
+                    error_type="aborted_after_failure",
+                    error_message="not executed: batch stopped",
+                ),
+            ]
+
+    batch = doubao_adapter.CollectionBatchInput(
+        tenant_pub_id="tnt_test",
+        run_pub_id="run_test",
+        items=[_item(), _item(), _item()],
+    )
+    result = await doubao_adapter.run_doubao_batch(
+        batch,
+        session_factory=lambda config, evidence_dir, stem: _CaptchaSession(),
+        heartbeat=lambda p: None,
+    )
+    assert [r.status for r in result.results] == ["ok", "wall", "aborted"]
+    assert result.captcha_pause is not None
+    assert result.captcha_pause.resume_index == 1
+    assert result.captcha_pause.business_key == batch.items[1].business_key
+    assert result.captcha_pause.wall_type == "wall_captcha"
+    assert result.captcha_pause.evidence_ref == f"file://{wall_shot}"
+
+
+async def test_run_doubao_batch_session_level_captcha_marks_pause_at_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """session 级撞码（batch 开场即撞，一题未发）→ pause resume_index=0。"""
+    monkeypatch.setenv("GEO_DOUBAO_PROFILE_DIR", str(tmp_path))
+    monkeypatch.setenv("GEO_DOUBAO_EVIDENCE_DIR", str(tmp_path / "evidence"))
+
+    class _SessionCaptchaSession:
+        def collect_batch(
+            self,
+            items: list[doubao_adapter.DoubaoBatchItemSpec],
+            on_stage: Callable[[str], None],
+        ) -> list[doubao_adapter.DoubaoBatchItemOutcome]:
+            raise _WallError("wall_captcha", "captcha widget visible before input", None)
+
+    batch = doubao_adapter.CollectionBatchInput(
+        tenant_pub_id="tnt_test", run_pub_id="run_test", items=[_item(), _item()]
+    )
+    result = await doubao_adapter.run_doubao_batch(
+        batch,
+        session_factory=lambda config, evidence_dir, stem: _SessionCaptchaSession(),
+        heartbeat=lambda p: None,
+    )
+    assert [r.status for r in result.results] == ["wall", "wall"]
+    assert result.captcha_pause is not None
+    assert result.captcha_pause.resume_index == 0
+
+
+async def test_run_doubao_batch_non_captcha_wall_has_no_pause(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """登录墙等非撞码失败维持现行语义：不标注 pause（人工接管只管验证码）。"""
+    monkeypatch.setenv("GEO_DOUBAO_PROFILE_DIR", str(tmp_path))
+    monkeypatch.setenv("GEO_DOUBAO_EVIDENCE_DIR", str(tmp_path / "evidence"))
+
+    class _LoginWallSession:
+        def collect_batch(
+            self,
+            items: list[doubao_adapter.DoubaoBatchItemSpec],
+            on_stage: Callable[[str], None],
+        ) -> list[doubao_adapter.DoubaoBatchItemOutcome]:
+            raise _WallError("wall_login_required", "doubao login wall detected", None)
+
+    batch = doubao_adapter.CollectionBatchInput(
+        tenant_pub_id="tnt_test", run_pub_id="run_test", items=[_item()]
+    )
+    result = await doubao_adapter.run_doubao_batch(
+        batch,
+        session_factory=lambda config, evidence_dir, stem: _LoginWallSession(),
+        heartbeat=lambda p: None,
+    )
+    assert result.results[0].error_type == "wall_login_required"
+    assert result.captcha_pause is None

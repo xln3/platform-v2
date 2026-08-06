@@ -91,7 +91,6 @@ import structlog
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from domain.evidence.dlp import assert_secret_free
 from workflows.activities.browser_driver import load_sync_browser_driver
 from workflows.activities.collection import (
     CollectionBatchInput,
@@ -99,6 +98,7 @@ from workflows.activities.collection import (
     CollectionBatchResult,
     CollectionTaskInput,
     CollectionTaskResult,
+    batch_result_with_captcha_pause,
 )
 
 # profile 崩溃标记清理与豆包同一份实现（单一事实源，行为逐字一致）。
@@ -150,10 +150,17 @@ _SEND_SELECTORS: tuple[str, ...] = (
     "[class*='send-btn']",
 )
 
-# 「新对话」入口（GUESS：login-gated 未实测；命中第一个可见者即点，顺序即优先级。
-#  全部未命中时 _ensure_fresh_chat 回退导航 /chat——元宝 /chat 不带会话 id，
-#  导航即开全新会话，旧链每题冷启导航即依赖此行为）
+# 「新对话」入口（命中第一个可见者即点，顺序即优先级）。
+# 2026-08-07 headed live 校准（CDP attach yuanbao-tj 常驻浏览器，旧会话计数 4→0
+# 实证）：元宝无文字「新对话」按钮，新建入口 = 左上角第二个图标触发器
+# `div.yb-common-nav__trigger`（内嵌 `span.icon-yb-ic_newchat_20` iconfont，无文本
+# 无 aria-label；icon 语义类名是锚点）——:has 组合选择器实证命中切新。
+# 全部未命中时 _ensure_fresh_chat 回退导航 /chat——元宝 /chat 不带会话 id，
+# 导航即开全新会话（旧链每题冷启导航即依赖此行为）。
 _NEW_CHAT_SELECTORS: tuple[str, ...] = (
+    "div.yb-common-nav__trigger:has(span.icon-yb-ic_newchat_20)",
+    "span.icon-yb-ic_newchat_20",
+    "[class*='icon-yb-ic_newchat']",
     'a:has-text("新对话")',
     'button:has-text("新对话")',
     '[role="button"]:has-text("新对话")',
@@ -629,7 +636,7 @@ async def run_yuanbao_batch(
         failed=sum(1 for r in results if r.status != "ok"),
         stage=progress["stage"],
     )
-    return CollectionBatchResult(results=results)
+    return batch_result_with_captcha_pause(results)
 
 
 def _failure_batch_item(
@@ -640,18 +647,8 @@ def _failure_batch_item(
     error_message: str,
     evidence_path: Path | None,
 ) -> CollectionBatchItemResult:
-    """失败/未执行题 → CollectionBatchItemResult（含出界 DLP 自检）。"""
+    """失败/未执行题 → CollectionBatchItemResult。DLP 由 persist 层统一脱敏。"""
     screenshot_ref = f"file://{evidence_path}" if evidence_path is not None else None
-    try:
-        assert_secret_free(error_message)
-        if screenshot_ref:
-            assert_secret_free(screenshot_ref)
-    except ValueError as error:
-        raise ApplicationError(
-            "collection result rejected by DLP",
-            type="collection_result_dlp_rejected",
-            non_retryable=True,
-        ) from error
     return CollectionBatchItemResult(
         business_key=item.business_key,
         status=status,
@@ -768,16 +765,7 @@ def _task_result_from_collected(
     run_yuanbao_collection 与 batch per-item ok 映射共用。"""
     answer_text = _compose_answer_text(collected.answer_text, collected.references)
     screenshot_ref = f"file://{collected.screenshot_path}"
-    # 出界前 DLP 自检：persist 层对两字段 assert_secret_free，这里提前到同语义 fail-closed
-    try:
-        assert_secret_free(answer_text)
-        assert_secret_free(screenshot_ref)
-    except ValueError as error:
-        raise ApplicationError(
-            "collection result rejected by DLP",
-            type="collection_result_dlp_rejected",
-            non_retryable=True,
-        ) from error
+    # DLP 统一由 persist 层脱敏处理（单一权威边界，2026-08-06 起）。
     return CollectionTaskResult(
         business_key=item.business_key,
         answer_text=answer_text,

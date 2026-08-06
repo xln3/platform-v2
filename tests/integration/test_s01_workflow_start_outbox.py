@@ -194,13 +194,15 @@ def test_distinct_collection_results_serialize_run_completion() -> None:
             task_inputs[0],
         )
     with pytest.raises(ApplicationError, match="collection result rejected by DLP"):
+        # 原始采集原则（2026-08-06 拍板）：answer_text 等公开平台输出原文存储
+        # 零 DLP；DLP fail-closed 自检只守 screenshot_ref 等平台自产路径串。
         persist_collection_result(
             tenant,
             run_pub_id,
             CollectionTaskResult(
                 "business-secret",
+                "answer-secret",
                 "Authorization: Bearer forbidden-secret",
-                "screen-secret",
                 "accepted",
             ),
             CollectionTaskInput("business-secret", "query", "model", "region", "mode"),

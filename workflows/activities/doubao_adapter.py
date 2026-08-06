@@ -140,9 +140,9 @@ import structlog
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from domain.evidence.dlp import assert_secret_free
 from workflows.activities.browser_driver import load_sync_browser_driver
 from workflows.activities.collection import (
+    CaptchaPause,
     CollectionBatchInput,
     CollectionBatchItemResult,
     CollectionBatchResult,
@@ -641,6 +641,28 @@ async def collect_doubao_batch(batch: CollectionBatchInput) -> CollectionBatchRe
     )
 
 
+def _batch_result_with_pause(results: list[CollectionBatchItemResult]) -> CollectionBatchResult:
+    """等长结果 → CollectionBatchResult；首个 wall_captcha 题标注 captcha_pause。
+
+    captcha-assist-v1：撞码是可人工恢复的暂停点而非终局失败——workflow 见到
+    pause 会挂起等人工接管、从 resume_index 起重采；results 仍保持等长全占
+    位（未打补丁的旧 workflow 重放本结果，行为与今天完全一致）。非撞码失败
+    （登录墙/incomplete/toggle）不产生 pause，维持现行语义。
+    """
+    for index, result in enumerate(results):
+        if result.status == "wall" and result.error_type == "wall_captcha":
+            return CollectionBatchResult(
+                results=results,
+                captcha_pause=CaptchaPause(
+                    resume_index=index,
+                    business_key=result.business_key,
+                    wall_type=result.error_type,
+                    evidence_ref=result.screenshot_ref,
+                ),
+            )
+    return CollectionBatchResult(results=results)
+
+
 async def run_doubao_batch(
     batch: CollectionBatchInput,
     *,
@@ -725,10 +747,12 @@ async def run_doubao_batch(
             outcomes = _blocking()
     except _WallError as wall:
         # session 级墙（导航后登录墙/cloak）：一题未发，全题诚实记 wall。
+        # wall_captcha 同样经 _batch_result_with_pause 标注 resume_index=0——
+        # batch 开场即撞码（活性窗口外首发）也走人工接管续跑。
         evidence_suffix = f"; evidence={wall.evidence_path}" if wall.evidence_path else ""
         bound.info("doubao_batch_session_wall", wall_type=wall.wall_type, stage=progress["stage"])
-        return CollectionBatchResult(
-            results=[
+        return _batch_result_with_pause(
+            [
                 _failure_batch_item(
                     item,
                     status="wall",
@@ -780,7 +804,7 @@ async def run_doubao_batch(
         failed=sum(1 for r in results if r.status != "ok"),
         stage=progress["stage"],
     )
-    return CollectionBatchResult(results=results)
+    return _batch_result_with_pause(results)
 
 
 def _failure_batch_item(
@@ -791,18 +815,8 @@ def _failure_batch_item(
     error_message: str,
     evidence_path: Path | None,
 ) -> CollectionBatchItemResult:
-    """失败/未执行题 → CollectionBatchItemResult（含出界 DLP 自检）。"""
+    """失败/未执行题 → CollectionBatchItemResult。DLP 由 persist 层统一脱敏。"""
     screenshot_ref = f"file://{evidence_path}" if evidence_path is not None else None
-    try:
-        assert_secret_free(error_message)
-        if screenshot_ref:
-            assert_secret_free(screenshot_ref)
-    except ValueError as error:
-        raise ApplicationError(
-            "collection result rejected by DLP",
-            type="collection_result_dlp_rejected",
-            non_retryable=True,
-        ) from error
     return CollectionBatchItemResult(
         business_key=item.business_key,
         status=status,
@@ -948,16 +962,7 @@ def _task_result_from_collected(
                 source_url=_CHAT_URL,
             ),
         )
-    # 出界前 DLP 自检：persist 层对两字段 assert_secret_free，这里提前到同语义 fail-closed
-    try:
-        assert_secret_free(answer_text)
-        assert_secret_free(screenshot_ref)
-    except ValueError as error:
-        raise ApplicationError(
-            "collection result rejected by DLP",
-            type="collection_result_dlp_rejected",
-            non_retryable=True,
-        ) from error
+    # DLP 统一由 persist 层脱敏处理（单一权威边界，2026-08-06 起）。
     return CollectionTaskResult(
         business_key=item.business_key,
         answer_text=answer_text,

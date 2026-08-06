@@ -2,6 +2,7 @@ import json
 import mimetypes
 import re
 import uuid
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -113,14 +114,56 @@ class CollectionBatchInput:
 
 
 @dataclass
+class CaptchaPause:
+    """batch 内撞验证码的挂起请求。``resume_index`` = 撞码题在输入 items 里的
+    下标（该题结果即 ``results[resume_index]``，error_type=="wall_captcha"）。
+    evidence_ref 为存证截图 ref（file:// 形式，可空）。session_id 无关——
+    关联 id 由 assist activity 铸造后返回给 workflow。"""
+
+    resume_index: int
+    business_key: str
+    wall_type: str = "wall_captcha"
+    evidence_ref: str | None = None
+
+
+@dataclass
 class CollectionBatchResult:
     """batch 输出：结果列表与输入 items 等长同序（失败/未执行题也占位）。
 
     墙类失败不 raise——诚实记录在 per-item 结果里；仅配置类错误
     （adapter_not_configured/unsupported_mode）允许 raise。
+
+    ``captcha_pause``（captcha-assist-v1）：撞验证码时由 live 适配器标记，
+    ``results`` 仍保持等长（wall + aborted 全占位——未打补丁的旧 workflow
+    重放本结果行为与今天完全一致）；新 workflow 只落 ``resume_index`` 前
+    缀，挂起等人工接管后从 ``resume_index`` 起重采（撞码题本身重发）。
     """
 
     results: list[CollectionBatchItemResult] = field(default_factory=list)
+    captcha_pause: CaptchaPause | None = None
+
+
+def batch_result_with_captcha_pause(
+    results: list[CollectionBatchItemResult],
+) -> CollectionBatchResult:
+    """等长结果 → CollectionBatchResult；首个 wall_captcha 题标注 captcha_pause。
+
+    captcha-assist-v1：撞码是可人工恢复的暂停点而非终局失败——workflow 见到
+    pause 挂起等人工接管、从 resume_index 起重采；results 仍等长全占位（旧
+    workflow 重放行为不变）。非撞码失败不产生 pause。五平台 batch 统一出口。
+    """
+    for index, result in enumerate(results):
+        if result.status == "wall" and result.error_type == "wall_captcha":
+            return CollectionBatchResult(
+                results=results,
+                captcha_pause=CaptchaPause(
+                    resume_index=index,
+                    business_key=result.business_key,
+                    wall_type=result.error_type,
+                    evidence_ref=result.screenshot_ref,
+                ),
+            )
+    return CollectionBatchResult(results=results)
 
 
 @activity.defn(name="collect_doubao_batch")
@@ -136,6 +179,32 @@ async def collect_doubao_batch(batch: CollectionBatchInput) -> CollectionBatchRe
         type="adapter_not_configured",
         non_retryable=True,
     )
+
+
+def _make_fail_closed_batch(slug: str) -> Callable[..., Any]:
+    """生成与 collect_doubao_batch 同款的 fail-closed batch 默认实现（W8 五平台）。
+
+    workflow 按 slug 查 callable 派发（字符串名派发会把结果转成 dict 导致
+    workflow 任务无限重试——2026-08-06 实测坑），因此默认实现也必须是具名
+    callable；workers/main.py 按 GEO_COLLECTION_ADAPTER 门控替换为 live 实现。
+    """
+
+    @activity.defn(name=f"collect_{slug}_batch")
+    async def _stub(batch: CollectionBatchInput) -> CollectionBatchResult:
+        activity.heartbeat({"run_pub_id": batch.run_pub_id, "stage": "adapter_started"})
+        raise ApplicationError(
+            f"no live {slug} batch adapter is registered",
+            type="adapter_not_configured",
+            non_retryable=True,
+        )
+
+    return _stub
+
+
+collect_deepseek_batch = _make_fail_closed_batch("deepseek")
+collect_tongyi_batch = _make_fail_closed_batch("tongyi")
+collect_yiyan_batch = _make_fail_closed_batch("yiyan")
+collect_yuanbao_batch = _make_fail_closed_batch("yuanbao")
 
 
 @dataclass
@@ -177,7 +246,11 @@ _MAX_SEARCH_QUERIES = 200
 
 
 def _normalize_search_queries(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """平台真实检索词（W1）规范化：[{"query": str, "ordinal": int}]，上限 200 条。"""
+    """平台真实检索词（W1）规范化：[{"query": str, "ordinal": int}]，上限 200 条。
+
+    原始采集原则：平台输出是测量原料，**原文存储、不做任何脱敏**
+    （2026-08-06 用户拍板；DLP 只管会话侧秘密/intake 边界，不碰公开内容）。
+    """
     if len(items) > _MAX_SEARCH_QUERIES:
         raise ValueError("collection result has too many search queries")
     normalized: list[dict[str, Any]] = []
@@ -190,9 +263,7 @@ def _normalize_search_queries(items: list[dict[str, Any]]) -> list[dict[str, Any
             raise ValueError("collection search query text is invalid")
         if not isinstance(ordinal, int) or isinstance(ordinal, bool) or ordinal < 1:
             raise ValueError("collection search query ordinal is invalid")
-        query = query.strip()
-        assert_secret_free(query)
-        normalized.append({"query": query, "ordinal": ordinal})
+        normalized.append({"query": query.strip(), "ordinal": ordinal})
     return normalized
 
 
@@ -211,6 +282,7 @@ def _safe_http_url(value: str | None) -> str | None:
 
 
 def _normalize_citations(items: list[dict[str, Any]]) -> list[dict[str, str | None]]:
+    """引用规范化：结构校验（URL/长度/去重）；文本为公开内容，原文存储不脱敏。"""
     if len(items) > 100:
         raise ValueError("collection result has too many citations")
     normalized: list[dict[str, str | None]] = []
@@ -229,7 +301,6 @@ def _normalize_citations(items: list[dict[str, Any]]) -> list[dict[str, str | No
             if not isinstance(title, str) or not title.strip() or len(title) > 300:
                 raise ValueError("collection citation title is invalid")
             title = title.strip()
-            assert_secret_free(title)
         if cited_text is not None:
             if not isinstance(cited_text, str) or not cited_text.strip():
                 cited_text = None
@@ -237,7 +308,6 @@ def _normalize_citations(items: list[dict[str, Any]]) -> list[dict[str, str | No
                 cited_text = cited_text[:2_000]
             if cited_text:
                 cited_text = cited_text.strip()
-                assert_secret_free(cited_text)
         normalized.append({"url": url, "title": title, "cited_text": cited_text})
     return normalized
 
@@ -694,8 +764,12 @@ def mark_collection_run_terminal(
         if run is None:
             raise ApplicationError("collection run not found", type="run_not_found")
         # Completion written by persist_collection_result is already terminal;
-        # retries must not demote it. Cancellation/failure are likewise stable.
-        if run.state not in {"completed", "cancelled", "failed"}:
+        # retries must not demote it. completed_with_failures 同属 s04_0019 终态
+        # 词表（触发器 ck_collection_run_terminal_state 冻结），同样不得改写。
+        # 与触发器 ck_collection_run_terminal_state 词表严格对齐（含 skipped）：
+        # 词表不一致 = reconcile/收尾 UPDATE 反复撞 23514 毒循环（20260806 生产实证）。
+        terminal_states = {"completed", "completed_with_failures", "cancelled", "failed", "skipped"}
+        if run.state not in terminal_states:
             run.state = state
             run.error_code = error_code
         session.commit()
@@ -729,11 +803,19 @@ def persist_collection_result(
         assert isinstance(result, CollectionBatchItemResult)
         _persist_collection_failure(tenant_pub_id, run_pub_id, result, task_input, status)
         return
+    # 原始采集原则（2026-08-06 用户拍板）：answer_text/citations/search_queries
+    # 等公开平台输出是测量原料，原文存储、零 DLP；结构校验（URL/长度/形状）保留。
+    # screenshot_ref 是平台自产路径串（非公开内容），保持 fail-closed 自检。
     try:
-        if result.answer_text is not None:
-            assert_secret_free(result.answer_text)
         if result.screenshot_ref:
             assert_secret_free(result.screenshot_ref)
+    except ValueError as error:
+        raise ApplicationError(
+            "collection result rejected by DLP",
+            type="collection_result_dlp_rejected",
+            non_retryable=True,
+        ) from error
+    try:
         citations = _normalize_citations(list(getattr(result, "citations", []) or []))
         evidence = _normalize_evidence_refs(result)
         search_queries = _normalize_search_queries(
@@ -741,8 +823,8 @@ def persist_collection_result(
         )
     except ValueError as error:
         raise ApplicationError(
-            "collection result rejected by DLP",
-            type="collection_result_dlp_rejected",
+            f"collection result failed structural validation: {error}",
+            type="collection_result_invalid",
             non_retryable=True,
         ) from error
     with WorkerSessionLocal() as session:
@@ -880,9 +962,10 @@ def _persist_collection_failure(
     """
     error_type = (result.error_type or "unknown_failure")[:40]
     error_message = (result.error_message or "")[:1_000]
+    # error_message 可能嵌入页面文本——属原始采集材料，原文存储（零 DLP）；
+    # error_type/截图 ref 是平台自产词表与路径，保持 fail-closed 自检。
     try:
         assert_secret_free(error_type)
-        assert_secret_free(error_message)
         if result.screenshot_ref:
             assert_secret_free(result.screenshot_ref)
     except ValueError as error:

@@ -7,13 +7,28 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError, CancelledError
 
 with workflow.unsafe.imports_passed_through():
+    from collections.abc import Callable, Coroutine
+    from typing import Any
+
+    from workflows.activities.captcha_assist import (
+        CaptchaAssistInput,
+        CaptchaAssistStopInput,
+        captcha_assist_start,
+        captcha_assist_stop,
+    )
     from workflows.activities.collection import (
+        CaptchaPause,
         CollectionBatchInput,
         CollectionBatchItemResult,
+        CollectionBatchResult,
         CollectionTaskInput,
         CollectionTaskResult,
+        collect_deepseek_batch,
         collect_doubao_batch,
+        collect_tongyi_batch,
         collect_with_adapter,
+        collect_yiyan_batch,
+        collect_yuanbao_batch,
         mark_collection_run_terminal,
         persist_collection_result,
         prepare_collection_session,
@@ -87,6 +102,11 @@ def inter_task_delay_seconds(rand: float, index: int, min_s: float, max_s: float
 # 封顶 120——一个常驻会话不宜无界拖长（heartbeat 30s 照旧）。
 DOUBAO_BATCH_MAX_TIMEOUT_MINUTES = 120.0
 
+# captcha-assist-v1：撞码挂起等人工接管的上限与单 run（单 generation）挂起次数
+# 护栏。等不到人工 ≠ 链路故障——超时/超限一律回退现行 wall+abort 语义。
+CAPTCHA_ASSIST_WAIT_TIMEOUT = timedelta(minutes=60)
+MAX_CAPTCHA_PAUSES_PER_RUN = 3
+
 
 def doubao_batch_timeout_minutes(item_count: int, per_item_minutes: float) -> float:
     """batch 超时公式：min(上限, 题数 × per-item 预算)。"""
@@ -112,9 +132,20 @@ def plan_collection_segments(
 
 
 # batch 会话复用已推广到全部 live 平台（W8，2026-08-06）：每段按 adapter slug
-# 动态调用 ``collect_<slug>_batch`` activity。不在词表的 slug（如测试用
-# "fixed"）保持 per-task 老路径。
+# 经 BATCH_ACTIVITY_BY_SLUG 的具名 callable 派发（**不用字符串名派发**——字符串
+# 派发的结果只会转成 dict，workflow 任务随即异常并被 Temporal 无限重试，表现
+# 为静默挂起，2026-08-06 实测坑）；不在词表的 slug（如测试用 "fixed"）保持
+# per-task 老路径。
 BATCH_CAPABLE_ADAPTERS = frozenset({"doubao", "deepseek", "tongyi", "yiyan", "yuanbao"})
+BATCH_ACTIVITY_BY_SLUG: dict[
+    str, Callable[[CollectionBatchInput], Coroutine[Any, Any, CollectionBatchResult]]
+] = {
+    "doubao": collect_doubao_batch,
+    "deepseek": collect_deepseek_batch,
+    "tongyi": collect_tongyi_batch,
+    "yiyan": collect_yiyan_batch,
+    "yuanbao": collect_yuanbao_batch,
+}
 
 
 def plan_adapter_segments(
@@ -152,6 +183,10 @@ class GeoCollectionWorkflow:
         self._intervention_completed = False
         self._intervention_nonce: str | None = None
         self._completed: list[CollectionTaskResult] = []
+        # captcha-assist-v1：撞码挂起状态。session 关联 id 由 assist activity
+        # 铸造并返回，signal 按它对准具体哪一次挂起（连撞时各次互不串扰）。
+        self._captcha_solved_session: str | None = None
+        self._captcha_pauses = 0
 
     @workflow.signal
     async def pause(self) -> None:
@@ -171,6 +206,11 @@ class GeoCollectionWorkflow:
             return
         self._intervention_nonce = nonce
         self._intervention_completed = True
+
+    @workflow.signal
+    async def captcha_solved(self, session_id: str) -> None:
+        """手机端确认验证码已解决（API assist done → outbox → 本 signal）。"""
+        self._captcha_solved_session = session_id
 
     @workflow.query
     def status(self) -> GeoCollectionStatus:
@@ -205,6 +245,103 @@ class GeoCollectionWorkflow:
             except TimeoutError:
                 pass  # 分片到点未取消——继续下一片
             remaining -= 15.0
+
+    async def _persist_batch_results(
+        self,
+        data: GeoCollectionInput,
+        items: list[CollectionTaskInput],
+        results: list[CollectionBatchItemResult],
+    ) -> list[str]:
+        """逐题落库 batch 结果并记账 completed；返回 failures 描述串列表。
+
+        items 与 results 必须等长同序；results 允许是 items 的前缀（captcha_pause
+        时只落 resume_index 之前的题），超长即 adapter 契约违背（fail loud）。"""
+        if len(results) > len(items):
+            raise ApplicationError(
+                f"batch results ({len(results)}) longer than items ({len(items)})",
+                type="batch_outcome_contract_violation",
+                non_retryable=True,
+            )
+        failures: list[str] = []
+        for item, item_result in zip(items[: len(results)], results, strict=True):
+            if item_result.status == "ok":
+                self._completed.append(task_result_from_batch_item(item_result))
+            else:
+                failures.append(
+                    f"{item.business_key}:{item_result.error_type or item_result.status}"
+                )
+            if data.persist_results:
+                await workflow.execute_activity(
+                    persist_collection_result,
+                    args=[data.tenant_pub_id, data.run_pub_id, item_result, item],
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RetryPolicy(maximum_attempts=10),
+                )
+        return failures
+
+    async def _captcha_intervention(
+        self, data: GeoCollectionInput, slug: str, pause: CaptchaPause
+    ) -> str:
+        """撞码挂起：起 assist 接管会话 + 等人工解决 signal。
+
+        返回 "resumed"（人工已解，续跑）/ "fallback"（超时/超限/基建不可用，
+        回退现行 wall+abort 语义）/ "cancelled"。assist 侧一切故障都只降级不
+        阻断采集——撞码接管的代价绝不允许超过撞码本身。
+        """
+        self._captcha_pauses += 1
+        if self._captcha_pauses > MAX_CAPTCHA_PAUSES_PER_RUN:
+            workflow.logger.warning(
+                "captcha pause limit (%d/run) exceeded; falling back to wall+abort",
+                MAX_CAPTCHA_PAUSES_PER_RUN,
+            )
+            return "fallback"
+        try:
+            started = await workflow.execute_activity(
+                captcha_assist_start,
+                CaptchaAssistInput(
+                    tenant_pub_id=data.tenant_pub_id,
+                    run_pub_id=data.run_pub_id,
+                    platform=slug,
+                    business_key=pause.business_key,
+                    evidence_ref=pause.evidence_ref,
+                ),
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(
+                    initial_interval=timedelta(seconds=1),
+                    maximum_interval=timedelta(seconds=10),
+                    maximum_attempts=2,
+                    non_retryable_error_types=[
+                        "assist_no_resident_browser",
+                        "assist_not_configured",
+                    ],
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001 — assist 基建不可用不阻断采集
+            workflow.logger.warning("captcha_assist_start failed: %r; falling back", exc)
+            return "fallback"
+        solved = False
+        try:
+            await workflow.wait_condition(
+                lambda: self._captcha_solved_session == started.session_id or self._cancelled,
+                timeout=CAPTCHA_ASSIST_WAIT_TIMEOUT,
+            )
+            solved = self._captcha_solved_session == started.session_id
+        except TimeoutError:
+            solved = False  # 60 分钟无人接管——回退，挂起时长绝不无界
+        try:
+            await workflow.execute_activity(
+                captcha_assist_stop,
+                CaptchaAssistStopInput(
+                    run_pub_id=data.run_pub_id, session_id=started.session_id
+                ),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        except Exception as exc:  # noqa: BLE001 — 注册表 TTL 自燃兜底，停桥失败不阻断续跑
+            workflow.logger.warning("captcha_assist_stop failed: %r", exc)
+        if self._cancelled:
+            return "cancelled"
+        return "resumed" if solved else "fallback"
 
     def _continuation_input(self, data: GeoCollectionInput, processed: int) -> GeoCollectionInput:
         return GeoCollectionInput(
@@ -324,9 +461,9 @@ class GeoCollectionWorkflow:
         self, data: GeoCollectionInput
     ) -> GeoCollectionResult | None:
         """adapter-batch-collect-v1 新路径（W8）：所有 live 平台的连续同 adapter
-        段合成一个 batch activity（run 级常驻浏览器会话），动态名
-        ``collect_<slug>_batch`` 分发；非 batch 词表 slug（如测试 "fixed"）
-        保持 per-task 老调用。返回非 None 表示已提前终止（cancelled）。"""
+        段合成一个 batch activity（run 级常驻浏览器会话），经
+        BATCH_ACTIVITY_BY_SLUG 具名 callable 分发；非 batch 词表 slug（如测试
+        "fixed"）保持 per-task 老调用。返回非 None 表示已提前终止（cancelled）。"""
         processed = 0
         for slug, segment_items in plan_adapter_segments(data.tasks):
             if slug in BATCH_CAPABLE_ADAPTERS:
@@ -336,54 +473,92 @@ class GeoCollectionWorkflow:
                 await self._inter_task_pacing(data, processed)
                 if self._cancelled:
                     return GeoCollectionResult(state="cancelled", completed=self._completed)
-                batch_output = await workflow.execute_activity(
-                    f"collect_{slug}_batch",
-                    CollectionBatchInput(
-                        tenant_pub_id=data.tenant_pub_id,
-                        run_pub_id=data.run_pub_id,
-                        items=segment_items,
-                    ),
-                    start_to_close_timeout=timedelta(
-                        minutes=doubao_batch_timeout_minutes(
-                            len(segment_items), data.activity_timeout_minutes
-                        )
-                    ),
-                    heartbeat_timeout=timedelta(seconds=30),
-                    retry_policy=RetryPolicy(
-                        initial_interval=timedelta(seconds=1),
-                        maximum_interval=timedelta(seconds=30),
-                        maximum_attempts=2,
-                        non_retryable_error_types=[
-                            "adapter_not_configured",
-                            "unsupported_mode",
-                            "batch_outcome_contract_violation",
-                        ],
-                    ),
-                )
-                failures: list[str] = []
-                for item, item_result in zip(segment_items, batch_output.results, strict=True):
-                    if item_result.status == "ok":
-                        self._completed.append(task_result_from_batch_item(item_result))
-                    else:
-                        failures.append(
-                            f"{item.business_key}:{item_result.error_type or item_result.status}"
-                        )
-                    if data.persist_results:
-                        await workflow.execute_activity(
-                            persist_collection_result,
-                            args=[data.tenant_pub_id, data.run_pub_id, item_result, item],
-                            start_to_close_timeout=timedelta(seconds=30),
-                            retry_policy=RetryPolicy(maximum_attempts=10),
-                        )
-                    processed += 1
-                if failures:
-                    # 真人撞墙后会停下：失败/未执行题已诚实落库（含 aborted），
-                    # run 终态词汇与 per-task 时代墙失败一致（failed），绝不硬闯。
-                    raise ApplicationError(
-                        f"{slug} batch stopped after item failure(s): " + ", ".join(failures),
-                        type=f"{slug}_batch_item_failed",
-                        non_retryable=True,
+                # captcha-assist-v1：撞码挂起→人工接管→断点续跑。remaining 随续跑
+                # 截短重发（撞码题本身重采）；无撞码时循环一次即出，行为同旧路径。
+                remaining_items = segment_items
+                while remaining_items:
+                    batch_output: CollectionBatchResult = await workflow.execute_activity(
+                        BATCH_ACTIVITY_BY_SLUG[slug],
+                        CollectionBatchInput(
+                            tenant_pub_id=data.tenant_pub_id,
+                            run_pub_id=data.run_pub_id,
+                            items=remaining_items,
+                        ),
+                        start_to_close_timeout=timedelta(
+                            minutes=doubao_batch_timeout_minutes(
+                                len(remaining_items), data.activity_timeout_minutes
+                            )
+                        ),
+                        heartbeat_timeout=timedelta(seconds=30),
+                        retry_policy=RetryPolicy(
+                            initial_interval=timedelta(seconds=1),
+                            maximum_interval=timedelta(seconds=30),
+                            maximum_attempts=2,
+                            non_retryable_error_types=[
+                                "adapter_not_configured",
+                                "unsupported_mode",
+                                "batch_outcome_contract_violation",
+                            ],
+                        ),
                     )
+                    pause = batch_output.captcha_pause
+                    if not workflow.patched("captcha-assist-v1") or slug != "doubao":
+                        # 未打补丁的历史重放走旧语义；pause 只由 doubao live 适配器
+                        # 产生，其余词表 adapter 永不标注。
+                        pause = None
+                    if pause is not None and not (
+                        0 <= pause.resume_index < len(remaining_items)
+                        and len(batch_output.results) == len(remaining_items)
+                    ):
+                        # adapter 契约违背：不当 pause 处理，按旧语义全量落库。
+                        workflow.logger.warning(
+                            "ignoring malformed captcha_pause "
+                            "(resume_index=%d, items=%d, results=%d)",
+                            pause.resume_index,
+                            len(remaining_items),
+                            len(batch_output.results),
+                        )
+                        pause = None
+                    prefix = (
+                        batch_output.results[: pause.resume_index]
+                        if pause
+                        else batch_output.results
+                    )
+                    failures = await self._persist_batch_results(data, remaining_items, prefix)
+                    processed += len(prefix)
+                    if pause is None:
+                        if failures:
+                            # 题级失败是数据不是工作流故障：失败/未执行题已诚实落库
+                            # （含 aborted），run 终态由 persist 侧 _derive_run_state 推导
+                            # 为 completed_with_failures（s04_0019 触发器词表）；继续走完
+                            # 分析扇出与侧车，ok 题照常进分析——绝不硬闯、绝不编造。
+                            workflow.logger.warning(
+                                "%s batch finished with item failure(s): %s",
+                                slug,
+                                ", ".join(failures),
+                            )
+                        break
+                    outcome = await self._captcha_intervention(data, slug, pause)
+                    if outcome == "cancelled":
+                        return GeoCollectionResult(state="cancelled", completed=self._completed)
+                    if outcome == "resumed":
+                        # 人工已解围：从撞码题起重采（本题重发，余题照旧）。
+                        remaining_items = remaining_items[pause.resume_index :]
+                        continue
+                    # fallback：等不到人工——撞码题 wall + 余题 aborted 按现行
+                    # 语义全量落库，run 终态推导与旧路径一致。
+                    rest_failures = await self._persist_batch_results(
+                        data,
+                        remaining_items[pause.resume_index :],
+                        batch_output.results[pause.resume_index :],
+                    )
+                    processed += len(batch_output.results) - pause.resume_index
+                    workflow.logger.warning(
+                        "%s captcha pause unresolved; wall+abort persisted: %s",
+                        slug,
+                        ", ".join(failures + rest_failures),
+                    )
+                    break
                 if processed >= data.history_batch_size and processed < len(data.tasks):
                     workflow.continue_as_new(self._continuation_input(data, processed))
             else:

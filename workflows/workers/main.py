@@ -1,23 +1,26 @@
 import asyncio
 import os
-from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 
 import structlog
 from geo_platform.config import get_settings
 from geo_platform.logging import configure_logging
 from geo_platform.observability import configure_tracing
-from temporalio import activity
 from temporalio.client import Client
 from temporalio.contrib.opentelemetry import TracingInterceptor
-from temporalio.exceptions import ApplicationError
 from temporalio.worker import Worker
 
+from workflows.activities.captcha_assist import (
+    captcha_assist_start,
+    captcha_assist_stop,
+)
 from workflows.activities.collection import (
-    CollectionBatchInput,
-    CollectionBatchResult,
+    collect_deepseek_batch,
     collect_doubao_batch,
+    collect_tongyi_batch,
     collect_with_adapter,
+    collect_yiyan_batch,
+    collect_yuanbao_batch,
     finalize_account_revocation,
     mark_collection_run_terminal,
     persist_collection_result,
@@ -45,33 +48,19 @@ from workflows.definitions.session import (
     PlatformSessionLifecycleWorkflow,
 )
 
-
 # 采集适配器注册门（见 docs/contract-gaps/S01-003-doubao-live-adapter-handoff.md）。
 # 默认（GEO_COLLECTION_ADAPTER 未设置）保持 collection.py 原 fail-closed 实现不动；
 # "doubao" = 豆包单平台直注册；"multi" = platform_registry 五平台 dispatcher（按
 # CollectionTaskInput.adapter 路由，ADR-0003 后生产接线）。
-# batch 会话复用 activity（collect_<slug>_batch，W8 起五平台）：doubao/multi 注册
-# live 实现；默认与其他模式注册 fail-closed stub（诚实 fast-fail，杜绝未注册
-# activity 被 Temporal 无限重试）。
-def _fail_closed_batch(slug: str) -> Callable[..., object]:
-    @activity.defn(name=f"collect_{slug}_batch")
-    async def _stub(batch: CollectionBatchInput) -> CollectionBatchResult:
-        activity.heartbeat({"run_pub_id": batch.run_pub_id, "stage": "adapter_started"})
-        raise ApplicationError(
-            f"no live {slug} batch adapter is registered",
-            type="adapter_not_configured",
-            non_retryable=True,
-        )
-
-    return _stub
-
-
+# batch 会话复用 activity（collect_<slug>_batch，W8 起五平台）：默认= collection.py
+# 的 fail-closed 实现（诚实 fast-fail，杜绝未注册 activity 被 Temporal 无限重试）；
+# doubao/multi 模式按门控替换为 live 实现。
 _collect_with_adapter_impl = collect_with_adapter
 _collect_doubao_batch_impl = collect_doubao_batch
-_collect_deepseek_batch_impl = _fail_closed_batch("deepseek")
-_collect_tongyi_batch_impl = _fail_closed_batch("tongyi")
-_collect_yiyan_batch_impl = _fail_closed_batch("yiyan")
-_collect_yuanbao_batch_impl = _fail_closed_batch("yuanbao")
+_collect_deepseek_batch_impl = collect_deepseek_batch
+_collect_tongyi_batch_impl = collect_tongyi_batch
+_collect_yiyan_batch_impl = collect_yiyan_batch
+_collect_yuanbao_batch_impl = collect_yuanbao_batch
 _adapter_mode = os.environ.get("GEO_COLLECTION_ADAPTER", "").strip()
 if _adapter_mode == "doubao":
     from workflows.activities.doubao_adapter import (
@@ -149,6 +138,8 @@ async def run_worker() -> None:
                 annotate_post_snapshot,
                 audit_run_sources,
                 begin_post_analysis_task,
+                captcha_assist_start,
+                captcha_assist_stop,
                 capture_own_site_snapshots,
                 fetch_post_snapshot,
                 fetch_run_sources,

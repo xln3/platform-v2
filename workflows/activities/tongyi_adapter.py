@@ -32,8 +32,11 @@
   登录墙/实名墙 → ``wall_login_required`` non_retryable；验证码（阿里滑块等）→
   ``wall_captcha`` non_retryable；发送墙/限流 → ``wall_send`` non_retryable。
 - 成功判据（零合成）：提交被接受（输入框清空）且流式结束（CDP finished 或
-  DOM 静默兜底成立）且正文非空且不含墙特征——缺一都不得返回成功。
-  流截断/空答案/无流且 DOM 不静默 → ``answer_capture_incomplete``（可重试的诚实失败）。
+  DOM 静默兜底成立）且 **DOM 稳定门通过**（complete 类或文本静默 2.5s，
+  2026-08-07 起——CDP 流完成不等于渲染完成）且正文非空且不含墙特征——
+  缺一都不得返回成功。
+  流截断/空答案/无流且 DOM 不静默/流完后 DOM 仍增长 → ``answer_capture_incomplete``
+  （可重试的诚实失败）。
 
 拟人化口径（2026-08-06 起，与 doubao 逐点对齐——自动化交互序列本身即指纹）：
 
@@ -49,9 +52,9 @@
 
 - await_input 后 ``_ensure_fresh_chat`` 验证：composer 为空（识别 qianwen
   占位符「\\ufeff向千问提问」）且页面无已存在消息节点 → 放行；否则优先点
-  「新对话」类按钮（候选选择器 2026-08-06 起为结构候选，未 headed live 校准），
-  仍不新则导航回聊天首页兜底；最终验证不过 → ``_IncompleteCapture`` 诚实失败
-  （可重试），绝不静默沿用旧会话。
+  「新对话」类按钮（首选 ``button:has-text("新建对话")`` 已于 2026-08-07
+  headed live 校准实证命中），仍不新则导航回聊天首页兜底；最终验证不过 →
+  ``_IncompleteCapture`` 诚实失败（可重试），绝不静默沿用旧会话。
 
 优雅关闭（profile 崩溃标记根治，launch 路径）：
 
@@ -96,10 +99,22 @@ run 级会话复用（2026-08-06 起，``collect_tongyi_batch``，治本反风�
 - 2026-07-27 live 冒烟通过：游客通道真实查询「你好，请用一句话介绍你自己」→
   真实回答 33 字，quality_state=live_valid（证据
   runtime/adapter-evidence/tongyi/tongyi-smoke-live-1-a1.png）。
-- 2026-08-06 batch 化新增（**未 live 校准**）：「新对话」入口候选选择器
-  ``_NEW_CHAT_SELECTORS`` 与消息节点计数探针 ``_CHAT_MESSAGE_COUNT_JS``
-  （基于已实证的 qk-markdown/answer-common-card 类）——点不中有导航兜底，
-  绝不静默沿用旧会话。
+- 2026-08-06 batch 化新增：「新对话」入口候选选择器 ``_NEW_CHAT_SELECTORS``
+  与消息节点计数探针 ``_CHAT_MESSAGE_COUNT_JS``（基于已实证的
+  qk-markdown/answer-common-card 类）——点不中有导航兜底，绝不静默沿用旧会话。
+- 2026-08-07 「新建对话」按钮 headed live 校准（CDP attach tongyi-bj 常驻浏览器
+  探针 dump）：侧边栏新建入口 = ``<button>新建对话</button>``（无 aria-label），
+  ``button:has-text("新建对话")`` 实证命中并真实切到新会话——已提为首选候选。
+- 2026-08-07 答案截断根因实证（五平台联合 run 通义仅 215 字案）：完整答案截图
+  显示捕获时正文仍在流式增长（截在句中）。根因 = CDP 判「流完成」即抽取，未等
+  DOM 稳定（多阶段流的生成段可能走 WebSocket、CDP 只看到检索流）。修复 =
+  流完成后一律过 DOM 稳定门（``_DOM_SETTLE_AFTER_STREAM_S``），不过且有文本 →
+  ``answer_capture_incomplete`` 诚实失败。当日三题复测（含卡片触发题）：答案均
+  完整渲染在 ``.qk-markdown`` 内（1204-1419 字），未复现独立挂件卡片。
+- 2026-08-07 容器级抽取：``_ANSWER_EXTRACT_JS`` 按文档序走查最后一个
+  ``.answer-common-card`` 的直接子节点——markdown 段（可多段）+ 非 markdown
+  富文本卡片段（供应商卡片类挂件，Python 侧过滤工具栏/按钮噪声后拼接）；无容器
+  时兜底页面最后一个 .qk-markdown，再不行回退旧猜测选择器链。
 """
 
 from __future__ import annotations
@@ -121,7 +136,6 @@ import structlog
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from domain.evidence.dlp import assert_secret_free
 from workflows.activities.browser_driver import load_sync_browser_driver
 from workflows.activities.collection import (
     CollectionBatchInput,
@@ -129,6 +143,7 @@ from workflows.activities.collection import (
     CollectionBatchResult,
     CollectionTaskInput,
     CollectionTaskResult,
+    batch_result_with_captcha_pause,
 )
 from workflows.activities.human_like import (
     human_click,
@@ -150,10 +165,19 @@ _DEFAULT_EVIDENCE_DIR = (
 )
 _HEARTBEAT_INTERVAL_S = 10.0  # workflow heartbeat_timeout=30s，泵频 ≤15s 硬约束
 _NAV_TIMEOUT_MS = 25_000
-_CHAT_TIMEOUT_S = 120.0  # normal 模式流式完成预算（workflow 总预算 5 分钟）
+# 2026-08-07 live 校准：千问深搜流（"检索到 N 篇资料"→再生成）单题可超 2 分钟，
+# 120s 预算会在生成中段被掐（导航离开还会杀死服务端流）——放宽到 300s，
+# 仍在 workflow 单题 15min 预算内。完成判定（saw_text+静默/complete 类）不变。
+_CHAT_TIMEOUT_S = 300.0  # normal 模式流式完成预算
+# 2026-08-07 live 实证（215 字截断案）：CDP 判「流完成」时正文可能仍在增长
+# （多阶段流的生成段走 WebSocket / React 渲染滞后于流关闭）——流完成后必须再过
+# DOM 稳定门：complete 类或文本静默 2.5s 才算真完成；60s 仍不稳 → 诚实失败。
+_DOM_SETTLE_AFTER_STREAM_S = 60.0
 
-_CHAT_URL = "https://www.tongyi.com/"
-_FALLBACK_URL = "https://www.qianwen.com/"
+# 2026-08-07 live 校准：通义已更名千问，主域 qianwen.com；tongyi.com 301 跳转
+# 白白吃掉首轮导航预算（代理 RTT~1.3s 下 await_input 15s 不够）——主从互换。
+_CHAT_URL = "https://www.qianwen.com/"
+_FALLBACK_URL = "https://www.tongyi.com/"
 
 _USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -187,13 +211,15 @@ _ASSISTANT_SELECTORS: tuple[str, ...] = (
 _ANSWER_COMPLETE_SELECTOR = ".qk-markdown-complete"
 
 # 「新对话」入口候选（fresh-chat 纪律；命中第一个可见者即点，顺序即优先级）。
-# 2026-08-06 batch 化引入：以下为结构候选（qianwen 侧边栏新建会话按钮未 headed
-# live 校准）——点不中时由「导航回聊天首页」兜底保证新会话，绝不静默沿用旧会话。
+# 2026-08-07 headed live 校准（CDP attach 常驻浏览器 tongyi-bj，探针 dump 实证）：
+# 侧边栏新建入口 = `<button>新建对话</button>`（visible，y=60 h=36，无 aria-label），
+# `button:has-text("新建对话")` 一击即中——提为首选；其余为结构候选兜底，
+# 点不中时由「导航回聊天首页」兜底保证新会话，绝不静默沿用旧会话。
 _NEW_CHAT_SELECTORS: tuple[str, ...] = (
-    '[aria-label*="新对话"]',
-    '[aria-label*="新建对话"]',
-    'button:has-text("新对话")',
     'button:has-text("新建对话")',
+    '[aria-label*="新建对话"]',
+    '[aria-label*="新对话"]',
+    'button:has-text("新对话")',
     '[role="button"]:has-text("新对话")',
     'a:has-text("新对话")',
     '[class*="new-chat"]',
@@ -698,7 +724,7 @@ async def run_tongyi_batch(
         failed=sum(1 for r in results if r.status != "ok"),
         stage=progress["stage"],
     )
-    return CollectionBatchResult(results=results)
+    return batch_result_with_captcha_pause(results)
 
 
 def _failure_batch_item(
@@ -709,18 +735,8 @@ def _failure_batch_item(
     error_message: str,
     evidence_path: Path | None,
 ) -> CollectionBatchItemResult:
-    """失败/未执行题 → CollectionBatchItemResult（含出界 DLP 自检）。"""
+    """失败/未执行题 → CollectionBatchItemResult。DLP 由 persist 层统一脱敏。"""
     screenshot_ref = f"file://{evidence_path}" if evidence_path is not None else None
-    try:
-        assert_secret_free(error_message)
-        if screenshot_ref:
-            assert_secret_free(screenshot_ref)
-    except ValueError as error:
-        raise ApplicationError(
-            "collection result rejected by DLP",
-            type="collection_result_dlp_rejected",
-            non_retryable=True,
-        ) from error
     return CollectionBatchItemResult(
         business_key=item.business_key,
         status=status,
@@ -843,16 +859,7 @@ def _task_result_from_collected(
     run_tongyi_collection 与 batch per-item ok 映射共用。"""
     answer_text = _compose_answer_text(collected.answer_text, collected.references)
     screenshot_ref = f"file://{collected.screenshot_path}"
-    # 出界前 DLP 自检：persist 层对两字段 assert_secret_free，这里提前到同语义 fail-closed
-    try:
-        assert_secret_free(answer_text)
-        assert_secret_free(screenshot_ref)
-    except ValueError as error:
-        raise ApplicationError(
-            "collection result rejected by DLP",
-            type="collection_result_dlp_rejected",
-            non_retryable=True,
-        ) from error
+    # DLP 统一由 persist 层脱敏处理（单一权威边界，2026-08-06 起）。
     return CollectionTaskResult(
         business_key=item.business_key,
         answer_text=answer_text,
@@ -1162,7 +1169,7 @@ class _PlaywrightTongyiSession:
                 # 墙/失败存证截图：batch 内按 per-item stem 命名（逐题区分）。
                 return self._shot(page, suffix, stem=spec.file_stem)
 
-            input_loc = _wait_for_input(page, timeout_ms=15_000)
+            input_loc = _wait_for_input(page, timeout_ms=30_000)
             if input_loc is None:
                 hit = _captcha_hit(page)
                 if hit:
@@ -1271,9 +1278,34 @@ class _PlaywrightTongyiSession:
                         "DOM stability confirmed completion — failing honestly",
                         _shot("no_stream"),
                     )
+            else:
+                # 2026-08-07 硬化（215 字截断案）：CDP 判「流完成」≠ 渲染完成——
+                # 多阶段流的生成段可能走 WebSocket / React 渲染滞后，旧口径流一完
+                # 就抽取，实证截在正文中间（截图光标仍在流式）。流完成后一律再过
+                # DOM 稳定门（complete 类快走 / 文本静默 2.5s）。
+                meta["dom_settle"] = _wait_dom_quiet(
+                    page, quiet_s=2.5, timeout_s=_DOM_SETTLE_AFTER_STREAM_S
+                )
+                if not meta["dom_settle"].get("quiet"):
+                    probe_text, _probe_refs = _extract_response(page)
+                    if probe_text:
+                        raise _IncompleteCapture(
+                            "stream-finished-but-dom-still-growing: CDP stream "
+                            "completed but answer DOM kept changing past the settle "
+                            "budget — answer would be truncated; failing honestly",
+                            _shot("dom_unstable"),
+                        )
+                    # 文本始终为空：落入下方既有空答诊断（notices/墙/诚实失败）。
 
             on_stage("answer_extract")
             answer_text, references = _extract_response(page)
+            if not answer_text and stream_finished:
+                # SSE 先完、DOM 后渲（React 渲染滞后于流关闭）：给内容宽限窗，
+                # 仍空再走既有 notices/诚实失败判定（绝不把空答当成功）。
+                grace_deadline = time.monotonic() + 15.0
+                while not answer_text and time.monotonic() < grace_deadline:
+                    page.wait_for_timeout(500)
+                    answer_text, references = _extract_response(page)
             on_stage("answer_extracted")
 
             if not answer_text:
@@ -1397,8 +1429,15 @@ class _EventStreamCapture:
         appearance_timeout_s: float,
         timeout_s: float,
         dom_settle_s: float = 2.0,
+        stream_settle_s: float = 5.0,
     ) -> dict[str, Any]:
-        """两段等待：先等流出现，再等 loadingFinished/Failed，最后 DOM settle。"""
+        """两段等待：先等流出现，再等**最新一条**流 loadingFinished/Failed 且
+        settle 窗内无新流，最后 DOM settle。
+
+        2026-08-07 live 校准：千问深搜是多阶段流（检索流"检索到 N 篇资料"先完、
+        生成流后完），旧口径盯第一条流导致答案未渲染就抽取（空答误报
+        answer_capture_incomplete）——以最新流为准。
+        """
         t0 = time.monotonic()
         appear_deadline = t0 + appearance_timeout_s
         overall_deadline = t0 + timeout_s
@@ -1416,16 +1455,25 @@ class _EventStreamCapture:
                 "bytes_received": 0,
                 "elapsed_ms": int((time.monotonic() - t0) * 1000),
             }
+        last_new_at = time.monotonic()
+        seen_count = 1
         while time.monotonic() < overall_deadline:
+            ids = self._stream_request_ids
+            if len(ids) > seen_count:
+                seen_count = len(ids)
+                last_new_at = time.monotonic()
+            target = ids[-1]
             if target in self._loading_finished or target in self._loading_failed:
-                page.wait_for_timeout(int(dom_settle_s * 1000))
-                break
+                if time.monotonic() - last_new_at >= stream_settle_s:
+                    page.wait_for_timeout(int(dom_settle_s * 1000))
+                    break
             page.wait_for_timeout(150)
         return {
             "found": True,
             "finished": target in self._loading_finished,
             "failed": target in self._loading_failed,
             "bytes_received": self._bytes.get(target, 0),
+            "streams_seen": seen_count,
             "elapsed_ms": int((time.monotonic() - t0) * 1000),
         }
 
@@ -1538,8 +1586,8 @@ def _ensure_fresh_chat(
     """
     if _fresh_chat_ok(page, input_loc):
         return
-    # 优先点「新对话」（真人在旧会话里想提新问题的标准动作；候选未 live 校准，
-    # 点不中有导航兜底）。
+    # 优先点「新对话」（真人在旧会话里想提新问题的标准动作；首选 2026-08-07 已
+    # live 校准，点不中有导航兜底）。
     for sel in _NEW_CHAT_SELECTORS:
         try:
             loc = page.locator(sel).first
@@ -1717,9 +1765,98 @@ def _wait_dom_quiet(page: Any, *, quiet_s: float, timeout_s: float) -> dict[str,
     }
 
 
+# 容器级答案走查（2026-08-07 起）：最后一个 .answer-common-card 内按文档序取
+# markdown 段（.qk-markdown，可能多段——多阶段流分段渲染）+ 非 markdown 的
+# 富文本卡片段（供应商卡片等挂件，2026-08-07 用户实测「正文完整、卡片损失」）。
+# 无容器时兜底为页面最后一个 .qk-markdown（旧行为）。只读真实渲染文本，零合成。
+_ANSWER_EXTRACT_JS = r"""() => {
+  const cards = document.querySelectorAll('.answer-common-card');
+  const root = cards.length ? cards[cards.length - 1] : null;
+  const segments = [];
+  if (root) {
+    for (const child of root.querySelectorAll(':scope > *')) {
+      if (child.matches('.qk-markdown')) {
+        segments.push({kind: 'markdown', cls: 'qk-markdown',
+                       text: (child.innerText || '').trim()});
+        continue;
+      }
+      const inner = Array.from(child.querySelectorAll('.qk-markdown'));
+      if (inner.length) {
+        for (const s of inner) {
+          segments.push({kind: 'markdown', cls: 'qk-markdown',
+                         text: (s.innerText || '').trim()});
+        }
+        continue;
+      }
+      segments.push({kind: 'widget',
+                     cls: (child.className || '').toString().slice(0, 120),
+                     text: (child.innerText || '').trim()});
+    }
+  } else {
+    const mds = document.querySelectorAll('.qk-markdown');
+    if (!mds.length) return {segments: [], refs: []};
+    const last = mds[mds.length - 1];
+    segments.push({kind: 'markdown', cls: 'qk-markdown',
+                   text: (last.innerText || '').trim()});
+  }
+  const refRoot = root || document;
+  const refs = [];
+  const seen = new Set();
+  for (const a of refRoot.querySelectorAll('a[href^="http"]')) {
+    const href = a.getAttribute('href') || '';
+    if (!href || seen.has(href)) continue;
+    seen.add(href);
+    refs.push({url: href, title: (a.innerText || '').trim() || null, sitename: null});
+  }
+  return {segments, refs};
+}"""
+
+# 卡片段噪声过滤（Python 侧，可单测）：工具栏/操作条类名与纯按钮短文本丢弃；
+# 真正的富文本卡片（供应商卡片等）正文远超 8 字，短文本一律按噪声处理。
+_WIDGET_NOISE_CLS_RE = re.compile(
+    r"action|toolbar|operation|footer|copy|like|vote|share|btn|button", re.IGNORECASE
+)
+_WIDGET_NOISE_TEXTS = frozenset(
+    {"复制", "点赞", "点踩", "踩", "重新生成", "分享", "收藏", "反馈", "更多", "查看详情"}
+)
+_WIDGET_MIN_LEN = 8
+
+
+def _compose_answer_segments(segments: list[dict[str, Any]]) -> str:
+    """容器走查的段列表 → 答案正文。markdown 段全收；widget 段（富文本卡片）
+    过滤工具栏/按钮噪声后按文档序拼接。空段丢弃。"""
+    parts: list[str] = []
+    for seg in segments:
+        if not isinstance(seg, dict):
+            continue
+        text = str(seg.get("text") or "").strip()
+        if not text:
+            continue
+        if seg.get("kind") == "widget":
+            squashed = re.sub(r"\s+", "", text)
+            if len(text) < _WIDGET_MIN_LEN or squashed in _WIDGET_NOISE_TEXTS:
+                continue
+            if _WIDGET_NOISE_CLS_RE.search(str(seg.get("cls") or "")):
+                continue
+        parts.append(text)
+    return "\n".join(parts).strip()
+
+
 def _extract_response(page: Any) -> tuple[str, list[dict[str, Any]]]:
-    """DOM 抽取：最后一个助手气泡正文 + best-effort 引用链接（a[href^=http]）。"""
-    for sel in _ASSISTANT_SELECTORS:
+    """DOM 抽取：容器级走查（markdown 段 + 富文本卡片段）优先；结构剧变时
+    回退旧选择器链（猜测候选）。引用锚点取答案容器内全部 http 链接。"""
+    try:
+        raw = page.evaluate(_ANSWER_EXTRACT_JS)
+    except Exception:
+        raw = None
+    if isinstance(raw, dict):
+        text = _compose_answer_segments(raw.get("segments") or [])
+        refs = [r for r in (raw.get("refs") or []) if isinstance(r, dict) and r.get("url")]
+        if text:
+            return _trim_response(text), refs
+    # 旧选择器链兜底：.qk-markdown/.answer-common-card 已被 JS 路径覆盖，
+    # 这里只剩结构猜测候选（UI 大改时的保命通道）。
+    for sel in _ASSISTANT_SELECTORS[2:]:
         try:
             elements = page.locator(sel).all()
             if not elements:
@@ -1727,7 +1864,7 @@ def _extract_response(page: Any) -> tuple[str, list[dict[str, Any]]]:
             last = elements[-1]
             text = last.inner_text(timeout=2000)
             if text and text.strip():
-                refs: list[dict[str, Any]] = []
+                refs = []
                 seen: set[str] = set()
                 try:
                     anchors = last.locator('a[href^="http"]').all()

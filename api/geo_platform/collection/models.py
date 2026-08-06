@@ -85,6 +85,25 @@ class SessionLease(TenantModel, Base):
     released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class BrowserFence(Base):
+    """常驻浏览器跨 worker lease fencing（2026-08-06 起）。
+
+    机器资源（非租户、无 RLS）：platform 单行唯一，fencing_token 单调递增
+    （含抢占：过期未释放的租约被新 holder 拿走时 token 照样 +1），holder
+    进程崩溃靠 expires_at 兜底回收。契约层=workflows/activities/resident_browser.py。
+    """
+
+    __tablename__ = "browser_fence"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid_pk)
+    platform: Mapped[str] = mapped_column(String(80), unique=True)
+    holder: Mapped[str] = mapped_column(String(160))
+    fencing_token: Mapped[int] = mapped_column(BigInteger)
+    acquired_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    heartbeat_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    released_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class CapabilityLease(TenantModel, Base):
     __tablename__ = "capability_lease"
     account_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("platform.platform_account.id"))
