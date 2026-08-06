@@ -27,10 +27,18 @@ from workflows.activities.collection import (
 )
 from workflows.activities.disparagement import judge_run_disparagement
 from workflows.activities.own_site_snapshot import capture_own_site_snapshots
+from workflows.activities.post_analysis import (
+    analyze_post_content,
+    annotate_post_snapshot,
+    begin_post_analysis_task,
+    fetch_post_snapshot,
+    finalize_post_analysis_task,
+)
 from workflows.activities.source_audit import audit_run_sources
 from workflows.activities.source_fetch import fetch_run_sources
 from workflows.definitions.collection import GeoCollectionWorkflow
 from workflows.definitions.health import PlatformHealthWorkflow
+from workflows.definitions.post_analysis import PostAnalysisWorkflow
 from workflows.definitions.session import (
     AccountRevocationWorkflow,
     HumanInterventionWorkflow,
@@ -128,6 +136,7 @@ async def run_worker() -> None:
                 HumanInterventionWorkflow,
                 PlatformSessionLifecycleWorkflow,
                 AccountRevocationWorkflow,
+                PostAnalysisWorkflow,
             ],
             activities=[
                 _collect_with_adapter_impl,
@@ -136,10 +145,15 @@ async def run_worker() -> None:
                 _collect_tongyi_batch_impl,
                 _collect_yiyan_batch_impl,
                 _collect_yuanbao_batch_impl,
+                analyze_post_content,
+                annotate_post_snapshot,
                 audit_run_sources,
+                begin_post_analysis_task,
                 capture_own_site_snapshots,
+                fetch_post_snapshot,
                 fetch_run_sources,
                 finalize_account_revocation,
+                finalize_post_analysis_task,
                 judge_run_disparagement,
                 mark_collection_run_terminal,
                 persist_collection_result,

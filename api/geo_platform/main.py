@@ -28,6 +28,7 @@ from .intake_form.router import router as intake_form_router
 from .intake_form.router import token_router as intake_form_token_router
 from .logging import configure_logging
 from .observability import instrument_app
+from .post_analysis.router import router as post_analysis_router
 from .posting.router import router as posting_router
 from .projects.catalog_router import router as project_catalog_router
 from .projects.confirmation_router import router as confirmation_router
@@ -176,6 +177,7 @@ app.include_router(intake_router)
 app.include_router(intake_form_router)
 app.include_router(intake_form_token_router)
 app.include_router(variants_router)
+app.include_router(post_analysis_router)
 
 
 @app.get("/api/v2/health", response_model=Health, tags=["platform"], operation_id="getHealth")

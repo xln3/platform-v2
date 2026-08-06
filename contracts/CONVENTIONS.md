@@ -2,7 +2,7 @@
 
 ## Identity
 
-Database `id` is an internal `BIGINT` and never crosses an API. `pub_id` is `<type>_<ULID>` (uppercase Crockford ULID, opaque and non-enumerable). Known prefixes include `tnt`, `usr`, `prj`, `run`, `ans`, `evd`, `rpt`, `inv`, `evt`. References use explicit names such as `project_pub_id`.
+Database `id` is an internal `BIGINT` and never crosses an API. `pub_id` is `<type>_<ULID>` (uppercase Crockford ULID, opaque and non-enumerable). Known prefixes include `tnt`, `usr`, `prj`, `run`, `ans`, `evd`, `rpt`, `inv`, `evt`. Post-analysis uses deterministic sha256-derived pub_ids: `pat` (post_analysis_task), `pai` (post_analysis_item). References use explicit names such as `project_pub_id`.
 
 ## Time
 

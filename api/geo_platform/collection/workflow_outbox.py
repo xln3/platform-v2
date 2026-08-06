@@ -18,6 +18,7 @@ from temporalio.service import RPCError, RPCStatusCode
 
 from workflows.activities.collection import CollectionTaskInput
 from workflows.definitions.collection import GeoCollectionInput, GeoCollectionWorkflow
+from workflows.definitions.post_analysis import PostAnalysisInput, PostAnalysisWorkflow
 from workflows.definitions.s02 import AnswerAnalysisWorkflow
 from workflows.definitions.session import AccountRevocationWorkflow, RevocationInput
 
@@ -389,7 +390,7 @@ class WorkflowStartOutbox:
                   WHERE candidate.state='started'
                     AND candidate.workflow_type IN (
                       'geo_collection','geo_collection_observation','account_revocation',
-                      'answer_analysis'
+                      'answer_analysis','post_analysis'
                     )
                     AND candidate.terminal_status IS NULL
                     AND (%s::text IS NULL OR candidate.workflow_id=%s)
@@ -457,6 +458,36 @@ class WorkflowStartOutbox:
                     """,
                     (run_state, error_code, command.workflow_id),
                 )
+            elif command.workflow_type == "post_analysis":
+                # 终态回写：workflow 内 finalize 已落 completed/partial 时不覆盖；
+                # 只对未完成（queued/running）任务兜底收敛
+                connection.execute(
+                    """
+                    UPDATE platform.post_analysis_task
+                    SET status=%s,error=%s,updated_at=now()
+                    WHERE workflow_id=%s
+                      AND status NOT IN ('completed','partial','failed')
+                    """,
+                    (run_state, error_code, command.workflow_id),
+                )
+                if temporal_status != "COMPLETED":
+                    # 非自然终态（FAILED/CANCELED/TERMINATED/TIMED_OUT/NOT_FOUND）：
+                    # finalize 可能从未运行，清扫仍卡中间态的 item —— 按阶段如实落
+                    # 既有失败词表（不新增枚举）；终态 item 绝不覆盖；pending=从未
+                    # 开跑，保持原样（如实反映"未处理"，不伪造成失败）。
+                    connection.execute(
+                        """
+                        UPDATE platform.post_analysis_item
+                        SET status=CASE WHEN status='fetching' THEN 'fetch_failed'
+                                        ELSE 'analysis_failed' END,
+                            error='workflow_interrupted',updated_at=now()
+                        WHERE status IN ('fetching','analyzing','annotating')
+                          AND task_id IN (
+                            SELECT id FROM platform.post_analysis_task WHERE workflow_id=%s
+                          )
+                        """,
+                        (command.workflow_id,),
+                    )
             connection.execute(
                 """
                 UPDATE integration.workflow_start_command
@@ -534,6 +565,16 @@ class WorkflowStartOutbox:
                     handle = await self.temporal.start_workflow(
                         AnswerAnalysisWorkflow.run,
                         payload,
+                        id=command.workflow_id,
+                        task_queue=command.task_queue,
+                    )
+                elif command.workflow_type == "post_analysis":
+                    handle = await self.temporal.start_workflow(
+                        PostAnalysisWorkflow.run,
+                        PostAnalysisInput(
+                            tenant_pub_id=str(payload["tenant_pub_id"]),
+                            task_pub_id=str(payload["task_pub_id"]),
+                        ),
                         id=command.workflow_id,
                         task_queue=command.task_queue,
                     )

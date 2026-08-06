@@ -84,6 +84,19 @@ class Settings(BaseSettings):
     audit_llm_api_key: str = ""
     audit_llm_base_url: str = ""
     audit_llm_model: str = ""
+    # 信源帖子取证分析（post_analysis）LLM：三项留空则逐项复用 research_llm_*
+    # （GEO_RESEARCH_LLM_*）的值；key 缺失 → 分析如实落 analysis_failed
+    # （llm_unavailable），绝不编造标签。key 只走本 settings，严禁入库/日志。
+    post_analysis_llm_api_key: str = ""
+    post_analysis_llm_base_url: str = ""
+    post_analysis_llm_model: str = ""
+    # 主备 failover：空则复用 research_llm_base_url_fallback；再空 = 不做 failover。
+    post_analysis_llm_base_url_fallback: str = ""
+    # 单任务 URL 上限（API 与 service 双侧校验）、每帖联网核验 claims 上限、
+    # 送 LLM 的帖子正文截断字符数。
+    post_analysis_max_urls_per_task: int = 50
+    post_analysis_max_claims_verified: int = 5
+    post_analysis_text_char_limit: int = 30000
     version: str = "0.1.0"
 
     def cors_origin_list(self) -> list[str]:
