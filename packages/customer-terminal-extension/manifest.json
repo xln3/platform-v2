@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "GEO Customer Terminal",
+  "version": "0.1.6",
+  "key": "MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEArtoi3qrNMkwMDomRF3tvYDhmDbAeUxr26UtaeDmRYmNK3mLZPdDWdIHeseOj94S7eYsHOzidl7Tl8eCif8M/rURyRk1HBgcA0u2oZ6+NzoIpFdu6m5ud9xk5b9o/XyC24iE4gzmf5NGmmUjFitCFIrbaNOUouGmQhjE8vyUk7P2/GeVN2UW57JK/3l4McbRkxei0q4cZCA8eaHMrWWARIYQrYyCjYtj0wH9DozcPLox67L4LWM9R1mlnOoxpDg7Zry0qds5edncZArRl/6G8PHrSuMZZb+y1mHHA79vX4ShVYbn3xXCva5OSCNs/CNh3DOWhnm9OnGzXJ8ApfnURoTU4N5nkl8DMCaZuVmpOEqSOsCCOGb7qj6KseKrpCcC1eIOD+o8LHOCDHyKt/2F2hJi093+37yvufOtsq8cDwAhd20MhUKTvYKvr9s4YWbGgGCVUANLXXaKLlzlbe/aveWQBBtaDBt866qq/KplVcnuS3ZE5hoLyo7Tnoai+cu5HAgMBAAE=",
+  "description": "Executes signed, domain-scoped GEO verification tasks without exporting session or human-verification material.",
+  "permissions": ["storage", "tabs"],
+  "optional_host_permissions": ["https://*/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  }
+}

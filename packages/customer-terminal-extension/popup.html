@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>GEO Customer Terminal</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <h1>客户终端</h1>
+      <label for="pairing-qr">GEO 一次性配对二维码</label>
+      <input
+        id="pairing-qr"
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        capture="environment"
+        aria-describedby="pairing-help"
+      />
+      <p id="pairing-help">
+        仅在本机识别二维码，不上传或保留图像。不要在任何输入框粘贴 token、Cookie 或验证码。
+      </p>
+      <label for="label">设备标签</label>
+      <input id="label" maxlength="80" value="Customer browser" autocomplete="off" />
+      <button id="pair" type="button" disabled>授权本次连接并打开原生页面</button>
+      <button id="clear-pairing" class="secondary" type="button" disabled>清除本次配对</button>
+      <p id="task" aria-live="polite" aria-atomic="true"></p>
+      <button id="complete" type="button" disabled>原生验证操作已完成</button>
+      <button id="fail" class="secondary" type="button" disabled>原生验证失败</button>
+      <button id="reject" class="secondary" type="button" disabled>拒绝本次任务</button>
+      <p id="status" role="status" aria-live="polite" aria-atomic="true">
+        扩展不会读取或上传 Cookie、OTP、二维码、人脸图像、passkey 私钥或页面内容。
+      </p>
+    </main>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
