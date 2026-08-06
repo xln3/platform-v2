@@ -7,10 +7,16 @@ import {
   isBrowserRuntimeEvidenceClean,
   persistSafeBrowserScreenshot,
 } from './browser_runtime_evidence.mjs';
-import { loadLegacySessionCookie } from './production_identity.mjs';
+import { loadLegacySessionCookie, loadNativeSessionCookie } from './production_identity.mjs';
 
 const baseURL = process.env.S04_PRODUCTION_URL ?? 'https://127.0.0.1:8443';
-const identity = loadLegacySessionCookie(process.env.S04_LEGACY_SESSION_DB, baseURL);
+const identity = process.env.S04_NATIVE_SESSION_TOKEN
+  ? loadNativeSessionCookie(
+      process.env.S04_NATIVE_SESSION_TOKEN,
+      baseURL,
+      process.env.S04_NATIVE_SESSION_ROLE ?? 'operator',
+    )
+  : loadLegacySessionCookie(process.env.S04_LEGACY_SESSION_DB, baseURL);
 const candidateRootInput = process.env.S03_FRONTEND_CANDIDATE_ROOT;
 const candidateRoot = candidateRootInput ? realpathSync(candidateRootInput) : null;
 const candidateApplicationDirectories = new Map([
