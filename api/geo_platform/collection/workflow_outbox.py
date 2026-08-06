@@ -444,7 +444,8 @@ class WorkflowStartOutbox:
                     UPDATE platform.collection_run
                     SET state=%s,error_code=%s,updated_at=now()
                     WHERE workflow_id=%s
-                      AND state NOT IN ('completed','cancelled','failed')
+                      AND state NOT IN ('completed','completed_with_failures',
+                                        'cancelled','failed','skipped')
                     """,
                     (run_state, error_code, command.workflow_id),
                 )

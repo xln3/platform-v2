@@ -75,9 +75,13 @@ async def run_worker() -> None:
         except Exception as error:
             # Driver exceptions may embed credential-bearing DSNs. Emit only the
             # exception class; operators can correlate via the bounded event name.
+            # psycopg 的 diag 里 constraint/table 是模式标识符（不含用户数据），
+            # 一并输出以定位 23xxx 类完整性错误；message/detail 可能含值，绝不输出。
             log.error(
                 "outbox_batch_failed",
                 error_type=type(error).__name__,
+                pg_constraint=getattr(getattr(error, "diag", None), "constraint_name", None),
+                pg_table=getattr(getattr(error, "diag", None), "table_name", None),
             )
         try:
             await asyncio.wait_for(

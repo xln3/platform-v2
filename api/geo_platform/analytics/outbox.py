@@ -11,6 +11,7 @@ from psycopg.rows import dict_row
 Consumer = Callable[[Mapping[str, Any]], None]
 ANALYTICS_EVENT_TYPES = (
     "analytics.answer.analyzed",
+    "collection.run.completed",
     "disparagement.recorded",
     "intelligence.feature.recorded",
     "source_audit.recorded",

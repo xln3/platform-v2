@@ -13,6 +13,38 @@ class AnalyticsProjection:
         self.writer = writer
 
     def publish(self, event: Mapping[str, Any]) -> None:
+        if event["event_type"] == "collection.run.completed":
+            # 采集 run 完成事件 → run_event 一行。payload（producer 侧冻结形状）：
+            # {run_pub_id, workflow_id, state, total_tasks, completed_tasks,
+            #  failed_tasks}——无 project_pub_id（该列诚实置空，绝不编造）、
+            # 无 event_time（用 outbox 行 occurred_at）。status=run.state
+            # （completed/completed_with_failures），计数进 payload_json。
+            payload = event["payload"]
+            self.writer.insert_json_each_row(
+                "geo_analytics.run_event",
+                [
+                    {
+                        "tenant_pub_id": event["tenant_pub_id"],
+                        "project_pub_id": "",
+                        "run_pub_id": str(payload["run_pub_id"]),
+                        "event_id": event["event_id"],
+                        "event_type": event["event_type"],
+                        "event_time": _event_time(event, payload),
+                        "status": str(payload.get("state") or ""),
+                        "adapter_version": "",
+                        "payload_json": _canonical_json(
+                            {
+                                "completed_tasks": payload.get("completed_tasks"),
+                                "failed_tasks": payload.get("failed_tasks"),
+                                "state": payload.get("state"),
+                                "total_tasks": payload.get("total_tasks"),
+                                "workflow_id": payload.get("workflow_id"),
+                            }
+                        ),
+                    }
+                ],
+            )
+            return
         if event["event_type"] == "disparagement.recorded":
             # W3 拉踩检测：一条窗级判定一行 fact（evidence_quote 留在 PG，
             # 只投影维度与判定结果）。
@@ -195,6 +227,14 @@ class AnalyticsProjection:
     def consistency_hash(self, *, event_id: str) -> str:
         count = self.writer.count_event("geo_analytics.answer_fact", event_id)
         return sha256(f"{event_id}:{count}".encode()).hexdigest()
+
+
+def _event_time(event: Mapping[str, Any], payload: Mapping[str, Any]) -> datetime:
+    """事件时间：payload.event_time 优先（ISO 串），缺省回退 outbox 行 occurred_at。"""
+    raw = payload.get("event_time") or event.get("occurred_at")
+    if isinstance(raw, datetime):
+        return raw
+    return datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
 
 
 def _canonical_json(value: Mapping[str, Any]) -> str:
