@@ -17,6 +17,7 @@ import {
   createInvestigationVerdict,
   createMetricExport,
   createPostingBatch,
+  createPostAnalysisTask,
   createProjectResource,
   createReportAction,
   createReportDelivery,
@@ -39,6 +40,9 @@ import {
   getMediaWemediaDataset,
   getMediaPricesRefreshStatus,
   getOperationsLifecycle,
+  getPostAnalysisItem,
+  getPostAnalysisItemAsset,
+  getPostAnalysisTask,
   getReport,
   getReportArtifact,
   listAnalyticsAnswers,
@@ -56,6 +60,8 @@ import {
   updateReportAction,
   listIdentityMembers,
   listOidcBindings,
+  listPostAnalysisItems,
+  listPostAnalysisTasks,
   listProjectResources,
   listReportDeliveries,
   listReports,
@@ -7137,5 +7143,490 @@ describe('fixed-field browser boundaries (Round170)', () => {
       },
     });
     expect(request).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('post analysis browser boundary', () => {
+  const postAnalysisHeaders = {
+    'X-Tenant-Id': 'tnt_pa_safe',
+    'X-Actor-Id': 'operator@example.test',
+    'X-Actor-Role': 'operator' as const,
+  };
+  const postAnalysisTaskRow = {
+    pub_id: `pat_${'a'.repeat(26)}`,
+    target_brand: '示例品牌',
+    target_brand_aliases: ['示例别名'],
+    status: 'running',
+    url_count: 2,
+    options: { verify_facts: true, annotate: true },
+    workflow_id: 'wf-pa-safe',
+    error: null,
+    created_by: 'usr_operator',
+    created_at: '2026-08-06T02:00:00Z',
+    updated_at: '2026-08-06T02:05:00Z',
+  };
+  const postAnalysisTaskSummary = {
+    pubId: `pat_${'a'.repeat(26)}`,
+    targetBrand: '示例品牌',
+    targetBrandAliases: ['示例别名'],
+    status: 'running',
+    urlCount: 2,
+    error: null,
+    createdAt: '2026-08-06T02:00:00Z',
+    updatedAt: '2026-08-06T02:05:00Z',
+  };
+  const postAnalysisItemRow = {
+    pub_id: `pai_${'b'.repeat(26)}`,
+    ordinal: 1,
+    url: 'https://example.com/post-1',
+    host: 'example.com',
+    status: 'completed',
+    annotation_status: 'completed',
+    category: 'review_ranking',
+    category_label: '评测榜单',
+    is_geo_post: true,
+    is_target_brand_geo: false,
+    disparagement_count: 1,
+    misinformation_count: 0,
+    error: null,
+    created_at: '2026-08-06T02:00:10Z',
+    updated_at: '2026-08-06T02:04:10Z',
+  };
+  const postAnalysisIntegrity = {
+    sha256: '0c5455b7a259b7c3d53cfff0e3fcf4f85e2d6e8d93441915433d3a23066e06fa',
+    byteSize: 17,
+    mimeType: 'image/png',
+  };
+  const postAnalysisItemDetailRow = {
+    pub_id: `pai_${'b'.repeat(26)}`,
+    ordinal: 1,
+    url: 'https://example.com/post-1',
+    url_hash: 'd'.repeat(64),
+    host: 'example.com',
+    status: 'completed',
+    annotation_status: 'completed',
+    final_url: 'https://example.com/post-1-final',
+    http_status: 200,
+    extractor: 'innertext-v1',
+    text_sha256: 'e'.repeat(64),
+    analysis: {
+      summary: '这是一篇评测文章。',
+      is_geo_post: true,
+      geo_confidence: 0.82,
+      geo_signals: [{ signal: '榜单模板化', quote: '十大品牌排行榜' }],
+      category: 'review_ranking',
+      category_label: '评测榜单',
+      category_rationale: '含榜单结构。',
+      brand_mentions: [
+        {
+          brand: '示例品牌',
+          is_target_brand: true,
+          sentiment: 'positive',
+          quote: '示例品牌表现优秀',
+        },
+      ],
+      is_target_brand_geo: true,
+      disparagement: [
+        {
+          direction: 'target_disparaged',
+          subject_brand: '竞品A',
+          object_brand: '示例品牌',
+          quote: '示例品牌不如竞品A',
+          severity: 'medium',
+          confidence: 0.7,
+        },
+      ],
+      claims: [
+        {
+          claim: '示例品牌市占率第一',
+          quote: '市占率第一',
+          about_target_brand: true,
+          verification: {
+            verdict: 'inaccurate',
+            correction: '公开数据为第三。',
+            confidence: 0.9,
+            sources: [{ title: '统计年报', url: 'https://example.com/report' }],
+          },
+        },
+      ],
+      model: 'gpt-5.6-luna',
+      prompt_version: 'pa-v1',
+    },
+    analysis_validation: {
+      dropped: { geo_signals: 0, brand_mentions: 0, disparagement: 0, claims: 1 },
+      details: [],
+      verification_errors: 0,
+      claims_verified: 1,
+    },
+    annotations: [
+      {
+        type: 'target_brand',
+        quote: '示例品牌表现优秀',
+        note: '目标品牌提及：示例品牌（positive）',
+        rects: [{ x: 1, y: 2, width: 3, height: 4 }],
+        matched: true,
+      },
+    ],
+    error: null,
+    has_screenshot: true,
+    has_annotated: true,
+    screenshot_asset: {
+      sha256: postAnalysisIntegrity.sha256,
+      byte_size: 17,
+      mime_type: 'image/png',
+    },
+    annotated_asset: {
+      sha256: postAnalysisIntegrity.sha256,
+      byte_size: 17,
+      mime_type: 'image/png',
+    },
+    created_at: '2026-08-06T02:00:10Z',
+    updated_at: '2026-08-06T02:04:10Z',
+  };
+  const jsonResponse = (payload: unknown, status = 200) =>
+    new Response(JSON.stringify(payload), {
+      status,
+      headers: { 'content-type': 'application/json' },
+    });
+
+  it('projects task pages and fails closed on hostile rows or cursor drift', async () => {
+    const request = vi.fn(async (_input: RequestInfo | URL) =>
+      jsonResponse({
+        data: [postAnalysisTaskRow],
+        page: { next_cursor: `pat_${'a'.repeat(26)}`, has_more: true },
+      }),
+    );
+    vi.stubGlobal('fetch', request);
+    const client = createGeoApiClient('http://127.0.0.1:45200');
+
+    const ready = await listPostAnalysisTasks(postAnalysisHeaders, `pat_${'0'.repeat(26)}`, client);
+    expect(ready).toEqual({
+      kind: 'ready',
+      data: { data: [postAnalysisTaskSummary], nextCursor: `pat_${'a'.repeat(26)}`, hasMore: true },
+    });
+    const outbound = request.mock.calls[0]?.[0] as Request;
+    expect(outbound.url).toContain(`cursor=pat_${'0'.repeat(26)}`);
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse({
+          data: [{ ...postAnalysisTaskRow, status: 'bogus' }],
+          page: { next_cursor: null, has_more: false },
+        }),
+      ),
+    );
+    await expect(listPostAnalysisTasks(postAnalysisHeaders, null, client)).resolves.toEqual({
+      kind: 'unavailable',
+    });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse({
+          data: [postAnalysisTaskRow],
+          page: { next_cursor: `pat_${'c'.repeat(26)}`, has_more: true },
+        }),
+      ),
+    );
+    await expect(listPostAnalysisTasks(postAnalysisHeaders, null, client)).resolves.toEqual({
+      kind: 'unavailable',
+    });
+  });
+
+  it('creates tasks with an idempotency key and projects the receipt', async () => {
+    const request = vi.fn(async (_input: RequestInfo | URL) =>
+      jsonResponse(postAnalysisTaskRow, 201),
+    );
+    vi.stubGlobal('fetch', request);
+    const client = createGeoApiClient('http://127.0.0.1:45200');
+
+    const ready = await createPostAnalysisTask(
+      postAnalysisHeaders,
+      {
+        targetBrand: '示例品牌',
+        targetBrandAliases: ['示例别名'],
+        urls: ['https://example.com/post-1'],
+        verifyFacts: true,
+        annotate: false,
+        openInvestigation: false,
+      },
+      'post-analysis-4f2d2ad3-0000-4000-8000-000000000000',
+      client,
+    );
+    expect(ready).toEqual({ kind: 'ready', data: { pubId: `pat_${'a'.repeat(26)}` } });
+    const outbound = request.mock.calls[0]?.[0] as Request;
+    expect(outbound.method).toBe('POST');
+    expect(outbound.headers.get('Idempotency-Key')).toBe(
+      'post-analysis-4f2d2ad3-0000-4000-8000-000000000000',
+    );
+    await expect(outbound.clone().json()).resolves.toEqual({
+      target_brand: '示例品牌',
+      target_brand_aliases: ['示例别名'],
+      urls: ['https://example.com/post-1'],
+      options: { verify_facts: true, annotate: false, open_investigation: false },
+    });
+
+    await createPostAnalysisTask(
+      postAnalysisHeaders,
+      {
+        targetBrand: '示例品牌',
+        targetBrandAliases: [],
+        urls: ['https://example.com/post-2'],
+        verifyFacts: true,
+        annotate: true,
+      },
+      'post-analysis-4f2d2ad3-0000-4000-8000-000000000002',
+      client,
+    );
+    const defaulted = request.mock.calls[1]?.[0] as Request;
+    await expect(defaulted.clone().json()).resolves.toMatchObject({
+      options: { verify_facts: true, annotate: true, open_investigation: true },
+    });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ detail: { code: 'forbidden' } }, 403)),
+    );
+    await expect(
+      createPostAnalysisTask(
+        postAnalysisHeaders,
+        {
+          targetBrand: '示例品牌',
+          targetBrandAliases: [],
+          urls: ['https://example.com/post-1'],
+          verifyFacts: true,
+          annotate: true,
+        },
+        'post-analysis-4f2d2ad3-0000-4000-8000-000000000001',
+        client,
+      ),
+    ).resolves.toEqual({ kind: 'forbidden' });
+  });
+
+  it('projects task detail status counts through the item-status whitelist', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse({
+          ...postAnalysisTaskRow,
+          status_counts: { completed: 2, bogus_status: 3, fetch_failed: 1 },
+          investigation_pub_id: `inv_${'f'.repeat(26)}`,
+        }),
+      ),
+    );
+    const client = createGeoApiClient('http://127.0.0.1:45200');
+
+    const ready = await getPostAnalysisTask(postAnalysisHeaders, `pat_${'a'.repeat(26)}`, client);
+    expect(ready).toEqual({
+      kind: 'ready',
+      data: {
+        task: postAnalysisTaskSummary,
+        statusCounts: [
+          { status: 'completed', count: 2 },
+          { status: 'fetch_failed', count: 1 },
+        ],
+        investigationPubId: `inv_${'f'.repeat(26)}`,
+      },
+    });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse({
+          ...postAnalysisTaskRow,
+          status_counts: {},
+          investigation_pub_id: 'bogus-investigation',
+        }),
+      ),
+    );
+    const garbage = await getPostAnalysisTask(postAnalysisHeaders, `pat_${'a'.repeat(26)}`, client);
+    expect(garbage).toEqual({
+      kind: 'ready',
+      data: { task: postAnalysisTaskSummary, statusCounts: [], investigationPubId: null },
+    });
+
+    await expect(getPostAnalysisTask(postAnalysisHeaders, 'not-a-task', client)).resolves.toEqual({
+      kind: 'unavailable',
+    });
+  });
+
+  it('projects item list rows with badge fields and item details with assets', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse({
+          data: [postAnalysisItemRow],
+          page: { next_cursor: null, has_more: false },
+        }),
+      ),
+    );
+    const client = createGeoApiClient('http://127.0.0.1:45200');
+
+    const page = await listPostAnalysisItems(
+      postAnalysisHeaders,
+      `pat_${'a'.repeat(26)}`,
+      null,
+      client,
+    );
+    expect(page).toEqual({
+      kind: 'ready',
+      data: {
+        data: [
+          {
+            pubId: `pai_${'b'.repeat(26)}`,
+            ordinal: 1,
+            url: 'https://example.com/post-1',
+            host: 'example.com',
+            status: 'completed',
+            annotationStatus: 'completed',
+            category: 'review_ranking',
+            categoryLabel: '评测榜单',
+            isGeoPost: true,
+            isTargetBrandGeo: false,
+            disparagementCount: 1,
+            misinformationCount: 0,
+            error: null,
+            createdAt: '2026-08-06T02:00:10Z',
+            updatedAt: '2026-08-06T02:04:10Z',
+          },
+        ],
+        nextCursor: null,
+        hasMore: false,
+      },
+    });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse(postAnalysisItemDetailRow)),
+    );
+    const detail = await getPostAnalysisItem(postAnalysisHeaders, `pai_${'b'.repeat(26)}`, client);
+    expect(detail).toEqual({
+      kind: 'ready',
+      data: {
+        pubId: `pai_${'b'.repeat(26)}`,
+        ordinal: 1,
+        url: 'https://example.com/post-1',
+        host: 'example.com',
+        status: 'completed',
+        annotationStatus: 'completed',
+        finalUrl: 'https://example.com/post-1-final',
+        httpStatus: 200,
+        extractor: 'innertext-v1',
+        textSha256: 'e'.repeat(64),
+        error: null,
+        analysis: {
+          summary: '这是一篇评测文章。',
+          isGeoPost: true,
+          geoConfidence: 0.82,
+          geoSignals: [{ signal: '榜单模板化', quote: '十大品牌排行榜' }],
+          category: 'review_ranking',
+          categoryLabel: '评测榜单',
+          categoryRationale: '含榜单结构。',
+          brandMentions: [
+            {
+              brand: '示例品牌',
+              isTargetBrand: true,
+              sentiment: 'positive',
+              quote: '示例品牌表现优秀',
+            },
+          ],
+          isTargetBrandGeo: true,
+          disparagement: [
+            {
+              direction: 'target_disparaged',
+              subjectBrand: '竞品A',
+              objectBrand: '示例品牌',
+              quote: '示例品牌不如竞品A',
+              severity: 'medium',
+              confidence: 0.7,
+            },
+          ],
+          claims: [
+            {
+              claim: '示例品牌市占率第一',
+              quote: '市占率第一',
+              aboutTargetBrand: true,
+              verification: {
+                verdict: 'inaccurate',
+                correction: '公开数据为第三。',
+                confidence: 0.9,
+                sources: [{ title: '统计年报', url: 'https://example.com/report' }],
+              },
+            },
+          ],
+        },
+        analysisValidation: { droppedTotal: 1, claimsVerified: 1, verificationErrors: 0 },
+        annotations: [
+          {
+            type: 'target_brand',
+            quote: '示例品牌表现优秀',
+            note: '目标品牌提及：示例品牌（positive）',
+            matched: true,
+          },
+        ],
+        screenshotAsset: postAnalysisIntegrity,
+        annotatedAsset: postAnalysisIntegrity,
+        createdAt: '2026-08-06T02:00:10Z',
+        updatedAt: '2026-08-06T02:04:10Z',
+      },
+    });
+  });
+
+  it('binds post analysis image bytes to MIME, size and SHA-256', async () => {
+    const payload = 'PNG post analysis';
+    const request = vi.fn(
+      async (_input: RequestInfo | URL) =>
+        new Response(payload, { status: 200, headers: { 'content-type': 'image/png' } }),
+    );
+    vi.stubGlobal('fetch', request);
+    const client = createGeoApiClient('http://127.0.0.1:45200');
+
+    const ready = await getPostAnalysisItemAsset(
+      postAnalysisHeaders,
+      `pai_${'b'.repeat(26)}`,
+      'annotated',
+      postAnalysisIntegrity,
+      client,
+    );
+    expect(ready).toMatchObject({ kind: 'ready', data: postAnalysisIntegrity });
+    if (ready.kind === 'ready') expect(await ready.data.blob.text()).toBe(payload);
+    const outbound = request.mock.calls[0]?.[0] as Request;
+    expect(outbound.url).toMatch(/\/api\/v2\/post-analysis\/items\/pai_.*\/assets\/annotated$/);
+    expect(outbound.headers.get('Accept')).toBe('image/png');
+
+    await expect(
+      getPostAnalysisItemAsset(
+        postAnalysisHeaders,
+        `pai_${'b'.repeat(26)}`,
+        'screenshot',
+        { ...postAnalysisIntegrity, sha256: '0'.repeat(64) },
+        client,
+      ),
+    ).resolves.toEqual({ kind: 'unavailable' });
+    await expect(
+      getPostAnalysisItemAsset(
+        postAnalysisHeaders,
+        'not-an-item',
+        'screenshot',
+        postAnalysisIntegrity,
+        client,
+      ),
+    ).resolves.toEqual({ kind: 'unavailable' });
+    expect(request).toHaveBeenCalledTimes(2);
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ detail: { code: 'not_found' } }, 404)),
+    );
+    await expect(
+      getPostAnalysisItemAsset(
+        postAnalysisHeaders,
+        `pai_${'b'.repeat(26)}`,
+        'screenshot',
+        postAnalysisIntegrity,
+        client,
+      ),
+    ).resolves.toEqual({ kind: 'forbidden' });
   });
 });

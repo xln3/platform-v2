@@ -27,6 +27,11 @@ export const operationsNav = [
     href: '/platform/operations/sop',
   },
   {
+    id: 'post-analysis',
+    label: '帖子分析',
+    href: '/platform/operations/post-analysis',
+  },
+  {
     id: 'onboarding',
     label: '开户向导',
     href: '/platform/operations/onboarding',

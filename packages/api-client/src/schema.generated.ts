@@ -720,6 +720,101 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/assist/{ticket}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Assist Page
+         * @description 手机接管页：内联全部 JS/CSS，零外部依赖（公网可能无 CDN）。
+         */
+        get: operations["assist_page_api_v2_assist__ticket__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/assist/{ticket}/frame": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Assist Frame */
+        get: operations["assist_frame_api_v2_assist__ticket__frame_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/assist/{ticket}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Assist Status */
+        get: operations["assist_status_api_v2_assist__ticket__status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/assist/{ticket}/input": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Assist Input */
+        post: operations["assist_input_api_v2_assist__ticket__input_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/assist/{ticket}/done": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Assist Done
+         * @description 人工确认完成：先入 workflow signal outbox（幂等），再原子更新注册表。
+         *
+         *     顺序上 DB 先于注册表文件：若中间崩溃，重试时 workflow_signal_replayed
+         *     命中同 idempotency_key 直接跳过重复入队，随后补写注册表，流程自愈；
+         *     反过来先写文件则会漏 signal、workflow 永远挂起。
+         */
+        post: operations["assist_done_api_v2_assist__ticket__done_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/schedules": {
         parameters: {
             query?: never;
@@ -3167,6 +3262,95 @@ export interface paths {
          * @description INV-25 出口：仅 confirmed 变体的 QueryGroupDraft 形状（可直接并入 ConfigDraft）。
          */
         get: operations["confirmed_config_draft_api_v2_projects__project_pub_id__variants_draft_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/post-analysis/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Tasks */
+        get: operations["list_tasks_api_v2_post_analysis_tasks_get"];
+        put?: never;
+        /** Create Task */
+        post: operations["create_task_api_v2_post_analysis_tasks_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/post-analysis/tasks/{task_pub_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Task */
+        get: operations["get_task_api_v2_post_analysis_tasks__task_pub_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/post-analysis/tasks/{task_pub_id}/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Items */
+        get: operations["list_items_api_v2_post_analysis_tasks__task_pub_id__items_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/post-analysis/items/{item_pub_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Item */
+        get: operations["get_item_api_v2_post_analysis_items__item_pub_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/post-analysis/items/{item_pub_id}/assets/{kind}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Item Asset
+         * @description 截图/标注图字节流（evidence 资产下载先例：完整性校验后代理，不暴露对象键）。
+         */
+        get: operations["get_item_asset_api_v2_post_analysis_items__item_pub_id__assets__kind__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -5678,6 +5862,110 @@ export interface components {
             /** Created At */
             created_at: string;
         };
+        /**
+         * ItemAssetRef
+         * @description evidence 资产完整性三元组（前端 verified-Blob 边界：先取此 JSON 再拉字节校验）。
+         */
+        ItemAssetRef: {
+            /** Sha256 */
+            sha256: string;
+            /** Byte Size */
+            byte_size: number;
+            /** Mime Type */
+            mime_type: string;
+        };
+        /** ItemDetailView */
+        ItemDetailView: {
+            /** Pub Id */
+            pub_id: string;
+            /** Ordinal */
+            ordinal: number;
+            /** Url */
+            url: string;
+            /** Url Hash */
+            url_hash: string;
+            /** Host */
+            host: string;
+            /** Status */
+            status: string;
+            /** Annotation Status */
+            annotation_status: string;
+            /** Final Url */
+            final_url: string | null;
+            /** Http Status */
+            http_status: number | null;
+            /** Extractor */
+            extractor: string | null;
+            /** Text Sha256 */
+            text_sha256: string | null;
+            /** Analysis */
+            analysis: {
+                [key: string]: unknown;
+            } | null;
+            /** Analysis Validation */
+            analysis_validation: {
+                [key: string]: unknown;
+            } | null;
+            /** Annotations */
+            annotations: unknown[] | null;
+            /** Error */
+            error: string | null;
+            /** Has Screenshot */
+            has_screenshot: boolean;
+            /** Has Annotated */
+            has_annotated: boolean;
+            screenshot_asset: components["schemas"]["ItemAssetRef"] | null;
+            annotated_asset: components["schemas"]["ItemAssetRef"] | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** ItemListRow */
+        ItemListRow: {
+            /** Pub Id */
+            pub_id: string;
+            /** Ordinal */
+            ordinal: number;
+            /** Url */
+            url: string;
+            /** Host */
+            host: string;
+            /** Status */
+            status: string;
+            /** Annotation Status */
+            annotation_status: string;
+            /** Category */
+            category: string | null;
+            /** Category Label */
+            category_label: string | null;
+            /** Is Geo Post */
+            is_geo_post: boolean | null;
+            /** Is Target Brand Geo */
+            is_target_brand_geo: boolean | null;
+            /** Disparagement Count */
+            disparagement_count: number;
+            /** Misinformation Count */
+            misinformation_count: number;
+            /** Error */
+            error: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
         /** LeaseCreate */
         LeaseCreate: {
             /** Profile Pub Id */
@@ -6365,6 +6653,18 @@ export interface components {
              * @enum {string}
              */
             state: "healthy" | "warning" | "breached" | "unmeasured";
+        };
+        /** PostAnalysisPage[ItemListRow] */
+        PostAnalysisPage_ItemListRow_: {
+            /** Data */
+            data: components["schemas"]["ItemListRow"][];
+            page: components["schemas"]["PageMeta"];
+        };
+        /** PostAnalysisPage[TaskView] */
+        PostAnalysisPage_TaskView_: {
+            /** Data */
+            data: components["schemas"]["TaskView"][];
+            page: components["schemas"]["PageMeta"];
         };
         /** ProfileEnroll */
         ProfileEnroll: {
@@ -7855,6 +8155,73 @@ export interface components {
              */
             updated_at: string;
         };
+        /** TaskCreate */
+        TaskCreate: {
+            /** Target Brand */
+            target_brand: string;
+            /** Target Brand Aliases */
+            target_brand_aliases?: string[];
+            /** Urls */
+            urls: string[];
+            options?: components["schemas"]["TaskOptions"];
+        };
+        /** TaskDetailView */
+        TaskDetailView: {
+            /** Pub Id */
+            pub_id: string;
+            /** Target Brand */
+            target_brand: string;
+            /** Target Brand Aliases */
+            target_brand_aliases: unknown[];
+            /** Status */
+            status: string;
+            /** Url Count */
+            url_count: number;
+            /** Options */
+            options: {
+                [key: string]: unknown;
+            };
+            /** Workflow Id */
+            workflow_id: string;
+            /** Error */
+            error: string | null;
+            /** Created By */
+            created_by: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Status Counts */
+            status_counts: {
+                [key: string]: number;
+            };
+            /** Investigation Pub Id */
+            investigation_pub_id: string | null;
+        };
+        /** TaskOptions */
+        TaskOptions: {
+            /**
+             * Verify Facts
+             * @default true
+             */
+            verify_facts: boolean;
+            /**
+             * Annotate
+             * @default true
+             */
+            annotate: boolean;
+            /**
+             * Open Investigation
+             * @default true
+             */
+            open_investigation: boolean;
+        };
         /** TaskTraceView */
         TaskTraceView: {
             answer: components["schemas"]["TraceAnswer"];
@@ -7871,6 +8238,39 @@ export interface components {
             totals: components["schemas"]["TraceTotals"];
             /** Disclosure */
             disclosure: string;
+        };
+        /** TaskView */
+        TaskView: {
+            /** Pub Id */
+            pub_id: string;
+            /** Target Brand */
+            target_brand: string;
+            /** Target Brand Aliases */
+            target_brand_aliases: unknown[];
+            /** Status */
+            status: string;
+            /** Url Count */
+            url_count: number;
+            /** Options */
+            options: {
+                [key: string]: unknown;
+            };
+            /** Workflow Id */
+            workflow_id: string;
+            /** Error */
+            error: string | null;
+            /** Created By */
+            created_by: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /** TemplateQuestionsRequest */
         TemplateQuestionsRequest: {
@@ -11922,6 +12322,298 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["geo_platform__collection__router__EventView"][];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    assist_page_api_v2_assist__ticket__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    assist_frame_api_v2_assist__ticket__frame_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    assist_status_api_v2_assist__ticket__status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    assist_input_api_v2_assist__ticket__input_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    assist_done_api_v2_assist__ticket__done_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: boolean;
+                    };
                 };
             };
             /** @description Bad Request */
@@ -24500,6 +25192,422 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DraftResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_tasks_api_v2_post_analysis_tasks_get: {
+        parameters: {
+            query?: {
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostAnalysisPage_TaskView_"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_task_api_v2_post_analysis_tasks_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "Idempotency-Key"?: string | null;
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_task_api_v2_post_analysis_tasks__task_pub_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                task_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskDetailView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_items_api_v2_post_analysis_tasks__task_pub_id__items_get: {
+        parameters: {
+            query?: {
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                task_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostAnalysisPage_ItemListRow_"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_item_api_v2_post_analysis_items__item_pub_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                item_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemDetailView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_item_asset_api_v2_post_analysis_items__item_pub_id__assets__kind__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                item_pub_id: string;
+                kind: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/png": string;
                 };
             };
             /** @description Bad Request */

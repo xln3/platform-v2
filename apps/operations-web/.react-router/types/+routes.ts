@@ -34,12 +34,20 @@ type Pages = {
       "projectPubId": string;
     };
   };
+  "/post-analysis": {
+    params: {};
+  };
+  "/post-analysis/tasks/:taskPubId": {
+    params: {
+      "taskPubId": string;
+    };
+  };
 };
 
 type RouteFiles = {
   "root.tsx": {
     id: "root";
-    page: "/" | "/login" | "/execution" | "/media-prices" | "/onboarding" | "/sop" | "/sop/projects/:projectPubId";
+    page: "/" | "/login" | "/execution" | "/media-prices" | "/onboarding" | "/sop" | "/sop/projects/:projectPubId" | "/post-analysis" | "/post-analysis/tasks/:taskPubId";
   };
   "shell.tsx": {
     id: "shell";
@@ -69,6 +77,14 @@ type RouteFiles = {
     id: "features/sop/project-route";
     page: "/sop/projects/:projectPubId";
   };
+  "features/post-analysis/route.tsx": {
+    id: "features/post-analysis/route";
+    page: "/post-analysis";
+  };
+  "features/post-analysis/task-route.tsx": {
+    id: "features/post-analysis/task-route";
+    page: "/post-analysis/tasks/:taskPubId";
+  };
 };
 
 type RouteModules = {
@@ -80,4 +96,6 @@ type RouteModules = {
   "features/onboarding/route": typeof import("./app/features/onboarding/route.tsx");
   "features/sop/route": typeof import("./app/features/sop/route.tsx");
   "features/sop/project-route": typeof import("./app/features/sop/project-route.tsx");
+  "features/post-analysis/route": typeof import("./app/features/post-analysis/route.tsx");
+  "features/post-analysis/task-route": typeof import("./app/features/post-analysis/task-route.tsx");
 };

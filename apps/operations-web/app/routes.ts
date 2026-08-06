@@ -7,4 +7,6 @@ export default [
   route('onboarding', 'features/onboarding/route.tsx'),
   route('sop', 'features/sop/route.tsx'),
   route('sop/projects/:projectPubId', 'features/sop/project-route.tsx'),
+  route('post-analysis', 'features/post-analysis/route.tsx'),
+  route('post-analysis/tasks/:taskPubId', 'features/post-analysis/task-route.tsx'),
 ] satisfies RouteConfig;

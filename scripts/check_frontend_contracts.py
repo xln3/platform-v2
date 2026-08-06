@@ -31,7 +31,7 @@ page_coverage = {
     "operations": {
         "app": "operations-web",
         "sections": {"overview", "sessions", "interventions", "events"},
-        "external_sections": {"execution", "media-prices", "sop", "onboarding"},
+        "external_sections": {"execution", "media-prices", "sop", "onboarding", "post-analysis"},
         "spec": "operations-visual.spec.ts",
     },
     "reports": {
@@ -1641,9 +1641,9 @@ for fragment in (
 ):
     if fragment not in api_client:
         errors.append(f"@geo/api-client browser identity type is missing {fragment}")
-if api_client.count("client: ProjectedApiClientOverride = apiClient") != 107:
+if api_client.count("client: ProjectedApiClientOverride = apiClient") != 113:
     errors.append(
-        "@geo/api-client must keep all 107 projected wrapper overrides free of the raw "
+        "@geo/api-client must keep all 113 projected wrapper overrides free of the raw "
         "generated client type"
     )
 projected_client_unwraps = len(
@@ -1652,7 +1652,7 @@ projected_client_unwraps = len(
         api_client,
     )
 ) + api_client.count("const api = projectedApiClient(client);")
-if projected_client_unwraps != 107:
+if projected_client_unwraps != 113:
     errors.append(
         "@geo/api-client must unwrap every projected wrapper override only inside its "
         "generated request implementation"

@@ -780,6 +780,13 @@ const reportArtifactMediaTypes: Readonly<Record<ReportArtifactFormat, string>> =
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 };
 
+/**
+ * 帖子分析截图/标注图字节流路径（evidence 内容下载同级的 image/png 边界；kind 词表收窄，
+ * 其他路径一律回退 application/json 预期）。
+ */
+const postAnalysisImageAssetPath =
+  /^\/api\/v2\/post-analysis\/items\/[^/]+\/assets\/(?:screenshot|annotated)$/;
+
 export const geoApiJsonResponseMaxBytes = 25 * 1024 * 1024;
 // Self-media is a separately requested lazy artifact and can grow beyond the shared JSON
 // boundary as more suppliers are added. Keep the exception path-scoped.
@@ -795,9 +802,10 @@ function expectedApiMediaType(request: Request, response: Response): string | nu
   const evidenceImageMatch = /^\/api\/v2\/evidence\/assets\/[^/]+\/content$/.test(
     new URL(request.url).pathname,
   );
+  const postAnalysisImageMatch = postAnalysisImageAssetPath.test(new URL(request.url).pathname);
   return artifactMatch
     ? (reportArtifactMediaTypes[artifactMatch[1] as ReportArtifactFormat] ?? 'application/json')
-    : evidenceImageMatch
+    : evidenceImageMatch || postAnalysisImageMatch
       ? 'image/png'
       : 'application/json';
 }
@@ -855,11 +863,12 @@ async function secureGeoApiFetch(input: RequestInfo | URL, init?: RequestInit): 
   const evidenceImageMatch = /^\/api\/v2\/evidence\/assets\/[^/]+\/content$/.test(
     new URL(source.url).pathname,
   );
+  const postAnalysisImageMatch = postAnalysisImageAssetPath.test(new URL(source.url).pathname);
   headers.set(
     'Accept',
     artifactMatch
       ? (reportArtifactMediaTypes[artifactMatch[1] as ReportArtifactFormat] ?? 'application/json')
-      : evidenceImageMatch
+      : evidenceImageMatch || postAnalysisImageMatch
         ? 'image/png'
         : 'application/json',
   );
@@ -11100,5 +11109,778 @@ export async function submitIntakeForm(
     return projected ? { kind: 'ready', data: projected } : { kind: 'failed', code: 'unavailable' };
   } catch {
     return { kind: 'failed', code: 'unavailable' };
+  }
+}
+
+/* ------------------------------------------------------------------------- */
+/* 信源帖子取证分析（/api/v2/post-analysis）浏览器投影边界                        */
+/* 词表与 workflows/activities/post_analysis.py 逐字对齐；零合成：非法行/页       */
+/* 一律 fail closed（unavailable），绝不编造标签。                                */
+/* ------------------------------------------------------------------------- */
+
+export const postAnalysisTaskStatuses = [
+  'queued',
+  'running',
+  'completed',
+  'partial',
+  'failed',
+] as const;
+export type PostAnalysisTaskStatus = (typeof postAnalysisTaskStatuses)[number];
+export const postAnalysisItemStatuses = [
+  'pending',
+  'fetching',
+  'analyzing',
+  'annotating',
+  'completed',
+  'fetch_failed',
+  'analysis_failed',
+] as const;
+export type PostAnalysisItemStatus = (typeof postAnalysisItemStatuses)[number];
+export const postAnalysisAnnotationStatuses = [
+  'pending',
+  'completed',
+  'failed',
+  'skipped',
+] as const;
+export type PostAnalysisAnnotationStatus = (typeof postAnalysisAnnotationStatuses)[number];
+export const postAnalysisCategories = [
+  'brand_intro',
+  'review_ranking',
+  'research_report',
+  'tech_analysis',
+  'evolution_path',
+  'brand_story',
+  'science_popularization',
+  'other',
+] as const;
+export type PostAnalysisCategory = (typeof postAnalysisCategories)[number];
+export const postAnalysisAssetKinds = ['screenshot', 'annotated'] as const;
+export type PostAnalysisAssetKind = (typeof postAnalysisAssetKinds)[number];
+
+const postAnalysisSentiments = ['positive', 'neutral', 'negative'] as const;
+const postAnalysisDirections = ['target_disparaged', 'disparages_other'] as const;
+const postAnalysisSeverities = ['low', 'medium', 'high'] as const;
+const postAnalysisVerdicts = ['accurate', 'inaccurate', 'unsupported'] as const;
+const postAnalysisAnnotationTypes = ['target_brand', 'disparagement', 'misinformation'] as const;
+
+const postAnalysisAssetMaxBytes = 30 * 1024 * 1024;
+
+export type PostAnalysisTaskSummary = {
+  pubId: string;
+  targetBrand: string;
+  targetBrandAliases: string[];
+  status: PostAnalysisTaskStatus;
+  urlCount: number;
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PostAnalysisTaskPage = {
+  data: PostAnalysisTaskSummary[];
+  nextCursor: string | null;
+  hasMore: boolean;
+};
+
+export type PostAnalysisTaskDetail = {
+  task: PostAnalysisTaskSummary;
+  statusCounts: { status: PostAnalysisItemStatus; count: number }[];
+  /** 命中后自动建立的情报调查（无命中/词表外值 → null）。 */
+  investigationPubId: string | null;
+};
+
+export type PostAnalysisTaskCreateInput = {
+  targetBrand: string;
+  targetBrandAliases: string[];
+  urls: string[];
+  verifyFacts: boolean;
+  annotate: boolean;
+  /** 命中（GEO帖/拉踩）后自动建立情报调查；缺省按服务端默认 true。 */
+  openInvestigation?: boolean;
+};
+
+export type PostAnalysisTaskReceipt = {
+  pubId: string;
+};
+
+export type PostAnalysisItemRow = {
+  pubId: string;
+  ordinal: number;
+  url: string;
+  host: string;
+  status: PostAnalysisItemStatus;
+  annotationStatus: PostAnalysisAnnotationStatus;
+  category: PostAnalysisCategory | null;
+  categoryLabel: string | null;
+  isGeoPost: boolean | null;
+  isTargetBrandGeo: boolean | null;
+  disparagementCount: number;
+  misinformationCount: number;
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PostAnalysisItemPage = {
+  data: PostAnalysisItemRow[];
+  nextCursor: string | null;
+  hasMore: boolean;
+};
+
+export type PostAnalysisGeoSignal = {
+  signal: string;
+  quote: string;
+};
+
+export type PostAnalysisBrandMention = {
+  brand: string;
+  isTargetBrand: boolean;
+  sentiment: 'positive' | 'neutral' | 'negative';
+  quote: string;
+};
+
+export type PostAnalysisDisparagement = {
+  direction: 'target_disparaged' | 'disparages_other';
+  subjectBrand: string;
+  objectBrand: string;
+  quote: string;
+  severity: 'low' | 'medium' | 'high';
+  confidence: number | null;
+};
+
+export type PostAnalysisClaimSource = {
+  title: string;
+  url: string;
+};
+
+export type PostAnalysisClaimVerification = {
+  verdict: 'accurate' | 'inaccurate' | 'unsupported';
+  correction: string;
+  confidence: number | null;
+  sources: PostAnalysisClaimSource[];
+};
+
+export type PostAnalysisClaim = {
+  claim: string;
+  quote: string;
+  aboutTargetBrand: boolean;
+  verification: PostAnalysisClaimVerification | null;
+};
+
+export type PostAnalysisView = {
+  summary: string;
+  isGeoPost: boolean;
+  geoConfidence: number | null;
+  geoSignals: PostAnalysisGeoSignal[];
+  category: PostAnalysisCategory;
+  categoryLabel: string;
+  categoryRationale: string;
+  brandMentions: PostAnalysisBrandMention[];
+  isTargetBrandGeo: boolean;
+  disparagement: PostAnalysisDisparagement[];
+  claims: PostAnalysisClaim[];
+};
+
+export type PostAnalysisAnnotation = {
+  type: 'target_brand' | 'disparagement' | 'misinformation';
+  quote: string;
+  note: string;
+  matched: boolean;
+};
+
+export type PostAnalysisValidationSummary = {
+  droppedTotal: number;
+  claimsVerified: number;
+  verificationErrors: number;
+};
+
+export type PostAnalysisAssetIntegrity = {
+  sha256: string;
+  byteSize: number;
+  mimeType: string;
+};
+
+export type PostAnalysisItemDetail = {
+  pubId: string;
+  ordinal: number;
+  url: string;
+  host: string;
+  status: PostAnalysisItemStatus;
+  annotationStatus: PostAnalysisAnnotationStatus;
+  finalUrl: string | null;
+  httpStatus: number | null;
+  extractor: string | null;
+  textSha256: string | null;
+  error: string | null;
+  analysis: PostAnalysisView | null;
+  analysisValidation: PostAnalysisValidationSummary | null;
+  annotations: PostAnalysisAnnotation[];
+  screenshotAsset: PostAnalysisAssetIntegrity | null;
+  annotatedAsset: PostAnalysisAssetIntegrity | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type VerifiedPostAnalysisAsset = PostAnalysisAssetIntegrity & { blob: Blob };
+
+const postAnalysisTaskPubIdPattern = /^pat_[A-Za-z0-9_-]{1,124}$/u;
+const postAnalysisItemPubIdPattern = /^pai_[A-Za-z0-9_-]{1,124}$/u;
+
+/** 情报调查 pub_id 投影：inv_ 词表外的值一律 fail-closed 降级 null（不阻断任务详情）。 */
+const projectPostAnalysisInvestigationPubId = (value: unknown): string | null =>
+  value === null || value === undefined ? null : projectAnalyticsPubId(value, 'inv_');
+
+const postAnalysisConfidence = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1 ? value : null;
+
+const postAnalysisBoundedCount = (value: unknown, maximum: number): number | null => {
+  const projected = safeCount(value);
+  return projected !== null && projected <= maximum ? projected : null;
+};
+
+const projectPostAnalysisTaskView = (value: unknown): PostAnalysisTaskSummary | null => {
+  if (!isBrowserRecord(value)) return null;
+  const pubId = projectAnalyticsPubId(value.pub_id, 'pat_');
+  const targetBrand = safePostingText(value.target_brand, 200, false);
+  const status = safeBrowserEnum(value.status, postAnalysisTaskStatuses);
+  const urlCount =
+    typeof value.url_count === 'number' &&
+    Number.isSafeInteger(value.url_count) &&
+    value.url_count >= 1 &&
+    value.url_count <= 50
+      ? value.url_count
+      : null;
+  const createdAt = safeTimestamp(value.created_at);
+  const updatedAt = safeTimestamp(value.updated_at);
+  if (!pubId || !targetBrand || !status || urlCount === null || !createdAt || !updatedAt) {
+    return null;
+  }
+  const targetBrandAliases = (
+    Array.isArray(value.target_brand_aliases) ? value.target_brand_aliases : []
+  )
+    .flatMap((alias) => {
+      const projected = safePostingText(alias, 200, false);
+      return projected ? [projected] : [];
+    })
+    .slice(0, 20);
+  let error: string | null = null;
+  if (value.error !== null && value.error !== undefined) {
+    const projectedError = safePostingText(value.error, 2_000, false);
+    if (!projectedError) return null;
+    error = projectedError;
+  }
+  return { pubId, targetBrand, targetBrandAliases, status, urlCount, error, createdAt, updatedAt };
+};
+
+type PostAnalysisItemCore = {
+  pubId: string;
+  ordinal: number;
+  url: string;
+  host: string;
+  status: PostAnalysisItemStatus;
+  annotationStatus: PostAnalysisAnnotationStatus;
+  error: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** 列表行与详情共用的标量字段（徽章派生字段只在列表行投影，详情没有这些列）。 */
+const projectPostAnalysisItemCore = (
+  value: Record<string, unknown>,
+): PostAnalysisItemCore | null => {
+  const pubId = projectAnalyticsPubId(value.pub_id, 'pai_');
+  const ordinal = postAnalysisBoundedCount(value.ordinal, 500);
+  const url = safePostingUrl(value.url);
+  const host = safePostingText(value.host, 200, false);
+  const status = safeBrowserEnum(value.status, postAnalysisItemStatuses);
+  const annotationStatus = safeBrowserEnum(value.annotation_status, postAnalysisAnnotationStatuses);
+  const createdAt = safeTimestamp(value.created_at);
+  const updatedAt = safeTimestamp(value.updated_at);
+  if (
+    !pubId ||
+    ordinal === null ||
+    ordinal < 1 ||
+    !url ||
+    !host ||
+    !status ||
+    !annotationStatus ||
+    !createdAt ||
+    !updatedAt
+  ) {
+    return null;
+  }
+  let error: string | null = null;
+  if (value.error !== null && value.error !== undefined) {
+    const projectedError = safePostingText(value.error, 2_000, false);
+    if (!projectedError) return null;
+    error = projectedError;
+  }
+  return { pubId, ordinal, url, host, status, annotationStatus, error, createdAt, updatedAt };
+};
+
+const projectPostAnalysisItemRow = (value: unknown): PostAnalysisItemRow | null => {
+  if (!isBrowserRecord(value)) return null;
+  const core = projectPostAnalysisItemCore(value);
+  if (!core) return null;
+  let category: PostAnalysisCategory | null = null;
+  if (value.category !== null && value.category !== undefined) {
+    const projectedCategory = safeBrowserEnum(value.category, postAnalysisCategories);
+    if (!projectedCategory) return null;
+    category = projectedCategory;
+  }
+  let categoryLabel: string | null = null;
+  if (value.category_label !== null && value.category_label !== undefined) {
+    const projectedLabel = safePostingText(value.category_label, 50, false);
+    if (!projectedLabel) return null;
+    categoryLabel = projectedLabel;
+  }
+  const isGeoPost =
+    value.is_geo_post === null || value.is_geo_post === undefined
+      ? null
+      : typeof value.is_geo_post === 'boolean'
+        ? value.is_geo_post
+        : undefined;
+  const isTargetBrandGeo =
+    value.is_target_brand_geo === null || value.is_target_brand_geo === undefined
+      ? null
+      : typeof value.is_target_brand_geo === 'boolean'
+        ? value.is_target_brand_geo
+        : undefined;
+  const disparagementCount = postAnalysisBoundedCount(value.disparagement_count, 10_000);
+  const misinformationCount = postAnalysisBoundedCount(value.misinformation_count, 10_000);
+  if (
+    isGeoPost === undefined ||
+    isTargetBrandGeo === undefined ||
+    disparagementCount === null ||
+    misinformationCount === null
+  ) {
+    return null;
+  }
+  return {
+    ...core,
+    category,
+    categoryLabel,
+    isGeoPost,
+    isTargetBrandGeo,
+    disparagementCount,
+    misinformationCount,
+  };
+};
+
+const projectPostAnalysisView = (value: unknown): PostAnalysisView | null => {
+  if (!isBrowserRecord(value)) return null;
+  const summary = safePostingText(value.summary, 1_000, false);
+  const category = safeBrowserEnum(value.category, postAnalysisCategories);
+  if (
+    !summary ||
+    !category ||
+    typeof value.is_geo_post !== 'boolean' ||
+    typeof value.is_target_brand_geo !== 'boolean'
+  ) {
+    return null;
+  }
+  const geoSignals = (Array.isArray(value.geo_signals) ? value.geo_signals : [])
+    .slice(0, 50)
+    .flatMap((entry) => {
+      if (!isBrowserRecord(entry)) return [];
+      const signal = safePostingText(entry.signal, 500, false);
+      const quote = safePostingText(entry.quote, 500, false);
+      return signal && quote ? [{ signal, quote }] : [];
+    });
+  const brandMentions = (Array.isArray(value.brand_mentions) ? value.brand_mentions : [])
+    .slice(0, 100)
+    .flatMap((entry) => {
+      if (!isBrowserRecord(entry) || typeof entry.is_target_brand !== 'boolean') return [];
+      const brand = safePostingText(entry.brand, 200, false);
+      const sentiment = safeBrowserEnum(entry.sentiment, postAnalysisSentiments);
+      const quote = safePostingText(entry.quote, 500, false);
+      return brand && sentiment && quote
+        ? [{ brand, isTargetBrand: entry.is_target_brand, sentiment, quote }]
+        : [];
+    });
+  const disparagement = (Array.isArray(value.disparagement) ? value.disparagement : [])
+    .slice(0, 50)
+    .flatMap((entry) => {
+      if (!isBrowserRecord(entry)) return [];
+      const direction = safeBrowserEnum(entry.direction, postAnalysisDirections);
+      const subjectBrand = safePostingText(entry.subject_brand, 200, false);
+      const objectBrand = safePostingText(entry.object_brand, 200, false);
+      const quote = safePostingText(entry.quote, 500, false);
+      const severity = safeBrowserEnum(entry.severity, postAnalysisSeverities);
+      return direction && subjectBrand && objectBrand && quote && severity
+        ? [
+            {
+              direction,
+              subjectBrand,
+              objectBrand,
+              quote,
+              severity,
+              confidence: postAnalysisConfidence(entry.confidence),
+            },
+          ]
+        : [];
+    });
+  const claims = (Array.isArray(value.claims) ? value.claims : [])
+    .slice(0, 10)
+    .flatMap((entry): PostAnalysisClaim[] => {
+      if (!isBrowserRecord(entry) || typeof entry.about_target_brand !== 'boolean') return [];
+      const claim = safePostingText(entry.claim, 500, false);
+      const quote = safePostingText(entry.quote, 500, false);
+      if (!claim || !quote) return [];
+      let verification: PostAnalysisClaimVerification | null = null;
+      if (entry.verification !== null && entry.verification !== undefined) {
+        if (!isBrowserRecord(entry.verification)) return [];
+        const verdict = safeBrowserEnum(entry.verification.verdict, postAnalysisVerdicts);
+        if (!verdict) return [];
+        const sources = (
+          Array.isArray(entry.verification.sources) ? entry.verification.sources : []
+        )
+          .slice(0, 10)
+          .flatMap((source) => {
+            if (!isBrowserRecord(source)) return [];
+            const url = safePostingUrl(source.url);
+            if (!url) return [];
+            const title = safePostingText(source.title, 200, true) ?? '';
+            return [{ title: title || url, url }];
+          });
+        verification = {
+          verdict,
+          correction: safePostingText(entry.verification.correction, 1_000, true) ?? '',
+          confidence: postAnalysisConfidence(entry.verification.confidence),
+          sources,
+        };
+      }
+      return [{ claim, quote, aboutTargetBrand: entry.about_target_brand, verification }];
+    });
+  return {
+    summary,
+    isGeoPost: value.is_geo_post,
+    geoConfidence: postAnalysisConfidence(value.geo_confidence),
+    geoSignals,
+    category,
+    categoryLabel: safePostingText(value.category_label, 50, false) ?? category,
+    categoryRationale: safePostingText(value.category_rationale, 500, true) ?? '',
+    brandMentions,
+    isTargetBrandGeo: value.is_target_brand_geo,
+    disparagement,
+    claims,
+  };
+};
+
+const projectPostAnalysisAnnotations = (value: unknown): PostAnalysisAnnotation[] => {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, 500).flatMap((entry) => {
+    if (!isBrowserRecord(entry)) return [];
+    const type = safeBrowserEnum(entry.type, postAnalysisAnnotationTypes);
+    const quote = safePostingText(entry.quote, 500, false);
+    if (!type || !quote) return [];
+    const note = safePostingText(entry.note, 1_100, true) ?? '';
+    return [{ type, quote, note, matched: entry.matched === true }];
+  });
+};
+
+const projectPostAnalysisValidation = (value: unknown): PostAnalysisValidationSummary | null => {
+  if (value === null || value === undefined) return null;
+  if (!isBrowserRecord(value)) return null;
+  const dropped = isBrowserRecord(value.dropped) ? value.dropped : {};
+  const droppedTotal = Object.values(dropped).reduce<number>(
+    (total, count) => total + (safeCount(count) ?? 0),
+    0,
+  );
+  return {
+    droppedTotal,
+    claimsVerified: safeCount(value.claims_verified) ?? 0,
+    verificationErrors: safeCount(value.verification_errors) ?? 0,
+  };
+};
+
+const projectPostAnalysisAssetIntegrity = (value: unknown): PostAnalysisAssetIntegrity | null => {
+  if (value === null || value === undefined || !isBrowserRecord(value)) return null;
+  const sha256 = safeHash(value.sha256);
+  const byteSize =
+    typeof value.byte_size === 'number' &&
+    Number.isSafeInteger(value.byte_size) &&
+    value.byte_size > 0 &&
+    value.byte_size <= postAnalysisAssetMaxBytes
+      ? value.byte_size
+      : null;
+  if (!sha256 || byteSize === null || value.mime_type !== 'image/png') return null;
+  return { sha256, byteSize, mimeType: 'image/png' };
+};
+
+const projectPostAnalysisItemDetail = (value: unknown): PostAnalysisItemDetail | null => {
+  if (!isBrowserRecord(value)) return null;
+  const core = projectPostAnalysisItemCore(value);
+  if (!core) return null;
+  let finalUrl: string | null = null;
+  if (value.final_url !== null && value.final_url !== undefined) {
+    const projectedUrl = safePostingUrl(value.final_url);
+    if (!projectedUrl) return null;
+    finalUrl = projectedUrl;
+  }
+  let httpStatus: number | null = null;
+  if (value.http_status !== null && value.http_status !== undefined) {
+    const projectedStatus = safeCount(value.http_status);
+    if (projectedStatus === null || projectedStatus < 100 || projectedStatus > 599) return null;
+    httpStatus = projectedStatus;
+  }
+  let extractor: string | null = null;
+  if (value.extractor !== null && value.extractor !== undefined) {
+    const projectedExtractor = safePostingText(value.extractor, 100, false);
+    if (!projectedExtractor) return null;
+    extractor = projectedExtractor;
+  }
+  let textSha256: string | null = null;
+  if (value.text_sha256 !== null && value.text_sha256 !== undefined) {
+    const projectedHash = safeHash(value.text_sha256);
+    if (!projectedHash) return null;
+    textSha256 = projectedHash;
+  }
+  return {
+    ...core,
+    finalUrl,
+    httpStatus,
+    extractor,
+    textSha256,
+    analysis: projectPostAnalysisView(value.analysis),
+    analysisValidation: projectPostAnalysisValidation(value.analysis_validation),
+    annotations: projectPostAnalysisAnnotations(value.annotations),
+    screenshotAsset: projectPostAnalysisAssetIntegrity(value.screenshot_asset),
+    annotatedAsset: projectPostAnalysisAssetIntegrity(value.annotated_asset),
+  };
+};
+
+export async function listPostAnalysisTasks(
+  headers: IdentitySessionHeaders,
+  cursor: string | null = null,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<ProjectResourceResult<PostAnalysisTaskPage>> {
+  try {
+    const requestedCursor = cursor && postAnalysisTaskPubIdPattern.test(cursor) ? cursor : null;
+    const result = await projectedApiClient(client).GET('/api/v2/post-analysis/tasks', {
+      params: {
+        query: { limit: 100, ...(requestedCursor ? { cursor: requestedCursor } : {}) },
+        header: headers,
+      },
+    });
+    if (!result.data) return classifyResourceFailure(result.response.status);
+    const tasks = result.data.data.flatMap((value) => {
+      const task = projectPostAnalysisTaskView(value);
+      return task ? [task] : [];
+    });
+    const rawNextCursor = result.data.page.next_cursor;
+    const rawHasMore = result.data.page.has_more;
+    const hasMore = rawHasMore === true;
+    const nextCursor =
+      typeof rawNextCursor === 'string' && postAnalysisTaskPubIdPattern.test(rawNextCursor)
+        ? rawNextCursor
+        : null;
+    const pageIsValid =
+      tasks.length === result.data.data.length &&
+      typeof rawHasMore === 'boolean' &&
+      ((hasMore && nextCursor !== null && nextCursor === tasks.at(-1)?.pubId) ||
+        (!hasMore && rawNextCursor === null));
+    return pageIsValid
+      ? { kind: 'ready', data: { data: tasks, nextCursor: hasMore ? nextCursor : null, hasMore } }
+      : { kind: 'unavailable' };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+export async function createPostAnalysisTask(
+  headers: IdentitySessionHeaders,
+  body: PostAnalysisTaskCreateInput,
+  idempotencyKey: string,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<ProjectResourceResult<PostAnalysisTaskReceipt>> {
+  try {
+    const result = await projectedApiClient(client).POST('/api/v2/post-analysis/tasks', {
+      params: { header: sopWriteHeaders(headers, idempotencyKey) },
+      body: {
+        target_brand: body.targetBrand,
+        target_brand_aliases: body.targetBrandAliases,
+        urls: body.urls,
+        options: {
+          verify_facts: body.verifyFacts,
+          annotate: body.annotate,
+          // 生成的 TaskOptions 三键均为必填（exactOptionalPropertyTypes 下无法条件展开）；
+          // 缺省显式回落服务端默认值 true。
+          open_investigation: body.openInvestigation ?? true,
+        },
+      },
+    });
+    if (!result.data) return classifyResourceFailure(result.response.status);
+    const task = projectPostAnalysisTaskView(result.data);
+    return task ? { kind: 'ready', data: { pubId: task.pubId } } : { kind: 'unavailable' };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+export async function getPostAnalysisTask(
+  headers: IdentitySessionHeaders,
+  taskPubId: string,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<ProjectResourceResult<PostAnalysisTaskDetail>> {
+  try {
+    if (!projectAnalyticsPubId(taskPubId, 'pat_')) return { kind: 'unavailable' };
+    const result = await projectedApiClient(client).GET(
+      '/api/v2/post-analysis/tasks/{task_pub_id}',
+      {
+        params: { path: { task_pub_id: taskPubId }, header: headers },
+      },
+    );
+    if (!result.data) return classifyResourceFailure(result.response.status);
+    const task = projectPostAnalysisTaskView(result.data);
+    if (!task) return { kind: 'unavailable' };
+    const statusCounts = Object.entries(result.data.status_counts).flatMap(([status, count]) => {
+      const projectedStatus = safeBrowserEnum(status, postAnalysisItemStatuses);
+      const projectedCount = postAnalysisBoundedCount(count, 10_000);
+      return projectedStatus && projectedCount !== null
+        ? [{ status: projectedStatus, count: projectedCount }]
+        : [];
+    });
+    return {
+      kind: 'ready',
+      data: {
+        task,
+        statusCounts,
+        investigationPubId: projectPostAnalysisInvestigationPubId(result.data.investigation_pub_id),
+      },
+    };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+export async function listPostAnalysisItems(
+  headers: IdentitySessionHeaders,
+  taskPubId: string,
+  cursor: string | null = null,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<ProjectResourceResult<PostAnalysisItemPage>> {
+  try {
+    if (!projectAnalyticsPubId(taskPubId, 'pat_')) return { kind: 'unavailable' };
+    const requestedCursor = cursor && postAnalysisItemPubIdPattern.test(cursor) ? cursor : null;
+    const result = await projectedApiClient(client).GET(
+      '/api/v2/post-analysis/tasks/{task_pub_id}/items',
+      {
+        params: {
+          path: { task_pub_id: taskPubId },
+          query: { limit: 100, ...(requestedCursor ? { cursor: requestedCursor } : {}) },
+          header: headers,
+        },
+      },
+    );
+    if (!result.data) return classifyResourceFailure(result.response.status);
+    const items = result.data.data.flatMap((value) => {
+      const item = projectPostAnalysisItemRow(value);
+      return item ? [item] : [];
+    });
+    const rawNextCursor = result.data.page.next_cursor;
+    const rawHasMore = result.data.page.has_more;
+    const hasMore = rawHasMore === true;
+    const nextCursor =
+      typeof rawNextCursor === 'string' && postAnalysisItemPubIdPattern.test(rawNextCursor)
+        ? rawNextCursor
+        : null;
+    const pageIsValid =
+      items.length === result.data.data.length &&
+      typeof rawHasMore === 'boolean' &&
+      ((hasMore && nextCursor !== null && nextCursor === items.at(-1)?.pubId) ||
+        (!hasMore && rawNextCursor === null));
+    return pageIsValid
+      ? { kind: 'ready', data: { data: items, nextCursor: hasMore ? nextCursor : null, hasMore } }
+      : { kind: 'unavailable' };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+export async function getPostAnalysisItem(
+  headers: IdentitySessionHeaders,
+  itemPubId: string,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<ProjectResourceResult<PostAnalysisItemDetail>> {
+  try {
+    if (!projectAnalyticsPubId(itemPubId, 'pai_')) return { kind: 'unavailable' };
+    const result = await projectedApiClient(client).GET(
+      '/api/v2/post-analysis/items/{item_pub_id}',
+      {
+        params: { path: { item_pub_id: itemPubId }, header: headers },
+      },
+    );
+    if (!result.data) return classifyResourceFailure(result.response.status);
+    const detail = projectPostAnalysisItemDetail(result.data);
+    return detail ? { kind: 'ready', data: detail } : { kind: 'unavailable' };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+/**
+ * 截图/标注图字节流（verified-Blob 边界，getEvidenceAssetContent 同款）：
+ * MIME/尺寸先验相等，SHA-256 摘要比对通过才交给调用方。
+ */
+export async function getPostAnalysisItemAsset(
+  headers: IdentitySessionHeaders,
+  itemPubId: string,
+  kind: PostAnalysisAssetKind,
+  expected: PostAnalysisAssetIntegrity,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<ProjectResourceResult<VerifiedPostAnalysisAsset>> {
+  try {
+    const expectedSha256 = safeHash(expected.sha256);
+    if (
+      !projectAnalyticsPubId(itemPubId, 'pai_') ||
+      !safeBrowserEnum(kind, postAnalysisAssetKinds) ||
+      !expectedSha256 ||
+      expected.mimeType !== 'image/png' ||
+      !Number.isSafeInteger(expected.byteSize) ||
+      expected.byteSize <= 0 ||
+      expected.byteSize > postAnalysisAssetMaxBytes
+    ) {
+      return { kind: 'unavailable' };
+    }
+    const result = await projectedApiClient(client).GET(
+      '/api/v2/post-analysis/items/{item_pub_id}/assets/{kind}',
+      {
+        params: {
+          path: { item_pub_id: itemPubId, kind },
+          header: headers,
+        },
+        parseAs: 'blob',
+      },
+    );
+    if (
+      !(result.data instanceof Blob) ||
+      result.data.type !== expected.mimeType ||
+      result.data.size !== expected.byteSize
+    ) {
+      return result.data
+        ? { kind: 'unavailable' }
+        : classifyResourceFailure(result.response.status);
+    }
+    const digest = await globalThis.crypto.subtle.digest(
+      'SHA-256',
+      await result.data.arrayBuffer(),
+    );
+    const actualSha256 = [...new Uint8Array(digest)]
+      .map((value) => value.toString(16).padStart(2, '0'))
+      .join('');
+    return actualSha256 === expectedSha256
+      ? {
+          kind: 'ready',
+          data: {
+            blob: result.data,
+            byteSize: result.data.size,
+            mimeType: result.data.type,
+            sha256: actualSha256,
+          },
+        }
+      : { kind: 'unavailable' };
+  } catch {
+    return { kind: 'unavailable' };
   }
 }

@@ -1,0 +1,299 @@
+.pa-page {
+  --pa-shadow: 0 10px 30px rgb(24 34 31 / 7%);
+  --pa-subtle: #f7f9f8;
+  display: grid;
+  gap: 24px;
+}
+
+.pa-hero,
+.pa-card,
+.pa-item {
+  border: 1px solid var(--line);
+  background: var(--paper);
+  border-radius: 18px;
+  box-shadow: var(--pa-shadow);
+}
+
+.pa-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 28px;
+  background:
+    radial-gradient(
+      circle at 88% 18%,
+      color-mix(in srgb, var(--green) 16%, transparent),
+      transparent 32%
+    ),
+    var(--paper);
+}
+
+.pa-hero h2 {
+  margin: 4px 0 8px;
+  font-size: clamp(1.7rem, 3vw, 2.6rem);
+}
+
+.pa-hero p,
+.pa-muted {
+  margin: 0;
+  color: var(--muted);
+}
+
+.pa-hero-side {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.pa-index-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(300px, 0.8fr);
+  gap: 20px;
+}
+
+.pa-card {
+  padding: 22px;
+}
+
+.pa-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.pa-section-head h3,
+.pa-section-head h4 {
+  margin: 4px 0 0;
+}
+
+.pa-form {
+  display: grid;
+  gap: 16px;
+}
+
+.pa-form input:not([type='checkbox']),
+.pa-form textarea {
+  width: 100%;
+}
+
+.pa-table code {
+  display: block;
+  max-width: 230px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.76rem;
+}
+
+.pa-table td:first-child strong {
+  display: block;
+}
+
+.pa-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+}
+
+.pa-checkbox input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--green);
+}
+
+.pa-checkbox-hint {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.pa-counts {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.pa-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--pa-subtle);
+}
+
+.pa-count strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.pa-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.9rem;
+  word-break: break-all;
+}
+
+.pa-items {
+  display: grid;
+  gap: 16px;
+}
+
+.pa-item {
+  padding: 18px;
+}
+
+.pa-item-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.pa-item-url {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.pa-item-url a {
+  word-break: break-all;
+  font-size: 0.86rem;
+}
+
+.pa-host {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.pa-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.pa-badge-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.pa-detail {
+  display: grid;
+  gap: 18px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px dashed var(--line);
+}
+
+.pa-block {
+  display: grid;
+  gap: 10px;
+}
+
+.pa-block h4 {
+  margin: 0;
+}
+
+.pa-block p {
+  margin: 0;
+}
+
+.pa-finding-list {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pa-finding-list > li {
+  display: grid;
+  gap: 6px;
+}
+
+.pa-finding-list .pa-badge-row {
+  margin-top: 0;
+}
+
+.pa-quote {
+  margin: 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--green);
+  border-radius: 0 8px 8px 0;
+  color: var(--muted);
+  background: var(--pa-subtle);
+  font-size: 0.88rem;
+  word-break: break-word;
+}
+
+.pa-verification {
+  display: grid;
+  gap: 6px;
+}
+
+.pa-sources {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+  font-size: 0.86rem;
+}
+
+.pa-sources a {
+  word-break: break-all;
+}
+
+.pa-tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--pa-subtle);
+}
+
+.pa-tabs button {
+  min-height: 32px;
+  padding: 5px 16px;
+  border: 0;
+  border-radius: 9px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.pa-tabs button.active {
+  color: var(--ink);
+  background: var(--paper);
+  box-shadow: var(--pa-shadow);
+}
+
+.pa-screenshot {
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+@media (max-width: 980px) {
+  .pa-index-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .pa-hero,
+  .pa-section-head,
+  .pa-item-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
