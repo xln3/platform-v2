@@ -6,19 +6,25 @@
     "node": ">=24"
   },
   "scripts": {
-    "build": "CHOKIDAR_USEPOLLING=true turbo run build --concurrency=1",
+    "build": "CHOKIDAR_USEPOLLING=true turbo run build --concurrency=1 --force",
     "dev:web": "turbo run dev --filter='./apps/*'",
     "lint": "turbo run lint && pnpm lint:python",
     "lint:python": ".venv/bin/ruff check api domain workflows migrations tests tools scripts",
     "format": "prettier --write . && .venv/bin/ruff format api domain workflows migrations tests tools scripts",
     "format:check": "prettier --check . && .venv/bin/ruff format --check api domain workflows migrations tests tools scripts",
     "typecheck": "turbo run typecheck && .venv/bin/mypy api workflows domain",
-    "test": "turbo run test && .venv/bin/pytest -q",
+    "test": "turbo run test && pnpm test:e2e-runtime-unit && .venv/bin/pytest -q",
+    "test:e2e-runtime-unit": "vitest run tests/e2e/runtime-guard.test.ts tests/e2e/screenshot-safety.test.ts tools/browser_runtime_evidence.test.mjs --environment node",
     "test:e2e": "playwright test",
     "generate:api": ".venv/bin/python scripts/export_openapi.py && openapi-typescript contracts/openapi.json -o packages/api-client/src/schema.generated.ts",
     "check:api": "pnpm generate:api && .venv/bin/python scripts/check_generated.py && .venv/bin/python scripts/check_frontend_contracts.py",
-    "check:legacy-routes": ".venv/bin/python scripts/check_legacy_routes.py",
-    "check": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm test && pnpm check:api && pnpm build && pnpm check:legacy-routes",
+    "check:production-routes": ".venv/bin/python scripts/check_production_routes.py",
+    "check:ci": ".venv/bin/python scripts/check_ci_workflow.py",
+    "check:e2e-artifacts": ".venv/bin/python scripts/check_e2e_artifacts.py",
+    "check:observability": ".venv/bin/python scripts/check_observability_alerts.py",
+    "check:production-bundles": ".venv/bin/python scripts/check_production_bundles.py",
+    "frontend:release": ".venv/bin/python scripts/frontend_release.py",
+    "check": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm test && pnpm check:api && pnpm build && pnpm check:e2e-artifacts && pnpm check:production-bundles && pnpm check:production-routes && pnpm check:observability && pnpm check:ci",
     "infra:up": "docker compose -f compose.yaml up -d --wait",
     "infra:down": "docker compose -f compose.yaml down",
     "dev": "bash scripts/dev.sh",
@@ -35,6 +41,7 @@
     "openapi-typescript": "7.13.0",
     "prettier": "3.6.2",
     "turbo": "2.10.6",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "vitest": "3.2.4"
   }
 }

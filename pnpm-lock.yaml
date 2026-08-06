@@ -41,6 +41,9 @@ importers:
       typescript:
         specifier: 5.9.3
         version: 5.9.3
+      vitest:
+        specifier: 3.2.4
+        version: 3.2.4(@types/node@24.1.0)(jsdom@29.1.1)(lightningcss@1.33.0)(supports-color@10.2.2)
 
   apps/customer-web:
     dependencies:
@@ -71,6 +74,9 @@ importers:
       isbot:
         specifier: ^5
         version: 5.2.1
+      pdfjs-dist:
+        specifier: ^6.1.200
+        version: 6.1.200
       react:
         specifier: 19.2.8
         version: 19.2.8
@@ -103,20 +109,14 @@ importers:
         specifier: 3.2.4
         version: 3.2.4(@types/node@24.1.0)(jsdom@29.1.1)(lightningcss@1.33.0)(supports-color@10.2.2)
 
-  apps/intelligence-web:
+  apps/intake-form:
     dependencies:
       '@geo/api-client':
         specifier: workspace:*
         version: link:../../packages/api-client
-      '@geo/auth':
-        specifier: workspace:*
-        version: link:../../packages/auth
       '@geo/design-system':
         specifier: workspace:*
         version: link:../../packages/design-system
-      '@xyflow/react':
-        specifier: ^12.11.2
-        version: 12.11.2(@types/react-dom@19.1.6(@types/react@19.1.8))(@types/react@19.1.8)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       isbot:
         specifier: ^5
         version: 5.2.1
@@ -129,6 +129,61 @@ importers:
       react-router:
         specifier: 8.3.0
         version: 8.3.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+    devDependencies:
+      '@react-router/dev':
+        specifier: 8.3.0
+        version: 8.3.0(react-router@8.3.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(supports-color@10.2.2)(typescript@7.0.2)(vite@8.1.5(@types/node@24.1.0)(esbuild@0.28.1))
+      '@types/react':
+        specifier: 19.1.8
+        version: 19.1.8
+      '@types/react-dom':
+        specifier: 19.1.6
+        version: 19.1.6(@types/react@19.1.8)
+      vite:
+        specifier: 8.1.5
+        version: 8.1.5(@types/node@24.1.0)(esbuild@0.28.1)
+      vitest:
+        specifier: 3.2.4
+        version: 3.2.4(@types/node@24.1.0)(jsdom@29.1.1)(lightningcss@1.33.0)(supports-color@10.2.2)
+
+  apps/intelligence-web:
+    dependencies:
+      '@geo/api-client':
+        specifier: workspace:*
+        version: link:../../packages/api-client
+      '@geo/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
+      '@geo/design-system':
+        specifier: workspace:*
+        version: link:../../packages/design-system
+      '@hookform/resolvers':
+        specifier: ^5.4.0
+        version: 5.4.0(react-hook-form@7.82.0(react@19.2.8))
+      '@tanstack/react-query':
+        specifier: ^5.101.4
+        version: 5.101.4(react@19.2.8)
+      '@xyflow/react':
+        specifier: ^12.11.2
+        version: 12.11.2(@types/react-dom@19.1.6(@types/react@19.1.8))(@types/react@19.1.8)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      isbot:
+        specifier: ^5
+        version: 5.2.1
+      react:
+        specifier: 19.2.8
+        version: 19.2.8
+      react-dom:
+        specifier: 19.2.8
+        version: 19.2.8(react@19.2.8)
+      react-hook-form:
+        specifier: ^7.82.0
+        version: 7.82.0(react@19.2.8)
+      react-router:
+        specifier: 8.3.0
+        version: 8.3.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@react-router/dev':
         specifier: 8.3.0
@@ -200,6 +255,9 @@ importers:
       '@geo/workflow-ui':
         specifier: workspace:*
         version: link:../../packages/workflow-ui
+      '@hookform/resolvers':
+        specifier: ^5.4.0
+        version: 5.4.0(react-hook-form@7.82.0(react@19.2.8))
       isbot:
         specifier: ^5
         version: 5.2.1
@@ -215,12 +273,18 @@ importers:
       react-dom:
         specifier: 19.2.8
         version: 19.2.8(react@19.2.8)
+      react-hook-form:
+        specifier: ^7.82.0
+        version: 7.82.0(react@19.2.8)
       react-konva:
         specifier: ^19.2.5
         version: 19.2.5(@types/react@19.1.8)(konva@10.3.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       react-router:
         specifier: 8.3.0
         version: 8.3.0(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@react-router/dev':
         specifier: 8.3.0
@@ -276,6 +340,16 @@ importers:
       vitest:
         specifier: 3.2.4
         version: 3.2.4(@types/node@24.1.0)(jsdom@29.1.1)(lightningcss@1.33.0)(supports-color@10.2.2)
+
+  packages/customer-terminal-extension:
+    dependencies:
+      jsqr:
+        specifier: 1.4.0
+        version: 1.4.0
+    devDependencies:
+      esbuild:
+        specifier: 0.28.1
+        version: 0.28.1
 
   packages/design-system:
     dependencies:
@@ -1782,6 +1856,9 @@ packages:
     resolution: {integrity: sha512-XmOWe7eyHYH14cLdVPoyg+GOH3rYX++KpzrylJwSW98t3Nk+U8XOl8FWKOgwtzdb8lXGf6zYwDUzeHMWfxasyg==}
     engines: {node: '>=6'}
     hasBin: true
+
+  jsqr@1.4.0:
+    resolution: {integrity: sha512-dxLob7q65Xg2DvstYkRpkYtmKm2sPJ9oFhrhmudT1dZvNFFTlroai3AWSpLey/w5vMcLBXRgOJsbXpdN9HzU/A==}
 
   konva@10.3.0:
     resolution: {integrity: sha512-gt19K2gzY4lHbnkvsku7eSmB+A9PTS2jG4F9coBMsdjM1UKfJNxJbDbXVpeCW1wjEGRwBD3nBamcHnqJhAeKlg==}
@@ -3665,6 +3742,8 @@ snapshots:
   json-schema-traverse@1.0.0: {}
 
   json5@2.2.3: {}
+
+  jsqr@1.4.0: {}
 
   konva@10.3.0: {}
 

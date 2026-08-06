@@ -1,10 +1,14 @@
 node_modules
 .turbo
 build
+build-e2e
 .venv
 .react-router
 pnpm-lock.yaml
 contracts/openapi.json
 packages/api-client/src/schema.generated.ts
 tests/*.json
+tests/s04-evidence/*.json
+tests/s04-evidence/playwright-*
 tests/e2e-results
+tests/e2e-results-*
