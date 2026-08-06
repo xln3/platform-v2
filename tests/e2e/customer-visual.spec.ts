@@ -1,9 +1,12 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './runtime-fixture';
+import { captureSafeScreenshot, expectSafePageScreenshot } from './screenshot-safety';
 import { prepareVisualPage } from './visual-regression';
+import { rm } from 'node:fs/promises';
 
 const workspaces = [
   { section: 'home', snapshot: 'customer-home.png', ready: '监测运行中' },
   { section: 'profile', snapshot: 'customer-profile.png', ready: '甲方资料' },
+  { section: 'intake', snapshot: 'customer-intake-form.png', ready: '客户信息收集表' },
   { section: 'assets', snapshot: 'customer-brand-assets.png', ready: '品牌、产品与竞品' },
   {
     section: 'questions',
@@ -27,10 +30,7 @@ const workspaces = [
 
 for (const workspace of workspaces) {
   test(`customer ${workspace.section} visual baseline has no page overflow`, async ({ page }) => {
-    const expectCleanRuntime = await prepareVisualPage(
-      page,
-      `/platform/customer/?section=${workspace.section}`,
-    );
+    await prepareVisualPage(page, `/platform/customer/?section=${workspace.section}`);
     await page.getByRole('heading', { name: workspace.ready, exact: true }).first().waitFor();
     if (workspace.section === 'monitoring') {
       await page.getByText('近五个冻结日品牌提及率趋势图表已渲染').waitFor();
@@ -38,26 +38,25 @@ for (const workspace of workspaces) {
     await expect
       .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1))
       .toBe(true);
-    await expect(page).toHaveScreenshot(workspace.snapshot, {
+    await expectSafePageScreenshot(page, workspace.snapshot, {
       fullPage: true,
       animations: 'disabled',
       maxDiffPixelRatio: 0.005,
     });
-    expectCleanRuntime();
   });
 }
 
 test('customer secure pairing QR and native challenge have responsive visual baselines', async ({
   page,
 }) => {
-  const expectCleanRuntime = await prepareVisualPage(page, '/platform/customer/?section=accounts');
+  await prepareVisualPage(page, '/platform/customer/?section=accounts');
   await page.getByRole('button', { name: '创建一次性配对' }).click();
-  await page.getByRole('button', { name: '确认并生成配对码' }).click();
-  await page.getByRole('img', { name: /一次性安全配对二维码/ }).waitFor();
+  await page.getByRole('button', { name: '确认并进入配对演示' }).click();
+  await page.getByRole('img', { name: /一次性安全配对二维码占位/ }).waitFor();
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1))
     .toBe(true);
-  await expect(page).toHaveScreenshot('customer-account-pairing-qr.png', {
+  await expectSafePageScreenshot(page, 'customer-account-pairing-qr.png', {
     fullPage: true,
     animations: 'disabled',
     maxDiffPixelRatio: 0.005,
@@ -68,10 +67,143 @@ test('customer secure pairing QR and native challenge have responsive visual bas
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1))
     .toBe(true);
-  await expect(page).toHaveScreenshot('customer-account-native-challenge.png', {
+  await expectSafePageScreenshot(page, 'customer-account-native-challenge.png', {
     fullPage: true,
     animations: 'disabled',
     maxDiffPixelRatio: 0.005,
   });
-  expectCleanRuntime();
+});
+
+test('unmarked machine-readable QR pixels are rejected before visual evidence', async ({
+  page,
+}, testInfo) => {
+  await page.route('**/qr-safety-fixture', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'text/html',
+      body: `
+        <!doctype html>
+        <html lang="zh-CN">
+          <body>
+            <main>
+              <h1>受控终端交接</h1>
+              <img
+                alt="pairing QR code"
+                src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Cpath d='M0 0h32v32H0z'/%3E%3C/svg%3E"
+              />
+            </main>
+          </body>
+        </html>
+      `,
+    }),
+  );
+  await page.goto('/qr-safety-fixture');
+
+  const temporaryScreenshot = `tests/e2e-results/machine-readable-rejection-${testInfo.project.name}.png`;
+  try {
+    await expect(
+      captureSafeScreenshot(page, {
+        path: temporaryScreenshot,
+        fullPage: true,
+        animations: 'disabled',
+      }),
+    ).rejects.toThrow(/machine-readable-visual/u);
+
+    await page.setContent(`
+      <!doctype html>
+      <html lang="zh-CN">
+        <head>
+          <style>
+            .unsafe-pairing span::before {
+              content: "";
+              display: block;
+              width: 32px;
+              height: 32px;
+              background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Cpath d='M0 0h32v32H0z'/%3E%3C/svg%3E");
+            }
+          </style>
+        </head>
+        <body>
+          <div
+            class="unsafe-pairing"
+            role="img"
+            aria-label="pairing QR code"
+            data-visual-evidence="payload-free"
+          ><span aria-hidden="true"></span></div>
+        </body>
+      </html>
+    `);
+    await expect(
+      captureSafeScreenshot(page, {
+        path: temporaryScreenshot,
+        fullPage: true,
+        animations: 'disabled',
+      }),
+    ).rejects.toThrow(/machine-readable-visual/u);
+  } finally {
+    await rm(temporaryScreenshot, { force: true });
+  }
+});
+
+test('hidden browser surface secrets are rejected before visual evidence', async ({
+  page,
+}, testInfo) => {
+  await page.route('**/browser-surface-safety-fixture', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'text/html',
+      body: `
+        <!doctype html>
+        <html lang="zh-CN">
+          <body>
+            <main><h1>安全投影</h1><input type="hidden" value="OTP 824911" /></main>
+          </body>
+        </html>
+      `,
+    }),
+  );
+  await page.goto('/browser-surface-safety-fixture');
+
+  const temporaryScreenshot = `tests/e2e-results/browser-surface-rejection-${testInfo.project.name}.png`;
+  const rejectCapture = (issue: RegExp) =>
+    expect(
+      captureSafeScreenshot(page, {
+        path: temporaryScreenshot,
+        fullPage: true,
+        animations: 'disabled',
+      }),
+    ).rejects.toThrow(issue);
+  try {
+    await rejectCapture(/controls/u);
+
+    await page.setContent('<!doctype html><html><body><main>安全投影</main></body></html>');
+    await page.evaluate(() =>
+      history.replaceState({ profile_path: '/secret/browser/profile/history-canary' }, '', '/safe'),
+    );
+    await rejectCapture(/history-state/u);
+
+    await page.evaluate(() => {
+      history.replaceState(null, '', '/safe');
+      document.cookie = 'pairing_token=browser-cookie-canary; SameSite=Lax';
+    });
+    await rejectCapture(/cookie/u);
+
+    await page.evaluate(() => {
+      document.cookie = 'pairing_token=; Max-Age=0; SameSite=Lax';
+      history.replaceState(null, '', '/?access_token=url-canary');
+    });
+    await rejectCapture(/url/u);
+
+    await page.evaluate(() => {
+      history.replaceState(null, '', '/safe');
+      document.querySelector('main')?.setAttribute('data-access_token', 'opaque-canary');
+    });
+    await rejectCapture(/attribute-names/u);
+  } finally {
+    await page.evaluate(() => {
+      document.cookie = 'pairing_token=; Max-Age=0; SameSite=Lax';
+      history.replaceState(null, '', '/safe');
+    });
+    await rm(temporaryScreenshot, { force: true });
+  }
 });
