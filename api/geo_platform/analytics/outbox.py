@@ -9,14 +9,28 @@ import psycopg
 from psycopg.rows import dict_row
 
 Consumer = Callable[[Mapping[str, Any]], None]
+ANALYTICS_EVENT_TYPES = (
+    "analytics.answer.analyzed",
+    "disparagement.recorded",
+    "intelligence.feature.recorded",
+    "source_audit.recorded",
+)
 
 
 class OutboxConsumer:
-    def __init__(self, *, dsn: str, consumer_name: str, publish: Consumer) -> None:
+    def __init__(
+        self,
+        *,
+        dsn: str,
+        consumer_name: str,
+        publish: Consumer,
+        event_types: tuple[str, ...] | None = ANALYTICS_EVENT_TYPES,
+    ) -> None:
         # SQLAlchemy's explicit driver suffix is not valid in psycopg's URI parser.
         self.dsn = dsn.replace("postgresql+psycopg://", "postgresql://", 1)
         self.consumer_name = consumer_name
         self.publish = publish
+        self.event_types = event_types
 
     def drain(self, *, limit: int = 100) -> int:
         processed = 0
@@ -26,11 +40,12 @@ class OutboxConsumer:
                     """
                     SELECT * FROM integration.outbox_event
                     WHERE published_at IS NULL
+                      AND (%s::text[] IS NULL OR event_type=ANY(%s::text[]))
                     ORDER BY id
                     FOR UPDATE SKIP LOCKED
                     LIMIT %s
                     """,
-                    (limit,),
+                    (list(self.event_types) if self.event_types else None,) * 2 + (limit,),
                 ).fetchall()
                 for event in events:
                     payload_hash = sha256(

@@ -14,6 +14,7 @@ from psycopg.rows import dict_row
 from domain.evidence.diff import OcrSpan, compare_evidence, validate_ocr_spans
 from domain.evidence.provenance import AccessClass, RedactedProvenance
 
+from ..tenancy.psycopg import tenant_connection
 from .object_store import ContentAddressedObjectStore, StoredObject
 
 
@@ -48,6 +49,50 @@ class EvidenceService:
         def persist_metadata(connection: psycopg.Connection[Any]) -> str:
             if inject_db_failure:
                 raise RuntimeError("injected DB failure after object write")
+            # The object is content-addressed, but evidence metadata represents a
+            # capture occurrence. Idempotency is therefore scoped to the stable
+            # evidence public ID, never merely to matching bytes.
+            connection.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                (f"{tenant_pub_id}|{evidence_pub_id}",),
+            )
+            existing = connection.execute(
+                """
+                SELECT pub_id,project_pub_id,kind,access_class,sha256,object_key,mime_type,
+                       byte_size,source_url,dlp_findings,platform_account_pub_id,
+                       browser_profile_version_pub_id,session_event_pub_id,channel,
+                       authorization_scope,adapter_version,capture_time,
+                       authorized_session_capture
+                FROM evidence.evidence_asset
+                WHERE tenant_pub_id=%s AND pub_id=%s
+                FOR KEY SHARE
+                """,
+                (tenant_pub_id, evidence_pub_id),
+            ).fetchone()
+            if existing is not None:
+                expected = (
+                    evidence_pub_id,
+                    project_pub_id,
+                    kind,
+                    provenance.access_class.value,
+                    stored.sha256,
+                    stored.key,
+                    mime_type,
+                    stored.byte_size,
+                    source_url,
+                    list(stored.dlp_findings),
+                    provenance.platform_account_pub_id,
+                    provenance.browser_profile_version_pub_id,
+                    provenance.session_event_pub_id,
+                    provenance.channel.value,
+                    list(provenance.authorization_scope),
+                    provenance.adapter_version,
+                    provenance.capture_time,
+                    provenance.authorized_session_capture,
+                )
+                if tuple(existing) != expected:
+                    raise ValueError("evidence replay payload drifted")
+                return str(existing[0])
             row = connection.execute(
                 """
                 INSERT INTO evidence.evidence_asset
@@ -57,8 +102,6 @@ class EvidenceService:
                    authorization_scope,adapter_version,capture_time,authorized_session_capture)
                 VALUES
                   (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                ON CONFLICT (tenant_pub_id,sha256,kind)
-                DO UPDATE SET pub_id=evidence.evidence_asset.pub_id
                 RETURNING pub_id
                 """,
                 (
@@ -84,22 +127,27 @@ class EvidenceService:
                 ),
             ).fetchone()
             assert row is not None
-            return str(row[0])
+            metadata_pub_id = str(row[0])
+            return metadata_pub_id
 
         # CAS-first intentionally leaves a detectable orphan if this transaction fails.
         # Deleting immediately is unsafe because another idempotent writer may share the hash.
         if db_connection is not None:
             metadata_pub_id = persist_metadata(db_connection)
         else:
-            with psycopg.connect(self.dsn) as connection:
+            with tenant_connection(self.dsn, tenant_pub_id) as connection:
                 metadata_pub_id = persist_metadata(connection)
                 connection.commit()
         return replace(stored, metadata_pub_id=metadata_pub_id)
 
-    def find_orphan(self, stored: StoredObject) -> bool:
-        with psycopg.connect(self.dsn) as connection:
+    def find_orphan(self, stored: StoredObject, *, tenant_pub_id: str) -> bool:
+        with tenant_connection(self.dsn, tenant_pub_id) as connection:
             exists = connection.execute(
-                "SELECT 1 FROM evidence.evidence_asset WHERE object_key=%s", (stored.key,)
+                """
+                SELECT 1 FROM evidence.evidence_asset
+                WHERE tenant_pub_id=%s AND object_key=%s
+                """,
+                (tenant_pub_id, stored.key),
             ).fetchone()
         return exists is None
 
@@ -112,7 +160,7 @@ class EvidenceService:
         public: bool,
         expires_at: datetime | None,
     ) -> StoredObject:
-        with psycopg.connect(self.dsn, row_factory=dict_row) as connection:
+        with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
             rows = connection.execute(
                 """
                 SELECT pub_id,sha256,kind,access_class,capture_time
@@ -162,9 +210,9 @@ class EvidenceService:
         return stored
 
     def grant(self, *, grant_pub_id: str, package_pub_id: str, tenant_pub_id: str) -> str:
-        token = secrets.token_urlsafe(32)
+        token = f"{tenant_pub_id}.{secrets.token_urlsafe(32)}"
         token_hash = sha256(token.encode()).hexdigest()
-        with psycopg.connect(self.dsn) as connection:
+        with tenant_connection(self.dsn, tenant_pub_id) as connection:
             connection.execute(
                 """
                 INSERT INTO evidence.evidence_access_grant
@@ -182,8 +230,11 @@ class EvidenceService:
         return token
 
     def authorize_package_access(self, *, token: str, request_id: str) -> dict[str, Any]:
+        tenant_pub_id, separator, _ = token.partition(".")
+        if separator != "." or not tenant_pub_id.startswith("tnt_") or len(tenant_pub_id) > 120:
+            raise PermissionError("evidence package grant is invalid, expired or revoked")
         token_hash = sha256(token.encode()).hexdigest()
-        with psycopg.connect(self.dsn, row_factory=dict_row) as connection:
+        with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
             row = connection.execute(
                 """
                 SELECT p.*,g.tenant_pub_id AS grant_tenant,g.expires_at AS grant_expires,
@@ -211,7 +262,7 @@ class EvidenceService:
                 VALUES (%s,%s,'download',%s,%s)
                 """,
                 (
-                    row["tenant_pub_id"] if row else "tnt_unknown",
+                    tenant_pub_id,
                     row["pub_id"] if row else "pkg_unknown",
                     "allowed" if allowed else "denied",
                     request_id,
@@ -224,7 +275,7 @@ class EvidenceService:
             return dict(row)
 
     def revoke_package(self, package_pub_id: str, tenant_pub_id: str) -> None:
-        with psycopg.connect(self.dsn) as connection:
+        with tenant_connection(self.dsn, tenant_pub_id) as connection:
             updated = connection.execute(
                 """
                 UPDATE evidence.evidence_package
@@ -248,7 +299,7 @@ class EvidenceService:
     ) -> list[str]:
         validate_ocr_spans(text, spans)
         anchor_ids: list[str] = []
-        with psycopg.connect(self.dsn) as connection:
+        with tenant_connection(self.dsn, tenant_pub_id) as connection:
             owner = connection.execute(
                 """
                 SELECT 1 FROM evidence.evidence_asset
@@ -298,7 +349,7 @@ class EvidenceService:
         perceptual_hash: str | None,
     ) -> dict[str, Any]:
         snapshot_pub_id = f"snap_{secrets.token_hex(16)}"
-        with psycopg.connect(self.dsn, row_factory=dict_row) as connection:
+        with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
             connection.execute(
                 "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
                 (f"{tenant_pub_id}:{subject_pub_id}",),
@@ -368,7 +419,7 @@ class EvidenceService:
             after_perceptual_hash=after_perceptual_hash,
         )
         diff_pub_id = f"diff_{secrets.token_hex(16)}"
-        with psycopg.connect(self.dsn) as connection:
+        with tenant_connection(self.dsn, tenant_pub_id) as connection:
             assets_row = connection.execute(
                 """
                 SELECT count(*) FROM evidence.evidence_asset

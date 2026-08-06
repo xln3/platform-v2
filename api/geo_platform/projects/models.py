@@ -106,3 +106,28 @@ class ChangeRequest(TenantModel, Base):
     requested_json: Mapped[str] = mapped_column(Text)
     state: Mapped[str] = mapped_column(String(30), default="pending")
     reviewed_by: Mapped[str | None] = mapped_column(String(30))
+
+
+class ClientProfileVersion(TenantModel, Base):
+    __tablename__ = "client_profile_version"
+    __table_args__ = (UniqueConstraint("project_id", "revision"),)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("platform.project.id"), index=True)
+    revision: Mapped[int] = mapped_column(Integer)
+    company_name: Mapped[str] = mapped_column(String(200))
+    contact_role: Mapped[str] = mapped_column(String(120))
+    audience: Mapped[str] = mapped_column(Text)
+    public_statement: Mapped[str] = mapped_column(Text)
+    declared_by: Mapped[str] = mapped_column(String(255))
+
+
+class AssetConfirmationVersion(TenantModel, Base):
+    __tablename__ = "asset_confirmation_version"
+    __table_args__ = (UniqueConstraint("project_id", "revision"),)
+    project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("platform.project.id"), index=True)
+    revision: Mapped[int] = mapped_column(Integer)
+    brand_name: Mapped[str] = mapped_column(String(200))
+    website: Mapped[str] = mapped_column(String(500))
+    product_name: Mapped[str] = mapped_column(String(200))
+    competitor_name: Mapped[str] = mapped_column(String(200))
+    prohibited_claim: Mapped[str] = mapped_column(Text)
+    declared_by: Mapped[str] = mapped_column(String(255))

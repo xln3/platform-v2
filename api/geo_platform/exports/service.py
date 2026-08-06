@@ -5,14 +5,13 @@ from collections.abc import Mapping
 from datetime import UTC, date, datetime
 from typing import Any
 
-import psycopg
-
 from domain.evidence.provenance import RedactedProvenance
 from domain.reporting.artifacts import render_xlsx
 from domain.reporting.freeze import freeze_report
 from geo_platform.analytics.service import AnalyticsService
 from geo_platform.evidence.service import EvidenceService
 from geo_platform.tenancy.ids import new_pub_id
+from geo_platform.tenancy.psycopg import tenant_connection
 
 
 class ExportService:
@@ -61,7 +60,7 @@ class ExportService:
         )
         export_pub_id = new_pub_id("exp")
         requested_evidence_pub_id = new_pub_id("evd")
-        with psycopg.connect(self.dsn) as connection:
+        with tenant_connection(self.dsn, tenant_pub_id) as connection:
             stored = self.evidence.capture(
                 evidence_pub_id=requested_evidence_pub_id,
                 tenant_pub_id=tenant_pub_id,

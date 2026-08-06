@@ -37,12 +37,22 @@ class ProjectPatch(StrictModel):
     expected_version: int = Field(ge=1)
 
 
+class QueryItemDraft(StrictModel):
+    text: str = Field(min_length=1, max_length=2_000)
+    priority: int = Field(default=100, ge=1, le=1_000)
+
+
+class QueryGroupDraft(StrictModel):
+    name: str = Field(min_length=1, max_length=200)
+    items: list[QueryItemDraft] = Field(min_length=1, max_length=500)
+
+
 class ConfigDraft(StrictModel):
-    query_groups: list[dict[str, Any]]
-    regions: list[str]
-    models: list[str]
-    modes: list[str]
-    frequency: str
+    query_groups: list[QueryGroupDraft] = Field(min_length=1, max_length=50)
+    regions: list[str] = Field(min_length=1, max_length=20)
+    models: list[str] = Field(min_length=1, max_length=10)
+    modes: list[str] = Field(min_length=1, max_length=10)
+    frequency: str = Field(min_length=1, max_length=80)
     effective_at: datetime
 
 
@@ -133,7 +143,7 @@ def create_project(
         AuditLog(
             pub_id=new_pub_id("aud"),
             tenant_id=repository.tenant.id,
-            actor_pub_id=principal.subject,
+            actor_pub_id=principal.actor_pub_id,
             action=receipt_action,
             resource_type="project",
             resource_pub_id=project.pub_id,
@@ -179,7 +189,6 @@ def freeze_config(
     principal: Principal = Depends(get_principal),
     session: Session = Depends(get_db),
 ) -> FrozenConfigView:
-    del idempotency_key
     principal.require("project:write")
     repository = TenantRepository(session, principal.tenant_pub_id)
     project = session.scalar(
@@ -189,6 +198,54 @@ def freeze_config(
     )
     if project is None:
         raise HTTPException(status_code=404, detail={"code": "project_not_found"})
+    receipt_action = f"project.config.frozen:{hashlib.sha256(idempotency_key.encode()).hexdigest()}"
+    prior = session.scalar(
+        select(AuditLog).where(
+            AuditLog.tenant_id == repository.tenant.id,
+            AuditLog.action == receipt_action,
+        )
+    )
+    if prior is not None:
+        receipt = json.loads(prior.receipt)
+        version = session.scalar(
+            select(MonitoringConfigVersion).where(
+                MonitoringConfigVersion.tenant_id == repository.tenant.id,
+                MonitoringConfigVersion.pub_id == receipt.get("config_version_pub_id"),
+            )
+        )
+        if version is None:
+            raise HTTPException(status_code=409, detail={"code": "idempotency_receipt_invalid"})
+        return FrozenConfigView(
+            pub_id=version.pub_id,
+            revision=version.revision,
+            effective_at=version.effective_at,
+            frozen_at=version.frozen_at,
+            snapshot_hash=version.snapshot_hash,
+            snapshot=json.loads(version.snapshot_json),
+        )
+    # INV-25 硬门（W5）：命中本项目 pending 变体的文本必须先经 /variants/confirm，
+    # 防止绕过确认门把同一文本手打进配置。归一化口径与 variants 域一致。
+    draft_texts = [item.text for group in body.query_groups for item in group.items]
+    if draft_texts:
+        from ..variants.models import QueryVariant
+        from ..variants.textutil import normalize_query
+
+        pending_rows = session.scalars(
+            select(QueryVariant.normalized).where(
+                QueryVariant.tenant_id == repository.tenant.id,
+                QueryVariant.project_id == project.id,
+                QueryVariant.status == "pending",
+            )
+        ).all()
+        pending_normalized = set(pending_rows)
+        blocked = sorted(
+            {text for text in draft_texts if normalize_query(text) in pending_normalized}
+        )
+        if blocked:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "variants_pending_confirmation", "texts": blocked},
+            )
     config = session.scalar(
         select(MonitoringConfig).where(
             MonitoringConfig.tenant_id == repository.tenant.id,
@@ -218,6 +275,17 @@ def freeze_config(
     config.current_version = revision
     config.state = "frozen"
     session.add(version)
+    session.add(
+        AuditLog(
+            pub_id=new_pub_id("aud"),
+            tenant_id=repository.tenant.id,
+            actor_pub_id=principal.actor_pub_id,
+            action=receipt_action,
+            resource_type="monitoring_config_version",
+            resource_pub_id=version.pub_id,
+            receipt=json.dumps({"config_version_pub_id": version.pub_id}),
+        )
+    )
     session.commit()
     return FrozenConfigView(
         pub_id=version.pub_id,
@@ -227,3 +295,43 @@ def freeze_config(
         snapshot_hash=version.snapshot_hash,
         snapshot=snapshot,
     )
+
+
+@router.get("/{project_pub_id}/config/versions", response_model=list[FrozenConfigView])
+def list_config_versions(
+    project_pub_id: str,
+    limit: int = Query(default=20, ge=1, le=100),
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db),
+) -> list[FrozenConfigView]:
+    principal.require("project:read")
+    repository = TenantRepository(session, principal.tenant_pub_id)
+    project = session.scalar(
+        select(Project).where(
+            Project.tenant_id == repository.tenant.id,
+            Project.pub_id == project_pub_id,
+        )
+    )
+    if project is None:
+        raise HTTPException(status_code=404, detail={"code": "project_not_found"})
+    rows = session.scalars(
+        select(MonitoringConfigVersion)
+        .join(MonitoringConfig, MonitoringConfig.id == MonitoringConfigVersion.config_id)
+        .where(
+            MonitoringConfigVersion.tenant_id == repository.tenant.id,
+            MonitoringConfig.project_id == project.id,
+        )
+        .order_by(MonitoringConfigVersion.revision.desc())
+        .limit(limit)
+    ).all()
+    return [
+        FrozenConfigView(
+            pub_id=row.pub_id,
+            revision=row.revision,
+            effective_at=row.effective_at,
+            frozen_at=row.frozen_at,
+            snapshot_hash=row.snapshot_hash,
+            snapshot=json.loads(row.snapshot_json),
+        )
+        for row in rows
+    ]

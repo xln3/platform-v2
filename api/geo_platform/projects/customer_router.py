@@ -110,7 +110,7 @@ def create_customer(
         AuditLog(
             pub_id=new_pub_id("aud"),
             tenant_id=repository.tenant.id,
-            actor_pub_id=principal.subject,
+            actor_pub_id=principal.actor_pub_id,
             action=action,
             resource_type="customer",
             resource_pub_id=customer.pub_id,

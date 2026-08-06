@@ -18,8 +18,21 @@ class Base(DeclarativeBase):
     metadata = MetaData(schema="platform", naming_convention=NAMING_CONVENTION)
 
 
-engine = create_engine(get_settings().postgres_dsn, pool_pre_ping=True)
+settings = get_settings()
+database_dsn = settings.runtime_postgres_dsn or settings.postgres_dsn
+if database_dsn.startswith("postgresql://"):
+    database_dsn = database_dsn.replace("postgresql://", "postgresql+psycopg://", 1)
+engine = create_engine(
+    database_dsn,
+    pool_pre_ping=True,
+)
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
+
+worker_database_dsn = settings.worker_postgres_dsn or settings.postgres_dsn
+if worker_database_dsn.startswith("postgresql://"):
+    worker_database_dsn = worker_database_dsn.replace("postgresql://", "postgresql+psycopg://", 1)
+worker_engine = create_engine(worker_database_dsn, pool_pre_ping=True)
+WorkerSessionLocal = sessionmaker(bind=worker_engine, expire_on_commit=False)
 
 
 def get_db() -> Iterator[Session]:

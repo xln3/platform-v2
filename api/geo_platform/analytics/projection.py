@@ -13,6 +13,66 @@ class AnalyticsProjection:
         self.writer = writer
 
     def publish(self, event: Mapping[str, Any]) -> None:
+        if event["event_type"] == "disparagement.recorded":
+            # W3 拉踩检测：一条窗级判定一行 fact（evidence_quote 留在 PG，
+            # 只投影维度与判定结果）。
+            payload = event["payload"]
+            self.writer.insert_json_each_row(
+                "geo_analytics.disparagement_fact",
+                [
+                    {
+                        "tenant_pub_id": event["tenant_pub_id"],
+                        "project_pub_id": payload["project_pub_id"],
+                        "run_pub_id": payload["run_pub_id"],
+                        "judgment_pub_id": payload["judgment_pub_id"],
+                        "subject_type": payload["subject_type"],
+                        "subject_pub_id": payload["subject_pub_id"],
+                        "platform": payload["platform"],
+                        "subject_brand": payload["subject_brand"],
+                        "target_brand": payload["target_brand"],
+                        "attitude": payload["attitude"],
+                        "disparagement": int(payload["disparagement"]),
+                        "confidence": float(payload["confidence"]),
+                        "method": payload["method"],
+                        "model": payload["model"],
+                        "prompt_version": payload["prompt_version"],
+                        "judgment_status": payload["judgment_status"],
+                        "event_time": datetime.fromisoformat(
+                            payload["event_time"].replace("Z", "+00:00")
+                        ),
+                        "event_id": event["event_id"],
+                    }
+                ],
+            )
+            return
+        if event["event_type"] == "source_audit.recorded":
+            # W2 信源准确性核对：一条 source_audit 判定一行 fact（quote/rationale 留在 PG，
+            # 只投影维度与判定结果）。
+            payload = event["payload"]
+            self.writer.insert_json_each_row(
+                "geo_analytics.source_audit_fact",
+                [
+                    {
+                        "tenant_pub_id": event["tenant_pub_id"],
+                        "project_pub_id": payload["project_pub_id"],
+                        "run_pub_id": payload["run_pub_id"],
+                        "source_document_pub_id": payload["source_document_pub_id"],
+                        "source_audit_pub_id": payload["source_audit_pub_id"],
+                        "url": payload["url"],
+                        "host": payload["host"],
+                        "dimension": payload["dimension"],
+                        "verdict": payload["verdict"],
+                        "audit_status": payload["audit_status"],
+                        "model": payload["model"],
+                        "prompt_version": payload["prompt_version"],
+                        "event_time": datetime.fromisoformat(
+                            payload["event_time"].replace("Z", "+00:00")
+                        ),
+                        "event_id": event["event_id"],
+                    }
+                ],
+            )
+            return
         if event["event_type"] == "intelligence.feature.recorded":
             payload = event["payload"]
             self.writer.insert_json_each_row(
@@ -95,7 +155,7 @@ class AnalyticsProjection:
                 {
                     "tenant_pub_id": event["tenant_pub_id"],
                     "project_pub_id": payload["project_pub_id"],
-                    "run_pub_id": payload["analysis_run_pub_id"],
+                    "run_pub_id": payload.get("run_pub_id") or payload["analysis_run_pub_id"],
                     "event_id": event["event_id"],
                     "event_type": event["event_type"],
                     "event_time": datetime.fromisoformat(

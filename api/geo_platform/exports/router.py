@@ -29,7 +29,10 @@ class MetricExportCreate(BaseModel):
 
 
 def _dsn() -> str:
-    return get_settings().postgres_dsn.replace("postgresql+psycopg://", "postgresql://")
+    settings = get_settings()
+    return (settings.runtime_postgres_dsn or settings.postgres_dsn).replace(
+        "postgresql+psycopg://", "postgresql://"
+    )
 
 
 def _service() -> ExportService:
@@ -60,7 +63,7 @@ def create_metric_export(
             start=body.start,
             end=body.end,
             dimensions=body.dimensions,
-            created_by_pub_id=principal.subject,
+            created_by_pub_id=principal.actor_pub_id,
             provenance=RedactedProvenance(
                 platform_account_pub_id=None,
                 browser_profile_version_pub_id=None,

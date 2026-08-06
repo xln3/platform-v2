@@ -1,16 +1,17 @@
 # ruff: noqa: B008
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Any
 
-import psycopg
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from psycopg.rows import dict_row
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..config import get_settings
 from ..identity.policy import Principal, get_principal
+from ..tenancy.psycopg import tenant_connection
 from .object_store import ContentAddressedObjectStore
 from .service import EvidenceService
 
@@ -34,7 +35,10 @@ class PackageAccess(StrictModel):
 
 
 def _dsn() -> str:
-    return get_settings().postgres_dsn.replace("postgresql+psycopg://", "postgresql://")
+    settings = get_settings()
+    return (settings.runtime_postgres_dsn or settings.postgres_dsn).replace(
+        "postgresql+psycopg://", "postgresql://"
+    )
 
 
 def _service() -> EvidenceService:
@@ -54,7 +58,7 @@ def list_assets(
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any]:
     principal.require("project:read")
-    with psycopg.connect(_dsn(), row_factory=dict_row) as connection:
+    with tenant_connection(_dsn(), principal.tenant_pub_id, row_factory=dict_row) as connection:
         rows = connection.execute(
             """
             SELECT pub_id,project_pub_id,kind,access_class,sha256,mime_type,byte_size,
@@ -75,6 +79,56 @@ def list_assets(
             "has_more": has_more,
         },
     }
+
+
+@router.get(
+    "/assets/{evidence_pub_id}/content",
+    response_class=Response,
+    responses={
+        200: {
+            "content": {
+                "image/png": {"schema": {"type": "string", "format": "binary"}},
+            }
+        }
+    },
+)
+def asset_content(
+    evidence_pub_id: str,
+    principal: Principal = Depends(get_principal),
+) -> Response:
+    """Proxy an integrity-checked private asset without exposing the object-store key."""
+    principal.require("project:read")
+    if not re.fullmatch(r"evd_[A-Za-z0-9]{16,64}", evidence_pub_id):
+        raise HTTPException(status_code=404, detail={"code": "evidence_not_found"})
+    with tenant_connection(_dsn(), principal.tenant_pub_id, row_factory=dict_row) as connection:
+        row = connection.execute(
+            """
+            SELECT object_key,sha256,mime_type
+            FROM evidence.evidence_asset
+            WHERE tenant_pub_id=%s AND pub_id=%s AND deleted_at IS NULL
+            """,
+            (principal.tenant_pub_id, evidence_pub_id),
+        ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail={"code": "evidence_not_found"})
+    try:
+        payload = _service().store.get_verified(row["object_key"], row["sha256"])
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail={"code": "evidence_integrity_failed"}) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502, detail={"code": "evidence_object_unavailable"}
+        ) from exc
+    return Response(
+        content=payload,
+        media_type=row["mime_type"],
+        headers={
+            "Cache-Control": "private, no-store",
+            "Content-Disposition": f'inline; filename="{evidence_pub_id}"',
+            "X-Content-Type-Options": "nosniff",
+            "X-Evidence-SHA256": row["sha256"],
+        },
+    )
 
 
 @router.post("/packages", status_code=201)

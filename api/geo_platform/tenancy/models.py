@@ -21,6 +21,7 @@ class Tenant(Base):
     pub_id: Mapped[str] = mapped_column(String(30), unique=True, index=True)
     name: Mapped[str] = mapped_column(String(200))
     state: Mapped[str] = mapped_column(String(30), default="active")
+    environment: Mapped[str] = mapped_column(String(20), default="production")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=now_utc, onupdate=now_utc
@@ -49,6 +50,21 @@ class Membership(Base):
     state: Mapped[str] = mapped_column(String(30), default="active")
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class OidcIdentityBinding(Base):
+    __tablename__ = "oidc_identity_binding"
+    __table_args__ = (
+        UniqueConstraint("issuer_sha256", "subject_sha256"),
+        UniqueConstraint("tenant_id", "user_id"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid_pk)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("platform.tenant.id"))
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("platform.app_user.id"))
+    issuer_sha256: Mapped[str] = mapped_column(String(64))
+    subject_sha256: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class RoleDefinition(Base):

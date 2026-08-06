@@ -16,6 +16,15 @@ from domain.reporting.freeze import freeze_report
 from domain.reporting.policy import assert_customer_report_safe
 from geo_platform.evidence.service import EvidenceService
 from geo_platform.tenancy.ids import new_pub_id
+from geo_platform.tenancy.psycopg import tenant_connection
+
+
+class ReportRevisionIdempotencyConflict(ValueError):
+    pass
+
+
+class ReportRevisionIncomplete(RuntimeError):
+    pass
 
 
 class ReportService:
@@ -40,7 +49,7 @@ class ReportService:
         provenance: RedactedProvenance,
         workflow_operation_id: str | None = None,
     ) -> dict[str, Any]:
-        assert_customer_report_safe(sections)
+        assert_customer_report_safe([*fact_rows, *sections])
         frozen = freeze_report(
             window_start=window_start,
             window_end=window_end,
@@ -51,7 +60,7 @@ class ReportService:
         )
         report_pub_id = new_pub_id("rpt")
         version_pub_id = new_pub_id("rptv")
-        with psycopg.connect(self.dsn, row_factory=dict_row) as connection:
+        with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
             inserted = connection.execute(
                 """
                 INSERT INTO reporting.report
@@ -150,6 +159,12 @@ class ReportService:
                     version_pub_id=version_pub_id,
                     values=[*fact_rows, *sections],
                 )
+            self._persist_frozen_facts(
+                connection=connection,
+                tenant_pub_id=tenant_pub_id,
+                version_pub_id=version_pub_id,
+                fact_rows=fact_rows,
+            )
         artifact_payloads = {
             "html": (
                 render_html(title, sections),
@@ -165,7 +180,7 @@ class ReportService:
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             ),
         }
-        with psycopg.connect(self.dsn, row_factory=dict_row) as connection:
+        with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
             existing_artifacts = connection.execute(
                 """
                 SELECT format,evidence_pub_id FROM reporting.report_artifact
@@ -178,7 +193,7 @@ class ReportService:
             if format_name in artifacts:
                 continue
             evidence_pub_id = new_pub_id("evd")
-            with psycopg.connect(self.dsn) as connection:
+            with tenant_connection(self.dsn, tenant_pub_id) as connection:
                 stored = self.evidence.capture(
                     evidence_pub_id=evidence_pub_id,
                     tenant_pub_id=tenant_pub_id,
@@ -219,21 +234,19 @@ class ReportService:
         *,
         tenant_pub_id: str,
         report_pub_id: str,
-        fact_rows: Sequence[Mapping[str, Any]],
+        fact_rows: Sequence[Mapping[str, Any]] | None,
         sections: Sequence[Mapping[str, object]],
         created_by_pub_id: str,
         provenance: RedactedProvenance,
+        idempotency_key_hash: str | None = None,
     ) -> dict[str, Any]:
-        assert_customer_report_safe(sections)
-        with psycopg.connect(self.dsn, row_factory=dict_row) as connection:
-            previous = connection.execute(
-                """
-                SELECT * FROM reporting.report_version
-                WHERE tenant_pub_id=%s AND report_pub_id=%s
-                ORDER BY version_number DESC LIMIT 1 FOR UPDATE
-                """,
-                (tenant_pub_id, report_pub_id),
-            ).fetchone()
+        if idempotency_key_hash is not None and (
+            len(idempotency_key_hash) != 64
+            or any(character not in "0123456789abcdef" for character in idempotency_key_hash)
+        ):
+            raise ValueError("idempotency key hash must be lowercase SHA-256")
+        replay = False
+        with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
             report = connection.execute(
                 """
                 SELECT project_pub_id,title,state FROM reporting.report
@@ -241,10 +254,102 @@ class ReportService:
                 """,
                 (tenant_pub_id, report_pub_id),
             ).fetchone()
-            if previous is None or report is None:
-                raise LookupError("report or previous version not found")
-            if report["state"] == "published":
-                raise PermissionError("published report is immutable; create a new report")
+            if report is None:
+                raise LookupError("report not found")
+
+            existing = None
+            if idempotency_key_hash is not None:
+                existing = connection.execute(
+                    """
+                    SELECT * FROM reporting.report_version
+                    WHERE tenant_pub_id=%s AND report_pub_id=%s
+                      AND authoring_operation_hash=%s
+                    """,
+                    (tenant_pub_id, report_pub_id, idempotency_key_hash),
+                ).fetchone()
+            if existing is not None:
+                replay = True
+                previous = existing
+                fact_rows = [
+                    row["payload"]
+                    for row in connection.execute(
+                        """
+                        SELECT payload FROM reporting.report_frozen_fact
+                        WHERE tenant_pub_id=%s AND report_version_pub_id=%s
+                        ORDER BY ordinal
+                        """,
+                        (tenant_pub_id, existing["pub_id"]),
+                    ).fetchall()
+                ]
+            else:
+                if report["state"] == "published":
+                    raise PermissionError("published report is immutable; create a new report")
+                previous = connection.execute(
+                    """
+                    SELECT * FROM reporting.report_version
+                    WHERE tenant_pub_id=%s AND report_pub_id=%s
+                    ORDER BY version_number DESC LIMIT 1 FOR UPDATE
+                    """,
+                    (tenant_pub_id, report_pub_id),
+                ).fetchone()
+                if previous is None:
+                    raise LookupError("previous report version not found")
+                artifact_count = connection.execute(
+                    """
+                    SELECT count(*) FROM reporting.report_artifact
+                    WHERE tenant_pub_id=%s AND report_version_pub_id=%s
+                    """,
+                    (tenant_pub_id, previous["pub_id"]),
+                ).fetchone()
+                if artifact_count is None or int(artifact_count["count"]) != 4:
+                    raise ReportRevisionIncomplete(
+                        "previous report revision has incomplete artifacts"
+                    )
+                if fact_rows is None:
+                    fact_rows = [
+                        row["payload"]
+                        for row in connection.execute(
+                            """
+                            SELECT payload FROM reporting.report_frozen_fact
+                            WHERE tenant_pub_id=%s AND report_version_pub_id=%s
+                            ORDER BY ordinal
+                            """,
+                            (tenant_pub_id, previous["pub_id"]),
+                        ).fetchall()
+                    ]
+
+            assert fact_rows is not None
+            assert_customer_report_safe([*fact_rows, *sections])
+            canonical_fact_rows = sorted(
+                json.dumps(
+                    row,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    default=str,
+                )
+                for row in fact_rows
+            )
+            contract_hash = sha256(
+                json.dumps(
+                    {"fact_rows": canonical_fact_rows, "sections": list(sections)},
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    default=str,
+                ).encode()
+            ).hexdigest()
+            if replay:
+                if previous["authoring_contract_hash"] != contract_hash:
+                    raise ReportRevisionIdempotencyConflict(
+                        "report revision idempotency payload drifted"
+                    )
+                version_pub_id = previous["pub_id"]
+                version_number = previous["version_number"]
+            else:
+                version_pub_id = new_pub_id("rptv")
+                version_number = previous["version_number"] + 1
+
             frozen = freeze_report(
                 window_start=previous["window_start"],
                 window_end=previous["window_end"],
@@ -253,75 +358,98 @@ class ReportService:
                 scorer_version=previous["scorer_version"],
                 fact_rows=fact_rows,
             )
-            version_pub_id = new_pub_id("rptv")
-            version_number = previous["version_number"] + 1
-            connection.execute(
-                """
-                INSERT INTO reporting.report_version
-                  (pub_id,tenant_pub_id,report_pub_id,version_number,window_start,window_end,
-                   filters,filter_hash,metric_version,scorer_version,fact_snapshot_hash,status,
-                   ai_draft_hash,created_by_pub_id)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'review',%s,%s)
-                """,
-                (
-                    version_pub_id,
-                    tenant_pub_id,
-                    report_pub_id,
-                    version_number,
-                    frozen.window_start,
-                    frozen.window_end,
-                    json.dumps(frozen.filters),
-                    frozen.filter_hash,
-                    frozen.metric_version,
-                    frozen.scorer_version,
-                    frozen.fact_snapshot_hash,
-                    sha256(json.dumps(list(sections), default=str).encode()).hexdigest(),
-                    created_by_pub_id,
-                ),
-            )
-            for ordinal, section in enumerate(sections):
-                component_type, source, component_payload = _normalize_component(
-                    section, default_source="human"
+            if not replay:
+                connection.execute(
+                    """
+                    INSERT INTO reporting.report_version
+                      (pub_id,tenant_pub_id,report_pub_id,version_number,window_start,window_end,
+                       filters,filter_hash,metric_version,scorer_version,fact_snapshot_hash,status,
+                       ai_draft_hash,human_edit_hash,created_by_pub_id,
+                       authoring_operation_hash,authoring_contract_hash)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'review',NULL,%s,%s,%s,%s)
+                    """,
+                    (
+                        version_pub_id,
+                        tenant_pub_id,
+                        report_pub_id,
+                        version_number,
+                        frozen.window_start,
+                        frozen.window_end,
+                        json.dumps(frozen.filters),
+                        frozen.filter_hash,
+                        frozen.metric_version,
+                        frozen.scorer_version,
+                        frozen.fact_snapshot_hash,
+                        sha256(
+                            json.dumps(
+                                list(sections),
+                                ensure_ascii=False,
+                                sort_keys=True,
+                                separators=(",", ":"),
+                                default=str,
+                            ).encode()
+                        ).hexdigest(),
+                        created_by_pub_id,
+                        idempotency_key_hash,
+                        contract_hash if idempotency_key_hash is not None else None,
+                    ),
+                )
+                for ordinal, section in enumerate(sections):
+                    component_type, source, component_payload = _normalize_component(
+                        section, default_source="human"
+                    )
+                    connection.execute(
+                        """
+                        INSERT INTO reporting.report_component
+                          (pub_id,tenant_pub_id,report_version_pub_id,component_type,ordinal,
+                           payload,source)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s)
+                        """,
+                        (
+                            new_pub_id("rptc"),
+                            tenant_pub_id,
+                            version_pub_id,
+                            component_type,
+                            ordinal,
+                            json.dumps(component_payload, ensure_ascii=False),
+                            source,
+                        ),
+                    )
+                self._persist_evidence_references(
+                    connection=connection,
+                    tenant_pub_id=tenant_pub_id,
+                    version_pub_id=version_pub_id,
+                    values=[*fact_rows, *sections],
+                )
+                self._persist_frozen_facts(
+                    connection=connection,
+                    tenant_pub_id=tenant_pub_id,
+                    version_pub_id=version_pub_id,
+                    fact_rows=fact_rows,
                 )
                 connection.execute(
                     """
-                    INSERT INTO reporting.report_component
-                      (pub_id,tenant_pub_id,report_version_pub_id,component_type,ordinal,
-                       payload,source)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s)
+                    INSERT INTO reporting.report_event
+                      (pub_id,tenant_pub_id,report_pub_id,report_version_pub_id,event_type,
+                       actor_pub_id,data)
+                    VALUES (%s,%s,%s,%s,'revision_created',%s,%s)
                     """,
                     (
-                        new_pub_id("rptc"),
+                        new_pub_id("evt"),
                         tenant_pub_id,
+                        report_pub_id,
                         version_pub_id,
-                        component_type,
-                        ordinal,
-                        json.dumps(component_payload, ensure_ascii=False),
-                        source,
+                        created_by_pub_id,
+                        json.dumps({"supersedes_version_pub_id": previous["pub_id"]}),
                     ),
                 )
-            self._persist_evidence_references(
-                connection=connection,
-                tenant_pub_id=tenant_pub_id,
-                version_pub_id=version_pub_id,
-                values=[*fact_rows, *sections],
-            )
-            connection.execute(
-                """
-                INSERT INTO reporting.report_event
-                  (pub_id,tenant_pub_id,report_pub_id,report_version_pub_id,event_type,
-                   actor_pub_id,data)
-                VALUES (%s,%s,%s,%s,'revision_created',%s,%s)
-                """,
-                (
-                    new_pub_id("evt"),
-                    tenant_pub_id,
-                    report_pub_id,
-                    version_pub_id,
-                    created_by_pub_id,
-                    json.dumps({"supersedes_version_pub_id": previous["pub_id"]}),
-                ),
-            )
+                connection.execute(
+                    """
+                    UPDATE reporting.report SET state='review',updated_at=now()
+                    WHERE tenant_pub_id=%s AND pub_id=%s
+                    """,
+                    (tenant_pub_id, report_pub_id),
+                )
         artifacts = self._render_revision_artifacts(
             tenant_pub_id=tenant_pub_id,
             project_pub_id=report["project_pub_id"],
@@ -347,7 +475,7 @@ class ReportService:
         before_version: int,
         after_version: int,
     ) -> ReportVersionDiff:
-        with psycopg.connect(self.dsn, row_factory=dict_row) as connection:
+        with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
             rows = connection.execute(
                 """
                 SELECT rv.version_number,rc.payload
@@ -397,8 +525,22 @@ class ReportService:
         }
         artifacts: dict[str, str] = {}
         for format_name, (payload, mime_type) in payloads.items():
-            evidence_pub_id = new_pub_id("evd")
-            with psycopg.connect(self.dsn) as connection:
+            with tenant_connection(self.dsn, tenant_pub_id) as connection:
+                connection.execute(
+                    "SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",
+                    (f"{tenant_pub_id}:{version_pub_id}:{format_name}",),
+                )
+                existing = connection.execute(
+                    """
+                    SELECT evidence_pub_id FROM reporting.report_artifact
+                    WHERE tenant_pub_id=%s AND report_version_pub_id=%s AND format=%s
+                    """,
+                    (tenant_pub_id, version_pub_id, format_name),
+                ).fetchone()
+                if existing is not None:
+                    artifacts[format_name] = str(existing[0])
+                    continue
+                evidence_pub_id = new_pub_id("evd")
                 stored = self.evidence.capture(
                     evidence_pub_id=evidence_pub_id,
                     tenant_pub_id=tenant_pub_id,
@@ -465,6 +607,42 @@ class ReportService:
                 ),
             )
 
+    def _persist_frozen_facts(
+        self,
+        *,
+        connection: psycopg.Connection[Any],
+        tenant_pub_id: str,
+        version_pub_id: str,
+        fact_rows: Sequence[Mapping[str, Any]],
+    ) -> None:
+        serialized = sorted(
+            json.dumps(
+                row,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            )
+            for row in fact_rows
+        )
+        for ordinal, payload in enumerate(serialized):
+            connection.execute(
+                """
+                INSERT INTO reporting.report_frozen_fact
+                  (pub_id,tenant_pub_id,report_version_pub_id,ordinal,payload,payload_hash)
+                VALUES (%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (tenant_pub_id,report_version_pub_id,ordinal) DO NOTHING
+                """,
+                (
+                    new_pub_id("rptf"),
+                    tenant_pub_id,
+                    version_pub_id,
+                    ordinal,
+                    payload,
+                    sha256(payload.encode()).hexdigest(),
+                ),
+            )
+
     def record_human_edit(
         self,
         *,
@@ -475,7 +653,7 @@ class ReportService:
         before: str,
         after: str,
     ) -> None:
-        with psycopg.connect(self.dsn) as connection:
+        with tenant_connection(self.dsn, tenant_pub_id) as connection:
             connection.execute(
                 """
                 UPDATE reporting.report_version SET human_edit_hash=%s
@@ -513,7 +691,16 @@ class ReportService:
         version_pub_id: str,
         reviewer_pub_id: str,
     ) -> None:
-        with psycopg.connect(self.dsn) as connection:
+        with tenant_connection(self.dsn, tenant_pub_id) as connection:
+            version = connection.execute(
+                """
+                SELECT 1 FROM reporting.report_version
+                WHERE tenant_pub_id=%s AND pub_id=%s AND report_pub_id=%s
+                """,
+                (tenant_pub_id, version_pub_id, report_pub_id),
+            ).fetchone()
+            if version is None:
+                raise LookupError("report version not found")
             approved = connection.execute(
                 """
                 SELECT 1 FROM reporting.report_review
@@ -566,14 +753,29 @@ class ReportService:
         reviewer_pub_id: str,
         decision: str,
         rationale: str,
+        workflow_operation_id: str | None = None,
     ) -> str:
         review_pub_id = new_pub_id("rvw")
-        with psycopg.connect(self.dsn) as connection:
-            connection.execute(
+        with tenant_connection(self.dsn, tenant_pub_id) as connection:
+            version = connection.execute(
+                """
+                SELECT 1 FROM reporting.report_version
+                WHERE tenant_pub_id=%s AND pub_id=%s AND report_pub_id=%s
+                """,
+                (tenant_pub_id, version_pub_id, report_pub_id),
+            ).fetchone()
+            if version is None:
+                raise LookupError("report version not found")
+            persisted = connection.execute(
                 """
                 INSERT INTO reporting.report_review
-                  (pub_id,tenant_pub_id,report_version_pub_id,reviewer_pub_id,decision,rationale)
-                VALUES (%s,%s,%s,%s,%s,%s)
+                  (pub_id,tenant_pub_id,report_version_pub_id,reviewer_pub_id,decision,rationale,
+                   workflow_operation_id)
+                VALUES (%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (tenant_pub_id,workflow_operation_id)
+                  WHERE workflow_operation_id IS NOT NULL
+                DO UPDATE SET pub_id=reporting.report_review.pub_id
+                RETURNING pub_id,report_version_pub_id,reviewer_pub_id,decision,rationale
                 """,
                 (
                     review_pub_id,
@@ -582,27 +784,51 @@ class ReportService:
                     reviewer_pub_id,
                     decision,
                     rationale,
+                    workflow_operation_id,
                 ),
-            )
+            ).fetchone()
+            assert persisted is not None
+            if persisted[1:] != (version_pub_id, reviewer_pub_id, decision, rationale):
+                raise ValueError("workflow report review replay payload drifted")
             state = "approved" if decision == "approved" else "review"
             connection.execute(
                 "UPDATE reporting.report SET state=%s,updated_at=now() "
                 "WHERE pub_id=%s AND tenant_pub_id=%s",
                 (state, report_pub_id, tenant_pub_id),
             )
-        return review_pub_id
+        return str(persisted[0])
 
     def comment(
         self,
         *,
         tenant_pub_id: str,
+        report_pub_id: str,
         version_pub_id: str,
         author_pub_id: str,
         body: str,
         parent_pub_id: str | None = None,
     ) -> str:
         comment_pub_id = new_pub_id("cmt")
-        with psycopg.connect(self.dsn) as connection:
+        with tenant_connection(self.dsn, tenant_pub_id) as connection:
+            version = connection.execute(
+                """
+                SELECT 1 FROM reporting.report_version
+                WHERE tenant_pub_id=%s AND pub_id=%s AND report_pub_id=%s
+                """,
+                (tenant_pub_id, version_pub_id, report_pub_id),
+            ).fetchone()
+            if version is None:
+                raise LookupError("report version not found")
+            if parent_pub_id is not None:
+                parent = connection.execute(
+                    """
+                    SELECT 1 FROM reporting.report_comment
+                    WHERE tenant_pub_id=%s AND pub_id=%s AND report_version_pub_id=%s
+                    """,
+                    (tenant_pub_id, parent_pub_id, version_pub_id),
+                ).fetchone()
+                if parent is None:
+                    raise LookupError("parent comment not found")
             connection.execute(
                 """
                 INSERT INTO reporting.report_comment
@@ -620,17 +846,17 @@ class ReportService:
             )
         return comment_pub_id
 
-    def deliver_and_confirm(
+    def deliver(
         self,
         *,
         tenant_pub_id: str,
         report_pub_id: str,
         recipient_pub_id: str,
-        confirmation_comment: str,
+        delivered_by_pub_id: str,
     ) -> str:
         delivery_pub_id = new_pub_id("dlv")
         now = datetime.now(UTC)
-        with psycopg.connect(self.dsn) as connection:
+        with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
             published = connection.execute(
                 """
                 SELECT 1 FROM reporting.report
@@ -640,12 +866,15 @@ class ReportService:
             ).fetchone()
             if published is None:
                 raise PermissionError("only published reports can be delivered")
-            connection.execute(
+            delivery = connection.execute(
                 """
                 INSERT INTO reporting.report_delivery
                   (pub_id,tenant_pub_id,report_pub_id,recipient_pub_id,delivered_at,
                    confirmed_at,confirmation_comment)
-                VALUES (%s,%s,%s,%s,%s,%s,%s)
+                VALUES (%s,%s,%s,%s,%s,NULL,NULL)
+                ON CONFLICT (tenant_pub_id,report_pub_id,recipient_pub_id)
+                DO UPDATE SET pub_id=reporting.report_delivery.pub_id
+                RETURNING pub_id,delivered_at
                 """,
                 (
                     delivery_pub_id,
@@ -653,11 +882,149 @@ class ReportService:
                     report_pub_id,
                     recipient_pub_id,
                     now,
-                    now,
-                    confirmation_comment,
+                ),
+            ).fetchone()
+            assert delivery is not None
+            connection.execute(
+                """
+                INSERT INTO reporting.report_event
+                  (pub_id,tenant_pub_id,report_pub_id,report_version_pub_id,event_type,
+                   actor_pub_id,data,created_at)
+                VALUES (%s,%s,%s,NULL,'delivered',%s,%s,%s)
+                ON CONFLICT DO NOTHING
+                """,
+                (
+                    new_pub_id("evt"),
+                    tenant_pub_id,
+                    report_pub_id,
+                    delivered_by_pub_id,
+                    json.dumps(
+                        {
+                            "delivery_pub_id": delivery["pub_id"],
+                            "recipient_pub_id": recipient_pub_id,
+                        }
+                    ),
+                    delivery["delivered_at"],
+                ),
+            )
+        return str(delivery["pub_id"])
+
+    def confirm_delivery(
+        self,
+        *,
+        tenant_pub_id: str,
+        report_pub_id: str,
+        delivery_pub_id: str,
+        recipient_pub_id: str,
+        confirmation_comment: str,
+    ) -> str:
+        with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
+            delivery = connection.execute(
+                """
+                SELECT pub_id,recipient_pub_id,confirmed_at,confirmation_comment
+                FROM reporting.report_delivery
+                WHERE tenant_pub_id=%s AND report_pub_id=%s AND pub_id=%s
+                FOR UPDATE
+                """,
+                (tenant_pub_id, report_pub_id, delivery_pub_id),
+            ).fetchone()
+            if delivery is None:
+                raise LookupError("report delivery not found")
+            if delivery["recipient_pub_id"] != recipient_pub_id:
+                raise PermissionError("only the report recipient can confirm delivery")
+            if delivery["confirmed_at"] is not None:
+                if delivery["confirmation_comment"] != confirmation_comment:
+                    raise ValueError("delivery confirmation replay payload drifted")
+                confirmed_at = delivery["confirmed_at"]
+            else:
+                updated = connection.execute(
+                    """
+                    UPDATE reporting.report_delivery
+                    SET confirmed_at=now(),confirmation_comment=%s
+                    WHERE tenant_pub_id=%s AND pub_id=%s
+                    RETURNING confirmed_at
+                    """,
+                    (confirmation_comment, tenant_pub_id, delivery_pub_id),
+                ).fetchone()
+                assert updated is not None
+                confirmed_at = updated["confirmed_at"]
+            connection.execute(
+                """
+                INSERT INTO reporting.report_event
+                  (pub_id,tenant_pub_id,report_pub_id,report_version_pub_id,event_type,
+                   actor_pub_id,data,created_at)
+                VALUES (%s,%s,%s,NULL,'delivery_confirmed',%s,%s,%s)
+                ON CONFLICT DO NOTHING
+                """,
+                (
+                    new_pub_id("evt"),
+                    tenant_pub_id,
+                    report_pub_id,
+                    recipient_pub_id,
+                    json.dumps(
+                        {
+                            "delivery_pub_id": delivery_pub_id,
+                            "recipient_pub_id": recipient_pub_id,
+                        }
+                    ),
+                    confirmed_at,
                 ),
             )
         return delivery_pub_id
+
+    def list_deliveries(
+        self,
+        *,
+        tenant_pub_id: str,
+        report_pub_id: str,
+        recipient_pub_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
+            report = connection.execute(
+                """
+                SELECT 1 FROM reporting.report
+                WHERE tenant_pub_id=%s AND pub_id=%s
+                """,
+                (tenant_pub_id, report_pub_id),
+            ).fetchone()
+            if report is None:
+                raise LookupError("report not found")
+            return list(
+                connection.execute(
+                    """
+                    SELECT pub_id,report_pub_id,recipient_pub_id,delivered_at,confirmed_at,
+                           confirmation_comment
+                    FROM reporting.report_delivery
+                    WHERE tenant_pub_id=%s AND report_pub_id=%s
+                      AND (%s::text IS NULL OR recipient_pub_id=%s)
+                    ORDER BY delivered_at,pub_id
+                    """,
+                    (tenant_pub_id, report_pub_id, recipient_pub_id, recipient_pub_id),
+                ).fetchall()
+            )
+
+    def deliver_and_confirm(
+        self,
+        *,
+        tenant_pub_id: str,
+        report_pub_id: str,
+        recipient_pub_id: str,
+        confirmation_comment: str,
+    ) -> str:
+        """Compatibility helper for tests; production APIs keep the actors separate."""
+        delivery_pub_id = self.deliver(
+            tenant_pub_id=tenant_pub_id,
+            report_pub_id=report_pub_id,
+            recipient_pub_id=recipient_pub_id,
+            delivered_by_pub_id=recipient_pub_id,
+        )
+        return self.confirm_delivery(
+            tenant_pub_id=tenant_pub_id,
+            report_pub_id=report_pub_id,
+            delivery_pub_id=delivery_pub_id,
+            recipient_pub_id=recipient_pub_id,
+            confirmation_comment=confirmation_comment,
+        )
 
     def create_optimization_action(
         self,
@@ -669,7 +1036,7 @@ class ReportService:
         baseline: Mapping[str, Any],
     ) -> str:
         action_pub_id = new_pub_id("act")
-        with psycopg.connect(self.dsn) as connection:
+        with tenant_connection(self.dsn, tenant_pub_id) as connection:
             report = connection.execute(
                 "SELECT 1 FROM reporting.report WHERE pub_id=%s AND tenant_pub_id=%s",
                 (report_pub_id, tenant_pub_id),
@@ -706,7 +1073,7 @@ class ReportService:
             raise ValueError(f"invalid optimization action state: {state}")
         if state == "done" and outcome is None:
             raise ValueError("completed optimization action requires an outcome review")
-        with psycopg.connect(self.dsn) as connection:
+        with tenant_connection(self.dsn, tenant_pub_id) as connection:
             updated = connection.execute(
                 """
                 UPDATE reporting.optimization_action
@@ -723,6 +1090,43 @@ class ReportService:
             ).fetchone()
             if updated is None:
                 raise LookupError("optimization action not found")
+
+    def record_effect_retest(
+        self,
+        *,
+        tenant_pub_id: str,
+        action_pub_id: str,
+        measured_at: datetime,
+        result: Mapping[str, Any],
+        recorded_by_pub_id: str,
+    ) -> str:
+        retest_pub_id = new_pub_id("rts")
+        with tenant_connection(self.dsn, tenant_pub_id) as connection:
+            action = connection.execute(
+                """
+                SELECT 1 FROM reporting.optimization_action
+                WHERE tenant_pub_id=%s AND pub_id=%s
+                """,
+                (tenant_pub_id, action_pub_id),
+            ).fetchone()
+            if action is None:
+                raise LookupError("optimization action not found")
+            connection.execute(
+                """
+                INSERT INTO reporting.effect_retest
+                  (pub_id,tenant_pub_id,action_pub_id,measured_at,result,recorded_by_pub_id)
+                VALUES (%s,%s,%s,%s,%s,%s)
+                """,
+                (
+                    retest_pub_id,
+                    tenant_pub_id,
+                    action_pub_id,
+                    measured_at,
+                    json.dumps(result, ensure_ascii=False),
+                    recorded_by_pub_id,
+                ),
+            )
+        return retest_pub_id
 
 
 def _extract_evidence_pub_ids(values: object) -> set[str]:

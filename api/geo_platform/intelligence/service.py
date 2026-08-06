@@ -8,9 +8,9 @@ from decimal import Decimal
 from hashlib import sha256
 from typing import Any
 
-import psycopg
 from psycopg.rows import dict_row
 
+from domain.evidence.diff import compare_evidence
 from domain.intelligence.core import (
     DetectionResult,
     EvidenceRelation,
@@ -19,6 +19,7 @@ from domain.intelligence.core import (
     score_investigation,
 )
 from geo_platform.tenancy.ids import new_pub_id
+from geo_platform.tenancy.psycopg import tenant_connection
 
 
 class IntelligenceService:
@@ -29,7 +30,7 @@ class IntelligenceService:
         self, *, tenant_pub_id: str, title: str, access_class: str = "customer_private"
     ) -> str:
         investigation_pub_id = new_pub_id("inv")
-        with psycopg.connect(self.dsn, row_factory=dict_row) as connection:
+        with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
             connection.execute(
                 """
                 INSERT INTO intelligence.investigation
@@ -55,7 +56,7 @@ class IntelligenceService:
         author_pub_id = new_pub_id("authr")
         domain_pub_id = new_pub_id("dom")
         display_name_hash = sha256(display_name.encode()).hexdigest() if display_name else None
-        with psycopg.connect(self.dsn, row_factory=dict_row) as connection:
+        with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
             author = connection.execute(
                 """
                 INSERT INTO intelligence.author_identity
@@ -110,7 +111,7 @@ class IntelligenceService:
         canonical_name: str,
         aliases: Sequence[str] = (),
     ) -> str:
-        with psycopg.connect(self.dsn, row_factory=dict_row) as connection:
+        with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
             existing = connection.execute(
                 """
                 SELECT pub_id FROM intelligence.entity
@@ -156,7 +157,7 @@ class IntelligenceService:
         }
         if relation not in allowed:
             raise ValueError("unsupported investigation graph relation")
-        with psycopg.connect(self.dsn) as connection:
+        with tenant_connection(self.dsn, tenant_pub_id) as connection:
             connection.execute(
                 """
                 INSERT INTO intelligence.graph_edge
@@ -190,7 +191,7 @@ class IntelligenceService:
         semantic_similarity: Decimal,
         same_source_cluster: bool,
     ) -> None:
-        with psycopg.connect(self.dsn) as connection:
+        with tenant_connection(self.dsn, tenant_pub_id) as connection:
             connection.execute(
                 """
                 INSERT INTO intelligence.similarity_edge
@@ -243,7 +244,8 @@ class IntelligenceService:
         body_hash = sha256(body_text.encode()).hexdigest()
         content_pub_id = new_pub_id("cnt")
         version_pub_id = new_pub_id("cntv")
-        with psycopg.connect(self.dsn, row_factory=dict_row) as connection:
+        previous_version: dict[str, Any] | None = None
+        with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
             existing_version = connection.execute(
                 """
                 SELECT cv.pub_id,cv.content_pub_id,cv.body_hash
@@ -287,16 +289,18 @@ class IntelligenceService:
                 version_number = 1
             else:
                 content_pub_id = existing_content["pub_id"]
-                version_row = connection.execute(
+                previous_version_row = connection.execute(
                     """
-                    SELECT COALESCE(MAX(version_number),0)+1 AS next_version
+                    SELECT version_number,body_text,evidence_pub_id
                     FROM intelligence.content_version
                     WHERE tenant_pub_id=%s AND content_pub_id=%s
+                    ORDER BY version_number DESC LIMIT 1
                     """,
                     (tenant_pub_id, content_pub_id),
                 ).fetchone()
-                assert version_row is not None
-                version_number = version_row["next_version"]
+                assert previous_version_row is not None
+                previous_version = dict(previous_version_row)
+                version_number = previous_version["version_number"] + 1
             connection.execute(
                 """
                 INSERT INTO intelligence.content_version
@@ -319,6 +323,61 @@ class IntelligenceService:
                     captured_at,
                 ),
             )
+            if evidence_pub_id is not None:
+                connection.execute(
+                    """
+                    INSERT INTO evidence.evidence_snapshot
+                      (pub_id,tenant_pub_id,subject_pub_id,evidence_pub_id,snapshot_number,
+                       normalized_text_hash,perceptual_hash)
+                    VALUES (%s,%s,%s,%s,%s,%s,NULL)
+                    ON CONFLICT (tenant_pub_id,subject_pub_id,snapshot_number) DO NOTHING
+                    """,
+                    (
+                        new_pub_id("snap"),
+                        tenant_pub_id,
+                        content_pub_id,
+                        evidence_pub_id,
+                        version_number,
+                        body_hash,
+                    ),
+                )
+                previous_evidence_pub_id = (
+                    previous_version.get("evidence_pub_id") if previous_version else None
+                )
+                if (
+                    isinstance(previous_evidence_pub_id, str)
+                    and previous_evidence_pub_id != evidence_pub_id
+                ):
+                    assert previous_version is not None
+                    compared = compare_evidence(
+                        str(previous_version["body_text"]),
+                        body_text,
+                    )
+                    connection.execute(
+                        """
+                        INSERT INTO evidence.evidence_diff
+                          (pub_id,tenant_pub_id,before_evidence_pub_id,after_evidence_pub_id,
+                           text_diff,similarity)
+                        VALUES (%s,%s,%s,%s,%s,%s)
+                        ON CONFLICT (tenant_pub_id,before_evidence_pub_id,after_evidence_pub_id)
+                        DO NOTHING
+                        """,
+                        (
+                            new_pub_id("diff"),
+                            tenant_pub_id,
+                            previous_evidence_pub_id,
+                            evidence_pub_id,
+                            json.dumps(
+                                {
+                                    "unified": compared.unified_text_diff,
+                                    "before_hash": compared.before_hash,
+                                    "after_hash": compared.after_hash,
+                                    "visual_similarity": compared.visual_similarity,
+                                }
+                            ),
+                            compared.text_similarity,
+                        ),
+                    )
             connection.execute(
                 """
                 INSERT INTO intelligence.propagation_event
@@ -396,7 +455,7 @@ class IntelligenceService:
         include_private: bool = False,
     ) -> list[dict[str, Any]]:
         access_clause = "" if include_private else "AND ci.access_class='public'"
-        with psycopg.connect(self.dsn, row_factory=dict_row) as connection:
+        with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
             rows = connection.execute(
                 f"""
                 SELECT cv.pub_id,cv.content_pub_id,cv.title,cv.body_text,cv.embedding,
@@ -434,7 +493,7 @@ class IntelligenceService:
         from_pub_id: str,
     ) -> str:
         link_pub_id = new_pub_id("ce")
-        with psycopg.connect(self.dsn) as connection:
+        with tenant_connection(self.dsn, tenant_pub_id) as connection:
             connection.execute(
                 """
                 INSERT INTO intelligence.claim_evidence
@@ -487,7 +546,7 @@ class IntelligenceService:
         rule_version: str,
     ) -> str:
         assessment_pub_id = new_pub_id("srca")
-        with psycopg.connect(self.dsn) as connection:
+        with tenant_connection(self.dsn, tenant_pub_id) as connection:
             connection.execute(
                 """
                 INSERT INTO intelligence.source_independence
@@ -531,7 +590,7 @@ class IntelligenceService:
         feature_pub_id = new_pub_id("feat")
         event_id = new_pub_id("evt")
         event_time = datetime.now(UTC)
-        with psycopg.connect(self.dsn) as connection:
+        with tenant_connection(self.dsn, tenant_pub_id) as connection:
             connection.execute(
                 """
                 INSERT INTO intelligence.detection_feature
@@ -594,7 +653,7 @@ class IntelligenceService:
         circular_citation_risk: Decimal,
         workflow_operation_id: str | None = None,
     ) -> dict[str, Any]:
-        with psycopg.connect(self.dsn, row_factory=dict_row) as connection:
+        with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
             rows = connection.execute(
                 """
                 SELECT ce.evidence_pub_id,ce.source_cluster,ce.relation,
@@ -680,7 +739,7 @@ class IntelligenceService:
         workflow_operation_id: str | None = None,
     ) -> str:
         verdict_pub_id = new_pub_id("vrd")
-        with psycopg.connect(self.dsn, row_factory=dict_row) as connection:
+        with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
             persisted = connection.execute(
                 """
                 INSERT INTO intelligence.human_verdict
@@ -728,7 +787,7 @@ class IntelligenceService:
         reason: str,
     ) -> str:
         appeal_pub_id = new_pub_id("apl")
-        with psycopg.connect(self.dsn) as connection:
+        with tenant_connection(self.dsn, tenant_pub_id) as connection:
             decided = connection.execute(
                 """
                 SELECT 1 FROM intelligence.human_verdict
@@ -772,12 +831,16 @@ class IntelligenceService:
         corrected_verdict: str | None = None,
         rationale: str | None = None,
     ) -> str | None:
-        if corrected_verdict is None and rationale is not None:
-            raise ValueError("rationale without a corrected verdict is not allowed")
-        with psycopg.connect(self.dsn, row_factory=dict_row) as connection:
+        if not rationale or not rationale.strip():
+            raise ValueError("appeal resolution requires a rationale")
+        if corrected_verdict is None and resolution not in {"upheld", "rejected"}:
+            raise ValueError("uncorrected appeal resolution must be upheld or rejected")
+        if corrected_verdict is not None and resolution != "corrected":
+            raise ValueError("corrected verdict requires corrected resolution")
+        with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
             appeal = connection.execute(
                 """
-                SELECT pub_id FROM intelligence.appeal
+                SELECT pub_id,submitted_by_pub_id FROM intelligence.appeal
                 WHERE pub_id=%s AND tenant_pub_id=%s AND investigation_pub_id=%s
                   AND state IN ('open','reviewing')
                 FOR UPDATE
@@ -786,20 +849,25 @@ class IntelligenceService:
             ).fetchone()
             if appeal is None:
                 raise LookupError("open appeal not found")
+            prior_verdict = connection.execute(
+                """
+                SELECT pub_id,reviewer_pub_id FROM intelligence.human_verdict
+                WHERE tenant_pub_id=%s AND investigation_pub_id=%s
+                ORDER BY id DESC LIMIT 1
+                """,
+                (tenant_pub_id, investigation_pub_id),
+            ).fetchone()
+            if prior_verdict is None:
+                raise LookupError("verdict to review not found")
+            if reviewer_pub_id in {
+                appeal["submitted_by_pub_id"],
+                prior_verdict["reviewer_pub_id"],
+            }:
+                raise PermissionError("appeal requires an independent reviewer")
             replacement_pub_id: str | None = None
-            state = "upheld"
+            state = resolution
             investigation_state = "decided"
             if corrected_verdict is not None:
-                previous = connection.execute(
-                    """
-                    SELECT pub_id FROM intelligence.human_verdict
-                    WHERE tenant_pub_id=%s AND investigation_pub_id=%s
-                    ORDER BY id DESC LIMIT 1
-                    """,
-                    (tenant_pub_id, investigation_pub_id),
-                ).fetchone()
-                if previous is None:
-                    raise LookupError("verdict to correct not found")
                 replacement_pub_id = new_pub_id("vrd")
                 connection.execute(
                     """
@@ -814,18 +882,20 @@ class IntelligenceService:
                         investigation_pub_id,
                         corrected_verdict,
                         reviewer_pub_id,
-                        rationale or resolution,
-                        previous["pub_id"],
+                        rationale,
+                        prior_verdict["pub_id"],
                     ),
                 )
                 state = "corrected"
                 investigation_state = "corrected"
             connection.execute(
                 """
-                UPDATE intelligence.appeal SET state=%s,resolution=%s,updated_at=now()
+                UPDATE intelligence.appeal
+                SET state=%s,resolution=%s,resolution_rationale=%s,
+                    resolved_by_pub_id=%s,resolved_at=now(),updated_at=now()
                 WHERE pub_id=%s
                 """,
-                (state, resolution, appeal_pub_id),
+                (state, resolution, rationale, reviewer_pub_id, appeal_pub_id),
             )
             connection.execute(
                 """
@@ -837,7 +907,7 @@ class IntelligenceService:
         return replacement_pub_id
 
     def public_conclusion(self, *, tenant_pub_id: str, investigation_pub_id: str) -> dict[str, Any]:
-        with psycopg.connect(self.dsn, row_factory=dict_row) as connection:
+        with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
             score = connection.execute(
                 """
                 SELECT probability,evidence_sufficiency,independent_source_count,uncertainty,
