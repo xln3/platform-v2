@@ -1,0 +1,685 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  backfillPostingTarget,
+  createPostingBatch,
+  decidePostingApproval,
+  getPostingBatch,
+  listPostingBatches,
+  refreshPostingBatch,
+  submitPostingBatch,
+  type IdentitySessionHeaders,
+  type MediaPricesPlatform,
+  type PostingBatch,
+  type PostingBatchStatus,
+  type PostingBatchSummary,
+  type PostingTargetStatus,
+} from '@geo/api-client';
+
+export type PostingSelection = {
+  key: string;
+  catalogType: 'news' | 'wemedia';
+  mediaName: string;
+  mediaPlatform: string;
+  prices: Partial<Record<MediaPricesPlatform, number>>;
+  provider: MediaPricesPlatform;
+};
+
+export function postingSelectionKey(
+  catalogType: 'news' | 'wemedia',
+  mediaName: string,
+  mediaPlatform = '',
+): string {
+  return `${catalogType}\u0000${mediaPlatform}\u0000${mediaName}`;
+}
+
+const PROVIDER_LABELS: Record<MediaPricesPlatform, string> = {
+  prfabu: 'prfabu',
+  toumeiw: '投媒网',
+  mtpfw: '媒体批发网',
+  meititejia: '媒体特价网',
+  meijiehezi: '媒介盒子',
+  pinda: '品达发稿',
+};
+
+const BATCH_STATUS_LABELS: Record<PostingBatchStatus, string> = {
+  draft: '待确认',
+  queued: '已排队',
+  processing: '提交中',
+  partially_submitted: '部分已提交',
+  submitted: '已提交',
+  published: '已发出',
+  blocked: '受阻',
+  failed: '失败',
+  canceled: '已取消',
+};
+
+const TARGET_STATUS_LABELS: Record<PostingTargetStatus, string> = {
+  selected: '已选择',
+  queued: '已排队',
+  submitting: '提交中',
+  submitted: '已提交',
+  reviewing: '审核中',
+  published: '已发出',
+  balance_insufficient: '余额不足',
+  provider_session_expired: '供应商会话失效',
+  provider_confirmation_required: '需要人工确认',
+  unsupported_provider: '供应商尚未接入',
+  rejected: '已拒绝 / 退稿',
+  failed: '提交失败',
+  canceled: '已取消',
+};
+
+const ACTIVE_BATCH_STATUSES = new Set<PostingBatchStatus>(['queued', 'processing']);
+const POLL_INTERVAL_MS = 4_000;
+
+type Session = {
+  tenantId: string;
+  actorId: string;
+  role: 'operator' | 'reviewer' | 'admin';
+  headers: IdentitySessionHeaders;
+};
+
+function selectedPrice(selection: PostingSelection): number {
+  return selection.prices[selection.provider] ?? 0;
+}
+
+function newIdempotencyKey(): string {
+  const random =
+    typeof globalThis.crypto?.randomUUID === 'function'
+      ? globalThis.crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `posting-${random}`;
+}
+
+export function statusTone(
+  status: PostingBatchStatus | PostingTargetStatus,
+): 'neutral' | 'progress' | 'success' | 'warn' | 'error' {
+  if (['queued', 'processing', 'submitting', 'reviewing'].includes(status)) return 'progress';
+  if (['submitted', 'published'].includes(status)) return 'success';
+  if (
+    [
+      'partially_submitted',
+      'blocked',
+      'balance_insufficient',
+      'provider_session_expired',
+      'provider_confirmation_required',
+      'unsupported_provider',
+    ].includes(status)
+  ) {
+    return 'warn';
+  }
+  if (['failed', 'rejected', 'canceled'].includes(status)) return 'error';
+  return 'neutral';
+}
+
+export function PostingComposer({
+  session,
+  selections,
+  onProviderChange,
+  onRemove,
+  onClear,
+}: {
+  session: Session;
+  selections: PostingSelection[];
+  onProviderChange: (key: string, provider: MediaPricesPlatform) => void;
+  onRemove: (key: string) => void;
+  onClear: () => void;
+}) {
+  const requestHeaders = useMemo<IdentitySessionHeaders>(
+    () => ({ ...session.headers }),
+    [session.headers],
+  );
+  const canOperate = session.role === 'operator' || session.role === 'admin';
+  const canReview = session.role === 'reviewer' || session.role === 'admin';
+  const [document, setDocument] = useState<File | null>(null);
+  const [title, setTitle] = useState('');
+  const [customerName, setCustomerName] = useState('');
+  const [releaseTime, setReleaseTime] = useState('');
+  const [note, setNote] = useState('');
+  const [sopProjectPubId, setSopProjectPubId] = useState('');
+  const [articleVersionPubId, setArticleVersionPubId] = useState('');
+  const [autoSubmit, setAutoSubmit] = useState(true);
+  const [confirmSpend, setConfirmSpend] = useState(false);
+  const quotedTotal = useMemo(
+    () => selections.reduce((total, selection) => total + selectedPrice(selection), 0),
+    [selections],
+  );
+  const [maxTotalAmount, setMaxTotalAmount] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [notice, setNotice] = useState<{
+    tone: 'info' | 'warn' | 'error';
+    text: string;
+  } | null>(null);
+  const [recent, setRecent] = useState<PostingBatchSummary[]>([]);
+  const [currentBatch, setCurrentBatch] = useState<PostingBatch | null>(null);
+  const [approvalRationale, setApprovalRationale] = useState('内容、媒体与预算已复核。');
+  const [backfillUrls, setBackfillUrls] = useState<Record<string, string>>({});
+  const [recentState, setRecentState] = useState<'loading' | 'ready' | 'forbidden' | 'failed'>(
+    'loading',
+  );
+  const idempotencyKeyRef = useRef(newIdempotencyKey());
+
+  useEffect(() => {
+    setMaxTotalAmount((current) => {
+      if (quotedTotal <= 0) return '';
+      const numeric = Number(current);
+      return current === '' || !Number.isFinite(numeric) || numeric < quotedTotal
+        ? quotedTotal.toFixed(2)
+        : current;
+    });
+  }, [quotedTotal]);
+
+  const reloadRecent = async () => {
+    const result = await listPostingBatches(requestHeaders);
+    if (result.kind === 'ready') {
+      setRecent(result.data);
+      setRecentState('ready');
+    } else {
+      setRecentState(result.kind === 'forbidden' ? 'forbidden' : 'failed');
+    }
+  };
+
+  useEffect(() => {
+    void reloadRecent();
+  }, [requestHeaders]);
+
+  useEffect(() => {
+    if (!currentBatch || !ACTIVE_BATCH_STATUSES.has(currentBatch.status)) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void getPostingBatch(currentBatch.pubId, requestHeaders).then((result) => {
+        if (cancelled || result.kind !== 'ready') return;
+        setCurrentBatch(result.data);
+        void reloadRecent();
+      });
+    }, POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [currentBatch, requestHeaders]);
+
+  const createBatch = async () => {
+    const maximum = Number(maxTotalAmount);
+    if (!document) {
+      setNotice({ tone: 'error', text: '请选择上游产出的 .docx 图文文档。' });
+      return;
+    }
+    if (selections.length === 0) {
+      setNotice({ tone: 'error', text: '请先在比价表里选择至少一个媒体。' });
+      return;
+    }
+    if (!Number.isFinite(maximum) || maximum < quotedTotal || maximum <= 0) {
+      setNotice({
+        tone: 'error',
+        text: `预算上限不能低于当前报价合计 ¥${quotedTotal.toFixed(2)}。`,
+      });
+      return;
+    }
+    if (autoSubmit && !confirmSpend) {
+      setNotice({ tone: 'error', text: '自动发帖会产生真实费用，请先确认扣费授权。' });
+      return;
+    }
+    setSubmitting(true);
+    setNotice({ tone: 'info', text: '正在解析 DOCX、核对服务端报价并创建发帖批次…' });
+    const result = await createPostingBatch(
+      {
+        document,
+        targets: selections.map((selection) => ({
+          catalogType: selection.catalogType,
+          provider: selection.provider,
+          mediaName: selection.mediaName,
+          mediaPlatform: selection.mediaPlatform,
+        })),
+        title: title.trim(),
+        customerName: customerName.trim(),
+        ...(releaseTime ? { releaseTime } : {}),
+        autoSubmit,
+        confirmSpend: autoSubmit && confirmSpend,
+        maxTotalAmount: maximum,
+        note: note.trim(),
+        ...(sopProjectPubId.trim() ? { sopProjectPubId: sopProjectPubId.trim() } : {}),
+        ...(articleVersionPubId.trim() ? { articleVersionPubId: articleVersionPubId.trim() } : {}),
+        idempotencyKey: idempotencyKeyRef.current,
+      },
+      requestHeaders,
+    );
+    setSubmitting(false);
+    if (result.kind === 'ready') {
+      setCurrentBatch(result.data);
+      setNotice({
+        tone: 'info',
+        text: autoSubmit
+          ? '发帖批次已创建，预算已锁定，正在等待独立审核。'
+          : '发帖批次草稿已保存，可稍后确认预算后提交。',
+      });
+      idempotencyKeyRef.current = newIdempotencyKey();
+      setConfirmSpend(false);
+      void reloadRecent();
+      return;
+    }
+    if (result.kind === 'conflict') {
+      setNotice({
+        tone: 'error',
+        text: '当前媒体报价已变化、媒体已下架，或预算低于服务端最新报价，请刷新比价数据后重试。',
+      });
+    } else if (result.kind === 'invalid') {
+      setNotice({ tone: 'error', text: 'DOCX 无法解析或配置字段不合法，请检查文档后重试。' });
+    } else if (result.kind === 'forbidden') {
+      setNotice({ tone: 'error', text: '当前账号没有创建自动发帖批次的权限。' });
+    } else {
+      setNotice({
+        tone: 'error',
+        text: '创建请求暂不可用；可用同一配置重试，幂等键会避免重复下单。',
+      });
+    }
+  };
+
+  const openBatch = async (batchPubId: string) => {
+    const result = await getPostingBatch(batchPubId, requestHeaders);
+    if (result.kind === 'ready') {
+      setCurrentBatch(result.data);
+      setNotice(null);
+    } else {
+      setNotice({ tone: 'error', text: '发帖批次详情暂时无法读取。' });
+    }
+  };
+
+  const refreshBatch = async () => {
+    if (!currentBatch) return;
+    setNotice({ tone: 'info', text: '正在向供应商同步订单与回链状态…' });
+    const result = await refreshPostingBatch(currentBatch.pubId, requestHeaders);
+    if (result.kind === 'ready') {
+      setCurrentBatch(result.data);
+      setNotice({ tone: 'info', text: '供应商状态同步完成。' });
+      void reloadRecent();
+    } else {
+      setNotice({ tone: 'error', text: '供应商状态暂时无法同步，请稍后重试。' });
+    }
+  };
+
+  const requestApproval = async () => {
+    if (!currentBatch) return;
+    const maximum = Number(maxTotalAmount || currentBatch.maxTotalAmount || 0);
+    const result = await submitPostingBatch(currentBatch.pubId, maximum, requestHeaders);
+    if (result.kind === 'ready') {
+      setCurrentBatch(result.data);
+      setNotice({ tone: 'info', text: '预算已确认，等待另一位审核人批准。' });
+      void reloadRecent();
+    } else {
+      setNotice({ tone: 'error', text: '提交审核失败，请核对预算和批次状态。' });
+    }
+  };
+
+  const decideApproval = async (decision: 'approve' | 'reject') => {
+    if (!currentBatch || approvalRationale.trim().length < 4) return;
+    const result = await decidePostingApproval(
+      currentBatch.pubId,
+      decision,
+      approvalRationale.trim(),
+      requestHeaders,
+    );
+    if (result.kind === 'ready') {
+      setCurrentBatch(result.data);
+      setNotice({
+        tone: 'info',
+        text:
+          decision === 'approve' ? '审核已通过，发帖任务已进入队列。' : '已驳回并保留审计记录。',
+      });
+      void reloadRecent();
+    } else {
+      setNotice({ tone: 'error', text: '审核操作失败；申请人与审核人必须为不同账号。' });
+    }
+  };
+
+  const backfillTarget = async (targetPubId: string) => {
+    if (!currentBatch) return;
+    const publicUrl = (backfillUrls[targetPubId] ?? '').trim();
+    const result = await backfillPostingTarget(
+      currentBatch.pubId,
+      targetPubId,
+      {
+        status: 'published',
+        publicUrl,
+        providerMessage: '运营已核验公开回链并完成人工回填。',
+      },
+      requestHeaders,
+    );
+    if (result.kind === 'ready') {
+      setCurrentBatch(result.data);
+      setNotice({ tone: 'info', text: '公开回链与发布状态已回填。' });
+      void reloadRecent();
+    } else {
+      setNotice({ tone: 'error', text: '回填失败，请确认使用有效的 http(s) 公开链接。' });
+    }
+  };
+
+  return (
+    <section className="posting-composer" aria-labelledby="posting-composer-title">
+      <header className="posting-composer-heading">
+        <div>
+          <span className="eyebrow">paid distribution</span>
+          <h3 id="posting-composer-title">自动发帖配置</h3>
+          <p>选择媒体后上传上游图文 DOCX；系统冻结报价并逐媒体记录下单与发帖状态。</p>
+        </div>
+        {selections.length > 0 ? (
+          <button type="button" onClick={onClear}>
+            清空已选
+          </button>
+        ) : null}
+      </header>
+
+      {selections.length === 0 ? (
+        <div className="posting-empty">在新闻媒体或自媒体表格首列勾选媒体后，可继续配置。</div>
+      ) : (
+        <div className="posting-selection-list" aria-label="已选媒体">
+          {selections.map((selection) => {
+            const providers = Object.entries(selection.prices).filter(
+              (entry): entry is [MediaPricesPlatform, number] => entry[1] != null,
+            );
+            return (
+              <article key={selection.key}>
+                <div>
+                  <strong>{selection.mediaName}</strong>
+                  <small>
+                    {selection.catalogType === 'wemedia'
+                      ? `自媒体 · ${selection.mediaPlatform}`
+                      : '新闻媒体'}
+                  </small>
+                </div>
+                <label>
+                  采购服务
+                  <select
+                    aria-label={`${selection.mediaName}采购服务`}
+                    value={selection.provider}
+                    onChange={(event) =>
+                      onProviderChange(selection.key, event.target.value as MediaPricesPlatform)
+                    }
+                  >
+                    {providers.map(([provider, price]) => (
+                      <option key={provider} value={provider}>
+                        {PROVIDER_LABELS[provider]} · ¥{price}
+                        {provider === 'prfabu' ? ' · 可自动' : ' · 待接入'}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  aria-label={`移除${selection.mediaName}`}
+                  onClick={() => onRemove(selection.key)}
+                >
+                  移除
+                </button>
+              </article>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="posting-form-grid">
+        <label>
+          图文 DOCX
+          <input
+            type="file"
+            accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            onChange={(event) => setDocument(event.target.files?.[0] ?? null)}
+          />
+        </label>
+        <label>
+          标题覆盖（可选）
+          <input
+            type="text"
+            value={title}
+            maxLength={300}
+            placeholder="留空则取 DOCX 首个标题"
+            onChange={(event) => setTitle(event.target.value)}
+          />
+        </label>
+        <label>
+          客户 / 品牌（可选）
+          <input
+            type="text"
+            value={customerName}
+            maxLength={300}
+            onChange={(event) => setCustomerName(event.target.value)}
+          />
+        </label>
+        <label>
+          期望发布日期（可选）
+          <input
+            type="date"
+            value={releaseTime}
+            onChange={(event) => setReleaseTime(event.target.value)}
+          />
+        </label>
+        <label>
+          报价合计
+          <output>¥{quotedTotal.toFixed(2)}</output>
+        </label>
+        <label>
+          扣费预算上限
+          <input
+            type="number"
+            min={quotedTotal || 0.01}
+            step="0.01"
+            value={maxTotalAmount}
+            onChange={(event) => setMaxTotalAmount(event.target.value)}
+          />
+        </label>
+        <label className="posting-note-field">
+          发稿备注（可选）
+          <textarea
+            value={note}
+            maxLength={1_000}
+            rows={3}
+            onChange={(event) => setNote(event.target.value)}
+          />
+        </label>
+        <label>
+          SOP 项目标识（可选）
+          <input
+            value={sopProjectPubId}
+            maxLength={120}
+            placeholder="sop_…"
+            onChange={(event) => setSopProjectPubId(event.target.value)}
+          />
+        </label>
+        <label>
+          文章版本标识（可选）
+          <input
+            value={articleVersionPubId}
+            maxLength={120}
+            placeholder="artv_…"
+            onChange={(event) => setArticleVersionPubId(event.target.value)}
+          />
+        </label>
+      </div>
+
+      <div className="posting-confirmation">
+        <label>
+          <input
+            type="checkbox"
+            checked={autoSubmit}
+            onChange={(event) => {
+              setAutoSubmit(event.target.checked);
+              if (!event.target.checked) setConfirmSpend(false);
+            }}
+          />
+          创建后申请审核
+        </label>
+        {autoSubmit ? (
+          <label className="spend-confirm">
+            <input
+              type="checkbox"
+              checked={confirmSpend}
+              onChange={(event) => setConfirmSpend(event.target.checked)}
+            />
+            我确认按服务端最新报价扣费，且总额不超过 ¥{Number(maxTotalAmount || 0).toFixed(2)}
+          </label>
+        ) : null}
+        <button
+          type="button"
+          className="primary"
+          disabled={!canOperate || submitting || selections.length === 0}
+          onClick={() => void createBatch()}
+        >
+          {!canOperate
+            ? '仅可查看'
+            : submitting
+              ? '正在创建…'
+              : autoSubmit
+                ? '创建并申请审核'
+                : '保存发帖草稿'}
+        </button>
+      </div>
+      <p className="posting-adapter-note">
+        当前 prfabu
+        已接自动下单与状态同步；其他供应商会保留所选服务和报价，但状态明确显示“供应商尚未接入”。
+      </p>
+      {notice ? (
+        <div className={`media-prices-notice ${notice.tone}`} role="status">
+          {notice.text}
+        </div>
+      ) : null}
+
+      {currentBatch ? (
+        <section className="posting-status-panel" aria-label="当前发帖批次">
+          <header>
+            <div>
+              <span className={`posting-status ${statusTone(currentBatch.status)}`}>
+                {BATCH_STATUS_LABELS[currentBatch.status]}
+              </span>
+              <span className={`posting-status ${currentBatch.approvalState}`}>
+                审核：{currentBatch.approvalState}
+              </span>
+              <h4>{currentBatch.title}</h4>
+              <p>
+                {currentBatch.sourceFilename} · {currentBatch.imageCount} 张图 · 报价 ¥
+                {currentBatch.quotedTotalAmount.toFixed(2)}
+              </p>
+            </div>
+            <button type="button" disabled={!canOperate} onClick={() => void refreshBatch()}>
+              同步供应商状态
+            </button>
+          </header>
+          <div className="posting-confirmation" aria-label="发帖审核控制">
+            {canOperate && ['draft', 'rejected'].includes(currentBatch.approvalState) ? (
+              <button type="button" className="primary" onClick={() => void requestApproval()}>
+                确认预算并提交审核
+              </button>
+            ) : null}
+            {currentBatch.approvalState === 'pending' ? (
+              <>
+                <label>
+                  审核意见
+                  <input
+                    value={approvalRationale}
+                    maxLength={1_000}
+                    onChange={(event) => setApprovalRationale(event.target.value)}
+                  />
+                </label>
+                {canReview && currentBatch.approvalRequestedByPubId !== session.actorId ? (
+                  <>
+                    <button
+                      type="button"
+                      className="primary"
+                      onClick={() => void decideApproval('approve')}
+                    >
+                      审核通过并提交
+                    </button>
+                    <button type="button" onClick={() => void decideApproval('reject')}>
+                      驳回
+                    </button>
+                  </>
+                ) : (
+                  <span>等待另一位具备审核权限的成员处理。</span>
+                )}
+              </>
+            ) : null}
+          </div>
+          <details>
+            <summary>帖子内容</summary>
+            <pre>{currentBatch.contentText}</pre>
+          </details>
+          <div className="posting-target-statuses">
+            {currentBatch.targets.map((target) => (
+              <article key={target.pubId}>
+                <div>
+                  <strong>{target.mediaName}</strong>
+                  <small>
+                    {PROVIDER_LABELS[target.provider]} · ¥{target.quotedPrice.toFixed(2)}
+                    {target.externalOrderId ? ` · 订单 ${target.externalOrderId}` : ''}
+                  </small>
+                </div>
+                <span className={`posting-status ${statusTone(target.status)}`}>
+                  {TARGET_STATUS_LABELS[target.status]}
+                </span>
+                <p>{target.providerMessage || '等待状态更新'}</p>
+                {target.publicUrl ? (
+                  <a href={target.publicUrl} target="_blank" rel="noopener noreferrer">
+                    查看已发帖子
+                  </a>
+                ) : null}
+                {canOperate && target.status !== 'published' ? (
+                  <div className="posting-confirmation">
+                    <label>
+                      公开回链
+                      <input
+                        type="url"
+                        placeholder="https://…"
+                        value={backfillUrls[target.pubId] ?? ''}
+                        onChange={(event) =>
+                          setBackfillUrls((current) => ({
+                            ...current,
+                            [target.pubId]: event.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                    <button type="button" onClick={() => void backfillTarget(target.pubId)}>
+                      回填已发布
+                    </button>
+                  </div>
+                ) : null}
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      <section className="posting-history" aria-label="最近发帖批次">
+        <h4>最近发帖批次</h4>
+        {recentState === 'loading' ? <p>正在读取…</p> : null}
+        {recentState === 'forbidden' ? <p>无权查看发帖记录。</p> : null}
+        {recentState === 'failed' ? (
+          <p>
+            发帖记录暂不可用。{' '}
+            <button type="button" onClick={() => void reloadRecent()}>
+              重试
+            </button>
+          </p>
+        ) : null}
+        {recentState === 'ready' && recent.length === 0 ? <p>尚无发帖批次。</p> : null}
+        {recent.length > 0 ? (
+          <div className="posting-history-list">
+            {recent.map((batch) => (
+              <button type="button" key={batch.pubId} onClick={() => void openBatch(batch.pubId)}>
+                <span>
+                  <strong>{batch.title}</strong>
+                  <small>
+                    {batch.targetCount} 个媒体 · {batch.submittedCount} 已提交 ·{' '}
+                    {batch.publishedCount} 已发出
+                  </small>
+                </span>
+                <span className={`posting-status ${statusTone(batch.status)}`}>
+                  {BATCH_STATUS_LABELS[batch.status]}
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </section>
+    </section>
+  );
+}

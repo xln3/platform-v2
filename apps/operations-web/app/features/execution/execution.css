@@ -48,6 +48,68 @@
   border-radius: 16px;
   box-shadow: 0 8px 30px #23372a0b;
 }
+.setup-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+.setup-grid fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 18px;
+  border: 1px solid #d9e4dc;
+  border-radius: 14px;
+}
+.setup-grid legend {
+  padding: 0 8px;
+  font-weight: 750;
+}
+.setup-grid label {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0;
+  color: #415047;
+  font-size: 13px;
+}
+.setup-grid input,
+.setup-grid select,
+.setup-grid textarea {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #cbd9cf;
+  border-radius: 9px;
+  background: #fff;
+  color: #17211b;
+  font: inherit;
+}
+.platform-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+.platform-checks label {
+  display: flex;
+  align-items: center;
+  margin: 0;
+}
+.platform-checks input {
+  width: auto;
+}
+.inline-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.setup-summary,
+.muted,
+.run-source {
+  color: #607067;
+}
+.run-source {
+  display: block;
+  margin-top: 4px;
+}
 .metric-row article {
   padding: 20px;
 }
@@ -232,6 +294,9 @@ td {
   text-align: center;
 }
 @media (max-width: 900px) {
+  .setup-grid {
+    grid-template-columns: 1fr;
+  }
   .metric-row {
     grid-template-columns: repeat(2, 1fr);
   }

@@ -4,11 +4,15 @@ import {
   type Account,
   type BreakGlassRequest,
   type Intervention,
+  type Pairing,
+  type PlatformSla,
   type Project,
   type Run,
+  type Schedule,
   type SessionContext,
   type SessionEvent,
 } from './api';
+import { PlatformSlaPanel, RunSetupPanel, SchedulePanel } from './RunSetupPanel';
 import './execution.css';
 
 const CHALLENGES: Record<string, string> = {
@@ -21,33 +25,51 @@ const CHALLENGES: Record<string, string> = {
 };
 
 type Props = { session: SessionContext };
+type PairingState = {
+  pairing: Pairing;
+  customerDevice: boolean;
+  bundle: string | null;
+};
 
 export function ExecutionControlPlane({ session }: Props) {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [runs, setRuns] = useState<Run[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [schedules, setSchedules] = useState<Schedule[]>([]);
+  const [platformSla, setPlatformSla] = useState<PlatformSla[]>([]);
   const [interventions, setInterventions] = useState<Intervention[]>([]);
   const [events, setEvents] = useState<SessionEvent[]>([]);
   const [breakGlassRequests, setBreakGlassRequests] = useState<BreakGlassRequest[]>([]);
   const [state, setState] = useState<'loading' | 'ready' | 'offline' | 'forbidden'>('loading');
   const [receipt, setReceipt] = useState<string | null>(null);
-  const [pairings, setPairings] = useState<Record<string, string>>({});
+  const [pairings, setPairings] = useState<Record<string, PairingState>>({});
 
   const refresh = useCallback(async () => {
     try {
-      const [nextAccounts, nextProjects, nextRuns, nextInterventions, nextBreakGlass] =
-        await Promise.all([
-          executionApi.accounts(session),
-          executionApi.projects(session),
-          executionApi.runs(session),
-          executionApi.interventions(session),
-          executionApi.breakGlassRequests(session),
-        ]);
+      const [
+        nextAccounts,
+        nextProjects,
+        nextRuns,
+        nextInterventions,
+        nextBreakGlass,
+        nextSchedules,
+        nextPlatformSla,
+      ] = await Promise.all([
+        executionApi.accounts(session),
+        executionApi.projects(session),
+        executionApi.runs(session),
+        executionApi.interventions(session),
+        executionApi.breakGlassRequests(session),
+        executionApi.schedules(session),
+        executionApi.platformSla(session),
+      ]);
       setAccounts(nextAccounts);
       setProjects(nextProjects.data);
       setRuns(nextRuns);
       setInterventions(nextInterventions);
       setBreakGlassRequests(nextBreakGlass);
+      setSchedules(nextSchedules);
+      setPlatformSla(nextPlatformSla);
       const eventPages = await Promise.all(
         nextAccounts.slice(0, 20).map((account) => executionApi.events(session, account.pub_id)),
       );
@@ -86,14 +108,37 @@ export function ExecutionControlPlane({ session }: Props) {
 
   async function pair(item: Intervention) {
     const pairing = await executionApi.pairIntervention(session, item.pub_id);
-    setPairings((current) => ({ ...current, [item.pub_id]: pairing.pairing_token }));
-    window.open(`https://${item.allowed_domain}`, '_blank', 'noopener,noreferrer');
-    setReceipt(`安全配对已建立，将于 ${pairing.expires_at} 失效；令牌仅保存在当前页面内存。`);
+    const customerDevice =
+      accounts.find((account) => account.pub_id === item.account_pub_id)?.custody_mode ===
+      'customer_device';
+    const bundle = customerDevice
+      ? JSON.stringify({
+          api_base: window.location.origin,
+          tenant_pub_id: session.tenantId,
+          intervention_pub_id: pairing.intervention_pub_id,
+          pairing_token: pairing.pairing_token,
+          server_public_key_sha256: pairing.server_public_key_sha256,
+          allowed_domain: pairing.allowed_domain,
+          action: pairing.action,
+          challenge_type: pairing.challenge_type,
+        })
+      : null;
+    setPairings((current) => ({
+      ...current,
+      [item.pub_id]: { pairing, customerDevice, bundle },
+    }));
+    if (!customerDevice)
+      window.open(`https://${item.allowed_domain}`, '_blank', 'noopener,noreferrer');
+    setReceipt(
+      customerDevice
+        ? `客户终端配对包已生成，将于 ${pairing.expires_at} 失效；只能交给受控 GEO 终端扩展。`
+        : `安全配对已建立，将于 ${pairing.expires_at} 失效；令牌仅保存在当前页面内存。`,
+    );
   }
 
   async function complete(item: Intervention) {
-    const pairingToken = pairings[item.pub_id];
-    if (!pairingToken) return;
+    const pairingState = pairings[item.pub_id];
+    if (!pairingState || pairingState.customerDevice) return;
     const bytes = new TextEncoder().encode(
       `${item.pub_id}:${item.account_pub_id}:${new Date().toISOString()}`,
     );
@@ -101,7 +146,12 @@ export function ExecutionControlPlane({ session }: Props) {
     const evidenceHash = [...new Uint8Array(digest)]
       .map((byte) => byte.toString(16).padStart(2, '0'))
       .join('');
-    await executionApi.completeIntervention(session, item.pub_id, pairingToken, evidenceHash);
+    await executionApi.completeIntervention(
+      session,
+      item.pub_id,
+      pairingState.pairing.pairing_token,
+      evidenceHash,
+    );
     setPairings((current) => {
       const next = { ...current };
       delete next[item.pub_id];
@@ -155,6 +205,13 @@ export function ExecutionControlPlane({ session }: Props) {
         </article>
       </section>
 
+      <RunSetupPanel
+        session={session}
+        projects={projects}
+        onChanged={refresh}
+        onReceipt={setReceipt}
+      />
+
       <section className="execution-card">
         <div className="section-title">
           <h2>项目与冻结计划</h2>
@@ -207,7 +264,13 @@ export function ExecutionControlPlane({ session }: Props) {
                 {runs.map((run) => (
                   <tr key={run.pub_id}>
                     <td data-label="运行">{run.pub_id}</td>
-                    <td data-label="项目">{run.project_pub_id}</td>
+                    <td data-label="项目">
+                      {run.project_pub_id}
+                      <small className="run-source">
+                        {run.source}
+                        {run.retry_of_run_pub_id ? ` · 重试 ${run.retry_of_run_pub_id}` : ''}
+                      </small>
+                    </td>
                     <td data-label="状态">
                       <Status value={run.paused ? 'paused' : run.state} />
                     </td>
@@ -220,25 +283,44 @@ export function ExecutionControlPlane({ session }: Props) {
                       {run.error_code ? ` · ${run.error_code}` : ''}
                     </td>
                     <td data-label="控制" className="actions">
-                      <button
-                        onClick={() =>
-                          void executionApi
-                            .controlRun(session, run.pub_id, run.paused ? 'resume' : 'pause')
-                            .then(refresh)
-                        }
-                      >
-                        {run.paused ? '恢复' : '暂停'}
-                      </button>
-                      <button
-                        className="danger"
-                        onClick={() =>
-                          void riskyAction('取消运行', () =>
-                            executionApi.controlRun(session, run.pub_id, 'cancel'),
-                          )
-                        }
-                      >
-                        取消
-                      </button>
+                      {(run.paused || ['pending', 'queued', 'running'].includes(run.state)) && (
+                        <button
+                          onClick={() =>
+                            void executionApi
+                              .controlRun(session, run.pub_id, run.paused ? 'resume' : 'pause')
+                              .then(refresh)
+                          }
+                        >
+                          {run.paused ? '恢复' : '暂停'}
+                        </button>
+                      )}
+                      {['pending', 'queued', 'running', 'waiting_intervention'].includes(
+                        run.state,
+                      ) && (
+                        <button
+                          className="danger"
+                          onClick={() =>
+                            void riskyAction('取消运行', () =>
+                              executionApi.controlRun(session, run.pub_id, 'cancel'),
+                            )
+                          }
+                        >
+                          取消
+                        </button>
+                      )}
+                      {['failed', 'completed_with_failures', 'cancelled', 'skipped'].includes(
+                        run.state,
+                      ) && (
+                        <button
+                          onClick={() =>
+                            void riskyAction('重试运行', () =>
+                              executionApi.controlRun(session, run.pub_id, 'retry'),
+                            )
+                          }
+                        >
+                          重试
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -247,6 +329,15 @@ export function ExecutionControlPlane({ session }: Props) {
           </div>
         )}
       </section>
+
+      <SchedulePanel
+        session={session}
+        schedules={schedules}
+        onChanged={refresh}
+        onReceipt={setReceipt}
+      />
+
+      <PlatformSlaPanel items={platformSla} />
 
       <section className="execution-card">
         <div className="section-title">
@@ -286,6 +377,12 @@ export function ExecutionControlPlane({ session }: Props) {
                     {account.profile_state
                       ? `${account.profile_state} · v${account.profile_version}`
                       : '尚未 enroll'}
+                  </dd>
+                  <dt>Profile 到期</dt>
+                  <dd>
+                    {account.profile_expires_at
+                      ? new Date(account.profile_expires_at).toLocaleString('zh-CN')
+                      : '未设置'}
                   </dd>
                   <dt>约束</dt>
                   <dd>{account.profile_constraints.join(' · ') || '无'}</dd>
@@ -406,14 +503,55 @@ export function ExecutionControlPlane({ session }: Props) {
                   <p>
                     {item.action} · {item.allowed_domain}
                   </p>
+                  <p>
+                    责任人：{item.assigned_to_pub_id ?? '未分配'} · 截止：
+                    {item.due_at ? new Date(item.due_at).toLocaleString('zh-CN') : '未设置'}
+                  </p>
+                  {item.resolution_note && <p>处理说明：{item.resolution_note}</p>}
                 </div>
                 <div className="actions">
                   <Status value={item.state} />
                   {!pairings[item.pub_id] && item.state !== 'completed' && (
                     <button onClick={() => void pair(item)}>安全配对</button>
                   )}
-                  {pairings[item.pub_id] && (
+                  {pairings[item.pub_id]?.customerDevice && pairings[item.pub_id]?.bundle && (
+                    <>
+                      <label className="sr-only" htmlFor={`bundle-${item.pub_id}`}>
+                        客户终端一次性配对包
+                      </label>
+                      <textarea
+                        id={`bundle-${item.pub_id}`}
+                        readOnly
+                        value={pairings[item.pub_id]?.bundle ?? ''}
+                        aria-label="客户终端一次性配对包"
+                      />
+                      <button
+                        onClick={() =>
+                          void navigator.clipboard.writeText(pairings[item.pub_id]?.bundle ?? '')
+                        }
+                      >
+                        复制到受控终端
+                      </button>
+                    </>
+                  )}
+                  {pairings[item.pub_id] && !pairings[item.pub_id]?.customerDevice && (
                     <button onClick={() => void complete(item)}>平台已确认，恢复</button>
+                  )}
+                  {!['completed', 'cancelled'].includes(item.state) && (
+                    <button
+                      className="danger"
+                      onClick={() =>
+                        void riskyAction('关闭无法恢复的人工待办', () =>
+                          executionApi.cancelIntervention(
+                            session,
+                            item.pub_id,
+                            '运营确认本次挑战无法恢复；终止等待并保留审计记录。',
+                          ),
+                        )
+                      }
+                    >
+                      终止待办
+                    </button>
                   )}
                 </div>
               </article>

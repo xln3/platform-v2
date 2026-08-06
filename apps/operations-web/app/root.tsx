@@ -1,19 +1,37 @@
-import { Links, Meta, Outlet, Scripts, ScrollRestoration } from 'react-router';
+import { Links, Meta, Outlet, Scripts, ScrollRestoration, useLocation } from 'react-router';
 import { ValidatedExperienceProvider } from '@geo/design-system';
 import { createExperienceLoader } from '@geo/auth';
 import '@geo/design-system/styles.css';
-const loadExperience = createExperienceLoader({
-  tenantPubId: 'tnt_01K0CONTRACTFIXTURE0000000',
-  tenantLabel: 'GEO 运营',
-  projectPubId: 'prj_01K0CONTRACTFIXTURE0000000',
-  projectLabel: '全局执行',
-  userPubId: 'usr_01K0CONTRACTFIXTURE0000000',
-  userLabel: '周屿',
-  roles: ['operator'],
-  actorSubject: 'operator-contract-fixture',
-  actorRole: 'operator',
-});
+const loadExperience = createExperienceLoader(
+  import.meta.env.VITE_ALLOW_CONTRACT_FIXTURES === 'true'
+    ? {
+        tenantPubId: 'tnt_01K0CONTRACTFIXTURE0000000',
+        tenantLabel: 'GEO 运营',
+        projectPubId: 'prj_01K0CONTRACTFIXTURE0000000',
+        projectLabel: '全局执行',
+        userPubId: 'usr_01K0CONTRACTFIXTURE0000000',
+        userLabel: '周屿',
+        roles: ['operator'],
+        actorSubject: 'operator-contract-fixture',
+        actorRole: 'operator',
+      }
+    : undefined,
+);
+
+function allowsAnonymousOperationsAccess(pathname: string): boolean {
+  const normalizedPath = pathname.replace(/\/+$/u, '') || '/';
+  return (
+    normalizedPath === '/' ||
+    normalizedPath === '/platform/operations' ||
+    normalizedPath === '/login' ||
+    normalizedPath === '/platform/operations/login' ||
+    normalizedPath === '/media-prices' ||
+    normalizedPath === '/platform/operations/media-prices'
+  );
+}
+
 export default function Root() {
+  const location = useLocation();
   return (
     <html lang="zh-CN">
       <head>
@@ -28,7 +46,8 @@ export default function Root() {
       <body>
         <ValidatedExperienceProvider
           load={loadExperience}
-          allowedRoles={['operator', 'reviewer', 'admin']}
+          allowedRoles={['operator', 'analyst', 'reviewer', 'admin']}
+          allowAnonymous={allowsAnonymousOperationsAccess(location.pathname)}
         >
           <Outlet />
         </ValidatedExperienceProvider>

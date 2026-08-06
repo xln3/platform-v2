@@ -1,16 +1,15 @@
 import { ExecutionControlPlane } from './ExecutionControlPlane';
+import { useOptionalExperienceContext } from '@geo/design-system';
+import { getValidatedIdentityHeaders } from '@geo/auth';
 
 export default function ExecutionRoute() {
-  const tenantId =
-    typeof window === 'undefined' ? '' : (window.localStorage.getItem('geo.ops.tenant') ?? '');
-  const actorId =
-    typeof window === 'undefined' ? '' : (window.localStorage.getItem('geo.ops.actor') ?? '');
-  const storedRole =
-    typeof window === 'undefined'
-      ? 'operator'
-      : (window.localStorage.getItem('geo.ops.role') ?? 'operator');
-  const role = storedRole === 'admin' || storedRole === 'reviewer' ? storedRole : 'operator';
-  if (!tenantId || !actorId) {
+  const experience = useOptionalExperienceContext();
+  const headers = getValidatedIdentityHeaders();
+  const role = experience?.roles.find(
+    (candidate): candidate is 'operator' | 'reviewer' | 'admin' =>
+      candidate === 'operator' || candidate === 'reviewer' || candidate === 'admin',
+  );
+  if (!experience || !headers || !role) {
     return (
       <main className="execution-plane">
         <div className="execution-state warning">
@@ -19,5 +18,14 @@ export default function ExecutionRoute() {
       </main>
     );
   }
-  return <ExecutionControlPlane session={{ tenantId, actorId, role }} />;
+  return (
+    <ExecutionControlPlane
+      session={{
+        tenantId: experience.tenantPubId,
+        actorId: experience.userPubId,
+        role,
+        headers,
+      }}
+    />
+  );
 }

@@ -14,28 +14,70 @@ type Pages = {
   "/": {
     params: {};
   };
+  "/login": {
+    params: {};
+  };
   "/execution": {
     params: {};
+  };
+  "/media-prices": {
+    params: {};
+  };
+  "/onboarding": {
+    params: {};
+  };
+  "/sop": {
+    params: {};
+  };
+  "/sop/projects/:projectPubId": {
+    params: {
+      "projectPubId": string;
+    };
   };
 };
 
 type RouteFiles = {
   "root.tsx": {
     id: "root";
-    page: "/" | "/execution";
+    page: "/" | "/login" | "/execution" | "/media-prices" | "/onboarding" | "/sop" | "/sop/projects/:projectPubId";
   };
   "shell.tsx": {
     id: "shell";
     page: "/";
   };
+  "features/login/route.tsx": {
+    id: "features/login/route";
+    page: "/login";
+  };
   "features/execution/route.tsx": {
     id: "features/execution/route";
     page: "/execution";
+  };
+  "features/media-prices/route.tsx": {
+    id: "features/media-prices/route";
+    page: "/media-prices";
+  };
+  "features/onboarding/route.tsx": {
+    id: "features/onboarding/route";
+    page: "/onboarding";
+  };
+  "features/sop/route.tsx": {
+    id: "features/sop/route";
+    page: "/sop";
+  };
+  "features/sop/project-route.tsx": {
+    id: "features/sop/project-route";
+    page: "/sop/projects/:projectPubId";
   };
 };
 
 type RouteModules = {
   "root": typeof import("./app/root.tsx");
   "shell": typeof import("./app/shell.tsx");
+  "features/login/route": typeof import("./app/features/login/route.tsx");
   "features/execution/route": typeof import("./app/features/execution/route.tsx");
+  "features/media-prices/route": typeof import("./app/features/media-prices/route.tsx");
+  "features/onboarding/route": typeof import("./app/features/onboarding/route.tsx");
+  "features/sop/route": typeof import("./app/features/sop/route.tsx");
+  "features/sop/project-route": typeof import("./app/features/sop/project-route.tsx");
 };
