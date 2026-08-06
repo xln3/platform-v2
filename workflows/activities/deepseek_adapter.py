@@ -1,20 +1,21 @@
-"""DeepSeek 网页采集适配器 v1（chat.deepseek.com；注册表统一包 ``@activity.defn``）。
+"""DeepSeek 网页采集适配器（chat.deepseek.com）。
 
-结构严格镜像 ``doubao_adapter.py``（已 live 验证的同款 v1 契约）。DeepSeek 平台知识
+结构严格镜像 ``doubao_adapter.py``（已 live 验证的同款契约）。DeepSeek 平台知识
 移植自旧链（``server/proxyllm/engines/deepseek.py``、``server/geosys/collector_deepseek.py``），
 关键面 2026-07-27 已 live 校准：输入框 placeholder / 回答气泡
 ``div.ds-markdown.ds-assistant-message-main-content`` / SSE JSON-patch 增量流 schema
 （见 ``_collect_event_text``，含 answer_len=1 根因记录）；登录墙 /sign_in 跳转为旧链
-CONFIRMED 信号。仍未校准项在各常量行内标注（发送按钮锚点、尾部噪声词表等）。
+CONFIRMED 信号。仍未校准项在各常量行内标注（发送按钮锚点、「新对话」入口、
+尾部噪声词表等）。
 
 DeepSeek 特性：``/api/v0/chat/completion`` 每请求带 WASM PoW（``x-ds-pow-*``），
 真实浏览器管线自动解题——故坚持 DOM/浏览器路径，绝不直连 API、绝不重实现 wasm。
 
-v1 边界（与 doubao v1 对齐）：
+v1 边界（mode 门不变）：
 
-- 仅 ``mode='normal'``；``mode='deep_think'`` →
-  ``ApplicationError("deep_think not enabled in adapter v1", type="unsupported_mode",
-  non_retryable=True)``。深度思考(R1) 开关点击超出 v1（selector 未校准，误点即脏数据）。
+- 仅 ``mode='normal'``；``mode='deep_think'`` 及其他 mode →
+  ``ApplicationError(..., type="unsupported_mode", non_retryable=True)``。
+  深度思考(R1) 开关点击超出 v1（selector 未校准，误点即脏数据）。
 - 联网搜索(联网搜索)开关 v1 不点击（selector 未校准；诚实声明 answer 为默认会话口径）。
 - 配置全走 env（秘密绝不进 task payload）：
   ``GEO_DEEPSEEK_PROFILE_DIR``（必填，persistent profile 目录；缺失/不存在 →
@@ -22,10 +23,11 @@ v1 边界（与 doubao v1 对齐）：
   形如 http://user:pass@host:port——日志只出现打码后的 scheme://host:port）；
   ``GEO_ADAPTER_EVIDENCE_DIR``（五平台共享截图目录 env，缺省
   ``platform-v2/runtime/adapter-evidence/deepseek/``，自动建目录）；
-  ``GEO_DEEPSEEK_HEADLESS``（默认 1 headless；0=headed 需 DISPLAY）。
+  ``GEO_DEEPSEEK_HEADLESS``（默认 1 headless；0=headed 需 DISPLAY）；
+  ``GEO_DEEPSEEK_CDP_URL``（可选，常驻浏览器 attach，见下）。
 - 执行模型：sync 浏览器驱动包在 ``asyncio.to_thread`` 里跑（sync PW 绝不能进事件
-  循环——旧系统 greenlet 坑）。每次执行全新 context、结束即关。协程侧每 10s 泵一次
-  heartbeat（workflow heartbeat_timeout=30s）。
+  循环——旧系统 greenlet 坑）。协程侧每 10s 泵一次 heartbeat（workflow
+  heartbeat_timeout=30s）。
 - 浏览器驱动首选 patchright（旧链生产同款反检测补丁版）；vanilla playwright 仅兜底。
 - 墙分类（先截屏存证再抛，错误 message 带证据路径、绝不含秘密）：
   登录墙（未登录访问 ``/`` 自动跳 ``/sign_in``，旧链 CONFIRMED 信号）/实名墙 →
@@ -34,17 +36,62 @@ v1 边界（与 doubao v1 对齐）：
 - 成功判据（零合成）：提交被接受（输入框清空）且 completion 流真正 loadingFinished
   且解析出非空正文且不含墙特征——缺一都不得返回成功。流截断/空答案/无流 →
   ``answer_capture_incomplete``（可重试的诚实失败）。
+
+拟人化口径（2026-08-06 起，与豆包同构。背景：自动化交互序列本身即行为指纹——
+零停顿直点、insert_text 注入、秒发都会被风控稳定识别）：
+
+- 输入：composer 正文一律 ``human_like.human_type`` 逐字真实键盘事件
+  （40-140ms 抖动 + 标点/空格后 15% 概率 250-800ms 停顿），绝不 insert_text/fill。
+- 点击：所有业务点击（输入框聚焦、发送按钮兜底、弹层清理、「新对话」）一律
+  ``human_like.human_click``——贝塞尔移动 + 到位悬停 + 元素内随机偏移点击。
+  发送主路径保留 live 校准的 Enter 键盘提交（真实键盘事件，非指纹面）。
+- 节奏：页面就绪 → 端详 0.6-1.8s → 点输入框 → 逐字输入 → 通读 0.5-1.5s → 发送。
+- 机器路径不动：CDP/SSE 捕获、提交确认轮询、墙识别、截图等纯观测逻辑不产生
+  输入事件，不构成行为指纹，保持原样。
+
+run 级会话复用 + CDP 常驻 attach（2026-08-06 起，``collect_deepseek_batch``，
+与豆包 ``collect_doubao_batch`` 同构）：
+
+- 结构：``_browser_session`` 经 ``resident_browser.platform_browser``
+  attach-or-launch——``GEO_DEEPSEEK_CDP_URL`` 非空 → ``connect_over_cdp``
+  attach 常驻浏览器（退出只断开 CDP：不关 context、不清理 profile——
+  profile/登录态归 supervisor）；否则回退 ``launch_persistent_context``
+  （每次全新、结束由契约层 finally close）。导航 + 登录墙检查两条路径都做。
+- 优雅关闭（launch 路径，profile 崩溃标记根治）：启动前与 close 后各幂等执行
+  一次 ``_clean_profile_crash_state``（复用 doubao_adapter 同款实现，单一出处）。
+- 一个 run 的 deepseek 任务在同一个浏览器会话/同一标签页里顺序完成（绝不每题
+  冷启全新 Chromium——「冷启动即发问+短时间再次冷启动」的会话结构是风控
+  指纹，真人是在同一浏览器窗口里连续聊天的）。每题：fresh_chat 纪律（点
+  「新对话」+ composer 空验证 + 消息节点计数探针，按钮缺失导航回聊天首页
+  兜底，最终验证不过 _IncompleteCapture 诚实失败，绝不静默沿用旧会话）→
+  拟人输入/发送 → SSE 捕获/组装/证据落盘（与 per-task 共用 ``_collect_one``
+  主体，绝无两套复制）→ 「阅读停顿」（human_like.human_read_pause：滚动
+  2-5 次 + 停留 8-25s 抖动，含最后一题）→ 下一题。
+- 失败语义（与豆包逐字对齐）：题级墙/incomplete → 该题诚实记失败、后续题
+  aborted（aborted_after_failure，零浏览器交互——真人撞墙后会停下，不编造
+  不硬闯）；结果列表与输入等长同序返回，绝不 raise 丢掉已完成题。session
+  建立阶段（launch/navigate/登录墙）异常=一题未发：wall 类成全题 wall 结果，
+  临时故障（_IncompleteCapture）raise 走 batch 级重试。仅配置类错误
+  （adapter_not_configured/unsupported_mode）允许 raise non_retryable。
+- 注册：``collect_deepseek_batch`` activity 在本文件自带 ``@activity.defn``；
+  per-task ``run_deepseek_collection`` 仍由 platform_registry dispatcher 调用
+  （本文件不自带 per-task activity 包装）。worker 接线（workers/main.py）由
+  协调者统一做。activity 实现不显式传 session_factory——缺省 None 才走
+  to_thread 分支跑真实 sync 浏览器（显式传真实类会在事件循环里崩，豆包
+  2026-08-06 生产事故教训）。
 """
 
 from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import json
 import os
+import random
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
@@ -54,7 +101,22 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from domain.evidence.dlp import assert_secret_free
-from workflows.activities.collection import CollectionTaskInput, CollectionTaskResult
+from workflows.activities.browser_driver import load_sync_browser_driver
+from workflows.activities.collection import (
+    CollectionBatchInput,
+    CollectionBatchItemResult,
+    CollectionBatchResult,
+    CollectionTaskInput,
+    CollectionTaskResult,
+)
+from workflows.activities.doubao_adapter import _clean_profile_crash_state
+from workflows.activities.human_like import (
+    human_click,
+    human_pause,
+    human_read_pause,
+    human_type,
+)
+from workflows.activities.resident_browser import platform_browser
 
 log = structlog.get_logger()
 
@@ -62,6 +124,7 @@ ENV_PROFILE_DIR = "GEO_DEEPSEEK_PROFILE_DIR"
 ENV_PROXY_URL = "GEO_DEEPSEEK_PROXY_URL"
 ENV_EVIDENCE_DIR = "GEO_ADAPTER_EVIDENCE_DIR"  # 五平台共享 env；缺省落 deepseek 子目录
 ENV_HEADLESS = "GEO_DEEPSEEK_HEADLESS"
+ENV_CDP_URL = "GEO_DEEPSEEK_CDP_URL"  # 常驻浏览器 CDP attach（空=回退 launch；契约层读取）
 
 _DEFAULT_EVIDENCE_DIR = (
     Path(__file__).resolve().parents[2] / "runtime" / "adapter-evidence" / "deepseek"
@@ -72,6 +135,7 @@ _CHAT_TIMEOUT_S = 120.0  # normal 模式流式完成预算（workflow 总预算 
 
 _CHAT_URL = "https://chat.deepseek.com/"
 _SIGN_IN_PATH = "/sign_in"  # 未登录访问 / 自动跳 /sign_in（旧链 CONFIRMED 信号）
+_PLATFORM = "deepseek"  # resident_browser 平台互斥锁/GEO_DEEPSEEK_CDP_URL 的 slug
 
 # 旧链 deepseek.py 同款 UA / locale / 时区
 _USER_AGENT = (
@@ -104,6 +168,34 @@ _ASSISTANT_SELECTORS: tuple[str, ...] = (
     "[class*='message'][class*='assistant']",
     ".markdown-body",
 )
+
+# 「新对话」入口（batch fresh-chat 纪律；⚠ GUESS，未 live 校准——DeepSeek 侧边栏
+# 有「开启新对话」入口，命中第一个可见者即点；全部缺失时调用方导航回聊天首页兜底，
+# DeepSeek / 默认即全新会话）
+_NEW_CHAT_SELECTORS: tuple[str, ...] = (
+    '[aria-label*="新对话"]',
+    'button:has-text("新对话")',
+    '[role="button"]:has-text("新对话")',
+    'a:has-text("新对话")',
+)
+
+# 新会话验证：页面已存在消息节点计数（>0 = 旧会话/进行中的旧回答）。
+# div[class*="ds-markdown"] 是 2026-07-27 live 校准的助手气泡选择器（权威信号）；
+# 其余为保守补充（匹配不到=0，无害）。
+_CHAT_MESSAGE_COUNT_JS = r"""() => {
+  const sels = [
+    'div[class*="ds-markdown"]',
+    '[class*="message"][class*="assistant"]'
+  ];
+  let n = 0;
+  for (const s of sels) n += document.querySelectorAll(s).length;
+  return n;
+}"""
+
+# 拟人化节奏区间（秒）——端详页面 / 发送前通读 / 新会话切换
+_PACE_PAGE_READY_S = (0.6, 1.8)
+_PACE_BEFORE_SEND_S = (0.5, 1.5)
+_PACE_AFTER_NEW_CHAT_S = (0.6, 1.2)
 
 # 阻断交互的登录模态（⚠ GUESS；主信号是 /sign_in 跳转，这里做防御兜底）
 _LOGIN_WALL_HINTS: tuple[str, ...] = (
@@ -291,7 +383,7 @@ class DeepseekAdapterConfig:
     headless: bool
 
     @classmethod
-    def from_env(cls) -> DeepseekAdapterConfig:
+    def from_env(cls, *, proxy_url_override: str | None = None) -> DeepseekAdapterConfig:
         raw_profile = os.environ.get(ENV_PROFILE_DIR, "").strip()
         if not raw_profile:
             raise ApplicationError(
@@ -307,7 +399,12 @@ class DeepseekAdapterConfig:
                 type="adapter_not_configured",
                 non_retryable=True,
             )
-        proxy_url = os.environ.get(ENV_PROXY_URL, "").strip() or None
+        raw_proxy = (
+            proxy_url_override
+            if proxy_url_override is not None
+            else os.environ.get(ENV_PROXY_URL, "")
+        )
+        proxy_url = raw_proxy.strip() or None
         if proxy_url is not None and _parse_proxy(proxy_url) is None:
             raise ApplicationError(
                 f"{ENV_PROXY_URL} is not a valid proxy URL (expected scheme://[user:pass@]host:port)",
@@ -379,10 +476,38 @@ class CollectedAnswer:
     meta: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True)
+class DeepseekBatchItemSpec:
+    """batch 内单题输入（session 层）：查询/mode + 证据文件名片段。"""
+
+    business_key: str
+    query: str
+    mode: str
+    file_stem: str
+
+
+@dataclass
+class DeepseekBatchItemOutcome:
+    """batch 内单题结果（session 层）：ok 携带 CollectedAnswer；失败/未执行
+    携带 error_type/error_message/可选存证截图路径。status 词表与
+    CollectionBatchItemResult 对齐（ok/wall/incomplete/aborted）。"""
+
+    business_key: str
+    status: str
+    answer: CollectedAnswer | None = None
+    error_type: str | None = None
+    error_message: str | None = None
+    evidence_path: Path | None = None
+
+
 class _BrowserSession(Protocol):
     """Playwright 交互隔离面：测试注入 fake，绝不启动真浏览器。"""
 
     def collect(self, query: str, on_stage: Callable[[str], None]) -> CollectedAnswer: ...
+
+    def collect_batch(
+        self, items: list[DeepseekBatchItemSpec], on_stage: Callable[[str], None]
+    ) -> list[DeepseekBatchItemOutcome]: ...
 
 
 SessionFactory = Callable[[DeepseekAdapterConfig, Path, str], _BrowserSession]
@@ -398,7 +523,228 @@ def _default_heartbeat() -> Callable[[dict[str, Any]], None]:
 
 
 # ---------------------------------------------------------------------------
-# activity 核心入口与异步泵（注册表统一包 @activity.defn，本文件不自带）
+# batch activity 入口与异步泵
+# ---------------------------------------------------------------------------
+
+
+@activity.defn(name="collect_deepseek_batch")
+async def collect_deepseek_batch(batch: CollectionBatchInput) -> CollectionBatchResult:
+    """DeepSeek batch 采集注册实现（workers/main.py 接线由协调者统一做）。
+
+    整个 batch 在同一个浏览器会话里顺序完成（run 级会话复用）；墙/失败诚实
+    记录在 per-item 结果里（本 activity 不因墙类失败 raise），仅配置类错误
+    （adapter_not_configured/unsupported_mode）raise。
+    """
+    try:
+        attempt = activity.info().attempt
+    except RuntimeError:
+        attempt = 1
+    # 不传 session_factory：缺省 None 才走 to_thread 分支跑真实 sync 浏览器；
+    # 显式传 _PlaywrightDeepseekSession 会误判为注入 fake，在事件循环里直跑
+    # sync API（豆包 2026-08-06 batch 首航生产事故同款教训）。
+    return await run_deepseek_batch(
+        batch,
+        heartbeat=activity.heartbeat,
+        attempt=attempt,
+    )
+
+
+async def run_deepseek_batch(
+    batch: CollectionBatchInput,
+    *,
+    session_factory: SessionFactory | None = None,
+    heartbeat: Callable[[dict[str, Any]], None] | None = None,
+    proxy_url_override: str | None = None,
+    attempt: int = 1,
+) -> CollectionBatchResult:
+    """batch activity 核心：配置门 → mode 门 → to_thread 跑共享浏览器会话 →
+    per-item outcome 映射。与 activity 上下文解耦（heartbeat/attempt 注入）。
+
+    失败语义（与豆包 batch 逐字对齐）：题级墙/incomplete 由 session 转 outcome
+    （后续题 aborted），本函数不 raise；session 级 _WallError（导航/登录墙，
+    一题未发）成全题 wall 结果（non_retryable 语义，重试只是再撞）；session
+    级 _IncompleteCapture（浏览器启动失败等临时故障，一题未发）raise 可重试
+    ApplicationError——结果全空时重试无已完成题损失。配置类错误一律 raise。
+    """
+    uses_default_session = session_factory is None
+    if session_factory is None:
+        session_factory = _PlaywrightDeepseekSession
+    if heartbeat is None:
+
+        def heartbeat(payload: dict[str, Any]) -> None:
+            del payload
+
+    for item in batch.items:
+        if item.mode != "normal":
+            raise ApplicationError(
+                f"unsupported mode: {item.mode!r} (deepseek adapter supports only 'normal'; "
+                "deep_think not enabled in adapter v1)",
+                type="unsupported_mode",
+                non_retryable=True,
+            )
+    config = DeepseekAdapterConfig.from_env(proxy_url_override=proxy_url_override)
+    config.evidence_dir.mkdir(parents=True, exist_ok=True)
+    batch_stem = f"batch-{_safe_stem(batch.run_pub_id)}-a{attempt}"
+    specs = [
+        DeepseekBatchItemSpec(
+            business_key=item.business_key,
+            query=item.query,
+            mode=item.mode,
+            file_stem=f"{_safe_stem(item.business_key)}-a{attempt}",
+        )
+        for item in batch.items
+    ]
+    bound = log.bind(
+        run_pub_id=batch.run_pub_id,
+        attempt=attempt,
+        items=len(specs),
+        proxy=mask_proxy_url(config.proxy_url),
+    )
+    if not specs:
+        # 空 batch → 空结果，零浏览器交互（连 session 都不建）。
+        return CollectionBatchResult(results=[])
+    progress: dict[str, Any] = {"stage": "browser_launch", "item": None}
+
+    def _blocking() -> list[DeepseekBatchItemOutcome]:
+        session = session_factory(config, config.evidence_dir, batch_stem)
+
+        def _on_stage(stage: str) -> None:
+            progress["stage"] = stage
+            if stage.startswith("item:"):
+                progress["item"] = stage.removeprefix("item:")
+
+        return session.collect_batch(specs, on_stage=_on_stage)
+
+    def _heartbeat_payload() -> dict[str, Any]:
+        return {
+            "run_pub_id": batch.run_pub_id,
+            "stage": progress["stage"],
+            "item": progress["item"],
+            "items_total": len(specs),
+        }
+
+    try:
+        if uses_default_session:
+            thread = asyncio.ensure_future(asyncio.to_thread(_blocking))
+            while True:
+                heartbeat(_heartbeat_payload())
+                done, _pending = await asyncio.wait({thread}, timeout=_HEARTBEAT_INTERVAL_S)
+                if done:
+                    break
+            outcomes = thread.result()
+        else:
+            heartbeat(_heartbeat_payload())
+            outcomes = _blocking()
+    except _WallError as wall:
+        # session 级墙（导航后登录墙）：一题未发，全题诚实记 wall。
+        evidence_suffix = f"; evidence={wall.evidence_path}" if wall.evidence_path else ""
+        bound.info(
+            "deepseek_batch_session_wall", wall_type=wall.wall_type, stage=progress["stage"]
+        )
+        return CollectionBatchResult(
+            results=[
+                _failure_batch_item(
+                    item,
+                    status="wall",
+                    error_type=wall.wall_type,
+                    error_message=f"{wall}{evidence_suffix}",
+                    evidence_path=wall.evidence_path,
+                )
+                for item in batch.items
+            ]
+        )
+    except _IncompleteCapture as inc:
+        # session 级临时故障（浏览器启动失败等）：一题未发，raise 走 batch 重试。
+        evidence_suffix = f"; evidence={inc.evidence_path}" if inc.evidence_path else ""
+        bound.info("deepseek_batch_session_incomplete", reason=str(inc), stage=progress["stage"])
+        raise ApplicationError(
+            f"{inc}{evidence_suffix}", type="answer_capture_incomplete"
+        ) from inc
+    if len(outcomes) != len(batch.items):
+        # session 契约：结果列表必须与输入等长（失败/未执行题也占位）。缺斤短两
+        # 说明实现有 bug——fail-closed raise（编程错误，重试无意义）。
+        raise ApplicationError(
+            f"batch session returned {len(outcomes)} outcomes for {len(batch.items)} items",
+            type="batch_outcome_contract_violation",
+            non_retryable=True,
+        )
+    results = [
+        _batch_item_result(item, outcome)
+        for item, outcome in zip(batch.items, outcomes, strict=True)
+    ]
+    bound.info(
+        "deepseek_batch_done",
+        ok=sum(1 for r in results if r.status == "ok"),
+        failed=sum(1 for r in results if r.status != "ok"),
+        stage=progress["stage"],
+    )
+    return CollectionBatchResult(results=results)
+
+
+def _failure_batch_item(
+    item: CollectionTaskInput,
+    *,
+    status: str,
+    error_type: str,
+    error_message: str,
+    evidence_path: Path | None,
+) -> CollectionBatchItemResult:
+    """失败/未执行题 → CollectionBatchItemResult（含出界 DLP 自检）。"""
+    screenshot_ref = f"file://{evidence_path}" if evidence_path is not None else None
+    try:
+        assert_secret_free(error_message)
+        if screenshot_ref:
+            assert_secret_free(screenshot_ref)
+    except ValueError as error:
+        raise ApplicationError(
+            "collection result rejected by DLP",
+            type="collection_result_dlp_rejected",
+            non_retryable=True,
+        ) from error
+    return CollectionBatchItemResult(
+        business_key=item.business_key,
+        status=status,
+        error_type=error_type,
+        error_message=error_message,
+        screenshot_ref=screenshot_ref,
+        quality_state=error_type,
+    )
+
+
+def _batch_item_result(
+    item: CollectionTaskInput, outcome: DeepseekBatchItemOutcome
+) -> CollectionBatchItemResult:
+    """per-item outcome → CollectionBatchItemResult。ok 题复用 per-task 同款
+    映射（_task_result_from_collected）；失败/未执行题携带诚实错误信息。"""
+    if outcome.status == "ok":
+        if outcome.answer is None:
+            raise ApplicationError(
+                f"batch outcome for {item.business_key!r} is ok but carries no answer",
+                type="batch_outcome_contract_violation",
+                non_retryable=True,
+            )
+        base = _task_result_from_collected(item, outcome.answer)
+        return CollectionBatchItemResult(
+            business_key=item.business_key,
+            status="ok",
+            answer_text=base.answer_text,
+            screenshot_ref=base.screenshot_ref,
+            quality_state=base.quality_state,
+            citations=base.citations,
+            evidence=base.evidence,
+            search_queries=base.search_queries,
+        )
+    return _failure_batch_item(
+        item,
+        status=outcome.status,
+        error_type=outcome.error_type or "unknown_failure",
+        error_message=outcome.error_message or "",
+        evidence_path=outcome.evidence_path,
+    )
+
+
+# ---------------------------------------------------------------------------
+# per-task activity 核心（platform_registry dispatcher 调用入口）
 # ---------------------------------------------------------------------------
 
 
@@ -407,11 +753,14 @@ async def run_deepseek_collection(
     *,
     session_factory: SessionFactory | None = None,
     heartbeat: Callable[[dict[str, Any]], None] | None = None,
+    proxy_url_override: str | None = None,
     attempt: int = 1,
 ) -> CollectionTaskResult:
     """activity 核心：配置门 → mode 门 → to_thread 跑浏览器 → 墙/结果映射。
 
     与 activity 上下文解耦（heartbeat/attempt 注入），测试全程 mock 浏览器层。
+    session_factory/heartbeat 缺省用真实实现与 no-op——platform_registry dispatcher
+    只传 ``(item, heartbeat=..., proxy_url_override=...)``，与本签名对齐。
     """
     if item.mode != "normal":
         raise ApplicationError(
@@ -419,11 +768,12 @@ async def run_deepseek_collection(
             type="unsupported_mode",
             non_retryable=True,
         )
+    uses_default_session = session_factory is None
     if session_factory is None:
         session_factory = _PlaywrightDeepseekSession
     if heartbeat is None:
         heartbeat = _default_heartbeat()
-    config = DeepseekAdapterConfig.from_env()
+    config = DeepseekAdapterConfig.from_env(proxy_url_override=proxy_url_override)
     config.evidence_dir.mkdir(parents=True, exist_ok=True)
     file_stem = f"{_safe_stem(item.business_key)}-a{attempt}"
     bound = log.bind(
@@ -438,30 +788,42 @@ async def run_deepseek_collection(
         session = session_factory(config, config.evidence_dir, file_stem)
         return session.collect(item.query, on_stage=lambda s: progress.__setitem__("stage", s))
 
-    thread = asyncio.ensure_future(asyncio.to_thread(_blocking))
-    while True:
-        heartbeat({"business_key": item.business_key, "stage": progress["stage"]})
-        done, _pending = await asyncio.wait({thread}, timeout=_HEARTBEAT_INTERVAL_S)
-        if done:
-            break
     try:
-        collected = thread.result()
+        if uses_default_session:
+            thread = asyncio.ensure_future(asyncio.to_thread(_blocking))
+            while True:
+                heartbeat({"business_key": item.business_key, "stage": progress["stage"]})
+                done, _pending = await asyncio.wait({thread}, timeout=_HEARTBEAT_INTERVAL_S)
+                if done:
+                    break
+            collected = thread.result()
+        else:
+            heartbeat({"business_key": item.business_key, "stage": progress["stage"]})
+            collected = _blocking()
     except _WallError as wall:
         evidence = f"; evidence={wall.evidence_path}" if wall.evidence_path else ""
-        await bound.ainfo("deepseek_wall", wall_type=wall.wall_type, stage=progress["stage"])
+        bound.info("deepseek_wall", wall_type=wall.wall_type, stage=progress["stage"])
         raise ApplicationError(
             f"{wall}{evidence}", type=wall.wall_type, non_retryable=True
         ) from wall
     except _IncompleteCapture as inc:
         evidence = f"; evidence={inc.evidence_path}" if inc.evidence_path else ""
-        await bound.ainfo("deepseek_capture_incomplete", reason=str(inc), stage=progress["stage"])
+        bound.info("deepseek_capture_incomplete", reason=str(inc), stage=progress["stage"])
         raise ApplicationError(f"{inc}{evidence}", type="answer_capture_incomplete") from inc
-    await bound.ainfo(
+    bound.info(
         "deepseek_collect_ok",
         answer_len=len(collected.answer_text),
         references=len(collected.references),
         stage=progress["stage"],
     )
+    return _task_result_from_collected(item, collected)
+
+
+def _task_result_from_collected(
+    item: CollectionTaskInput, collected: CollectedAnswer
+) -> CollectionTaskResult:
+    """CollectedAnswer → CollectionTaskResult 映射（answer 组装/出界 DLP 自检）。
+    run_deepseek_collection 与 batch per-item ok 映射共用。"""
     answer_text = _compose_answer_text(collected.answer_text, collected.references)
     screenshot_ref = f"file://{collected.screenshot_path}"
     # 出界前 DLP 自检：persist 层对两字段 assert_secret_free，这里提前到同语义 fail-closed
@@ -514,202 +876,392 @@ def _compose_answer_text(answer_text: str, references: list[dict[str, Any]]) -> 
 
 
 class _PlaywrightDeepseekSession:
-    """DeepSeek 网页采集的 sync Playwright 实现（persistent context，每次全新、结束即关）。"""
+    """DeepSeek 网页采集的 sync Playwright 实现（persistent context / CDP 常驻 attach）。
+
+    单题（``collect``，per-task 老路径）与 run 级会话复用（``collect_batch``）
+    共享同一套 per-item 主体 ``_collect_one``——绝不复制出两套：
+
+    - ``collect``：一次会话、一题、收尾（per-task 行为不变）；
+    - ``collect_batch``：一次会话，N 题在同一会话/同一标签页里顺序完成
+      （真人在同一浏览器窗口里连续聊天——每题落在全新会话但绝不重开浏览器）；
+      每题成功后做「阅读停顿」（human_like.human_read_pause：滚动浏览 + 停留，
+      含最后一题——真人读完才关浏览器）。
+
+    batch 失败语义：题级墙/incomplete 转 outcome——该题诚实失败、后续题
+    aborted（零浏览器交互：真人撞墙后会停下，不编造不硬闯），结果列表与
+    输入等长同序；session 建立阶段（launch/navigate/登录墙检查）的异常
+    原样逃出，由 activity 层按 session 级语义处理（一题未发）。
+    """
 
     def __init__(self, config: DeepseekAdapterConfig, evidence_dir: Path, file_stem: str) -> None:
         self._config = config
         self._evidence_dir = evidence_dir
         self._file_stem = file_stem
+        # 拟人化：本 session 专用 RNG（真随机；测试在 human_like 层 seeded）与
+        # 光标位置追踪（连续轨迹，避免每次点击都从合成起点重新起跳）。
+        self._rng = random.Random()
+        self._mouse_pos: tuple[float, float] | None = None
 
     def collect(self, query: str, on_stage: Callable[[str], None]) -> CollectedAnswer:
-        # 延迟导入：模块加载不硬依赖浏览器驱动。驱动首选 patchright（旧链生产同款，
-        # 反检测补丁版）；vanilla playwright 的 webdriver 指纹有风控静默吞发送前科
-        # （豆包旧链 2026-07-15 live 实证），仅作开发兜底。
-        driver = "patchright"
-        try:
-            from patchright.sync_api import TimeoutError as PWTimeout
-            from patchright.sync_api import sync_playwright
-        except ImportError:
-            driver = "playwright"
-            from playwright.sync_api import TimeoutError as PWTimeout
-            from playwright.sync_api import sync_playwright
+        spec = DeepseekBatchItemSpec(
+            business_key=self._file_stem,
+            query=query,
+            mode="normal",
+            file_stem=self._file_stem,
+        )
+        with self._browser_session(on_stage) as (context, page, pw_timeout, driver):
+            return self._collect_one(
+                context, page, spec, on_stage, pw_timeout=pw_timeout, driver=driver
+            )
+
+    def collect_batch(
+        self, items: list[DeepseekBatchItemSpec], on_stage: Callable[[str], None]
+    ) -> list[DeepseekBatchItemOutcome]:
+        outcomes: list[DeepseekBatchItemOutcome] = []
+        with self._browser_session(on_stage) as (context, page, pw_timeout, driver):
+            for index, spec in enumerate(items):
+                on_stage(f"item:{spec.business_key}")
+                try:
+                    answer = self._collect_one(
+                        context, page, spec, on_stage, pw_timeout=pw_timeout, driver=driver
+                    )
+                except _WallError as wall:
+                    outcomes.append(self._failure_outcome(spec, "wall", wall.wall_type, wall))
+                    outcomes.extend(
+                        self._aborted_outcome(rest, spec, wall.wall_type)
+                        for rest in items[index + 1 :]
+                    )
+                    return outcomes
+                except _IncompleteCapture as inc:
+                    outcomes.append(
+                        self._failure_outcome(spec, "incomplete", "answer_capture_incomplete", inc)
+                    )
+                    outcomes.extend(
+                        self._aborted_outcome(rest, spec, "answer_capture_incomplete")
+                        for rest in items[index + 1 :]
+                    )
+                    return outcomes
+                outcomes.append(
+                    DeepseekBatchItemOutcome(
+                        business_key=spec.business_key, status="ok", answer=answer
+                    )
+                )
+                # 阅读停顿：拟人读完回答（滚动浏览 + 停留 8-25s 抖动）——题间天然
+                # 间隔，也产出真实浏览信号；最后一题同样停留（真人读完才关浏览器）。
+                pause_s = self._reading_pause(page)
+                log.info(
+                    "deepseek_read_pause",
+                    business_key=spec.business_key,
+                    seconds=round(pause_s, 2),
+                )
+        return outcomes
+
+    @staticmethod
+    def _failure_outcome(
+        spec: DeepseekBatchItemSpec,
+        status: str,
+        error_type: str,
+        exc: _WallError | _IncompleteCapture,
+    ) -> DeepseekBatchItemOutcome:
+        return DeepseekBatchItemOutcome(
+            business_key=spec.business_key,
+            status=status,
+            error_type=error_type,
+            error_message=str(exc),
+            evidence_path=exc.evidence_path,
+        )
+
+    @staticmethod
+    def _aborted_outcome(
+        spec: DeepseekBatchItemSpec, failed_spec: DeepseekBatchItemSpec, error_type: str | None
+    ) -> DeepseekBatchItemOutcome:
+        # 真人撞墙后会停下：本题未执行（零浏览器交互），诚实标记不编造不硬闯。
+        return DeepseekBatchItemOutcome(
+            business_key=spec.business_key,
+            status="aborted",
+            error_type="aborted_after_failure",
+            error_message=(
+                f"not executed: batch stopped after item {failed_spec.business_key!r} "
+                f"failed ({error_type or 'unknown'}) — no browser interaction for this item"
+            ),
+        )
+
+    def _reading_pause(self, page: Any) -> float:
+        """拟人阅读停顿（human_like.human_read_pause，RNG 用本 session 实例）。"""
+        return human_read_pause(page, self._rng)
+
+    @contextlib.contextmanager
+    def _browser_session(
+        self, on_stage: Callable[[str], None]
+    ) -> Iterator[tuple[Any, Any, type[Exception], str]]:
+        """attach-or-launch + 导航 + 登录墙检查 → yield (context, page, PWTimeout, driver)。
+
+        经 resident_browser.platform_browser：``GEO_DEEPSEEK_CDP_URL`` 非空 →
+        ``connect_over_cdp`` attach 常驻浏览器（退出只断开 CDP 连接——不关
+        context、不清理 profile，profile/登录态归 supervisor 所有）；否则回退
+        ``launch_persistent_context``（每次全新，结束由契约层 finally close）。
+
+        优雅关闭（仅 launch 路径，profile 崩溃标记根治）：启动前与 close 后各
+        幂等执行一次 ``_clean_profile_crash_state``（复用 doubao_adapter 实现）。
+        """
+        # 延迟导入：模块加载不硬依赖浏览器驱动（worker 未装依赖时仍可注册 fail-closed 实现）。
+        # 驱动首选 patchright（旧链生产同款，反检测补丁版）；vanilla playwright 的
+        # webdriver 指纹有风控静默吞发送前科（豆包旧链 2026-07-15 live 实证），仅作开发兜底。
+        driver, sync_playwright, PWTimeout = load_sync_browser_driver()
 
         on_stage("browser_launch")
         with sync_playwright() as pw:
-            try:
-                context = pw.chromium.launch_persistent_context(
-                    user_data_dir=str(self._config.profile_dir),
-                    headless=self._config.headless,
-                    proxy=_parse_proxy(self._config.proxy_url) if self._config.proxy_url else None,
-                    args=["--lang=zh-CN"],
-                    locale="zh-CN",
-                    timezone_id="Asia/Shanghai",
-                    extra_http_headers={"Accept-Language": "zh-CN,zh;q=0.9,en;q=0.5"},
-                    user_agent=_USER_AGENT,
-                )
-            except Exception as exc:
-                raise _IncompleteCapture(
-                    f"browser-launch-failed({driver}): {type(exc).__name__}: {exc}"
-                ) from exc
-            try:
+
+            def _launch() -> tuple[Any, Any]:
+                # 启动前愈合前任进程的崩溃标记（activity 取消/SIGKILL 会绕过正常 close，
+                # Chromium 未写回 exit_type=Normal → 下次启动弹「Restore pages?」）。
+                # 幂等纯文件操作，失败不阻塞启动（close 后还有一次兜底清理）。
+                try:
+                    _clean_profile_crash_state(self._config.profile_dir)
+                except Exception:
+                    pass
+                try:
+                    context = pw.chromium.launch_persistent_context(
+                        user_data_dir=str(self._config.profile_dir),
+                        headless=self._config.headless,
+                        proxy=(
+                            _parse_proxy(self._config.proxy_url)
+                            if self._config.proxy_url
+                            else None
+                        ),
+                        args=["--lang=zh-CN"],
+                        locale="zh-CN",
+                        timezone_id="Asia/Shanghai",
+                        extra_http_headers={"Accept-Language": "zh-CN,zh;q=0.9,en;q=0.5"},
+                        user_agent=_USER_AGENT,
+                    )
+                except Exception as exc:
+                    raise _IncompleteCapture(
+                        f"browser-launch-failed({driver}): {type(exc).__name__}: {exc}"
+                    ) from exc
                 context.set_default_timeout(_NAV_TIMEOUT_MS)
                 page = context.pages[0] if context.pages else context.new_page()
-                capture = _CompletionCapture(context, page)
+                return context, page
 
-                on_stage("navigate")
-                try:
-                    page.goto(_CHAT_URL, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
-                except PWTimeout:
-                    page.goto(_CHAT_URL, wait_until="load", timeout=_NAV_TIMEOUT_MS)
-                page.wait_for_timeout(6_000)  # SPA + 未登录 /sign_in 跳转 settle（旧链同款）
-                _try_close_overlays(page)
-                if _detect_login_wall(page):
-                    raise _WallError(
-                        "wall_login_required",
-                        "deepseek login wall detected right after navigation "
-                        "(redirect to /sign_in)",
-                        self._shot(page, "login"),
-                    )
+            resident = False
+            try:
+                with platform_browser(pw, platform=_PLATFORM, launch=_launch) as lease:
+                    context, page, is_resident = lease
+                    resident = is_resident
 
-                on_stage("await_input")
-                input_loc = _wait_for_input(page, timeout_ms=15_000)
-                if input_loc is None:
-                    hit = _captcha_hit(page)
-                    if hit:
-                        raise _WallError(
-                            "wall_captcha",
-                            f"captcha widget visible before input ({hit})",
-                            self._shot(page, "captcha"),
+                    on_stage("navigate")
+                    try:
+                        page.goto(
+                            _CHAT_URL, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS
                         )
+                    except PWTimeout:
+                        page.goto(_CHAT_URL, wait_until="load", timeout=_NAV_TIMEOUT_MS)
+                    page.wait_for_timeout(6_000)  # SPA + 未登录 /sign_in 跳转 settle（旧链同款）
+                    _try_close_overlays(page, self._rng)
                     if _detect_login_wall(page):
                         raise _WallError(
                             "wall_login_required",
-                            "login wall surfaced while awaiting chat input",
+                            "deepseek login wall detected right after navigation "
+                            "(redirect to /sign_in)",
                             self._shot(page, "login"),
                         )
-                    raise _IncompleteCapture(
-                        "could-not-find-chat-input",
-                        self._shot(page, "no_input"),
-                    )
-
-                on_stage("typing")
-                try:
-                    input_loc.click(timeout=8_000)
-                except Exception:
+                    yield context, page, PWTimeout, driver
+            finally:
+                # launch 路径：契约层 finally close 之后再兜底清理崩溃标记（覆盖
+                # close 期竞态）；attach 路径绝不动 profile（归 supervisor 所有）。
+                if not resident:
                     try:
-                        bb = input_loc.bounding_box()
-                        if bb:
-                            page.mouse.click(bb["x"] + bb["width"] / 2, bb["y"] + bb["height"] / 2)
-                    except Exception:
-                        input_loc.click()  # last resort：抛出去即诚实失败
-                page.wait_for_timeout(200)
-                input_loc.type(query, delay=20)
-                page.wait_for_timeout(800)
+                        _clean_profile_crash_state(self._config.profile_dir)
+                    except Exception as exc:
+                        log.warning(
+                            "deepseek_profile_crash_clean_failed",
+                            business_key=self._file_stem,
+                            error=f"{type(exc).__name__}: {exc}",
+                        )
 
-                submit = _submit_and_confirm(page, input_loc)
-                if not submit.get("submitted"):
+    def _collect_one(
+        self,
+        context: Any,
+        page: Any,
+        spec: DeepseekBatchItemSpec,
+        on_stage: Callable[[str], None],
+        *,
+        pw_timeout: type[Exception],
+        driver: str,
+    ) -> CollectedAnswer:
+        """单题主体：await_input → fresh_chat → 拟人输入/发送 → SSE 捕获/组装/
+        证据落盘。per-task 单题与 batch 每题共用。"""
+        del pw_timeout  # 形参与 doubao._collect_one 对齐；deepseek v1 无信源截图等用途
+        capture = _CompletionCapture(context, page)
+        try:
+
+            def _pace(lo: float, hi: float) -> float:
+                # 节奏等待走 page.wait_for_timeout：停顿全部留在页面事件序列里
+                # （可观测、可 fake），与 human_like 内部等待同口径。
+                return human_pause(
+                    self._rng, lo, hi, sleep=lambda s: page.wait_for_timeout(int(s * 1000))
+                )
+
+            on_stage("await_input")
+
+            def _shot(suffix: str) -> Path | None:
+                # 墙/失败存证截图：batch 内按 per-item stem 命名（逐题区分）。
+                return self._shot(page, suffix, stem=spec.file_stem)
+
+            input_loc = _wait_for_input(page, timeout_ms=15_000)
+            if input_loc is None:
+                hit = _captcha_hit(page)
+                if hit:
+                    raise _WallError(
+                        "wall_captcha",
+                        f"captcha widget visible before input ({hit})",
+                        _shot("captcha"),
+                    )
+                if _detect_login_wall(page):
+                    raise _WallError(
+                        "wall_login_required",
+                        "login wall surfaced while awaiting chat input",
+                        _shot("login"),
+                    )
+                raise _IncompleteCapture(
+                    "could-not-find-chat-input",
+                    _shot("no_input"),
+                )
+
+            # 新会话纪律：每个问题必须落在全新会话，绝不在旧会话里追问。
+            on_stage("fresh_chat")
+            _ensure_fresh_chat(
+                page,
+                input_loc,
+                self._rng,
+                pace=_pace,
+                shot=_shot,
+            )
+
+            on_stage("typing")
+            # 页面就绪：真人先端详一眼再动手（零停顿直点输入框是机器人指纹）。
+            _pace(*_PACE_PAGE_READY_S)
+            # SPA settle 后可能异步弹遮罩（豆包「下载电脑版」同款教训）：await_input
+            # 后再收一次，覆盖迟到弹层。
+            _try_close_overlays(page, self._rng)
+            # 点输入框聚焦（贝塞尔移动 + 悬停 + 框内随机偏移点击）。human_click
+            # 拿不到布局时内部回退原生 click；仍失败则原样抛出=诚实失败。
+            clicked_at = human_click(input_loc, page, self._rng, start=self._mouse_pos)
+            if clicked_at is not None:
+                self._mouse_pos = clicked_at
+            human_type(input_loc, spec.query, self._rng)
+            # 发送前通读一遍（原实现 type 后固定 800ms 即发送=秒发指纹）。
+            _pace(*_PACE_BEFORE_SEND_S)
+
+            submit = _submit_and_confirm(
+                page, input_loc, self._rng, pace=_pace, start=self._mouse_pos
+            )
+            if not submit.get("submitted"):
+                raise _WallError(
+                    "wall_send",
+                    "send-not-accepted: composer still populated after "
+                    f"{submit.get('attempts', '?')} send attempts (submission swallowed)",
+                    _shot("send_wall"),
+                )
+            on_stage("submitted")
+
+            # 异步验证码窗口：challenge 发送后才挂载（豆包旧链实测 ~2.2s），轮询至多 12s；
+            # 流已开始且过 3.5s settle 窗即快走（迟到 captcha 不会藏在截断 stub 后面）
+            challenge_start = time.monotonic()
+            while time.monotonic() < challenge_start + 12.0:
+                hit = _captcha_hit(page)
+                if hit:
+                    raise _WallError(
+                        "wall_captcha",
+                        f"captcha challenge appeared post-send ({hit})",
+                        _shot("captcha"),
+                    )
+                if (
+                    capture.has_completion_started()
+                    and time.monotonic() - challenge_start >= 3.5
+                ):
+                    break
+                page.wait_for_timeout(500)
+
+            on_stage("await_stream")
+            meta = capture.wait_finish(
+                page, appearance_timeout_s=20.0, timeout_s=_CHAT_TIMEOUT_S
+            )
+            answer_text = ""
+            references: list[dict[str, Any]] = []
+            sse_body = capture.latest_body()
+            if sse_body:
+                rich = _rich_record_from_sse(sse_body)
+                if rich is not None:
+                    answer_text = str(rich.get("answer_text") or "").strip()
+                    references = list(rich.get("references") or [])
+            if not answer_text and meta.get("found"):
+                # SSE 捕获/解析失败时的 DOM 兜底（推理链剥离后取正文）
+                answer_text = _extract_response_text(page)
+            on_stage("answer_extracted")
+
+            if not answer_text:
+                notices = _scan_dom_notices(page)
+                if notices["softban"]:
                     raise _WallError(
                         "wall_send",
-                        "send-not-accepted: composer still populated after "
-                        f"{submit.get('attempts', '?')} send attempts (submission swallowed)",
-                        self._shot(page, "send_wall"),
+                        "rate-limit notice in DOM: " + ",".join(notices["softban"]),
+                        _shot("send_wall"),
                     )
-                on_stage("submitted")
-
-                # 异步验证码窗口：challenge 发送后才挂载（豆包旧链实测 ~2.2s），轮询至多 12s；
-                # 流已开始且过 3.5s settle 窗即快走（迟到 captcha 不会藏在截断 stub 后面）
-                challenge_start = time.monotonic()
-                while time.monotonic() < challenge_start + 12.0:
-                    hit = _captcha_hit(page)
-                    if hit:
-                        raise _WallError(
-                            "wall_captcha",
-                            f"captcha challenge appeared post-send ({hit})",
-                            self._shot(page, "captcha"),
-                        )
-                    if (
-                        capture.has_completion_started()
-                        and time.monotonic() - challenge_start >= 3.5
-                    ):
-                        break
-                    page.wait_for_timeout(500)
-
-                on_stage("await_stream")
-                meta = capture.wait_finish(
-                    page, appearance_timeout_s=20.0, timeout_s=_CHAT_TIMEOUT_S
+                if notices["realname"]:
+                    raise _WallError(
+                        "wall_login_required",
+                        "realname wall notice in DOM: " + ",".join(notices["realname"]),
+                        _shot("realname"),
+                    )
+            if not meta.get("found"):
+                raise _IncompleteCapture(
+                    "send-accepted-no-completion: composer cleared (submission accepted) "
+                    "but no completion stream fired within timeout — likely "
+                    "content-filter or silent server-side drop",
+                    _shot("no_stream"),
                 )
-                answer_text = ""
-                references: list[dict[str, Any]] = []
-                sse_body = capture.latest_body()
-                if sse_body:
-                    rich = _rich_record_from_sse(sse_body)
-                    if rich is not None:
-                        answer_text = str(rich.get("answer_text") or "").strip()
-                        references = list(rich.get("references") or [])
-                if not answer_text and meta.get("found"):
-                    # SSE 捕获/解析失败时的 DOM 兜底（推理链剥离后取正文）
-                    answer_text = _extract_response_text(page)
-                on_stage("answer_extracted")
-
-                if not answer_text:
-                    notices = _scan_dom_notices(page)
-                    if notices["softban"]:
-                        raise _WallError(
-                            "wall_send",
-                            "rate-limit notice in DOM: " + ",".join(notices["softban"]),
-                            self._shot(page, "send_wall"),
-                        )
-                    if notices["realname"]:
-                        raise _WallError(
-                            "wall_login_required",
-                            "realname wall notice in DOM: " + ",".join(notices["realname"]),
-                            self._shot(page, "realname"),
-                        )
-                if not meta.get("found"):
-                    raise _IncompleteCapture(
-                        "send-accepted-no-completion: composer cleared (submission accepted) "
-                        "but no completion stream fired within timeout — likely "
-                        "content-filter or silent server-side drop",
-                        self._shot(page, "no_stream"),
-                    )
-                if not meta.get("finished"):
-                    raise _IncompleteCapture(
-                        "stream-open-at-timeout: completion stream still open after "
-                        f"budget ({meta.get('bytes_received', 0)} bytes captured) — answer "
-                        "would be truncated; failing honestly",
-                        self._shot(page, "truncated"),
-                    )
-                if not answer_text:
-                    raise _IncompleteCapture(
-                        "answer-empty-after-finished-stream: neither SSE assembly nor DOM "
-                        "fallback produced answer text",
-                        self._shot(page, "empty_answer"),
-                    )
-
-                on_stage("screenshot")
-                shot_path = self._evidence_dir / f"{self._file_stem}.png"
-                _capture_full_page(page, shot_path)
-                if not shot_path.exists():
-                    raise _IncompleteCapture("evidence-screenshot-failed: no file written")
-                return CollectedAnswer(
-                    answer_text=answer_text,
-                    references=references,
-                    screenshot_path=shot_path,
-                    meta={
-                        "stream": meta,
-                        "sse_body_bytes": len(sse_body),
-                        "driver": driver,
-                    },
+            if not meta.get("finished"):
+                raise _IncompleteCapture(
+                    "stream-open-at-timeout: completion stream still open after "
+                    f"budget ({meta.get('bytes_received', 0)} bytes captured) — answer "
+                    "would be truncated; failing honestly",
+                    _shot("truncated"),
                 )
-            finally:
-                try:
-                    context.close()
-                except Exception:
-                    pass
+            if not answer_text:
+                raise _IncompleteCapture(
+                    "answer-empty-after-finished-stream: neither SSE assembly nor DOM "
+                    "fallback produced answer text",
+                    _shot("empty_answer"),
+                )
 
-    def _shot(self, page: Any, suffix: str) -> Path | None:
-        """墙/失败存证截图（viewport 即可）。best-effort，失败返回 None。"""
-        path = self._evidence_dir / f"{self._file_stem}-{suffix}.png"
+            on_stage("screenshot")
+            shot_path = self._evidence_dir / f"{spec.file_stem}.png"
+            _capture_full_page(page, shot_path)
+            if not shot_path.exists():
+                raise _IncompleteCapture("evidence-screenshot-failed: no file written")
+            return CollectedAnswer(
+                answer_text=answer_text,
+                references=references,
+                screenshot_path=shot_path,
+                meta={
+                    "stream": meta,
+                    "sse_body_bytes": len(sse_body),
+                    "driver": driver,
+                },
+            )
+        finally:
+            # batch 内每题一个 CDP session：题末 best-effort detach，避免旧
+            # session 挂着监听累积（下一题新建 capture，绝不串题读到旧流）。
+            capture.detach()
+
+    def _shot(self, page: Any, suffix: str, *, stem: str | None = None) -> Path | None:
+        """墙/失败存证截图（viewport 即可）。best-effort，失败返回 None。
+
+        ``stem`` 缺省用 session 级 file_stem（导航/登录墙）；batch 内题级
+        存证由 _collect_one 传 per-item stem（逐题区分，绝不互相覆盖）。
+        """
+        path = self._evidence_dir / f"{stem or self._file_stem}-{suffix}.png"
         try:
             page.screenshot(path=str(path))
             return path
@@ -741,6 +1293,14 @@ class _CompletionCapture:
             "Network.dataReceived",
         ):
             self._cdp.on(name, lambda payload, n=name: self._handle(n, payload))
+
+    def detach(self) -> None:
+        """best-effort 断开 CDP session（batch 内每题一个 capture，题末断开
+        避免旧 session 挂着监听累积）。失败静默——页面可能已随 context 关闭。"""
+        try:
+            self._cdp.detach()
+        except Exception:
+            pass
 
     def _handle(self, name: str, payload: dict[str, Any]) -> None:
         try:
@@ -870,8 +1430,17 @@ def _captcha_hit(page: Any) -> str | None:
     return None
 
 
-def _try_close_overlays(page: Any) -> None:
-    """best-effort 关 cookie 横幅/「我知道了」等遮罩。"""
+def _try_close_overlays(page: Any, rng: random.Random) -> None:
+    """best-effort 关 cookie 横幅/「我知道了」等遮罩（拟人化点击）。
+
+    先 count/visible 粗筛（纯观测），只有真实存在的遮罩才 human_click——
+    避免对全部候选选择器逐一发贝塞尔点击（那本身也是机器人指纹）。
+    """
+    try:
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(150)
+    except Exception:
+        pass
     for sel in (
         'button:has-text("我知道了")',
         'button:has-text("知道了")',
@@ -881,9 +1450,78 @@ def _try_close_overlays(page: Any) -> None:
         '[aria-label="close"]',
     ):
         try:
-            page.locator(sel).first.click(timeout=400)
+            loc = page.locator(sel).first
+            if loc.count() == 0 or not loc.is_visible(timeout=400):
+                continue
+            human_click(loc, page, rng)
         except Exception:
             continue
+
+
+def _fresh_chat_ok(page: Any, input_loc: Any) -> bool:
+    """新会话 ground truth：composer 为空 且 页面无已存在消息节点。
+
+    探针异常一律按「不新」处理——宁可多走一步兜底，绝不静默沿用旧会话。
+    """
+    try:
+        if str(input_loc.evaluate(_INPUT_VALUE_JS) or "").strip():
+            return False
+    except Exception:
+        return False
+    try:
+        count = int(page.evaluate(_CHAT_MESSAGE_COUNT_JS) or 0)
+    except Exception:
+        return False
+    return count == 0
+
+
+def _ensure_fresh_chat(
+    page: Any,
+    input_loc: Any,
+    rng: random.Random,
+    *,
+    pace: Callable[[float, float], float],
+    shot: Callable[[str], Path | None],
+) -> None:
+    """每个问题必须落在全新会话：已是新会话直接放行；否则优先点「新对话」
+    按钮，仍不新则导航回聊天首页兜底；最终验证不过 → _IncompleteCapture
+    诚实失败（可重试），绝不静默沿用旧会话。
+    """
+    if _fresh_chat_ok(page, input_loc):
+        return
+    # 优先点「新对话」（真人在旧会话里想提新问题的标准动作）。
+    for sel in _NEW_CHAT_SELECTORS:
+        try:
+            loc = page.locator(sel).first
+            if loc.count() > 0 and loc.is_visible(timeout=500):
+                human_click(loc, page, rng)
+                pace(*_PACE_AFTER_NEW_CHAT_S)  # 等 SPA 切到新会话
+                break
+        except Exception:
+            continue
+    if _fresh_chat_ok(page, input_loc):
+        return
+    # 回退：导航到聊天首页（DeepSeek / 默认即全新会话）并等 composer 回来。
+    try:
+        page.goto(_CHAT_URL, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
+    except Exception:
+        pass
+    pace(1.0, 2.0)
+    deadline = time.monotonic() + 10.0
+    while time.monotonic() < deadline:
+        try:
+            if input_loc.count() > 0 and input_loc.is_visible(timeout=500):
+                break
+        except Exception:
+            pass
+        page.wait_for_timeout(400)
+    if _fresh_chat_ok(page, input_loc):
+        return
+    raise _IncompleteCapture(
+        "could-not-establish-fresh-chat: composer not empty or prior conversation "
+        "still visible after 新对话 click + chat-home navigation fallback",
+        shot("fresh_chat"),
+    )
 
 
 def _wait_for_input(page: Any, *, timeout_ms: int) -> Any | None:
@@ -901,8 +1539,13 @@ def _wait_for_input(page: Any, *, timeout_ms: int) -> Any | None:
     return None
 
 
-def _click_send_button(page: Any) -> bool:
-    """JS 打标发送按钮后经 Locator 点击（hover+mousedown+mouseup 完整事件链）。"""
+def _click_send_button(
+    page: Any,
+    rng: random.Random,
+    *,
+    start: tuple[float, float] | None = None,
+) -> bool:
+    """JS 打标发送按钮后拟人化点击（贝塞尔移动 + 悬停 + 完整鼠标事件链）。"""
     try:
         tagged = page.evaluate(_TAG_JS)
     except Exception:
@@ -911,8 +1554,7 @@ def _click_send_button(page: Any) -> bool:
         return False
     try:
         loc = page.locator('[data-geo-send="true"]').first
-        loc.scroll_into_view_if_needed(timeout=2000)
-        loc.click(timeout=4000, force=False)
+        human_click(loc, page, rng, start=start)
         return True
     except Exception:
         return False
@@ -944,14 +1586,23 @@ def _composer_cleared(input_loc: Any) -> bool:
 
 
 def _submit_and_confirm(
-    page: Any, input_loc: Any, *, attempts: int = 2, settle_ms: int = 1600, poll_ms: int = 200
+    page: Any,
+    input_loc: Any,
+    rng: random.Random,
+    *,
+    pace: Callable[[float, float], float],
+    start: tuple[float, float] | None = None,
+    attempts: int = 2,
+    settle_ms: int = 1600,
+    poll_ms: int = 200,
 ) -> dict[str, Any]:
-    """发送并确认提交真正生效（DeepSeek 优先回车，按钮兜底；被吞时重试一次）。"""
+    """发送并确认提交真正生效（DeepSeek 优先回车——live 校准回车即发送；
+    拟人化按钮点击兜底；被吞时像真人一样顿一下再试一次）。"""
     used = 0
     for i in range(max(1, attempts)):
         used = i + 1
         if not _send_via_keyboard(page, input_loc):
-            _click_send_button(page)
+            _click_send_button(page, rng, start=start)
         waited = 0
         while waited < settle_ms:
             page.wait_for_timeout(poll_ms)
@@ -959,8 +1610,10 @@ def _submit_and_confirm(
             if _composer_cleared(input_loc):
                 return {"submitted": True, "attempts": used}
         if used < attempts:
+            # 发送被吞：真人会愣一下、重新点回输入框再试（原实现 200ms 机械重击）。
+            pace(0.5, 1.2)
             try:
-                input_loc.click()
+                human_click(input_loc, page, rng)
                 page.wait_for_timeout(200)
             except Exception:
                 pass

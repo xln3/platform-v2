@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 
 from geo_platform.config import get_settings
+from geo_platform.observability import configure_tracing
 from temporalio.client import Client
+from temporalio.contrib.opentelemetry import TracingInterceptor
 from temporalio.worker import Worker
 
 from workflows.activities.s02 import (
@@ -47,7 +49,13 @@ async def run_s02_worker(
     namespace: str = "default",
     task_queue: str = "geo-platform-v2-s02",
 ) -> None:
-    client = await Client.connect(address, namespace=namespace)
+    settings = get_settings()
+    configure_tracing(settings, service_name="geo-platform-v2-s02-worker")
+    client = await Client.connect(
+        address,
+        namespace=namespace,
+        interceptors=[TracingInterceptor()],
+    )
     worker = Worker(
         client,
         task_queue=task_queue,

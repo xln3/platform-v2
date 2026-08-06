@@ -31,8 +31,11 @@ _PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         ),
     ),
     (
+        # QR 载荷=带 scheme 的编码串（otpauth:// TOTP 密钥、weixin:// 支付、alipay(s)://）。
+        # 公开内容里的 weixin.qq.com 文章链接、含 qrcode 字样的普通 URL 不是秘密——
+        # 2026-08-06 盛邦 run 曾因此被整任务误杀（collection_result_dlp_rejected）。
         "qr_payload",
-        re.compile(r"(?i)\b(?:otpauth|weixin|alipays?|qr(?:code)?)[^ \r\n]{8,}"),
+        re.compile(r"(?i)\b(?:otpauth|weixin|alipays?)://[^ \r\n]{8,}"),
     ),
 )
 

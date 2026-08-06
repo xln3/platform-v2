@@ -9,6 +9,7 @@ class ProfileState(StrEnum):
     CHALLENGE_REQUIRED = "CHALLENGE_REQUIRED"
     EXPIRED = "EXPIRED"
     QUARANTINED = "QUARANTINED"
+    SUPERSEDED = "SUPERSEDED"
     REVOKED = "REVOKED"
     PURGED = "PURGED"
 
@@ -24,6 +25,7 @@ PROFILE_TRANSITIONS: dict[ProfileState, frozenset[ProfileState]] = {
             ProfileState.CHALLENGE_REQUIRED,
             ProfileState.EXPIRED,
             ProfileState.QUARANTINED,
+            ProfileState.SUPERSEDED,
             ProfileState.REVOKED,
         }
     ),
@@ -40,6 +42,7 @@ PROFILE_TRANSITIONS: dict[ProfileState, frozenset[ProfileState]] = {
     ),
     ProfileState.EXPIRED: frozenset({ProfileState.OWNER_AUTHORIZING, ProfileState.REVOKED}),
     ProfileState.QUARANTINED: frozenset({ProfileState.OWNER_AUTHORIZING, ProfileState.REVOKED}),
+    ProfileState.SUPERSEDED: frozenset({ProfileState.REVOKED}),
     ProfileState.REVOKED: frozenset({ProfileState.PURGED}),
     ProfileState.PURGED: frozenset(),
 }

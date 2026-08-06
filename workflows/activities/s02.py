@@ -7,13 +7,14 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
-import psycopg
 from geo_platform.analytics.service import AnalyticsService
+from geo_platform.config import get_settings
 from geo_platform.evidence.object_store import ContentAddressedObjectStore
 from geo_platform.evidence.service import EvidenceService
 from geo_platform.evidence.session_gateway import SessionGatewayClient
 from geo_platform.intelligence.service import IntelligenceService
 from geo_platform.reports.service import ReportService
+from geo_platform.tenancy.psycopg import tenant_connection
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
@@ -304,7 +305,7 @@ async def produce_report_activity(payload: dict[str, Any]) -> dict[str, Any]:
 async def finalize_report_activity(payload: dict[str, Any]) -> dict[str, Any]:
     service = _report_service()
     decision = payload["review"]
-    with psycopg.connect(_postgres_dsn()) as connection:
+    with tenant_connection(_postgres_dsn(), payload["tenant_pub_id"]) as connection:
         current_state = connection.execute(
             """
             SELECT state FROM reporting.report
@@ -325,6 +326,7 @@ async def finalize_report_activity(payload: dict[str, Any]) -> dict[str, Any]:
         reviewer_pub_id=decision["reviewer_pub_id"],
         decision="approved" if decision["approved"] else "changes_requested",
         rationale=decision.get("rationale", "Temporal human review"),
+        workflow_operation_id=f"{activity.info().workflow_id}/review",
     )
     if decision["approved"]:
         service.publish(
@@ -426,10 +428,10 @@ def _kpi_to_dict(cell: Any) -> dict[str, Any]:
 
 
 def _postgres_dsn() -> str:
-    return os.getenv(
-        "S02_POSTGRES_DSN",
-        "postgresql://geo:geo_dev_only@127.0.0.1:55433/geo_platform",
-    )
+    settings = get_settings()
+    return os.getenv("S02_POSTGRES_DSN") or (
+        settings.worker_postgres_dsn or settings.postgres_dsn
+    ).replace("postgresql+psycopg://", "postgresql://")
 
 
 def _provenance_from_payload(payload: dict[str, Any]) -> RedactedProvenance:
@@ -466,7 +468,7 @@ def _audit_evidence_access(
     outcome: str,
     reason: str,
 ) -> None:
-    with psycopg.connect(_postgres_dsn()) as connection:
+    with tenant_connection(_postgres_dsn(), tenant_pub_id) as connection:
         connection.execute(
             """
             INSERT INTO evidence.evidence_access_audit

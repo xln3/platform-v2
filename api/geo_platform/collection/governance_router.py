@@ -304,7 +304,7 @@ def request_break_glass(
         pub_id=new_pub_id("bgr"),
         tenant_id=repository.tenant.id,
         account_id=account.id,
-        requested_by=principal.subject,
+        requested_by=principal.actor_pub_id,
         reason=body.reason,
         expires_at=datetime.now(UTC) + timedelta(seconds=body.ttl_seconds),
     )
@@ -388,14 +388,14 @@ def approve_break_glass(
         raise HTTPException(status_code=404, detail={"code": "break_glass_not_found"})
     if item.expires_at <= datetime.now(UTC) or item.state in {"expired", "used", "rejected"}:
         raise HTTPException(status_code=410, detail={"code": "break_glass_expired"})
-    if principal.subject == item.requested_by:
+    if item.requested_by in {principal.actor_pub_id, principal.subject}:
         raise HTTPException(status_code=403, detail={"code": "self_approval_forbidden"})
     session.add(
         CredentialAccessApproval(
             pub_id=new_pub_id("bga"),
             tenant_id=repository.tenant.id,
             request_id=item.id,
-            approver_pub_id=principal.subject,
+            approver_pub_id=principal.actor_pub_id,
             decision="approved",
         )
     )

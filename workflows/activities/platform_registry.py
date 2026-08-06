@@ -3,7 +3,8 @@
 worker 在 ``GEO_COLLECTION_ADAPTER=multi`` 时把本模块的 ``collect_with_adapter`` 注册为
 ``collect_with_adapter`` activity 的实现；dispatcher 按 ``CollectionTaskInput.adapter``
 的平台 slug lazy import ``workflows/activities/<slug>_adapter.py`` 并调用其
-``run_<slug>_collection(item, heartbeat=...)``。
+``run_<slug>_collection(item, heartbeat=..., proxy_url_override=...)``。代理 override
+由 worker-local 地域 resolver 产生，绝不进入 Temporal task payload/history。
 
 fail-closed：slug 不在五平台表内（空/"fixed"/未知一律）、模块不存在、模块缺
 ``run_<slug>_collection``——全部 ``ApplicationError(type="unsupported_adapter",
@@ -12,15 +13,20 @@ non_retryable=True)``（workflow 的 non_retryable_error_types 已含该 type）
 
 from __future__ import annotations
 
+import asyncio
 import importlib
-from collections.abc import Callable
-from typing import Any
+from collections.abc import Awaitable, Callable
+from typing import Any, cast
 
 import structlog
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from workflows.activities.collection import CollectionTaskInput, CollectionTaskResult
+from workflows.activities.region_proxy_router import (
+    ResolvedRegionProxy,
+    resolve_region_proxy,
+)
 
 log = structlog.get_logger()
 
@@ -43,6 +49,7 @@ async def dispatch_collection(
     item: CollectionTaskInput,
     *,
     heartbeat: Callable[[dict[str, Any]], None],
+    proxy_resolver: Callable[[str, str], Awaitable[ResolvedRegionProxy]] = resolve_region_proxy,
 ) -> CollectionTaskResult:
     """按 item.adapter 路由到对应平台适配器。与 activity 上下文解耦以便单测。"""
     slug = (item.adapter or "").strip().lower()
@@ -69,5 +76,41 @@ async def dispatch_collection(
             type="unsupported_adapter",
             non_retryable=True,
         )
-    await log.ainfo("adapter_dispatch", business_key=item.business_key, adapter=slug)
-    return await runner(item, heartbeat=heartbeat)
+    heartbeat(
+        {
+            "business_key": item.business_key,
+            "stage": "proxy_resolution",
+            "region": item.region,
+        }
+    )
+    resolution_task = asyncio.ensure_future(proxy_resolver(slug, item.region))
+    while True:
+        done, _pending = await asyncio.wait({resolution_task}, timeout=10.0)
+        if done:
+            break
+        heartbeat(
+            {
+                "business_key": item.business_key,
+                "stage": "proxy_resolution",
+                "region": item.region,
+            }
+        )
+    resolved_proxy = resolution_task.result()
+    log.info(
+        "adapter_dispatch",
+        business_key=item.business_key,
+        adapter=slug,
+        region=item.region,
+        proxy_source=resolved_proxy.source,
+        proxy_city=resolved_proxy.city,
+        proxy_action=resolved_proxy.provider_action,
+    )
+    typed_runner = cast(
+        Callable[..., Awaitable[CollectionTaskResult]],
+        runner,
+    )
+    return await typed_runner(
+        item,
+        heartbeat=heartbeat,
+        proxy_url_override=resolved_proxy.proxy_url,
+    )

@@ -184,7 +184,7 @@ def issue_capability_lease(
         pub_id=new_pub_id("cpl"),
         tenant_id=repository.tenant.id,
         account_id=account.id,
-        issued_by=principal.subject,
+        issued_by=principal.actor_pub_id,
         subject_workflow_id=body.subject_workflow_id,
         allowed_domains_json=json.dumps(body.allowed_domains),
         allowed_actions_json=json.dumps(sorted(set(body.allowed_actions))),

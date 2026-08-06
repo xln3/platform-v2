@@ -138,6 +138,10 @@ class CollectionRun(TenantModel, Base):
     failed_tasks: Mapped[int] = mapped_column(Integer, default=0)
     paused: Mapped[bool] = mapped_column(Boolean, default=False)
     error_code: Mapped[str | None] = mapped_column(String(120))
+    source: Mapped[str] = mapped_column(String(30), default="manual")
+    schedule_pub_id: Mapped[str | None] = mapped_column(String(30))
+    retry_of_run_pub_id: Mapped[str | None] = mapped_column(String(30))
+    initiated_by_pub_id: Mapped[str | None] = mapped_column(String(30))
 
 
 class CollectionTask(TenantModel, Base):
@@ -151,6 +155,10 @@ class CollectionTask(TenantModel, Base):
     answer_text: Mapped[str | None] = mapped_column(Text)
     screenshot_ref: Mapped[str | None] = mapped_column(String(500))
     quality_state: Mapped[str | None] = mapped_column(String(40))
+    citations_json: Mapped[str] = mapped_column(Text, default="[]")
+    evidence_json: Mapped[str] = mapped_column(Text, default="[]")
+    # W1：平台真实检索词 JSON 数组 [{"query": str, "ordinal": int}]；无检索词存 "[]"。
+    search_queries_json: Mapped[str] = mapped_column(Text, default="[]")
 
 
 class InterventionRequest(TenantModel, Base):
@@ -166,6 +174,38 @@ class InterventionRequest(TenantModel, Base):
     paired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     platform_result: Mapped[str | None] = mapped_column(String(40))
+    evidence_hash: Mapped[str | None] = mapped_column(String(64))
+    assigned_to_pub_id: Mapped[str | None] = mapped_column(String(30))
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolution_note: Mapped[str] = mapped_column(Text, default="")
+
+
+class DeviceBinding(TenantModel, Base):
+    __tablename__ = "device_binding"
+    __table_args__ = (UniqueConstraint("account_id", "public_key_sha256"),)
+    account_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("platform.platform_account.id"))
+    public_key: Mapped[bytes] = mapped_column(LargeBinary)
+    public_key_sha256: Mapped[str] = mapped_column(String(64))
+    label: Mapped[str] = mapped_column(String(80))
+    state: Mapped[str] = mapped_column(String(30), default="active")
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class TerminalTask(TenantModel, Base):
+    __tablename__ = "terminal_task"
+    __table_args__ = (UniqueConstraint("intervention_id"), UniqueConstraint("nonce_sha256"))
+    intervention_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("platform.intervention_request.id")
+    )
+    device_binding_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("platform.device_binding.id"))
+    nonce_sha256: Mapped[str] = mapped_column(String(64))
+    payload_json: Mapped[str] = mapped_column(Text)
+    server_signature: Mapped[bytes] = mapped_column(LargeBinary)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    state: Mapped[str] = mapped_column(String(30), default="issued")
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    result: Mapped[str | None] = mapped_column(String(30))
     evidence_hash: Mapped[str | None] = mapped_column(String(64))
 
 
@@ -216,3 +256,4 @@ class RevocationRequest(TenantModel, Base):
     reason: Mapped[str] = mapped_column(Text)
     workflow_id: Mapped[str] = mapped_column(String(500), unique=True)
     deletion_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_code: Mapped[str | None] = mapped_column(Text)

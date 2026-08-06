@@ -6,31 +6,30 @@ from typing import Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.orm import Session
-from temporalio.client import Client
-
-from workflows.definitions.session import AccountRevocationWorkflow, RevocationInput
 
 from ..config import get_settings
 from ..contracts import WorkflowAccepted
 from ..identity.policy import Principal, get_principal
 from ..tenancy.database import get_db
 from ..tenancy.ids import new_pub_id
-from ..tenancy.models import User
+from ..tenancy.models import Membership, User
 from ..tenancy.repository import TenantRepository
+from .authorization import replace_account_authorization
 from .dlp import BEARER, SECRET_KEYS
 from .models import (
     AccountAuthorization,
-    BrowserProfile,
     InterventionRequest,
     PlatformAccount,
     PlatformAdapter,
     RevocationRequest,
     SessionEvent,
     SessionHealthCheck,
-    SessionLease,
 )
+from .revocation import stage_account_revocation
+from .terminal_protocol import normalize_allowed_domain
+from .workflow_outbox import enqueue_workflow_start
 
 router = APIRouter(prefix="/api/v2/customer/platform-accounts", tags=["customer-accounts"])
 settings = get_settings()
@@ -46,6 +45,9 @@ class CustomerAccountCreate(StrictModel):
     account_mask: str = Field(min_length=3, max_length=120)
     custody_mode: Literal["server", "customer_device", "hybrid"]
     region: str = Field(min_length=2, max_length=80)
+    responsible_member_pub_id: str | None = Field(
+        default=None, pattern=r"^usr_[0-9A-HJKMNP-TV-Z]{26}$"
+    )
 
     @field_validator("account_mask")
     @classmethod
@@ -60,6 +62,9 @@ class CustomerAuthorizationCreate(StrictModel):
     forbidden_actions: list[str] = Field(default_factory=list)
     regions: list[str] = Field(min_length=1)
     valid_until: datetime
+    responsible_member_pub_id: str | None = Field(
+        default=None, pattern=r"^usr_[0-9A-HJKMNP-TV-Z]{26}$"
+    )
 
 
 class CustomerPairingCreate(StrictModel):
@@ -70,10 +75,7 @@ class CustomerPairingCreate(StrictModel):
     @field_validator("allowed_domain")
     @classmethod
     def hostname_only(cls, value: str) -> str:
-        domain = value.strip().lower().rstrip(".")
-        if "/" in domain or ":" in domain or domain.startswith("."):
-            raise ValueError("allowed_domain must be a hostname")
-        return domain
+        return normalize_allowed_domain(value)
 
 
 class CustomerAccountView(StrictModel):
@@ -110,6 +112,12 @@ class CustomerEventView(StrictModel):
     occurred_at: datetime
 
 
+class ResponsibleMemberView(StrictModel):
+    user_pub_id: str
+    label: str
+    role: str
+
+
 def current_user(session: Session, principal: Principal) -> User:
     user = session.scalar(
         select(User).where(User.subject == principal.subject, User.disabled_at.is_(None))
@@ -117,6 +125,33 @@ def current_user(session: Session, principal: Principal) -> User:
     if user is None:
         raise HTTPException(status_code=401, detail={"code": "membership_invalid"})
     return user
+
+
+def responsible_member(
+    session: Session,
+    tenant_id: object,
+    user_pub_id: str | None,
+    *,
+    fallback: User,
+) -> User:
+    if user_pub_id is None:
+        return fallback
+    row = session.scalar(
+        select(User)
+        .join(Membership, Membership.user_id == User.id)
+        .where(
+            Membership.tenant_id == tenant_id,
+            Membership.state == "active",
+            Membership.revoked_at.is_(None),
+            User.pub_id == user_pub_id,
+            User.disabled_at.is_(None),
+            User.is_service_account.is_(False),
+        )
+    )
+    if row is None:
+        # Missing, cross-tenant, revoked and service identities use one non-inferential result.
+        raise HTTPException(status_code=404, detail={"code": "responsible_member_not_found"})
+    return row
 
 
 def owned_account(
@@ -220,6 +255,12 @@ def register_customer_account(
     principal.require("account:authorize")
     repository = TenantRepository(session, principal.tenant_pub_id)
     user = current_user(session, principal)
+    responsible = responsible_member(
+        session,
+        repository.tenant.id,
+        body.responsible_member_pub_id,
+        fallback=user,
+    )
     adapter = session.scalar(
         select(PlatformAdapter).where(PlatformAdapter.slug == body.platform_slug)
     )
@@ -241,7 +282,7 @@ def register_customer_account(
         owner_pub_id=user.pub_id,
         account_mask=body.account_mask,
         purpose="customer-authorized",
-        responsible_pub_id=user.pub_id,
+        responsible_pub_id=responsible.pub_id,
         custody_mode=body.custody_mode,
         region=body.region,
         admission_level=adapter.admission_level,
@@ -249,6 +290,34 @@ def register_customer_account(
     session.add(account)
     session.commit()
     return safe_view(session, account, adapter)
+
+
+@router.get("/responsible-members", response_model=list[ResponsibleMemberView])
+def list_responsible_members(
+    principal: Principal = Depends(get_principal), session: Session = Depends(get_db)
+) -> list[ResponsibleMemberView]:
+    principal.require("account:authorize")
+    repository = TenantRepository(session, principal.tenant_pub_id)
+    rows = session.execute(
+        select(Membership, User)
+        .join(User, User.id == Membership.user_id)
+        .where(
+            Membership.tenant_id == repository.tenant.id,
+            Membership.state == "active",
+            Membership.revoked_at.is_(None),
+            User.disabled_at.is_(None),
+            User.is_service_account.is_(False),
+        )
+        .order_by(Membership.created_at, User.pub_id)
+    ).all()
+    return [
+        ResponsibleMemberView(
+            user_pub_id=user.pub_id,
+            label=f"成员 · {user.pub_id[-8:]}",
+            role=membership.role,
+        )
+        for membership, user in rows
+    ]
 
 
 @router.post("/{account_pub_id}/authorizations", response_model=CustomerAccountView)
@@ -262,6 +331,14 @@ def authorize_customer_account(
     repository = TenantRepository(session, principal.tenant_pub_id)
     user = current_user(session, principal)
     account = owned_account(session, repository.tenant.id, user.pub_id, account_pub_id)
+    if account.state == "revoked":
+        raise HTTPException(status_code=409, detail={"code": "account_revoked"})
+    responsible = responsible_member(
+        session,
+        repository.tenant.id,
+        body.responsible_member_pub_id,
+        fallback=user,
+    )
     now = datetime.now(UTC)
     if body.valid_until <= now or body.valid_until > now + timedelta(days=366):
         raise HTTPException(status_code=422, detail={"code": "invalid_authorization_window"})
@@ -269,24 +346,36 @@ def authorize_customer_account(
         raise HTTPException(
             status_code=422, detail={"code": "publish_requires_customer_device_or_hybrid"}
         )
-    authorization = AccountAuthorization(
-        pub_id=new_pub_id("aut"),
-        tenant_id=repository.tenant.id,
-        account_id=account.id,
-        scopes_json=json.dumps(sorted(set(body.scopes))),
-        forbidden_actions_json=json.dumps(sorted(set(body.forbidden_actions))),
-        regions_json=json.dumps(sorted(set(body.regions))),
-        valid_from=now,
-        valid_until=body.valid_until,
-    )
-    session.add(authorization)
+    try:
+        authorization, propagation = replace_account_authorization(
+            session,
+            account=account,
+            scopes=set(body.scopes),
+            forbidden_actions=set(body.forbidden_actions),
+            regions=set(body.regions),
+            valid_from=now,
+            valid_until=body.valid_until,
+            pub_id_prefix="aut",
+        )
+    except ValueError as error:
+        if str(error) == "account_revoked":
+            raise HTTPException(status_code=409, detail={"code": "account_revoked"}) from error
+        raise
+    account.responsible_pub_id = responsible.pub_id
+    account.state = "active"
     session.add(
         SessionEvent(
             pub_id=new_pub_id("sev"),
             tenant_id=repository.tenant.id,
             account_id=account.id,
             event_type="customer_authorization.updated",
-            summary_json=json.dumps({"scopes": sorted(set(body.scopes))}),
+            summary_json=json.dumps(
+                {
+                    "scopes": sorted(set(body.scopes)),
+                    "responsible_user_pub_id": responsible.pub_id,
+                    "propagation": propagation,
+                }
+            ),
         )
     )
     adapter = session.get(PlatformAdapter, account.adapter_id)
@@ -306,12 +395,16 @@ def create_customer_pairing(
     repository = TenantRepository(session, principal.tenant_pub_id)
     user = current_user(session, principal)
     account = owned_account(session, repository.tenant.id, user.pub_id, account_pub_id)
+    now = datetime.now(UTC)
+    if account.state not in {"active", "challenge_required"}:
+        raise HTTPException(status_code=409, detail={"code": "account_not_pairable"})
     authorization = session.scalar(
         select(AccountAuthorization)
         .where(
             AccountAuthorization.account_id == account.id,
             AccountAuthorization.revoked_at.is_(None),
-            AccountAuthorization.valid_until > datetime.now(UTC),
+            AccountAuthorization.valid_from <= now,
+            AccountAuthorization.valid_until > now,
         )
         .order_by(AccountAuthorization.valid_until.desc())
     )
@@ -419,42 +512,35 @@ async def revoke_customer_account(
     repository = TenantRepository(session, principal.tenant_pub_id)
     user = current_user(session, principal)
     account = owned_account(session, repository.tenant.id, user.pub_id, account_pub_id)
-    account.state = "revoked"
-    now = datetime.now(UTC)
-    session.execute(
-        update(SessionLease)
-        .where(SessionLease.account_id == account.id, SessionLease.released_at.is_(None))
-        .values(released_at=now)
+    existing = session.scalar(
+        select(RevocationRequest)
+        .where(RevocationRequest.account_id == account.id)
+        .order_by(RevocationRequest.created_at.desc())
     )
-    profiles = session.scalars(
-        select(BrowserProfile).where(BrowserProfile.account_id == account.id)
-    ).all()
-    for profile in profiles:
-        profile.state = "REVOKED"
-        profile.wrapped_dek = None
-        profile.purged_at = now
-    workflow_id = (
-        f"account-revocation/{principal.tenant_pub_id}/{account.pub_id}/{new_pub_id('rev')}"
-    )
-    request = RevocationRequest(
-        pub_id=new_pub_id("rev"),
-        tenant_id=repository.tenant.id,
-        account_id=account.id,
+    if existing is not None:
+        return WorkflowAccepted(workflow_id=existing.workflow_id)
+    workflow_id = f"account-revocation/{principal.tenant_pub_id}/{account.pub_id}"
+    request, profile_versions = stage_account_revocation(
+        session,
+        account=account,
         reason="customer-owner-requested",
         workflow_id=workflow_id,
-        state="running",
     )
-    session.add(request)
-    session.commit()
-    client = await Client.connect(settings.temporal_address, namespace=settings.temporal_namespace)
-    handle = await client.start_workflow(
-        AccountRevocationWorkflow.run,
-        RevocationInput(
-            account_pub_id=account.pub_id,
-            profile_versions=[profile.profile_version for profile in profiles],
-            request_pub_id=request.pub_id,
-        ),
-        id=workflow_id,
-        task_queue=settings.temporal_task_queue,
-    )
-    return WorkflowAccepted(workflow_id=workflow_id, run_id=handle.result_run_id)
+    try:
+        enqueue_workflow_start(
+            session,
+            tenant_pub_id=principal.tenant_pub_id,
+            workflow_type="account_revocation",
+            workflow_id=workflow_id,
+            task_queue=settings.temporal_task_queue,
+            payload={
+                "tenant_pub_id": principal.tenant_pub_id,
+                "account_pub_id": account.pub_id,
+                "profile_versions": profile_versions,
+            },
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    return WorkflowAccepted(workflow_id=workflow_id)
