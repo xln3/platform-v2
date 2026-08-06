@@ -1,0 +1,211 @@
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+import pytest
+
+from scripts import frontend_release
+
+
+def make_bundle(root: Path, basename: str, marker: str) -> None:
+    assets = root / "client" / "assets"
+    assets.mkdir(parents=True)
+    (assets / "app.js").write_text(f"globalThis.__bundle={marker!r};\n", encoding="utf-8")
+    (root / "client" / "index.html").write_text(
+        f'<main>{marker}</main><script src="{basename}assets/app.js"></script>\n',
+        encoding="utf-8",
+    )
+    server = root / "server"
+    server.mkdir()
+    (server / "index.js").write_text("export {};\n", encoding="utf-8")
+
+
+def make_release_fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path, str]:
+    root = tmp_path / "workspace"
+    releases = root / ".frontend-releases"
+    release_id = "s03-test-release"
+    release = releases / release_id
+    source = {"sha256": "source-safe", "files": 1, "bytes": 1}
+    manifest_apps: dict[str, object] = {}
+    nginx_lines: list[str] = []
+
+    for app, basename in frontend_release.APPS.items():
+        active = root / "apps" / app / "build"
+        candidate = release / "candidates" / app
+        make_bundle(active, basename, f"old-{app}")
+        make_bundle(candidate, basename, f"new-{app}")
+        manifest_apps[app] = frontend_release.inspect_bundle(candidate, basename)
+        nginx_lines.extend(
+            [
+                f"location {basename} {{",
+                f"alias {root / 'apps' / app / 'build' / 'client'}/;",
+                "}",
+            ]
+        )
+
+    manifest = {
+        "schema_version": 1,
+        "release_id": release_id,
+        "created_at": "2026-07-28T00:00:00+00:00",
+        "status": "prepared",
+        "source": source,
+        "apps": manifest_apps,
+        "secrets_recorded": False,
+    }
+    frontend_release.atomic_json_write(release / "manifest.json", manifest)
+    nginx_config = root / "nginx.conf"
+    nginx_config.write_text("\n".join(nginx_lines), encoding="utf-8")
+    monkeypatch.setattr(frontend_release, "source_fingerprint", lambda _root: source)
+    return root, nginx_config, release_id
+
+
+def bundle_marker(root: Path) -> str:
+    return (root / "client" / "index.html").read_text(encoding="utf-8")
+
+
+def test_build_environment_drops_all_secret_and_vite_values() -> None:
+    result = frontend_release.sanitized_build_environment(
+        {
+            "PATH": "/safe/bin",
+            "HOME": "/safe/home",
+            "VITE_GEO_API_BASE": "https://unsafe.invalid/",
+            "VITE_COOKIE": "secret",
+            "TOKEN": "secret",
+            "DATABASE_URL": "secret",
+            "GEOSYS_DB": "secret",
+        }
+    )
+
+    assert result["PATH"] == "/safe/bin"
+    assert result["HOME"] == "/safe/home"
+    assert result["NODE_ENV"] == "production"
+    assert result["GEO_FRONTEND_RELEASE_BUILD"] == "1"
+    assert all(not key.startswith("VITE_") for key in result)
+    assert {"TOKEN", "DATABASE_URL", "GEOSYS_DB"}.isdisjoint(result)
+
+
+def test_bundle_inspection_rejects_fixture_source_map_and_missing_asset(tmp_path: Path) -> None:
+    basename = "/platform/customer/"
+
+    fixture_bundle = tmp_path / "fixture"
+    make_bundle(fixture_bundle, basename, "safe")
+    (fixture_bundle / "client" / "assets" / "app.js").write_bytes(b"CONTRACTFIXTURE")
+    with pytest.raises(frontend_release.ReleaseError, match="contract_identity_fixture"):
+        frontend_release.inspect_bundle(fixture_bundle, basename)
+
+    source_map_bundle = tmp_path / "source-map"
+    make_bundle(source_map_bundle, basename, "safe")
+    (source_map_bundle / "client" / "assets" / "app.js.map").write_text("{}", encoding="utf-8")
+    with pytest.raises(frontend_release.ReleaseError, match="source_map"):
+        frontend_release.inspect_bundle(source_map_bundle, basename)
+
+    missing_bundle = tmp_path / "missing"
+    make_bundle(missing_bundle, basename, "safe")
+    (missing_bundle / "client" / "assets" / "app.js").unlink()
+    with pytest.raises(frontend_release.ReleaseError, match="index_reference_missing"):
+        frontend_release.inspect_bundle(missing_bundle, basename)
+
+
+def test_failed_verification_atomically_restores_every_active_bundle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, nginx_config, release_id = make_release_fixture(tmp_path, monkeypatch)
+    releases = root / ".frontend-releases"
+
+    with pytest.raises(frontend_release.ReleaseError, match="verification_command_failed:7"):
+        frontend_release.activate_release(
+            release_id,
+            [sys.executable, "-c", "raise SystemExit(7)"],
+            root=root,
+            releases_root=releases,
+            nginx_config=nginx_config,
+        )
+
+    for app in frontend_release.APPS:
+        assert f"old-{app}" in bundle_marker(root / "apps" / app / "build")
+        assert f"new-{app}" in bundle_marker(releases / release_id / "candidates" / app)
+    manifest = json.loads((releases / release_id / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["status"] == "rolled_back_after_failed_activation"
+    assert manifest["failure"] == "verification_command_failed:7"
+    assert manifest["activation_failures"] == [
+        {
+            "failed_at": manifest["rolled_back_at"],
+            "failure": "verification_command_failed:7",
+            "rolled_back": True,
+        }
+    ]
+    assert manifest["secrets_recorded"] is False
+
+
+def test_failed_activation_can_be_inspected_and_retried_without_rebuilding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, nginx_config, release_id = make_release_fixture(tmp_path, monkeypatch)
+    releases = root / ".frontend-releases"
+
+    with pytest.raises(frontend_release.ReleaseError, match="verification_command_failed:7"):
+        frontend_release.activate_release(
+            release_id,
+            [sys.executable, "-c", "raise SystemExit(7)"],
+            root=root,
+            releases_root=releases,
+            nginx_config=nginx_config,
+        )
+
+    inspected = frontend_release.validate_prepared_release(
+        release_id,
+        root=root,
+        releases_root=releases,
+    )
+    assert inspected["status"] == "rolled_back_after_failed_activation"
+
+    activated = frontend_release.activate_release(
+        release_id,
+        [sys.executable, "-c", "raise SystemExit(0)"],
+        root=root,
+        releases_root=releases,
+        nginx_config=nginx_config,
+    )
+
+    assert activated["status"] == "active_verified"
+    assert "failure" not in activated
+    assert len(activated["activation_failures"]) == 1
+    assert activated["activation_failures"][0]["failure"] == "verification_command_failed:7"
+    for app in frontend_release.APPS:
+        assert f"new-{app}" in bundle_marker(root / "apps" / app / "build")
+        assert f"old-{app}" in bundle_marker(releases / release_id / "candidates" / app)
+
+
+def test_verified_activation_and_manual_rollback_exchange_whole_trees(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, nginx_config, release_id = make_release_fixture(tmp_path, monkeypatch)
+    releases = root / ".frontend-releases"
+    pass_command = [sys.executable, "-c", "raise SystemExit(0)"]
+
+    activated = frontend_release.activate_release(
+        release_id,
+        pass_command,
+        root=root,
+        releases_root=releases,
+        nginx_config=nginx_config,
+    )
+
+    assert activated["status"] == "active_verified"
+    for app in frontend_release.APPS:
+        assert f"new-{app}" in bundle_marker(root / "apps" / app / "build")
+        assert f"old-{app}" in bundle_marker(releases / release_id / "candidates" / app)
+
+    rolled_back = frontend_release.rollback_release(
+        release_id,
+        pass_command,
+        root=root,
+        releases_root=releases,
+    )
+
+    assert rolled_back["status"] == "rolled_back"
+    for app in frontend_release.APPS:
+        assert f"old-{app}" in bundle_marker(root / "apps" / app / "build")
+        assert f"new-{app}" in bundle_marker(releases / release_id / "candidates" / app)

@@ -1,16 +1,9 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './runtime-fixture';
+import { captureSafeScreenshot } from './screenshot-safety';
 
 test('report studio freezes, edits, binds evidence, reviews, publishes and records outcomes', async ({
   page,
 }, testInfo) => {
-  const consoleErrors: string[] = [];
-  const failedRequests: string[] = [];
-  page.on('console', (message) => {
-    if (message.type() === 'error') consoleErrors.push(message.text());
-  });
-  page.on('requestfailed', (request) =>
-    failedRequests.push(`${request.method()} ${request.url()}`),
-  );
   await page.route('**/api/v2/health', (route) =>
     route.fulfill({
       status: 200,
@@ -42,10 +35,14 @@ test('report studio freezes, edits, binds evidence, reviews, publishes and recor
   await page.getByLabel('章节正文').fill('DeepSeek 的引用覆盖更高，模型差异需要结合证据复核。');
   await expect(page.getByText('人工内容')).toBeVisible();
   await page.getByRole('button', { name: '保存章节版本' }).click();
-  await expect(page.getByRole('status')).toContainText('v1 已保存，正文快照不可变');
+  await expect(
+    page.getByRole('status').filter({ hasText: 'v1 已保存，正文快照不可变' }),
+  ).toBeVisible();
   await page.getByLabel('章节正文').fill('DeepSeek 的引用覆盖更高；模型差异需要结合独立证据复核。');
   await page.getByRole('button', { name: '保存章节版本' }).click();
-  await expect(page.getByRole('status')).toContainText('v2 已保存，正文快照不可变');
+  await expect(
+    page.getByRole('status').filter({ hasText: 'v2 已保存，正文快照不可变' }),
+  ).toBeVisible();
   const versionHistory = page.getByRole('list', { name: '模型差异分析章节版本历史' });
   await expect(versionHistory.getByText(/v1/)).toBeVisible();
   await expect(versionHistory.getByText(/v2/)).toBeVisible();
@@ -60,9 +57,13 @@ test('report studio freezes, edits, binds evidence, reviews, publishes and recor
   });
   await expect(versionDiff.locator('del')).toHaveText('，');
   await expect(versionDiff.locator('ins')).toHaveText(['；', '独立']);
-  await expect(page.getByRole('status')).toContainText('已对比 v1 → v2；删除 1 字，新增 3 字');
+  await expect(
+    page.getByRole('status').filter({ hasText: '已对比 v1 → v2；删除 1 字，新增 3 字' }),
+  ).toBeVisible();
   await page.getByLabel('基准版本').selectOption('2');
-  await expect(page.getByRole('status')).toContainText('所选版本相同，正文无差异');
+  await expect(
+    page.getByRole('status').filter({ hasText: '所选版本相同，正文无差异' }),
+  ).toBeVisible();
 
   await page.getByRole('button', { name: '证据编排' }).click();
   await expect(page.getByRole('img', { name: /品牌提及锚点/ })).toBeVisible();
@@ -94,20 +95,18 @@ test('report studio freezes, edits, binds evidence, reviews, publishes and recor
   await expect(page.getByText(/请勿在评论中粘贴验证码/)).toBeVisible();
   await expect(page.getByRole('button', { name: '添加评论' })).toBeDisabled();
   await page.getByLabel('新增评论').fill('');
-  await page.getByRole('button', { name: '标记已解决' }).click();
+  await page.getByRole('button', { name: '纳入本次审核' }).click();
   await page.getByRole('button', { name: '批准发布' }).click();
   await page.getByRole('button', { name: '发布 v1.0' }).click();
-  await expect(page.getByText('在线版与交付记录已生成，客户可见。')).toBeVisible();
+  await expect(page.getByText('在线版已生成；客户可见性以独立 delivery 记录为准。')).toBeVisible();
 
   await page.getByRole('button', { name: '效果复盘' }).click();
   await page.getByRole('button', { name: '开始执行' }).click();
   await page.getByRole('button', { name: '记录复测效果' }).click();
   await expect(page.getByText('+6.2pp')).toBeVisible();
 
-  expect(consoleErrors, consoleErrors.join('\n')).toEqual([]);
-  expect(failedRequests, failedRequests.join('\n')).toEqual([]);
   const viewportName = testInfo.project.name.replace('reports-', '');
-  await page.screenshot({
+  await captureSafeScreenshot(page, {
     path: `tests/e2e-results/report-studio-${viewportName}.png`,
     fullPage: true,
   });

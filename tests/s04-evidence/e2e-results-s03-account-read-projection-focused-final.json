@@ -1,0 +1,1272 @@
+{
+  "config": {
+    "argv": [
+      "/home/xln/.config/nvm/versions/node/v24.6.0/bin/node",
+      "/home/xln/geo-system/platform-v2/node_modules/@playwright/test/cli.js",
+      "test",
+      "tests/e2e/customer-account.spec.ts",
+      "tests/e2e/customer-account-integrity.spec.ts"
+    ],
+    "configFile": "/home/xln/geo-system/platform-v2/playwright.config.ts",
+    "rootDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+    "failOnFlakyTests": false,
+    "forbidOnly": true,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s03-account-read-projection-focused-final",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "customer-desktop",
+        "name": "customer-desktop",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/customer-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s03-account-read-projection-focused-final",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "customer-tablet",
+        "name": "customer-tablet",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/customer-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s03-account-read-projection-focused-final",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "customer-mobile",
+        "name": "customer-mobile",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/customer-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s03-account-read-projection-focused-final",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "operations-desktop",
+        "name": "operations-desktop",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/operations-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s03-account-read-projection-focused-final",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "operations-tablet",
+        "name": "operations-tablet",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/operations-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s03-account-read-projection-focused-final",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "operations-mobile",
+        "name": "operations-mobile",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/operations-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s03-account-read-projection-focused-final",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "reports-desktop",
+        "name": "reports-desktop",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/reports-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s03-account-read-projection-focused-final",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "reports-tablet",
+        "name": "reports-tablet",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/reports-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s03-account-read-projection-focused-final",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "reports-mobile",
+        "name": "reports-mobile",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/reports-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s03-account-read-projection-focused-final",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "intelligence-desktop",
+        "name": "intelligence-desktop",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/intelligence-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s03-account-read-projection-focused-final",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "intelligence-tablet",
+        "name": "intelligence-tablet",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/intelligence-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s03-account-read-projection-focused-final",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "intelligence-mobile",
+        "name": "intelligence-mobile",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/intelligence-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "tests/s04-evidence/e2e-results-s03-account-read-projection-focused-final.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.61.1",
+    "workers": 1,
+    "webServer": {
+      "command": "exec bash scripts/start_e2e_webservers.sh",
+      "url": "http://127.0.0.1:53301/platform/customer/",
+      "env": {
+        "PYTHON_BASIC_REPL": "1",
+        "LESSOPEN": "| /usr/bin/lesspipe %s",
+        "TMUX": "/tmp/tmux-1000/default,4013479,11",
+        "CODEX_CI": "1",
+        "USER": "xln",
+        "SSH_CLIENT": "117.133.64.159 8015 2222",
+        "npm_config_user_agent": "pnpm/11.17.0 npm/? node/v24.6.0 linux x64",
+        "XDG_SESSION_TYPE": "tty",
+        "GIT_ASKPASS": "/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/extensions/git/dist/askpass.sh",
+        "GEO_E2E_JSON_REPORT": "tests/s04-evidence/e2e-results-s03-account-read-projection-focused-final.json",
+        "SHLVL": "3",
+        "BROWSER": "/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/bin/helpers/browser.sh",
+        "MOTD_SHOWN": "pam",
+        "HOME": "/home/xln",
+        "TERM_PROGRAM_VERSION": "3.2a",
+        "NVM_BIN": "/home/xln/.config/nvm/versions/node/v24.6.0/bin",
+        "VSCODE_IPC_HOOK_CLI": "/run/user/1000/vscode-ipc-19a833ff-7b40-43ab-9744-1d6bf8bcdc83.sock",
+        "NVM_INC": "/home/xln/.config/nvm/versions/node/v24.6.0/include/node",
+        "COREPACK_ROOT": "/home/xln/.config/nvm/versions/node/v24.6.0/lib/node_modules/corepack",
+        "PAGER": "cat",
+        "VSCODE_GIT_ASKPASS_MAIN": "/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/extensions/git/dist/askpass-main.js",
+        "HF_ENDPOINT": "https://hf-mirror.com",
+        "VSCODE_GIT_ASKPASS_NODE": "/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/node",
+        "LC_CTYPE": "C.UTF-8",
+        "PYDEVD_DISABLE_FILE_VALIDATION": "1",
+        "BUNDLED_DEBUGPY_PATH": "/home/xln/.vscode-server/extensions/ms-python.debugpy-2026.6.0-linux-x64/bundled/libs/debugpy",
+        "VSCODE_PYTHON_AUTOACTIVATE_GUARD": "1",
+        "NO_COLOR": "1",
+        "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/1000/bus",
+        "COLORTERM": "",
+        "GEO_E2E_OUTPUT_DIR": "tests/e2e-results-s03-account-read-projection-focused-final",
+        "NVM_DIR": "/home/xln/.config/nvm",
+        "https_proxy": "http://127.0.0.1:7890",
+        "CODEX_PERMISSION_PROFILE": ":danger-full-access",
+        "COREPACK_ENABLE_DOWNLOAD_PROMPT": "1",
+        "LOGNAME": "xln",
+        "pnpm_config_verify_deps_before_run": "false",
+        "http_proxy": "http://127.0.0.1:7890",
+        "_": "/home/xln/.config/nvm/versions/node/v24.6.0/bin/pnpm",
+        "CLAUDE_CODE_SSE_PORT": "31479",
+        "XDG_SESSION_CLASS": "user",
+        "GEO_E2E_PORT_BASE": "53300",
+        "TERM": "dumb",
+        "XDG_SESSION_ID": "5582",
+        "PATH": "./node_modules/.bin:/home/xln/geo-system/platform-v2/node_modules/.bin:/home/xln/.local/bin:/home/xln/.config/nvm/versions/node/v24.6.0/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/codex-path:/home/xln/.codex/tmp/arg0/codex-arg0B22gK7:/home/xln/.local/bin:/home/xln/.kimi-code/bin:/home/xln/.deno/bin:/home/xln/.local/bin:/home/xln/.kimi-code/bin:/home/xln/.deno/bin:/home/xln/.local/bin:/home/xln/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand:/home/xln/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli:/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/bin/remote-cli:/home/xln/.local/bin:/home/xln/.kimi-code/bin:/home/xln/google-cloud-sdk/bin:/home/xln/.deno/bin:/home/xln/.config/nvm/versions/node/v24.6.0/bin:/home/xln/.local/bin:/home/xln/.deno/bin:/home/xln/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin",
+        "XDG_RUNTIME_DIR": "/run/user/1000",
+        "VSCODE_DEBUGPY_ADAPTER_ENDPOINTS": "/home/xln/.vscode-server/extensions/ms-python.debugpy-2026.6.0-linux-x64/.noConfigDebugAdapterEndpoints/endpoint-70a46e768030bfa5.txt",
+        "LANG": "C.UTF-8",
+        "PYTHONSTARTUP": "/home/xln/.vscode-server/data/User/workspaceStorage/064617a2688c468aa40abc1ece39445c/ms-python.python/pythonrc.py",
+        "GH_PAGER": "cat",
+        "LS_COLORS": "rs=0:di=01;34:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=30;41:tw=30;42:ow=34;42:st=37;44:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arc=01;31:*.arj=01;31:*.taz=01;31:*.lha=01;31:*.lz4=01;31:*.lzh=01;31:*.lzma=01;31:*.tlz=01;31:*.txz=01;31:*.tzo=01;31:*.t7z=01;31:*.zip=01;31:*.z=01;31:*.dz=01;31:*.gz=01;31:*.lrz=01;31:*.lz=01;31:*.lzo=01;31:*.xz=01;31:*.zst=01;31:*.tzst=01;31:*.bz2=01;31:*.bz=01;31:*.tbz=01;31:*.tbz2=01;31:*.tz=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.war=01;31:*.ear=01;31:*.sar=01;31:*.rar=01;31:*.alz=01;31:*.ace=01;31:*.zoo=01;31:*.cpio=01;31:*.7z=01;31:*.rz=01;31:*.cab=01;31:*.wim=01;31:*.swm=01;31:*.dwm=01;31:*.esd=01;31:*.jpg=01;35:*.jpeg=01;35:*.mjpg=01;35:*.mjpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.svg=01;35:*.svgz=01;35:*.mng=01;35:*.pcx=01;35:*.mov=01;35:*.mpg=01;35:*.mpeg=01;35:*.m2v=01;35:*.mkv=01;35:*.webm=01;35:*.webp=01;35:*.ogm=01;35:*.mp4=01;35:*.m4v=01;35:*.mp4v=01;35:*.vob=01;35:*.qt=01;35:*.nuv=01;35:*.wmv=01;35:*.asf=01;35:*.rm=01;35:*.rmvb=01;35:*.flc=01;35:*.avi=01;35:*.fli=01;35:*.flv=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.yuv=01;35:*.cgm=01;35:*.emf=01;35:*.ogv=01;35:*.ogx=01;35:*.aac=00;36:*.au=00;36:*.flac=00;36:*.m4a=00;36:*.mid=00;36:*.midi=00;36:*.mka=00;36:*.mp3=00;36:*.mpc=00;36:*.ogg=00;36:*.ra=00;36:*.wav=00;36:*.oga=00;36:*.opus=00;36:*.spx=00;36:*.xspf=00;36:",
+        "CLAUDE_CODE_DISABLE_1M_CONTEXT": "1",
+        "VSCODE_GIT_IPC_HANDLE": "/run/user/1000/vscode-git-732bafe257.sock",
+        "TERM_PROGRAM": "tmux",
+        "SHELL": "/bin/bash",
+        "NODE_PATH": "/home/xln/geo-system/platform-v2/node_modules/.pnpm/@playwright+test@1.61.1/node_modules/@playwright/test/node_modules:/home/xln/geo-system/platform-v2/node_modules/.pnpm/@playwright+test@1.61.1/node_modules:/home/xln/geo-system/platform-v2/node_modules/.pnpm/node_modules",
+        "LESSCLOSE": "/usr/bin/lesspipe %s %s",
+        "CODEX_THREAD_ID": "019f92eb-f497-71a0-b01b-29ed4969dc22",
+        "PNPM_PACKAGE_NAME": "geo-platform-v2",
+        "VSCODE_GIT_ASKPASS_EXTRA_ARGS": "",
+        "GIT_PAGER": "cat",
+        "PWD": "/home/xln/geo-system/platform-v2",
+        "DISABLE_AUTOUPDATER": "1",
+        "LC_ALL": "C.UTF-8",
+        "CODEX_MANAGED_PACKAGE_ROOT": "/home/xln/.config/nvm/versions/node/v24.6.0/lib/node_modules/@openai/codex",
+        "COPILOT_DEBUG_NONCE": "9abf7f5d3e8c784e97955dcc9fdda180",
+        "SSH_CONNECTION": "117.133.64.159 8015 172.16.1.190 2222",
+        "NVM_CD_FLAGS": "",
+        "XDG_DATA_DIRS": "/usr/share/gnome:/usr/local/share:/usr/share:/var/lib/snapd/desktop",
+        "npm_command": "exec",
+        "CODEX_MANAGED_BY_NPM": "1",
+        "TMUX_PANE": "%11",
+        "GEO_VITE_NO_WATCH": "1",
+        "GEO_E2E_BUILD": "1",
+        "VITE_ALLOW_CONTRACT_FIXTURES": "true",
+        "VITE_GEO_API_BASE": ""
+      },
+      "reuseExistingServer": true,
+      "timeout": 240000
+    }
+  },
+  "suites": [
+    {
+      "title": "customer-account-integrity.spec.ts",
+      "file": "customer-account-integrity.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "oversized account lifecycle collections stay bounded, account-bound and secret-free",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2216,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-25T20:41:31.477Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b2fa69a74f8acdf6c75c-73c26635fe79437f59a4",
+          "file": "customer-account-integrity.spec.ts",
+          "line": 87,
+          "column": 5
+        },
+        {
+          "title": "revocation and newer refreshes discard slower pairing and event responses",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2130,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-25T20:41:33.887Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b2fa69a74f8acdf6c75c-c2ca9d89038a09718dfa",
+          "file": "customer-account-integrity.spec.ts",
+          "line": 215,
+          "column": 5
+        },
+        {
+          "title": "oversized account lifecycle collections stay bounded, account-bound and secret-free",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2175,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-25T20:41:43.498Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b2fa69a74f8acdf6c75c-d7d82a386b97d9ccfd1e",
+          "file": "customer-account-integrity.spec.ts",
+          "line": 87,
+          "column": 5
+        },
+        {
+          "title": "revocation and newer refreshes discard slower pairing and event responses",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2140,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-25T20:41:45.854Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b2fa69a74f8acdf6c75c-43438c440e0cfdb94165",
+          "file": "customer-account-integrity.spec.ts",
+          "line": 215,
+          "column": 5
+        },
+        {
+          "title": "oversized account lifecycle collections stay bounded, account-bound and secret-free",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2170,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-25T20:41:55.159Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b2fa69a74f8acdf6c75c-c5e11132fb96f45ac815",
+          "file": "customer-account-integrity.spec.ts",
+          "line": 87,
+          "column": 5
+        },
+        {
+          "title": "revocation and newer refreshes discard slower pairing and event responses",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2137,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-25T20:41:57.526Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b2fa69a74f8acdf6c75c-8b701de3625eb2cd22bb",
+          "file": "customer-account-integrity.spec.ts",
+          "line": 215,
+          "column": 5
+        }
+      ]
+    },
+    {
+      "title": "customer-account.spec.ts",
+      "file": "customer-account.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "customer pairs, verifies and revokes without secret leakage",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1074,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-25T20:41:36.035Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-13217962437a421351cb",
+          "file": "customer-account.spec.ts",
+          "line": 4,
+          "column": 5
+        },
+        {
+          "title": "validated customer uses the generated safe account lifecycle contract end to end",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1964,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-25T20:41:37.117Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-aac69750b35ba5bc3730",
+          "file": "customer-account.spec.ts",
+          "line": 117,
+          "column": 5
+        },
+        {
+          "title": "customer pairing refusal and timeout destroy the one-time channel",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 579,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-25T20:41:39.089Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-09e2b39fec2978a0d7e2",
+          "file": "customer-account.spec.ts",
+          "line": 441,
+          "column": 5
+        },
+        {
+          "title": "validated customer submits a project change request through the generated live contract",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 472,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-25T20:41:39.674Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-100961fb709b843243f4",
+          "file": "customer-account.spec.ts",
+          "line": 478,
+          "column": 5
+        },
+        {
+          "title": "monitoring filters are URL-bound and restore through browser history",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 763,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-25T20:41:40.152Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-8566dead8e91d3d39ec4",
+          "file": "customer-account.spec.ts",
+          "line": 589,
+          "column": 5
+        },
+        {
+          "title": "customer profile, brand assets and configuration requests validate and submit",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 788,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-25T20:41:40.922Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-87afada9c130e9039b16",
+          "file": "customer-account.spec.ts",
+          "line": 632,
+          "column": 5
+        },
+        {
+          "title": "customer reviews evidence, exports, questions reports and manages members",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1290,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-25T20:41:41.717Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-86c1cd955cd0e298588f",
+          "file": "customer-account.spec.ts",
+          "line": 688,
+          "column": 5
+        },
+        {
+          "title": "customer pairs, verifies and revokes without secret leakage",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 996,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-25T20:41:48.013Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-1e29f4bb0fe10b716456",
+          "file": "customer-account.spec.ts",
+          "line": 4,
+          "column": 5
+        },
+        {
+          "title": "validated customer uses the generated safe account lifecycle contract end to end",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1879,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-25T20:41:49.016Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-717de3fc524d0949b0f5",
+          "file": "customer-account.spec.ts",
+          "line": 117,
+          "column": 5
+        },
+        {
+          "title": "customer pairing refusal and timeout destroy the one-time channel",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 541,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-25T20:41:50.901Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-342016d572b150085be7",
+          "file": "customer-account.spec.ts",
+          "line": 441,
+          "column": 5
+        },
+        {
+          "title": "validated customer submits a project change request through the generated live contract",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 459,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-25T20:41:51.449Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-e6c07aaf655a3732a4f1",
+          "file": "customer-account.spec.ts",
+          "line": 478,
+          "column": 5
+        },
+        {
+          "title": "monitoring filters are URL-bound and restore through browser history",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 725,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-25T20:41:51.914Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-b0b3649ba4b524348cdd",
+          "file": "customer-account.spec.ts",
+          "line": 589,
+          "column": 5
+        },
+        {
+          "title": "customer profile, brand assets and configuration requests validate and submit",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 797,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-25T20:41:52.645Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-512036d0f8ddb9183eb2",
+          "file": "customer-account.spec.ts",
+          "line": 632,
+          "column": 5
+        },
+        {
+          "title": "customer reviews evidence, exports, questions reports and manages members",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1210,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-25T20:41:53.448Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-ad0a55f2e9bdcc93c5b8",
+          "file": "customer-account.spec.ts",
+          "line": 688,
+          "column": 5
+        },
+        {
+          "title": "customer pairs, verifies and revokes without secret leakage",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1054,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-25T20:41:59.680Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-9086a582641605d54316",
+          "file": "customer-account.spec.ts",
+          "line": 4,
+          "column": 5
+        },
+        {
+          "title": "validated customer uses the generated safe account lifecycle contract end to end",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1845,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-25T20:42:00.741Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-0b8b47f6fa48475f1c5b",
+          "file": "customer-account.spec.ts",
+          "line": 117,
+          "column": 5
+        },
+        {
+          "title": "customer pairing refusal and timeout destroy the one-time channel",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 619,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-25T20:42:02.593Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-bbbe396f3fd1e47d6b11",
+          "file": "customer-account.spec.ts",
+          "line": 441,
+          "column": 5
+        },
+        {
+          "title": "validated customer submits a project change request through the generated live contract",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 443,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-25T20:42:03.219Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-22d0c3216ec4fcec2b21",
+          "file": "customer-account.spec.ts",
+          "line": 478,
+          "column": 5
+        },
+        {
+          "title": "monitoring filters are URL-bound and restore through browser history",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 711,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-25T20:42:03.668Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-5f2da694f4f9f8065894",
+          "file": "customer-account.spec.ts",
+          "line": 589,
+          "column": 5
+        },
+        {
+          "title": "customer profile, brand assets and configuration requests validate and submit",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 742,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-25T20:42:04.386Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-c4b22ca2d8cffb7e27e0",
+          "file": "customer-account.spec.ts",
+          "line": 632,
+          "column": 5
+        },
+        {
+          "title": "customer reviews evidence, exports, questions reports and manages members",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1261,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-25T20:42:05.134Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-c4c21cf830afb0dda7d3",
+          "file": "customer-account.spec.ts",
+          "line": 688,
+          "column": 5
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-07-25T20:41:10.264Z",
+    "duration": 56268.938,
+    "expected": 27,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

@@ -1,0 +1,912 @@
+{
+  "config": {
+    "argv": [
+      "/home/xln/.config/nvm/versions/node/v24.6.0/bin/node",
+      "/home/xln/geo-system/platform-v2/node_modules/@playwright/test/cli.js",
+      "test",
+      "--project=intake-form-desktop",
+      "--project=intake-form-tablet",
+      "--project=intake-form-mobile"
+    ],
+    "configFile": "/home/xln/geo-system/platform-v2/playwright.config.ts",
+    "rootDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+    "failOnFlakyTests": false,
+    "forbidOnly": true,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "customer-desktop",
+        "name": "customer-desktop",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/customer-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "customer-tablet",
+        "name": "customer-tablet",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/customer-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "customer-mobile",
+        "name": "customer-mobile",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/customer-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "operations-desktop",
+        "name": "operations-desktop",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/operations-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "operations-tablet",
+        "name": "operations-tablet",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/operations-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "operations-mobile",
+        "name": "operations-mobile",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/operations-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "reports-desktop",
+        "name": "reports-desktop",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/reports-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "reports-tablet",
+        "name": "reports-tablet",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/reports-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "reports-mobile",
+        "name": "reports-mobile",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/reports-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "intelligence-desktop",
+        "name": "intelligence-desktop",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/intelligence-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "intelligence-tablet",
+        "name": "intelligence-tablet",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/intelligence-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "intelligence-mobile",
+        "name": "intelligence-mobile",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/intelligence-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "intake-form-desktop",
+        "name": "intake-form-desktop",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/intake-form-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "intake-form-tablet",
+        "name": "intake-form-tablet",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/intake-form-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "intake-form-mobile",
+        "name": "intake-form-mobile",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/intake-form-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "tests/s04-evidence/e2e-results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.61.1",
+    "workers": 1,
+    "webServer": {
+      "command": "exec bash scripts/start_e2e_webservers.sh",
+      "url": "http://127.0.0.1:45101/platform/customer/",
+      "env": {
+        "PYTHON_BASIC_REPL": "1",
+        "LESSOPEN": "| /usr/bin/lesspipe %s",
+        "TMUX": "/tmp/tmux-1000/default,4013479,37",
+        "USER": "xln",
+        "SSH_CLIENT": "117.133.64.159 8015 2222",
+        "npm_config_user_agent": "npm/11.5.1 node/v24.6.0 linux x64 workspaces/false",
+        "XDG_SESSION_TYPE": "tty",
+        "GIT_ASKPASS": "/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/extensions/git/dist/askpass.sh",
+        "npm_node_execpath": "/home/xln/.config/nvm/versions/node/v24.6.0/bin/node",
+        "SHLVL": "3",
+        "BROWSER": "/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/bin/helpers/browser.sh",
+        "npm_config_noproxy": "",
+        "MOTD_SHOWN": "pam",
+        "HOME": "/home/xln",
+        "OLDPWD": "/home/xln/geo-system",
+        "TERM_PROGRAM_VERSION": "3.2a",
+        "NVM_BIN": "/home/xln/.config/nvm/versions/node/v24.6.0/bin",
+        "VSCODE_IPC_HOOK_CLI": "/run/user/1000/vscode-ipc-19a833ff-7b40-43ab-9744-1d6bf8bcdc83.sock",
+        "npm_package_json": "/home/xln/geo-system/platform-v2/package.json",
+        "NVM_INC": "/home/xln/.config/nvm/versions/node/v24.6.0/include/node",
+        "npm_package_engines_node": ">=24",
+        "VSCODE_GIT_ASKPASS_MAIN": "/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/extensions/git/dist/askpass-main.js",
+        "HF_ENDPOINT": "https://hf-mirror.com",
+        "VSCODE_GIT_ASKPASS_NODE": "/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/node",
+        "npm_config_userconfig": "/home/xln/.npmrc",
+        "npm_config_local_prefix": "/home/xln/geo-system/platform-v2",
+        "PYDEVD_DISABLE_FILE_VALIDATION": "1",
+        "BUNDLED_DEBUGPY_PATH": "/home/xln/.vscode-server/extensions/ms-python.debugpy-2026.6.0-linux-x64/bundled/libs/debugpy",
+        "VSCODE_PYTHON_AUTOACTIVATE_GUARD": "1",
+        "NO_COLOR": "1",
+        "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/1000/bus",
+        "COLORTERM": "truecolor",
+        "COLOR": "0",
+        "NVM_DIR": "/home/xln/.config/nvm",
+        "https_proxy": "http://127.0.0.1:7890",
+        "LOGNAME": "xln",
+        "http_proxy": "http://127.0.0.1:7890",
+        "_": "/home/xln/.config/nvm/versions/node/v24.6.0/bin/npx",
+        "npm_config_prefix": "/home/xln/.config/nvm/versions/node/v24.6.0",
+        "npm_config_npm_version": "11.5.1",
+        "CLAUDE_CODE_SSE_PORT": "31479",
+        "XDG_SESSION_CLASS": "user",
+        "TERM": "dumb",
+        "XDG_SESSION_ID": "5582",
+        "npm_config_cache": "/home/xln/.npm",
+        "npm_config_node_gyp": "/home/xln/.config/nvm/versions/node/v24.6.0/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js",
+        "PATH": "/home/xln/geo-system/platform-v2/node_modules/.bin:/home/xln/geo-system/platform-v2/node_modules/.bin:/home/xln/geo-system/node_modules/.bin:/home/xln/node_modules/.bin:/home/node_modules/.bin:/node_modules/.bin:/home/xln/.config/nvm/versions/node/v24.6.0/lib/node_modules/npm/node_modules/@npmcli/run-script/lib/node-gyp-bin:/home/xln/.local/bin:/home/xln/.kimi-code/bin:/home/xln/.deno/bin:/home/xln/.local/bin:/home/xln/.kimi-code/bin:/home/xln/.deno/bin:/home/xln/.local/bin:/home/xln/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand:/home/xln/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli:/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/bin/remote-cli:/home/xln/.local/bin:/home/xln/.kimi-code/bin:/home/xln/google-cloud-sdk/bin:/home/xln/.deno/bin:/home/xln/.config/nvm/versions/node/v24.6.0/bin:/home/xln/.local/bin:/home/xln/.deno/bin:/home/xln/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin",
+        "NODE": "/home/xln/.config/nvm/versions/node/v24.6.0/bin/node",
+        "npm_package_name": "geo-platform-v2",
+        "XDG_RUNTIME_DIR": "/run/user/1000",
+        "VSCODE_DEBUGPY_ADAPTER_ENDPOINTS": "/home/xln/.vscode-server/extensions/ms-python.debugpy-2026.6.0-linux-x64/.noConfigDebugAdapterEndpoints/endpoint-70a46e768030bfa5.txt",
+        "LANG": "en_US.UTF-8",
+        "PYTHONSTARTUP": "/home/xln/.vscode-server/data/User/workspaceStorage/064617a2688c468aa40abc1ece39445c/ms-python.python/pythonrc.py",
+        "LS_COLORS": "rs=0:di=01;34:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=30;41:tw=30;42:ow=34;42:st=37;44:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arc=01;31:*.arj=01;31:*.taz=01;31:*.lha=01;31:*.lz4=01;31:*.lzh=01;31:*.lzma=01;31:*.tlz=01;31:*.txz=01;31:*.tzo=01;31:*.t7z=01;31:*.zip=01;31:*.z=01;31:*.dz=01;31:*.gz=01;31:*.lrz=01;31:*.lz=01;31:*.lzo=01;31:*.xz=01;31:*.zst=01;31:*.tzst=01;31:*.bz2=01;31:*.bz=01;31:*.tbz=01;31:*.tbz2=01;31:*.tz=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.war=01;31:*.ear=01;31:*.sar=01;31:*.rar=01;31:*.alz=01;31:*.ace=01;31:*.zoo=01;31:*.cpio=01;31:*.7z=01;31:*.rz=01;31:*.cab=01;31:*.wim=01;31:*.swm=01;31:*.dwm=01;31:*.esd=01;31:*.jpg=01;35:*.jpeg=01;35:*.mjpg=01;35:*.mjpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.svg=01;35:*.svgz=01;35:*.mng=01;35:*.pcx=01;35:*.mov=01;35:*.mpg=01;35:*.mpeg=01;35:*.m2v=01;35:*.mkv=01;35:*.webm=01;35:*.webp=01;35:*.ogm=01;35:*.mp4=01;35:*.m4v=01;35:*.mp4v=01;35:*.vob=01;35:*.qt=01;35:*.nuv=01;35:*.wmv=01;35:*.asf=01;35:*.rm=01;35:*.rmvb=01;35:*.flc=01;35:*.avi=01;35:*.fli=01;35:*.flv=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.yuv=01;35:*.cgm=01;35:*.emf=01;35:*.ogv=01;35:*.ogx=01;35:*.aac=00;36:*.au=00;36:*.flac=00;36:*.m4a=00;36:*.mid=00;36:*.midi=00;36:*.mka=00;36:*.mp3=00;36:*.mpc=00;36:*.ogg=00;36:*.ra=00;36:*.wav=00;36:*.oga=00;36:*.opus=00;36:*.spx=00;36:*.xspf=00;36:",
+        "CLAUDE_CODE_DISABLE_1M_CONTEXT": "1",
+        "VSCODE_GIT_IPC_HANDLE": "/run/user/1000/vscode-git-732bafe257.sock",
+        "TERM_PROGRAM": "tmux",
+        "npm_lifecycle_script": "\"playwright\"",
+        "SHELL": "/bin/bash",
+        "GIT_TERMINAL_PROMPT": "0",
+        "npm_lifecycle_event": "npx",
+        "NODE_PATH": "/home/xln/geo-system/platform-v2/node_modules/.pnpm/@playwright+test@1.61.1/node_modules/@playwright/test/node_modules:/home/xln/geo-system/platform-v2/node_modules/.pnpm/@playwright+test@1.61.1/node_modules:/home/xln/geo-system/platform-v2/node_modules/.pnpm/node_modules",
+        "LESSCLOSE": "/usr/bin/lesspipe %s %s",
+        "VSCODE_GIT_ASKPASS_EXTRA_ARGS": "",
+        "npm_config_globalconfig": "/home/xln/.config/nvm/versions/node/v24.6.0/etc/npmrc",
+        "npm_config_init_module": "/home/xln/.npm-init.js",
+        "PWD": "/home/xln/geo-system/platform-v2",
+        "DISABLE_AUTOUPDATER": "1",
+        "npm_execpath": "/home/xln/.config/nvm/versions/node/v24.6.0/lib/node_modules/npm/bin/npm-cli.js",
+        "COPILOT_DEBUG_NONCE": "9abf7f5d3e8c784e97955dcc9fdda180",
+        "SSH_CONNECTION": "117.133.64.36 2836 172.16.1.190 2222",
+        "NVM_CD_FLAGS": "",
+        "XDG_DATA_DIRS": "/usr/share/gnome:/usr/local/share:/usr/share:/var/lib/snapd/desktop",
+        "npm_config_global_prefix": "/home/xln/.config/nvm/versions/node/v24.6.0",
+        "npm_command": "exec",
+        "TMUX_PANE": "%37",
+        "INIT_CWD": "/home/xln/geo-system/platform-v2",
+        "EDITOR": "vi",
+        "BROWSERSLIST_IGNORE_OLD_DATA": "true",
+        "GEO_VITE_NO_WATCH": "1",
+        "GEO_E2E_BUILD": "1",
+        "VITE_ALLOW_CONTRACT_FIXTURES": "true",
+        "VITE_GEO_API_BASE": ""
+      },
+      "reuseExistingServer": false,
+      "timeout": 240000
+    }
+  },
+  "suites": [
+    {
+      "title": "intake-form-visual.spec.ts",
+      "file": "intake-form-visual.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "intake-form brand visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intake-form-desktop",
+              "projectName": "intake-form-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1008,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-04T08:35:48.338Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9fa2f5f0edfc802fd19a-6f253c1a10d224e772c5",
+          "file": "intake-form-visual.spec.ts",
+          "line": 293,
+          "column": 7
+        },
+        {
+          "title": "intake-form research visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intake-form-desktop",
+              "projectName": "intake-form-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 536,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-04T08:35:49.935Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9fa2f5f0edfc802fd19a-11c09486e6cd5bbdb161",
+          "file": "intake-form-visual.spec.ts",
+          "line": 293,
+          "column": 7
+        },
+        {
+          "title": "intake-form profile visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intake-form-desktop",
+              "projectName": "intake-form-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 786,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-04T08:35:50.482Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9fa2f5f0edfc802fd19a-42658458e144398dc3a9",
+          "file": "intake-form-visual.spec.ts",
+          "line": 293,
+          "column": 7
+        },
+        {
+          "title": "intake-form questions visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intake-form-desktop",
+              "projectName": "intake-form-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 584,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-04T08:35:51.278Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9fa2f5f0edfc802fd19a-59bfbfdfc1ef49507c7e",
+          "file": "intake-form-visual.spec.ts",
+          "line": 293,
+          "column": 7
+        },
+        {
+          "title": "intake-form submit visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intake-form-desktop",
+              "projectName": "intake-form-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 502,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-04T08:35:51.870Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9fa2f5f0edfc802fd19a-e72b0f6d242007919270",
+          "file": "intake-form-visual.spec.ts",
+          "line": 293,
+          "column": 7
+        },
+        {
+          "title": "intake-form brand visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intake-form-tablet",
+              "projectName": "intake-form-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 638,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-04T08:35:52.852Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9fa2f5f0edfc802fd19a-8a1b0c154b06cdd6557f",
+          "file": "intake-form-visual.spec.ts",
+          "line": 293,
+          "column": 7
+        },
+        {
+          "title": "intake-form research visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intake-form-tablet",
+              "projectName": "intake-form-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 489,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-04T08:35:53.699Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9fa2f5f0edfc802fd19a-4aa79efdb2c3c104b829",
+          "file": "intake-form-visual.spec.ts",
+          "line": 293,
+          "column": 7
+        },
+        {
+          "title": "intake-form profile visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intake-form-tablet",
+              "projectName": "intake-form-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 658,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-04T08:35:54.199Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9fa2f5f0edfc802fd19a-5b3173e06bf6f588c941",
+          "file": "intake-form-visual.spec.ts",
+          "line": 293,
+          "column": 7
+        },
+        {
+          "title": "intake-form questions visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intake-form-tablet",
+              "projectName": "intake-form-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 512,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-04T08:35:54.872Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9fa2f5f0edfc802fd19a-6fc4ad36046d672c9358",
+          "file": "intake-form-visual.spec.ts",
+          "line": 293,
+          "column": 7
+        },
+        {
+          "title": "intake-form submit visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intake-form-tablet",
+              "projectName": "intake-form-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 435,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-04T08:35:55.394Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9fa2f5f0edfc802fd19a-dd8baa38672f9a6fa68e",
+          "file": "intake-form-visual.spec.ts",
+          "line": 293,
+          "column": 7
+        },
+        {
+          "title": "intake-form brand visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intake-form-mobile",
+              "projectName": "intake-form-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 582,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-04T08:35:56.299Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9fa2f5f0edfc802fd19a-a5f576b0ec3f93eccdd8",
+          "file": "intake-form-visual.spec.ts",
+          "line": 293,
+          "column": 7
+        },
+        {
+          "title": "intake-form research visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intake-form-mobile",
+              "projectName": "intake-form-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 414,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-04T08:35:57.080Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9fa2f5f0edfc802fd19a-88fadc80897088c2d239",
+          "file": "intake-form-visual.spec.ts",
+          "line": 293,
+          "column": 7
+        },
+        {
+          "title": "intake-form profile visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intake-form-mobile",
+              "projectName": "intake-form-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 543,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-04T08:35:57.505Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9fa2f5f0edfc802fd19a-f5dcd6f12460195a0a52",
+          "file": "intake-form-visual.spec.ts",
+          "line": 293,
+          "column": 7
+        },
+        {
+          "title": "intake-form questions visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intake-form-mobile",
+              "projectName": "intake-form-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 457,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-04T08:35:58.067Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9fa2f5f0edfc802fd19a-119c365cdea734596c1a",
+          "file": "intake-form-visual.spec.ts",
+          "line": 293,
+          "column": 7
+        },
+        {
+          "title": "intake-form submit visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intake-form-mobile",
+              "projectName": "intake-form-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 426,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-04T08:35:58.536Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9fa2f5f0edfc802fd19a-58118c7e45e6fd876918",
+          "file": "intake-form-visual.spec.ts",
+          "line": 293,
+          "column": 7
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-08-04T08:35:18.508Z",
+    "duration": 40593.254,
+    "expected": 15,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

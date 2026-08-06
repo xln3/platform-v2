@@ -1,0 +1,58 @@
+{
+  "generated_at": "2026-07-24T20:57:17Z",
+  "result": "passed",
+  "production_url": "https://127.0.0.1:8443",
+  "version": "0.1.0-s04",
+  "schema_revision": "s04_0008",
+  "predeployment_backup": {
+    "path": "/home/xln/geo-system/backups/s04-confirmations-predeploy-20260725T0500CST",
+    "postgres_dump_bytes": 1773625,
+    "postgres_dump_sha256": "ddd67293b16f6adb40fd6272d733cabe626c92dec3b6ac36f68dabf503affa2a",
+    "postgres_16_catalog_validation": "passed",
+    "mode": "0600"
+  },
+  "migration": {
+    "from": "s04_0007",
+    "to": "s04_0008",
+    "client_profile_version_rows": 0,
+    "asset_confirmation_version_rows": 0,
+    "brand_rows": 5,
+    "competitor_rows": 3,
+    "business_data_mutated_for_certification": false
+  },
+  "customer_web": {
+    "index_sha256": "d08d4d666dec4493a8254fc1acdf05a49da8c44efb959d050a33daf81ff34925",
+    "generated_openapi_drift": false,
+    "production_browser_checks": 21,
+    "production_browser_passed": 21,
+    "profile_viewports": ["desktop", "tablet", "mobile"],
+    "asset_viewports": ["desktop", "tablet", "mobile"],
+    "console_errors": 0,
+    "page_errors": 0,
+    "failed_requests": 0,
+    "http_error_responses": 0
+  },
+  "quality": {
+    "focused_integration": "2/2",
+    "python_suite": "99/99",
+    "customer_unit": "11/11",
+    "full_four_app_e2e": "216/216 in 213514.907 ms; 0 unexpected, skipped or flaky",
+    "tenant_tables_rls_enabled_forced": "75/75"
+  },
+  "services_active": [
+    "geo-platform-v2-api.service",
+    "geo-platform-v2-worker.service",
+    "geo-platform-v2-s02-worker.service",
+    "geo-platform-v2-outbox-worker.service",
+    "geosys.service"
+  ],
+  "legacy_routes": {
+    "/portal": 200,
+    "/ops": 200,
+    "/client": 200,
+    "/geo": 401,
+    "redirects": 0,
+    "cutover": false
+  },
+  "secrets_emitted": false
+}

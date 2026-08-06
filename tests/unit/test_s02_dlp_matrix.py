@@ -36,3 +36,33 @@ def test_dlp_matrix_removes_secrets_before_searchable_admission(
 def test_binary_screenshot_pdf_qr_secret_markers_fail_closed(marker: bytes) -> None:
     with pytest.raises(ValueError, match="binary object"):
         redact_bytes(b"\x89PNG\r\n" + marker, mime_type="image/png")
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b"otpauth://totp/geo-platform?secret=ABC123",
+        b"weixin://wxpay/bizpayurl?pr=abc123XYZ",
+        b"alipay://qr/anything12345",
+        b"ALIPAYS://platformapi/startapp?saId=123456",
+    ],
+)
+def test_qr_payload_schemes_are_redacted(payload: bytes) -> None:
+    result = redact_bytes(payload, mime_type="text/plain")
+    assert "qr_payload" in result.findings
+    assert b"[REDACTED:qr_payload]" in result.redacted
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        # 公开微信公众号文章链接、含 qrcode 字样的普通 URL——不是 QR 秘密载荷。
+        "引用来源 https://weixin.qq.com/s/AbCdEfGh1234 的公众号文章".encode(),
+        b"see https://example.com/qrcode/generate?content=hello for details",
+        "微信支付介绍页 https://pay.weixin.qq.com/doc/index.html".encode(),
+    ],
+)
+def test_public_weixin_and_qrcode_urls_are_not_secret(payload: bytes) -> None:
+    result = redact_bytes(payload, mime_type="text/plain")
+    assert "qr_payload" not in result.findings
+    assert result.redacted == payload

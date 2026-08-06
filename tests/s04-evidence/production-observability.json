@@ -1,0 +1,108 @@
+{
+  "generated_at": "2026-07-25T16:55:08+08:00",
+  "environment": "production",
+  "result": "passed",
+  "components": {
+    "otel_collector": {
+      "image": "otel/opentelemetry-collector-contrib:0.153.0",
+      "state": "running",
+      "receiver": "http://127.0.0.1:14318",
+      "persistent_trace_file": "healthy"
+    },
+    "prometheus": {
+      "image": "prom/prometheus:v3.13.0",
+      "state": "running",
+      "ready_http_status": 200,
+      "active_targets": 4,
+      "healthy_targets": 4,
+      "geo_http_metric_series": 5
+    },
+    "alertmanager": {
+      "image": "prom/alertmanager:v0.28.1",
+      "state": "running",
+      "healthy_http_status": 200,
+      "local_safe_receiver": "http://127.0.0.1:18091/alerts"
+    },
+    "business_metrics": {
+      "service": "geo-platform-v2-business-metrics.service",
+      "state": "active",
+      "prometheus_scrape_health": "up",
+      "aggregate_rows": 12,
+      "identifier_labels_emitted": false
+    },
+    "alert_receiver": {
+      "service": "geo-platform-v2-alert-receiver.service",
+      "state": "active",
+      "health_http_status": 200,
+      "payload_projection": "allowlisted labels only"
+    },
+    "loki": {
+      "image": "grafana/loki:3.7.2",
+      "state": "running",
+      "ready_http_status": 200,
+      "journal_streams": 2,
+      "sample_entries": 5
+    },
+    "alloy": {
+      "image": "grafana/alloy:v1.18.0",
+      "state": "running",
+      "source": "systemd-journal",
+      "destination": "loki"
+    },
+    "grafana": {
+      "image": "grafana/grafana:13.0.2",
+      "state": "running",
+      "health_http_status": 200,
+      "api_auth_http_status": 200,
+      "dashboard_uid": "geo-platform-v2-production",
+      "dashboard_version": 2,
+      "business_panels": [
+        "Firing production alerts",
+        "Stale workflow commands",
+        "Expired session leases",
+        "Analysis admission backlog"
+      ]
+    }
+  },
+  "business_alerting": {
+    "rules_loaded": 12,
+    "delivered_alert_observed": "GeoCollectionAnalysisAdmissionBlocked",
+    "current_firing_alerts": 0,
+    "current_analysis_admission_backlog": 0,
+    "safe_receiver_delivery_observed_in_loki": true,
+    "evidence": "production-business-alerting.json"
+  },
+  "api_metrics": {
+    "endpoint_http_status": 200,
+    "request_counter_present": true,
+    "request_duration_histogram_present": true,
+    "prometheus_scrape_health": "up"
+  },
+  "end_to_end_trace": {
+    "trace_id": "f1aff637fc4e5bc9a3263c2578ae9215",
+    "request": "POST /api/v2/collection/runs",
+    "request_http_status": 202,
+    "workflow": "GeoCollectionWorkflow",
+    "activity": "collect_with_adapter",
+    "same_trace_contains": [
+      "POST /api/v2/collection/runs",
+      "StartWorkflow:GeoCollectionWorkflow",
+      "RunWorkflow:GeoCollectionWorkflow",
+      "StartActivity:collect_with_adapter",
+      "RunActivity:collect_with_adapter",
+      "CompleteWorkflow:GeoCollectionWorkflow"
+    ],
+    "api_to_workflow_to_activity": true
+  },
+  "defects_fixed_during_verification": [
+    {
+      "code": "otel_volume_ownership",
+      "resolution": "restricted persistent volume assigned to the collector runtime UID"
+    },
+    {
+      "code": "migrated_config_not_executable",
+      "resolution": "migration now materializes V2 models and query_groups while retaining legacy audit fields"
+    }
+  ],
+  "secret_values_recorded": false
+}

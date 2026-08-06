@@ -1,0 +1,36 @@
+{
+  "generated_at": "2026-07-27T04:30:07.790653+00:00",
+  "result": "passed",
+  "identity_mode": "legacy_session_bridge",
+  "legacy_session": {
+    "active_session_count": 4,
+    "role_counts": {
+      "owner": 4
+    },
+    "database_open_mode": "read_only"
+  },
+  "browser_actor_header_impersonation": {
+    "status": 401,
+    "error_code": "session_invalid",
+    "rejected": true
+  },
+  "mapped_session": {
+    "status": 200,
+    "v2_role": "admin",
+    "accepted": true
+  },
+  "final_identity_gates": {
+    "oidc_verified": false,
+    "passkey_verified": false,
+    "human_roles_verified": [
+      "admin"
+    ],
+    "human_roles_missing": [
+      "customer",
+      "operator",
+      "analyst",
+      "reviewer"
+    ]
+  },
+  "secret_emitted": false
+}

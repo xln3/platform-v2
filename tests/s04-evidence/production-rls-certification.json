@@ -1,0 +1,45 @@
+{
+  "generated_at": "2026-07-27T04:29:44.703303+00:00",
+  "result": "passed",
+  "schema_revision": "s04_0029",
+  "predeployment_backup": {
+    "path": "/home/xln/geo-system/platform-v2/.production-backups/20260727T035755Z/postgres-pre-s04-0029.dump",
+    "postgres_dump_bytes": 1877800,
+    "postgres_dump_sha256": "06f5f5926e28f5142ef2445800dc4286177883b0e5f628a20c5579db55fd6210",
+    "postgres_16_catalog_entries": 1032,
+    "postgres_16_catalog_validation": "passed",
+    "backup_mode": "0600"
+  },
+  "runtime_role": {
+    "superuser": false,
+    "createdb": false,
+    "createrole": false,
+    "bypass_rls": false
+  },
+  "worker_role": {
+    "superuser": false,
+    "createdb": false,
+    "createrole": false,
+    "bypass_rls": false,
+    "scope": "internal Temporal and outbox processing with explicit tenant context"
+  },
+  "tenant_tables": {
+    "total": 85,
+    "rls_enabled": 85,
+    "rls_forced": 85
+  },
+  "no_context_counts": {
+    "platform_memberships": 0,
+    "analytics_metrics": 0
+  },
+  "own_context_matches_owner_truth": true,
+  "cross_tenant_counts": {
+    "platform_memberships": 0,
+    "analytics_metrics": 0
+  },
+  "production_cross_tenant_sample": "not_applicable_single_tenant",
+  "populated_two_tenant_test": "tests/integration/test_s04_rls.py",
+  "row_security_off_blocked": true,
+  "tenant_identifiers_emitted": false,
+  "secrets_emitted": false
+}

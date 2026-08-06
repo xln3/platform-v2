@@ -1,0 +1,3162 @@
+{
+  "config": {
+    "argv": [
+      "/home/xln/.config/nvm/versions/node/v24.6.0/bin/node",
+      "/home/xln/geo-system/platform-v2/node_modules/@playwright/test/cli.js",
+      "test",
+      "tests/e2e/customer-account.spec.ts",
+      "tests/e2e/customer-project-write-integrity.spec.ts",
+      "tests/e2e/customer-member-integrity.spec.ts",
+      "tests/e2e/customer-product-live.spec.ts",
+      "tests/e2e/reports-live.spec.ts",
+      "tests/e2e/reports-studio.spec.ts",
+      "tests/e2e/intelligence-calibration.spec.ts",
+      "tests/e2e/intelligence-live.spec.ts"
+    ],
+    "configFile": "/home/xln/geo-system/platform-v2/playwright.config.ts",
+    "rootDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+    "failOnFlakyTests": false,
+    "forbidOnly": true,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/tmp/geo-round123-structured-mutation-focused",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "customer-desktop",
+        "name": "customer-desktop",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/customer-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/tmp/geo-round123-structured-mutation-focused",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "customer-tablet",
+        "name": "customer-tablet",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/customer-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/tmp/geo-round123-structured-mutation-focused",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "customer-mobile",
+        "name": "customer-mobile",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/customer-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/tmp/geo-round123-structured-mutation-focused",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "operations-desktop",
+        "name": "operations-desktop",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/operations-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/tmp/geo-round123-structured-mutation-focused",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "operations-tablet",
+        "name": "operations-tablet",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/operations-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/tmp/geo-round123-structured-mutation-focused",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "operations-mobile",
+        "name": "operations-mobile",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/operations-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/tmp/geo-round123-structured-mutation-focused",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "reports-desktop",
+        "name": "reports-desktop",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/reports-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/tmp/geo-round123-structured-mutation-focused",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "reports-tablet",
+        "name": "reports-tablet",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/reports-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/tmp/geo-round123-structured-mutation-focused",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "reports-mobile",
+        "name": "reports-mobile",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/reports-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/tmp/geo-round123-structured-mutation-focused",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "intelligence-desktop",
+        "name": "intelligence-desktop",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/intelligence-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/tmp/geo-round123-structured-mutation-focused",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "intelligence-tablet",
+        "name": "intelligence-tablet",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/intelligence-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/tmp/geo-round123-structured-mutation-focused",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "intelligence-mobile",
+        "name": "intelligence-mobile",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/intelligence-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "tests/s04-evidence/e2e-results-s03-round123-structured-mutation-focused.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.61.1",
+    "workers": 1,
+    "webServer": {
+      "command": "exec bash scripts/start_e2e_webservers.sh",
+      "url": "http://127.0.0.1:47201/platform/customer/",
+      "env": {
+        "PYTHON_BASIC_REPL": "1",
+        "LESSOPEN": "| /usr/bin/lesspipe %s",
+        "TMUX": "/tmp/tmux-1000/default,4013479,11",
+        "CODEX_CI": "1",
+        "USER": "xln",
+        "SSH_CLIENT": "117.133.64.159 8015 2222",
+        "npm_config_user_agent": "pnpm/11.17.0 npm/? node/v24.6.0 linux x64",
+        "XDG_SESSION_TYPE": "tty",
+        "GIT_ASKPASS": "/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/extensions/git/dist/askpass.sh",
+        "GEO_E2E_JSON_REPORT": "tests/s04-evidence/e2e-results-s03-round123-structured-mutation-focused.json",
+        "SHLVL": "3",
+        "BROWSER": "/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/bin/helpers/browser.sh",
+        "MOTD_SHOWN": "pam",
+        "HOME": "/home/xln",
+        "TERM_PROGRAM_VERSION": "3.2a",
+        "NVM_BIN": "/home/xln/.config/nvm/versions/node/v24.6.0/bin",
+        "VSCODE_IPC_HOOK_CLI": "/run/user/1000/vscode-ipc-19a833ff-7b40-43ab-9744-1d6bf8bcdc83.sock",
+        "NVM_INC": "/home/xln/.config/nvm/versions/node/v24.6.0/include/node",
+        "COREPACK_ROOT": "/home/xln/.config/nvm/versions/node/v24.6.0/lib/node_modules/corepack",
+        "PAGER": "cat",
+        "VSCODE_GIT_ASKPASS_MAIN": "/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/extensions/git/dist/askpass-main.js",
+        "HF_ENDPOINT": "https://hf-mirror.com",
+        "VSCODE_GIT_ASKPASS_NODE": "/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/node",
+        "LC_CTYPE": "C.UTF-8",
+        "PYDEVD_DISABLE_FILE_VALIDATION": "1",
+        "BUNDLED_DEBUGPY_PATH": "/home/xln/.vscode-server/extensions/ms-python.debugpy-2026.6.0-linux-x64/bundled/libs/debugpy",
+        "VSCODE_PYTHON_AUTOACTIVATE_GUARD": "1",
+        "NO_COLOR": "1",
+        "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/1000/bus",
+        "COLORTERM": "",
+        "GEO_E2E_OUTPUT_DIR": "/tmp/geo-round123-structured-mutation-focused",
+        "NVM_DIR": "/home/xln/.config/nvm",
+        "https_proxy": "http://127.0.0.1:7890",
+        "CODEX_PERMISSION_PROFILE": ":danger-full-access",
+        "COREPACK_ENABLE_DOWNLOAD_PROMPT": "1",
+        "LOGNAME": "xln",
+        "pnpm_config_verify_deps_before_run": "false",
+        "http_proxy": "http://127.0.0.1:7890",
+        "_": "/home/xln/.config/nvm/versions/node/v24.6.0/bin/pnpm",
+        "CLAUDE_CODE_SSE_PORT": "31479",
+        "XDG_SESSION_CLASS": "user",
+        "GEO_E2E_PORT_BASE": "47200",
+        "TERM": "dumb",
+        "XDG_SESSION_ID": "5582",
+        "PATH": "./node_modules/.bin:/home/xln/geo-system/platform-v2/node_modules/.bin:/home/xln/.local/bin:/home/xln/.config/nvm/versions/node/v24.6.0/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/codex-path:/home/xln/.codex/tmp/arg0/codex-arg0B22gK7:/home/xln/.local/bin:/home/xln/.kimi-code/bin:/home/xln/.deno/bin:/home/xln/.local/bin:/home/xln/.kimi-code/bin:/home/xln/.deno/bin:/home/xln/.local/bin:/home/xln/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand:/home/xln/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli:/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/bin/remote-cli:/home/xln/.local/bin:/home/xln/.kimi-code/bin:/home/xln/google-cloud-sdk/bin:/home/xln/.deno/bin:/home/xln/.config/nvm/versions/node/v24.6.0/bin:/home/xln/.local/bin:/home/xln/.deno/bin:/home/xln/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin",
+        "XDG_RUNTIME_DIR": "/run/user/1000",
+        "VSCODE_DEBUGPY_ADAPTER_ENDPOINTS": "/home/xln/.vscode-server/extensions/ms-python.debugpy-2026.6.0-linux-x64/.noConfigDebugAdapterEndpoints/endpoint-70a46e768030bfa5.txt",
+        "LANG": "C.UTF-8",
+        "PYTHONSTARTUP": "/home/xln/.vscode-server/data/User/workspaceStorage/064617a2688c468aa40abc1ece39445c/ms-python.python/pythonrc.py",
+        "GH_PAGER": "cat",
+        "LS_COLORS": "rs=0:di=01;34:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=30;41:tw=30;42:ow=34;42:st=37;44:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arc=01;31:*.arj=01;31:*.taz=01;31:*.lha=01;31:*.lz4=01;31:*.lzh=01;31:*.lzma=01;31:*.tlz=01;31:*.txz=01;31:*.tzo=01;31:*.t7z=01;31:*.zip=01;31:*.z=01;31:*.dz=01;31:*.gz=01;31:*.lrz=01;31:*.lz=01;31:*.lzo=01;31:*.xz=01;31:*.zst=01;31:*.tzst=01;31:*.bz2=01;31:*.bz=01;31:*.tbz=01;31:*.tbz2=01;31:*.tz=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.war=01;31:*.ear=01;31:*.sar=01;31:*.rar=01;31:*.alz=01;31:*.ace=01;31:*.zoo=01;31:*.cpio=01;31:*.7z=01;31:*.rz=01;31:*.cab=01;31:*.wim=01;31:*.swm=01;31:*.dwm=01;31:*.esd=01;31:*.jpg=01;35:*.jpeg=01;35:*.mjpg=01;35:*.mjpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.svg=01;35:*.svgz=01;35:*.mng=01;35:*.pcx=01;35:*.mov=01;35:*.mpg=01;35:*.mpeg=01;35:*.m2v=01;35:*.mkv=01;35:*.webm=01;35:*.webp=01;35:*.ogm=01;35:*.mp4=01;35:*.m4v=01;35:*.mp4v=01;35:*.vob=01;35:*.qt=01;35:*.nuv=01;35:*.wmv=01;35:*.asf=01;35:*.rm=01;35:*.rmvb=01;35:*.flc=01;35:*.avi=01;35:*.fli=01;35:*.flv=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.yuv=01;35:*.cgm=01;35:*.emf=01;35:*.ogv=01;35:*.ogx=01;35:*.aac=00;36:*.au=00;36:*.flac=00;36:*.m4a=00;36:*.mid=00;36:*.midi=00;36:*.mka=00;36:*.mp3=00;36:*.mpc=00;36:*.ogg=00;36:*.ra=00;36:*.wav=00;36:*.oga=00;36:*.opus=00;36:*.spx=00;36:*.xspf=00;36:",
+        "CLAUDE_CODE_DISABLE_1M_CONTEXT": "1",
+        "VSCODE_GIT_IPC_HANDLE": "/run/user/1000/vscode-git-732bafe257.sock",
+        "TERM_PROGRAM": "tmux",
+        "SHELL": "/bin/bash",
+        "NODE_PATH": "/home/xln/geo-system/platform-v2/node_modules/.pnpm/@playwright+test@1.61.1/node_modules/@playwright/test/node_modules:/home/xln/geo-system/platform-v2/node_modules/.pnpm/@playwright+test@1.61.1/node_modules:/home/xln/geo-system/platform-v2/node_modules/.pnpm/node_modules",
+        "LESSCLOSE": "/usr/bin/lesspipe %s %s",
+        "CODEX_THREAD_ID": "019f92eb-f497-71a0-b01b-29ed4969dc22",
+        "PNPM_PACKAGE_NAME": "geo-platform-v2",
+        "VSCODE_GIT_ASKPASS_EXTRA_ARGS": "",
+        "GIT_PAGER": "cat",
+        "PWD": "/home/xln/geo-system/platform-v2",
+        "DISABLE_AUTOUPDATER": "1",
+        "LC_ALL": "C.UTF-8",
+        "CODEX_MANAGED_PACKAGE_ROOT": "/home/xln/.config/nvm/versions/node/v24.6.0/lib/node_modules/@openai/codex",
+        "COPILOT_DEBUG_NONCE": "9abf7f5d3e8c784e97955dcc9fdda180",
+        "SSH_CONNECTION": "117.133.64.159 8015 172.16.1.190 2222",
+        "NVM_CD_FLAGS": "",
+        "XDG_DATA_DIRS": "/usr/share/gnome:/usr/local/share:/usr/share:/var/lib/snapd/desktop",
+        "npm_command": "exec",
+        "CODEX_MANAGED_BY_NPM": "1",
+        "TMUX_PANE": "%11",
+        "GEO_VITE_NO_WATCH": "1",
+        "GEO_E2E_BUILD": "1",
+        "VITE_ALLOW_CONTRACT_FIXTURES": "true",
+        "VITE_GEO_API_BASE": ""
+      },
+      "reuseExistingServer": false,
+      "timeout": 240000
+    }
+  },
+  "suites": [
+    {
+      "title": "customer-account.spec.ts",
+      "file": "customer-account.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "customer pairs, verifies and revokes without secret leakage",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1345,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:57:17.232Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-13217962437a421351cb",
+          "file": "customer-account.spec.ts",
+          "line": 5,
+          "column": 5
+        },
+        {
+          "title": "validated customer lifecycle writes stay single under synchronous duplicate activation",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2200,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:57:18.798Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-674255fabcdc510f46c2",
+          "file": "customer-account.spec.ts",
+          "line": 108,
+          "column": 5
+        },
+        {
+          "title": "customer pairing refusal and timeout destroy the one-time channel",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 619,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:57:21.009Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-09e2b39fec2978a0d7e2",
+          "file": "customer-account.spec.ts",
+          "line": 450,
+          "column": 5
+        },
+        {
+          "title": "validated customer submits a project change request through the generated live contract",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 576,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:57:21.637Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-100961fb709b843243f4",
+          "file": "customer-account.spec.ts",
+          "line": 477,
+          "column": 5
+        },
+        {
+          "title": "monitoring filters are URL-bound and restore through browser history",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 742,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:57:22.220Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-8566dead8e91d3d39ec4",
+          "file": "customer-account.spec.ts",
+          "line": 616,
+          "column": 5
+        },
+        {
+          "title": "customer profile, brand assets and configuration requests validate and submit",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 873,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:57:22.969Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-87afada9c130e9039b16",
+          "file": "customer-account.spec.ts",
+          "line": 659,
+          "column": 5
+        },
+        {
+          "title": "customer reviews evidence, exports, questions reports and manages members",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1322,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:57:23.850Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-86c1cd955cd0e298588f",
+          "file": "customer-account.spec.ts",
+          "line": 707,
+          "column": 5
+        },
+        {
+          "title": "customer pairs, verifies and revokes without secret leakage",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1281,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:57:38.104Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-1e29f4bb0fe10b716456",
+          "file": "customer-account.spec.ts",
+          "line": 5,
+          "column": 5
+        },
+        {
+          "title": "validated customer lifecycle writes stay single under synchronous duplicate activation",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2136,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:57:39.625Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-34b3a54de45e88f9118d",
+          "file": "customer-account.spec.ts",
+          "line": 108,
+          "column": 5
+        },
+        {
+          "title": "customer pairing refusal and timeout destroy the one-time channel",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 594,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:57:41.769Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-342016d572b150085be7",
+          "file": "customer-account.spec.ts",
+          "line": 450,
+          "column": 5
+        },
+        {
+          "title": "validated customer submits a project change request through the generated live contract",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 557,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:57:42.371Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-e6c07aaf655a3732a4f1",
+          "file": "customer-account.spec.ts",
+          "line": 477,
+          "column": 5
+        },
+        {
+          "title": "monitoring filters are URL-bound and restore through browser history",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 788,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:57:42.935Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-b0b3649ba4b524348cdd",
+          "file": "customer-account.spec.ts",
+          "line": 616,
+          "column": 5
+        },
+        {
+          "title": "customer profile, brand assets and configuration requests validate and submit",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 875,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:57:43.730Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-512036d0f8ddb9183eb2",
+          "file": "customer-account.spec.ts",
+          "line": 659,
+          "column": 5
+        },
+        {
+          "title": "customer reviews evidence, exports, questions reports and manages members",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1264,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:57:44.613Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-ad0a55f2e9bdcc93c5b8",
+          "file": "customer-account.spec.ts",
+          "line": 707,
+          "column": 5
+        },
+        {
+          "title": "customer pairs, verifies and revokes without secret leakage",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1347,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:57:57.792Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-9086a582641605d54316",
+          "file": "customer-account.spec.ts",
+          "line": 5,
+          "column": 5
+        },
+        {
+          "title": "validated customer lifecycle writes stay single under synchronous duplicate activation",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2092,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:57:59.339Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-bc50dc1bd3170643a67e",
+          "file": "customer-account.spec.ts",
+          "line": 108,
+          "column": 5
+        },
+        {
+          "title": "customer pairing refusal and timeout destroy the one-time channel",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 672,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:01.440Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-bbbe396f3fd1e47d6b11",
+          "file": "customer-account.spec.ts",
+          "line": 450,
+          "column": 5
+        },
+        {
+          "title": "validated customer submits a project change request through the generated live contract",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 558,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:02.119Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-22d0c3216ec4fcec2b21",
+          "file": "customer-account.spec.ts",
+          "line": 477,
+          "column": 5
+        },
+        {
+          "title": "monitoring filters are URL-bound and restore through browser history",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 723,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:02.684Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-5f2da694f4f9f8065894",
+          "file": "customer-account.spec.ts",
+          "line": 616,
+          "column": 5
+        },
+        {
+          "title": "customer profile, brand assets and configuration requests validate and submit",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 844,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:03.414Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-c4b22ca2d8cffb7e27e0",
+          "file": "customer-account.spec.ts",
+          "line": 659,
+          "column": 5
+        },
+        {
+          "title": "customer reviews evidence, exports, questions reports and manages members",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1222,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:04.265Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "3a5abf23ef5b02e3de66-c4c21cf830afb0dda7d3",
+          "file": "customer-account.spec.ts",
+          "line": 707,
+          "column": 5
+        }
+      ]
+    },
+    {
+      "title": "customer-member-integrity.spec.ts",
+      "file": "customer-member-integrity.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "tenant member writes stay serialized and bound to the initiating member",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1284,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:57:25.216Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "5d9ded4531fda350cd7d-136b078012d28fb59310",
+          "file": "customer-member-integrity.spec.ts",
+          "line": 4,
+          "column": 5
+        },
+        {
+          "title": "tenant member writes stay serialized and bound to the initiating member",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1237,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:57:45.920Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "5d9ded4531fda350cd7d-ebffac93734361128537",
+          "file": "customer-member-integrity.spec.ts",
+          "line": 4,
+          "column": 5
+        },
+        {
+          "title": "tenant member writes stay serialized and bound to the initiating member",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1088,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:05.528Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "5d9ded4531fda350cd7d-e38f6cc62710ffcbb38f",
+          "file": "customer-member-integrity.spec.ts",
+          "line": 4,
+          "column": 5
+        }
+      ]
+    },
+    {
+      "title": "customer-product-live.spec.ts",
+      "file": "customer-product-live.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "validated customer reads mounted data and serializes every write without secret leakage",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3617,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:57:26.519Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-eef288ab98a4735ac702",
+          "file": "customer-product-live.spec.ts",
+          "line": 20,
+          "column": 5
+        },
+        {
+          "title": "customer product 404 fails closed without revealing whether analytics exist",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 451,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:57:30.146Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-cfe5600bd9f46651871d",
+          "file": "customer-product-live.spec.ts",
+          "line": 897,
+          "column": 5
+        },
+        {
+          "title": "validated tenant admin manages masked customer members through generated identity paths",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 734,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:57:30.604Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-b5bed3f54fa32fcd98bd",
+          "file": "customer-product-live.spec.ts",
+          "line": 978,
+          "column": 5
+        },
+        {
+          "title": "a same-subject but input-mismatched member receipt fails locally without leakage",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1014,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:57:31.347Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-7df54868c0b014ea5cb9",
+          "file": "customer-product-live.spec.ts",
+          "line": 1175,
+          "column": 5
+        },
+        {
+          "title": "oversized or unsafe identity governance lists stay explicit and governance-write locked",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2035,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:57:32.371Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-0924aed644b25b9e1782",
+          "file": "customer-product-live.spec.ts",
+          "line": 1286,
+          "column": 5
+        },
+        {
+          "title": "customer role cannot infer tenant member existence",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 387,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:57:34.413Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-5ddee9880c6abd394e6e",
+          "file": "customer-product-live.spec.ts",
+          "line": 1425,
+          "column": 5
+        },
+        {
+          "title": "live answer cursor pagination preserves URL history and rejects secret-shaped cursors",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 619,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:57:34.807Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-efb45b0b46f149909f8d",
+          "file": "customer-product-live.spec.ts",
+          "line": 1495,
+          "column": 5
+        },
+        {
+          "title": "validated customer reads mounted data and serializes every write without secret leakage",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3288,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:57:47.180Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-0c4d0c0ab88bf2d36dd8",
+          "file": "customer-product-live.spec.ts",
+          "line": 20,
+          "column": 5
+        },
+        {
+          "title": "customer product 404 fails closed without revealing whether analytics exist",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 437,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:57:50.476Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-f6e53c7ba15efaff4c11",
+          "file": "customer-product-live.spec.ts",
+          "line": 897,
+          "column": 5
+        },
+        {
+          "title": "validated tenant admin manages masked customer members through generated identity paths",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 726,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:57:50.921Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-32e6d935a0822e739de9",
+          "file": "customer-product-live.spec.ts",
+          "line": 978,
+          "column": 5
+        },
+        {
+          "title": "a same-subject but input-mismatched member receipt fails locally without leakage",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 863,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:57:51.655Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-0e77ae7eca4e6ee0ce6c",
+          "file": "customer-product-live.spec.ts",
+          "line": 1175,
+          "column": 5
+        },
+        {
+          "title": "oversized or unsafe identity governance lists stay explicit and governance-write locked",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1813,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:57:52.527Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-c289466210eaf9c1dc32",
+          "file": "customer-product-live.spec.ts",
+          "line": 1286,
+          "column": 5
+        },
+        {
+          "title": "customer role cannot infer tenant member existence",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 353,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:57:54.347Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-24c1914d4a6d15db632f",
+          "file": "customer-product-live.spec.ts",
+          "line": 1425,
+          "column": 5
+        },
+        {
+          "title": "live answer cursor pagination preserves URL history and rejects secret-shaped cursors",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 560,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:57:54.707Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-5dcf4f64a63b77d14110",
+          "file": "customer-product-live.spec.ts",
+          "line": 1495,
+          "column": 5
+        },
+        {
+          "title": "validated customer reads mounted data and serializes every write without secret leakage",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3098,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:06.636Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-56b951abf2f4ecde568d",
+          "file": "customer-product-live.spec.ts",
+          "line": 20,
+          "column": 5
+        },
+        {
+          "title": "customer product 404 fails closed without revealing whether analytics exist",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 437,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:09.744Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-a636a4b9542d91466e2a",
+          "file": "customer-product-live.spec.ts",
+          "line": 897,
+          "column": 5
+        },
+        {
+          "title": "validated tenant admin manages masked customer members through generated identity paths",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 728,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:10.189Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-1012384d30e79410805c",
+          "file": "customer-product-live.spec.ts",
+          "line": 978,
+          "column": 5
+        },
+        {
+          "title": "a same-subject but input-mismatched member receipt fails locally without leakage",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 891,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:10.925Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-e26c8a488d88f6e800cd",
+          "file": "customer-product-live.spec.ts",
+          "line": 1175,
+          "column": 5
+        },
+        {
+          "title": "oversized or unsafe identity governance lists stay explicit and governance-write locked",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2079,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:11.822Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-349622ab8a6919c7c14f",
+          "file": "customer-product-live.spec.ts",
+          "line": 1286,
+          "column": 5
+        },
+        {
+          "title": "customer role cannot infer tenant member existence",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 356,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:13.907Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-18972928f935bb3c7029",
+          "file": "customer-product-live.spec.ts",
+          "line": 1425,
+          "column": 5
+        },
+        {
+          "title": "live answer cursor pagination preserves URL history and rejects secret-shaped cursors",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 614,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:14.272Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-8630de251161e3e8d772",
+          "file": "customer-product-live.spec.ts",
+          "line": 1495,
+          "column": 5
+        }
+      ]
+    },
+    {
+      "title": "customer-project-write-integrity.spec.ts",
+      "file": "customer-project-write-integrity.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "project form writes reject synchronous duplicate submits and retain no secret receipts",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2169,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:57:35.435Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "a80df7e35e0e8ca9c0ca-8b3da796130114a31783",
+          "file": "customer-project-write-integrity.spec.ts",
+          "line": 4,
+          "column": 5
+        },
+        {
+          "title": "project form writes reject synchronous duplicate submits and retain no secret receipts",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2034,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:57:55.280Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "a80df7e35e0e8ca9c0ca-03f8ed4205fa2c8f9687",
+          "file": "customer-project-write-integrity.spec.ts",
+          "line": 4,
+          "column": 5
+        },
+        {
+          "title": "project form writes reject synchronous duplicate submits and retain no secret receipts",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2071,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:14.896Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "a80df7e35e0e8ca9c0ca-747c6f4129470f2b3388",
+          "file": "customer-project-write-integrity.spec.ts",
+          "line": 4,
+          "column": 5
+        }
+      ]
+    },
+    {
+      "title": "reports-live.spec.ts",
+      "file": "reports-live.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "reviewer and analyst live writes stay single under synchronous duplicate submissions",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "reports-desktop",
+              "projectName": "reports-desktop",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2055,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:17.470Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6b337dde9a357cb63a79-442a7422da6a03dfaa0f",
+          "file": "reports-live.spec.ts",
+          "line": 5,
+          "column": 5
+        },
+        {
+          "title": "report 404 uses the same forbidden surface and does not probe detail",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "reports-desktop",
+              "projectName": "reports-desktop",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 395,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:19.736Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6b337dde9a357cb63a79-c8c4ef62962edfd81d27",
+          "file": "reports-live.spec.ts",
+          "line": 576,
+          "column": 5
+        },
+        {
+          "title": "reviewer and analyst live writes stay single under synchronous duplicate submissions",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "reports-tablet",
+              "projectName": "reports-tablet",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1987,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:22.269Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6b337dde9a357cb63a79-454be252ceeec30a9cae",
+          "file": "reports-live.spec.ts",
+          "line": 5,
+          "column": 5
+        },
+        {
+          "title": "report 404 uses the same forbidden surface and does not probe detail",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "reports-tablet",
+              "projectName": "reports-tablet",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 417,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:24.473Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6b337dde9a357cb63a79-3ce16e12907d882aee78",
+          "file": "reports-live.spec.ts",
+          "line": 576,
+          "column": 5
+        },
+        {
+          "title": "reviewer and analyst live writes stay single under synchronous duplicate submissions",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "reports-mobile",
+              "projectName": "reports-mobile",
+              "results": [
+                {
+                  "workerIndex": 5,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1927,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:27.121Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6b337dde9a357cb63a79-2ffba09f295c6d2f29f8",
+          "file": "reports-live.spec.ts",
+          "line": 5,
+          "column": 5
+        },
+        {
+          "title": "report 404 uses the same forbidden surface and does not probe detail",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "reports-mobile",
+              "projectName": "reports-mobile",
+              "results": [
+                {
+                  "workerIndex": 5,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 517,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:29.235Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6b337dde9a357cb63a79-67622c04494a72c46499",
+          "file": "reports-live.spec.ts",
+          "line": 576,
+          "column": 5
+        }
+      ]
+    },
+    {
+      "title": "reports-studio.spec.ts",
+      "file": "reports-studio.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "report studio freezes, edits, binds evidence, reviews, publishes and records outcomes",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "reports-desktop",
+              "projectName": "reports-desktop",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1590,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:20.142Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "2dad417da19ab6bf47ba-14ad04762b9dcf6f0d66",
+          "file": "reports-studio.spec.ts",
+          "line": 4,
+          "column": 5
+        },
+        {
+          "title": "report studio freezes, edits, binds evidence, reviews, publishes and records outcomes",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "reports-tablet",
+              "projectName": "reports-tablet",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1702,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:24.899Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "2dad417da19ab6bf47ba-bdc3f9360e5c037efdd8",
+          "file": "reports-studio.spec.ts",
+          "line": 4,
+          "column": 5
+        },
+        {
+          "title": "report studio freezes, edits, binds evidence, reviews, publishes and records outcomes",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "reports-mobile",
+              "projectName": "reports-mobile",
+              "results": [
+                {
+                  "workerIndex": 5,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1677,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:29.763Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "2dad417da19ab6bf47ba-0cd5decf3d25f372a05b",
+          "file": "reports-studio.spec.ts",
+          "line": 4,
+          "column": 5
+        }
+      ]
+    },
+    {
+      "title": "intelligence-calibration.spec.ts",
+      "file": "intelligence-calibration.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "reviewer governance writes stay single under synchronous duplicate submissions",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-desktop",
+              "projectName": "intelligence-desktop",
+              "results": [
+                {
+                  "workerIndex": 6,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 797,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:31.956Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6c41e9bd221746c137bf-afe6434521ad9f494837",
+          "file": "intelligence-calibration.spec.ts",
+          "line": 131,
+          "column": 5
+        },
+        {
+          "title": "cross-target Anti-GEO write receipts fail closed without success claims or leakage",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-desktop",
+              "projectName": "intelligence-desktop",
+              "results": [
+                {
+                  "workerIndex": 6,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1327,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:32.987Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6c41e9bd221746c137bf-a4992b9f7f85172d2330",
+          "file": "intelligence-calibration.spec.ts",
+          "line": 274,
+          "column": 5
+        },
+        {
+          "title": "analyst registration and evaluation stay single under synchronous duplicate submissions",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-desktop",
+              "projectName": "intelligence-desktop",
+              "results": [
+                {
+                  "workerIndex": 6,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 585,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:34.322Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6c41e9bd221746c137bf-40c8cc529839e8e3f63f",
+          "file": "intelligence-calibration.spec.ts",
+          "line": 378,
+          "column": 5
+        },
+        {
+          "title": "a malformed dataset projection retries locally without hiding neighboring governance data",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-desktop",
+              "projectName": "intelligence-desktop",
+              "results": [
+                {
+                  "workerIndex": 6,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 479,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:34.917Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6c41e9bd221746c137bf-b43a70499275273d7dc0",
+          "file": "intelligence-calibration.spec.ts",
+          "line": 493,
+          "column": 5
+        },
+        {
+          "title": "oversized or unsafe calibration pages stay explicit and governance-write locked",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-desktop",
+              "projectName": "intelligence-desktop",
+              "results": [
+                {
+                  "workerIndex": 6,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1520,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:35.404Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6c41e9bd221746c137bf-124d5ca23d8869907326",
+          "file": "intelligence-calibration.spec.ts",
+          "line": 585,
+          "column": 5
+        },
+        {
+          "title": "calibration cursor pagination restores browser history and rejects secret cursors",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-desktop",
+              "projectName": "intelligence-desktop",
+              "results": [
+                {
+                  "workerIndex": 6,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 646,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:36.931Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6c41e9bd221746c137bf-b0e4a8f9fb73b217096a",
+          "file": "intelligence-calibration.spec.ts",
+          "line": 677,
+          "column": 5
+        },
+        {
+          "title": "reviewer governance writes stay single under synchronous duplicate submissions",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-tablet",
+              "projectName": "intelligence-tablet",
+              "results": [
+                {
+                  "workerIndex": 7,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 793,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:40.639Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6c41e9bd221746c137bf-ffd1d4f00ed72e666665",
+          "file": "intelligence-calibration.spec.ts",
+          "line": 131,
+          "column": 5
+        },
+        {
+          "title": "cross-target Anti-GEO write receipts fail closed without success claims or leakage",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-tablet",
+              "projectName": "intelligence-tablet",
+              "results": [
+                {
+                  "workerIndex": 7,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1347,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:41.665Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6c41e9bd221746c137bf-e833608c138dd208b208",
+          "file": "intelligence-calibration.spec.ts",
+          "line": 274,
+          "column": 5
+        },
+        {
+          "title": "analyst registration and evaluation stay single under synchronous duplicate submissions",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-tablet",
+              "projectName": "intelligence-tablet",
+              "results": [
+                {
+                  "workerIndex": 7,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 585,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:43.019Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6c41e9bd221746c137bf-2e554403e399a8407c0b",
+          "file": "intelligence-calibration.spec.ts",
+          "line": 378,
+          "column": 5
+        },
+        {
+          "title": "a malformed dataset projection retries locally without hiding neighboring governance data",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-tablet",
+              "projectName": "intelligence-tablet",
+              "results": [
+                {
+                  "workerIndex": 7,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 485,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:43.612Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6c41e9bd221746c137bf-a42cce7f97b7293c80ab",
+          "file": "intelligence-calibration.spec.ts",
+          "line": 493,
+          "column": 5
+        },
+        {
+          "title": "oversized or unsafe calibration pages stay explicit and governance-write locked",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-tablet",
+              "projectName": "intelligence-tablet",
+              "results": [
+                {
+                  "workerIndex": 7,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1538,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:44.105Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6c41e9bd221746c137bf-4479dfe08e1169d8c0b3",
+          "file": "intelligence-calibration.spec.ts",
+          "line": 585,
+          "column": 5
+        },
+        {
+          "title": "calibration cursor pagination restores browser history and rejects secret cursors",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-tablet",
+              "projectName": "intelligence-tablet",
+              "results": [
+                {
+                  "workerIndex": 7,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 632,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:45.649Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6c41e9bd221746c137bf-f240dfc687e2f7d8f1a3",
+          "file": "intelligence-calibration.spec.ts",
+          "line": 677,
+          "column": 5
+        },
+        {
+          "title": "reviewer governance writes stay single under synchronous duplicate submissions",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-mobile",
+              "projectName": "intelligence-mobile",
+              "results": [
+                {
+                  "workerIndex": 8,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 840,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:49.150Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6c41e9bd221746c137bf-98317c5ef3bad54cb67d",
+          "file": "intelligence-calibration.spec.ts",
+          "line": 131,
+          "column": 5
+        },
+        {
+          "title": "cross-target Anti-GEO write receipts fail closed without success claims or leakage",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-mobile",
+              "projectName": "intelligence-mobile",
+              "results": [
+                {
+                  "workerIndex": 8,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1350,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:50.188Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6c41e9bd221746c137bf-e4017741c53e2f742a62",
+          "file": "intelligence-calibration.spec.ts",
+          "line": 274,
+          "column": 5
+        },
+        {
+          "title": "analyst registration and evaluation stay single under synchronous duplicate submissions",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-mobile",
+              "projectName": "intelligence-mobile",
+              "results": [
+                {
+                  "workerIndex": 8,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 586,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:51.546Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6c41e9bd221746c137bf-4becdd22fac904107cca",
+          "file": "intelligence-calibration.spec.ts",
+          "line": 378,
+          "column": 5
+        },
+        {
+          "title": "a malformed dataset projection retries locally without hiding neighboring governance data",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-mobile",
+              "projectName": "intelligence-mobile",
+              "results": [
+                {
+                  "workerIndex": 8,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 453,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:52.140Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6c41e9bd221746c137bf-f2a51316a857d58b7970",
+          "file": "intelligence-calibration.spec.ts",
+          "line": 493,
+          "column": 5
+        },
+        {
+          "title": "oversized or unsafe calibration pages stay explicit and governance-write locked",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-mobile",
+              "projectName": "intelligence-mobile",
+              "results": [
+                {
+                  "workerIndex": 8,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1472,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:52.600Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6c41e9bd221746c137bf-802ace0acd659d88a327",
+          "file": "intelligence-calibration.spec.ts",
+          "line": 585,
+          "column": 5
+        },
+        {
+          "title": "calibration cursor pagination restores browser history and rejects secret cursors",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-mobile",
+              "projectName": "intelligence-mobile",
+              "results": [
+                {
+                  "workerIndex": 8,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 628,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:54.080Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "6c41e9bd221746c137bf-25e46b37a8d2623da793",
+          "file": "intelligence-calibration.spec.ts",
+          "line": 677,
+          "column": 5
+        }
+      ]
+    },
+    {
+      "title": "intelligence-live.spec.ts",
+      "file": "intelligence-live.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "validated reviewer live writes stay single under synchronous duplicate activation",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-desktop",
+              "projectName": "intelligence-desktop",
+              "results": [
+                {
+                  "workerIndex": 6,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2097,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:37.618Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "60a18d2346006de7144a-3c7c3d9f806cf7fb68c2",
+          "file": "intelligence-live.spec.ts",
+          "line": 6,
+          "column": 5
+        },
+        {
+          "title": "investigation 403 fails closed without probing a case detail",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-desktop",
+              "projectName": "intelligence-desktop",
+              "results": [
+                {
+                  "workerIndex": 6,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 381,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:39.722Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "60a18d2346006de7144a-06c9dc14991eb90824a6",
+          "file": "intelligence-live.spec.ts",
+          "line": 393,
+          "column": 5
+        },
+        {
+          "title": "validated reviewer live writes stay single under synchronous duplicate activation",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-tablet",
+              "projectName": "intelligence-tablet",
+              "results": [
+                {
+                  "workerIndex": 7,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1968,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:46.323Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "60a18d2346006de7144a-9577724bf44c7ad09287",
+          "file": "intelligence-live.spec.ts",
+          "line": 6,
+          "column": 5
+        },
+        {
+          "title": "investigation 403 fails closed without probing a case detail",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-tablet",
+              "projectName": "intelligence-tablet",
+              "results": [
+                {
+                  "workerIndex": 7,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 368,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:48.301Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "60a18d2346006de7144a-d6d8c4de9c806af58d64",
+          "file": "intelligence-live.spec.ts",
+          "line": 393,
+          "column": 5
+        },
+        {
+          "title": "validated reviewer live writes stay single under synchronous duplicate activation",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-mobile",
+              "projectName": "intelligence-mobile",
+              "results": [
+                {
+                  "workerIndex": 8,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1789,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:54.747Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "60a18d2346006de7144a-2562e08e1dffe0abced3",
+          "file": "intelligence-live.spec.ts",
+          "line": 6,
+          "column": 5
+        },
+        {
+          "title": "investigation 403 fails closed without probing a case detail",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-mobile",
+              "projectName": "intelligence-mobile",
+              "results": [
+                {
+                  "workerIndex": 8,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 358,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T02:58:56.543Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "60a18d2346006de7144a-5da5040b80dab2193669",
+          "file": "intelligence-live.spec.ts",
+          "line": 393,
+          "column": 5
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-07-27T02:56:54.338Z",
+    "duration": 122702.34199999999,
+    "expected": 81,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

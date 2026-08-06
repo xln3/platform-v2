@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-25T05:32:47.727448+00:00",
+  "result": "passed",
+  "database_revision": "s04_0020",
+  "assertions": {
+    "same_operation_replays_same_review": true,
+    "single_review_receipt": true,
+    "payload_drift_rejected": true,
+    "drift_transaction_rolled_back": true,
+    "database_revision_s04_0020": true
+  },
+  "synthetic_fixture": true,
+  "synthetic_fixture_removed": true,
+  "sensitive_values_recorded": false
+}

@@ -50,12 +50,7 @@
     "passed": true
   },
   "scope": {
-    "evidence_admitted_kinds": [
-      "screenshot",
-      "share_image",
-      "share_link",
-      "sse"
-    ],
+    "evidence_admitted_kinds": ["screenshot", "share_image", "share_link", "sse"],
     "evidence_quarantined_by_policy": {
       "har": 149,
       "captcha": 6

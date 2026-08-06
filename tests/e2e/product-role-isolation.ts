@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './runtime-fixture';
 
 type BrowserRole = 'customer' | 'operator' | 'analyst' | 'reviewer' | 'admin' | 'worker';
 
@@ -17,12 +17,6 @@ export function verifyWrongProductRole({
     page,
   }) => {
     let accountRequests = 0;
-    const consoleErrors: string[] = [];
-    const failedRequests: string[] = [];
-    page.on('console', (message) => {
-      if (message.type() === 'error') consoleErrors.push(message.text());
-    });
-    page.on('requestfailed', (request) => failedRequests.push(request.url()));
     page.on('request', (request) => {
       if (/platform-accounts|interventions|leases/.test(request.url())) accountRequests += 1;
     });
@@ -73,7 +67,5 @@ export function verifyWrongProductRole({
     await expect(page.getByText('尾号 · 4821')).toHaveCount(0);
     await expect(page.getByText('fixture-***42')).toHaveCount(0);
     expect(accountRequests).toBe(0);
-    expect(consoleErrors).toEqual([]);
-    expect(failedRequests).toEqual([]);
   });
 }

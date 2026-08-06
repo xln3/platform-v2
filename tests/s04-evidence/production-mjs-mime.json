@@ -1,0 +1,33 @@
+{
+  "generated_at": "2026-07-25T07:07:00+08:00",
+  "result": "passed",
+  "scope": "V2 PDF.js ES module workers only; legacy routes unchanged",
+  "predeployment_backup": {
+    "path": "/home/xln/geo-system/backups/s04-nginx-mjs-predeploy-20260725T0705CST/geo-platform-v2.conf",
+    "sha256": "b9b78f9ab1819a144083f42b5c6de628cb30b3c9afd3d445ec651a0e39723538"
+  },
+  "nginx": {
+    "configuration_test": "passed",
+    "reload": "passed",
+    "customer_worker_content_type": "application/javascript",
+    "report_worker_content_type": "application/javascript",
+    "worker_cache_control": "public, max-age=31536000, immutable"
+  },
+  "routes": {
+    "/api/v2/health": 200,
+    "/platform/customer/": 200,
+    "/platform/operations/": 200,
+    "/platform/reports/": 200,
+    "/platform/intelligence/": 200,
+    "/geo": 401
+  },
+  "production_browser_acceptance": {
+    "passed": "30/30",
+    "sha256": "6eceaed6b23d8b91a63dbd91c26d1a3c06b505f3ac80172cb0cd369161e38535",
+    "console_errors": 0,
+    "page_errors": 0,
+    "failed_requests": 0,
+    "http_errors": 0
+  },
+  "legacy_cutover": false
+}

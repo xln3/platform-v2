@@ -3,7 +3,12 @@ import secrets
 from datetime import UTC, datetime, timedelta
 
 from fastapi.testclient import TestClient
-from geo_platform.collection.models import CapabilityLease, SessionEvent
+from geo_platform.collection.models import (
+    AccountAuthorization,
+    CapabilityLease,
+    PlatformAccount,
+    SessionEvent,
+)
 from geo_platform.main import app
 from geo_platform.tenancy.database import SessionLocal
 from sqlalchemy import select
@@ -189,3 +194,49 @@ def test_capability_lease_rejects_wrong_bindings_and_expiry_with_audit() -> None
         for event in denials[-6:]:
             summary = json.loads(event.summary_json)
             assert set(summary) == {"lease_pub_id", "result"}
+
+
+def test_narrower_authorization_atomically_replaces_old_grant_and_revokes_lease() -> None:
+    client, tenant, admin_headers, account_pub_id, service_token = provision()
+    lease = issue(client, admin_headers, account_pub_id)
+    now = datetime.now(UTC)
+    narrowed = client.post(
+        f"/api/v2/platform-accounts/{account_pub_id}/authorizations",
+        headers=admin_headers,
+        json={
+            "scopes": ["query"],
+            "forbidden_actions": ["capture", "publish"],
+            "regions": ["CN-BJ"],
+            "valid_from": now.isoformat(),
+            # Deliberately shorter than the old broad grant. Selection by the
+            # farthest valid_until must never resurrect that old authority.
+            "valid_until": (now + timedelta(minutes=10)).isoformat(),
+        },
+    )
+    assert narrowed.status_code == 201
+    rejected = client.post(
+        f"/api/v2/collection/capability-leases/{lease['lease_pub_id']}/validate",
+        headers={"X-Service-Token": service_token},
+        json=validation_body(tenant, account_pub_id),
+    )
+    assert rejected.status_code == 403
+    assert rejected.json()["error"]["code"] == "capability_lease_revoked"
+    with SessionLocal() as session:
+        account = session.scalar(
+            select(PlatformAccount).where(PlatformAccount.pub_id == account_pub_id)
+        )
+        assert account is not None
+        authorizations = session.scalars(
+            select(AccountAuthorization)
+            .where(AccountAuthorization.account_id == account.id)
+            .order_by(AccountAuthorization.created_at)
+        ).all()
+        assert len(authorizations) == 2
+        assert authorizations[0].revoked_at is not None
+        assert authorizations[1].revoked_at is None
+        assert json.loads(authorizations[1].scopes_json) == ["query"]
+        persisted_lease = session.scalar(
+            select(CapabilityLease).where(CapabilityLease.pub_id == lease["lease_pub_id"])
+        )
+        assert persisted_lease is not None
+        assert persisted_lease.revoked_at is not None

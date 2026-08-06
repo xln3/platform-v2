@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-25T04:40:09.633295+00:00",
+  "result": "passed",
+  "workflow_id_sha256": "d728605fc085df5596004edb48fd4e05a378ffc4ba7fc8a0b198e5cd5a0ac134",
+  "assertions": {
+    "workflow_completed": true,
+    "outbox_command_started": true,
+    "outbox_single_attempt": true,
+    "outbox_has_no_error": true,
+    "outbox_temporal_run_id_persisted": true,
+    "outbox_terminal_reconciled": true,
+    "database_account_revoked": true,
+    "database_profile_purged": true,
+    "database_profile_material_erased": true,
+    "request_completed": true,
+    "deleted_key_rejects_retained_ciphertext": true,
+    "same_name_recreation_still_rejects_ciphertext": true
+  },
+  "synthetic_fixture": true,
+  "synthetic_fixture_removed": true,
+  "sensitive_values_recorded": false,
+  "qualification": "Production Temporal/PostgreSQL/Vault mechanics only. This is not an authorized customer profile, backup-propagation approval or independent custody proof."
+}

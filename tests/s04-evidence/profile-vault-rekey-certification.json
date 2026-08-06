@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-25T02:36:45.724834+00:00",
+  "result": "passed",
+  "openapi_path_count": 87,
+  "contract_sha256": "bef357999daa3ee2302159351e8092627a756bd695e56bee246965c7b7cb5480",
+  "automated_tests": {
+    "focused_profile_vault_and_governance": "28/28",
+    "full_python": "145/145"
+  },
+  "assertions": {
+    "generated_openapi_contract_present": true,
+    "no_profile_plaintext_in_rekey_request": true,
+    "fenced_profile_bound_lease": true,
+    "version_aad_and_fresh_dek": true,
+    "idempotent_replay_and_conflict": true,
+    "secret_free_audit_reason_enum": true,
+    "integration_rekey_regression_present": true,
+    "real_production_vault_rotation_passed": true,
+    "real_production_kek_rotation_and_recovery_passed": true,
+    "admitted_account_rotation_tool_present": true,
+    "real_production_vault_probe_removed": true,
+    "no_customer_profile_fabricated": true
+  },
+  "qualification": "The API lifecycle and a non-customer production Vault mechanism probe pass. Production contains no authorized customer profile, so this does not prove customer migration/cutover, independent organizational custody, or deletion propagation for customer data.",
+  "sensitive_values_recorded": false
+}

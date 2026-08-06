@@ -1,0 +1,4182 @@
+{
+  "config": {
+    "argv": [
+      "/home/xln/.config/nvm/versions/node/v24.6.0/bin/node",
+      "/home/xln/geo-system/platform-v2/node_modules/@playwright/test/cli.js",
+      "test",
+      "tests/e2e/customer-accessibility.spec.ts",
+      "tests/e2e/operations-accessibility.spec.ts",
+      "tests/e2e/reports-accessibility.spec.ts",
+      "tests/e2e/intelligence-accessibility.spec.ts",
+      "tests/e2e/customer-visual.spec.ts",
+      "tests/e2e/operations-visual.spec.ts",
+      "tests/e2e/reports-visual.spec.ts",
+      "tests/e2e/intelligence-visual.spec.ts"
+    ],
+    "configFile": "/home/xln/geo-system/platform-v2/playwright.config.ts",
+    "rootDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+    "failOnFlakyTests": false,
+    "forbidOnly": true,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s03-round148-a11y-visual-final",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "customer-desktop",
+        "name": "customer-desktop",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/customer-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s03-round148-a11y-visual-final",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "customer-tablet",
+        "name": "customer-tablet",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/customer-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s03-round148-a11y-visual-final",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "customer-mobile",
+        "name": "customer-mobile",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/customer-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s03-round148-a11y-visual-final",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "operations-desktop",
+        "name": "operations-desktop",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/operations-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s03-round148-a11y-visual-final",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "operations-tablet",
+        "name": "operations-tablet",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/operations-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s03-round148-a11y-visual-final",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "operations-mobile",
+        "name": "operations-mobile",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/operations-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s03-round148-a11y-visual-final",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "reports-desktop",
+        "name": "reports-desktop",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/reports-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s03-round148-a11y-visual-final",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "reports-tablet",
+        "name": "reports-tablet",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/reports-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s03-round148-a11y-visual-final",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "reports-mobile",
+        "name": "reports-mobile",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/reports-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s03-round148-a11y-visual-final",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "intelligence-desktop",
+        "name": "intelligence-desktop",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/intelligence-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s03-round148-a11y-visual-final",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "intelligence-tablet",
+        "name": "intelligence-tablet",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/intelligence-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s03-round148-a11y-visual-final",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "intelligence-mobile",
+        "name": "intelligence-mobile",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/intelligence-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "tests/s04-evidence/e2e-results-s03-round148-a11y-visual-final.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.61.1",
+    "workers": 1,
+    "webServer": {
+      "command": "exec bash scripts/start_e2e_webservers.sh",
+      "url": "http://127.0.0.1:61401/platform/customer/",
+      "env": {
+        "PYTHON_BASIC_REPL": "1",
+        "LESSOPEN": "| /usr/bin/lesspipe %s",
+        "TMUX": "/tmp/tmux-1000/default,4013479,11",
+        "CODEX_CI": "1",
+        "USER": "xln",
+        "SSH_CLIENT": "117.133.64.159 8015 2222",
+        "npm_config_user_agent": "pnpm/11.17.0 npm/? node/v24.6.0 linux x64",
+        "XDG_SESSION_TYPE": "tty",
+        "GIT_ASKPASS": "/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/extensions/git/dist/askpass.sh",
+        "GEO_E2E_JSON_REPORT": "tests/s04-evidence/e2e-results-s03-round148-a11y-visual-final.json",
+        "SHLVL": "3",
+        "BROWSER": "/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/bin/helpers/browser.sh",
+        "MOTD_SHOWN": "pam",
+        "HOME": "/home/xln",
+        "TERM_PROGRAM_VERSION": "3.2a",
+        "NVM_BIN": "/home/xln/.config/nvm/versions/node/v24.6.0/bin",
+        "VSCODE_IPC_HOOK_CLI": "/run/user/1000/vscode-ipc-19a833ff-7b40-43ab-9744-1d6bf8bcdc83.sock",
+        "NVM_INC": "/home/xln/.config/nvm/versions/node/v24.6.0/include/node",
+        "COREPACK_ROOT": "/home/xln/.config/nvm/versions/node/v24.6.0/lib/node_modules/corepack",
+        "PAGER": "cat",
+        "VSCODE_GIT_ASKPASS_MAIN": "/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/extensions/git/dist/askpass-main.js",
+        "HF_ENDPOINT": "https://hf-mirror.com",
+        "VSCODE_GIT_ASKPASS_NODE": "/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/node",
+        "LC_CTYPE": "C.UTF-8",
+        "PYDEVD_DISABLE_FILE_VALIDATION": "1",
+        "BUNDLED_DEBUGPY_PATH": "/home/xln/.vscode-server/extensions/ms-python.debugpy-2026.6.0-linux-x64/bundled/libs/debugpy",
+        "VSCODE_PYTHON_AUTOACTIVATE_GUARD": "1",
+        "NO_COLOR": "1",
+        "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/1000/bus",
+        "COLORTERM": "",
+        "GEO_E2E_OUTPUT_DIR": "tests/e2e-results-s03-round148-a11y-visual-final",
+        "NVM_DIR": "/home/xln/.config/nvm",
+        "https_proxy": "http://127.0.0.1:7890",
+        "CODEX_PERMISSION_PROFILE": ":danger-full-access",
+        "COREPACK_ENABLE_DOWNLOAD_PROMPT": "1",
+        "LOGNAME": "xln",
+        "pnpm_config_verify_deps_before_run": "false",
+        "http_proxy": "http://127.0.0.1:7890",
+        "_": "/home/xln/.config/nvm/versions/node/v24.6.0/bin/pnpm",
+        "CLAUDE_CODE_SSE_PORT": "31479",
+        "XDG_SESSION_CLASS": "user",
+        "GEO_E2E_PORT_BASE": "61400",
+        "TERM": "dumb",
+        "XDG_SESSION_ID": "5582",
+        "PATH": "./node_modules/.bin:/home/xln/geo-system/platform-v2/node_modules/.bin:/home/xln/.local/bin:/home/xln/.config/nvm/versions/node/v24.6.0/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/codex-path:/home/xln/.codex/tmp/arg0/codex-arg0B22gK7:/home/xln/.local/bin:/home/xln/.kimi-code/bin:/home/xln/.deno/bin:/home/xln/.local/bin:/home/xln/.kimi-code/bin:/home/xln/.deno/bin:/home/xln/.local/bin:/home/xln/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand:/home/xln/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli:/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/bin/remote-cli:/home/xln/.local/bin:/home/xln/.kimi-code/bin:/home/xln/google-cloud-sdk/bin:/home/xln/.deno/bin:/home/xln/.config/nvm/versions/node/v24.6.0/bin:/home/xln/.local/bin:/home/xln/.deno/bin:/home/xln/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin",
+        "XDG_RUNTIME_DIR": "/run/user/1000",
+        "VSCODE_DEBUGPY_ADAPTER_ENDPOINTS": "/home/xln/.vscode-server/extensions/ms-python.debugpy-2026.6.0-linux-x64/.noConfigDebugAdapterEndpoints/endpoint-70a46e768030bfa5.txt",
+        "LANG": "C.UTF-8",
+        "PYTHONSTARTUP": "/home/xln/.vscode-server/data/User/workspaceStorage/064617a2688c468aa40abc1ece39445c/ms-python.python/pythonrc.py",
+        "GH_PAGER": "cat",
+        "LS_COLORS": "rs=0:di=01;34:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=30;41:tw=30;42:ow=34;42:st=37;44:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arc=01;31:*.arj=01;31:*.taz=01;31:*.lha=01;31:*.lz4=01;31:*.lzh=01;31:*.lzma=01;31:*.tlz=01;31:*.txz=01;31:*.tzo=01;31:*.t7z=01;31:*.zip=01;31:*.z=01;31:*.dz=01;31:*.gz=01;31:*.lrz=01;31:*.lz=01;31:*.lzo=01;31:*.xz=01;31:*.zst=01;31:*.tzst=01;31:*.bz2=01;31:*.bz=01;31:*.tbz=01;31:*.tbz2=01;31:*.tz=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.war=01;31:*.ear=01;31:*.sar=01;31:*.rar=01;31:*.alz=01;31:*.ace=01;31:*.zoo=01;31:*.cpio=01;31:*.7z=01;31:*.rz=01;31:*.cab=01;31:*.wim=01;31:*.swm=01;31:*.dwm=01;31:*.esd=01;31:*.jpg=01;35:*.jpeg=01;35:*.mjpg=01;35:*.mjpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.svg=01;35:*.svgz=01;35:*.mng=01;35:*.pcx=01;35:*.mov=01;35:*.mpg=01;35:*.mpeg=01;35:*.m2v=01;35:*.mkv=01;35:*.webm=01;35:*.webp=01;35:*.ogm=01;35:*.mp4=01;35:*.m4v=01;35:*.mp4v=01;35:*.vob=01;35:*.qt=01;35:*.nuv=01;35:*.wmv=01;35:*.asf=01;35:*.rm=01;35:*.rmvb=01;35:*.flc=01;35:*.avi=01;35:*.fli=01;35:*.flv=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.yuv=01;35:*.cgm=01;35:*.emf=01;35:*.ogv=01;35:*.ogx=01;35:*.aac=00;36:*.au=00;36:*.flac=00;36:*.m4a=00;36:*.mid=00;36:*.midi=00;36:*.mka=00;36:*.mp3=00;36:*.mpc=00;36:*.ogg=00;36:*.ra=00;36:*.wav=00;36:*.oga=00;36:*.opus=00;36:*.spx=00;36:*.xspf=00;36:",
+        "CLAUDE_CODE_DISABLE_1M_CONTEXT": "1",
+        "VSCODE_GIT_IPC_HANDLE": "/run/user/1000/vscode-git-732bafe257.sock",
+        "TERM_PROGRAM": "tmux",
+        "SHELL": "/bin/bash",
+        "NODE_PATH": "/home/xln/geo-system/platform-v2/node_modules/.pnpm/@playwright+test@1.61.1/node_modules/@playwright/test/node_modules:/home/xln/geo-system/platform-v2/node_modules/.pnpm/@playwright+test@1.61.1/node_modules:/home/xln/geo-system/platform-v2/node_modules/.pnpm/node_modules",
+        "LESSCLOSE": "/usr/bin/lesspipe %s %s",
+        "CODEX_THREAD_ID": "019f92eb-f497-71a0-b01b-29ed4969dc22",
+        "PNPM_PACKAGE_NAME": "geo-platform-v2",
+        "VSCODE_GIT_ASKPASS_EXTRA_ARGS": "",
+        "GIT_PAGER": "cat",
+        "PWD": "/home/xln/geo-system/platform-v2",
+        "DISABLE_AUTOUPDATER": "1",
+        "LC_ALL": "C.UTF-8",
+        "CODEX_MANAGED_PACKAGE_ROOT": "/home/xln/.config/nvm/versions/node/v24.6.0/lib/node_modules/@openai/codex",
+        "COPILOT_DEBUG_NONCE": "9abf7f5d3e8c784e97955dcc9fdda180",
+        "SSH_CONNECTION": "117.133.64.159 8015 172.16.1.190 2222",
+        "NVM_CD_FLAGS": "",
+        "XDG_DATA_DIRS": "/usr/share/gnome:/usr/local/share:/usr/share:/var/lib/snapd/desktop",
+        "npm_command": "exec",
+        "CODEX_MANAGED_BY_NPM": "1",
+        "TMUX_PANE": "%11",
+        "GEO_VITE_NO_WATCH": "1",
+        "GEO_E2E_BUILD": "1",
+        "VITE_ALLOW_CONTRACT_FIXTURES": "true",
+        "VITE_GEO_API_BASE": ""
+      },
+      "reuseExistingServer": false,
+      "timeout": 240000
+    }
+  },
+  "suites": [
+    {
+      "title": "customer-accessibility.spec.ts",
+      "file": "customer-accessibility.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "customer shell is keyboard reachable and WCAG AA clean",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 6786,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:10.473Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "342a72a7523f6db49d61-e3d2f913b18ac6910040",
+          "file": "customer-accessibility.spec.ts",
+          "line": 8,
+          "column": 5
+        },
+        {
+          "title": "customer shell is keyboard reachable and WCAG AA clean",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 6501,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:25.108Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "342a72a7523f6db49d61-6dd26947b2549ef2be1b",
+          "file": "customer-accessibility.spec.ts",
+          "line": 8,
+          "column": 5
+        },
+        {
+          "title": "customer shell is keyboard reachable and WCAG AA clean",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 6849,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:38.730Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "342a72a7523f6db49d61-ac08dd1f56bf8eec2b06",
+          "file": "customer-accessibility.spec.ts",
+          "line": 8,
+          "column": 5
+        }
+      ]
+    },
+    {
+      "title": "customer-visual.spec.ts",
+      "file": "customer-visual.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "customer home visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 613,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:17.491Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-88d33941dafb09f9f9a8",
+          "file": "customer-visual.spec.ts",
+          "line": 31,
+          "column": 7
+        },
+        {
+          "title": "customer profile visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 549,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:18.111Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-91cbec4c96fac81d6227",
+          "file": "customer-visual.spec.ts",
+          "line": 31,
+          "column": 7
+        },
+        {
+          "title": "customer assets visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 563,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:18.667Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-25ec84d79f770275eb26",
+          "file": "customer-visual.spec.ts",
+          "line": 31,
+          "column": 7
+        },
+        {
+          "title": "customer questions visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 553,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:19.236Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-fb64cb92bc0d726d40b7",
+          "file": "customer-visual.spec.ts",
+          "line": 31,
+          "column": 7
+        },
+        {
+          "title": "customer monitoring visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 958,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:19.796Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-d1a4a439452485ac7a22",
+          "file": "customer-visual.spec.ts",
+          "line": 31,
+          "column": 7
+        },
+        {
+          "title": "customer evidence visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 510,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:20.764Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-5fd64ea53c910316ca63",
+          "file": "customer-visual.spec.ts",
+          "line": 31,
+          "column": 7
+        },
+        {
+          "title": "customer reports visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 540,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:21.281Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-d004cf4a33a34775f44e",
+          "file": "customer-visual.spec.ts",
+          "line": 31,
+          "column": 7
+        },
+        {
+          "title": "customer members visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 505,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:21.829Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-4f57381e58d7f9815588",
+          "file": "customer-visual.spec.ts",
+          "line": 31,
+          "column": 7
+        },
+        {
+          "title": "customer accounts visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 697,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:22.341Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-3f045c2c0120b9c1ec04",
+          "file": "customer-visual.spec.ts",
+          "line": 31,
+          "column": 7
+        },
+        {
+          "title": "customer secure pairing QR and native challenge have responsive visual baselines",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1031,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:23.045Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-5f45af32208447a7aa44",
+          "file": "customer-visual.spec.ts",
+          "line": 48,
+          "column": 5
+        },
+        {
+          "title": "unmarked machine-readable QR pixels are rejected before visual evidence",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 260,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:24.082Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-3e69349444431e386f45",
+          "file": "customer-visual.spec.ts",
+          "line": 76,
+          "column": 5
+        },
+        {
+          "title": "hidden browser surface secrets are rejected before visual evidence",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 254,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:24.350Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-089cbca190564620f6aa",
+          "file": "customer-visual.spec.ts",
+          "line": 147,
+          "column": 5
+        },
+        {
+          "title": "customer home visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 570,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:31.839Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-ef207ee0f51396339285",
+          "file": "customer-visual.spec.ts",
+          "line": 31,
+          "column": 7
+        },
+        {
+          "title": "customer profile visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 468,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:32.416Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-88f14836de74adf60680",
+          "file": "customer-visual.spec.ts",
+          "line": 31,
+          "column": 7
+        },
+        {
+          "title": "customer assets visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 464,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:32.891Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-7504f8b4b6eccb0139a0",
+          "file": "customer-visual.spec.ts",
+          "line": 31,
+          "column": 7
+        },
+        {
+          "title": "customer questions visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 482,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:33.362Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-aa869cc70c5fc136a858",
+          "file": "customer-visual.spec.ts",
+          "line": 31,
+          "column": 7
+        },
+        {
+          "title": "customer monitoring visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 881,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:33.851Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-1a49e883abefde82458a",
+          "file": "customer-visual.spec.ts",
+          "line": 31,
+          "column": 7
+        },
+        {
+          "title": "customer evidence visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 494,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:34.738Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-e82673e2e134585141f1",
+          "file": "customer-visual.spec.ts",
+          "line": 31,
+          "column": 7
+        },
+        {
+          "title": "customer reports visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 475,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:35.239Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-5bac1b2c2fd02c1bf66d",
+          "file": "customer-visual.spec.ts",
+          "line": 31,
+          "column": 7
+        },
+        {
+          "title": "customer members visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 424,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:35.720Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-9b1c1b505e59ebd34f19",
+          "file": "customer-visual.spec.ts",
+          "line": 31,
+          "column": 7
+        },
+        {
+          "title": "customer accounts visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 596,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:36.151Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-1f28925e9bf5cc5c4762",
+          "file": "customer-visual.spec.ts",
+          "line": 31,
+          "column": 7
+        },
+        {
+          "title": "customer secure pairing QR and native challenge have responsive visual baselines",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 923,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:36.754Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-cb8a8cc1e9d6d1fdc69f",
+          "file": "customer-visual.spec.ts",
+          "line": 48,
+          "column": 5
+        },
+        {
+          "title": "unmarked machine-readable QR pixels are rejected before visual evidence",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 267,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:37.683Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-0ec3871e984133bb990e",
+          "file": "customer-visual.spec.ts",
+          "line": 76,
+          "column": 5
+        },
+        {
+          "title": "hidden browser surface secrets are rejected before visual evidence",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 269,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:37.957Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-04ee082c8adb84a6eac7",
+          "file": "customer-visual.spec.ts",
+          "line": 147,
+          "column": 5
+        },
+        {
+          "title": "customer home visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 487,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:45.808Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-47cfe387b8ad8e7a639d",
+          "file": "customer-visual.spec.ts",
+          "line": 31,
+          "column": 7
+        },
+        {
+          "title": "customer profile visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 462,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:46.301Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-f1ebf7b85ed23075c0fa",
+          "file": "customer-visual.spec.ts",
+          "line": 31,
+          "column": 7
+        },
+        {
+          "title": "customer assets visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 455,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:46.771Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-fa6c0cea4e910eb0a9eb",
+          "file": "customer-visual.spec.ts",
+          "line": 31,
+          "column": 7
+        },
+        {
+          "title": "customer questions visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 449,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:47.233Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-e6ac248d651fab8a486d",
+          "file": "customer-visual.spec.ts",
+          "line": 31,
+          "column": 7
+        },
+        {
+          "title": "customer monitoring visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 706,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:47.688Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-f329281d9ed96f09a6d6",
+          "file": "customer-visual.spec.ts",
+          "line": 31,
+          "column": 7
+        },
+        {
+          "title": "customer evidence visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 494,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:48.401Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-a16f9f5aa59dbf800987",
+          "file": "customer-visual.spec.ts",
+          "line": 31,
+          "column": 7
+        },
+        {
+          "title": "customer reports visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 474,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:48.903Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-d7dd4362f0a90504e289",
+          "file": "customer-visual.spec.ts",
+          "line": 31,
+          "column": 7
+        },
+        {
+          "title": "customer members visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 423,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:49.385Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-eedbdac454c1d7dc6910",
+          "file": "customer-visual.spec.ts",
+          "line": 31,
+          "column": 7
+        },
+        {
+          "title": "customer accounts visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 533,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:49.816Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-dda758e3eaca4d663486",
+          "file": "customer-visual.spec.ts",
+          "line": 31,
+          "column": 7
+        },
+        {
+          "title": "customer secure pairing QR and native challenge have responsive visual baselines",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 886,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:50.356Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-30b102654ee63eaf6098",
+          "file": "customer-visual.spec.ts",
+          "line": 48,
+          "column": 5
+        },
+        {
+          "title": "unmarked machine-readable QR pixels are rejected before visual evidence",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 262,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:51.249Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-f011c15486f196c1cafa",
+          "file": "customer-visual.spec.ts",
+          "line": 76,
+          "column": 5
+        },
+        {
+          "title": "hidden browser surface secrets are rejected before visual evidence",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 256,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:51.518Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-c3f033e17467099fd925",
+          "file": "customer-visual.spec.ts",
+          "line": 147,
+          "column": 5
+        }
+      ]
+    },
+    {
+      "title": "operations-accessibility.spec.ts",
+      "file": "operations-accessibility.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "operations shell and account lifecycle view are WCAG AA clean",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-desktop",
+              "projectName": "operations-desktop",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2371,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:52.252Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b1c424bd3cecdcc9d4d9-96925587c170c92428f3",
+          "file": "operations-accessibility.spec.ts",
+          "line": 8,
+          "column": 5
+        },
+        {
+          "title": "operations shell and account lifecycle view are WCAG AA clean",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-tablet",
+              "projectName": "operations-tablet",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2305,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:58.274Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b1c424bd3cecdcc9d4d9-1b73d8755c7d9e966bed",
+          "file": "operations-accessibility.spec.ts",
+          "line": 8,
+          "column": 5
+        },
+        {
+          "title": "operations shell and account lifecycle view are WCAG AA clean",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-mobile",
+              "projectName": "operations-mobile",
+              "results": [
+                {
+                  "workerIndex": 5,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2357,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:03.853Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b1c424bd3cecdcc9d4d9-d41b3550d3b354e7e61a",
+          "file": "operations-accessibility.spec.ts",
+          "line": 8,
+          "column": 5
+        }
+      ]
+    },
+    {
+      "title": "operations-visual.spec.ts",
+      "file": "operations-visual.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "operations overview visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-desktop",
+              "projectName": "operations-desktop",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 520,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:54.867Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b33fc35cb30489bfd436-c5acec797223806480eb",
+          "file": "operations-visual.spec.ts",
+          "line": 14,
+          "column": 7
+        },
+        {
+          "title": "operations sessions visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-desktop",
+              "projectName": "operations-desktop",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 602,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:55.394Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b33fc35cb30489bfd436-364c1d513440468e7b38",
+          "file": "operations-visual.spec.ts",
+          "line": 14,
+          "column": 7
+        },
+        {
+          "title": "operations interventions visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-desktop",
+              "projectName": "operations-desktop",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 537,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:56.004Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b33fc35cb30489bfd436-ba182402a44b49c0a70b",
+          "file": "operations-visual.spec.ts",
+          "line": 14,
+          "column": 7
+        },
+        {
+          "title": "operations events visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-desktop",
+              "projectName": "operations-desktop",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 522,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:56.548Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b33fc35cb30489bfd436-9e2f5312d509e65ac380",
+          "file": "operations-visual.spec.ts",
+          "line": 14,
+          "column": 7
+        },
+        {
+          "title": "operations media prices visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-desktop",
+              "projectName": "operations-desktop",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 677,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:46:57.077Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b33fc35cb30489bfd436-92ed560e0280d928331b",
+          "file": "operations-visual.spec.ts",
+          "line": 28,
+          "column": 5
+        },
+        {
+          "title": "operations overview visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-tablet",
+              "projectName": "operations-tablet",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 504,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:00.795Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b33fc35cb30489bfd436-c4714077c323135bf553",
+          "file": "operations-visual.spec.ts",
+          "line": 14,
+          "column": 7
+        },
+        {
+          "title": "operations sessions visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-tablet",
+              "projectName": "operations-tablet",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 502,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:01.306Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b33fc35cb30489bfd436-558b9b418fb0a25613cb",
+          "file": "operations-visual.spec.ts",
+          "line": 14,
+          "column": 7
+        },
+        {
+          "title": "operations interventions visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-tablet",
+              "projectName": "operations-tablet",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 433,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:01.821Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b33fc35cb30489bfd436-23a6e99c7498449c0e14",
+          "file": "operations-visual.spec.ts",
+          "line": 14,
+          "column": 7
+        },
+        {
+          "title": "operations events visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-tablet",
+              "projectName": "operations-tablet",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 485,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:02.261Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b33fc35cb30489bfd436-931e609a82c9de5dd96b",
+          "file": "operations-visual.spec.ts",
+          "line": 14,
+          "column": 7
+        },
+        {
+          "title": "operations media prices visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-tablet",
+              "projectName": "operations-tablet",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 599,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:02.753Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b33fc35cb30489bfd436-517f4a9e8ecab9b8feb4",
+          "file": "operations-visual.spec.ts",
+          "line": 28,
+          "column": 5
+        },
+        {
+          "title": "operations overview visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-mobile",
+              "projectName": "operations-mobile",
+              "results": [
+                {
+                  "workerIndex": 5,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 459,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:06.458Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b33fc35cb30489bfd436-cf56d888d8937ae659d1",
+          "file": "operations-visual.spec.ts",
+          "line": 14,
+          "column": 7
+        },
+        {
+          "title": "operations sessions visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-mobile",
+              "projectName": "operations-mobile",
+              "results": [
+                {
+                  "workerIndex": 5,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 499,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:06.925Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b33fc35cb30489bfd436-27ce45f897a624904e0b",
+          "file": "operations-visual.spec.ts",
+          "line": 14,
+          "column": 7
+        },
+        {
+          "title": "operations interventions visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-mobile",
+              "projectName": "operations-mobile",
+              "results": [
+                {
+                  "workerIndex": 5,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 395,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:07.431Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b33fc35cb30489bfd436-7130d68cc877fc4de9e0",
+          "file": "operations-visual.spec.ts",
+          "line": 14,
+          "column": 7
+        },
+        {
+          "title": "operations events visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-mobile",
+              "projectName": "operations-mobile",
+              "results": [
+                {
+                  "workerIndex": 5,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 426,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:07.844Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b33fc35cb30489bfd436-053797963f3f09142897",
+          "file": "operations-visual.spec.ts",
+          "line": 14,
+          "column": 7
+        },
+        {
+          "title": "operations media prices visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-mobile",
+              "projectName": "operations-mobile",
+              "results": [
+                {
+                  "workerIndex": 5,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 506,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:08.277Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b33fc35cb30489bfd436-245946dad6c746c9428f",
+          "file": "operations-visual.spec.ts",
+          "line": 28,
+          "column": 5
+        }
+      ]
+    },
+    {
+      "title": "reports-accessibility.spec.ts",
+      "file": "reports-accessibility.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "report editor and preview are WCAG AA clean",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "reports-desktop",
+              "projectName": "reports-desktop",
+              "results": [
+                {
+                  "workerIndex": 6,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 4233,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:09.278Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "96d688b2c2e5d2164d30-00a9db0382dd9ffb947d",
+          "file": "reports-accessibility.spec.ts",
+          "line": 8,
+          "column": 5
+        },
+        {
+          "title": "report editor and preview are WCAG AA clean",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "reports-tablet",
+              "projectName": "reports-tablet",
+              "results": [
+                {
+                  "workerIndex": 7,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 4036,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:18.988Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "96d688b2c2e5d2164d30-e5dadfe0b7a2c4a246f4",
+          "file": "reports-accessibility.spec.ts",
+          "line": 8,
+          "column": 5
+        },
+        {
+          "title": "report editor and preview are WCAG AA clean",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "reports-mobile",
+              "projectName": "reports-mobile",
+              "results": [
+                {
+                  "workerIndex": 8,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 4149,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:27.854Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "96d688b2c2e5d2164d30-90e7e9266dd5224296dd",
+          "file": "reports-accessibility.spec.ts",
+          "line": 8,
+          "column": 5
+        }
+      ]
+    },
+    {
+      "title": "reports-visual.spec.ts",
+      "file": "reports-visual.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "report window visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "reports-desktop",
+              "projectName": "reports-desktop",
+              "results": [
+                {
+                  "workerIndex": 6,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 579,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:13.791Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bf55a3bc72f1066f638e-a3499521812e6471531a",
+          "file": "reports-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "report trace visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "reports-desktop",
+              "projectName": "reports-desktop",
+              "results": [
+                {
+                  "workerIndex": 6,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 544,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:14.377Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bf55a3bc72f1066f638e-312ad43f834ce5238aec",
+          "file": "reports-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "report editor visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "reports-desktop",
+              "projectName": "reports-desktop",
+              "results": [
+                {
+                  "workerIndex": 6,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 579,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:14.929Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bf55a3bc72f1066f638e-d3254bde4a65790d0821",
+          "file": "reports-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "report diff visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "reports-desktop",
+              "projectName": "reports-desktop",
+              "results": [
+                {
+                  "workerIndex": 6,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 523,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:15.516Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bf55a3bc72f1066f638e-580073209011642cdd7a",
+          "file": "reports-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "report evidence visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "reports-desktop",
+              "projectName": "reports-desktop",
+              "results": [
+                {
+                  "workerIndex": 6,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 559,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:16.045Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bf55a3bc72f1066f638e-5bcf20c97c01bffe5262",
+          "file": "reports-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "report preview visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "reports-desktop",
+              "projectName": "reports-desktop",
+              "results": [
+                {
+                  "workerIndex": 6,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 826,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:16.611Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bf55a3bc72f1066f638e-1c39c067afd0400f485b",
+          "file": "reports-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "report review visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "reports-desktop",
+              "projectName": "reports-desktop",
+              "results": [
+                {
+                  "workerIndex": 6,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 522,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:17.445Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bf55a3bc72f1066f638e-f1d829eb25d5e3b092fc",
+          "file": "reports-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "report outcomes visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "reports-desktop",
+              "projectName": "reports-desktop",
+              "results": [
+                {
+                  "workerIndex": 6,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 531,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:17.974Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bf55a3bc72f1066f638e-f01ff5602075a0bdd94d",
+          "file": "reports-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "report window visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "reports-tablet",
+              "projectName": "reports-tablet",
+              "results": [
+                {
+                  "workerIndex": 7,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 517,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:23.294Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bf55a3bc72f1066f638e-b263e043f82353486456",
+          "file": "reports-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "report trace visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "reports-tablet",
+              "projectName": "reports-tablet",
+              "results": [
+                {
+                  "workerIndex": 7,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 452,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:23.818Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bf55a3bc72f1066f638e-b77e39d258bf41a6d65d",
+          "file": "reports-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "report editor visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "reports-tablet",
+              "projectName": "reports-tablet",
+              "results": [
+                {
+                  "workerIndex": 7,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 494,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:24.277Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bf55a3bc72f1066f638e-0c9097957cf5dd29b89b",
+          "file": "reports-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "report diff visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "reports-tablet",
+              "projectName": "reports-tablet",
+              "results": [
+                {
+                  "workerIndex": 7,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 441,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:24.778Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bf55a3bc72f1066f638e-caa61fdef6e7e51d70b3",
+          "file": "reports-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "report evidence visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "reports-tablet",
+              "projectName": "reports-tablet",
+              "results": [
+                {
+                  "workerIndex": 7,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 491,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:25.228Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bf55a3bc72f1066f638e-3257d25fc23f425647c4",
+          "file": "reports-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "report preview visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "reports-tablet",
+              "projectName": "reports-tablet",
+              "results": [
+                {
+                  "workerIndex": 7,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 721,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:25.726Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bf55a3bc72f1066f638e-807680e83684256e179f",
+          "file": "reports-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "report review visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "reports-tablet",
+              "projectName": "reports-tablet",
+              "results": [
+                {
+                  "workerIndex": 7,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 449,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:26.454Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bf55a3bc72f1066f638e-3be1d7807c1fc672779e",
+          "file": "reports-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "report outcomes visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "reports-tablet",
+              "projectName": "reports-tablet",
+              "results": [
+                {
+                  "workerIndex": 7,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 472,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:26.910Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bf55a3bc72f1066f638e-ef2f6811502ee7dffef8",
+          "file": "reports-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "report window visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "reports-mobile",
+              "projectName": "reports-mobile",
+              "results": [
+                {
+                  "workerIndex": 8,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 493,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:32.248Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bf55a3bc72f1066f638e-ca33cec4b9f455eac329",
+          "file": "reports-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "report trace visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "reports-mobile",
+              "projectName": "reports-mobile",
+              "results": [
+                {
+                  "workerIndex": 8,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 415,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:32.749Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bf55a3bc72f1066f638e-7314968583fa9a3a2c1e",
+          "file": "reports-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "report editor visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "reports-mobile",
+              "projectName": "reports-mobile",
+              "results": [
+                {
+                  "workerIndex": 8,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 449,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:33.177Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bf55a3bc72f1066f638e-6f83a8642b163dce2330",
+          "file": "reports-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "report diff visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "reports-mobile",
+              "projectName": "reports-mobile",
+              "results": [
+                {
+                  "workerIndex": 8,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 435,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:33.633Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bf55a3bc72f1066f638e-c1974f8ede80e462abfb",
+          "file": "reports-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "report evidence visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "reports-mobile",
+              "projectName": "reports-mobile",
+              "results": [
+                {
+                  "workerIndex": 8,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 475,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:34.075Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bf55a3bc72f1066f638e-bb8fa6f159f212f83ff1",
+          "file": "reports-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "report preview visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "reports-mobile",
+              "projectName": "reports-mobile",
+              "results": [
+                {
+                  "workerIndex": 8,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 602,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:34.558Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bf55a3bc72f1066f638e-68a44e89c48196f17397",
+          "file": "reports-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "report review visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "reports-mobile",
+              "projectName": "reports-mobile",
+              "results": [
+                {
+                  "workerIndex": 8,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 445,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:35.170Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bf55a3bc72f1066f638e-0aa8097e9f306a92d09b",
+          "file": "reports-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "report outcomes visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "reports-mobile",
+              "projectName": "reports-mobile",
+              "results": [
+                {
+                  "workerIndex": 8,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 449,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:35.622Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "bf55a3bc72f1066f638e-e62d5bb52a45f1909e71",
+          "file": "reports-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        }
+      ]
+    },
+    {
+      "title": "intelligence-accessibility.spec.ts",
+      "file": "intelligence-accessibility.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "intelligence graph and table alternative are WCAG AA clean",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-desktop",
+              "projectName": "intelligence-desktop",
+              "results": [
+                {
+                  "workerIndex": 9,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 4453,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:36.544Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b11315b2f76cca27af0b-8662075efd51b373dbbf",
+          "file": "intelligence-accessibility.spec.ts",
+          "line": 8,
+          "column": 5
+        },
+        {
+          "title": "intelligence graph and table alternative are WCAG AA clean",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-tablet",
+              "projectName": "intelligence-tablet",
+              "results": [
+                {
+                  "workerIndex": 10,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 4339,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:46.064Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b11315b2f76cca27af0b-1201d7923d58c6a59065",
+          "file": "intelligence-accessibility.spec.ts",
+          "line": 8,
+          "column": 5
+        },
+        {
+          "title": "intelligence graph and table alternative are WCAG AA clean",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-mobile",
+              "projectName": "intelligence-mobile",
+              "results": [
+                {
+                  "workerIndex": 11,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 4408,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:55.061Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b11315b2f76cca27af0b-a0caac5f5d8dd85369d1",
+          "file": "intelligence-accessibility.spec.ts",
+          "line": 8,
+          "column": 5
+        }
+      ]
+    },
+    {
+      "title": "intelligence-visual.spec.ts",
+      "file": "intelligence-visual.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "intelligence cases visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-desktop",
+              "projectName": "intelligence-desktop",
+              "results": [
+                {
+                  "workerIndex": 9,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 562,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:41.248Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "f76990c5832359d52303-e6f2fb3a403e62c755bd",
+          "file": "intelligence-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "intelligence claims visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-desktop",
+              "projectName": "intelligence-desktop",
+              "results": [
+                {
+                  "workerIndex": 9,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 554,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:41.817Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "f76990c5832359d52303-3ac32cf2ec60f0f746a5",
+          "file": "intelligence-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "intelligence sources visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-desktop",
+              "projectName": "intelligence-desktop",
+              "results": [
+                {
+                  "workerIndex": 9,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 545,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:42.379Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "f76990c5832359d52303-50473fb2b8ed568190b5",
+          "file": "intelligence-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "intelligence graph visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-desktop",
+              "projectName": "intelligence-desktop",
+              "results": [
+                {
+                  "workerIndex": 9,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 561,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:42.930Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "f76990c5832359d52303-38a1c2b3e6eaab97850e",
+          "file": "intelligence-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "intelligence history visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-desktop",
+              "projectName": "intelligence-desktop",
+              "results": [
+                {
+                  "workerIndex": 9,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 484,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:43.498Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "f76990c5832359d52303-38846ddfb72c7a8d25ef",
+          "file": "intelligence-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "intelligence calibration visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-desktop",
+              "projectName": "intelligence-desktop",
+              "results": [
+                {
+                  "workerIndex": 9,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 625,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:43.989Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "f76990c5832359d52303-cbbdb35cda9a2929d7b2",
+          "file": "intelligence-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "intelligence verdict visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-desktop",
+              "projectName": "intelligence-desktop",
+              "results": [
+                {
+                  "workerIndex": 9,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 487,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:44.620Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "f76990c5832359d52303-53452eaa34d17ab3322d",
+          "file": "intelligence-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "intelligence package visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-desktop",
+              "projectName": "intelligence-desktop",
+              "results": [
+                {
+                  "workerIndex": 9,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 490,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:45.115Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "f76990c5832359d52303-bc9305133c6bb3050673",
+          "file": "intelligence-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "intelligence cases visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-tablet",
+              "projectName": "intelligence-tablet",
+              "results": [
+                {
+                  "workerIndex": 10,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 516,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:50.643Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "f76990c5832359d52303-4e721efc4317ea918c1a",
+          "file": "intelligence-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "intelligence claims visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-tablet",
+              "projectName": "intelligence-tablet",
+              "results": [
+                {
+                  "workerIndex": 10,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 438,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:51.168Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "f76990c5832359d52303-6bdc1738c606257b5395",
+          "file": "intelligence-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "intelligence sources visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-tablet",
+              "projectName": "intelligence-tablet",
+              "results": [
+                {
+                  "workerIndex": 10,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 462,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:51.615Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "f76990c5832359d52303-f42093b3836a998f6a3c",
+          "file": "intelligence-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "intelligence graph visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-tablet",
+              "projectName": "intelligence-tablet",
+              "results": [
+                {
+                  "workerIndex": 10,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 537,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:52.084Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "f76990c5832359d52303-54430dbeaa0d24a50c68",
+          "file": "intelligence-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "intelligence history visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-tablet",
+              "projectName": "intelligence-tablet",
+              "results": [
+                {
+                  "workerIndex": 10,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 443,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:52.629Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "f76990c5832359d52303-4cf71031de48914376f6",
+          "file": "intelligence-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "intelligence calibration visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-tablet",
+              "projectName": "intelligence-tablet",
+              "results": [
+                {
+                  "workerIndex": 10,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 574,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:53.080Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "f76990c5832359d52303-7a74dd243247a9edcd3b",
+          "file": "intelligence-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "intelligence verdict visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-tablet",
+              "projectName": "intelligence-tablet",
+              "results": [
+                {
+                  "workerIndex": 10,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 436,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:53.661Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "f76990c5832359d52303-9cb024eff8395c8014a8",
+          "file": "intelligence-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "intelligence package visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-tablet",
+              "projectName": "intelligence-tablet",
+              "results": [
+                {
+                  "workerIndex": 10,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 446,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:54.104Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "f76990c5832359d52303-8d29ed2393125567b885",
+          "file": "intelligence-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "intelligence cases visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-mobile",
+              "projectName": "intelligence-mobile",
+              "results": [
+                {
+                  "workerIndex": 11,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 478,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:47:59.701Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "f76990c5832359d52303-47e529dea4432ef5ddda",
+          "file": "intelligence-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "intelligence claims visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-mobile",
+              "projectName": "intelligence-mobile",
+              "results": [
+                {
+                  "workerIndex": 11,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 433,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:48:00.186Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "f76990c5832359d52303-7c18a08037e041c5cf62",
+          "file": "intelligence-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "intelligence sources visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-mobile",
+              "projectName": "intelligence-mobile",
+              "results": [
+                {
+                  "workerIndex": 11,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 421,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:48:00.625Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "f76990c5832359d52303-cb17e0e3870803159a41",
+          "file": "intelligence-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "intelligence graph visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-mobile",
+              "projectName": "intelligence-mobile",
+              "results": [
+                {
+                  "workerIndex": 11,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 452,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:48:01.053Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "f76990c5832359d52303-2bb2e71ed300f882b890",
+          "file": "intelligence-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "intelligence history visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-mobile",
+              "projectName": "intelligence-mobile",
+              "results": [
+                {
+                  "workerIndex": 11,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 419,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:48:01.511Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "f76990c5832359d52303-6ed80c5018fbb494748b",
+          "file": "intelligence-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "intelligence calibration visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-mobile",
+              "projectName": "intelligence-mobile",
+              "results": [
+                {
+                  "workerIndex": 11,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 465,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:48:01.937Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "f76990c5832359d52303-1a19c330eed61f693f2c",
+          "file": "intelligence-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "intelligence verdict visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-mobile",
+              "projectName": "intelligence-mobile",
+              "results": [
+                {
+                  "workerIndex": 11,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 433,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:48:02.409Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "f76990c5832359d52303-12bbaee12e98df0f17ca",
+          "file": "intelligence-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        },
+        {
+          "title": "intelligence package visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "intelligence-mobile",
+              "projectName": "intelligence-mobile",
+              "results": [
+                {
+                  "workerIndex": 11,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 422,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T15:48:02.849Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "f76990c5832359d52303-bc0da08c25c6c223a691",
+          "file": "intelligence-visual.spec.ts",
+          "line": 17,
+          "column": 7
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-07-27T15:45:45.656Z",
+    "duration": 137748.845,
+    "expected": 111,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

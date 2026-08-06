@@ -2,12 +2,7 @@
   "schema_version": "1.0",
   "source_snapshot_sha256": "e6ce86fcde2c920f2af3b178570c0c3088e4556124e35964a7964c87c37a1bea",
   "run_pub_id": "mig_4XWDJV2HEK3RZRBBADFJF2ZRDD",
-  "excluded": [
-    "password_hash",
-    "session",
-    "otp",
-    "browser_profile"
-  ],
+  "excluded": ["password_hash", "session", "otp", "browser_profile"],
   "counts": {
     "tenant": {
       "seen": 1,

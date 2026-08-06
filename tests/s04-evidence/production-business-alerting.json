@@ -1,0 +1,69 @@
+{
+  "generated_at": "2026-07-27T04:29:37.466845+00:00",
+  "environment": "production",
+  "result": "passed",
+  "database_contract": {
+    "schema_revision": "s04_0029",
+    "worker_execute": true,
+    "public_execute": false,
+    "security_definer": true,
+    "search_path": [
+      "search_path=pg_catalog"
+    ],
+    "api_execute": false,
+    "aggregate_rows": 12,
+    "aggregate_columns": 3,
+    "identifiers_returned": false
+  },
+  "service_states": {
+    "geo-platform-v2-business-metrics.service": "active",
+    "geo-platform-v2-alert-receiver.service": "active"
+  },
+  "prometheus": {
+    "rules_loaded": 12,
+    "expected_rules": 12,
+    "firing_alert_names": [],
+    "exporter_target_up": true
+  },
+  "alertmanager": {
+    "healthy": true,
+    "active_alert_names": [],
+    "local_receiver_only": true
+  },
+  "business_metrics": {
+    "scalar_series": 8,
+    "admission_backlog_by_reason": {
+      "missing_brand": 0,
+      "missing_completed_answers": 0,
+      "not_requested": 0,
+      "partial_fanout": 0,
+      "unknown": 0
+    },
+    "identifier_labels_emitted": false
+  },
+  "notification_pipeline": {
+    "required_active_alert": null,
+    "required_observed_alert": null,
+    "prometheus_firing": null,
+    "alertmanager_active": null,
+    "loki_delivery_observed": true
+  },
+  "assertions": {
+    "schema_at_business_alert_revision": true,
+    "worker_only_aggregate_function": true,
+    "service_units_active": true,
+    "prometheus_ready": true,
+    "alertmanager_healthy": true,
+    "receiver_healthy": true,
+    "exporter_target_up": true,
+    "all_business_rules_loaded": true,
+    "collector_reports_success": true,
+    "fixed_admission_dimensions": true,
+    "admission_backlog_zero": true,
+    "metrics_have_no_identifier_labels": true,
+    "required_alert_firing": true,
+    "required_alert_routed": true,
+    "required_alert_observed_in_loki": true
+  },
+  "identifiers_or_secrets_recorded": false
+}

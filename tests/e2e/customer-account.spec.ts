@@ -1,16 +1,9 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './runtime-fixture';
 import { readDownload, secretArtifactPattern } from './downloads';
+import { captureSafeScreenshot, expectSafePageScreenshot } from './screenshot-safety';
 
 test('customer pairs, verifies and revokes without secret leakage', async ({ page }, testInfo) => {
   const viewportName = testInfo.project.name.replace('customer-', '');
-  const consoleErrors: string[] = [];
-  const failedRequests: string[] = [];
-  page.on('console', (message) => {
-    if (message.type() === 'error') consoleErrors.push(message.text());
-  });
-  page.on('requestfailed', (request) =>
-    failedRequests.push(`${request.method()} ${request.url()}`),
-  );
   await page.route('**/api/v2/health', (route) =>
     route.fulfill({
       status: 200,
@@ -30,6 +23,9 @@ test('customer pairs, verifies and revokes without secret leakage', async ({ pag
         opaque_metadata: { challenge: 615204, subject: 13912345678 },
       }),
     }),
+  );
+  await page.route('**/api/v2/analytics/overview**', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
   );
 
   await page.goto('/platform/customer/');
@@ -67,8 +63,8 @@ test('customer pairs, verifies and revokes without secret leakage', async ({ pag
   await expect(pairing.getByText('尾号 · 4821', { exact: true })).toBeVisible();
   await expect(pairing.getByText('豆包', { exact: true })).toBeVisible();
   await expect(page.getByText(/请勿在聊天或普通表单粘贴验证码/)).toBeVisible();
-  await page.getByRole('button', { name: '确认并生成配对码' }).click();
-  await expect(page.getByRole('img', { name: /一次性安全配对二维码/ })).toBeVisible();
+  await page.getByRole('button', { name: '确认并进入配对演示' }).click();
+  await expect(page.getByRole('img', { name: /一次性安全配对二维码占位/ })).toBeVisible();
   await page.getByRole('button', { name: '终端已连接' }).click();
   await expect(page.getByRole('heading', { name: '请在豆包原生页面完成验证' })).toBeVisible();
   await expect(
@@ -90,7 +86,7 @@ test('customer pairs, verifies and revokes without secret leakage', async ({ pag
     sessionStorage: JSON.stringify(sessionStorage),
     body: document.body.textContent ?? '',
   }));
-  const exposedSurfaces = { ...browserSurfaces, diagnostics: consoleErrors };
+  const exposedSurfaces = browserSurfaces;
   for (const secret of [
     'SESSION=',
     'Bearer ',
@@ -103,24 +99,19 @@ test('customer pairs, verifies and revokes without secret leakage', async ({ pag
   ]) {
     expect(JSON.stringify(exposedSurfaces)).not.toContain(secret);
   }
-  expect(consoleErrors, consoleErrors.join('\n')).toEqual([]);
-  expect(failedRequests, failedRequests.join('\n')).toEqual([]);
-  await page.screenshot({
+  await captureSafeScreenshot(page, {
     path: `tests/e2e-results/customer-account-${viewportName}.png`,
     fullPage: true,
   });
 });
 
-test('validated customer uses the generated safe account lifecycle contract end to end', async ({
+test('validated customer lifecycle writes stay single under synchronous duplicate activation', async ({
   page,
 }) => {
-  const consoleErrors: string[] = [];
-  const failedRequests: string[] = [];
   const writes: { url: string; body: unknown }[] = [];
-  page.on('console', (message) => {
-    if (message.type() === 'error') consoleErrors.push(message.text());
-  });
-  page.on('requestfailed', (request) => failedRequests.push(request.url()));
+  const pairingOutcomes = ['rejected', 'expired', 'failed', 'completed'] as const;
+  let pairingPoll = 0;
+  let revocationAccepted = false;
   await page.addInitScript(() => {
     localStorage.setItem('geo.session.tenant', 'tnt_customer_account_live');
     localStorage.setItem('geo.session.actor', 'customer-account-live');
@@ -164,6 +155,9 @@ test('validated customer uses the generated safe account lifecycle contract end 
       body: JSON.stringify({ status: 'ok', service: 'geo-platform-v2', version: 'contract-v2' }),
     }),
   );
+  await page.route('**/api/v2/analytics/overview**', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  );
   const account = {
     pub_id: 'pac_customer_live_safe',
     account_mask: '尾号 · 7391',
@@ -184,16 +178,58 @@ test('validated customer uses the generated safe account lifecycle contract end 
     profile_path: '/secret/profile/account-api-canary',
     full_phone: '13800138000',
   };
+  await page.route('**/api/v2/customer/platform-accounts/responsible-members', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([
+        {
+          user_pub_id: 'usr_01J00000000000000000000001',
+          label: '成员 · 00000001',
+          role: 'operator',
+        },
+        {
+          user_pub_id: 'usr_01J00000000000000000000002',
+          label: 'Bearer responsible-member-canary',
+          role: 'operator',
+        },
+      ]),
+    }),
+  );
   await page.route('**/api/v2/customer/platform-accounts', async (route) => {
     if (route.request().method() === 'GET') {
-      await route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(
+          revocationAccepted
+            ? [
+                {
+                  ...account,
+                  admission_level: 'suspended',
+                  scopes: [],
+                  session_health: 'revoked',
+                  revocation_receipt_pub_id: 'rev_customer_live_safe',
+                  revoked_at: '2026-07-25T06:00:00Z',
+                  deletion_proof: 'Bearer revocation-receipt-canary',
+                },
+              ]
+            : [],
+        ),
+      });
       return;
     }
     writes.push({ url: route.request().url(), body: route.request().postDataJSON() });
     await route.fulfill({
       status: 201,
       contentType: 'application/json',
-      body: JSON.stringify({ ...account, scopes: [] }),
+      body: JSON.stringify({
+        ...account,
+        scopes: [],
+        authorization_expires_at: null,
+        session_health: 'degraded',
+        intervention_status: 'none',
+      }),
     });
   });
   await page.route('**/api/v2/customer/platform-accounts/*/authorizations', async (route) => {
@@ -220,10 +256,16 @@ test('validated customer uses the generated safe account lifecycle contract end 
           event_type: 'Cookie=event-api-canary',
           occurred_at: '2026-07-24T12:01:00Z',
         },
+        {
+          pub_id: 'sev_ambiguous_time',
+          event_type: 'customer_authorization.ambiguous_time',
+          occurred_at: '1',
+        },
       ]),
     }),
   );
   await page.route('**/api/v2/customer/platform-accounts/*/pairings', async (route) => {
+    const isRead = route.request().method() === 'GET';
     const pairing = {
       pub_id: 'int_customer_live_safe',
       account_pub_id: account.pub_id,
@@ -231,32 +273,37 @@ test('validated customer uses the generated safe account lifecycle contract end 
       allowed_domain: 'doubao.com',
       action: 'read',
       challenge_type: 'qr',
-      state: route.request().method() === 'GET' ? 'completed' : 'pending',
+      state: isRead
+        ? pairingOutcomes[Math.min(pairingPoll++, pairingOutcomes.length - 1)]
+        : 'pending',
       expires_at: null,
       otp: '824911',
     };
     if (route.request().method() === 'POST')
       writes.push({ url: route.request().url(), body: route.request().postDataJSON() });
     await route.fulfill({
-      status: route.request().method() === 'GET' ? 200 : 201,
+      status: isRead ? 200 : 201,
       contentType: 'application/json',
-      body: JSON.stringify(route.request().method() === 'GET' ? [pairing] : pairing),
+      body: JSON.stringify(isRead ? [pairing] : pairing),
     });
   });
   await page.route('**/api/v2/customer/platform-accounts/*/revoke', async (route) => {
     writes.push({ url: route.request().url(), body: null });
+    revocationAccepted = true;
     await route.fulfill({
       status: 202,
       contentType: 'application/json',
       body: JSON.stringify({
-        workflow_id: 'account-revocation/customer-safe',
+        workflow_id: 'account-revocation/tnt_customer_account_live/pac_customer_live_safe',
         run_id: 'run_customer_safe',
       }),
     });
   });
 
   await page.goto('/platform/customer/');
-  await page.getByRole('button', { name: /平台账号/ }).click();
+  const accountsNavigation = page.getByRole('button', { name: /平台账号/ });
+  await expect(accountsNavigation.locator('em')).toHaveCount(0);
+  await accountsNavigation.click();
   await expect(page.getByText('客户安全投影 · 真实 API')).toBeVisible();
   await expect(
     page
@@ -264,45 +311,128 @@ test('validated customer uses the generated safe account lifecycle contract end 
       .filter({ has: page.getByRole('heading', { name: '平台账号与授权' }) })
       .getByText('暂无数据'),
   ).toBeVisible();
+  await expect(page.getByLabel('账号掩码')).toHaveValue('');
+  await expect(page.getByLabel('授权到期日')).toHaveValue('');
+  await expect(page.getByLabel('授权地域')).toHaveValue('');
+  await expect(page.getByLabel('read', { exact: true })).not.toBeChecked();
+  await expect(page.getByLabel('query', { exact: true })).not.toBeChecked();
+  await expect(page.getByRole('button', { name: '登记授权' })).toBeDisabled();
+  const pairingPanel = page
+    .locator('section.panel')
+    .filter({ has: page.getByRole('heading', { name: '客户终端安全配对' }) });
+  await expect(pairingPanel.getByText('暂无数据')).toBeVisible();
+  await expect(pairingPanel.getByText(/不会从空账号列表或表单默认值推断托管模式/)).toBeVisible();
+  await expect(page.getByRole('button', { name: '创建一次性配对' })).toHaveCount(0);
+  await expect(pairingPanel.getByText('混合托管 · read / query')).toHaveCount(0);
+  await page.getByLabel('账号掩码').fill('customer@example.test');
+  await expect(page.getByText('只填写带 *、尾号或其他明确隐藏标记的账号掩码')).toBeVisible();
+  await expect(page.getByRole('button', { name: '登记授权' })).toBeDisabled();
   await page.getByLabel('账号掩码').fill('尾号 · 7391');
-  await page.getByLabel('账号 owner').fill('顾清');
-  await page.getByLabel('运营责任人').fill('周岚');
+  await expect(page.getByLabel('账号 owner')).toHaveValue('用户 · t_live');
+  await expect(page.getByLabel('账号 owner')).toHaveAttribute('readonly');
+  await expect(page.getByText(/由当前认证主体的安全投影在服务端绑定/)).toBeVisible();
+  await page.getByLabel('运营责任人').selectOption('usr_01J00000000000000000000001');
   await page.getByLabel('托管模式').selectOption('customer-device');
+  await page.getByLabel('授权到期日').fill('2026-01-01');
+  await expect(page.getByText('授权到期日必须晚于当前时间')).toBeVisible();
+  await expect(page.getByRole('button', { name: '登记授权' })).toBeDisabled();
   await page.getByLabel('授权到期日').fill('2026-12-31');
   await page.getByLabel('授权地域').fill('中国大陆 · 华北');
+  await page.getByLabel('read', { exact: true }).check();
+  await page.getByLabel('query', { exact: true }).check();
   await page.getByLabel('draft', { exact: true }).check();
   await page.getByLabel('publish', { exact: true }).check();
-  await page.getByRole('button', { name: '登记授权' }).click();
-  await expect(page.getByText(/真实 API 已登记；owner 与责任人/)).toBeVisible();
+  const authorizationButton = page.getByRole('button', { name: '登记授权' });
+  await authorizationButton.evaluate((button) => {
+    button.addEventListener('click', () => (button as HTMLButtonElement).click(), { once: true });
+  });
+  await authorizationButton.click();
+  await expect(
+    page.getByText(/owner 由当前认证主体在服务端绑定，责任人来自当前租户有效成员/),
+  ).toBeVisible();
   await expect(page.getByText('尾号 · 7391', { exact: true })).toBeVisible();
   await expect(page.getByText('当前客户', { exact: true })).toBeVisible();
   await expect(page.getByText('customer_authorization.updated')).toBeVisible();
   await expect(page.getByText('Cookie=event-api-canary')).toHaveCount(0);
+  await expect(page.getByText('customer_authorization.ambiguous_time')).toHaveCount(0);
 
   await page.getByRole('button', { name: '创建一次性配对' }).click();
-  await page.getByRole('button', { name: '确认并生成配对码' }).click();
-  await expect(page.getByText(/真实 API 已创建待处理配对/)).toBeVisible();
-  await page.getByRole('button', { name: '终端已连接' }).click();
-  await page.getByRole('button', { name: '刷新真实配对状态' }).click();
-  await expect(page.getByRole('heading', { name: '配对与验证已完成' })).toBeVisible();
-  await page.getByRole('button', { name: '撤销授权' }).click();
-  await expect(page.getByRole('heading', { name: '等待真实撤销回执' })).toBeVisible();
+  await page.getByRole('button', { name: '拒绝', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '本次配对已拒绝' })).toBeVisible();
+  await expect(page.getByText(/未创建配对请求或一次性通道/)).toBeVisible();
+  await expect(page.getByText(/一次性令牌已销毁/)).toHaveCount(0);
+  expect(writes).toHaveLength(2);
+  await page.getByRole('button', { name: '重新开始' }).click();
 
-  expect(writes).toHaveLength(4);
+  const createAndPollPairing = async () => {
+    await page.getByRole('button', { name: '创建一次性配对' }).click();
+    const pairingButton = page.getByRole('button', { name: '确认并创建配对请求' });
+    await pairingButton.evaluate((button) => {
+      button.addEventListener('click', () => (button as HTMLButtonElement).click(), { once: true });
+    });
+    await pairingButton.click();
+    await expect(page.getByText(/真实 API 已创建待处理配对/)).toBeVisible();
+    await expect(page.getByRole('button', { name: '终端已连接' })).toHaveCount(0);
+    await page.getByRole('button', { name: '刷新真实配对状态' }).click();
+  };
+
+  await createAndPollPairing();
+  await expect(page.getByRole('heading', { name: '本次配对已拒绝' })).toBeVisible();
+  await page.getByRole('button', { name: '重新开始' }).click();
+  await createAndPollPairing();
+  await expect(page.getByRole('heading', { name: '一次性配对已超时' })).toBeVisible();
+  await page.getByRole('button', { name: '重新开始' }).click();
+  await createAndPollPairing();
+  await expect(page.getByRole('heading', { name: '本次原生验证失败' })).toBeVisible();
+  await expect(page.getByText(/未提升任何准入等级/)).toBeVisible();
+  await page.getByRole('button', { name: '重新开始' }).click();
+  await createAndPollPairing();
+  await expect(page.getByRole('heading', { name: '配对与验证已完成' })).toBeVisible();
+  const revokeButton = page.getByRole('button', { name: '撤销授权' });
+  await revokeButton.evaluate((button) => {
+    button.addEventListener('click', () => (button as HTMLButtonElement).click(), { once: true });
+  });
+  await revokeButton.click();
+  await expect(page.getByRole('heading', { name: '等待真实撤销回执' })).toBeVisible();
+  await page.getByRole('button', { name: '刷新撤销状态' }).click();
+  await expect(page.getByRole('heading', { name: '撤销已执行' })).toBeVisible();
+  await expect(page.getByText('rev_customer_live_safe')).toBeVisible();
+  await expect(page.getByText('2026-07-25 06:00')).toBeVisible();
+  const revocationReceipt = page.getByRole('article', {
+    name: '撤销回执 rev_customer_live_safe',
+  });
+  await expect(revocationReceipt.getByText('未在客户安全投影中公开')).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+      ),
+    )
+    .toBe(true);
+  await expectSafePageScreenshot(page, 'customer-live-revocation-receipt.png', {
+    fullPage: true,
+    animations: 'disabled',
+  });
+
+  expect(writes).toHaveLength(7);
   expect(writes[0]?.body).toMatchObject({
     platform_slug: 'doubao',
     account_mask: '尾号 · 7391',
     custody_mode: 'customer_device',
+    responsible_member_pub_id: 'usr_01J00000000000000000000001',
   });
   expect(writes[1]?.body).toMatchObject({
     scopes: ['read', 'query', 'draft', 'publish'],
     regions: ['中国大陆 · 华北'],
+    responsible_member_pub_id: 'usr_01J00000000000000000000001',
   });
-  expect(writes[2]?.body).toEqual({
-    allowed_domain: 'doubao.com',
-    action: 'read',
-    challenge_type: 'qr',
-  });
+  expect(writes.slice(2, 6).map((write) => write.body)).toEqual(
+    Array.from({ length: 4 }, () => ({
+      allowed_domain: 'doubao.com',
+      action: 'read',
+      challenge_type: 'qr',
+    })),
+  );
   const surfaces = await page.evaluate(() =>
     JSON.stringify({
       dom: document.documentElement.outerHTML,
@@ -312,20 +442,12 @@ test('validated customer uses the generated safe account lifecycle contract end 
     }),
   );
   expect(surfaces).not.toMatch(
-    /account-api-canary|event-api-canary|SESSION=|Bearer |824911|13800138000|\/secret\/profile/i,
+    /account-api-canary|event-api-canary|responsible-member-canary|SESSION=|Bearer |824911|13800138000|\/secret\/profile/i,
   );
   expect(JSON.stringify(writes)).not.toMatch(/Cookie|Bearer|otp|profile_path|13800138000/i);
-  expect(consoleErrors).toEqual([]);
-  expect(failedRequests).toEqual([]);
 });
 
 test('customer pairing refusal and timeout destroy the one-time channel', async ({ page }) => {
-  const consoleErrors: string[] = [];
-  const failedRequests: string[] = [];
-  page.on('console', (message) => {
-    if (message.type() === 'error') consoleErrors.push(message.text());
-  });
-  page.on('requestfailed', (request) => failedRequests.push(request.url()));
   await page.route('**/api/v2/health', (route) =>
     route.fulfill({
       status: 200,
@@ -337,7 +459,6 @@ test('customer pairing refusal and timeout destroy the one-time channel', async 
       }),
     }),
   );
-
   await page.goto('/platform/customer/');
   await page.getByRole('button', { name: /平台账号/ }).click();
   await page.getByRole('button', { name: '创建一次性配对' }).click();
@@ -347,13 +468,10 @@ test('customer pairing refusal and timeout destroy the one-time channel', async 
 
   await page.getByRole('button', { name: '重新开始' }).click();
   await page.getByRole('button', { name: '创建一次性配对' }).click();
-  await page.getByRole('button', { name: '确认并生成配对码' }).click();
+  await page.getByRole('button', { name: '确认并进入配对演示' }).click();
   await page.getByRole('button', { name: '模拟超时' }).click();
   await expect(page.getByRole('heading', { name: '一次性配对已超时' })).toBeVisible();
   await expect(page.getByText(/没有改变现有授权或会话/)).toBeVisible();
-
-  expect(consoleErrors).toEqual([]);
-  expect(failedRequests).toEqual([]);
 });
 
 test('validated customer submits a project change request through the generated live contract', async ({
@@ -397,13 +515,21 @@ test('validated customer submits a project change request through the generated 
       }),
     }),
   );
+  await page.route('**/api/v2/projects/prj_customer_live/resources/*', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: '[]',
+    }),
+  );
   await page.route(
     '**/api/v2/projects/prj_customer_live/resources/change-requests',
     async (route) => {
       const request = route.request();
+      const requestBody = request.postDataJSON() as Record<string, unknown>;
       capturedRequest = {
         headers: request.headers(),
-        body: request.postDataJSON() as Record<string, unknown>,
+        body: requestBody,
       };
       await route.fulfill({
         status: 201,
@@ -413,7 +539,14 @@ test('validated customer submits a project change request through the generated 
           project_pub_id: 'prj_customer_live',
           resource_kind: 'change-requests',
           version: 1,
-          data: { kind: 'add_query', payload: {}, state: 'pending', reviewed_by: null },
+          data: {
+            kind: requestBody.kind,
+            payload: requestBody.payload,
+            state: requestBody.state,
+            reviewed_by: null,
+            token: 'Bearer change-request-response-canary',
+          },
+          profile_path: '/secret/profile/change-request-response-canary',
         }),
       });
     },
@@ -423,6 +556,13 @@ test('validated customer submits a project change request through the generated 
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ status: 'ok', service: 'geo-platform-v2', version: 'contract-v1' }),
+    }),
+  );
+  await page.route('**/api/v2/analytics/overview**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: '[]',
     }),
   );
 
@@ -437,7 +577,9 @@ test('validated customer submits a project change request through the generated 
 
   await page.getByLabel('关注问题').fill('制造企业如何选择可信的私有化知识库？');
   await page.getByRole('button', { name: '提交审核' }).click();
-  await expect(page.getByRole('status')).toContainText('申请已进入待运营审核队列');
+  await expect(
+    page.getByRole('status').filter({ hasText: '申请已进入待运营审核队列' }),
+  ).toBeVisible();
 
   expect(capturedRequest).not.toBeNull();
   if (!capturedRequest) throw new Error('live change request was not captured');
@@ -457,6 +599,17 @@ test('validated customer submits a project change request through the generated 
   });
   expect(JSON.stringify(capturedRequest)).not.toMatch(
     /cookie|bearer|otp|proxy_password|profile_path|biometric/i,
+  );
+  const browserSurfaces = await page.evaluate(() =>
+    JSON.stringify({
+      dom: document.documentElement.outerHTML,
+      url: location.href,
+      localStorage: { ...localStorage },
+      sessionStorage: { ...sessionStorage },
+    }),
+  );
+  expect(browserSurfaces).not.toMatch(
+    /change-request-response-canary|Bearer |profile_path|\/secret\/profile/i,
   );
 });
 
@@ -507,12 +660,6 @@ test('customer profile, brand assets and configuration requests validate and sub
   page,
 }, testInfo) => {
   const viewportName = testInfo.project.name.replace('customer-', '');
-  const consoleErrors: string[] = [];
-  const failedRequests: string[] = [];
-  page.on('console', (message) => {
-    if (message.type() === 'error') consoleErrors.push(message.text());
-  });
-  page.on('requestfailed', (request) => failedRequests.push(request.url()));
   await page.route('**/api/v2/health', (route) =>
     route.fulfill({
       status: 200,
@@ -538,6 +685,8 @@ test('customer profile, brand assets and configuration requests validate and sub
   await page.getByLabel('官方 HTTPS 网站').fill('https://example.test');
   await page.getByLabel('产品或服务').fill('可信知识助手');
   await page.getByLabel('客户指定竞品').fill('北辰智库');
+  await page.getByLabel('禁止使用的表述').fill('未经证明的行业第一');
+  await page.getByRole('checkbox', { name: /我确认品牌、产品、竞品与禁止表述真实/ }).check();
   await page.getByRole('button', { name: '登记资产' }).click();
   await expect(page.getByText('澄明云')).toBeVisible();
 
@@ -549,9 +698,7 @@ test('customer profile, brand assets and configuration requests validate and sub
   await page.getByRole('button', { name: '提交审核' }).click();
   await expect(page.getByText('待运营审核', { exact: true })).toBeVisible();
 
-  expect(consoleErrors).toEqual([]);
-  expect(failedRequests).toEqual([]);
-  await page.screenshot({
+  await captureSafeScreenshot(page, {
     path: `tests/e2e-results/customer-forms-${viewportName}.png`,
     fullPage: true,
   });
@@ -561,12 +708,6 @@ test('customer reviews evidence, exports, questions reports and manages members'
   page,
 }, testInfo) => {
   const viewportName = testInfo.project.name.replace('customer-', '');
-  const consoleErrors: string[] = [];
-  const failedRequests: string[] = [];
-  page.on('console', (message) => {
-    if (message.type() === 'error') consoleErrors.push(message.text());
-  });
-  page.on('requestfailed', (request) => failedRequests.push(request.url()));
   await page.route('**/api/v2/health', (route) =>
     route.fulfill({
       status: 200,
@@ -630,6 +771,9 @@ test('customer reviews evidence, exports, questions reports and manages members'
   expect(csvContent).toContain('metric,value,numerator,denominator');
   expect(csvContent).toContain('mention_rate,0.684,26,38');
   expect(csvContent).not.toMatch(secretArtifactPattern);
+  await page.getByRole('textbox', { name: '问题' }).fill('Cookie=SESSION-customer-question-canary');
+  await expect(page.getByText(/请勿在普通表单粘贴验证码/)).toBeVisible();
+  await expect(page.getByRole('button', { name: '提交问题' })).toBeDisabled();
   await page.getByRole('textbox', { name: '问题' }).fill('Top 3 目标值如何复算？');
   await page.getByRole('button', { name: '提交问题' }).click();
   await page.getByRole('button', { name: '确认收到 v1.2' }).click();
@@ -650,11 +794,9 @@ test('customer reviews evidence, exports, questions reports and manages members'
   await expect(page.getByRole('dialog')).toContainText('客户管理员');
   await page.getByRole('button', { name: '移出项目' }).click();
   await expect(page.getByRole('button', { name: '管理 周岚' })).toHaveCount(0);
-  await expect(page.getByRole('status')).toContainText('已移出项目');
+  await expect(page.getByRole('status').filter({ hasText: '已移出项目' })).toBeVisible();
 
-  expect(consoleErrors).toEqual([]);
-  expect(failedRequests).toEqual([]);
-  await page.screenshot({
+  await captureSafeScreenshot(page, {
     path: `tests/e2e-results/customer-delivery-${viewportName}.png`,
     fullPage: true,
   });

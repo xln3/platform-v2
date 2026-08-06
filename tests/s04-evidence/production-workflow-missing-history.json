@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-25T04:34:18.488855+00:00",
+  "result": "passed",
+  "database_revision": "s04_0015",
+  "workflow_id_sha256": "ba7c50045f0bdeea7cddd97a0d43979798c4a4fc3263efaa41051948dc778bca",
+  "assertions": {
+    "accepted_command_retained": true,
+    "missing_history_recorded": true,
+    "run_failed_closed": true,
+    "no_dispatch_replay": true
+  },
+  "synthetic_fixture": true,
+  "synthetic_fixture_removed": true,
+  "sensitive_values_recorded": false
+}

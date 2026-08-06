@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-25T03:46:55.781819+00:00",
+  "result": "passed",
+  "assertions": {
+    "capability_validation_rechecks_current_authorization": true,
+    "customer_pairing_requires_pairable_account_and_current_authorization": true,
+    "revoked_account_cannot_be_reauthorized": true,
+    "terminal_bind_rechecks_authorization": true,
+    "terminal_completion_rechecks_scope_and_forbidden_actions": true,
+    "operator_intervention_create_and_complete_recheck_authorization": true,
+    "profile_enroll_seal_rekey_and_health_recheck_authorization": true,
+    "expiry_and_revoked_account_paths_tested": true
+  },
+  "source_sha256": {
+    "capability": "72d8a6812abcbe66f806612c1027c732f41aee5e2af460867f1c1ef89ec3e87c",
+    "customer": "3460ac4155ad3fb55c246d562c24b147caf274d8aa6a0bb0f080d5df4f0707ad",
+    "operator": "83c3c98475451569c6b7a0ddd166e8dfb157a7d047f846c471981a4b3383ecf9",
+    "terminal": "27aba9aa1a457bd5957916f1d55c679c058b2d44ca43ed4a10bfa4ba63d1960d",
+    "tests": "28c073376c8876e01b6b2053b71460ae6a89a7865c136abd5b76b413ce8a1f3b",
+    "governance_tests": "993fb5b13c9d7847279c4f9226141b9a7c8fc2b97af13c371cd4d8dadfbebc80"
+  },
+  "focused_integration_tests": "12/12",
+  "full_python_tests": "152/152",
+  "production_browser": "33/33",
+  "production_mock_scan": "28/28",
+  "sensitive_values_recorded": false
+}

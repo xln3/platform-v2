@@ -1,0 +1,24 @@
+{
+  "generated_at": "2026-07-24T23:39:54.134608+00:00",
+  "result": "passed",
+  "dependency": {
+    "product": "HashiCorp Vault",
+    "version": "2.0.3",
+    "image": "hashicorp/vault:2.0.3",
+    "image_manifest_digest": "sha256:a296a888b118615dc01d5f1a6846e6d4a7277946caaed5b447008fff5fe06b54",
+    "local_image_id": "sha256:a296a888b118615dc01d5f1a6846e6d4a7277946caaed5b447008fff5fe06b54",
+    "tls": true,
+    "storage": "isolated in-memory integration instance"
+  },
+  "verification": {
+    "transit_enabled": true,
+    "per_account_keys_distinct": true,
+    "profile_seal_open": true,
+    "account_key_deleted": true,
+    "same_name_recreated_with_new_material": true,
+    "retained_backup_reactivation_blocked": true,
+    "unrelated_account_still_decrypts": true
+  },
+  "production_data_touched": false,
+  "secret_material_in_evidence": false
+}

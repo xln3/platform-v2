@@ -1,0 +1,47 @@
+{
+  "generated_at": "2026-07-24T17:38:30.090356+00:00",
+  "environment": "production",
+  "base_url": "https://127.0.0.1:8443",
+  "identity_values_included": false,
+  "results": [
+    {
+      "path": "/api/v2/health",
+      "requests": 1000,
+      "concurrency": 25,
+      "duration_seconds": 2.02,
+      "requests_per_second": 494.989,
+      "latency_ms": {
+        "min": 3.754,
+        "mean": 48.391,
+        "p50": 35.581,
+        "p95": 131.853,
+        "p99": 187.657,
+        "max": 292.352
+      },
+      "statuses": {
+        "200": 1000
+      },
+      "passed": true
+    },
+    {
+      "path": "/api/v2/projects?limit=50",
+      "requests": 1000,
+      "concurrency": 25,
+      "duration_seconds": 2.364,
+      "requests_per_second": 423.007,
+      "latency_ms": {
+        "min": 15.018,
+        "mean": 58.438,
+        "p50": 56.175,
+        "p95": 86.089,
+        "p99": 131.024,
+        "max": 163.629
+      },
+      "statuses": {
+        "200": 1000
+      },
+      "passed": true
+    }
+  ],
+  "passed": true
+}

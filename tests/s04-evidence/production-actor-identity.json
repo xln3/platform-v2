@@ -1,0 +1,144 @@
+{
+  "generated_at": "2026-07-27T04:29:52.177279+00:00",
+  "result": "passed",
+  "schema_revision": "s04_0029",
+  "actor_contract": "same-tenant platform app_user.pub_id",
+  "legacy_external_subject_residue": 0,
+  "columns": {
+    "platform.audit_log.actor_pub_id": {
+      "non_null": 0,
+      "legacy_subject_residue": 0,
+      "known_platform_user_ids": 0,
+      "system_or_historical_ids": 0
+    },
+    "platform.client_profile_version.declared_by": {
+      "non_null": 0,
+      "legacy_subject_residue": 0,
+      "known_platform_user_ids": 0,
+      "system_or_historical_ids": 0
+    },
+    "platform.asset_confirmation_version.declared_by": {
+      "non_null": 0,
+      "legacy_subject_residue": 0,
+      "known_platform_user_ids": 0,
+      "system_or_historical_ids": 0
+    },
+    "platform.capability_lease.issued_by": {
+      "non_null": 0,
+      "legacy_subject_residue": 0,
+      "known_platform_user_ids": 0,
+      "system_or_historical_ids": 0
+    },
+    "platform.credential_access_request.requested_by": {
+      "non_null": 0,
+      "legacy_subject_residue": 0,
+      "known_platform_user_ids": 0,
+      "system_or_historical_ids": 0
+    },
+    "platform.credential_access_approval.approver_pub_id": {
+      "non_null": 0,
+      "legacy_subject_residue": 0,
+      "known_platform_user_ids": 0,
+      "system_or_historical_ids": 0
+    },
+    "platform.session_health_check.checked_by": {
+      "non_null": 0,
+      "legacy_subject_residue": 0,
+      "known_platform_user_ids": 0,
+      "system_or_historical_ids": 0
+    },
+    "evidence.evidence_access_audit.actor_pub_id": {
+      "non_null": 0,
+      "legacy_subject_residue": 0,
+      "known_platform_user_ids": 0,
+      "system_or_historical_ids": 0
+    },
+    "reporting.report_version.created_by_pub_id": {
+      "non_null": 0,
+      "legacy_subject_residue": 0,
+      "known_platform_user_ids": 0,
+      "system_or_historical_ids": 0
+    },
+    "reporting.report_review.reviewer_pub_id": {
+      "non_null": 0,
+      "legacy_subject_residue": 0,
+      "known_platform_user_ids": 0,
+      "system_or_historical_ids": 0
+    },
+    "reporting.report_comment.author_pub_id": {
+      "non_null": 0,
+      "legacy_subject_residue": 0,
+      "known_platform_user_ids": 0,
+      "system_or_historical_ids": 0
+    },
+    "reporting.report_event.actor_pub_id": {
+      "non_null": 0,
+      "legacy_subject_residue": 0,
+      "known_platform_user_ids": 0,
+      "system_or_historical_ids": 0
+    },
+    "reporting.effect_retest.recorded_by_pub_id": {
+      "non_null": 0,
+      "legacy_subject_residue": 0,
+      "known_platform_user_ids": 0,
+      "system_or_historical_ids": 0
+    },
+    "reporting.data_export.created_by_pub_id": {
+      "non_null": 0,
+      "legacy_subject_residue": 0,
+      "known_platform_user_ids": 0,
+      "system_or_historical_ids": 0
+    },
+    "reporting.report_delivery.recipient_pub_id": {
+      "non_null": 0,
+      "legacy_subject_residue": 0,
+      "known_platform_user_ids": 0,
+      "system_or_historical_ids": 0
+    },
+    "intelligence.human_verdict.reviewer_pub_id": {
+      "non_null": 0,
+      "legacy_subject_residue": 0,
+      "known_platform_user_ids": 0,
+      "system_or_historical_ids": 0
+    },
+    "intelligence.appeal.submitted_by_pub_id": {
+      "non_null": 0,
+      "legacy_subject_residue": 0,
+      "known_platform_user_ids": 0,
+      "system_or_historical_ids": 0
+    },
+    "intelligence.appeal.resolved_by_pub_id": {
+      "non_null": 0,
+      "legacy_subject_residue": 0,
+      "known_platform_user_ids": 0,
+      "system_or_historical_ids": 0
+    }
+  },
+  "appeal_resolution_audit_columns": [
+    "resolution_rationale",
+    "resolved_at",
+    "resolved_by_pub_id"
+  ],
+  "source_boundary": {
+    "result": "passed",
+    "principal_subject_references": {
+      "identity/router.py": [
+        242,
+        270,
+        568
+      ],
+      "collection/governance_router.py": [
+        391
+      ],
+      "collection/customer_account_router.py": [
+        123
+      ]
+    },
+    "allowed_purposes": [
+      "identity lookup and projection",
+      "legacy-session self-approval compatibility"
+    ]
+  },
+  "identifiers_emitted": false,
+  "secrets_emitted": false
+}

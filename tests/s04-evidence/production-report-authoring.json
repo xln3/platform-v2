@@ -1,0 +1,48 @@
+{
+  "generated_at": "2026-07-27T04:29:56.655917+00:00",
+  "result": "passed",
+  "schema_revision": "s04_0029",
+  "immutable_revision_contract": {
+    "hash_columns": [
+      "authoring_contract_hash",
+      "authoring_operation_hash"
+    ],
+    "unique_operation_hash_index": true,
+    "hash_pair_constraint": true,
+    "raw_idempotency_key_stored": false,
+    "server_side_frozen_fact_copy": true,
+    "component_payload_evidence_binding": true,
+    "artifact_replay_lock_and_resume": true
+  },
+  "openapi": {
+    "path": "/api/v2/reports/{report_pub_id}/versions",
+    "required_idempotency_header": true,
+    "minimum_key_length": 16
+  },
+  "source_checks": {
+    "api_requires_report_write": true,
+    "api_hashes_idempotency_key": true,
+    "generated_client_uses_revision_path": true,
+    "report_studio_uses_generated_revision_client": true
+  },
+  "production_service_states": {
+    "geo-platform-v2-api.service": "active",
+    "geo-platform-v2-worker.service": "active",
+    "geo-platform-v2-s02-worker.service": "active",
+    "geo-platform-v2-outbox-worker.service": "active"
+  },
+  "production_data": {
+    "reports": 0,
+    "published_reports": 0,
+    "reports_with_authoring_revision": 0,
+    "populated_customer_acceptance": false,
+    "qualification": "Production schema/runtime/source contract is certified without inserting a synthetic customer report; real-customer delivery remains open."
+  },
+  "integration_evidence": {
+    "real_postgresql_minio": "tests/integration/test_s02_vertical_slices.py",
+    "role_isolation_and_replay": "tests/integration/test_s02_api.py",
+    "three_viewport_live_contract": "tests/s04-evidence/e2e-results-s04-report-authoring.json"
+  },
+  "identifiers_emitted": false,
+  "secrets_emitted": false
+}

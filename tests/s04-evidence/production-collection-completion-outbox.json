@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-25T05:49:22.557565+00:00",
+  "result": "passed",
+  "database_revision": "s04_0022",
+  "completed_run_count": 4,
+  "completion_event_count": 4,
+  "selected_run_sha256": "dd865265c388cf892b9917fb0de053d7eb06545d78bc84ef4fc0e2617c78d1e5",
+  "assertions": {
+    "all_historical_completed_runs_backfilled": true,
+    "exact_publish_replay_returns_same_event": true,
+    "selected_run_has_one_event": true,
+    "no_duplicate_completion_event_groups": true,
+    "event_payload_matches_authoritative_counts": true
+  },
+  "sensitive_values_recorded": false
+}

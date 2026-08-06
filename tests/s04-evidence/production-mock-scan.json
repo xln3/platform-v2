@@ -1,0 +1,394 @@
+{
+  "generated_at": "2026-07-28T11:42:57.997Z",
+  "production_url": "https://127.0.0.1:8443",
+  "result": "passed",
+  "summary": {
+    "total": 29,
+    "passed": 29
+  },
+  "identity": {
+    "source": "legacy_http_only_session",
+    "legacy_role": "owner",
+    "browser_actor_headers_used": false,
+    "secret_emitted": false
+  },
+  "checks": [
+    {
+      "application": "customer",
+      "section": "home",
+      "http_status": 200,
+      "forbidden_fixture_markers": [],
+      "runtime_issue_counts": {
+        "console_error": 0,
+        "page_error": 0,
+        "request_failed": 0,
+        "error_response": 0,
+        "forbidden_actor_header": 0
+      }
+    },
+    {
+      "application": "customer",
+      "section": "profile",
+      "http_status": 200,
+      "forbidden_fixture_markers": [],
+      "runtime_issue_counts": {
+        "console_error": 0,
+        "page_error": 0,
+        "request_failed": 0,
+        "error_response": 0,
+        "forbidden_actor_header": 0
+      }
+    },
+    {
+      "application": "customer",
+      "section": "assets",
+      "http_status": 200,
+      "forbidden_fixture_markers": [],
+      "runtime_issue_counts": {
+        "console_error": 0,
+        "page_error": 0,
+        "request_failed": 0,
+        "error_response": 0,
+        "forbidden_actor_header": 0
+      }
+    },
+    {
+      "application": "customer",
+      "section": "questions",
+      "http_status": 200,
+      "forbidden_fixture_markers": [],
+      "runtime_issue_counts": {
+        "console_error": 0,
+        "page_error": 0,
+        "request_failed": 0,
+        "error_response": 0,
+        "forbidden_actor_header": 0
+      }
+    },
+    {
+      "application": "customer",
+      "section": "monitoring",
+      "http_status": 200,
+      "forbidden_fixture_markers": [],
+      "runtime_issue_counts": {
+        "console_error": 0,
+        "page_error": 0,
+        "request_failed": 0,
+        "error_response": 0,
+        "forbidden_actor_header": 0
+      }
+    },
+    {
+      "application": "customer",
+      "section": "evidence",
+      "http_status": 200,
+      "forbidden_fixture_markers": [],
+      "runtime_issue_counts": {
+        "console_error": 0,
+        "page_error": 0,
+        "request_failed": 0,
+        "error_response": 0,
+        "forbidden_actor_header": 0
+      }
+    },
+    {
+      "application": "customer",
+      "section": "reports",
+      "http_status": 200,
+      "forbidden_fixture_markers": [],
+      "runtime_issue_counts": {
+        "console_error": 0,
+        "page_error": 0,
+        "request_failed": 0,
+        "error_response": 0,
+        "forbidden_actor_header": 0
+      }
+    },
+    {
+      "application": "customer",
+      "section": "members",
+      "http_status": 200,
+      "forbidden_fixture_markers": [],
+      "runtime_issue_counts": {
+        "console_error": 0,
+        "page_error": 0,
+        "request_failed": 0,
+        "error_response": 0,
+        "forbidden_actor_header": 0
+      }
+    },
+    {
+      "application": "customer",
+      "section": "accounts",
+      "http_status": 200,
+      "forbidden_fixture_markers": [],
+      "runtime_issue_counts": {
+        "console_error": 0,
+        "page_error": 0,
+        "request_failed": 0,
+        "error_response": 0,
+        "forbidden_actor_header": 0
+      }
+    },
+    {
+      "application": "operations",
+      "section": "overview",
+      "http_status": 200,
+      "forbidden_fixture_markers": [],
+      "runtime_issue_counts": {
+        "console_error": 0,
+        "page_error": 0,
+        "request_failed": 0,
+        "error_response": 0,
+        "forbidden_actor_header": 0
+      }
+    },
+    {
+      "application": "operations",
+      "section": "sessions",
+      "http_status": 200,
+      "forbidden_fixture_markers": [],
+      "runtime_issue_counts": {
+        "console_error": 0,
+        "page_error": 0,
+        "request_failed": 0,
+        "error_response": 0,
+        "forbidden_actor_header": 0
+      }
+    },
+    {
+      "application": "operations",
+      "section": "interventions",
+      "http_status": 200,
+      "forbidden_fixture_markers": [],
+      "runtime_issue_counts": {
+        "console_error": 0,
+        "page_error": 0,
+        "request_failed": 0,
+        "error_response": 0,
+        "forbidden_actor_header": 0
+      }
+    },
+    {
+      "application": "operations",
+      "section": "events",
+      "http_status": 200,
+      "forbidden_fixture_markers": [],
+      "runtime_issue_counts": {
+        "console_error": 0,
+        "page_error": 0,
+        "request_failed": 0,
+        "error_response": 0,
+        "forbidden_actor_header": 0
+      }
+    },
+    {
+      "application": "reports",
+      "section": "window",
+      "http_status": 200,
+      "forbidden_fixture_markers": [],
+      "runtime_issue_counts": {
+        "console_error": 0,
+        "page_error": 0,
+        "request_failed": 0,
+        "error_response": 0,
+        "forbidden_actor_header": 0
+      }
+    },
+    {
+      "application": "reports",
+      "section": "trace",
+      "http_status": 200,
+      "forbidden_fixture_markers": [],
+      "runtime_issue_counts": {
+        "console_error": 0,
+        "page_error": 0,
+        "request_failed": 0,
+        "error_response": 0,
+        "forbidden_actor_header": 0
+      }
+    },
+    {
+      "application": "reports",
+      "section": "editor",
+      "http_status": 200,
+      "forbidden_fixture_markers": [],
+      "runtime_issue_counts": {
+        "console_error": 0,
+        "page_error": 0,
+        "request_failed": 0,
+        "error_response": 0,
+        "forbidden_actor_header": 0
+      }
+    },
+    {
+      "application": "reports",
+      "section": "diff",
+      "http_status": 200,
+      "forbidden_fixture_markers": [],
+      "runtime_issue_counts": {
+        "console_error": 0,
+        "page_error": 0,
+        "request_failed": 0,
+        "error_response": 0,
+        "forbidden_actor_header": 0
+      }
+    },
+    {
+      "application": "reports",
+      "section": "evidence",
+      "http_status": 200,
+      "forbidden_fixture_markers": [],
+      "runtime_issue_counts": {
+        "console_error": 0,
+        "page_error": 0,
+        "request_failed": 0,
+        "error_response": 0,
+        "forbidden_actor_header": 0
+      }
+    },
+    {
+      "application": "reports",
+      "section": "preview",
+      "http_status": 200,
+      "forbidden_fixture_markers": [],
+      "runtime_issue_counts": {
+        "console_error": 0,
+        "page_error": 0,
+        "request_failed": 0,
+        "error_response": 0,
+        "forbidden_actor_header": 0
+      }
+    },
+    {
+      "application": "reports",
+      "section": "review",
+      "http_status": 200,
+      "forbidden_fixture_markers": [],
+      "runtime_issue_counts": {
+        "console_error": 0,
+        "page_error": 0,
+        "request_failed": 0,
+        "error_response": 0,
+        "forbidden_actor_header": 0
+      }
+    },
+    {
+      "application": "reports",
+      "section": "outcomes",
+      "http_status": 200,
+      "forbidden_fixture_markers": [],
+      "runtime_issue_counts": {
+        "console_error": 0,
+        "page_error": 0,
+        "request_failed": 0,
+        "error_response": 0,
+        "forbidden_actor_header": 0
+      }
+    },
+    {
+      "application": "intelligence",
+      "section": "cases",
+      "http_status": 200,
+      "forbidden_fixture_markers": [],
+      "runtime_issue_counts": {
+        "console_error": 0,
+        "page_error": 0,
+        "request_failed": 0,
+        "error_response": 0,
+        "forbidden_actor_header": 0
+      }
+    },
+    {
+      "application": "intelligence",
+      "section": "claims",
+      "http_status": 200,
+      "forbidden_fixture_markers": [],
+      "runtime_issue_counts": {
+        "console_error": 0,
+        "page_error": 0,
+        "request_failed": 0,
+        "error_response": 0,
+        "forbidden_actor_header": 0
+      }
+    },
+    {
+      "application": "intelligence",
+      "section": "sources",
+      "http_status": 200,
+      "forbidden_fixture_markers": [],
+      "runtime_issue_counts": {
+        "console_error": 0,
+        "page_error": 0,
+        "request_failed": 0,
+        "error_response": 0,
+        "forbidden_actor_header": 0
+      }
+    },
+    {
+      "application": "intelligence",
+      "section": "graph",
+      "http_status": 200,
+      "forbidden_fixture_markers": [],
+      "runtime_issue_counts": {
+        "console_error": 0,
+        "page_error": 0,
+        "request_failed": 0,
+        "error_response": 0,
+        "forbidden_actor_header": 0
+      }
+    },
+    {
+      "application": "intelligence",
+      "section": "history",
+      "http_status": 200,
+      "forbidden_fixture_markers": [],
+      "runtime_issue_counts": {
+        "console_error": 0,
+        "page_error": 0,
+        "request_failed": 0,
+        "error_response": 0,
+        "forbidden_actor_header": 0
+      }
+    },
+    {
+      "application": "intelligence",
+      "section": "calibration",
+      "http_status": 200,
+      "forbidden_fixture_markers": [],
+      "runtime_issue_counts": {
+        "console_error": 0,
+        "page_error": 0,
+        "request_failed": 0,
+        "error_response": 0,
+        "forbidden_actor_header": 0
+      }
+    },
+    {
+      "application": "intelligence",
+      "section": "verdict",
+      "http_status": 200,
+      "forbidden_fixture_markers": [],
+      "runtime_issue_counts": {
+        "console_error": 0,
+        "page_error": 0,
+        "request_failed": 0,
+        "error_response": 0,
+        "forbidden_actor_header": 0
+      }
+    },
+    {
+      "application": "intelligence",
+      "section": "package",
+      "http_status": 200,
+      "forbidden_fixture_markers": [],
+      "runtime_issue_counts": {
+        "console_error": 0,
+        "page_error": 0,
+        "request_failed": 0,
+        "error_response": 0,
+        "forbidden_actor_header": 0
+      }
+    }
+  ]
+}

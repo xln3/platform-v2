@@ -1,0 +1,229 @@
+{
+  "generated_at": "2026-07-28T11:44:22.750952+00:00",
+  "result": "incomplete_external_authority_and_real_sample_gates_open",
+  "section_18": {
+    "satisfied": 7,
+    "total": 10,
+    "all_satisfied": false,
+    "gates": [
+      {
+        "number": 1,
+        "name": "implementation_migrations_configuration_complete",
+        "satisfied": false,
+        "reason": "Source-owned V2 code, schema and restricted extension artifact are deployed, but an authorized customer-terminal installation, production IdP bindings, live adapters and independently operated KMS custody are absent. A same-host production Vault Transit service proves mechanics only."
+      },
+      {
+        "number": 2,
+        "name": "lint_types_and_automated_tests",
+        "satisfied": true,
+        "evidence": "full-quality-certification.json",
+        "ci_configuration": "configuration_and_local_equivalent_passed_remote_run_unavailable",
+        "hosted_ci_run_verified": false
+      },
+      {
+        "number": 3,
+        "name": "real_dependency_integration",
+        "satisfied": false,
+        "qualification": "PostgreSQL, ClickHouse, Temporal, MinIO, Redis and isolated Vault mechanism tests pass; live external platform, IdP and authorized customer-terminal dependency integration is absent."
+      },
+      {
+        "number": 4,
+        "name": "permissions_tenant_and_sensitive_fields",
+        "satisfied": true,
+        "evidence": [
+          "production-rls-certification.json",
+          "production-actor-identity.json"
+        ]
+      },
+      {
+        "number": 5,
+        "name": "idempotency_retry_and_partial_failure",
+        "satisfied": true,
+        "qualification": "Covered for populated V2/migrated slices, workflow fault tests and a production Temporal session lifecycle probe (passed)."
+      },
+      {
+        "number": 6,
+        "name": "deployed_to_independent_production_v2_entry",
+        "satisfied": true,
+        "evidence": [
+          "production-browser-acceptance.json",
+          "production-business-alerting.json"
+        ]
+      },
+      {
+        "number": 7,
+        "name": "real_roles_operate_successfully",
+        "satisfied": false,
+        "verified_roles": [
+          "admin"
+        ],
+        "missing_roles": [
+          "analyst",
+          "customer",
+          "operator",
+          "reviewer"
+        ],
+        "oidc_verified": false,
+        "passkey_verified": false
+      },
+      {
+        "number": 8,
+        "name": "production_screenshots_or_machine_evidence",
+        "satisfied": true,
+        "evidence": "production-browser-acceptance.json"
+      },
+      {
+        "number": 9,
+        "name": "zero_browser_console_and_failed_requests",
+        "satisfied": true,
+        "evidence": "production-browser-acceptance.json"
+      },
+      {
+        "number": 10,
+        "name": "implementation_status_records_urls_data_and_evidence",
+        "satisfied": true,
+        "evidence": "../IMPLEMENTATION_STATUS.md"
+      }
+    ]
+  },
+  "open_requirements": [
+    {
+      "id": "identity-real-roles",
+      "evidence_state": {
+        "verified_roles": [
+          "admin"
+        ],
+        "missing_roles": [
+          "analyst",
+          "customer",
+          "operator",
+          "reviewer"
+        ],
+        "oidc_verified": false,
+        "passkey_verified": false
+      }
+    },
+    {
+      "id": "profile-custody-migration-and-deletion",
+      "evidence_state": {
+        "platform_accounts": 0,
+        "browser_profiles": 0,
+        "active_profile_deks": 0,
+        "profile_rekey_mechanics": "passed",
+        "lease_lifecycle_mechanics": "passed",
+        "account_revocation_mechanics": "passed",
+        "authorization_revocation_propagation": "passed",
+        "revoked_account_terminal_state": "passed",
+        "authorization_replacement": "passed",
+        "evidence_parent_concurrency": "passed",
+        "workflow_start_outbox": "passed",
+        "workflow_terminal_reconciliation": "passed",
+        "api_workflow_activity_trace": "passed",
+        "already_started_run_id_recovery": "passed",
+        "missing_history_terminal_recovery": "passed",
+        "durable_ordered_signal_delivery": "passed",
+        "collection_run_terminal_guard": "passed",
+        "concurrent_signal_idempotency": "passed",
+        "activity_result_accounting": "passed",
+        "report_review_idempotency": "passed",
+        "answer_analysis_idempotency": "passed",
+        "evidence_occurrence_identity": "passed",
+        "collection_completion_outbox": "passed",
+        "outbox_domain_routing": "passed",
+        "collection_analysis_fanout": "passed",
+        "report_delivery_confirmation": "passed",
+        "plaintext_imported": false,
+        "plaintext_destroyed": false
+      }
+    },
+    {
+      "id": "customer-terminal-native-canaries",
+      "evidence_state": {
+        "device_bindings": 0,
+        "terminal_tasks": 0,
+        "native_canary_verified": false,
+        "protocol_result": "restricted_extension_and_production_signing_boundary_passed_authorized_native_canary_open",
+        "local_chromium_runtime_result": "passed_not_customer_authorized",
+        "production_signed_release_result": "passed"
+      }
+    },
+    {
+      "id": "live-platform-capability-admission",
+      "evidence_state": {
+        "platform_adapters": 0,
+        "currently_authorized_accounts": 0,
+        "live_capability_claimed": false
+      }
+    },
+    {
+      "id": "approved-anti-geo-calibration-dataset",
+      "evidence_state": {
+        "dataset_kind": "evidence-bound external calibration registry",
+        "registered_datasets": 0,
+        "approved_external_label_sets": 0,
+        "evaluation_runs": 0,
+        "passing_evaluation_runs": 0,
+        "active_model_admissions": 0,
+        "qualified_admission_chains": 0,
+        "approved_external_label_set_present": false,
+        "production_calibration_claimed": false,
+        "model_admission_claimed": false
+      }
+    },
+    {
+      "id": "populated-report-shadow",
+      "evidence_state": {
+        "production_reports": 0,
+        "delivery_confirmation_storage_probe": "passed",
+        "immutable_authoring_contract": "passed",
+        "real_customer_delivery_acceptance": false,
+        "reconciliation_unapproved_differences": 0
+      }
+    }
+  ],
+  "evidence_sha256": {
+    "full-quality-certification.json": "3130fd1592cdf1ca52d08edc0fd54081341cf4e1aae8277a600c99be85c56642",
+    "production-browser-acceptance.json": "685436f915d0ee7a483c7f194b918edb1a473309ea63e206d014cab9226b9eee",
+    "production-identity-certification.json": "ac39f02dfbe4af9dac5264e5d85d87fe2da2f0de756fd7dd130b35242950fa98",
+    "external-gates-audit.json": "45490c5a87057919de39dd3d28d86bf98d1d07c850cac13d821c7262e503bdf0",
+    "production-target-reconciliation.json": "1bd19bae61d8801ce31cec9e7152de601039ec479e5c425e88cf3cef2189040e",
+    "production-runtime-data-counts.json": "d734228e8a757236a0faa60cc5a69e8be26bbae244b146da0c8ce4850c99542c",
+    "production-rls-certification.json": "6c94f4859fb18602e74aca7d00abc5516d0742d9ad73bba2ef7d551446dfe946",
+    "production-actor-identity.json": "eb5ff4948d4df9001ff8bc4997d6bdce50b93fc65852039ac56702658a5da46b",
+    "customer-terminal-protocol.json": "af38e87c238e1197f154aba679df4d316b4749a89d68d442af04304b55a52948",
+    "customer-terminal-extension-runtime.json": "84bbe3fa1a027513c33fedff01554c4d1ebe7bc5cf0354c6a0f0115fcddefe86",
+    "customer-terminal-extension-release.json": "755b885f15ef07dc83818de4b05c64b798ff154bde88fb2dedbe404668df3e04",
+    "ci-workflow-certification.json": "7d8dfc130b1b8b1bb3db0f4b95c0b4e1608d2f99bcd80679f946053cf27ac964",
+    "profile-vault-rekey-certification.json": "4a28b4674723546d00fb80078eaea19e142e75aac6d60043610bfb0b8be952e2",
+    "session-lease-lifecycle-certification.json": "316ffee33ddad54204ad45673889d198a13e994e75e62fb5d7e0d4e99275a875",
+    "production-session-lifecycle.json": "925c1695ba1457d7b0d3ca4510ab29396d76d61ed06b2f9798187184fc2bb3ee",
+    "production-account-revocation.json": "c2d63c5323bad47837f0106dfb16ddce217d8c84c5bf416629d712ddaf7c9a3d",
+    "authorization-revocation-propagation.json": "b41cfbdf77053c45f3a5b771b1af47c7b0d3525c6a0ae5e1b3dccb5d3e191d6a",
+    "production-revoked-account-terminal-state.json": "967dd7b32869829aa720b46840351703f5dcf003c344aea0120c93181b49af9e",
+    "authorization-replacement-propagation.json": "1d33e4b651ff00f4dfe7f274ccf7e389d47fb1de2ed26430339d7e75a4dea9d4",
+    "evidence-parent-concurrency.json": "3f46c1123d90282bbbcecfaea4f3a971255b2ede83278cad960c7e47e0d6fff0",
+    "production-workflow-start-outbox.json": "842079e1fe3c21d24feb225e24da2cf372890777cb85336e7c2bedfdc1f49b67",
+    "production-workflow-terminal-reconciliation.json": "0b4142bd9055320222756f9e0d4d587f455bd79c8bf687237e5de8baab184c9b",
+    "production-outbox-trace.json": "b05b290d70e5cdb04c10e8da884354c2f4b8d34c2c7d635a30f9e036b83b7eab",
+    "production-workflow-already-started.json": "37e98eaf9cccff6134b8a3abb2040768721e19b5aa6058a49f01367ac1bd1557",
+    "production-workflow-missing-history.json": "af3e6daf647caaf13f48b175c813d4012feb6a33c3fd9119923955ff626645ed",
+    "production-workflow-signal-outbox.json": "8ddc5289790e277b9c352fafb3889f5ba1b6191296d58e9f2473e43114b466a4",
+    "production-run-terminal-guard.json": "79314269828f800d5ed6f732447acef0a130adb50ff5373e7599ec39a78522da",
+    "production-signal-idempotency.json": "fc33f8a00570df62f8e66c44d0d27efc67c75e65a4aea287dbf05b40a5a8caf2",
+    "production-activity-result-accounting.json": "25518c29d23f1f05d748910c0289ca38ee83a943e84bade7e159d3bbd51325f3",
+    "production-report-review-idempotency.json": "9933ae649554f0b249b7fb0cb441511af798696258f796b5809b80ba787be886",
+    "production-analysis-idempotency.json": "74a57bf4da952390015489d1d6c4589933eb7a43258c72c2062e732014dbd8a3",
+    "production-evidence-occurrence-identity.json": "d05d5b5896561879e0c65fbe29d04edb8133ee2a349c44463a2b612fa3ca5813",
+    "production-collection-completion-outbox.json": "28b906f17069010b88d8ceeb2be8f333d2066c23a5f64e0e046b17caee47550a",
+    "production-outbox-domain-routing.json": "6b68ac967d154d6153f34be7bdd03cd7ee9f7d322e8c21f631ae4a281c2c5428",
+    "production-collection-analysis-fanout.json": "a559e8b397c295dd9d334bf94458dc1ac4c9cb89115ece6092d50194ed4e7bf5",
+    "production-report-delivery-confirmation.json": "fa7f4ba411c78e986ff7ce7524b51f2c7069e0ed231ab90bec42f29d44569ea7",
+    "production-report-authoring.json": "4a9f03fcc3f96ab089bf2f2240b2e4093e6ed526c2c986ce49e0f81737c4f336",
+    "production-business-alerting.json": "9739bf09440c72cc1f2088854ac2af583a30990eac21bd7c5e74f35765f5c231",
+    "production-postgres-credential-rotation.json": "17795725a0e789f76d3d27877b3cfaec004c8e34f1679523ac139a0428970acd",
+    "anti-geo-evaluation-boundary.json": "196bd4978e9bc8455c86570a4fb8c3145338aa3cdd9721ed05b1015f2e5484d0"
+  },
+  "legacy_route_switched": false,
+  "secret_material_in_evidence": false,
+  "goal_status": "active"
+}

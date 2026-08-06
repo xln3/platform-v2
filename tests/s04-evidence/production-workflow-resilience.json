@@ -1,0 +1,46 @@
+{
+  "generated_at": "2026-07-24T18:42:29.169325+00:00",
+  "environment": "production",
+  "temporal_address": "127.0.0.1:17234",
+  "result": "passed",
+  "activity_retry": {
+    "workflow_state": "completed",
+    "completed_count": 1,
+    "quality_state": "certification_valid",
+    "recovered_after_injected_failure": true
+  },
+  "worker_restart": {
+    "unit": "geo-platform-v2-worker",
+    "reached_durable_wait": true,
+    "worker_observed_stopped": true,
+    "worker_active_after_restart": true,
+    "workflow_state_after_replay": "cancelled"
+  },
+  "long_activity": {
+    "workflow_state": "completed",
+    "completed_count": 1,
+    "heartbeat_interval_seconds": 1,
+    "observed_duration_seconds": 15.067,
+    "duration_threshold_seconds": 15,
+    "passed": true
+  },
+  "signals": {
+    "duplicate_pause_sent": true,
+    "duplicate_intervention_nonce_sent": true,
+    "cancel_sent_while_worker_stopped": true,
+    "durably_applied_after_restart": true
+  },
+  "customer_rows_mutated": false,
+  "retry_result": {
+    "state": "completed",
+    "completed": [
+      {
+        "business_key": "s04-retry-3ced451861d34a5f8a9eccedddd3bbf7",
+        "answer_text": "[certification] retry recovered",
+        "screenshot_ref": "certification://7b41e3b7d6705dc95286e4a37e9c71807345d2c83d1a8845f0f92de447cc298e",
+        "quality_state": "certification_valid"
+      }
+    ],
+    "downstream_event": "collection.completed:run_s04_retry_3ced451861d34a5f8a9eccedddd3bbf7"
+  }
+}

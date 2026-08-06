@@ -1,0 +1,45 @@
+{
+  "generated_at": "2026-07-27T20:49:13+08:00",
+  "mode": "read-only plus unauthenticated authorization-boundary probes",
+  "application_entries": {
+    "customer": 200,
+    "operations": 200,
+    "reports": 200,
+    "intelligence": 200
+  },
+  "health": {
+    "status": 200,
+    "service": "geo-platform-v2",
+    "version": "0.1.0-s04"
+  },
+  "openapi": {
+    "repository_paths": 100,
+    "production_paths": 100,
+    "repository_only_paths": [],
+    "production_only_paths": [],
+    "canonical_paths_schemas_sha256": "601d9cffb2de6f71caa9b345f4f655b0e9f7f810b927e9e7fd50bb31d31396b5",
+    "repository_file_sha256": "2d2a5df8461fd768810d75f79dc9a529f6dd5767442fb5d597a3ae02cbf70144",
+    "production_file_sha256": "6995a118a8dca4de50ee69f266b682429118f70a363a9bc93f2d43e2f79f68fe",
+    "generated_client_sha256": "472eb55623f309e1f217b7e2109c7e069e14e680d82497326cf3daf55fefb2c1"
+  },
+  "authentication_boundaries": {
+    "GET /api/v2/datasets/media-prices": 401,
+    "GET /api/v2/datasets/media-prices/refresh-status": 401,
+    "POST /api/v2/datasets/media-prices/refresh": 401,
+    "GET /api/v2/operations/lifecycle": 401
+  },
+  "operations_media_prices_frontend": {
+    "path": "/platform/operations/media-prices",
+    "status": 200,
+    "index_matches_current_local_build": true,
+    "manifest_matches_current_local_build": true,
+    "route_assets_match_current_local_build": true,
+    "assets": {
+      "index.html": "8197ea124766a07b7665ecca1d63ddaa5790312f058385136f4ceed98a6eb342",
+      "manifest-383f3b48.js": "03d2247b2d328ef50324ed86409652e9611d6fea9a54273a04f145e0ed0485e2",
+      "route-CreiY-wv.js": "e1387fe9fa7aeb3eb2c66bf24d204128fd19a7722af4bf0a801bde678e2b0240",
+      "route-PvuDB3kM.css": "4a1b1dd0e4fa734b10f2e5b2fe17e9b4098e884beff22d825ad56ad4e1c97956"
+    }
+  },
+  "qualification_limit": "The probes prove current route, bundle and authorization-boundary deployment only. They do not trigger a refresh or prove protected production artifact population."
+}

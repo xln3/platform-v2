@@ -32,6 +32,7 @@ async def test_routes_to_doubao_runner(monkeypatch: pytest.MonkeyPatch) -> None:
     async def run_doubao_collection(
         item: CollectionTaskInput, *, heartbeat: Any = None, **kwargs: Any
     ) -> CollectionTaskResult:
+        calls.append(kwargs)
         if heartbeat is not None:
             heartbeat({"business_key": item.business_key, "stage": "fake"})
         return CollectionTaskResult(
@@ -45,12 +46,38 @@ async def test_routes_to_doubao_runner(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setitem(sys.modules, "workflows.activities.doubao_adapter", fake)
 
     beats: list[dict[str, Any]] = []
-    result = await dispatch_collection(_item("doubao"), heartbeat=lambda p: beats.append(p))
+
+    async def resolve(platform: str, region: str) -> Any:
+        assert (platform, region) == ("doubao", "Shanghai")
+        from workflows.activities.region_proxy_router import ResolvedRegionProxy
+
+        return ResolvedRegionProxy(
+            proxy_url="http://dynamic:secret@regional.example:9090",
+            source="wukong",
+            requested_region=region,
+            region_gb="310000",
+            city="上海",
+            provider_action="reused",
+            observed_gb="310000",
+        )
+
+    result = await dispatch_collection(
+        _item("doubao"),
+        heartbeat=lambda p: beats.append(p),
+        proxy_resolver=resolve,
+    )
     assert result.business_key == "run-9-task-1"
     assert result.answer_text == "fake-real-answer"
     assert result.quality_state == "live_valid"
-    assert beats == [{"business_key": "run-9-task-1", "stage": "fake"}]
-    assert calls == []  # 确认无额外全局状态
+    assert beats == [
+        {
+            "business_key": "run-9-task-1",
+            "stage": "proxy_resolution",
+            "region": "Shanghai",
+        },
+        {"business_key": "run-9-task-1", "stage": "fake"},
+    ]
+    assert calls == [{"proxy_url_override": "http://dynamic:secret@regional.example:9090"}]
 
 
 @pytest.mark.parametrize("slug", ["fixed", "", "unknown", "DOUBAOX"])

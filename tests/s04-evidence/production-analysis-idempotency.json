@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-25T05:39:12.248445+00:00",
+  "result": "passed",
+  "database_revision": "s04_0020",
+  "assertions": {
+    "concurrent_replay_returns_one_analysis": true,
+    "concurrent_replay_returns_one_analysis_run": true,
+    "concurrent_replay_returns_one_outbox_event": true,
+    "database_has_single_analysis_run_and_event": true,
+    "answer_payload_drift_rejected": true
+  },
+  "synthetic_fixture": true,
+  "synthetic_fixture_removed": true,
+  "sensitive_values_recorded": false
+}

@@ -100,3 +100,47 @@ def test_postgres_outbox_duplicate_delivery_is_idempotent() -> None:
     # The receipt contract is per consumer/event, not "the global outbox is empty".
     consumer.drain()
     assert deliveries.count(event_id) == 1
+
+
+def test_analytics_consumer_does_not_claim_other_domain_events() -> None:
+    suffix = uuid4().hex
+    analytics_event = f"evt_analytics_{suffix}"
+    collection_event = f"evt_collection_{suffix}"
+    with psycopg.connect(POSTGRES_DSN) as connection:
+        connection.execute(
+            """
+            INSERT INTO integration.outbox_event
+              (event_id,tenant_pub_id,event_type,aggregate_pub_id,trace_id,payload,occurred_at)
+            VALUES
+              (%s,%s,'analytics.answer.analyzed',%s,'trace','{}',now()),
+              (%s,%s,'collection.run.completed',%s,'trace','{}',now())
+            """,
+            (
+                analytics_event,
+                f"tnt_{suffix}",
+                f"ans_{suffix}",
+                collection_event,
+                f"tnt_{suffix}",
+                f"run_{suffix}",
+            ),
+        )
+    deliveries: list[str] = []
+    consumer = OutboxConsumer(
+        dsn=POSTGRES_DSN,
+        consumer_name=f"filtered-{suffix}",
+        publish=lambda event: deliveries.append(str(event["event_id"])),
+        event_types=("analytics.answer.analyzed", "intelligence.feature.recorded"),
+    )
+    consumer.drain()
+    assert analytics_event in deliveries
+    assert collection_event not in deliveries
+    with psycopg.connect(POSTGRES_DSN) as connection:
+        states = connection.execute(
+            """
+            SELECT event_id,published_at IS NOT NULL
+            FROM integration.outbox_event WHERE event_id=ANY(%s)
+            ORDER BY event_id
+            """,
+            ([analytics_event, collection_event],),
+        ).fetchall()
+    assert dict(states) == {analytics_event: True, collection_event: False}

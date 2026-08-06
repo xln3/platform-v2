@@ -1,4 +1,5 @@
 import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from uuid import uuid4
@@ -93,8 +94,84 @@ def test_object_success_db_failure_is_detectable_and_recoverable(
         b"explicit-orphan",
         mime_type="text/plain",
     )
-    assert service.find_orphan(stored)
+    assert service.find_orphan(stored, tenant_pub_id="tnt_recovery")
     service.store.delete(stored.key)
+
+
+def test_concurrent_evidence_occurrences_share_object_but_not_provenance(
+    service: EvidenceService,
+) -> None:
+    suffix = uuid4().hex
+    tenant = f"tnt_{suffix}"
+    payload = f"concurrent-parent-{suffix}".encode()
+
+    def capture(index: int) -> tuple[str, str]:
+        stored = service.capture(
+            evidence_pub_id=f"evd_{suffix}_{index}",
+            tenant_pub_id=tenant,
+            project_pub_id=f"prj_{suffix}",
+            kind="report_pdf",
+            payload=payload,
+            mime_type="application/pdf",
+            source_url=None,
+            provenance=provenance(),
+        )
+        assert stored.metadata_pub_id is not None
+        return stored.metadata_pub_id, stored.key
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        occurrences = list(executor.map(capture, range(16)))
+    assert len({item[0] for item in occurrences}) == 16
+    assert len({item[1] for item in occurrences}) == 1
+    with psycopg.connect(POSTGRES_DSN) as connection:
+        connection.execute(
+            "SELECT set_config('app.tenant_pub_id', %s, true)",
+            (tenant,),
+        )
+        count = connection.execute(
+            """
+            SELECT count(*) FROM evidence.evidence_asset
+            WHERE tenant_pub_id=%s AND kind='report_pdf'
+            """,
+            (tenant,),
+        ).fetchone()
+        assert count is not None
+        assert count[0] == 16
+
+
+def test_evidence_public_id_replay_is_exact_and_rejects_metadata_drift(
+    service: EvidenceService,
+) -> None:
+    suffix = uuid4().hex
+    evidence_pub_id = f"evd_{suffix}"
+    tenant = f"tnt_{suffix}"
+    captured_at = datetime.now(UTC)
+    capture_provenance = RedactedProvenance(
+        platform_account_pub_id=None,
+        browser_profile_version_pub_id=None,
+        session_event_pub_id=None,
+        channel=CaptureChannel.API,
+        authorization_scope=("read",),
+        adapter_version="fixture-v1",
+        capture_time=captured_at,
+        access_class=AccessClass.PUBLIC,
+    )
+    arguments = {
+        "evidence_pub_id": evidence_pub_id,
+        "tenant_pub_id": tenant,
+        "project_pub_id": f"prj_{suffix}",
+        "kind": "answer_screenshot",
+        "payload": b"stable evidence occurrence",
+        "mime_type": "image/png",
+        "source_url": "https://example.com/answer",
+        "provenance": capture_provenance,
+    }
+    first = service.capture(**arguments)
+    replay = service.capture(**arguments)
+    assert replay.metadata_pub_id == first.metadata_pub_id == evidence_pub_id
+    assert replay.key == first.key
+    with pytest.raises(ValueError, match="evidence replay payload drifted"):
+        service.capture(**(arguments | {"project_pub_id": f"prj_other_{suffix}"}))
 
 
 def test_package_access_expiry_revoke_audit_and_public_boundary(

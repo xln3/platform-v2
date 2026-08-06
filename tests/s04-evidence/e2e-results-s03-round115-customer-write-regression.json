@@ -1,0 +1,2925 @@
+{
+  "config": {
+    "argv": [
+      "/home/xln/.config/nvm/versions/node/v24.6.0/bin/node",
+      "/home/xln/geo-system/platform-v2/node_modules/@playwright/test/cli.js",
+      "test",
+      "tests/e2e/customer-product-live.spec.ts",
+      "tests/e2e/customer-monitoring-integrity.spec.ts",
+      "tests/e2e/customer-evidence-integrity.spec.ts",
+      "tests/e2e/customer-report-integrity.spec.ts",
+      "--project=customer-desktop",
+      "--project=customer-tablet",
+      "--project=customer-mobile"
+    ],
+    "configFile": "/home/xln/geo-system/platform-v2/playwright.config.ts",
+    "rootDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+    "failOnFlakyTests": false,
+    "forbidOnly": true,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s03-round115-customer-write-regression",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "customer-desktop",
+        "name": "customer-desktop",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/customer-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s03-round115-customer-write-regression",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "customer-tablet",
+        "name": "customer-tablet",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/customer-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s03-round115-customer-write-regression",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "customer-mobile",
+        "name": "customer-mobile",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/customer-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s03-round115-customer-write-regression",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "operations-desktop",
+        "name": "operations-desktop",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/operations-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s03-round115-customer-write-regression",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "operations-tablet",
+        "name": "operations-tablet",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/operations-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s03-round115-customer-write-regression",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "operations-mobile",
+        "name": "operations-mobile",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/operations-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s03-round115-customer-write-regression",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "reports-desktop",
+        "name": "reports-desktop",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/reports-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s03-round115-customer-write-regression",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "reports-tablet",
+        "name": "reports-tablet",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/reports-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s03-round115-customer-write-regression",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "reports-mobile",
+        "name": "reports-mobile",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/reports-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s03-round115-customer-write-regression",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "intelligence-desktop",
+        "name": "intelligence-desktop",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/intelligence-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s03-round115-customer-write-regression",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "intelligence-tablet",
+        "name": "intelligence-tablet",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/intelligence-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s03-round115-customer-write-regression",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "intelligence-mobile",
+        "name": "intelligence-mobile",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/intelligence-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "tests/s04-evidence/e2e-results-s03-round115-customer-write-regression.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.61.1",
+    "workers": 1,
+    "webServer": {
+      "command": "exec bash scripts/start_e2e_webservers.sh",
+      "url": "http://127.0.0.1:45741/platform/customer/",
+      "env": {
+        "PYTHON_BASIC_REPL": "1",
+        "LESSOPEN": "| /usr/bin/lesspipe %s",
+        "TMUX": "/tmp/tmux-1000/default,4013479,11",
+        "CODEX_CI": "1",
+        "USER": "xln",
+        "SSH_CLIENT": "117.133.64.159 8015 2222",
+        "npm_config_user_agent": "pnpm/11.17.0 npm/? node/v24.6.0 linux x64",
+        "XDG_SESSION_TYPE": "tty",
+        "GIT_ASKPASS": "/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/extensions/git/dist/askpass.sh",
+        "GEO_E2E_JSON_REPORT": "tests/s04-evidence/e2e-results-s03-round115-customer-write-regression.json",
+        "SHLVL": "3",
+        "BROWSER": "/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/bin/helpers/browser.sh",
+        "MOTD_SHOWN": "pam",
+        "HOME": "/home/xln",
+        "TERM_PROGRAM_VERSION": "3.2a",
+        "NVM_BIN": "/home/xln/.config/nvm/versions/node/v24.6.0/bin",
+        "VSCODE_IPC_HOOK_CLI": "/run/user/1000/vscode-ipc-19a833ff-7b40-43ab-9744-1d6bf8bcdc83.sock",
+        "NVM_INC": "/home/xln/.config/nvm/versions/node/v24.6.0/include/node",
+        "COREPACK_ROOT": "/home/xln/.config/nvm/versions/node/v24.6.0/lib/node_modules/corepack",
+        "PAGER": "cat",
+        "VSCODE_GIT_ASKPASS_MAIN": "/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/extensions/git/dist/askpass-main.js",
+        "HF_ENDPOINT": "https://hf-mirror.com",
+        "VSCODE_GIT_ASKPASS_NODE": "/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/node",
+        "LC_CTYPE": "C.UTF-8",
+        "PYDEVD_DISABLE_FILE_VALIDATION": "1",
+        "BUNDLED_DEBUGPY_PATH": "/home/xln/.vscode-server/extensions/ms-python.debugpy-2026.6.0-linux-x64/bundled/libs/debugpy",
+        "VSCODE_PYTHON_AUTOACTIVATE_GUARD": "1",
+        "NO_COLOR": "1",
+        "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/1000/bus",
+        "COLORTERM": "",
+        "GEO_E2E_OUTPUT_DIR": "tests/e2e-results-s03-round115-customer-write-regression",
+        "NVM_DIR": "/home/xln/.config/nvm",
+        "https_proxy": "http://127.0.0.1:7890",
+        "CODEX_PERMISSION_PROFILE": ":danger-full-access",
+        "COREPACK_ENABLE_DOWNLOAD_PROMPT": "1",
+        "LOGNAME": "xln",
+        "pnpm_config_verify_deps_before_run": "false",
+        "http_proxy": "http://127.0.0.1:7890",
+        "_": "/home/xln/.config/nvm/versions/node/v24.6.0/bin/pnpm",
+        "CLAUDE_CODE_SSE_PORT": "31479",
+        "XDG_SESSION_CLASS": "user",
+        "GEO_E2E_PORT_BASE": "45740",
+        "TERM": "dumb",
+        "XDG_SESSION_ID": "5582",
+        "PATH": "./node_modules/.bin:/home/xln/geo-system/platform-v2/node_modules/.bin:/home/xln/.local/bin:/home/xln/.config/nvm/versions/node/v24.6.0/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/codex-path:/home/xln/.codex/tmp/arg0/codex-arg0B22gK7:/home/xln/.local/bin:/home/xln/.kimi-code/bin:/home/xln/.deno/bin:/home/xln/.local/bin:/home/xln/.kimi-code/bin:/home/xln/.deno/bin:/home/xln/.local/bin:/home/xln/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand:/home/xln/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli:/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/bin/remote-cli:/home/xln/.local/bin:/home/xln/.kimi-code/bin:/home/xln/google-cloud-sdk/bin:/home/xln/.deno/bin:/home/xln/.config/nvm/versions/node/v24.6.0/bin:/home/xln/.local/bin:/home/xln/.deno/bin:/home/xln/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin",
+        "XDG_RUNTIME_DIR": "/run/user/1000",
+        "VSCODE_DEBUGPY_ADAPTER_ENDPOINTS": "/home/xln/.vscode-server/extensions/ms-python.debugpy-2026.6.0-linux-x64/.noConfigDebugAdapterEndpoints/endpoint-70a46e768030bfa5.txt",
+        "LANG": "C.UTF-8",
+        "PYTHONSTARTUP": "/home/xln/.vscode-server/data/User/workspaceStorage/064617a2688c468aa40abc1ece39445c/ms-python.python/pythonrc.py",
+        "GH_PAGER": "cat",
+        "LS_COLORS": "rs=0:di=01;34:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=30;41:tw=30;42:ow=34;42:st=37;44:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arc=01;31:*.arj=01;31:*.taz=01;31:*.lha=01;31:*.lz4=01;31:*.lzh=01;31:*.lzma=01;31:*.tlz=01;31:*.txz=01;31:*.tzo=01;31:*.t7z=01;31:*.zip=01;31:*.z=01;31:*.dz=01;31:*.gz=01;31:*.lrz=01;31:*.lz=01;31:*.lzo=01;31:*.xz=01;31:*.zst=01;31:*.tzst=01;31:*.bz2=01;31:*.bz=01;31:*.tbz=01;31:*.tbz2=01;31:*.tz=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.war=01;31:*.ear=01;31:*.sar=01;31:*.rar=01;31:*.alz=01;31:*.ace=01;31:*.zoo=01;31:*.cpio=01;31:*.7z=01;31:*.rz=01;31:*.cab=01;31:*.wim=01;31:*.swm=01;31:*.dwm=01;31:*.esd=01;31:*.jpg=01;35:*.jpeg=01;35:*.mjpg=01;35:*.mjpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.svg=01;35:*.svgz=01;35:*.mng=01;35:*.pcx=01;35:*.mov=01;35:*.mpg=01;35:*.mpeg=01;35:*.m2v=01;35:*.mkv=01;35:*.webm=01;35:*.webp=01;35:*.ogm=01;35:*.mp4=01;35:*.m4v=01;35:*.mp4v=01;35:*.vob=01;35:*.qt=01;35:*.nuv=01;35:*.wmv=01;35:*.asf=01;35:*.rm=01;35:*.rmvb=01;35:*.flc=01;35:*.avi=01;35:*.fli=01;35:*.flv=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.yuv=01;35:*.cgm=01;35:*.emf=01;35:*.ogv=01;35:*.ogx=01;35:*.aac=00;36:*.au=00;36:*.flac=00;36:*.m4a=00;36:*.mid=00;36:*.midi=00;36:*.mka=00;36:*.mp3=00;36:*.mpc=00;36:*.ogg=00;36:*.ra=00;36:*.wav=00;36:*.oga=00;36:*.opus=00;36:*.spx=00;36:*.xspf=00;36:",
+        "CLAUDE_CODE_DISABLE_1M_CONTEXT": "1",
+        "VSCODE_GIT_IPC_HANDLE": "/run/user/1000/vscode-git-732bafe257.sock",
+        "TERM_PROGRAM": "tmux",
+        "SHELL": "/bin/bash",
+        "NODE_PATH": "/home/xln/geo-system/platform-v2/node_modules/.pnpm/@playwright+test@1.61.1/node_modules/@playwright/test/node_modules:/home/xln/geo-system/platform-v2/node_modules/.pnpm/@playwright+test@1.61.1/node_modules:/home/xln/geo-system/platform-v2/node_modules/.pnpm/node_modules",
+        "LESSCLOSE": "/usr/bin/lesspipe %s %s",
+        "CODEX_THREAD_ID": "019f92eb-f497-71a0-b01b-29ed4969dc22",
+        "PNPM_PACKAGE_NAME": "geo-platform-v2",
+        "VSCODE_GIT_ASKPASS_EXTRA_ARGS": "",
+        "GIT_PAGER": "cat",
+        "PWD": "/home/xln/geo-system/platform-v2",
+        "DISABLE_AUTOUPDATER": "1",
+        "LC_ALL": "C.UTF-8",
+        "CODEX_MANAGED_PACKAGE_ROOT": "/home/xln/.config/nvm/versions/node/v24.6.0/lib/node_modules/@openai/codex",
+        "COPILOT_DEBUG_NONCE": "9abf7f5d3e8c784e97955dcc9fdda180",
+        "SSH_CONNECTION": "117.133.64.159 8015 172.16.1.190 2222",
+        "NVM_CD_FLAGS": "",
+        "XDG_DATA_DIRS": "/usr/share/gnome:/usr/local/share:/usr/share:/var/lib/snapd/desktop",
+        "npm_command": "exec",
+        "CODEX_MANAGED_BY_NPM": "1",
+        "TMUX_PANE": "%11",
+        "GEO_VITE_NO_WATCH": "1",
+        "GEO_E2E_BUILD": "1",
+        "VITE_ALLOW_CONTRACT_FIXTURES": "true",
+        "VITE_GEO_API_BASE": ""
+      },
+      "reuseExistingServer": false,
+      "timeout": 240000
+    }
+  },
+  "suites": [
+    {
+      "title": "customer-evidence-integrity.spec.ts",
+      "file": "customer-evidence-integrity.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "oversized answer evidence stays bounded, explicit and package-write locked",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1814,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:37:44.330Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "c75587fff8569c35a769-3f2454fde6b5af73c9f8",
+          "file": "customer-evidence-integrity.spec.ts",
+          "line": 50,
+          "column": 5
+        },
+        {
+          "title": "closing one answer discards its slower relation response before another answer opens",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1969,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:37:46.362Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "c75587fff8569c35a769-f64fd20bff55466123b6",
+          "file": "customer-evidence-integrity.spec.ts",
+          "line": 258,
+          "column": 5
+        },
+        {
+          "title": "answer and asset pagination discard delayed detail and package receipts from the prior page",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2246,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:37:48.339Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "c75587fff8569c35a769-b22f000c13406c09b90c",
+          "file": "customer-evidence-integrity.spec.ts",
+          "line": 369,
+          "column": 5
+        },
+        {
+          "title": "oversized answer evidence stays bounded, explicit and package-write locked",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1800,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:17.967Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "c75587fff8569c35a769-67286287fd1624baa703",
+          "file": "customer-evidence-integrity.spec.ts",
+          "line": 50,
+          "column": 5
+        },
+        {
+          "title": "closing one answer discards its slower relation response before another answer opens",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1923,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:20.007Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "c75587fff8569c35a769-6fc5f2d67183a854dba1",
+          "file": "customer-evidence-integrity.spec.ts",
+          "line": 258,
+          "column": 5
+        },
+        {
+          "title": "answer and asset pagination discard delayed detail and package receipts from the prior page",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2150,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:21.938Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "c75587fff8569c35a769-0598db451cdc62c8584a",
+          "file": "customer-evidence-integrity.spec.ts",
+          "line": 369,
+          "column": 5
+        },
+        {
+          "title": "oversized answer evidence stays bounded, explicit and package-write locked",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1704,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:50.510Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "c75587fff8569c35a769-f61f11175e4aa0f7373c",
+          "file": "customer-evidence-integrity.spec.ts",
+          "line": 50,
+          "column": 5
+        },
+        {
+          "title": "closing one answer discards its slower relation response before another answer opens",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2038,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:52.415Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "c75587fff8569c35a769-4b3c02a8259725b0e3d5",
+          "file": "customer-evidence-integrity.spec.ts",
+          "line": 258,
+          "column": 5
+        },
+        {
+          "title": "answer and asset pagination discard delayed detail and package receipts from the prior page",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2130,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:54.460Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "c75587fff8569c35a769-6285aa64532aca77c929",
+          "file": "customer-evidence-integrity.spec.ts",
+          "line": 369,
+          "column": 5
+        }
+      ]
+    },
+    {
+      "title": "customer-monitoring-integrity.spec.ts",
+      "file": "customer-monitoring-integrity.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "oversized monitoring facts stay bounded and disclose malformed rows",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2866,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:37:50.598Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "ad070f861e01480c1bff-5cec16299c2f238a8af5",
+          "file": "customer-monitoring-integrity.spec.ts",
+          "line": 83,
+          "column": 5
+        },
+        {
+          "title": "a wholly invalid delta fails only its local panel instead of claiming an empty window",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1050,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:37:53.471Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "ad070f861e01480c1bff-1389c6b05f81081ca042",
+          "file": "customer-monitoring-integrity.spec.ts",
+          "line": 218,
+          "column": 5
+        },
+        {
+          "title": "a zero-row metric export receipt fails locally without a false artifact claim",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 972,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:37:54.528Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "ad070f861e01480c1bff-a52188ad77c0c3d9284e",
+          "file": "customer-monitoring-integrity.spec.ts",
+          "line": 302,
+          "column": 5
+        },
+        {
+          "title": "filter changes discard slower monitoring auxiliary and breakdown responses",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1819,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:37:55.507Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "ad070f861e01480c1bff-506c804518c9eb6e55fe",
+          "file": "customer-monitoring-integrity.spec.ts",
+          "line": 375,
+          "column": 5
+        },
+        {
+          "title": "oversized monitoring facts stay bounded and disclose malformed rows",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2939,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:24.102Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "ad070f861e01480c1bff-a89a6bfb5d74b0ac1ca1",
+          "file": "customer-monitoring-integrity.spec.ts",
+          "line": 83,
+          "column": 5
+        },
+        {
+          "title": "a wholly invalid delta fails only its local panel instead of claiming an empty window",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1063,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:27.049Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "ad070f861e01480c1bff-90804a065108ca0a0c8a",
+          "file": "customer-monitoring-integrity.spec.ts",
+          "line": 218,
+          "column": 5
+        },
+        {
+          "title": "a zero-row metric export receipt fails locally without a false artifact claim",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 985,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:28.119Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "ad070f861e01480c1bff-c03ff63860a80b35fe8b",
+          "file": "customer-monitoring-integrity.spec.ts",
+          "line": 302,
+          "column": 5
+        },
+        {
+          "title": "filter changes discard slower monitoring auxiliary and breakdown responses",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1819,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:29.110Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "ad070f861e01480c1bff-ee4eb1d63bfd5791c940",
+          "file": "customer-monitoring-integrity.spec.ts",
+          "line": 375,
+          "column": 5
+        },
+        {
+          "title": "oversized monitoring facts stay bounded and disclose malformed rows",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2677,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:56.602Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "ad070f861e01480c1bff-4d3a52748c62dc41ce06",
+          "file": "customer-monitoring-integrity.spec.ts",
+          "line": 83,
+          "column": 5
+        },
+        {
+          "title": "a wholly invalid delta fails only its local panel instead of claiming an empty window",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1018,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:59.286Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "ad070f861e01480c1bff-5a9e975a742627396246",
+          "file": "customer-monitoring-integrity.spec.ts",
+          "line": 218,
+          "column": 5
+        },
+        {
+          "title": "a zero-row metric export receipt fails locally without a false artifact claim",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 949,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:39:00.311Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "ad070f861e01480c1bff-a78fbcf6b46110b5485f",
+          "file": "customer-monitoring-integrity.spec.ts",
+          "line": 302,
+          "column": 5
+        },
+        {
+          "title": "filter changes discard slower monitoring auxiliary and breakdown responses",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1959,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:39:01.267Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "ad070f861e01480c1bff-43e20f1e5fdbcc947bfb",
+          "file": "customer-monitoring-integrity.spec.ts",
+          "line": 375,
+          "column": 5
+        }
+      ]
+    },
+    {
+      "title": "customer-product-live.spec.ts",
+      "file": "customer-product-live.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "validated customer reads mounted data and serializes every write without secret leakage",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3636,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:37:57.371Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-eef288ab98a4735ac702",
+          "file": "customer-product-live.spec.ts",
+          "line": 20,
+          "column": 5
+        },
+        {
+          "title": "customer product 404 fails closed without revealing whether analytics exist",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 433,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:01.016Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-cfe5600bd9f46651871d",
+          "file": "customer-product-live.spec.ts",
+          "line": 897,
+          "column": 5
+        },
+        {
+          "title": "validated tenant admin manages masked customer members through generated identity paths",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 805,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:01.459Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-b5bed3f54fa32fcd98bd",
+          "file": "customer-product-live.spec.ts",
+          "line": 978,
+          "column": 5
+        },
+        {
+          "title": "a same-subject but input-mismatched member receipt fails locally without leakage",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 858,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:02.273Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-7df54868c0b014ea5cb9",
+          "file": "customer-product-live.spec.ts",
+          "line": 1167,
+          "column": 5
+        },
+        {
+          "title": "oversized or unsafe identity governance lists stay explicit and governance-write locked",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1887,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:03.138Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-0924aed644b25b9e1782",
+          "file": "customer-product-live.spec.ts",
+          "line": 1278,
+          "column": 5
+        },
+        {
+          "title": "customer role cannot infer tenant member existence",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 373,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:05.033Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-5ddee9880c6abd394e6e",
+          "file": "customer-product-live.spec.ts",
+          "line": 1417,
+          "column": 5
+        },
+        {
+          "title": "live answer cursor pagination preserves URL history and rejects secret-shaped cursors",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 591,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:05.412Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-efb45b0b46f149909f8d",
+          "file": "customer-product-live.spec.ts",
+          "line": 1487,
+          "column": 5
+        },
+        {
+          "title": "validated customer reads mounted data and serializes every write without secret leakage",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3397,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:30.974Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-0c4d0c0ab88bf2d36dd8",
+          "file": "customer-product-live.spec.ts",
+          "line": 20,
+          "column": 5
+        },
+        {
+          "title": "customer product 404 fails closed without revealing whether analytics exist",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 435,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:34.379Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-f6e53c7ba15efaff4c11",
+          "file": "customer-product-live.spec.ts",
+          "line": 897,
+          "column": 5
+        },
+        {
+          "title": "validated tenant admin manages masked customer members through generated identity paths",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 694,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:34.821Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-32e6d935a0822e739de9",
+          "file": "customer-product-live.spec.ts",
+          "line": 978,
+          "column": 5
+        },
+        {
+          "title": "a same-subject but input-mismatched member receipt fails locally without leakage",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 851,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:35.523Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-0e77ae7eca4e6ee0ce6c",
+          "file": "customer-product-live.spec.ts",
+          "line": 1167,
+          "column": 5
+        },
+        {
+          "title": "oversized or unsafe identity governance lists stay explicit and governance-write locked",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1760,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:36.383Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-c289466210eaf9c1dc32",
+          "file": "customer-product-live.spec.ts",
+          "line": 1278,
+          "column": 5
+        },
+        {
+          "title": "customer role cannot infer tenant member existence",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 366,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:38.149Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-24c1914d4a6d15db632f",
+          "file": "customer-product-live.spec.ts",
+          "line": 1417,
+          "column": 5
+        },
+        {
+          "title": "live answer cursor pagination preserves URL history and rejects secret-shaped cursors",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 590,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:38.521Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-5dcf4f64a63b77d14110",
+          "file": "customer-product-live.spec.ts",
+          "line": 1487,
+          "column": 5
+        },
+        {
+          "title": "validated customer reads mounted data and serializes every write without secret leakage",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3231,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:39:03.273Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-56b951abf2f4ecde568d",
+          "file": "customer-product-live.spec.ts",
+          "line": 20,
+          "column": 5
+        },
+        {
+          "title": "customer product 404 fails closed without revealing whether analytics exist",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 456,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:39:06.511Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-a636a4b9542d91466e2a",
+          "file": "customer-product-live.spec.ts",
+          "line": 897,
+          "column": 5
+        },
+        {
+          "title": "validated tenant admin manages masked customer members through generated identity paths",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 729,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:39:06.975Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-1012384d30e79410805c",
+          "file": "customer-product-live.spec.ts",
+          "line": 978,
+          "column": 5
+        },
+        {
+          "title": "a same-subject but input-mismatched member receipt fails locally without leakage",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1000,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:39:07.713Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-e26c8a488d88f6e800cd",
+          "file": "customer-product-live.spec.ts",
+          "line": 1167,
+          "column": 5
+        },
+        {
+          "title": "oversized or unsafe identity governance lists stay explicit and governance-write locked",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1985,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:39:08.722Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-349622ab8a6919c7c14f",
+          "file": "customer-product-live.spec.ts",
+          "line": 1278,
+          "column": 5
+        },
+        {
+          "title": "customer role cannot infer tenant member existence",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 365,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:39:10.714Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-18972928f935bb3c7029",
+          "file": "customer-product-live.spec.ts",
+          "line": 1417,
+          "column": 5
+        },
+        {
+          "title": "live answer cursor pagination preserves URL history and rejects secret-shaped cursors",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 588,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:39:11.088Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-8630de251161e3e8d772",
+          "file": "customer-product-live.spec.ts",
+          "line": 1487,
+          "column": 5
+        }
+      ]
+    },
+    {
+      "title": "customer-report-integrity.spec.ts",
+      "file": "customer-report-integrity.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "customer discloses an oversized catalog and rejects a mismatched detail without leakage",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 947,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:06.021Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b3da29e5773f41c8f0ce-0727378ae9d2f9886325",
+          "file": "customer-report-integrity.spec.ts",
+          "line": 135,
+          "column": 5
+        },
+        {
+          "title": "customer omits a legitimate cross-project-only catalog without probing its detail",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 914,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:06.975Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b3da29e5773f41c8f0ce-4eced7d21c42d841eb61",
+          "file": "customer-report-integrity.spec.ts",
+          "line": 189,
+          "column": 5
+        },
+        {
+          "title": "customer bounds a cross-project tenant scan and exposes safe continuation",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 937,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:07.896Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b3da29e5773f41c8f0ce-6651b62ec9e935da8486",
+          "file": "customer-report-integrity.spec.ts",
+          "line": 221,
+          "column": 5
+        },
+        {
+          "title": "customer selects the current-project report from a mixed tenant catalog",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 948,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:08.841Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b3da29e5773f41c8f0ce-1c84820821c399611069",
+          "file": "customer-report-integrity.spec.ts",
+          "line": 258,
+          "column": 5
+        },
+        {
+          "title": "customer locks receipt confirmation when delivery ownership is inconsistent",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 978,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:09.798Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b3da29e5773f41c8f0ce-7637d7dda97e1d0670af",
+          "file": "customer-report-integrity.spec.ts",
+          "line": 303,
+          "column": 5
+        },
+        {
+          "title": "customer locks preview, questions and delivery reads for a cross-version artifact",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 953,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:10.783Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b3da29e5773f41c8f0ce-011d0ad1f11fc41b06ed",
+          "file": "customer-report-integrity.spec.ts",
+          "line": 369,
+          "column": 5
+        },
+        {
+          "title": "customer treats a truncated version chain as incomplete and performs no downstream reads",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1043,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:11.743Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b3da29e5773f41c8f0ce-c09ac47a47318f084e94",
+          "file": "customer-report-integrity.spec.ts",
+          "line": 426,
+          "column": 5
+        },
+        {
+          "title": "customer renders neither HTML nor PDF when artifact bytes violate the projected hash",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1205,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:12.792Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b3da29e5773f41c8f0ce-baf57d1f414bc486a318",
+          "file": "customer-report-integrity.spec.ts",
+          "line": 505,
+          "column": 5
+        },
+        {
+          "title": "customer rejects an integrity-valid HTML artifact that contains active document content",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1070,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:14.002Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b3da29e5773f41c8f0ce-a643309d6b345a1c4c05",
+          "file": "customer-report-integrity.spec.ts",
+          "line": 570,
+          "column": 5
+        },
+        {
+          "title": "customer rejects an integrity-valid oversized PDF page before canvas allocation",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1142,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:15.078Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b3da29e5773f41c8f0ce-8fe0d934843073ca4ac7",
+          "file": "customer-report-integrity.spec.ts",
+          "line": 642,
+          "column": 5
+        },
+        {
+          "title": "customer browser back discards a slower superseded report detail",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1214,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:16.228Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b3da29e5773f41c8f0ce-bae2072e694bbbe0c26e",
+          "file": "customer-report-integrity.spec.ts",
+          "line": 718,
+          "column": 5
+        },
+        {
+          "title": "customer discloses an oversized catalog and rejects a mismatched detail without leakage",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 800,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:39.125Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b3da29e5773f41c8f0ce-05cc239fdfc2eacc2aa7",
+          "file": "customer-report-integrity.spec.ts",
+          "line": 135,
+          "column": 5
+        },
+        {
+          "title": "customer omits a legitimate cross-project-only catalog without probing its detail",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 786,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:39.933Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b3da29e5773f41c8f0ce-6106aceac65291a28cef",
+          "file": "customer-report-integrity.spec.ts",
+          "line": 189,
+          "column": 5
+        },
+        {
+          "title": "customer bounds a cross-project tenant scan and exposes safe continuation",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 807,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:40.726Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b3da29e5773f41c8f0ce-c1c6db595929c0276964",
+          "file": "customer-report-integrity.spec.ts",
+          "line": 221,
+          "column": 5
+        },
+        {
+          "title": "customer selects the current-project report from a mixed tenant catalog",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 828,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:41.541Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b3da29e5773f41c8f0ce-b5e6870fec7ac0b102f6",
+          "file": "customer-report-integrity.spec.ts",
+          "line": 258,
+          "column": 5
+        },
+        {
+          "title": "customer locks receipt confirmation when delivery ownership is inconsistent",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 835,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:42.376Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b3da29e5773f41c8f0ce-dbfcfedd419ecc18d9af",
+          "file": "customer-report-integrity.spec.ts",
+          "line": 303,
+          "column": 5
+        },
+        {
+          "title": "customer locks preview, questions and delivery reads for a cross-version artifact",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 956,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:43.219Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b3da29e5773f41c8f0ce-5044274d3202a6d6e809",
+          "file": "customer-report-integrity.spec.ts",
+          "line": 369,
+          "column": 5
+        },
+        {
+          "title": "customer treats a truncated version chain as incomplete and performs no downstream reads",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1003,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:44.182Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b3da29e5773f41c8f0ce-ae53e6b46a27f7a82951",
+          "file": "customer-report-integrity.spec.ts",
+          "line": 426,
+          "column": 5
+        },
+        {
+          "title": "customer renders neither HTML nor PDF when artifact bytes violate the projected hash",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1206,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:45.191Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b3da29e5773f41c8f0ce-f52a8f17f71c48f57630",
+          "file": "customer-report-integrity.spec.ts",
+          "line": 505,
+          "column": 5
+        },
+        {
+          "title": "customer rejects an integrity-valid HTML artifact that contains active document content",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1041,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:46.404Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b3da29e5773f41c8f0ce-e5b3bc6bc6fdc61ed333",
+          "file": "customer-report-integrity.spec.ts",
+          "line": 570,
+          "column": 5
+        },
+        {
+          "title": "customer rejects an integrity-valid oversized PDF page before canvas allocation",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1254,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:47.453Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b3da29e5773f41c8f0ce-89272c76ff0ec33abd06",
+          "file": "customer-report-integrity.spec.ts",
+          "line": 642,
+          "column": 5
+        },
+        {
+          "title": "customer browser back discards a slower superseded report detail",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1291,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:38:48.715Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b3da29e5773f41c8f0ce-42771e7fa121a839bc52",
+          "file": "customer-report-integrity.spec.ts",
+          "line": 718,
+          "column": 5
+        },
+        {
+          "title": "customer discloses an oversized catalog and rejects a mismatched detail without leakage",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 811,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:39:11.691Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b3da29e5773f41c8f0ce-9df5f64649b5179abec3",
+          "file": "customer-report-integrity.spec.ts",
+          "line": 135,
+          "column": 5
+        },
+        {
+          "title": "customer omits a legitimate cross-project-only catalog without probing its detail",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 894,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:39:12.509Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b3da29e5773f41c8f0ce-0e34a10de178a9e5de30",
+          "file": "customer-report-integrity.spec.ts",
+          "line": 189,
+          "column": 5
+        },
+        {
+          "title": "customer bounds a cross-project tenant scan and exposes safe continuation",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 903,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:39:13.411Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b3da29e5773f41c8f0ce-81f8187a4b9e25022d4f",
+          "file": "customer-report-integrity.spec.ts",
+          "line": 221,
+          "column": 5
+        },
+        {
+          "title": "customer selects the current-project report from a mixed tenant catalog",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 960,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:39:14.322Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b3da29e5773f41c8f0ce-aa376a1ad67378f15876",
+          "file": "customer-report-integrity.spec.ts",
+          "line": 258,
+          "column": 5
+        },
+        {
+          "title": "customer locks receipt confirmation when delivery ownership is inconsistent",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 961,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:39:15.288Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b3da29e5773f41c8f0ce-db3741d5ce810cd5bc66",
+          "file": "customer-report-integrity.spec.ts",
+          "line": 303,
+          "column": 5
+        },
+        {
+          "title": "customer locks preview, questions and delivery reads for a cross-version artifact",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 831,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:39:16.257Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b3da29e5773f41c8f0ce-970221bab28324269f4c",
+          "file": "customer-report-integrity.spec.ts",
+          "line": 369,
+          "column": 5
+        },
+        {
+          "title": "customer treats a truncated version chain as incomplete and performs no downstream reads",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1044,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:39:17.095Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b3da29e5773f41c8f0ce-98fbb067b9277367a44a",
+          "file": "customer-report-integrity.spec.ts",
+          "line": 426,
+          "column": 5
+        },
+        {
+          "title": "customer renders neither HTML nor PDF when artifact bytes violate the projected hash",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1110,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:39:18.147Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b3da29e5773f41c8f0ce-507369e06c6ec4df74aa",
+          "file": "customer-report-integrity.spec.ts",
+          "line": 505,
+          "column": 5
+        },
+        {
+          "title": "customer rejects an integrity-valid HTML artifact that contains active document content",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1017,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:39:19.265Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b3da29e5773f41c8f0ce-2d5d775212612248080c",
+          "file": "customer-report-integrity.spec.ts",
+          "line": 570,
+          "column": 5
+        },
+        {
+          "title": "customer rejects an integrity-valid oversized PDF page before canvas allocation",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1193,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:39:20.289Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b3da29e5773f41c8f0ce-696ccd94e700cf9a85df",
+          "file": "customer-report-integrity.spec.ts",
+          "line": 642,
+          "column": 5
+        },
+        {
+          "title": "customer browser back discards a slower superseded report detail",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1251,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T00:39:21.489Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b3da29e5773f41c8f0ce-d7f5f85e8ed2ed5e3387",
+          "file": "customer-report-integrity.spec.ts",
+          "line": 718,
+          "column": 5
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-07-27T00:37:21.575Z",
+    "duration": 121313.522,
+    "expected": 75,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

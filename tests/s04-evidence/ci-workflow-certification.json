@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-27T04:41:00.400393+00:00",
+  "result": "configuration_and_local_equivalent_passed_remote_run_unavailable",
+  "workflow_sha256": "5f3e90a92c50389defc95ded68e9676e4c933b8f9fc2f941b546428b2f4426d7",
+  "jobs": [
+    "browser-e2e",
+    "compose-smoke",
+    "contract-and-release-guards",
+    "python",
+    "typescript"
+  ],
+  "assertions": {
+    "yaml_parses": true,
+    "least_privilege_contents_read": true,
+    "expected_jobs_exact": true,
+    "repository_root_directory": true,
+    "all_changes_trigger": true,
+    "fresh_pgvector_dependencies": true,
+    "schema_migrated_before_python_tests": true,
+    "release_guards_present": true,
+    "browser_failure_artifacts_retained": true,
+    "local_full_quality_passed": true,
+    "local_e2e_complete": true,
+    "local_compose_pgvector_healthy": true
+  },
+  "remote_configured": false,
+  "remote_run_verified": false,
+  "qualification": "The repository has no configured Git remote. This proves workflow configuration and its current local equivalent, not a hosted GitHub Actions run."
+}

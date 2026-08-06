@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 
 import pytest
@@ -8,9 +9,12 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
 from workflows.activities.collection import (
+    CollectionBatchInput,
+    CollectionBatchItemResult,
+    CollectionBatchResult,
     CollectionTaskInput,
     CollectionTaskResult,
-    publish_downstream_event,
+    SessionPreparation,
 )
 from workflows.definitions.collection import GeoCollectionInput, GeoCollectionWorkflow
 from workflows.definitions.session import (
@@ -37,13 +41,71 @@ async def collect_with_adapter(item: CollectionTaskInput) -> CollectionTaskResul
     )
 
 
+lease_preparations: list[str] = []
+lease_releases: list[tuple[str, str, int]] = []
+terminal_run_states: list[tuple[str, str, str, str | None]] = []
+
+
+@activity.defn(name="publish_downstream_event")
+async def publish_downstream_event(
+    run_pub_id: str,
+    tenant_pub_id: str | None = None,
+    task_inputs: list[CollectionTaskInput] | None = None,
+) -> str:
+    del tenant_pub_id, task_inputs
+    return f"collection.completed:{run_pub_id}"
+
+
+@activity.defn(name="prepare_collection_session")
+async def prepare_collection_session(
+    tenant_pub_id: str, account_pub_id: str, holder: str, required_scope: str
+) -> SessionPreparation:
+    del account_pub_id, holder, required_scope
+    lease_preparations.append(tenant_pub_id)
+    return SessionPreparation(
+        lease_pub_id="sle_cleanup_fixture",
+        fencing_token=41,
+        profile_version=3,
+    )
+
+
+@activity.defn(name="release_collection_session")
+async def release_collection_session(
+    tenant_pub_id: str, lease_pub_id: str, fencing_token: int
+) -> None:
+    lease_releases.append((tenant_pub_id, lease_pub_id, fencing_token))
+
+
+@activity.defn(name="mark_collection_run_terminal")
+async def mark_collection_run_terminal(
+    tenant_pub_id: str, run_pub_id: str, state: str, error_code: str | None
+) -> None:
+    terminal_run_states.append((tenant_pub_id, run_pub_id, state, error_code))
+
+
+@activity.defn(name="collect_with_adapter")
+async def collect_with_nonretryable_failure(
+    item: CollectionTaskInput,
+) -> CollectionTaskResult:
+    del item
+    raise ApplicationError(
+        "fixture adapter rejected task",
+        type="unsupported_adapter",
+        non_retryable=True,
+    )
+
+
 async def test_collection_fixed_adapter_and_duplicate_intervention_signal() -> None:
     async with await WorkflowEnvironment.start_time_skipping() as environment:
         async with Worker(
             environment.client,
             task_queue="s01-test",
             workflows=[GeoCollectionWorkflow, HumanInterventionWorkflow],
-            activities=[collect_with_adapter, publish_downstream_event],
+            activities=[
+                collect_with_adapter,
+                publish_downstream_event,
+                mark_collection_run_terminal,
+            ],
         ):
             handle = await environment.client.start_workflow(
                 HumanInterventionWorkflow.run,
@@ -53,6 +115,7 @@ async def test_collection_fixed_adapter_and_duplicate_intervention_signal() -> N
             )
             await handle.signal(HumanInterventionWorkflow.complete, args=["nonce-1", "verified"])
             await handle.signal(HumanInterventionWorkflow.complete, args=["nonce-1", "verified"])
+            await handle.signal(HumanInterventionWorkflow.complete, args=["nonce-2", "failed"])
             assert await handle.result() == "verified"
 
 
@@ -62,7 +125,11 @@ async def test_activity_failure_is_retried_and_workflow_recovers() -> None:
             environment.client,
             task_queue="s01-retry-test",
             workflows=[GeoCollectionWorkflow],
-            activities=[collect_with_adapter, publish_downstream_event],
+            activities=[
+                collect_with_adapter,
+                publish_downstream_event,
+                mark_collection_run_terminal,
+            ],
         ):
             result = await environment.client.execute_workflow(
                 GeoCollectionWorkflow.run,
@@ -90,13 +157,113 @@ async def test_activity_failure_is_retried_and_workflow_recovers() -> None:
             assert result.completed[0].quality_state == "fixture_valid"
 
 
+async def test_nonretryable_activity_failure_releases_fenced_session_lease() -> None:
+    lease_preparations.clear()
+    lease_releases.clear()
+    terminal_run_states.clear()
+    async with await WorkflowEnvironment.start_time_skipping() as environment:
+        async with Worker(
+            environment.client,
+            task_queue="s01-failure-cleanup-test",
+            workflows=[GeoCollectionWorkflow],
+            activities=[
+                prepare_collection_session,
+                release_collection_session,
+                collect_with_nonretryable_failure,
+                mark_collection_run_terminal,
+                publish_downstream_event,
+            ],
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await environment.client.execute_workflow(
+                    GeoCollectionWorkflow.run,
+                    GeoCollectionInput(
+                        tenant_pub_id="tnt_cleanup",
+                        project_pub_id="prj_cleanup",
+                        run_pub_id="run_cleanup",
+                        config_version_pub_id="cfv_cleanup",
+                        account_pub_id="pac_cleanup",
+                        tasks=[
+                            CollectionTaskInput(
+                                business_key="cleanup-key",
+                                query="must fail",
+                                model="fixed",
+                                region="CN-BJ",
+                                mode="fast",
+                            )
+                        ],
+                        persist_results=False,
+                    ),
+                    id="geo-collection/failure-cleanup-test",
+                    task_queue="s01-failure-cleanup-test",
+                )
+    assert lease_preparations == ["tnt_cleanup"]
+    assert lease_releases == [("tnt_cleanup", "sle_cleanup_fixture", 41)]
+    assert terminal_run_states == [("tnt_cleanup", "run_cleanup", "failed", "workflow_failed")]
+
+
+async def test_external_workflow_cancellation_releases_fenced_session_lease() -> None:
+    lease_preparations.clear()
+    lease_releases.clear()
+    terminal_run_states.clear()
+    async with await WorkflowEnvironment.start_time_skipping() as environment:
+        async with Worker(
+            environment.client,
+            task_queue="s01-external-cancel-cleanup-test",
+            workflows=[GeoCollectionWorkflow],
+            activities=[
+                prepare_collection_session,
+                release_collection_session,
+                collect_with_adapter,
+                mark_collection_run_terminal,
+                publish_downstream_event,
+            ],
+        ):
+            handle = await environment.client.start_workflow(
+                GeoCollectionWorkflow.run,
+                GeoCollectionInput(
+                    tenant_pub_id="tnt_cancel_cleanup",
+                    project_pub_id="prj_cancel_cleanup",
+                    run_pub_id="run_cancel_cleanup",
+                    config_version_pub_id="cfv_cancel_cleanup",
+                    account_pub_id="pac_cancel_cleanup",
+                    tasks=[],
+                    requires_intervention=True,
+                    persist_results=False,
+                ),
+                id="geo-collection/external-cancel-cleanup-test",
+                task_queue="s01-external-cancel-cleanup-test",
+            )
+            for _ in range(100):
+                if lease_preparations:
+                    break
+                await asyncio.sleep(0.01)
+            assert lease_preparations == ["tnt_cancel_cleanup"]
+            await handle.cancel()
+            with pytest.raises(WorkflowFailureError):
+                await handle.result()
+    assert lease_releases == [("tnt_cancel_cleanup", "sle_cleanup_fixture", 41)]
+    assert terminal_run_states == [
+        (
+            "tnt_cancel_cleanup",
+            "run_cancel_cleanup",
+            "cancelled",
+            "workflow_cancelled",
+        )
+    ]
+
+
 async def test_pause_resume_cancel_signal_is_durable_and_idempotent() -> None:
     async with await WorkflowEnvironment.start_time_skipping() as environment:
         async with Worker(
             environment.client,
             task_queue="s01-cancel-test",
             workflows=[GeoCollectionWorkflow],
-            activities=[collect_with_adapter, publish_downstream_event],
+            activities=[
+                collect_with_adapter,
+                publish_downstream_event,
+                mark_collection_run_terminal,
+            ],
         ):
             handle = await environment.client.start_workflow(
                 GeoCollectionWorkflow.run,
@@ -124,7 +291,11 @@ async def test_continue_as_new_preserves_results_and_business_keys() -> None:
             environment.client,
             task_queue="s01-continue-test",
             workflows=[GeoCollectionWorkflow],
-            activities=[collect_with_adapter, publish_downstream_event],
+            activities=[
+                collect_with_adapter,
+                publish_downstream_event,
+                mark_collection_run_terminal,
+            ],
         ):
             result = await environment.client.execute_workflow(
                 GeoCollectionWorkflow.run,
@@ -181,12 +352,17 @@ async def test_platform_session_duplicate_verification_and_revocation_signals() 
             environment.client,
             task_queue="s01-session-test",
             workflows=[PlatformSessionLifecycleWorkflow],
+            activities=[prepare_collection_session, release_collection_session],
         ):
+            lease_preparations.clear()
+            lease_releases.clear()
             verified = await environment.client.start_workflow(
                 PlatformSessionLifecycleWorkflow.run,
                 SessionLifecycleInput(
+                    tenant_pub_id="ten_verified",
                     account_pub_id="pac_verified",
                     scope="query",
+                    holder="verified-test",
                     challenge_required=True,
                 ),
                 id="platform-session/verified-test",
@@ -198,17 +374,337 @@ async def test_platform_session_duplicate_verification_and_revocation_signals() 
             await verified.signal(
                 PlatformSessionLifecycleWorkflow.intervention_completed, "nonce-1"
             )
-            assert await verified.result() == "active:pac_verified:query"
+            verified_result = await verified.result()
+            assert verified_result.state == "completed"
+            assert verified_result.intervention_verified is True
+            assert verified_result.lease_released is True
 
             revoked = await environment.client.start_workflow(
                 PlatformSessionLifecycleWorkflow.run,
                 SessionLifecycleInput(
+                    tenant_pub_id="ten_revoked",
                     account_pub_id="pac_revoked",
                     scope="publish",
+                    holder="revoked-test",
                     challenge_required=True,
                 ),
                 id="platform-session/revoked-test",
                 task_queue="s01-session-test",
             )
             await revoked.signal(PlatformSessionLifecycleWorkflow.revoke)
-            assert await revoked.result() == "revoked"
+            revoked_result = await revoked.result()
+            assert revoked_result.state == "revoked"
+            assert revoked_result.intervention_verified is False
+            assert revoked_result.lease_released is True
+            assert lease_preparations == ["ten_verified", "ten_revoked"]
+            assert lease_releases == [
+                ("ten_verified", "sle_cleanup_fixture", 41),
+                ("ten_revoked", "sle_cleanup_fixture", 41),
+            ]
+
+
+async def test_platform_session_external_cancellation_releases_fenced_lease() -> None:
+    lease_preparations.clear()
+    lease_releases.clear()
+    async with await WorkflowEnvironment.start_time_skipping() as environment:
+        async with Worker(
+            environment.client,
+            task_queue="s01-session-cancel-test",
+            workflows=[PlatformSessionLifecycleWorkflow],
+            activities=[prepare_collection_session, release_collection_session],
+        ):
+            handle = await environment.client.start_workflow(
+                PlatformSessionLifecycleWorkflow.run,
+                SessionLifecycleInput(
+                    tenant_pub_id="ten_session_cancel",
+                    account_pub_id="pac_session_cancel",
+                    scope="query",
+                    holder="session-cancel-test",
+                    challenge_required=True,
+                ),
+                id="platform-session/external-cancel-test",
+                task_queue="s01-session-cancel-test",
+            )
+            for _ in range(100):
+                if lease_preparations:
+                    break
+                await asyncio.sleep(0.01)
+            assert lease_preparations == ["ten_session_cancel"]
+            await handle.cancel()
+            with pytest.raises(WorkflowFailureError):
+                await handle.result()
+    assert lease_releases == [("ten_session_cancel", "sle_cleanup_fixture", 41)]
+
+
+
+# ---------------------------------------------------------------------------
+# doubao-batch-collect-v1：batch 路由（doubao 连续段 → 一个 batch activity）
+# ---------------------------------------------------------------------------
+
+batch_calls: list[list[str]] = []
+persisted_items: list[tuple[str, str]] = []
+
+
+def _batch_task(key: str, adapter: str) -> CollectionTaskInput:
+    return CollectionTaskInput(
+        business_key=key,
+        query=f"query-{key}",
+        model="doubao" if adapter == "doubao" else "fixed",
+        region="CN-BJ",
+        mode="fast",
+        adapter=adapter,
+    )
+
+
+@activity.defn(name="collect_doubao_batch")
+async def collect_doubao_batch_ok(batch: CollectionBatchInput) -> CollectionBatchResult:
+    """Deterministic batch fixture：记录整批输入，全题 ok 返回。"""
+    activity.heartbeat({"run_pub_id": batch.run_pub_id, "stage": "fixture_started"})
+    batch_calls.append([item.business_key for item in batch.items])
+    return CollectionBatchResult(
+        results=[
+            CollectionBatchItemResult(
+                business_key=item.business_key,
+                status="ok",
+                answer_text=f"[batch-fixture] {item.query}",
+                screenshot_ref="fixture://screenshots/batch.png",
+                quality_state="fixture_valid",
+            )
+            for item in batch.items
+        ]
+    )
+
+
+@activity.defn(name="collect_doubao_batch")
+async def collect_doubao_batch_with_wall(batch: CollectionBatchInput) -> CollectionBatchResult:
+    """第 2 题撞墙、第 3 题未执行（模拟真实 session 的失败语义），不 raise。"""
+    batch_calls.append([item.business_key for item in batch.items])
+    results: list[CollectionBatchItemResult] = []
+    for index, item in enumerate(batch.items):
+        if index == 0:
+            results.append(
+                CollectionBatchItemResult(
+                    business_key=item.business_key,
+                    status="ok",
+                    answer_text=f"[batch-fixture] {item.query}",
+                    screenshot_ref="fixture://screenshots/batch.png",
+                    quality_state="fixture_valid",
+                )
+            )
+        elif index == 1:
+            results.append(
+                CollectionBatchItemResult(
+                    business_key=item.business_key,
+                    status="wall",
+                    error_type="wall_captcha",
+                    error_message="captcha challenge appeared post-send (fixture)",
+                    screenshot_ref="fixture://screenshots/wall.png",
+                )
+            )
+        else:
+            results.append(
+                CollectionBatchItemResult(
+                    business_key=item.business_key,
+                    status="aborted",
+                    error_type="aborted_after_failure",
+                    error_message="not executed: batch stopped after failure (fixture)",
+                )
+            )
+    return CollectionBatchResult(results=results)
+
+
+@activity.defn(name="persist_collection_result")
+async def persist_collection_result_fixture(
+    tenant_pub_id: str,
+    run_pub_id: str,
+    result: CollectionBatchItemResult,
+    task_input: CollectionTaskInput | None = None,
+) -> None:
+    del tenant_pub_id, run_pub_id, task_input
+    persisted_items.append((result.business_key, result.status))
+
+
+async def test_doubao_segments_routed_to_batch_and_per_task() -> None:
+    """混合任务 [d,d,fixed,d]：doubao 连续段各合成一次 batch，fixed 保持 per-task；
+    完成顺序与原任务顺序一致；逐题 persist（含 batch 题）。"""
+    batch_calls.clear()
+    persisted_items.clear()
+    async with await WorkflowEnvironment.start_time_skipping() as environment:
+        async with Worker(
+            environment.client,
+            task_queue="s01-batch-route-test",
+            workflows=[GeoCollectionWorkflow],
+            activities=[
+                collect_with_adapter,
+                collect_doubao_batch_ok,
+                persist_collection_result_fixture,
+                publish_downstream_event,
+                mark_collection_run_terminal,
+            ],
+        ):
+            result = await environment.client.execute_workflow(
+                GeoCollectionWorkflow.run,
+                GeoCollectionInput(
+                    tenant_pub_id="tnt_batch",
+                    project_pub_id="prj_batch",
+                    run_pub_id="run_batch",
+                    config_version_pub_id="cfv_batch",
+                    tasks=[
+                        _batch_task("d-1", "doubao"),
+                        _batch_task("d-2", "doubao"),
+                        _batch_task("f-1", "fixed"),
+                        _batch_task("d-3", "doubao"),
+                    ],
+                    persist_results=True,
+                    inter_task_delay_max_s=0.0,  # 关掉节奏睡眠（路由测试不验证节奏）
+                ),
+                id="geo-collection/batch-route-test",
+                task_queue="s01-batch-route-test",
+            )
+    assert result.state == "completed"
+    # doubao 连续段 [d-1,d-2] 与 [d-3] 各一次 batch 调用（原相对顺序）
+    assert batch_calls == [["d-1", "d-2"], ["d-3"]]
+    # 完成顺序保持原任务顺序（batch 内 d-1→d-2，per-task f-1 居中）
+    assert [item.business_key for item in result.completed] == ["d-1", "d-2", "f-1", "d-3"]
+    assert result.completed[0].answer_text == "[batch-fixture] query-d-1"
+    assert result.completed[2].quality_state == "fixture_valid"
+    # 逐题 persist：batch 题（新形状）与 per-task 题（旧形状 → 默认 status=ok）
+    assert persisted_items == [("d-1", "ok"), ("d-2", "ok"), ("f-1", "ok"), ("d-3", "ok")]
+
+
+async def test_doubao_batch_wall_persists_failures_and_fails_run() -> None:
+    """batch 内第 2 题 wall、第 3 题 aborted：逐题诚实落库（含失败/未执行题）
+    后 run 记 failed（真人撞墙后停下，不硬闯后续题）。"""
+    batch_calls.clear()
+    persisted_items.clear()
+    terminal_run_states.clear()
+    async with await WorkflowEnvironment.start_time_skipping() as environment:
+        async with Worker(
+            environment.client,
+            task_queue="s01-batch-wall-test",
+            workflows=[GeoCollectionWorkflow],
+            activities=[
+                collect_with_adapter,
+                collect_doubao_batch_with_wall,
+                persist_collection_result_fixture,
+                publish_downstream_event,
+                mark_collection_run_terminal,
+            ],
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await environment.client.execute_workflow(
+                    GeoCollectionWorkflow.run,
+                    GeoCollectionInput(
+                        tenant_pub_id="tnt_batch_wall",
+                        project_pub_id="prj_batch_wall",
+                        run_pub_id="run_batch_wall",
+                        config_version_pub_id="cfv_batch_wall",
+                        tasks=[
+                            _batch_task("w-1", "doubao"),
+                            _batch_task("w-2", "doubao"),
+                            _batch_task("w-3", "doubao"),
+                            _batch_task("w-4", "fixed"),
+                        ],
+                        persist_results=True,
+                        inter_task_delay_max_s=0.0,
+                    ),
+                    id="geo-collection/batch-wall-test",
+                    task_queue="s01-batch-wall-test",
+                )
+    # batch 只调用一次（3 题一段）；墙后 workflow 停止——fixed 题 w-4 未执行
+    assert batch_calls == [["w-1", "w-2", "w-3"]]
+    # 逐题 persist：ok + wall + aborted 全部落库（不丢已完成题、不编造未执行题）
+    assert persisted_items == [("w-1", "ok"), ("w-2", "wall"), ("w-3", "aborted")]
+    # run 终态词汇与 per-task 时代墙失败一致
+    assert terminal_run_states == [
+        ("tnt_batch_wall", "run_batch_wall", "failed", "workflow_failed")
+    ]
+
+
+@activity.defn(name="collect_deepseek_batch")
+async def collect_deepseek_batch_ok(batch: CollectionBatchInput) -> CollectionBatchResult:
+    batch_calls.append(["deepseek:" + item.business_key for item in batch.items])
+    return CollectionBatchResult(
+        results=[
+            CollectionBatchItemResult(
+                business_key=item.business_key,
+                status="ok",
+                answer_text=f"[ds-fixture] {item.query}",
+                screenshot_ref="fixture://screenshots/ds.png",
+                quality_state="fixture_valid",
+            )
+            for item in batch.items
+        ]
+    )
+
+
+@activity.defn(name="collect_yuanbao_batch")
+async def collect_yuanbao_batch_ok(batch: CollectionBatchInput) -> CollectionBatchResult:
+    batch_calls.append(["yuanbao:" + item.business_key for item in batch.items])
+    return CollectionBatchResult(
+        results=[
+            CollectionBatchItemResult(
+                business_key=item.business_key,
+                status="ok",
+                answer_text=f"[yb-fixture] {item.query}",
+                screenshot_ref="fixture://screenshots/yb.png",
+                quality_state="fixture_valid",
+            )
+            for item in batch.items
+        ]
+    )
+
+
+async def test_all_adapters_routed_to_named_batch_activities() -> None:
+    """adapter-batch-collect-v1 泛化路由（W8）：[doubao, deepseek, fixed, yuanbao]
+    → 三个 batch-capable slug 各按动态名 collect_<slug>_batch 调用一次，fixed
+    保持 per-task；完成顺序与原任务顺序一致，逐题 persist。"""
+    batch_calls.clear()
+    persisted_items.clear()
+    async with await WorkflowEnvironment.start_time_skipping() as environment:
+        async with Worker(
+            environment.client,
+            task_queue="s01-batch-all-route-test",
+            workflows=[GeoCollectionWorkflow],
+            activities=[
+                collect_with_adapter,
+                collect_doubao_batch_ok,
+                collect_deepseek_batch_ok,
+                collect_yuanbao_batch_ok,
+                persist_collection_result_fixture,
+                publish_downstream_event,
+                mark_collection_run_terminal,
+            ],
+        ):
+            result = await environment.client.execute_workflow(
+                GeoCollectionWorkflow.run,
+                GeoCollectionInput(
+                    tenant_pub_id="tnt_batch_all",
+                    project_pub_id="prj_batch_all",
+                    run_pub_id="run_batch_all",
+                    config_version_pub_id="cfv_batch_all",
+                    tasks=[
+                        _batch_task("d-1", "doubao"),
+                        _batch_task("s-1", "deepseek"),
+                        _batch_task("s-2", "deepseek"),
+                        _batch_task("f-1", "fixed"),
+                        _batch_task("y-1", "yuanbao"),
+                    ],
+                    persist_results=True,
+                    inter_task_delay_max_s=0.0,
+                ),
+                id="geo-collection/batch-all-route-test",
+                task_queue="s01-batch-all-route-test",
+            )
+    assert result.state == "completed"
+    # 三段 batch 调用：doubao×1、deepseek×1（两题）、yuanbao×1
+    assert batch_calls == [["d-1"], ["deepseek:s-1", "deepseek:s-2"], ["yuanbao:y-1"]]
+    assert [item.business_key for item in result.completed] == [
+        "d-1", "s-1", "s-2", "f-1", "y-1",
+    ]
+    assert result.completed[0].answer_text == "[batch-fixture] query-d-1"
+    assert result.completed[1].answer_text == "[ds-fixture] query-s-1"
+    assert result.completed[4].answer_text == "[yb-fixture] query-y-1"
+    assert persisted_items == [
+        ("d-1", "ok"), ("s-1", "ok"), ("s-2", "ok"), ("f-1", "ok"), ("y-1", "ok"),
+    ]

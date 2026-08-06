@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-25T05:42:59.229405+00:00",
+  "result": "passed",
+  "database_revision": "s04_0021",
+  "assertions": {
+    "exact_replay_returns_same_occurrence": true,
+    "same_content_has_two_occurrence_rows": true,
+    "same_content_shares_cas_object": true,
+    "access_and_project_metadata_isolated": true,
+    "stable_id_payload_drift_rejected": true
+  },
+  "synthetic_fixture": true,
+  "synthetic_fixture_removed": true,
+  "sensitive_values_recorded": false
+}

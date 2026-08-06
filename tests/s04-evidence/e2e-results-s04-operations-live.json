@@ -1,0 +1,1747 @@
+{
+  "config": {
+    "argv": [
+      "/home/xln/.config/nvm/versions/node/v24.6.0/bin/node",
+      "/home/xln/geo-system/platform-v2/node_modules/@playwright/test/cli.js",
+      "test",
+      "--project=operations-desktop",
+      "--project=operations-tablet",
+      "--project=operations-mobile"
+    ],
+    "configFile": "/home/xln/geo-system/platform-v2/playwright.config.ts",
+    "rootDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+    "failOnFlakyTests": false,
+    "forbidOnly": true,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s04-operations-live",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "customer-desktop",
+        "name": "customer-desktop",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/customer-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s04-operations-live",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "customer-tablet",
+        "name": "customer-tablet",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/customer-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s04-operations-live",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "customer-mobile",
+        "name": "customer-mobile",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/customer-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s04-operations-live",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "operations-desktop",
+        "name": "operations-desktop",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/operations-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s04-operations-live",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "operations-tablet",
+        "name": "operations-tablet",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/operations-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s04-operations-live",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "operations-mobile",
+        "name": "operations-mobile",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/operations-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s04-operations-live",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "reports-desktop",
+        "name": "reports-desktop",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/reports-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s04-operations-live",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "reports-tablet",
+        "name": "reports-tablet",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/reports-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s04-operations-live",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "reports-mobile",
+        "name": "reports-mobile",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/reports-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s04-operations-live",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "intelligence-desktop",
+        "name": "intelligence-desktop",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/intelligence-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s04-operations-live",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "intelligence-tablet",
+        "name": "intelligence-tablet",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/intelligence-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/xln/geo-system/platform-v2/tests/e2e-results-s04-operations-live",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "intelligence-mobile",
+        "name": "intelligence-mobile",
+        "testDir": "/home/xln/geo-system/platform-v2/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/intelligence-.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "tests/s04-evidence/e2e-results-s04-operations-live.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.61.1",
+    "workers": 1,
+    "webServer": {
+      "command": "exec bash scripts/start_e2e_webservers.sh",
+      "url": "http://127.0.0.1:55401/platform/customer/",
+      "env": {
+        "PYTHON_BASIC_REPL": "1",
+        "LESSOPEN": "| /usr/bin/lesspipe %s",
+        "TMUX": "/tmp/tmux-1000/default,4013479,12",
+        "CODEX_CI": "1",
+        "USER": "xln",
+        "SSH_CLIENT": "117.133.64.159 8015 2222",
+        "npm_config_user_agent": "pnpm/11.17.0 npm/? node/v24.6.0 linux x64",
+        "XDG_SESSION_TYPE": "tty",
+        "GIT_ASKPASS": "/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/extensions/git/dist/askpass.sh",
+        "GEO_E2E_JSON_REPORT": "tests/s04-evidence/e2e-results-s04-operations-live.json",
+        "SHLVL": "3",
+        "BROWSER": "/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/bin/helpers/browser.sh",
+        "MOTD_SHOWN": "pam",
+        "HOME": "/home/xln",
+        "TERM_PROGRAM_VERSION": "3.2a",
+        "NVM_BIN": "/home/xln/.config/nvm/versions/node/v24.6.0/bin",
+        "VSCODE_IPC_HOOK_CLI": "/run/user/1000/vscode-ipc-19a833ff-7b40-43ab-9744-1d6bf8bcdc83.sock",
+        "NVM_INC": "/home/xln/.config/nvm/versions/node/v24.6.0/include/node",
+        "COREPACK_ROOT": "/home/xln/.config/nvm/versions/node/v24.6.0/lib/node_modules/corepack",
+        "PAGER": "cat",
+        "VSCODE_GIT_ASKPASS_MAIN": "/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/extensions/git/dist/askpass-main.js",
+        "HF_ENDPOINT": "https://hf-mirror.com",
+        "VSCODE_GIT_ASKPASS_NODE": "/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/node",
+        "LC_CTYPE": "C.UTF-8",
+        "PYDEVD_DISABLE_FILE_VALIDATION": "1",
+        "BUNDLED_DEBUGPY_PATH": "/home/xln/.vscode-server/extensions/ms-python.debugpy-2026.6.0-linux-x64/bundled/libs/debugpy",
+        "VSCODE_PYTHON_AUTOACTIVATE_GUARD": "1",
+        "NO_COLOR": "1",
+        "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/1000/bus",
+        "COLORTERM": "",
+        "GEO_E2E_OUTPUT_DIR": "tests/e2e-results-s04-operations-live",
+        "NVM_DIR": "/home/xln/.config/nvm",
+        "https_proxy": "http://127.0.0.1:7890",
+        "CODEX_PERMISSION_PROFILE": ":danger-full-access",
+        "COREPACK_ENABLE_DOWNLOAD_PROMPT": "1",
+        "LOGNAME": "xln",
+        "pnpm_config_verify_deps_before_run": "false",
+        "http_proxy": "http://127.0.0.1:7890",
+        "_": "/home/xln/.config/nvm/versions/node/v24.6.0/bin/pnpm",
+        "CLAUDE_CODE_SSE_PORT": "31479",
+        "XDG_SESSION_CLASS": "user",
+        "GEO_E2E_PORT_BASE": "55400",
+        "TERM": "dumb",
+        "XDG_SESSION_ID": "5582",
+        "PATH": "./node_modules/.bin:/home/xln/geo-system/platform-v2/node_modules/.bin:/home/xln/.local/bin:/home/xln/.config/nvm/versions/node/v24.6.0/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/codex-path:/home/xln/.codex/tmp/arg0/codex-arg0Biy0jG:/home/xln/.local/bin:/home/xln/.kimi-code/bin:/home/xln/.deno/bin:/home/xln/.local/bin:/home/xln/.kimi-code/bin:/home/xln/.deno/bin:/home/xln/.local/bin:/home/xln/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand:/home/xln/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli:/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/bin/remote-cli:/home/xln/.local/bin:/home/xln/.kimi-code/bin:/home/xln/google-cloud-sdk/bin:/home/xln/.deno/bin:/home/xln/.config/nvm/versions/node/v24.6.0/bin:/home/xln/.local/bin:/home/xln/.deno/bin:/home/xln/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin",
+        "XDG_RUNTIME_DIR": "/run/user/1000",
+        "VSCODE_DEBUGPY_ADAPTER_ENDPOINTS": "/home/xln/.vscode-server/extensions/ms-python.debugpy-2026.6.0-linux-x64/.noConfigDebugAdapterEndpoints/endpoint-70a46e768030bfa5.txt",
+        "LANG": "C.UTF-8",
+        "PYTHONSTARTUP": "/home/xln/.vscode-server/data/User/workspaceStorage/064617a2688c468aa40abc1ece39445c/ms-python.python/pythonrc.py",
+        "GH_PAGER": "cat",
+        "LS_COLORS": "rs=0:di=01;34:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=30;41:tw=30;42:ow=34;42:st=37;44:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arc=01;31:*.arj=01;31:*.taz=01;31:*.lha=01;31:*.lz4=01;31:*.lzh=01;31:*.lzma=01;31:*.tlz=01;31:*.txz=01;31:*.tzo=01;31:*.t7z=01;31:*.zip=01;31:*.z=01;31:*.dz=01;31:*.gz=01;31:*.lrz=01;31:*.lz=01;31:*.lzo=01;31:*.xz=01;31:*.zst=01;31:*.tzst=01;31:*.bz2=01;31:*.bz=01;31:*.tbz=01;31:*.tbz2=01;31:*.tz=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.war=01;31:*.ear=01;31:*.sar=01;31:*.rar=01;31:*.alz=01;31:*.ace=01;31:*.zoo=01;31:*.cpio=01;31:*.7z=01;31:*.rz=01;31:*.cab=01;31:*.wim=01;31:*.swm=01;31:*.dwm=01;31:*.esd=01;31:*.jpg=01;35:*.jpeg=01;35:*.mjpg=01;35:*.mjpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.svg=01;35:*.svgz=01;35:*.mng=01;35:*.pcx=01;35:*.mov=01;35:*.mpg=01;35:*.mpeg=01;35:*.m2v=01;35:*.mkv=01;35:*.webm=01;35:*.webp=01;35:*.ogm=01;35:*.mp4=01;35:*.m4v=01;35:*.mp4v=01;35:*.vob=01;35:*.qt=01;35:*.nuv=01;35:*.wmv=01;35:*.asf=01;35:*.rm=01;35:*.rmvb=01;35:*.flc=01;35:*.avi=01;35:*.fli=01;35:*.flv=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.yuv=01;35:*.cgm=01;35:*.emf=01;35:*.ogv=01;35:*.ogx=01;35:*.aac=00;36:*.au=00;36:*.flac=00;36:*.m4a=00;36:*.mid=00;36:*.midi=00;36:*.mka=00;36:*.mp3=00;36:*.mpc=00;36:*.ogg=00;36:*.ra=00;36:*.wav=00;36:*.oga=00;36:*.opus=00;36:*.spx=00;36:*.xspf=00;36:",
+        "CLAUDE_CODE_DISABLE_1M_CONTEXT": "1",
+        "VSCODE_GIT_IPC_HANDLE": "/run/user/1000/vscode-git-732bafe257.sock",
+        "TERM_PROGRAM": "tmux",
+        "SHELL": "/bin/bash",
+        "NODE_PATH": "/home/xln/geo-system/platform-v2/node_modules/.pnpm/@playwright+test@1.61.1/node_modules/@playwright/test/node_modules:/home/xln/geo-system/platform-v2/node_modules/.pnpm/@playwright+test@1.61.1/node_modules:/home/xln/geo-system/platform-v2/node_modules/.pnpm/node_modules",
+        "LESSCLOSE": "/usr/bin/lesspipe %s %s",
+        "CODEX_THREAD_ID": "019f930b-c1d5-7e03-98ca-887f5d692f65",
+        "GEO_E2E_API_PORT": "55300",
+        "PNPM_PACKAGE_NAME": "geo-platform-v2",
+        "VSCODE_GIT_ASKPASS_EXTRA_ARGS": "",
+        "GIT_PAGER": "cat",
+        "PWD": "/home/xln/geo-system/platform-v2",
+        "DISABLE_AUTOUPDATER": "1",
+        "LC_ALL": "C.UTF-8",
+        "CODEX_MANAGED_PACKAGE_ROOT": "/home/xln/.config/nvm/versions/node/v24.6.0/lib/node_modules/@openai/codex",
+        "COPILOT_DEBUG_NONCE": "9abf7f5d3e8c784e97955dcc9fdda180",
+        "SSH_CONNECTION": "117.133.64.159 8015 172.16.1.190 2222",
+        "NVM_CD_FLAGS": "",
+        "XDG_DATA_DIRS": "/usr/share/gnome:/usr/local/share:/usr/share:/var/lib/snapd/desktop",
+        "npm_command": "exec",
+        "CODEX_MANAGED_BY_NPM": "1",
+        "TMUX_PANE": "%12",
+        "GEO_VITE_NO_WATCH": "1",
+        "GEO_E2E_BUILD": "1",
+        "VITE_ALLOW_CONTRACT_FIXTURES": "true",
+        "VITE_GEO_API_BASE": ""
+      },
+      "reuseExistingServer": false,
+      "timeout": 240000
+    }
+  },
+  "suites": [
+    {
+      "title": "operations-accessibility.spec.ts",
+      "file": "operations-accessibility.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "operations shell and account lifecycle view are WCAG AA clean",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-desktop",
+              "projectName": "operations-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2448,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T04:18:14.377Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b1c424bd3cecdcc9d4d9-96925587c170c92428f3",
+          "file": "operations-accessibility.spec.ts",
+          "line": 4,
+          "column": 5
+        },
+        {
+          "title": "operations shell and account lifecycle view are WCAG AA clean",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-tablet",
+              "projectName": "operations-tablet",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2338,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T04:18:26.432Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b1c424bd3cecdcc9d4d9-1b73d8755c7d9e966bed",
+          "file": "operations-accessibility.spec.ts",
+          "line": 4,
+          "column": 5
+        },
+        {
+          "title": "operations shell and account lifecycle view are WCAG AA clean",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-mobile",
+              "projectName": "operations-mobile",
+              "results": [
+                {
+                  "workerIndex": 8,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2430,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T04:18:38.201Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b1c424bd3cecdcc9d4d9-d41b3550d3b354e7e61a",
+          "file": "operations-accessibility.spec.ts",
+          "line": 4,
+          "column": 5
+        }
+      ]
+    },
+    {
+      "title": "operations-cross-role.spec.ts",
+      "file": "operations-cross-role.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "Operations Web rejects a valid identity with the wrong product role before business data loads",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-desktop",
+              "projectName": "operations-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 373,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T04:18:17.060Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "49d0077d94960b12d23c-96d7bd2b83c8ba0b7fe2",
+          "file": "product-role-isolation.ts",
+          "line": 16,
+          "column": 7
+        },
+        {
+          "title": "Operations Web rejects a valid identity with the wrong product role before business data loads",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-tablet",
+              "projectName": "operations-tablet",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 367,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T04:18:29.029Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "49d0077d94960b12d23c-e9ec89e3351146a50d7b",
+          "file": "product-role-isolation.ts",
+          "line": 16,
+          "column": 7
+        },
+        {
+          "title": "Operations Web rejects a valid identity with the wrong product role before business data loads",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-mobile",
+              "projectName": "operations-mobile",
+              "results": [
+                {
+                  "workerIndex": 8,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 377,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T04:18:40.868Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "49d0077d94960b12d23c-2f25850dad8b3a5ca2e3",
+          "file": "product-role-isolation.ts",
+          "line": 16,
+          "column": 7
+        }
+      ]
+    },
+    {
+      "title": "operations-execution.spec.ts",
+      "file": "operations-execution.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "operations execution uses real lifecycle APIs without secret leakage",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-desktop",
+              "projectName": "operations-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 534,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m\n    at /home/xln/geo-system/platform-v2/tests/e2e/operations-execution.spec.ts:34:23",
+                    "location": {
+                      "file": "/home/xln/geo-system/platform-v2/tests/e2e/operations-execution.spec.ts",
+                      "column": 23,
+                      "line": 34
+                    },
+                    "snippet": "  32 |   await page.getByRole('button', { name: 'L0–L3 健康检查' }).click();\n  33 |   const health = await healthResponse;\n> 34 |   expect(health.ok()).toBeTruthy();\n     |                       ^\n  35 |   expect((await health.json()).levels.L0).toBe('passed');\n  36 |   await expect(page.getByText('health_check.completed').first()).toBeVisible();\n  37 |"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/home/xln/geo-system/platform-v2/tests/e2e/operations-execution.spec.ts",
+                        "column": 23,
+                        "line": 34
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m\n\n  32 |   await page.getByRole('button', { name: 'L0–L3 健康检查' }).click();\n  33 |   const health = await healthResponse;\n> 34 |   expect(health.ok()).toBeTruthy();\n     |                       ^\n  35 |   expect((await health.json()).levels.L0).toBe('passed');\n  36 |   await expect(page.getByText('health_check.completed').first()).toBeVisible();\n  37 |\n    at /home/xln/geo-system/platform-v2/tests/e2e/operations-execution.spec.ts:34:23"
+                    },
+                    {
+                      "location": {
+                        "file": "/home/xln/geo-system/platform-v2/tests/e2e/runtime-fixture.ts",
+                        "column": 11,
+                        "line": 31
+                      },
+                      "message": "Error: Browser runtime must retain literal zero console errors, page errors and failed requests. Raw messages and URLs are intentionally excluded from failure output.\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m\n\n\u001b[32m- Expected  - 2\u001b[39m\n\u001b[31m+ Received  + 2\u001b[39m\n\n\u001b[2m  Object {\u001b[22m\n\u001b[32m-   \"console-error\": 0,\u001b[39m\n\u001b[32m-   \"page-error\": 0,\u001b[39m\n\u001b[31m+   \"console-error\": 1,\u001b[39m\n\u001b[31m+   \"page-error\": 1,\u001b[39m\n\u001b[2m    \"request-failed\": 0,\u001b[22m\n\u001b[2m  }\u001b[22m\n\n   at runtime-fixture.ts:31\n\n  29 |           observed,\n  30 |           'Browser runtime must retain literal zero console errors, page errors and failed requests. Raw messages and URLs are intentionally excluded from failure output.',\n> 31 |         ).toEqual(expected);\n     |           ^\n  32 |       }\n  33 |     },\n  34 |     { auto: true },\n    at Object.exports.test._test.test.extend.browserRuntimeGuard.auto (/home/xln/geo-system/platform-v2/tests/e2e/runtime-fixture.ts:31:11)"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T04:18:17.476Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "browser-runtime-guard-summary",
+                      "contentType": "application/json",
+                      "body": "eyJvYnNlcnZlZCI6eyJjb25zb2xlLWVycm9yIjoxLCJwYWdlLWVycm9yIjoxLCJyZXF1ZXN0LWZhaWxlZCI6MH0sImV4cGVjdGVkIjp7ImNvbnNvbGUtZXJyb3IiOjAsInBhZ2UtZXJyb3IiOjAsInJlcXVlc3QtZmFpbGVkIjowfX0="
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/home/xln/geo-system/platform-v2/tests/e2e-results-s04-operations-live/operations-execution-opera-93b47-APIs-without-secret-leakage-operations-desktop/error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/home/xln/geo-system/platform-v2/tests/e2e/operations-execution.spec.ts",
+                    "column": 23,
+                    "line": 34
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "2048376d37e182267241-f368e8eff7c496d1d46c",
+          "file": "operations-execution.spec.ts",
+          "line": 11,
+          "column": 5
+        },
+        {
+          "title": "operations execution uses real lifecycle APIs without secret leakage",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-tablet",
+              "projectName": "operations-tablet",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 527,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m\n    at /home/xln/geo-system/platform-v2/tests/e2e/operations-execution.spec.ts:34:23",
+                    "location": {
+                      "file": "/home/xln/geo-system/platform-v2/tests/e2e/operations-execution.spec.ts",
+                      "column": 23,
+                      "line": 34
+                    },
+                    "snippet": "  32 |   await page.getByRole('button', { name: 'L0–L3 健康检查' }).click();\n  33 |   const health = await healthResponse;\n> 34 |   expect(health.ok()).toBeTruthy();\n     |                       ^\n  35 |   expect((await health.json()).levels.L0).toBe('passed');\n  36 |   await expect(page.getByText('health_check.completed').first()).toBeVisible();\n  37 |"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/home/xln/geo-system/platform-v2/tests/e2e/operations-execution.spec.ts",
+                        "column": 23,
+                        "line": 34
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m\n\n  32 |   await page.getByRole('button', { name: 'L0–L3 健康检查' }).click();\n  33 |   const health = await healthResponse;\n> 34 |   expect(health.ok()).toBeTruthy();\n     |                       ^\n  35 |   expect((await health.json()).levels.L0).toBe('passed');\n  36 |   await expect(page.getByText('health_check.completed').first()).toBeVisible();\n  37 |\n    at /home/xln/geo-system/platform-v2/tests/e2e/operations-execution.spec.ts:34:23"
+                    },
+                    {
+                      "location": {
+                        "file": "/home/xln/geo-system/platform-v2/tests/e2e/runtime-fixture.ts",
+                        "column": 11,
+                        "line": 31
+                      },
+                      "message": "Error: Browser runtime must retain literal zero console errors, page errors and failed requests. Raw messages and URLs are intentionally excluded from failure output.\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m\n\n\u001b[32m- Expected  - 2\u001b[39m\n\u001b[31m+ Received  + 2\u001b[39m\n\n\u001b[2m  Object {\u001b[22m\n\u001b[32m-   \"console-error\": 0,\u001b[39m\n\u001b[32m-   \"page-error\": 0,\u001b[39m\n\u001b[31m+   \"console-error\": 1,\u001b[39m\n\u001b[31m+   \"page-error\": 1,\u001b[39m\n\u001b[2m    \"request-failed\": 0,\u001b[22m\n\u001b[2m  }\u001b[22m\n\n   at runtime-fixture.ts:31\n\n  29 |           observed,\n  30 |           'Browser runtime must retain literal zero console errors, page errors and failed requests. Raw messages and URLs are intentionally excluded from failure output.',\n> 31 |         ).toEqual(expected);\n     |           ^\n  32 |       }\n  33 |     },\n  34 |     { auto: true },\n    at Object.exports.test._test.test.extend.browserRuntimeGuard.auto (/home/xln/geo-system/platform-v2/tests/e2e/runtime-fixture.ts:31:11)"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T04:18:29.433Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "browser-runtime-guard-summary",
+                      "contentType": "application/json",
+                      "body": "eyJvYnNlcnZlZCI6eyJjb25zb2xlLWVycm9yIjoxLCJwYWdlLWVycm9yIjoxLCJyZXF1ZXN0LWZhaWxlZCI6MH0sImV4cGVjdGVkIjp7ImNvbnNvbGUtZXJyb3IiOjAsInBhZ2UtZXJyb3IiOjAsInJlcXVlc3QtZmFpbGVkIjowfX0="
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/home/xln/geo-system/platform-v2/tests/e2e-results-s04-operations-live/operations-execution-opera-93b47-APIs-without-secret-leakage-operations-tablet/error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/home/xln/geo-system/platform-v2/tests/e2e/operations-execution.spec.ts",
+                    "column": 23,
+                    "line": 34
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "2048376d37e182267241-9c88456a3fa8d8cf1eac",
+          "file": "operations-execution.spec.ts",
+          "line": 11,
+          "column": 5
+        },
+        {
+          "title": "operations execution uses real lifecycle APIs without secret leakage",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-mobile",
+              "projectName": "operations-mobile",
+              "results": [
+                {
+                  "workerIndex": 8,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 544,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m\n    at /home/xln/geo-system/platform-v2/tests/e2e/operations-execution.spec.ts:34:23",
+                    "location": {
+                      "file": "/home/xln/geo-system/platform-v2/tests/e2e/operations-execution.spec.ts",
+                      "column": 23,
+                      "line": 34
+                    },
+                    "snippet": "  32 |   await page.getByRole('button', { name: 'L0–L3 健康检查' }).click();\n  33 |   const health = await healthResponse;\n> 34 |   expect(health.ok()).toBeTruthy();\n     |                       ^\n  35 |   expect((await health.json()).levels.L0).toBe('passed');\n  36 |   await expect(page.getByText('health_check.completed').first()).toBeVisible();\n  37 |"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/home/xln/geo-system/platform-v2/tests/e2e/operations-execution.spec.ts",
+                        "column": 23,
+                        "line": 34
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m\n\n  32 |   await page.getByRole('button', { name: 'L0–L3 健康检查' }).click();\n  33 |   const health = await healthResponse;\n> 34 |   expect(health.ok()).toBeTruthy();\n     |                       ^\n  35 |   expect((await health.json()).levels.L0).toBe('passed');\n  36 |   await expect(page.getByText('health_check.completed').first()).toBeVisible();\n  37 |\n    at /home/xln/geo-system/platform-v2/tests/e2e/operations-execution.spec.ts:34:23"
+                    },
+                    {
+                      "location": {
+                        "file": "/home/xln/geo-system/platform-v2/tests/e2e/runtime-fixture.ts",
+                        "column": 11,
+                        "line": 31
+                      },
+                      "message": "Error: Browser runtime must retain literal zero console errors, page errors and failed requests. Raw messages and URLs are intentionally excluded from failure output.\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m\n\n\u001b[32m- Expected  - 2\u001b[39m\n\u001b[31m+ Received  + 2\u001b[39m\n\n\u001b[2m  Object {\u001b[22m\n\u001b[32m-   \"console-error\": 0,\u001b[39m\n\u001b[32m-   \"page-error\": 0,\u001b[39m\n\u001b[31m+   \"console-error\": 1,\u001b[39m\n\u001b[31m+   \"page-error\": 1,\u001b[39m\n\u001b[2m    \"request-failed\": 0,\u001b[22m\n\u001b[2m  }\u001b[22m\n\n   at runtime-fixture.ts:31\n\n  29 |           observed,\n  30 |           'Browser runtime must retain literal zero console errors, page errors and failed requests. Raw messages and URLs are intentionally excluded from failure output.',\n> 31 |         ).toEqual(expected);\n     |           ^\n  32 |       }\n  33 |     },\n  34 |     { auto: true },\n    at Object.exports.test._test.test.extend.browserRuntimeGuard.auto (/home/xln/geo-system/platform-v2/tests/e2e/runtime-fixture.ts:31:11)"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T04:18:41.283Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "browser-runtime-guard-summary",
+                      "contentType": "application/json",
+                      "body": "eyJvYnNlcnZlZCI6eyJjb25zb2xlLWVycm9yIjoxLCJwYWdlLWVycm9yIjoxLCJyZXF1ZXN0LWZhaWxlZCI6MH0sImV4cGVjdGVkIjp7ImNvbnNvbGUtZXJyb3IiOjAsInBhZ2UtZXJyb3IiOjAsInJlcXVlc3QtZmFpbGVkIjowfX0="
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/home/xln/geo-system/platform-v2/tests/e2e-results-s04-operations-live/operations-execution-opera-93b47-APIs-without-secret-leakage-operations-mobile/error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/home/xln/geo-system/platform-v2/tests/e2e/operations-execution.spec.ts",
+                    "column": 23,
+                    "line": 34
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "2048376d37e182267241-39862af474429e3ccaab",
+          "file": "operations-execution.spec.ts",
+          "line": 11,
+          "column": 5
+        }
+      ]
+    },
+    {
+      "title": "operations-lifecycle.spec.ts",
+      "file": "operations-lifecycle.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "operations shell exposes the safe account lifecycle without secrets",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-desktop",
+              "projectName": "operations-desktop",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 877,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T04:18:18.523Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "436b6f9d41d7d4bff330-537e9da78d29b8335780",
+          "file": "operations-lifecycle.spec.ts",
+          "line": 4,
+          "column": 5
+        },
+        {
+          "title": "operations shell exposes the safe account lifecycle without secrets",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-tablet",
+              "projectName": "operations-tablet",
+              "results": [
+                {
+                  "workerIndex": 5,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 719,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T04:18:30.467Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "436b6f9d41d7d4bff330-0bde6864cacb336b904d",
+          "file": "operations-lifecycle.spec.ts",
+          "line": 4,
+          "column": 5
+        },
+        {
+          "title": "operations shell exposes the safe account lifecycle without secrets",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-mobile",
+              "projectName": "operations-mobile",
+              "results": [
+                {
+                  "workerIndex": 9,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 808,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T04:18:42.369Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "436b6f9d41d7d4bff330-87833bb1376a87b20831",
+          "file": "operations-lifecycle.spec.ts",
+          "line": 4,
+          "column": 5
+        }
+      ]
+    },
+    {
+      "title": "operations-shared-shell.spec.ts",
+      "file": "operations-shared-shell.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "Operations Web shared shell actions are functional and secret-free",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-desktop",
+              "projectName": "operations-desktop",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 1839,
+                  "error": {
+                    "message": "Error: Browser runtime must retain literal zero console errors, page errors and failed requests. Raw messages and URLs are intentionally excluded from failure output.\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m\n\n\u001b[32m- Expected  - 1\u001b[39m\n\u001b[31m+ Received  + 1\u001b[39m\n\n\u001b[2m  Object {\u001b[22m\n\u001b[32m-   \"console-error\": 0,\u001b[39m\n\u001b[31m+   \"console-error\": 1,\u001b[39m\n\u001b[2m    \"page-error\": 0,\u001b[22m\n\u001b[2m    \"request-failed\": 0,\u001b[22m\n\u001b[2m  }\u001b[22m",
+                    "stack": "Error: Browser runtime must retain literal zero console errors, page errors and failed requests. Raw messages and URLs are intentionally excluded from failure output.\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m\n\n\u001b[32m- Expected  - 1\u001b[39m\n\u001b[31m+ Received  + 1\u001b[39m\n\n\u001b[2m  Object {\u001b[22m\n\u001b[32m-   \"console-error\": 0,\u001b[39m\n\u001b[31m+   \"console-error\": 1,\u001b[39m\n\u001b[2m    \"page-error\": 0,\u001b[22m\n\u001b[2m    \"request-failed\": 0,\u001b[22m\n\u001b[2m  }\u001b[22m\n    at Object.exports.test._test.test.extend.browserRuntimeGuard.auto (/home/xln/geo-system/platform-v2/tests/e2e/runtime-fixture.ts:31:11)",
+                    "location": {
+                      "file": "/home/xln/geo-system/platform-v2/tests/e2e/runtime-fixture.ts",
+                      "column": 11,
+                      "line": 31
+                    },
+                    "snippet": "\u001b[90m   at \u001b[39mruntime-fixture.ts:31\n\n  29 |           observed,\n  30 |           'Browser runtime must retain literal zero console errors, page errors and failed requests. Raw messages and URLs are intentionally excluded from failure output.',\n> 31 |         ).toEqual(expected);\n     |           ^\n  32 |       }\n  33 |     },\n  34 |     { auto: true },"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/home/xln/geo-system/platform-v2/tests/e2e/runtime-fixture.ts",
+                        "column": 11,
+                        "line": 31
+                      },
+                      "message": "Error: Browser runtime must retain literal zero console errors, page errors and failed requests. Raw messages and URLs are intentionally excluded from failure output.\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m\n\n\u001b[32m- Expected  - 1\u001b[39m\n\u001b[31m+ Received  + 1\u001b[39m\n\n\u001b[2m  Object {\u001b[22m\n\u001b[32m-   \"console-error\": 0,\u001b[39m\n\u001b[31m+   \"console-error\": 1,\u001b[39m\n\u001b[2m    \"page-error\": 0,\u001b[22m\n\u001b[2m    \"request-failed\": 0,\u001b[22m\n\u001b[2m  }\u001b[22m\n\n   at runtime-fixture.ts:31\n\n  29 |           observed,\n  30 |           'Browser runtime must retain literal zero console errors, page errors and failed requests. Raw messages and URLs are intentionally excluded from failure output.',\n> 31 |         ).toEqual(expected);\n     |           ^\n  32 |       }\n  33 |     },\n  34 |     { auto: true },\n    at Object.exports.test._test.test.extend.browserRuntimeGuard.auto (/home/xln/geo-system/platform-v2/tests/e2e/runtime-fixture.ts:31:11)"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T04:18:19.624Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "browser-runtime-guard-summary",
+                      "contentType": "application/json",
+                      "body": "eyJvYnNlcnZlZCI6eyJjb25zb2xlLWVycm9yIjoxLCJwYWdlLWVycm9yIjowLCJyZXF1ZXN0LWZhaWxlZCI6MH0sImV4cGVjdGVkIjp7ImNvbnNvbGUtZXJyb3IiOjAsInBhZ2UtZXJyb3IiOjAsInJlcXVlc3QtZmFpbGVkIjowfX0="
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/home/xln/geo-system/platform-v2/tests/e2e-results-s04-operations-live/operations-shared-shell-Op-1c162--functional-and-secret-free-operations-desktop/error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/home/xln/geo-system/platform-v2/tests/e2e/runtime-fixture.ts",
+                    "column": 11,
+                    "line": 31
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "989f4cb19f73d0209101-80241b3747dc626b9ef9",
+          "file": "shared-shell-actions.ts",
+          "line": 21,
+          "column": 7
+        },
+        {
+          "title": "Operations Web removes hostile long URL values before rendering business content",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-desktop",
+              "projectName": "operations-desktop",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 601,
+                  "error": {
+                    "message": "Error: Browser runtime must retain literal zero console errors, page errors and failed requests. Raw messages and URLs are intentionally excluded from failure output.\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m\n\n\u001b[32m- Expected  - 1\u001b[39m\n\u001b[31m+ Received  + 1\u001b[39m\n\n\u001b[2m  Object {\u001b[22m\n\u001b[32m-   \"console-error\": 0,\u001b[39m\n\u001b[31m+   \"console-error\": 1,\u001b[39m\n\u001b[2m    \"page-error\": 0,\u001b[22m\n\u001b[2m    \"request-failed\": 0,\u001b[22m\n\u001b[2m  }\u001b[22m",
+                    "stack": "Error: Browser runtime must retain literal zero console errors, page errors and failed requests. Raw messages and URLs are intentionally excluded from failure output.\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m\n\n\u001b[32m- Expected  - 1\u001b[39m\n\u001b[31m+ Received  + 1\u001b[39m\n\n\u001b[2m  Object {\u001b[22m\n\u001b[32m-   \"console-error\": 0,\u001b[39m\n\u001b[31m+   \"console-error\": 1,\u001b[39m\n\u001b[2m    \"page-error\": 0,\u001b[22m\n\u001b[2m    \"request-failed\": 0,\u001b[22m\n\u001b[2m  }\u001b[22m\n    at Object.exports.test._test.test.extend.browserRuntimeGuard.auto (/home/xln/geo-system/platform-v2/tests/e2e/runtime-fixture.ts:31:11)",
+                    "location": {
+                      "file": "/home/xln/geo-system/platform-v2/tests/e2e/runtime-fixture.ts",
+                      "column": 11,
+                      "line": 31
+                    },
+                    "snippet": "\u001b[90m   at \u001b[39mruntime-fixture.ts:31\n\n  29 |           observed,\n  30 |           'Browser runtime must retain literal zero console errors, page errors and failed requests. Raw messages and URLs are intentionally excluded from failure output.',\n> 31 |         ).toEqual(expected);\n     |           ^\n  32 |       }\n  33 |     },\n  34 |     { auto: true },"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/home/xln/geo-system/platform-v2/tests/e2e/runtime-fixture.ts",
+                        "column": 11,
+                        "line": 31
+                      },
+                      "message": "Error: Browser runtime must retain literal zero console errors, page errors and failed requests. Raw messages and URLs are intentionally excluded from failure output.\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m\n\n\u001b[32m- Expected  - 1\u001b[39m\n\u001b[31m+ Received  + 1\u001b[39m\n\n\u001b[2m  Object {\u001b[22m\n\u001b[32m-   \"console-error\": 0,\u001b[39m\n\u001b[31m+   \"console-error\": 1,\u001b[39m\n\u001b[2m    \"page-error\": 0,\u001b[22m\n\u001b[2m    \"request-failed\": 0,\u001b[22m\n\u001b[2m  }\u001b[22m\n\n   at runtime-fixture.ts:31\n\n  29 |           observed,\n  30 |           'Browser runtime must retain literal zero console errors, page errors and failed requests. Raw messages and URLs are intentionally excluded from failure output.',\n> 31 |         ).toEqual(expected);\n     |           ^\n  32 |       }\n  33 |     },\n  34 |     { auto: true },\n    at Object.exports.test._test.test.extend.browserRuntimeGuard.auto (/home/xln/geo-system/platform-v2/tests/e2e/runtime-fixture.ts:31:11)"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T04:18:21.973Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "browser-runtime-guard-summary",
+                      "contentType": "application/json",
+                      "body": "eyJvYnNlcnZlZCI6eyJjb25zb2xlLWVycm9yIjoxLCJwYWdlLWVycm9yIjowLCJyZXF1ZXN0LWZhaWxlZCI6MH0sImV4cGVjdGVkIjp7ImNvbnNvbGUtZXJyb3IiOjAsInBhZ2UtZXJyb3IiOjAsInJlcXVlc3QtZmFpbGVkIjowfX0="
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/home/xln/geo-system/platform-v2/tests/e2e-results-s04-operations-live/operations-shared-shell-Op-4bf29--rendering-business-content-operations-desktop/error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/home/xln/geo-system/platform-v2/tests/e2e/runtime-fixture.ts",
+                    "column": 11,
+                    "line": 31
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "989f4cb19f73d0209101-678252d77258d01950e1",
+          "file": "shared-hostile-url.ts",
+          "line": 16,
+          "column": 7
+        },
+        {
+          "title": "Operations Web shared shell actions are functional and secret-free",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-tablet",
+              "projectName": "operations-tablet",
+              "results": [
+                {
+                  "workerIndex": 5,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 1895,
+                  "error": {
+                    "message": "Error: Browser runtime must retain literal zero console errors, page errors and failed requests. Raw messages and URLs are intentionally excluded from failure output.\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m\n\n\u001b[32m- Expected  - 1\u001b[39m\n\u001b[31m+ Received  + 1\u001b[39m\n\n\u001b[2m  Object {\u001b[22m\n\u001b[32m-   \"console-error\": 0,\u001b[39m\n\u001b[31m+   \"console-error\": 1,\u001b[39m\n\u001b[2m    \"page-error\": 0,\u001b[22m\n\u001b[2m    \"request-failed\": 0,\u001b[22m\n\u001b[2m  }\u001b[22m",
+                    "stack": "Error: Browser runtime must retain literal zero console errors, page errors and failed requests. Raw messages and URLs are intentionally excluded from failure output.\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m\n\n\u001b[32m- Expected  - 1\u001b[39m\n\u001b[31m+ Received  + 1\u001b[39m\n\n\u001b[2m  Object {\u001b[22m\n\u001b[32m-   \"console-error\": 0,\u001b[39m\n\u001b[31m+   \"console-error\": 1,\u001b[39m\n\u001b[2m    \"page-error\": 0,\u001b[22m\n\u001b[2m    \"request-failed\": 0,\u001b[22m\n\u001b[2m  }\u001b[22m\n    at Object.exports.test._test.test.extend.browserRuntimeGuard.auto (/home/xln/geo-system/platform-v2/tests/e2e/runtime-fixture.ts:31:11)",
+                    "location": {
+                      "file": "/home/xln/geo-system/platform-v2/tests/e2e/runtime-fixture.ts",
+                      "column": 11,
+                      "line": 31
+                    },
+                    "snippet": "\u001b[90m   at \u001b[39mruntime-fixture.ts:31\n\n  29 |           observed,\n  30 |           'Browser runtime must retain literal zero console errors, page errors and failed requests. Raw messages and URLs are intentionally excluded from failure output.',\n> 31 |         ).toEqual(expected);\n     |           ^\n  32 |       }\n  33 |     },\n  34 |     { auto: true },"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/home/xln/geo-system/platform-v2/tests/e2e/runtime-fixture.ts",
+                        "column": 11,
+                        "line": 31
+                      },
+                      "message": "Error: Browser runtime must retain literal zero console errors, page errors and failed requests. Raw messages and URLs are intentionally excluded from failure output.\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m\n\n\u001b[32m- Expected  - 1\u001b[39m\n\u001b[31m+ Received  + 1\u001b[39m\n\n\u001b[2m  Object {\u001b[22m\n\u001b[32m-   \"console-error\": 0,\u001b[39m\n\u001b[31m+   \"console-error\": 1,\u001b[39m\n\u001b[2m    \"page-error\": 0,\u001b[22m\n\u001b[2m    \"request-failed\": 0,\u001b[22m\n\u001b[2m  }\u001b[22m\n\n   at runtime-fixture.ts:31\n\n  29 |           observed,\n  30 |           'Browser runtime must retain literal zero console errors, page errors and failed requests. Raw messages and URLs are intentionally excluded from failure output.',\n> 31 |         ).toEqual(expected);\n     |           ^\n  32 |       }\n  33 |     },\n  34 |     { auto: true },\n    at Object.exports.test._test.test.extend.browserRuntimeGuard.auto (/home/xln/geo-system/platform-v2/tests/e2e/runtime-fixture.ts:31:11)"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T04:18:31.460Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "browser-runtime-guard-summary",
+                      "contentType": "application/json",
+                      "body": "eyJvYnNlcnZlZCI6eyJjb25zb2xlLWVycm9yIjoxLCJwYWdlLWVycm9yIjowLCJyZXF1ZXN0LWZhaWxlZCI6MH0sImV4cGVjdGVkIjp7ImNvbnNvbGUtZXJyb3IiOjAsInBhZ2UtZXJyb3IiOjAsInJlcXVlc3QtZmFpbGVkIjowfX0="
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/home/xln/geo-system/platform-v2/tests/e2e-results-s04-operations-live/operations-shared-shell-Op-1c162--functional-and-secret-free-operations-tablet/error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/home/xln/geo-system/platform-v2/tests/e2e/runtime-fixture.ts",
+                    "column": 11,
+                    "line": 31
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "989f4cb19f73d0209101-4c94fe7c0df6d7f9552b",
+          "file": "shared-shell-actions.ts",
+          "line": 21,
+          "column": 7
+        },
+        {
+          "title": "Operations Web removes hostile long URL values before rendering business content",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-tablet",
+              "projectName": "operations-tablet",
+              "results": [
+                {
+                  "workerIndex": 6,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 551,
+                  "error": {
+                    "message": "Error: Browser runtime must retain literal zero console errors, page errors and failed requests. Raw messages and URLs are intentionally excluded from failure output.\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m\n\n\u001b[32m- Expected  - 1\u001b[39m\n\u001b[31m+ Received  + 1\u001b[39m\n\n\u001b[2m  Object {\u001b[22m\n\u001b[32m-   \"console-error\": 0,\u001b[39m\n\u001b[31m+   \"console-error\": 1,\u001b[39m\n\u001b[2m    \"page-error\": 0,\u001b[22m\n\u001b[2m    \"request-failed\": 0,\u001b[22m\n\u001b[2m  }\u001b[22m",
+                    "stack": "Error: Browser runtime must retain literal zero console errors, page errors and failed requests. Raw messages and URLs are intentionally excluded from failure output.\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m\n\n\u001b[32m- Expected  - 1\u001b[39m\n\u001b[31m+ Received  + 1\u001b[39m\n\n\u001b[2m  Object {\u001b[22m\n\u001b[32m-   \"console-error\": 0,\u001b[39m\n\u001b[31m+   \"console-error\": 1,\u001b[39m\n\u001b[2m    \"page-error\": 0,\u001b[22m\n\u001b[2m    \"request-failed\": 0,\u001b[22m\n\u001b[2m  }\u001b[22m\n    at Object.exports.test._test.test.extend.browserRuntimeGuard.auto (/home/xln/geo-system/platform-v2/tests/e2e/runtime-fixture.ts:31:11)",
+                    "location": {
+                      "file": "/home/xln/geo-system/platform-v2/tests/e2e/runtime-fixture.ts",
+                      "column": 11,
+                      "line": 31
+                    },
+                    "snippet": "\u001b[90m   at \u001b[39mruntime-fixture.ts:31\n\n  29 |           observed,\n  30 |           'Browser runtime must retain literal zero console errors, page errors and failed requests. Raw messages and URLs are intentionally excluded from failure output.',\n> 31 |         ).toEqual(expected);\n     |           ^\n  32 |       }\n  33 |     },\n  34 |     { auto: true },"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/home/xln/geo-system/platform-v2/tests/e2e/runtime-fixture.ts",
+                        "column": 11,
+                        "line": 31
+                      },
+                      "message": "Error: Browser runtime must retain literal zero console errors, page errors and failed requests. Raw messages and URLs are intentionally excluded from failure output.\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m\n\n\u001b[32m- Expected  - 1\u001b[39m\n\u001b[31m+ Received  + 1\u001b[39m\n\n\u001b[2m  Object {\u001b[22m\n\u001b[32m-   \"console-error\": 0,\u001b[39m\n\u001b[31m+   \"console-error\": 1,\u001b[39m\n\u001b[2m    \"page-error\": 0,\u001b[22m\n\u001b[2m    \"request-failed\": 0,\u001b[22m\n\u001b[2m  }\u001b[22m\n\n   at runtime-fixture.ts:31\n\n  29 |           observed,\n  30 |           'Browser runtime must retain literal zero console errors, page errors and failed requests. Raw messages and URLs are intentionally excluded from failure output.',\n> 31 |         ).toEqual(expected);\n     |           ^\n  32 |       }\n  33 |     },\n  34 |     { auto: true },\n    at Object.exports.test._test.test.extend.browserRuntimeGuard.auto (/home/xln/geo-system/platform-v2/tests/e2e/runtime-fixture.ts:31:11)"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T04:18:33.865Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "browser-runtime-guard-summary",
+                      "contentType": "application/json",
+                      "body": "eyJvYnNlcnZlZCI6eyJjb25zb2xlLWVycm9yIjoxLCJwYWdlLWVycm9yIjowLCJyZXF1ZXN0LWZhaWxlZCI6MH0sImV4cGVjdGVkIjp7ImNvbnNvbGUtZXJyb3IiOjAsInBhZ2UtZXJyb3IiOjAsInJlcXVlc3QtZmFpbGVkIjowfX0="
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/home/xln/geo-system/platform-v2/tests/e2e-results-s04-operations-live/operations-shared-shell-Op-4bf29--rendering-business-content-operations-tablet/error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/home/xln/geo-system/platform-v2/tests/e2e/runtime-fixture.ts",
+                    "column": 11,
+                    "line": 31
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "989f4cb19f73d0209101-4ce532baaad0c31f2cf5",
+          "file": "shared-hostile-url.ts",
+          "line": 16,
+          "column": 7
+        },
+        {
+          "title": "Operations Web shared shell actions are functional and secret-free",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-mobile",
+              "projectName": "operations-mobile",
+              "results": [
+                {
+                  "workerIndex": 9,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 1835,
+                  "error": {
+                    "message": "Error: Browser runtime must retain literal zero console errors, page errors and failed requests. Raw messages and URLs are intentionally excluded from failure output.\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m\n\n\u001b[32m- Expected  - 1\u001b[39m\n\u001b[31m+ Received  + 1\u001b[39m\n\n\u001b[2m  Object {\u001b[22m\n\u001b[32m-   \"console-error\": 0,\u001b[39m\n\u001b[31m+   \"console-error\": 1,\u001b[39m\n\u001b[2m    \"page-error\": 0,\u001b[22m\n\u001b[2m    \"request-failed\": 0,\u001b[22m\n\u001b[2m  }\u001b[22m",
+                    "stack": "Error: Browser runtime must retain literal zero console errors, page errors and failed requests. Raw messages and URLs are intentionally excluded from failure output.\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m\n\n\u001b[32m- Expected  - 1\u001b[39m\n\u001b[31m+ Received  + 1\u001b[39m\n\n\u001b[2m  Object {\u001b[22m\n\u001b[32m-   \"console-error\": 0,\u001b[39m\n\u001b[31m+   \"console-error\": 1,\u001b[39m\n\u001b[2m    \"page-error\": 0,\u001b[22m\n\u001b[2m    \"request-failed\": 0,\u001b[22m\n\u001b[2m  }\u001b[22m\n    at Object.exports.test._test.test.extend.browserRuntimeGuard.auto (/home/xln/geo-system/platform-v2/tests/e2e/runtime-fixture.ts:31:11)",
+                    "location": {
+                      "file": "/home/xln/geo-system/platform-v2/tests/e2e/runtime-fixture.ts",
+                      "column": 11,
+                      "line": 31
+                    },
+                    "snippet": "\u001b[90m   at \u001b[39mruntime-fixture.ts:31\n\n  29 |           observed,\n  30 |           'Browser runtime must retain literal zero console errors, page errors and failed requests. Raw messages and URLs are intentionally excluded from failure output.',\n> 31 |         ).toEqual(expected);\n     |           ^\n  32 |       }\n  33 |     },\n  34 |     { auto: true },"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/home/xln/geo-system/platform-v2/tests/e2e/runtime-fixture.ts",
+                        "column": 11,
+                        "line": 31
+                      },
+                      "message": "Error: Browser runtime must retain literal zero console errors, page errors and failed requests. Raw messages and URLs are intentionally excluded from failure output.\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m\n\n\u001b[32m- Expected  - 1\u001b[39m\n\u001b[31m+ Received  + 1\u001b[39m\n\n\u001b[2m  Object {\u001b[22m\n\u001b[32m-   \"console-error\": 0,\u001b[39m\n\u001b[31m+   \"console-error\": 1,\u001b[39m\n\u001b[2m    \"page-error\": 0,\u001b[22m\n\u001b[2m    \"request-failed\": 0,\u001b[22m\n\u001b[2m  }\u001b[22m\n\n   at runtime-fixture.ts:31\n\n  29 |           observed,\n  30 |           'Browser runtime must retain literal zero console errors, page errors and failed requests. Raw messages and URLs are intentionally excluded from failure output.',\n> 31 |         ).toEqual(expected);\n     |           ^\n  32 |       }\n  33 |     },\n  34 |     { auto: true },\n    at Object.exports.test._test.test.extend.browserRuntimeGuard.auto (/home/xln/geo-system/platform-v2/tests/e2e/runtime-fixture.ts:31:11)"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T04:18:43.410Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "browser-runtime-guard-summary",
+                      "contentType": "application/json",
+                      "body": "eyJvYnNlcnZlZCI6eyJjb25zb2xlLWVycm9yIjoxLCJwYWdlLWVycm9yIjowLCJyZXF1ZXN0LWZhaWxlZCI6MH0sImV4cGVjdGVkIjp7ImNvbnNvbGUtZXJyb3IiOjAsInBhZ2UtZXJyb3IiOjAsInJlcXVlc3QtZmFpbGVkIjowfX0="
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/home/xln/geo-system/platform-v2/tests/e2e-results-s04-operations-live/operations-shared-shell-Op-1c162--functional-and-secret-free-operations-mobile/error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/home/xln/geo-system/platform-v2/tests/e2e/runtime-fixture.ts",
+                    "column": 11,
+                    "line": 31
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "989f4cb19f73d0209101-7e2660dbc1d80534ac56",
+          "file": "shared-shell-actions.ts",
+          "line": 21,
+          "column": 7
+        },
+        {
+          "title": "Operations Web removes hostile long URL values before rendering business content",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-mobile",
+              "projectName": "operations-mobile",
+              "results": [
+                {
+                  "workerIndex": 10,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 593,
+                  "error": {
+                    "message": "Error: Browser runtime must retain literal zero console errors, page errors and failed requests. Raw messages and URLs are intentionally excluded from failure output.\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m\n\n\u001b[32m- Expected  - 1\u001b[39m\n\u001b[31m+ Received  + 1\u001b[39m\n\n\u001b[2m  Object {\u001b[22m\n\u001b[32m-   \"console-error\": 0,\u001b[39m\n\u001b[31m+   \"console-error\": 1,\u001b[39m\n\u001b[2m    \"page-error\": 0,\u001b[22m\n\u001b[2m    \"request-failed\": 0,\u001b[22m\n\u001b[2m  }\u001b[22m",
+                    "stack": "Error: Browser runtime must retain literal zero console errors, page errors and failed requests. Raw messages and URLs are intentionally excluded from failure output.\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m\n\n\u001b[32m- Expected  - 1\u001b[39m\n\u001b[31m+ Received  + 1\u001b[39m\n\n\u001b[2m  Object {\u001b[22m\n\u001b[32m-   \"console-error\": 0,\u001b[39m\n\u001b[31m+   \"console-error\": 1,\u001b[39m\n\u001b[2m    \"page-error\": 0,\u001b[22m\n\u001b[2m    \"request-failed\": 0,\u001b[22m\n\u001b[2m  }\u001b[22m\n    at Object.exports.test._test.test.extend.browserRuntimeGuard.auto (/home/xln/geo-system/platform-v2/tests/e2e/runtime-fixture.ts:31:11)",
+                    "location": {
+                      "file": "/home/xln/geo-system/platform-v2/tests/e2e/runtime-fixture.ts",
+                      "column": 11,
+                      "line": 31
+                    },
+                    "snippet": "\u001b[90m   at \u001b[39mruntime-fixture.ts:31\n\n  29 |           observed,\n  30 |           'Browser runtime must retain literal zero console errors, page errors and failed requests. Raw messages and URLs are intentionally excluded from failure output.',\n> 31 |         ).toEqual(expected);\n     |           ^\n  32 |       }\n  33 |     },\n  34 |     { auto: true },"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "/home/xln/geo-system/platform-v2/tests/e2e/runtime-fixture.ts",
+                        "column": 11,
+                        "line": 31
+                      },
+                      "message": "Error: Browser runtime must retain literal zero console errors, page errors and failed requests. Raw messages and URLs are intentionally excluded from failure output.\n\n\u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoEqual\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // deep equality\u001b[22m\n\n\u001b[32m- Expected  - 1\u001b[39m\n\u001b[31m+ Received  + 1\u001b[39m\n\n\u001b[2m  Object {\u001b[22m\n\u001b[32m-   \"console-error\": 0,\u001b[39m\n\u001b[31m+   \"console-error\": 1,\u001b[39m\n\u001b[2m    \"page-error\": 0,\u001b[22m\n\u001b[2m    \"request-failed\": 0,\u001b[22m\n\u001b[2m  }\u001b[22m\n\n   at runtime-fixture.ts:31\n\n  29 |           observed,\n  30 |           'Browser runtime must retain literal zero console errors, page errors and failed requests. Raw messages and URLs are intentionally excluded from failure output.',\n> 31 |         ).toEqual(expected);\n     |           ^\n  32 |       }\n  33 |     },\n  34 |     { auto: true },\n    at Object.exports.test._test.test.extend.browserRuntimeGuard.auto (/home/xln/geo-system/platform-v2/tests/e2e/runtime-fixture.ts:31:11)"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T04:18:45.804Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "browser-runtime-guard-summary",
+                      "contentType": "application/json",
+                      "body": "eyJvYnNlcnZlZCI6eyJjb25zb2xlLWVycm9yIjoxLCJwYWdlLWVycm9yIjowLCJyZXF1ZXN0LWZhaWxlZCI6MH0sImV4cGVjdGVkIjp7ImNvbnNvbGUtZXJyb3IiOjAsInBhZ2UtZXJyb3IiOjAsInJlcXVlc3QtZmFpbGVkIjowfX0="
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "/home/xln/geo-system/platform-v2/tests/e2e-results-s04-operations-live/operations-shared-shell-Op-4bf29--rendering-business-content-operations-mobile/error-context.md"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "/home/xln/geo-system/platform-v2/tests/e2e/runtime-fixture.ts",
+                    "column": 11,
+                    "line": 31
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "989f4cb19f73d0209101-6e7eb82b23bd99838045",
+          "file": "shared-hostile-url.ts",
+          "line": 16,
+          "column": 7
+        }
+      ]
+    },
+    {
+      "title": "operations-visual.spec.ts",
+      "file": "operations-visual.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "operations overview visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-desktop",
+              "projectName": "operations-desktop",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 739,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T04:18:23.224Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b33fc35cb30489bfd436-c5acec797223806480eb",
+          "file": "operations-visual.spec.ts",
+          "line": 13,
+          "column": 7
+        },
+        {
+          "title": "operations sessions visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-desktop",
+              "projectName": "operations-desktop",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 665,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T04:18:24.173Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b33fc35cb30489bfd436-364c1d513440468e7b38",
+          "file": "operations-visual.spec.ts",
+          "line": 13,
+          "column": 7
+        },
+        {
+          "title": "operations interventions visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-desktop",
+              "projectName": "operations-desktop",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 497,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T04:18:24.849Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b33fc35cb30489bfd436-ba182402a44b49c0a70b",
+          "file": "operations-visual.spec.ts",
+          "line": 13,
+          "column": 7
+        },
+        {
+          "title": "operations events visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-desktop",
+              "projectName": "operations-desktop",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 522,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T04:18:25.354Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b33fc35cb30489bfd436-9e2f5312d509e65ac380",
+          "file": "operations-visual.spec.ts",
+          "line": 13,
+          "column": 7
+        },
+        {
+          "title": "operations overview visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-tablet",
+              "projectName": "operations-tablet",
+              "results": [
+                {
+                  "workerIndex": 7,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 696,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T04:18:35.153Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b33fc35cb30489bfd436-c4714077c323135bf553",
+          "file": "operations-visual.spec.ts",
+          "line": 13,
+          "column": 7
+        },
+        {
+          "title": "operations sessions visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-tablet",
+              "projectName": "operations-tablet",
+              "results": [
+                {
+                  "workerIndex": 7,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 633,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T04:18:36.067Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b33fc35cb30489bfd436-558b9b418fb0a25613cb",
+          "file": "operations-visual.spec.ts",
+          "line": 13,
+          "column": 7
+        },
+        {
+          "title": "operations interventions visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-tablet",
+              "projectName": "operations-tablet",
+              "results": [
+                {
+                  "workerIndex": 7,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 474,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T04:18:36.710Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b33fc35cb30489bfd436-23a6e99c7498449c0e14",
+          "file": "operations-visual.spec.ts",
+          "line": 13,
+          "column": 7
+        },
+        {
+          "title": "operations events visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-tablet",
+              "projectName": "operations-tablet",
+              "results": [
+                {
+                  "workerIndex": 7,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 473,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T04:18:37.193Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b33fc35cb30489bfd436-931e609a82c9de5dd96b",
+          "file": "operations-visual.spec.ts",
+          "line": 13,
+          "column": 7
+        },
+        {
+          "title": "operations overview visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-mobile",
+              "projectName": "operations-mobile",
+              "results": [
+                {
+                  "workerIndex": 11,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 669,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T04:18:47.078Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b33fc35cb30489bfd436-cf56d888d8937ae659d1",
+          "file": "operations-visual.spec.ts",
+          "line": 13,
+          "column": 7
+        },
+        {
+          "title": "operations sessions visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-mobile",
+              "projectName": "operations-mobile",
+              "results": [
+                {
+                  "workerIndex": 11,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 558,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T04:18:47.974Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b33fc35cb30489bfd436-27ce45f897a624904e0b",
+          "file": "operations-visual.spec.ts",
+          "line": 13,
+          "column": 7
+        },
+        {
+          "title": "operations interventions visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-mobile",
+              "projectName": "operations-mobile",
+              "results": [
+                {
+                  "workerIndex": 11,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 430,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T04:18:48.541Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b33fc35cb30489bfd436-7130d68cc877fc4de9e0",
+          "file": "operations-visual.spec.ts",
+          "line": 13,
+          "column": 7
+        },
+        {
+          "title": "operations events visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "operations-mobile",
+              "projectName": "operations-mobile",
+              "results": [
+                {
+                  "workerIndex": 11,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 424,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-27T04:18:48.980Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "b33fc35cb30489bfd436-053797963f3f09142897",
+          "file": "operations-visual.spec.ts",
+          "line": 13,
+          "column": 7
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-07-27T04:17:46.206Z",
+    "duration": 63381.437,
+    "expected": 21,
+    "skipped": 0,
+    "unexpected": 9,
+    "flaky": 0
+  }
+}

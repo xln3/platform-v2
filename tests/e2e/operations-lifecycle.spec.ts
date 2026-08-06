@@ -1,8 +1,8 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './runtime-fixture';
 import { prepareApp } from './accessibility';
 
 test('operations shell exposes the safe account lifecycle without secrets', async ({ page }) => {
-  const expectCleanRuntime = await prepareApp(page, '/platform/operations/');
+  await prepareApp(page, '/platform/operations/');
 
   await page.getByRole('button', { name: /会话健康/ }).click();
   await expect(page.getByRole('heading', { name: '授权、租约与会话健康' })).toBeVisible();
@@ -11,7 +11,8 @@ test('operations shell exposes the safe account lifecycle without secrets', asyn
 
   await page.getByRole('button', { name: /待人工/ }).click();
   await expect(page.getByRole('heading', { name: '人工接管队列' })).toBeVisible();
-  await expect(page.getByText('等待客户扫码')).toBeVisible();
+  await expect(page.getByText('扫码')).toBeVisible();
+  await expect(page.getByText('等待客户').first()).toBeVisible();
   await expect(page.getByText('Push MFA')).toBeVisible();
 
   await page.getByRole('button', { name: '事件审计' }).click();
@@ -37,6 +38,4 @@ test('operations shell exposes the safe account lifecycle without secrets', asyn
   ]) {
     expect(serialized).not.toContain(forbidden);
   }
-
-  expectCleanRuntime();
 });

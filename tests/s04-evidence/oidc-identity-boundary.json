@@ -1,0 +1,59 @@
+{
+  "generated_at": "2026-07-25T00:25:20Z",
+  "result": "source_and_schema_passed_external_live_gate_open",
+  "standards": {
+    "jwt_bcp": "RFC 8725",
+    "openid_connect": "OpenID Connect Core 1.0",
+    "library": "PyJWT 2.13.0 with cryptography"
+  },
+  "verification_boundary": {
+    "https_issuer_and_jwks_required": true,
+    "embedded_url_credentials_rejected": true,
+    "algorithm_allowlist": ["RS256", "RS384", "RS512", "ES256", "ES384", "ES512"],
+    "symmetric_algorithm_confusion_rejected": true,
+    "typ_required": "at+jwt",
+    "issuer_audience_expiry_iat_subject_and_tenant_required": true,
+    "maximum_token_lifetime_seconds": 900,
+    "database_role_is_authoritative": true,
+    "browser_role_headers_ignored_in_oidc_mode": true,
+    "database_binding_identifiers": "sha256(issuer), sha256(subject)",
+    "raw_subject_persisted": false,
+    "browser_authorization_code_flow": "form_post with S256 PKCE",
+    "authorization_code_in_url_or_access_log": false,
+    "transaction_cookie": "AES-256-GCM, state-bound, 5-minute expiry",
+    "access_cookie": "HttpOnly, Secure, SameSite=Lax, host-only",
+    "refresh_token_stored": false,
+    "authorization_and_token_endpoint_origin_pinned_to_issuer": true,
+    "ambiguous_bearer_and_cookie_rejected": true,
+    "binding_create_revoke_audited": true,
+    "customer_admin_binding_ui": true
+  },
+  "verification": {
+    "focused_oidc_browser_unit_tests": "27/27",
+    "focused_identity_governance_tests": "10/10",
+    "full_python_tests": "144/144",
+    "full_e2e": "216/216",
+    "full_e2e_sha256": "e0d29f30b05c3174fd7e33dc5c012d93d17dc8fad761fac10900953f07c43490",
+    "openapi_paths": 86,
+    "production_schema_revision": "s04_0011",
+    "production_binding_rows": 0,
+    "production_binding_rls_enabled": true,
+    "production_binding_force_rls": true,
+    "production_rls_tables": "80/80/80",
+    "production_browser_acceptance": "33/33",
+    "production_browser_sha256": "6eceaed6b23d8b91a63dbd91c26d1a3c06b505f3ac80172cb0cd369161e38535",
+    "production_member_workspace_viewports": "3/3",
+    "production_health": 200
+  },
+  "production_state": {
+    "identity_mode": "legacy_session",
+    "oidc_issuer_configured": false,
+    "oidc_jwks_configured": false,
+    "real_oidc_human_roles_verified": [],
+    "required_human_roles": ["customer", "operator", "analyst", "reviewer", "admin"],
+    "legacy_route_switched": false
+  },
+  "remaining_authority_gate": "A production IdP/JWKS client registration, approved redirect, restricted cookie key credential, real privacy-preserving identity bindings and customer/operator/analyst/reviewer/admin acceptance are required before enabling OIDC. Source and PKCE readiness are not live identity verification.",
+  "secret_material_in_evidence": false,
+  "goal_status": "active"
+}

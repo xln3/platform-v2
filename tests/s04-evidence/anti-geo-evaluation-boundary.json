@@ -1,0 +1,72 @@
+{
+  "generated_at": "2026-07-27T04:29:37.271199+00:00",
+  "result": "governed_contract_passed_external_approved_dataset_gate_open",
+  "database": {
+    "schema_revision": "s04_0029",
+    "counts": {
+      "registered_datasets": 0,
+      "approved_external_label_sets": 0,
+      "evaluation_runs": 0,
+      "passing_evaluation_runs": 0,
+      "active_model_admissions": 0,
+      "qualified_admission_chains": 0
+    },
+    "guards": {
+      "five_registry_tables_present": true,
+      "five_registry_tables_force_rls": true,
+      "approved_source_retention_trigger_present": true,
+      "source_evidence_foreign_key_present": true,
+      "training_cluster_manifest_columns_present": true
+    }
+  },
+  "contract_fixture": {
+    "qualification": "synthetic_contract_only",
+    "metrics": {
+      "precision": "1",
+      "recall": "1",
+      "false_positive_rate": "0",
+      "brier_score": "0.01",
+      "expected_calibration_error": "0.10",
+      "explanation_completeness_rate": "1",
+      "sample_count": 20,
+      "positive_count": 10,
+      "negative_count": 10,
+      "dataset_version": "synthetic-contract-fixture-v2",
+      "scorer_version": "anti-geo-rules-v2",
+      "dataset_sha256": "77de43c643da8f88615b5d589a45591d6e3e19af0fd8b59d1d15ef074ebded48"
+    },
+    "duplicate_propagation_cluster_rejected": true
+  },
+  "guards": {
+    "dataset_version_required": true,
+    "scorer_version_required": true,
+    "probability_range_enforced": true,
+    "decision_threshold_bound_to_prediction": true,
+    "duplicate_propagation_cluster_rejected": true,
+    "training_holdout_cluster_overlap_rejected": true,
+    "dataset_sha256_emitted": true,
+    "precision_recall_false_positive_rate_brier_ece_emitted": true,
+    "explanation_completeness_emitted": true,
+    "independent_dataset_approval_enforced": true,
+    "independent_model_admission_enforced": true,
+    "source_evidence_retained_while_approved": true
+  },
+  "qualification": {
+    "dataset_kind": "evidence-bound external calibration registry",
+    "registered_datasets": 0,
+    "approved_external_label_sets": 0,
+    "evaluation_runs": 0,
+    "passing_evaluation_runs": 0,
+    "active_model_admissions": 0,
+    "qualified_admission_chains": 0,
+    "approved_external_label_set_present": false,
+    "production_calibration_claimed": false,
+    "model_admission_claimed": false
+  },
+  "source_evidence": {
+    "service_sha256": "fe2a10dc8051927de8bdeb0ad78cd5507a7bc7d42ccf616054870564cc08c510",
+    "integration_test_sha256": "e7ca47bac516ec64ff55984b68dbf005432d3e38c3d3d5644b190c5602fd8b58"
+  },
+  "secret_material_in_evidence": false,
+  "goal_status": "active"
+}

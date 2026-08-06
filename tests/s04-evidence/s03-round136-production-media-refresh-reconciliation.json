@@ -1,0 +1,45 @@
+{
+  "generated_at": "2026-07-27T18:33:09+08:00",
+  "mode": "read-only plus unauthenticated authorization-boundary probes",
+  "application_entries": {
+    "customer": 200,
+    "operations": 200,
+    "reports": 200,
+    "intelligence": 200
+  },
+  "health": {
+    "status": 200,
+    "service": "geo-platform-v2",
+    "version": "0.1.0-s04"
+  },
+  "openapi": {
+    "repository_paths": 100,
+    "production_paths": 100,
+    "repository_only_paths": [],
+    "production_only_paths": [],
+    "canonical_paths_schemas_sha256": "6a67d4e2f962faf707ab6fe66ef0f70203ebe504fe15088a93eebddf251aaaff",
+    "repository_file_sha256": "2d2a5df8461fd768810d75f79dc9a529f6dd5767442fb5d597a3ae02cbf70144",
+    "production_file_sha256": "6995a118a8dca4de50ee69f266b682429118f70a363a9bc93f2d43e2f79f68fe",
+    "generated_client_sha256": "472eb55623f309e1f217b7e2109c7e069e14e680d82497326cf3daf55fefb2c1"
+  },
+  "authentication_boundaries": {
+    "GET /api/v2/datasets/media-prices": 401,
+    "GET /api/v2/datasets/media-prices/refresh-status": 401,
+    "POST /api/v2/datasets/media-prices/refresh": 401,
+    "GET /api/v2/operations/lifecycle": 401
+  },
+  "operations_media_prices_frontend": {
+    "path": "/platform/operations/media-prices",
+    "status": 200,
+    "index_matches_current_local_build": true,
+    "manifest_matches_current_local_build": true,
+    "route_assets_match_current_local_build": true,
+    "assets": {
+      "index.html": "a0776d660f904876dbeab210d8b78ea3802b5ebdb42b6e4f97fe38b96fd1830a",
+      "manifest-bc2594bb.js": "848bf80f401baed91217f3ac7fb1cffc67c1155a7b4a9a81ee4e2538b80d618b",
+      "route-jXzctjpg.js": "985d41d0aa2d59291601feefdb5531d14d87a7d79a1e7bc6d2619a48e4034158",
+      "route-a6aHZpnV.css": "09ea19085c478fbf344d4473ad270ee784b0d9782e99f1bd3ebc316f2ef39c80"
+    }
+  },
+  "qualification_limit": "The unauthenticated probes prove route, bundle and authorization-boundary deployment only. They do not trigger a refresh or prove protected production artifact population."
+}

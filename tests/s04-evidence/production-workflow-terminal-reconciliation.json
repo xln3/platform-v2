@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-25T04:09:37.375295+00:00",
+  "result": "passed",
+  "database_revision": "s04_0014",
+  "historical_observation_count": 1,
+  "temporal_status_counts": {
+    "FAILED": 1
+  },
+  "workflow_id_sha256": [
+    "3dc9edaf2fe78b1ca036a199e591902b0b0da179c5035926bb1d2db47b790db2"
+  ],
+  "assertions": {
+    "database_revision_s04_0014": true,
+    "historical_nonterminal_runs_observed": true,
+    "all_observations_reconciled_failed": true,
+    "temporal_confirms_failed": true,
+    "no_nonterminal_run_without_command": true
+  },
+  "read_only_certification": true,
+  "sensitive_values_recorded": false
+}

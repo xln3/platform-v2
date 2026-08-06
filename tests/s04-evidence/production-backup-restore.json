@@ -1,0 +1,43 @@
+{
+  "generated_at": "2026-07-24T17:36:00Z",
+  "environment": "production",
+  "backup_directory": "/home/xln/geo-system/backups/s04-v2-production-certified-20260725T0136CST",
+  "manifest_verified": true,
+  "postgresql": {
+    "format": "custom",
+    "backup_bytes": 1736074,
+    "restore_database": "geo_platform_restore_drill_s04",
+    "schema_version": "s04_0006",
+    "counts": {
+      "tenants": 1,
+      "memberships": 5,
+      "projects": 5,
+      "answers": 146,
+      "analyses": 146,
+      "citations": 2754,
+      "evidence_assets": 533,
+      "outbox_unpublished": 0
+    },
+    "temporary_database_removed": true
+  },
+  "clickhouse": {
+    "format": "Native",
+    "counts": {
+      "answer_fact": 146,
+      "citation_fact": 2754,
+      "run_event": 146,
+      "metric_daily": 1022,
+      "feature_fact": 0
+    },
+    "temporary_database_removed": true
+  },
+  "minio": {
+    "archive_bytes": 213281098,
+    "restored_files": 959,
+    "restored_tree_bytes": 248716210,
+    "archive_extract_succeeded": true,
+    "temporary_directory_removed": true
+  },
+  "legacy_system_modified": false,
+  "passed": true
+}

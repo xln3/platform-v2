@@ -2,29 +2,21 @@ from fastapi.testclient import TestClient
 from geo_platform.main import app
 
 
-def test_validation_error_uses_stable_secret_free_envelope() -> None:
+def test_missing_identity_uses_stable_secret_free_envelope() -> None:
     response = TestClient(app).get(
         "/api/v2/analytics/overview",
         params={"project_pub_id": "secret-value"},
         headers={"X-Request-Id": "req-contract-error"},
     )
 
-    assert response.status_code == 422
+    assert response.status_code == 401
     assert response.headers["X-Request-Id"] == "req-contract-error"
     assert response.json() == {
         "error": {
-            "code": "validation_error",
-            "message": "request validation failed",
+            "code": "identity_headers_missing",
+            "message": "identity headers missing",
             "request_id": "req-contract-error",
-            "details": {
-                "fields": [
-                    {"location": ["header", "X-Tenant-Id"], "type": "missing"},
-                    {"location": ["header", "X-Actor-Id"], "type": "missing"},
-                    {"location": ["header", "X-Actor-Role"], "type": "missing"},
-                    {"location": ["query", "start"], "type": "missing"},
-                    {"location": ["query", "end"], "type": "missing"},
-                ]
-            },
+            "details": {},
         }
     }
     assert "secret-value" not in response.text

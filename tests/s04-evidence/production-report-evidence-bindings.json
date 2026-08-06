@@ -1,0 +1,55 @@
+{
+  "generated_at": "2026-07-25T07:04:00+08:00",
+  "result": "passed_with_populated_production_gate_open",
+  "deployment": {
+    "database_schema_version": "s04_0009",
+    "api_service": "geo-platform-v2-api.service",
+    "api_active_since": "2026-07-25T07:01:09+08:00",
+    "production_url": "https://127.0.0.1:8443",
+    "legacy_route_status": 401,
+    "legacy_cutover": false
+  },
+  "contract": {
+    "path": "/api/v2/reports/{report_pub_id}",
+    "openapi_path_count": 81,
+    "openapi_sha256": "b4d57aad4714af7c92ae20812d78a2b2056c28ff673ec2cb51e9d32f5b8296a4",
+    "generated_typescript_sha256": "42949ddcb3ef5f1771b1e4da741a3a6a9984d510b5ac4a5263a87d7ed11d1e52",
+    "generated_drift": "passed",
+    "evidence_binding_fields": [
+      "evidence_pub_id",
+      "purpose",
+      "evidence_kind",
+      "access_class",
+      "mime_type",
+      "byte_size",
+      "sha256",
+      "anchor_count",
+      "captured_at",
+      "created_at"
+    ],
+    "object_keys_exposed": false,
+    "source_urls_exposed": false
+  },
+  "verification": {
+    "postgresql_integration": "1 passed",
+    "report_studio_three_viewport_e2e": "3/3",
+    "python_full_suite": "99/99",
+    "full_e2e": "216/216",
+    "full_e2e_sha256": "e0d29f30b05c3174fd7e33dc5c012d93d17dc8fad761fac10900953f07c43490",
+    "full_static_contract_build_gate": "passed",
+    "production_bundle_fixture_guard": "passed",
+    "production_browser_matrix": "30/30",
+    "production_browser_sha256": "6eceaed6b23d8b91a63dbd91c26d1a3c06b505f3ac80172cb0cd369161e38535",
+    "production_console_errors": 0,
+    "production_page_errors": 0,
+    "production_failed_requests": 0,
+    "production_http_errors": 0
+  },
+  "production_data_gate": {
+    "production_report_rows": 0,
+    "populated_binding_table_exercised": false,
+    "reason": "Production contains no report rows; no customer report, evidence binding, approval or delivery was fabricated.",
+    "status": "open"
+  },
+  "secret_material_in_evidence": false
+}

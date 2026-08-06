@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-25T04:27:48.664835+00:00",
+  "result": "passed",
+  "database_revision": "s04_0015",
+  "workflow_id_sha256": "d9ee72aa982dcddd6edbeaf95d1f7c16448e0b51e03153798b38957ae64a82d7",
+  "assertions": {
+    "temporal_preaccepted_workflow": true,
+    "outbox_converged_started": true,
+    "single_recovery_attempt": true,
+    "no_dispatch_error": true,
+    "already_started_run_id_persisted": true,
+    "collection_run_id_matches": true
+  },
+  "synthetic_fixture": true,
+  "synthetic_fixture_removed": true,
+  "sensitive_values_recorded": false
+}

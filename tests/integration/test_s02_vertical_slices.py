@@ -1,6 +1,8 @@
 import os
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from hashlib import sha256
 from uuid import uuid4
 
 import psycopg
@@ -12,7 +14,7 @@ from geo_platform.analytics.service import AnalyticsService
 from geo_platform.evidence.object_store import ContentAddressedObjectStore
 from geo_platform.evidence.service import EvidenceService
 from geo_platform.intelligence.service import IntelligenceService
-from geo_platform.reports.service import ReportService
+from geo_platform.reports.service import ReportRevisionIncomplete, ReportService
 from psycopg.rows import dict_row
 
 from domain.evidence.provenance import AccessClass, CaptureChannel, RedactedProvenance
@@ -59,6 +61,46 @@ def public_provenance() -> RedactedProvenance:
     )
 
 
+def test_concurrent_answer_analysis_returns_one_authoritative_result() -> None:
+    analytics, _, _, _, _ = services()
+    suffix = uuid4().hex
+    tenant = f"tnt_{suffix}"
+    answer = f"ans_{suffix}"
+    request = {
+        "tenant_pub_id": tenant,
+        "project_pub_id": f"prj_{suffix}",
+        "answer_pub_id": answer,
+        "answer_text": "Acme is cited by an independent source.",
+        "brand": "Acme",
+        "competitors": (),
+        "citations": (CitationInput("https://example.com/source"),),
+        "dimensions": {"model": "probe", "region": "cn", "mode": "normal"},
+        "own_domains": (),
+        "provenance": public_provenance(),
+        "scorer_version": "scorer-concurrency-v1",
+        "metric_version": "metrics-concurrency-v1",
+        "model_version": "rules-concurrency-v1",
+    }
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: analytics.analyze_and_persist(**request), range(2)))
+    assert len({result["analysis_pub_id"] for result in results}) == 1
+    assert len({result["analysis_run_pub_id"] for result in results}) == 1
+    assert len({result["outbox_event_id"] for result in results}) == 1
+    with psycopg.connect(POSTGRES_DSN) as connection:
+        counts = connection.execute(
+            """
+            SELECT
+              (SELECT count(*) FROM analytics.answer_analysis
+               WHERE tenant_pub_id=%s AND answer_pub_id=%s),
+              (SELECT count(*) FROM integration.outbox_event
+               WHERE tenant_pub_id=%s AND aggregate_pub_id=%s
+                 AND event_type='analytics.answer.analyzed')
+            """,
+            (tenant, answer, tenant, answer),
+        ).fetchone()
+    assert counts == (1, 1)
+
+
 def test_raw_answer_to_kpi_trace_screenshot_clickhouse_and_published_report() -> None:
     analytics, evidence, reports, _, clickhouse = services()
     suffix = uuid4().hex
@@ -66,32 +108,43 @@ def test_raw_answer_to_kpi_trace_screenshot_clickhouse_and_published_report() ->
     project = f"prj_{suffix}"
     answer = f"ans_{suffix}"
     provenance = public_provenance()
-    result = analytics.analyze_and_persist(
-        tenant_pub_id=tenant,
-        project_pub_id=project,
-        answer_pub_id=answer,
-        answer_text="推荐 Acme，它表现可靠。Beta 可作为备选。",
-        brand="Acme",
-        competitors=("Beta",),
-        citations=(
+    analysis_request = {
+        "tenant_pub_id": tenant,
+        "project_pub_id": project,
+        "answer_pub_id": answer,
+        "answer_text": "推荐 Acme，它表现可靠。Beta 可作为备选。",
+        "brand": "Acme",
+        "competitors": ("Beta",),
+        "citations": (
             CitationInput(
                 "https://example.com/review?utm_source=test",
                 title="独立评测",
                 cited_text="Acme 表现可靠",
             ),
         ),
-        dimensions={
+        "dimensions": {
             "model": "doubao",
             "region": "beijing",
             "mode": "normal",
             "channel": "api",
+            "run_pub_id": f"run_{suffix}",
+            "config_version_pub_id": f"cfv_{suffix}",
         },
-        own_domains=("acme.example",),
-        provenance=provenance,
-        scorer_version="scorer-v2",
-        metric_version="metrics-v2",
-        model_version="rules-v1",
-    )
+        "own_domains": ("acme.example",),
+        "provenance": provenance,
+        "scorer_version": "scorer-v2",
+        "metric_version": "metrics-v2",
+        "model_version": "rules-v1",
+    }
+    result = analytics.analyze_and_persist(**analysis_request)
+    replayed_analysis = analytics.analyze_and_persist(**analysis_request)
+    assert replayed_analysis["analysis_pub_id"] == result["analysis_pub_id"]
+    assert replayed_analysis["analysis_run_pub_id"] == result["analysis_run_pub_id"]
+    assert replayed_analysis["outbox_event_id"] == result["outbox_event_id"]
+    with pytest.raises(ValueError, match="answer replay payload drifted"):
+        analytics.analyze_and_persist(
+            **(analysis_request | {"answer_text": "changed answer under the same public ID"})
+        )
     screenshot_id = f"evd_{uuid4().hex}"
     evidence.capture(
         evidence_pub_id=screenshot_id,
@@ -104,6 +157,15 @@ def test_raw_answer_to_kpi_trace_screenshot_clickhouse_and_published_report() ->
         provenance=provenance,
     )
     with psycopg.connect(POSTGRES_DSN) as connection:
+        answer_lineage = connection.execute(
+            """
+            SELECT run_pub_id,config_version_pub_id,query_text
+            FROM analytics.answer
+            WHERE tenant_pub_id=%s AND pub_id=%s
+            """,
+            (tenant, answer),
+        ).fetchone()
+        assert answer_lineage == (f"run_{suffix}", f"cfv_{suffix}", None)
         connection.execute(
             """
             INSERT INTO evidence.evidence_relation
@@ -206,17 +268,54 @@ def test_raw_answer_to_kpi_trace_screenshot_clickhouse_and_published_report() ->
     assert replayed_report["report_pub_id"] == report["report_pub_id"]
     assert replayed_report["report_version_pub_id"] == report["report_version_pub_id"]
     assert replayed_report["artifacts"] == report["artifacts"]
-    revision = reports.create_revision(
-        tenant_pub_id=tenant,
-        report_pub_id=report["report_pub_id"],
-        fact_rows=report_facts,
-        sections=[
-            *initial_sections,
-            {"title": "人工复核", "body": "引用 trace 与截图证据已核验。"},
-        ],
-        created_by_pub_id="usr_reviewer",
-        provenance=provenance,
-    )
+
+    def create_idempotent_revision() -> dict[str, object]:
+        return reports.create_revision(
+            tenant_pub_id=tenant,
+            report_pub_id=report["report_pub_id"],
+            fact_rows=report_facts,
+            sections=[
+                *initial_sections,
+                {"title": "人工复核", "body": "引用 trace 与截图证据已核验。"},
+            ],
+            created_by_pub_id="usr_reviewer",
+            provenance=provenance,
+            idempotency_key_hash=sha256(f"revision/{suffix}".encode()).hexdigest(),
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        revisions = list(pool.map(lambda _: create_idempotent_revision(), range(2)))
+    assert revisions[0]["report_version_pub_id"] == revisions[1]["report_version_pub_id"]
+    assert revisions[0]["artifacts"] == revisions[1]["artifacts"]
+    revision_pub_id = revisions[0]["report_version_pub_id"]
+    with psycopg.connect(POSTGRES_DSN) as connection:
+        connection.execute(
+            """
+            DELETE FROM reporting.report_artifact
+            WHERE tenant_pub_id=%s AND report_version_pub_id=%s AND format='html'
+            """,
+            (tenant, revision_pub_id),
+        )
+    with pytest.raises(ReportRevisionIncomplete):
+        reports.create_revision(
+            tenant_pub_id=tenant,
+            report_pub_id=report["report_pub_id"],
+            fact_rows=report_facts,
+            sections=[*initial_sections, {"title": "新修订", "body": "不得越过不完整版本。"}],
+            created_by_pub_id="usr_reviewer",
+            provenance=provenance,
+            idempotency_key_hash=sha256(f"revision-new/{suffix}".encode()).hexdigest(),
+        )
+    revision = create_idempotent_revision()
+    with psycopg.connect(POSTGRES_DSN) as connection:
+        restored_artifact_count = connection.execute(
+            """
+            SELECT count(*) FROM reporting.report_artifact
+            WHERE tenant_pub_id=%s AND report_version_pub_id=%s
+            """,
+            (tenant, revision_pub_id),
+        ).fetchone()
+    assert restored_artifact_count == (4,)
     version_diff = reports.diff_versions(
         tenant_pub_id=tenant,
         report_pub_id=report["report_pub_id"],
@@ -237,30 +336,95 @@ def test_raw_answer_to_kpi_trace_screenshot_clickhouse_and_published_report() ->
     )
     reports.comment(
         tenant_pub_id=tenant,
+        report_pub_id=report["report_pub_id"],
         version_pub_id=report["report_version_pub_id"],
         author_pub_id="usr_reviewer",
         body="数字与 trace 已复核。",
     )
-    reports.review(
+    review_operation_id = f"report-review-workflow/{suffix}"
+    review_pub_id = reports.review(
         tenant_pub_id=tenant,
         report_pub_id=report["report_pub_id"],
         version_pub_id=report["report_version_pub_id"],
         reviewer_pub_id="usr_reviewer",
         decision="approved",
         rationale="事实冻结与证据链接通过",
+        workflow_operation_id=review_operation_id,
     )
+    replayed_review_pub_id = reports.review(
+        tenant_pub_id=tenant,
+        report_pub_id=report["report_pub_id"],
+        version_pub_id=report["report_version_pub_id"],
+        reviewer_pub_id="usr_reviewer",
+        decision="approved",
+        rationale="事实冻结与证据链接通过",
+        workflow_operation_id=review_operation_id,
+    )
+    assert replayed_review_pub_id == review_pub_id
+    with pytest.raises(ValueError, match="replay payload drifted"):
+        reports.review(
+            tenant_pub_id=tenant,
+            report_pub_id=report["report_pub_id"],
+            version_pub_id=report["report_version_pub_id"],
+            reviewer_pub_id="usr_reviewer",
+            decision="changes_requested",
+            rationale="事实冻结与证据链接通过",
+            workflow_operation_id=review_operation_id,
+        )
     reports.publish(
         tenant_pub_id=tenant,
         report_pub_id=report["report_pub_id"],
         version_pub_id=report["report_version_pub_id"],
         reviewer_pub_id="usr_reviewer",
     )
-    reports.deliver_and_confirm(
+    delivery_pub_id = reports.deliver(
         tenant_pub_id=tenant,
         report_pub_id=report["report_pub_id"],
         recipient_pub_id="usr_customer",
+        delivered_by_pub_id="usr_operator",
+    )
+    assert (
+        reports.deliver(
+            tenant_pub_id=tenant,
+            report_pub_id=report["report_pub_id"],
+            recipient_pub_id="usr_customer",
+            delivered_by_pub_id="usr_operator",
+        )
+        == delivery_pub_id
+    )
+    with pytest.raises(PermissionError, match="only the report recipient"):
+        reports.confirm_delivery(
+            tenant_pub_id=tenant,
+            report_pub_id=report["report_pub_id"],
+            delivery_pub_id=delivery_pub_id,
+            recipient_pub_id="usr_other",
+            confirmation_comment="客户已确认接收",
+        )
+    reports.confirm_delivery(
+        tenant_pub_id=tenant,
+        report_pub_id=report["report_pub_id"],
+        delivery_pub_id=delivery_pub_id,
+        recipient_pub_id="usr_customer",
         confirmation_comment="客户已确认接收",
     )
+    assert (
+        reports.confirm_delivery(
+            tenant_pub_id=tenant,
+            report_pub_id=report["report_pub_id"],
+            delivery_pub_id=delivery_pub_id,
+            recipient_pub_id="usr_customer",
+            confirmation_comment="客户已确认接收",
+        )
+        == delivery_pub_id
+    )
+    with pytest.raises(ValueError, match="replay payload drifted"):
+        reports.confirm_delivery(
+            tenant_pub_id=tenant,
+            report_pub_id=report["report_pub_id"],
+            delivery_pub_id=delivery_pub_id,
+            recipient_pub_id="usr_customer",
+            confirmation_comment="conflicting confirmation",
+        )
     action_pub_id = reports.create_optimization_action(
         tenant_pub_id=tenant,
         report_pub_id=report["report_pub_id"],
@@ -294,6 +458,16 @@ def test_raw_answer_to_kpi_trace_screenshot_clickhouse_and_published_report() ->
             """,
             (report["report_version_pub_id"],),
         ).fetchall()
+        delivery_events = connection.execute(
+            """
+            SELECT event_type,actor_pub_id,data
+            FROM reporting.report_event
+            WHERE tenant_pub_id=%s AND report_pub_id=%s
+              AND event_type IN ('delivered','delivery_confirmed')
+            ORDER BY event_type
+            """,
+            (tenant, report["report_pub_id"]),
+        ).fetchall()
     assert state["state"] == "published"
     assert linked["count"] == 1
     assert {row["component_type"] for row in component_types} == {
@@ -303,6 +477,13 @@ def test_raw_answer_to_kpi_trace_screenshot_clickhouse_and_published_report() ->
         "evidence",
         "recommendation",
     }
+    assert [
+        (row["event_type"], row["actor_pub_id"], row["data"]["delivery_pub_id"])
+        for row in delivery_events
+    ] == [
+        ("delivered", "usr_operator", delivery_pub_id),
+        ("delivery_confirmed", "usr_customer", delivery_pub_id),
+    ]
     with psycopg.connect(POSTGRES_DSN) as connection:
         with pytest.raises(psycopg.errors.RaiseException, match="retained"):
             connection.execute(
@@ -391,6 +572,28 @@ def test_raw_post_to_claim_multisource_score_and_human_verdict_public_projection
         author_pub_id=author_pub_id,
         domain_pub_id=domain_pub_id,
     )
+    with psycopg.connect(POSTGRES_DSN) as connection:
+        snapshot_rows = connection.execute(
+            """
+            SELECT snapshot_number,normalized_text_hash
+            FROM evidence.evidence_snapshot
+            WHERE tenant_pub_id=%s AND subject_pub_id=%s
+            ORDER BY snapshot_number
+            """,
+            (tenant, content["content_pub_id"]),
+        ).fetchall()
+        diff_row = connection.execute(
+            """
+            SELECT text_diff,similarity FROM evidence.evidence_diff
+            WHERE tenant_pub_id=%s AND before_evidence_pub_id=%s AND after_evidence_pub_id=%s
+            """,
+            (tenant, source_evidence[0][0], source_evidence[1][0]),
+        ).fetchone()
+    assert [row[0] for row in snapshot_rows] == [1, 2]
+    assert snapshot_rows[0][1] != snapshot_rows[1][1]
+    assert diff_row is not None
+    assert diff_row[0]["before_hash"] != diff_row[0]["after_hash"]
+    assert Decimal("0") < diff_row[1] < Decimal("1")
     intelligence.record_similarity(
         tenant_pub_id=tenant,
         investigation_pub_id=investigation,
@@ -533,7 +736,7 @@ def test_raw_post_to_claim_multisource_score_and_human_verdict_public_projection
         investigation_pub_id=investigation,
         appeal_pub_id=appeal_pub_id,
         reviewer_pub_id="usr_second_reviewer",
-        resolution="新材料仍不支持确定结论，但证据充分度需修正",
+        resolution="corrected",
         corrected_verdict="insufficient",
         rationale="保持概率解释并更正人工裁决为证据不足",
     )

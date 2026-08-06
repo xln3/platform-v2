@@ -1,4 +1,6 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './runtime-fixture';
+import { expectAccessible } from './accessibility';
+import { installSyntheticHttpResponses, syntheticHttpResponseCount } from './synthetic-http';
 
 test('unauthorized browser session cannot infer projects or platform accounts', async ({
   page,
@@ -9,13 +11,14 @@ test('unauthorized browser session cannot infer projects or platform accounts', 
     localStorage.setItem('geo.session.actor', 'unknown@example.test');
     localStorage.setItem('geo.session.role', 'customer');
   });
-  await page.route('**/api/v2/identity/session', (route) =>
-    route.fulfill({
+  await installSyntheticHttpResponses(page, [
+    {
+      id: 'customer-session-unauthorized',
+      path: '/api/v2/identity/session',
       status: 401,
-      contentType: 'application/json',
-      body: JSON.stringify({ detail: { code: 'membership_invalid' } }),
-    }),
-  );
+      body: { detail: { code: 'membership_invalid' } },
+    },
+  ]);
   await page.route('**/api/v2/projects**', (route) => {
     projectRequests += 1;
     return route.fulfill({ status: 403, body: '{}' });
@@ -26,6 +29,7 @@ test('unauthorized browser session cannot infer projects or platform accounts', 
   await expect(page.getByText('平台账号与授权')).toHaveCount(0);
   await expect(page.getByText('尾号 · 4821')).toHaveCount(0);
   expect(projectRequests).toBe(0);
+  expect(await syntheticHttpResponseCount(page, 'customer-session-unauthorized')).toBe(1);
   const surfaces = await page.evaluate(() => ({
     body: document.body.textContent,
     url: location.href,
@@ -78,10 +82,14 @@ test('validated live session supplies tenant, project and role context', async (
       body: JSON.stringify({ status: 'ok', service: 'geo-platform-v2', version: 'contract-v1' }),
     }),
   );
+  await page.route('**/api/v2/analytics/overview**', (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
+  );
 
   await page.goto('/platform/customer/');
   await expect(page.getByRole('button', { name: /真实联调项目/ })).toBeVisible();
-  await expect(page.getByText('监测运行中')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: '项目监测概览' })).toBeVisible();
+  await expect(page.getByText('暂无数据')).toBeVisible();
   await expect(page.getByText('无权查看')).toHaveCount(0);
 });
 
@@ -103,6 +111,30 @@ test('unsafe session hints are purged before any identity request', async ({ pag
   const storage = await page.evaluate(() => JSON.stringify(localStorage));
   expect(storage).not.toContain('13800138000');
   expect(storage).not.toContain('geo.session.actor');
+});
+
+test('control-character session hints are purged before any identity request', async ({ page }) => {
+  let identityRequests = 0;
+  await page.addInitScript(() => {
+    localStorage.setItem('geo.session.tenant', 'tnt_safe\u0000actor_collision');
+    localStorage.setItem('geo.session.actor', 'customer-control-safe');
+    localStorage.setItem('geo.session.role', 'customer');
+  });
+  await page.route('**/api/v2/identity/session', (route) => {
+    identityRequests += 1;
+    return route.fulfill({ status: 500, body: '{}' });
+  });
+
+  await page.goto('/platform/customer/?section=accounts');
+  await expect(page.getByText('无权查看')).toBeVisible();
+  expect(identityRequests).toBe(0);
+  const surfaces = await page.evaluate(() => ({
+    body: document.body.textContent,
+    url: location.href,
+    storage: JSON.stringify(localStorage),
+  }));
+  expect(JSON.stringify(surfaces)).not.toContain('actor_collision');
+  expect(surfaces.storage).not.toContain('geo.session.');
 });
 
 test('secret-shaped values in a successful identity projection never reach browser surfaces', async ({
@@ -148,6 +180,13 @@ test('secret-shaped values in a successful identity projection never reach brows
       }),
     }),
   );
+  await page.route('**/api/v2/analytics/overview**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: '[]',
+    }),
+  );
 
   await page.goto('/platform/customer/');
   await expect(page.getByRole('button', { name: /未命名项目/ })).toBeVisible();
@@ -161,26 +200,109 @@ test('secret-shaped values in a successful identity projection never reach brows
   for (const canary of [...canaries, 'proxy-canary']) expect(serialized).not.toContain(canary);
 });
 
+test('cross-tenant or duplicate project bootstrap fails closed before business reads', async ({
+  page,
+}) => {
+  let businessReads = 0;
+  await page.addInitScript(() => {
+    localStorage.setItem('geo.session.tenant', 'tnt_bootstrap_integrity');
+    localStorage.setItem('geo.session.actor', 'customer-bootstrap-integrity');
+    localStorage.setItem('geo.session.role', 'customer');
+  });
+  await page.route('**/api/v2/identity/session', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        tenant_pub_id: 'tnt_bootstrap_integrity',
+        user_pub_id: 'usr_bootstrap_integrity',
+        role: 'customer',
+        permissions: ['project:read', 'Bearer bootstrap-browser-permission-canary'],
+        cookie: 'SESSION=bootstrap-browser-session-canary',
+      }),
+    }),
+  );
+  const safeProject = {
+    pub_id: 'prj_bootstrap_integrity',
+    tenant_pub_id: 'tnt_bootstrap_integrity',
+    name: '不应显示的 bootstrap 项目',
+    state: 'active',
+    created_at: '2026-07-24T00:00:00Z',
+    updated_at: '2026-07-24T00:00:00Z',
+  };
+  await page.route('**/api/v2/projects**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        data: [
+          {
+            ...safeProject,
+            pub_id: 'prj_bootstrap_cross_tenant',
+            tenant_pub_id: 'tnt_other',
+            token: 'Bearer bootstrap-cross-tenant-canary',
+          },
+          safeProject,
+          {
+            ...safeProject,
+            profile_path: '/secret/profile/bootstrap-duplicate-canary',
+          },
+        ],
+        page: { next_cursor: null, has_more: false },
+      }),
+    }),
+  );
+  await page.route('**/api/v2/analytics/**', (route) => {
+    businessReads += 1;
+    return route.fulfill({ status: 200, contentType: 'application/json', body: '[]' });
+  });
+
+  await page.goto('/platform/customer/');
+  await expect(page.getByRole('alert')).toContainText('加载失败');
+  await expect(page.getByText('不应显示的 bootstrap 项目')).toHaveCount(0);
+  expect(businessReads).toBe(0);
+  await expectAccessible(page);
+  const surfaces = await page.evaluate(() =>
+    JSON.stringify({
+      dom: document.documentElement.outerHTML,
+      localStorage,
+      sessionStorage,
+      href: location.href,
+    }),
+  );
+  for (const canary of [
+    'bootstrap-browser-permission-canary',
+    'bootstrap-browser-session-canary',
+    'bootstrap-cross-tenant-canary',
+    'bootstrap-duplicate-canary',
+    '/secret/profile',
+  ]) {
+    expect(surfaces).not.toContain(canary);
+  }
+});
+
 test('an explicit session failure stays fail-closed and recovers only after user retry', async ({
   page,
 }) => {
-  let identityRequests = 0;
+  let successfulIdentityRequests = 0;
   await page.addInitScript(() => {
     localStorage.setItem('geo.session.tenant', 'tnt_retry_safe');
     localStorage.setItem('geo.session.actor', 'subject-retry-safe');
     localStorage.setItem('geo.session.role', 'customer');
   });
+  await installSyntheticHttpResponses(page, [
+    {
+      id: 'customer-session-transient',
+      path: '/api/v2/identity/session',
+      status: 503,
+      body: {
+        detail: 'OTP 394820 at /var/browser/profile/customer-a',
+      },
+      remaining: 1,
+    },
+  ]);
   await page.route('**/api/v2/identity/session', (route) => {
-    identityRequests += 1;
-    if (identityRequests === 1) {
-      return route.fulfill({
-        status: 503,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          detail: 'OTP 394820 at /var/browser/profile/customer-a',
-        }),
-      });
-    }
+    successfulIdentityRequests += 1;
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -218,6 +340,13 @@ test('an explicit session failure stays fail-closed and recovers only after user
       body: JSON.stringify({ status: 'ok', service: 'geo-platform-v2', version: 'contract-v1' }),
     }),
   );
+  await page.route('**/api/v2/analytics/overview**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: '[]',
+    }),
+  );
 
   await page.goto('/platform/customer/');
   await expect(page.getByRole('alert')).toContainText('加载失败');
@@ -225,7 +354,8 @@ test('an explicit session failure stays fail-closed and recovers only after user
   await expect(page.getByText('品牌增长项目')).toHaveCount(0);
   await page.getByRole('button', { name: '重试此区域' }).click();
   await expect(page.getByRole('button', { name: /重试恢复项目/ })).toBeVisible();
-  expect(identityRequests).toBe(2);
+  expect(await syntheticHttpResponseCount(page, 'customer-session-transient')).toBe(1);
+  expect(successfulIdentityRequests).toBe(1);
   const surfaces = await page.evaluate(() => ({
     dom: document.documentElement.outerHTML,
     url: location.href,

@@ -1,0 +1,45 @@
+{
+  "generated_at": "2026-07-27T21:23:34+08:00",
+  "mode": "read-only plus unauthenticated authorization-boundary probes",
+  "application_entries": {
+    "customer": 200,
+    "operations": 200,
+    "reports": 200,
+    "intelligence": 200
+  },
+  "health": {
+    "status": 200,
+    "service": "geo-platform-v2",
+    "version": "0.1.0-s04"
+  },
+  "openapi": {
+    "repository_paths": 100,
+    "production_paths": 100,
+    "repository_only_paths": [],
+    "production_only_paths": [],
+    "canonical_paths_schemas_sha256": "601d9cffb2de6f71caa9b345f4f655b0e9f7f810b927e9e7fd50bb31d31396b5",
+    "repository_file_sha256": "2d2a5df8461fd768810d75f79dc9a529f6dd5767442fb5d597a3ae02cbf70144",
+    "production_file_sha256": "6995a118a8dca4de50ee69f266b682429118f70a363a9bc93f2d43e2f79f68fe",
+    "generated_client_sha256": "472eb55623f309e1f217b7e2109c7e069e14e680d82497326cf3daf55fefb2c1"
+  },
+  "authentication_boundaries": {
+    "GET /api/v2/datasets/media-prices": 401,
+    "GET /api/v2/datasets/media-prices/refresh-status": 401,
+    "POST /api/v2/datasets/media-prices/refresh": 401,
+    "GET /api/v2/operations/lifecycle": 401
+  },
+  "operations_media_prices_frontend": {
+    "path": "/platform/operations/media-prices",
+    "status": 200,
+    "index_matches_current_local_build": true,
+    "manifest_matches_current_local_build": true,
+    "route_assets_match_current_local_build": true,
+    "assets": {
+      "index.html": "a05ef8da68dd406661e21724bd6fbfc8f7683eddb3990d8e178282aaf6050062",
+      "manifest-8149e3e6.js": "0d2c6cb6795ce6ef78e11c895bb55c3c62fe892a054aaa2a21f9743a3a0c171a",
+      "route-CKdg2VE3.js": "380db1f3c0e6f89a0e048a44289e1b025ae4dc36bacd50d76c6a42ad1795c05f",
+      "route-PvuDB3kM.css": "4a1b1dd0e4fa734b10f2e5b2fe17e9b4098e884beff22d825ad56ad4e1c97956"
+    }
+  },
+  "qualification_limit": "The probes prove current route, bundle and authorization-boundary deployment only. They do not trigger a refresh or prove protected production artifact population. The current refresh contract exposes neither a job public ID nor a monotonic revision, so the browser requires an observed new running status or a terminal projection revision distinct from the pre-refresh baseline and otherwise waits or times out rather than claim success."
+}

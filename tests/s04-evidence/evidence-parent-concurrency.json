@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-25T03:46:55.593022+00:00",
+  "result": "passed",
+  "assertions": {
+    "logical_cas_advisory_lock": true,
+    "lock_key_binds_tenant_hash_kind": true,
+    "existing_parent_key_share_pinned": true,
+    "no_noop_conflict_update": true,
+    "sixteen_writer_regression": true,
+    "single_parent_row_asserted": true
+  },
+  "source_sha256": "9efc2088613af2f93b378b0597cb73d5acb2eb350080e2e92d9c351c368f9972",
+  "concurrent_and_report_stress": "10/10",
+  "full_python_tests": "152/152",
+  "production_browser": "33/33",
+  "production_mock_scan": "28/28",
+  "sensitive_values_recorded": false
+}

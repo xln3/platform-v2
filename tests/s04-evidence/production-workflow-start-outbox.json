@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-25T03:43:30.800494+00:00",
+  "result": "passed",
+  "database_revision": "s04_0013",
+  "workflow_id_sha256": "7019c8163870ca2ee1dc8cbc37a1d2018f0a2fbe0e7e06da0d5a2136d36b9a61",
+  "assertions": {
+    "command_started": true,
+    "single_dispatch_attempt": true,
+    "no_dispatch_error": true,
+    "temporal_run_id_persisted": true,
+    "collection_terminal_failed": true,
+    "no_task_falsely_completed": true,
+    "run_id_matches_command": true,
+    "production_adapter_admission_failed_closed": true
+  },
+  "synthetic_fixture": true,
+  "synthetic_fixture_removed": true,
+  "sensitive_values_recorded": false
+}

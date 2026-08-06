@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-25T05:27:31Z",
+  "result": "passed",
+  "deployment": {
+    "service": "geo-platform-v2-worker",
+    "state": "active",
+    "started_at": "2026-07-25T13:26:01+08:00",
+    "source_revision": "c8b7ec8",
+    "collection_activity_sha256": "cf3cc38d1223290d590811e5c074c7be036ead606c0b576c52db058540c4166a"
+  },
+  "backup": {
+    "path": ".production-backups/20260725T052505Z/postgres-pre-activity-accounting.dump",
+    "bytes": 1867320,
+    "catalog_entries": 1034,
+    "sha256": "894b7940ae86f309ebbc367ad6d31371d8db7c339b018c8ef64204b5f25254bd"
+  },
+  "assertions": {
+    "run_row_locked_before_result_deduplication": true,
+    "business_key_unique_constraint_retained": true,
+    "two_distinct_concurrent_results_counted_once_each": true,
+    "terminal_state_reached_at_total": true,
+    "complete_python_suite_153_of_153": true,
+    "production_worker_restarted_and_active": true,
+    "predeployment_backup_catalog_readable_with_postgresql_16": true
+  },
+  "qualification": "The concurrent accounting assertion uses real PostgreSQL integration data; production deployment is proven by the restarted active worker and exact source hash.",
+  "sensitive_values_recorded": false
+}

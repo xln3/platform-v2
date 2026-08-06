@@ -1,0 +1,36 @@
+{
+  "credential_separation": {
+    "deletion_encrypt": "denied",
+    "deletion_key_delete": "allowed",
+    "provision_encrypt": "denied",
+    "provision_key_create_config_rotate": "allowed",
+    "root_token_retained": false,
+    "runtime_encrypt_decrypt": "allowed",
+    "runtime_key_create": "denied"
+  },
+  "generated_at": "2026-07-25T02:35:00.888135+00:00",
+  "probe": {
+    "account_key_delete": "passed",
+    "encrypt_decrypt": "passed",
+    "fresh_dek_rotation_and_version_aad": "passed",
+    "kek_version_rotation_and_old_ciphertext_recovery": "passed",
+    "key_name_sha256": "54a6d4c1b317e239614327d07a3296b9a19b4a692b6afa4a07508cae7b834032",
+    "minimum_decryption_version_blocks_kek_rollback": "passed",
+    "post_rotation_profile_rewrap_uses_new_kek_version": "passed",
+    "probe_key_removed": true,
+    "same_name_recreation_cannot_open_retained_ciphertext": true,
+    "secret_material_emitted": false,
+    "synthetic_non_customer": true
+  },
+  "qualification": "This proves the configured production Vault service and ACL mechanics. It does not prove independent organizational custody, customer authorization, or deletion of a migrated customer profile.",
+  "result": "passed",
+  "vault": {
+    "address": "https://127.0.0.1:18200",
+    "health_status": 200,
+    "initialized": true,
+    "sealed": false,
+    "storage": "integrated_raft_persistent_volume",
+    "tls": true,
+    "version": "2.0.3"
+  }
+}

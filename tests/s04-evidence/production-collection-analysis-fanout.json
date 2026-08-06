@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-25T06:09:06.275257+00:00",
+  "result": "passed",
+  "database_revision": "s04_0022",
+  "assertions": {
+    "collection_completion_event_persisted": true,
+    "analysis_admission_enqueued": true,
+    "one_answer_analysis_command": true,
+    "answer_analysis_workflow_dispatched": true,
+    "analysis_persisted_end_to_end": true,
+    "postgres_answer_lineage_preserved": true,
+    "analysis_outbox_lineage_preserved": true,
+    "clickhouse_answer_lineage_preserved": true,
+    "secret_bearing_collection_result_rejected_before_storage": true
+  },
+  "synthetic_fixture": true,
+  "synthetic_fixture_removed": true,
+  "sensitive_values_recorded": false
+}

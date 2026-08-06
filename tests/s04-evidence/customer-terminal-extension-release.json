@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-26T14:57:42.759584+00:00",
+  "result": "passed",
+  "scope": "production managed CRX artifact mechanics; not an authorized customer installation or native-platform challenge canary",
+  "release": {
+    "schema_version": 1,
+    "extension_id": "ikgoabapccnkocienglhebfnefaibdoj",
+    "version": "0.1.6",
+    "crx_sha256": "d722e858064513745c65ea3071c2fa226fdc50442fbd95dd72ae16a6f80c88ef",
+    "crx_bytes": 77733,
+    "signing_private_key_embedded": false
+  },
+  "signing_backup": {
+    "path": ".production-backups/20260725T020500Z/customer-terminal-extension-signing.tar",
+    "bytes": 10240,
+    "sha256": "e7f27c57ed7c5c3a3b49a01271e2925a0cbb890c165d71288c3fc12cdf47174f"
+  },
+  "assertions": {
+    "manifest_v3": true,
+    "source_manifest_matches_production": true,
+    "stable_extension_id": true,
+    "production_release_version_matches_manifest": true,
+    "production_crx3_header": true,
+    "production_crx_hash_matches": true,
+    "production_crx_size_matches": true,
+    "manifest_public_key_matches_private_key": true,
+    "production_crx_signature_valid": true,
+    "signing_private_key_root_only": true,
+    "signing_backup_root_only": true,
+    "signing_private_key_not_in_crx": true
+  },
+  "sensitive_values_recorded": false
+}

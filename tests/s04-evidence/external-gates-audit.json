@@ -1,0 +1,64 @@
+{
+  "generated_at": "2026-07-28T11:44:22.682910+00:00",
+  "result": "external_authorization_required",
+  "production_account_state": {
+    "platform_accounts": 0,
+    "browser_profiles": 0,
+    "active_profile_deks": 0,
+    "platform_adapters": 0,
+    "currently_authorized_accounts": 0,
+    "customer_device_bindings": 0,
+    "customer_terminal_tasks": 0
+  },
+  "legacy_sensitive_candidates": 13063,
+  "production_identity_state": {
+    "verified_real_roles": [
+      "admin"
+    ],
+    "required_roles": [
+      "customer",
+      "operator",
+      "analyst",
+      "reviewer",
+      "admin"
+    ]
+  },
+  "external_kms_state": {
+    "source_adapter": "vault_transit",
+    "configured": true,
+    "live_mechanics_certified": true,
+    "independent_organizational_custody_certified": false,
+    "evidence": "production-vault-transit.json"
+  },
+  "missing_authoritative_inputs": [
+    "profile owner mapping",
+    "platform and account scope mapping",
+    "customer/legal authorization",
+    "authorized customer terminal",
+    "live external-platform credentials",
+    "approved capability admission matrix",
+    "independently operated KMS/HSM and deletion policy"
+  ],
+  "prohibited_inferences": [
+    "do not infer owner from filesystem paths",
+    "do not import or encrypt a profile under a guessed account",
+    "do not destroy plaintext before per-account cutover evidence",
+    "do not label adapter readiness as live login/read/draft/publish verification",
+    "do not migrate passkey, face or device-binding state away from the customer terminal",
+    "do not label same-host Vault mechanics as independent organizational custody"
+  ],
+  "safe_progress_state": {
+    "metadata_only_inventory": true,
+    "plaintext_imported": false,
+    "plaintext_destroyed": false,
+    "device_verification_state_migrated": false,
+    "live_capability_claimed": false,
+    "external_kms_adapter_implemented": true,
+    "production_vault_transit_configured": true,
+    "independent_kms_custody_claimed": false,
+    "signed_terminal_protocol_deployed": true,
+    "native_customer_terminal_canary_verified": false
+  },
+  "secret_material_in_evidence": false,
+  "goal_status": "active"
+}

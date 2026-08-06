@@ -1,0 +1,19 @@
+{
+  "generated_at": "2026-07-25T02:04:00+08:00",
+  "result": "passed",
+  "test_groups": [
+    {
+      "scope": "vault, DLP, role downgrade, profile state, capability lease, customer pairing, evidence package access",
+      "passed": 24,
+      "failed": 0
+    },
+    {
+      "scope": "error secrecy, reconciliation input, tenant isolation, report projection, inventory secrecy, fenced lease, break-glass, MinIO integrity, ClickHouse secret rejection, workflow lease revocation",
+      "passed": 36,
+      "failed": 0
+    }
+  ],
+  "total_passed": 60,
+  "total_failed": 0,
+  "qualification": "Code and real-service regression evidence; production OIDC/human-verification remains a separate open gate."
+}

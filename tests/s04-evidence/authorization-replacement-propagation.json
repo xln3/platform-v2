@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-25T03:46:55.545624+00:00",
+  "result": "passed",
+  "assertions": {
+    "account_row_locked": true,
+    "prior_grants_revoked": true,
+    "capability_leases_downgraded": true,
+    "session_leases_downgraded": true,
+    "interventions_and_tasks_downgraded": true,
+    "both_authorization_apis_share_service": true,
+    "active_account_state_preserved_on_update": true,
+    "old_long_grant_regression_tested": true,
+    "terminal_task_downgrade_tested": true
+  },
+  "source_sha256": "f5805daa2f37821999c4922c387202d89542524c561d8fc61dfbaf0532cbd2ff",
+  "focused_tests": "7/7",
+  "full_python_tests": "152/152",
+  "production_browser": "33/33",
+  "production_mock_scan": "28/28",
+  "sensitive_values_recorded": false
+}

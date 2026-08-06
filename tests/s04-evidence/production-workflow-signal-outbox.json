@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-25T05:04:28.237375+00:00",
+  "result": "passed",
+  "database_revision": "s04_0018",
+  "workflow_id_sha256": "3d85cd8467fcda912a322f5a419af626977c3ec9833ab31f0b8ea941524e2fd1",
+  "assertions": {
+    "signal_blocked_until_start": true,
+    "start_dispatched": true,
+    "workflow_started_once": true,
+    "temporal_run_id_persisted": true,
+    "three_signals_recorded": true,
+    "signals_preserved_order": true,
+    "signals_delivered_once": true,
+    "hashed_idempotency_receipts_unique": true,
+    "three_signal_dispatches": true,
+    "workflow_cancelled": true,
+    "database_cancelled": true,
+    "no_terminal_error": true
+  },
+  "synthetic_fixture": true,
+  "synthetic_fixture_removed": true,
+  "sensitive_values_recorded": false
+}

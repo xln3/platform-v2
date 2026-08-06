@@ -1,0 +1,319 @@
+{
+  "generated_at": "2026-07-27T04:48:02.201036+00:00",
+  "result": "passed_source_owned_release_external_gates_open",
+  "production_urls": {
+    "customer": "https://39.105.175.14:8443/platform/customer/",
+    "operations": "https://39.105.175.14:8443/platform/operations/",
+    "reports": "https://39.105.175.14:8443/platform/reports/",
+    "intelligence": "https://39.105.175.14:8443/platform/intelligence/",
+    "api": "https://39.105.175.14:8443/api/v2/",
+    "certification_base": "https://127.0.0.1:8443"
+  },
+  "api": {
+    "status": "ok",
+    "service": "geo-platform-v2",
+    "version": "0.1.0-s04"
+  },
+  "schema_revision": "s04_0029",
+  "migration_watermark_count": 14,
+  "runtime_counts": {
+    "tenants": 1,
+    "users": 5,
+    "memberships": 5,
+    "projects": 5,
+    "monitoring_configs": 5,
+    "queries": 77,
+    "runs": 8,
+    "tasks": 192,
+    "answers": 146,
+    "analyses": 146,
+    "citations": 2754,
+    "evidence_assets": 533,
+    "reports": 0,
+    "report_deliveries": 0,
+    "anti_geo_evaluation_datasets": 0,
+    "anti_geo_evaluation_runs": 0,
+    "anti_geo_model_admissions": 0,
+    "outbox_total": 150,
+    "migration_runs": 1,
+    "watermarks": 14,
+    "outbox_unpublished": 0,
+    "report_delivery_events": 0,
+    "migrated_answers_without_lineage": 0,
+    "migrated_answers_without_analysis": 0,
+    "reconciled_completion_events": 4,
+    "reconciled_completion_answers": 146
+  },
+  "clickhouse_projection": {
+    "run_event": 146,
+    "citation_fact": 2754,
+    "feature_fact": 0,
+    "answer_fact": 146,
+    "metric_daily": 1022
+  },
+  "services": {
+    "geo-platform-v2-api": "active",
+    "geo-platform-v2-worker": "active",
+    "geo-platform-v2-s02-worker": "active",
+    "geo-platform-v2-outbox-worker": "active",
+    "geo-platform-v2-business-metrics": "active",
+    "geo-platform-v2-alert-receiver": "active",
+    "geosys": "active"
+  },
+  "containers": {
+    "expected": 13,
+    "running": 13,
+    "healthy": 7,
+    "without_healthcheck": 6,
+    "names": [
+      "geo-platform-v2-production-alertmanager-1",
+      "geo-platform-v2-production-alloy-1",
+      "geo-platform-v2-production-clickhouse-1",
+      "geo-platform-v2-production-grafana-1",
+      "geo-platform-v2-production-loki-1",
+      "geo-platform-v2-production-minio-1",
+      "geo-platform-v2-production-otel-collector-1",
+      "geo-platform-v2-production-postgres-1",
+      "geo-platform-v2-production-prometheus-1",
+      "geo-platform-v2-production-redis-1",
+      "geo-platform-v2-production-temporal-1",
+      "geo-platform-v2-production-temporal-postgres-1",
+      "geo-platform-v2-production-vault-1"
+    ],
+    "exact_inventory": true
+  },
+  "routes": [
+    {
+      "path": "/platform/customer/",
+      "status": 200,
+      "expected_status": 200,
+      "redirected": false,
+      "passed": true
+    },
+    {
+      "path": "/platform/operations/",
+      "status": 200,
+      "expected_status": 200,
+      "redirected": false,
+      "passed": true
+    },
+    {
+      "path": "/platform/reports/",
+      "status": 200,
+      "expected_status": 200,
+      "redirected": false,
+      "passed": true
+    },
+    {
+      "path": "/platform/intelligence/",
+      "status": 200,
+      "expected_status": 200,
+      "redirected": false,
+      "passed": true
+    },
+    {
+      "path": "/api/v2/health",
+      "status": 200,
+      "expected_status": 200,
+      "redirected": false,
+      "passed": true
+    },
+    {
+      "path": "/portal",
+      "status": 200,
+      "expected_status": 200,
+      "redirected": false,
+      "passed": true
+    },
+    {
+      "path": "/ops",
+      "status": 200,
+      "expected_status": 200,
+      "redirected": false,
+      "passed": true
+    },
+    {
+      "path": "/client",
+      "status": 200,
+      "expected_status": 200,
+      "redirected": false,
+      "passed": true
+    },
+    {
+      "path": "/api/health",
+      "status": 200,
+      "expected_status": 200,
+      "redirected": false,
+      "passed": true
+    },
+    {
+      "path": "/geo",
+      "status": 401,
+      "expected_status": 401,
+      "redirected": false,
+      "passed": true
+    }
+  ],
+  "legacy_route_switched": false,
+  "backups": {
+    "postgres": {
+      "path": ".production-backups/20260727T035755Z/postgres-pre-s04-0029.dump",
+      "bytes": 1877800,
+      "mode": "0600",
+      "sha256": "06f5f5926e28f5142ef2445800dc4286177883b0e5f628a20c5579db55fd6210",
+      "postgres_16_catalog_entries": 1032,
+      "postgres_16_catalog_validation": "passed"
+    },
+    "static": {
+      "path": ".production-backups/20260727T035755Z/static-builds-pre-s04-0029.tar",
+      "bytes": 7403520,
+      "mode": "0600",
+      "sha256": "0b7ca4c6cf8f95131d04d43f3145243655b244f66005a43fa0b1a29b159020be"
+    }
+  },
+  "openapi": {
+    "paths": 97,
+    "manifest": {
+      "contracts/openapi.json": "2da140787236a2395018b0062d75402531990b49c4a5a697a04235f726cecf26",
+      "packages/api-client/src/schema.generated.ts": "63d1bd0e89c2d9bed7aa471412a1259df3852abd16306a6995b066002f1656b9"
+    }
+  },
+  "quality": {
+    "python_tests": 173,
+    "typescript_node_tests": 168,
+    "browser_e2e": {
+      "passed": 411,
+      "unexpected": 0,
+      "skipped": 0,
+      "flaky": 0,
+      "duration_ms": 489091.42,
+      "viewports": [
+        "desktop",
+        "tablet",
+        "mobile"
+      ],
+      "applications": 4,
+      "evidence": "tests/s04-evidence/e2e-results-s04-0029-final.json"
+    },
+    "production_browser": {
+      "total": 45,
+      "passed": 45
+    },
+    "production_mock_scan": {
+      "total": 29,
+      "passed": 29
+    }
+  },
+  "unified_completion": {
+    "result": "incomplete_external_authority_and_real_sample_gates_open",
+    "section_18": {
+      "satisfied": 7,
+      "total": 10,
+      "all_satisfied": false,
+      "gates": [
+        {
+          "number": 1,
+          "name": "implementation_migrations_configuration_complete",
+          "satisfied": false,
+          "reason": "Source-owned V2 code, schema and restricted extension artifact are deployed, but an authorized customer-terminal installation, production IdP bindings, live adapters and independently operated KMS custody are absent. A same-host production Vault Transit service proves mechanics only."
+        },
+        {
+          "number": 2,
+          "name": "lint_types_and_automated_tests",
+          "satisfied": true,
+          "evidence": "full-quality-certification.json",
+          "ci_configuration": "configuration_and_local_equivalent_passed_remote_run_unavailable",
+          "hosted_ci_run_verified": false
+        },
+        {
+          "number": 3,
+          "name": "real_dependency_integration",
+          "satisfied": false,
+          "qualification": "PostgreSQL, ClickHouse, Temporal, MinIO, Redis and isolated Vault mechanism tests pass; live external platform, IdP and authorized customer-terminal dependency integration is absent."
+        },
+        {
+          "number": 4,
+          "name": "permissions_tenant_and_sensitive_fields",
+          "satisfied": true,
+          "evidence": [
+            "production-rls-certification.json",
+            "production-actor-identity.json"
+          ]
+        },
+        {
+          "number": 5,
+          "name": "idempotency_retry_and_partial_failure",
+          "satisfied": true,
+          "qualification": "Covered for populated V2/migrated slices, workflow fault tests and a production Temporal session lifecycle probe (passed)."
+        },
+        {
+          "number": 6,
+          "name": "deployed_to_independent_production_v2_entry",
+          "satisfied": true,
+          "evidence": [
+            "production-browser-acceptance.json",
+            "production-business-alerting.json"
+          ]
+        },
+        {
+          "number": 7,
+          "name": "real_roles_operate_successfully",
+          "satisfied": false,
+          "verified_roles": [
+            "admin"
+          ],
+          "missing_roles": [
+            "analyst",
+            "customer",
+            "operator",
+            "reviewer"
+          ],
+          "oidc_verified": false,
+          "passkey_verified": false
+        },
+        {
+          "number": 8,
+          "name": "production_screenshots_or_machine_evidence",
+          "satisfied": true,
+          "evidence": "production-browser-acceptance.json"
+        },
+        {
+          "number": 9,
+          "name": "zero_browser_console_and_failed_requests",
+          "satisfied": true,
+          "evidence": "production-browser-acceptance.json"
+        },
+        {
+          "number": 10,
+          "name": "implementation_status_records_urls_data_and_evidence",
+          "satisfied": true,
+          "evidence": "../IMPLEMENTATION_STATUS.md"
+        }
+      ]
+    },
+    "open_requirement_ids": [
+      "identity-real-roles",
+      "profile-custody-migration-and-deletion",
+      "customer-terminal-native-canaries",
+      "live-platform-capability-admission",
+      "approved-anti-geo-calibration-dataset",
+      "populated-report-shadow"
+    ]
+  },
+  "assertions": {
+    "api_version": true,
+    "schema_revision": true,
+    "routes_and_legacy_coexistence": true,
+    "all_services_active": true,
+    "exact_container_inventory_running": true,
+    "postgres_backup_matches_rls_certificate": true,
+    "static_backup_restricted": true,
+    "openapi_97_paths_without_drift": true,
+    "quality_passed": true,
+    "production_browser_45_of_45": true,
+    "production_mock_scan_29_of_29": true,
+    "unified_gate_truth_preserved": true
+  },
+  "secret_material_in_evidence": false,
+  "goal_status": "active"
+}

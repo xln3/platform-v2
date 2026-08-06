@@ -1,10 +1,11 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './runtime-fixture';
 import { expectAccessible, prepareApp } from './accessibility';
+import { captureSafeScreenshot } from './screenshot-safety';
 
 test('shared data states remain distinct, accessible and responsive', async ({
   page,
 }, testInfo) => {
-  const expectCleanRuntime = await prepareApp(page, '/platform/customer/experience-states');
+  await prepareApp(page, '/platform/customer/experience-states');
   for (const state of [
     'normal',
     'loading',
@@ -22,9 +23,8 @@ test('shared data states remain distinct, accessible and responsive', async ({
   await page.getByRole('button', { name: '重试此区域' }).click();
   await expect(page.getByText('正在加载')).toHaveCount(2);
   await expectAccessible(page);
-  expectCleanRuntime();
   const viewportName = testInfo.project.name.replace('customer-', '');
-  await page.screenshot({
+  await captureSafeScreenshot(page, {
     path: `tests/e2e-results/state-matrix-${viewportName}.png`,
     fullPage: true,
   });

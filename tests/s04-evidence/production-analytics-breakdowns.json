@@ -1,0 +1,64 @@
+{
+  "generated_at": "2026-07-25T05:36:00+08:00",
+  "scope": "S03 customer monitoring analytics breakdown production qualification",
+  "source_revision": "c8b7ec84de0214f9028bf02ae955160f8a30a9f8",
+  "working_tree_note": "The certified source state includes intentional uncommitted S04 integration changes; the hashes below identify generated contracts exactly.",
+  "deployment": {
+    "api_service": "geo-platform-v2-api.service",
+    "api_active_since": "2026-07-25T05:34:31+08:00",
+    "database_schema_version": "s04_0008",
+    "route_scope": ["/api/v2/analytics/breakdown", "/platform/customer/"],
+    "legacy_route_cut_over": false
+  },
+  "contract": {
+    "groups": ["day", "model", "region_mode", "question"],
+    "openapi_sha256": "646349169f3e043f01397b4531f6f945779be1e2f10a60e822b03e53fe7e3a36",
+    "generated_types_sha256": "0e35242ece1883c6a5a9b2a2df03839c20b85d1624f19f59d784f6b6580ef48f",
+    "uncommitted_generation_drift": false
+  },
+  "production_dataset": {
+    "answer_rows": 146,
+    "analysis_rows": 146,
+    "citation_rows": 2754,
+    "eligible_answers": 146,
+    "distinct_days": 3,
+    "distinct_models": 2,
+    "distinct_region_modes": 3,
+    "distinct_questions": 76,
+    "sensitive_labels_emitted": false
+  },
+  "verification": {
+    "full_quality_gate": {
+      "passed": true,
+      "python_tests": "99/99",
+      "includes": [
+        "TypeScript unit tests and strict type checking",
+        "Python integration and security tests",
+        "OpenAPI regeneration and drift guard",
+        "four production application builds",
+        "production bundle secret-fixture guard",
+        "legacy route guard"
+      ]
+    },
+    "focused_three_viewport_e2e": "6/6",
+    "production_browser_acceptance": {
+      "passed": "30/30",
+      "evidence": "tests/s04-evidence/production-browser-acceptance.json",
+      "evidence_sha256": "e5f20810d9bc29d4e091efea214d59b0afc45d628178fac020d8d981f5cab7f6",
+      "customer_monitoring_viewports": ["desktop", "tablet", "mobile"],
+      "console_errors": 0,
+      "page_errors": 0,
+      "failed_requests": 0,
+      "error_responses": 0,
+      "browser_actor_headers": 0,
+      "stale_browser_identity_keys": 0
+    }
+  },
+  "screenshots": [
+    "tests/s04-evidence/production-screenshots/customer-monitoring-desktop.png",
+    "tests/s04-evidence/production-screenshots/customer-monitoring-tablet.png",
+    "tests/s04-evidence/production-screenshots/customer-monitoring-mobile.png"
+  ],
+  "result": "passed",
+  "secret_material_in_evidence": false
+}

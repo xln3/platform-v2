@@ -1,0 +1,35 @@
+{
+  "generated_at": "2026-07-25T02:06:30+08:00",
+  "environment": "production",
+  "result": "passed",
+  "postgresql_large_table": {
+    "rows": 1000000,
+    "indexed": true,
+    "bounded_page_rows": 100,
+    "elapsed_seconds": 1.52,
+    "cleanup": "session-scoped temporary table dropped automatically"
+  },
+  "clickhouse_large_table": {
+    "rows": 1000000,
+    "engine": "MergeTree",
+    "bounded_page_rows": 100,
+    "elapsed_seconds": 0.37,
+    "cleanup": "certification table explicitly dropped"
+  },
+  "minio_large_object": {
+    "bytes": 33554432,
+    "upload_seconds": 0.221,
+    "download_seconds": 0.066,
+    "sha256_verified": true,
+    "deleted_after_verification": true,
+    "contains_customer_data": false
+  },
+  "temporal_long_activity": {
+    "duration_seconds": 15.067,
+    "heartbeat_interval_seconds": 1,
+    "workflow_state": "completed",
+    "evidence": "production-workflow-resilience.json"
+  },
+  "customer_rows_mutated": false,
+  "secret_values_recorded": false
+}

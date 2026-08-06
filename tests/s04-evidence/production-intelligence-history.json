@@ -1,0 +1,72 @@
+{
+  "generated_at": "2026-07-25T06:11:00+08:00",
+  "scope": "S03 intelligence immutable page snapshots and visual/text diff history",
+  "deployment": {
+    "database_schema_version": "s04_0009",
+    "api_service": "geo-platform-v2-api.service",
+    "api_active_since": "2026-07-25T06:09:01+08:00",
+    "routes": [
+      "/api/v2/intelligence/investigations/{investigation_pub_id}/page-history",
+      "/api/v2/intelligence/investigations/{investigation_pub_id}/visual-diffs",
+      "/platform/intelligence/?section=history"
+    ],
+    "legacy_route_cut_over": false
+  },
+  "behavior": {
+    "snapshot_creation": "Every evidence-backed content version records an immutable subject/version snapshot.",
+    "diff_creation": "Adjacent evidence-backed versions record normalized text hashes, unified diff metadata and similarity without returning object-store keys.",
+    "browser_projection": "Only safe IDs, host label, title, timestamps, hashes, version numbers, similarity and visual-diff availability enter React state.",
+    "hostile_diff_body_rendered": false
+  },
+  "production_dataset": {
+    "investigations": 0,
+    "content_versions": 0,
+    "evidence_snapshots": 0,
+    "evidence_diffs": 0,
+    "fabricated_investigation_for_acceptance": false
+  },
+  "contract": {
+    "openapi_sha256": "646349169f3e043f01397b4531f6f945779be1e2f10a60e822b03e53fe7e3a36",
+    "generated_types_sha256": "0e35242ece1883c6a5a9b2a2df03839c20b85d1624f19f59d784f6b6580ef48f",
+    "uncommitted_generation_drift": false
+  },
+  "verification": {
+    "full_quality_gate": {
+      "passed": true,
+      "python_tests": "99/99",
+      "includes": [
+        "PostgreSQL automatic snapshot and diff integration",
+        "strict TypeScript and Python static analysis",
+        "OpenAPI regeneration and drift guard",
+        "four production builds",
+        "production bundle and legacy route guards"
+      ]
+    },
+    "intelligence_live_e2e": "6/6",
+    "visual_regression_viewports": ["desktop", "tablet", "mobile"],
+    "production_browser_acceptance": {
+      "passed": "30/30",
+      "evidence": "tests/s04-evidence/production-browser-acceptance.json",
+      "evidence_sha256": "e5f20810d9bc29d4e091efea214d59b0afc45d628178fac020d8d981f5cab7f6",
+      "console_errors": 0,
+      "page_errors": 0,
+      "failed_requests": 0,
+      "error_responses": 0
+    }
+  },
+  "qualification": {
+    "source_contract_and_integration": "passed",
+    "production_route_and_empty_state": "passed",
+    "production_populated_history": "not_run_no_real_production_investigation",
+    "result": "deployed_with_populated_data_gate_open"
+  },
+  "screenshots": [
+    "tests/s04-evidence/production-screenshots/intelligence-history-desktop.png",
+    "tests/s04-evidence/production-screenshots/intelligence-history-tablet.png",
+    "tests/s04-evidence/production-screenshots/intelligence-history-mobile.png",
+    "tests/e2e/intelligence-live.spec.ts-snapshots/intelligence-live-history-intelligence-desktop-linux.png",
+    "tests/e2e/intelligence-live.spec.ts-snapshots/intelligence-live-history-intelligence-tablet-linux.png",
+    "tests/e2e/intelligence-live.spec.ts-snapshots/intelligence-live-history-intelligence-mobile-linux.png"
+  ],
+  "secret_material_in_evidence": false
+}

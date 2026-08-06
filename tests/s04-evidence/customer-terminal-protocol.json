@@ -1,0 +1,95 @@
+{
+  "generated_at": "2026-07-25T09:21:00+08:00",
+  "result": "restricted_extension_and_production_signing_boundary_passed_authorized_native_canary_open",
+  "work_package": "AS-05",
+  "protocol": {
+    "device_key": "Ed25519 non-exportable-key compatible public binding",
+    "device_possession_proof_required": true,
+    "pairing_entropy_bits_minimum": 256,
+    "pairing_ttl_seconds": 600,
+    "pairing_single_use": true,
+    "task_ttl_seconds_maximum": 300,
+    "task_scope_fields": [
+      "tenant",
+      "account",
+      "intervention",
+      "device",
+      "allowed_domain",
+      "action",
+      "challenge_type",
+      "nonce",
+      "expiry"
+    ],
+    "task_signature": "Ed25519",
+    "result_signature": "Ed25519",
+    "result_bound_to_task_payload_hash": true,
+    "terminal_cannot_self_attest_platform_success": true,
+    "platform_callback_or_identity_probe_required_before_account_resume": true,
+    "task_replay_rejected": true,
+    "revocation_invalidates_device_and_pending_tasks": true,
+    "pairing_and_task_timeout_persist_terminal_expired_state": true,
+    "duplicate_or_conflicting_intervention_signal_first_result_wins": true,
+    "otp_passkey_biometric_payload_fields": false
+  },
+  "negative_verification": {
+    "forged_device_proof_rejected": true,
+    "consumed_pairing_token_rejected": true,
+    "duplicate_result_rejected": true,
+    "revoked_task_rejected": true,
+    "expired_task_rejected_and_audited": true,
+    "ordinary_operator_completion_rejected_for_customer_device": true
+  },
+  "quality": {
+    "focused_integration_tests": "9/9",
+    "extension_protocol_tests": "2/2",
+    "operations_component_tests": "3/3",
+    "full_python_tests": "144/144",
+    "python_mypy_modules": 91,
+    "openapi_paths": 86,
+    "openapi_drift": "passed",
+    "production_browser": "33/33",
+    "production_mock_scan": "28/28"
+  },
+  "production": {
+    "schema_revision": "s04_0011",
+    "device_binding_rows": 0,
+    "terminal_task_rows": 0,
+    "tenant_tables_rls_enabled_forced": "80/80/80",
+    "signing_key_delivery": "systemd LoadCredential",
+    "signing_key_source_mode": "0600 root:root",
+    "private_key_emitted": false,
+    "public_key_fingerprint_probe": "passed",
+    "restricted_extension": {
+      "version": "0.1.0",
+      "manifest_url": "https://127.0.0.1:8443/platform/customer-terminal-extension/manifest.json",
+      "http_status": 200,
+      "manifest_sha256": "99404831722297990be2e754d0f4c300027568c508923d8019a68ced7a7a563e",
+      "permissions": ["storage", "tabs"],
+      "host_access": "runtime optional exact-origin grant",
+      "device_private_key": "IndexedDB non-extractable Ed25519 CryptoKey",
+      "forbidden_api_build_scan": "passed",
+      "distribution_qualification": "unsigned managed artifact; not Chrome Web Store signed"
+    },
+    "pre_migration_backup": {
+      "path": ".production-backups/20260725T004246Z/postgres-pre-s04-0011.dump",
+      "bytes": 1795897,
+      "sha256": "de61eaf4de0b89946276620b417171171177752372fdc8594c7588899f21c953",
+      "postgres_16_catalog_entries": 812
+    },
+    "post_migration_backup": {
+      "path": ".production-backups/20260725T004246Z/postgres-post-s04-0011.dump",
+      "bytes": 1805176,
+      "sha256": "6c196772f08fe18885d142849c7f717f2619607d8c038532520ab034954f783d",
+      "postgres_16_catalog_entries": 832
+    }
+  },
+  "external_gate": {
+    "customer_agent_or_extension_present": true,
+    "authorized_customer_terminal_present": false,
+    "native_otp_qr_push_passkey_face_graphical_canaries_verified": [],
+    "live_platform_probe_verified": false,
+    "qualification": "A restricted extension artifact, signed protocol and fail-closed production signing boundary are deployed. The artifact is not evidence that an authorized customer installed it or that a native platform challenge completed."
+  },
+  "secret_material_in_evidence": false,
+  "goal_status": "active"
+}

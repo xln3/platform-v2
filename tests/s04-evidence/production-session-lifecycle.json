@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-25T02:50:54.238743+00:00",
+  "result": "passed",
+  "workflow_id_sha256": "6136b0bc21e8e883201e14307b48b8eda88e8943baa1eff93ad927ef4dbdb1fb",
+  "account_pub_id_sha256": "879375fbff676f94ac361c6ba18909007705badc3438c554e4f852e7ac3a4a02",
+  "scope": "query",
+  "synthetic_fixture": true,
+  "workflow_state": "completed",
+  "profile_version": 1,
+  "assertions": {
+    "workflow_completed": true,
+    "challenge_verified": true,
+    "result_declares_release": true,
+    "lease_exists": true,
+    "lease_released_in_postgres": true,
+    "fencing_token_matches": true,
+    "profile_version_positive": true
+  },
+  "sensitive_values_recorded": false,
+  "qualification": "This certifies the production Temporal, authorization Activity and fenced lease path. A synthetic isolated account was used when no authorized customer profile existed; live customer account custody remains an external admission gate."
+}

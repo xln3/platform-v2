@@ -1,0 +1,42 @@
+{
+  "generated_at": "2026-07-27T17:27:00+08:00",
+  "mode": "read-only",
+  "application_entries": {
+    "customer": 200,
+    "operations": 200,
+    "reports": 200,
+    "intelligence": 200
+  },
+  "health": {
+    "status": 200,
+    "service": "geo-platform-v2",
+    "version": "0.1.0-s04"
+  },
+  "openapi": {
+    "repository_paths": 98,
+    "production_paths": 98,
+    "repository_only_paths": [],
+    "production_only_paths": [],
+    "canonical_paths_schemas_sha256": "76c5f325fa7797bd850fedfe4ae1cc3611eb55d220f40f8e8415406a5a5acb40",
+    "repository_file_sha256": "240cc674694885d98129b8959a3792410f434b92e67a18df29d2e57f5b428ab5",
+    "generated_client_sha256": "2d403434b34be9ea50eb40daba8f087212c41363adacde6fff37f53edc4cb232"
+  },
+  "authentication_boundaries": {
+    "/api/v2/datasets/media-prices": 401,
+    "/api/v2/operations/lifecycle": 401
+  },
+  "operations_media_prices_frontend": {
+    "path": "/platform/operations/media-prices",
+    "status": 200,
+    "content_type": "text/html",
+    "manifest_contains_route": true,
+    "navigation_contains_label": true,
+    "assets_match_current_local_build": true,
+    "assets": {
+      "route-BJoLxtYW.js": "af5bbc90dc90b6c54ba318d8471977df799abf2e006602b51f960cb3ce9fd9c1",
+      "shell-BGycsyGl.js": "7e4475e96abb1b8980754e04efba03c540a52f1568f649f826e1f8ea4293fc82",
+      "route-6EwNp9JA.css": "991dbffea88f3c919b5bbcf52fe655e46cf4451c41324c48ee0f65fb4cea6f3d"
+    }
+  },
+  "qualification_limit": "The unauthenticated read proves route, bundle and authentication deployment only; it does not prove a populated protected production artifact."
+}

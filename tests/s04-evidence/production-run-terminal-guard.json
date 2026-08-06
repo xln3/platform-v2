@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-25T05:19:04.034401+00:00",
+  "result": "passed",
+  "database_revision": "s04_0019",
+  "workflow_id_sha256": "3dc9edaf2fe78b1ca036a199e591902b0b0da179c5035926bb1d2db47b790db2",
+  "original_terminal_state": "failed",
+  "assertions": {
+    "terminal_run_present": true,
+    "cancel_rejected_409": true,
+    "stable_error_code": true,
+    "terminal_state_unchanged": true,
+    "no_signal_enqueued": true,
+    "direct_sql_reactivation_rejected": true,
+    "terminal_state_survives_sql_attack": true,
+    "read_only_probe": true
+  },
+  "sensitive_values_recorded": false
+}

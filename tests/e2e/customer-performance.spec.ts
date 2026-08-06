@@ -1,11 +1,11 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './runtime-fixture';
 import { prepareApp } from './accessibility';
 
 test('large chart, table, text and hostile long URL stay responsive and secret-free', async ({
   page,
 }) => {
   const started = Date.now();
-  const expectCleanRuntime = await prepareApp(page, '/platform/customer/experience-performance');
+  await prepareApp(page, '/platform/customer/experience-performance');
   await expect(page.getByText('高基数模型指标图表已渲染')).toBeAttached();
   await expect(page.locator('tbody tr')).toHaveCount(620);
   await expect(page.getByText('row_0500')).toBeVisible();
@@ -24,5 +24,4 @@ test('large chart, table, text and hostile long URL stay responsive and secret-f
     text: document.body.textContent,
   }));
   expect(JSON.stringify(surfaces)).not.toContain('dlp-long-url-canary');
-  expectCleanRuntime();
 });

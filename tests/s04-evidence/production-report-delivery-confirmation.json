@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-25T06:27:57.698143+00:00",
+  "result": "passed",
+  "database_revision": "s04_0025",
+  "assertions": {
+    "database_revision_s04_0025": true,
+    "draft_delivery_rejected": true,
+    "delivery_replay_returns_authoritative_id": true,
+    "delivery_initially_unconfirmed": true,
+    "wrong_recipient_confirmation_rejected": true,
+    "recipient_confirmation_replays_authoritative_id": true,
+    "confirmation_timestamp_monotonic": true,
+    "confirmation_payload_drift_rejected": true,
+    "single_delivery_row_retained": true,
+    "single_actor_attributed_event_per_transition": true,
+    "other_recipient_cannot_list_delivery": true
+  },
+  "synthetic_fixture": true,
+  "synthetic_fixture_removed": true,
+  "real_production_dependencies": [
+    "PostgreSQL"
+  ],
+  "qualification": "Storage, replay, actor attribution and recipient isolation are certified. This is not a real-customer identity acceptance.",
+  "sensitive_values_recorded": false
+}

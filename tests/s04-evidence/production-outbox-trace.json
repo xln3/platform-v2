@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-25T04:18:36.222459+00:00",
+  "result": "passed",
+  "database_revision": "s04_0015",
+  "workflow_id_sha256": "1b31c0e95a346d8f2e329fb3948b112c2a1e9ca5cf9635c9cdc95cdbaee6d122",
+  "trace_id_sha256": "d2f3ce15783d4379a78b3f5bd149b23b6bce87b24a2ea10ab5908a55e8e5ec09",
+  "span_names": [
+    "CompleteWorkflow:GeoCollectionWorkflow",
+    "POST /api/v2/collection/runs",
+    "RunActivity:collect_with_adapter",
+    "RunWorkflow:GeoCollectionWorkflow",
+    "StartActivity:collect_with_adapter",
+    "StartWorkflow:GeoCollectionWorkflow"
+  ],
+  "service_names": [
+    "geo-platform-v2-api",
+    "geo-platform-v2-outbox-worker",
+    "geo-platform-v2-worker"
+  ],
+  "assertions": {
+    "api_request_accepted": true,
+    "trace_context_persisted": true,
+    "baggage_not_persisted": true,
+    "workflow_dispatched": true,
+    "collection_workflow_reached_failed_terminal": true,
+    "required_spans_share_trace_id": true,
+    "start_workflow_parent_is_api_span": true,
+    "api_service_present": true,
+    "outbox_service_present": true,
+    "workflow_worker_service_present": true
+  },
+  "synthetic_fixture": true,
+  "synthetic_fixture_removed": true,
+  "sensitive_values_recorded": false
+}

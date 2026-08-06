@@ -1,31 +1,87 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './runtime-fixture';
 import path from 'node:path';
-
-const session = {
-  tenant: 'tnt_6FGT8JGH9ASAQ7B1P87R6VHKNE',
-  actor: 's01-e2e-664fd9bb30',
-  role: 'admin',
-};
+import { captureSafeScreenshot } from './screenshot-safety';
 
 test('operations execution uses real lifecycle APIs without secret leakage', async ({
   page,
+  request,
 }, testInfo) => {
-  const consoleErrors: string[] = [];
-  const failedRequests: string[] = [];
-  page.on('console', (message) => {
-    if (message.type() === 'error') consoleErrors.push(message.text());
+  const suffix = crypto.randomUUID().replaceAll('-', '').slice(0, 12);
+  const subject = `operations-e2e-${suffix}`;
+  const bootstrap = await request.post('/api/v2/identity/bootstrap', {
+    headers: { 'X-Bootstrap-Secret': 'development-bootstrap' },
+    data: {
+      tenant_name: `Operations E2E ${suffix}`,
+      subject,
+      display_name: 'Operations E2E Admin',
+    },
   });
-  page.on('requestfailed', (request) =>
-    failedRequests.push(`${request.method()} ${request.url()}`),
+  expect(bootstrap.ok()).toBeTruthy();
+  const identity = (await bootstrap.json()) as {
+    tenant_pub_id: string;
+    user_pub_id: string;
+  };
+  const apiHeaders = {
+    'X-Tenant-Id': identity.tenant_pub_id,
+    'X-Actor-Id': subject,
+    'X-Actor-Role': 'admin',
+  };
+  const accountMask = `e2e-***${suffix.slice(-4)}`;
+  const accountResponse = await request.post('/api/v2/platform-accounts', {
+    headers: apiHeaders,
+    data: {
+      platform_slug: 'fixed',
+      platform_name: 'Auditable Fixed Adapter',
+      account_mask: accountMask,
+      owner_pub_id: identity.user_pub_id,
+      purpose: 'e2e-health',
+      responsible_pub_id: identity.user_pub_id,
+      custody_mode: 'server',
+      region: 'CN-BJ',
+    },
+  });
+  expect(accountResponse.ok()).toBeTruthy();
+  const account = (await accountResponse.json()) as { pub_id: string };
+  const authorization = await request.post(
+    `/api/v2/platform-accounts/${account.pub_id}/authorizations`,
+    {
+      headers: apiHeaders,
+      data: {
+        scopes: ['read', 'query'],
+        forbidden_actions: ['publish', 'payment', 'security_settings'],
+        regions: ['CN-BJ'],
+        valid_from: new Date(Date.now() - 60_000).toISOString(),
+        valid_until: new Date(Date.now() + 60 * 60_000).toISOString(),
+      },
+    },
   );
+  expect(authorization.ok()).toBeTruthy();
+  const profile = await request.post(
+    `/api/v2/platform-accounts/${account.pub_id}/profiles/enroll`,
+    {
+      headers: apiHeaders,
+      data: {
+        profile_payload: JSON.stringify({ fixture: true }),
+        custody_mode: 'server',
+        constraints: ['READ_ONLY'],
+        expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
+      },
+    },
+  );
+  expect(profile.ok()).toBeTruthy();
+  const session = {
+    tenant: identity.tenant_pub_id,
+    actor: subject,
+    role: 'admin',
+  };
   await page.addInitScript((context) => {
-    localStorage.setItem('geo.ops.tenant', context.tenant);
-    localStorage.setItem('geo.ops.actor', context.actor);
-    localStorage.setItem('geo.ops.role', context.role);
+    localStorage.setItem('geo.session.tenant', context.tenant);
+    localStorage.setItem('geo.session.actor', context.actor);
+    localStorage.setItem('geo.session.role', context.role);
   }, session);
   await page.goto('/platform/operations/execution');
   await expect(page.getByRole('heading', { name: '执行与账号控制面' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'fixture-***42' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: accountMask })).toBeVisible();
   await expect(page.getByText('adapter_ready').first()).toBeVisible();
   await expect(page.getByText('尚未 live 验证').first()).toBeVisible();
   await expect(page.getByRole('heading', { name: '运行与任务矩阵' })).toBeVisible();
@@ -58,9 +114,7 @@ test('operations execution uses real lifecycle APIs without secret leakage', asy
   ]) {
     expect(rendered).not.toContain(canary);
   }
-  expect(consoleErrors, consoleErrors.join('\n')).toEqual([]);
-  expect(failedRequests, failedRequests.join('\n')).toEqual([]);
-  await page.screenshot({
+  await captureSafeScreenshot(page, {
     path: path.resolve(
       process.cwd(),
       `tests/visual-evidence/s01/operations-execution-${testInfo.project.name}.png`,

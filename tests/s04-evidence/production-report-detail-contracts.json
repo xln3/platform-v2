@@ -1,0 +1,84 @@
+{
+  "generated_at": "2026-07-25T05:57:00+08:00",
+  "scope": "S03 typed report detail, verified artifact access, comment history and append-only effect retest",
+  "deployment": {
+    "database_schema_version": "s04_0009",
+    "api_service": "geo-platform-v2-api.service",
+    "api_active_since": "2026-07-25T05:55:09+08:00",
+    "route_scope": ["/api/v2/reports/*", "/platform/reports/*"],
+    "legacy_route_cut_over": false
+  },
+  "predeployment_backup": {
+    "path": "/home/xln/geo-system/backups/s04-report-contracts-predeploy-20260725T0555CST/postgres.dump",
+    "sha256": "9ff0a9b9800da0dbfbe7899e54b5496ef0fdb1549fdf8932356a7f6b92d1c1dc",
+    "bytes": 1830096,
+    "mode": "600",
+    "postgresql_16_catalog_verified": true
+  },
+  "database": {
+    "new_tables": ["reporting.report_frozen_fact", "reporting.effect_retest"],
+    "row_level_security": {
+      "enabled": true,
+      "forced": true,
+      "tenant_policies": 2
+    },
+    "production_report_rows": 0,
+    "fabricated_customer_report_for_acceptance": false
+  },
+  "contract": {
+    "typed_detail_includes": [
+      "immutable frozen fact rows and row hashes",
+      "components",
+      "artifacts and evidence metadata",
+      "reviews",
+      "comment history",
+      "events",
+      "optimization actions",
+      "append-only effect retests",
+      "fact-to-evidence bindings with hashes and anchor counts"
+    ],
+    "artifact_access": "tenant-scoped object lookup, SHA-256 verification, no-store API proxy",
+    "action_transitions": ["in_progress", "done with outcome"],
+    "openapi_sha256": "b4d57aad4714af7c92ae20812d78a2b2056c28ff673ec2cb51e9d32f5b8296a4",
+    "generated_types_sha256": "42949ddcb3ef5f1771b1e4da741a3a6a9984d510b5ac4a5263a87d7ed11d1e52",
+    "uncommitted_generation_drift": false
+  },
+  "verification": {
+    "full_quality_gate": {
+      "passed": true,
+      "python_tests": "99/99",
+      "includes": [
+        "strict TypeScript and Python static analysis",
+        "OpenAPI regeneration and drift guard",
+        "four production builds",
+        "production bundle fixture guard",
+        "legacy route guard"
+      ]
+    },
+    "postgresql_minio_integration": "passed",
+    "report_studio_three_viewport_e2e": "6/6",
+    "intelligence_regression_three_viewport_e2e": "6/6",
+    "production_browser_acceptance": {
+      "passed": "30/30",
+      "evidence": "tests/s04-evidence/production-browser-acceptance.json",
+      "evidence_sha256": "6eceaed6b23d8b91a63dbd91c26d1a3c06b505f3ac80172cb0cd369161e38535",
+      "console_errors": 0,
+      "page_errors": 0,
+      "failed_requests": 0,
+      "error_responses": 0
+    }
+  },
+  "qualification": {
+    "source_contract_and_integration": "passed",
+    "production_schema_route_and_empty_state": "passed",
+    "production_populated_report_read_write": "not_run_no_real_production_report",
+    "reason": "Legacy and V2 production report tables are empty; no customer report or approval was fabricated.",
+    "result": "deployed_with_populated_data_gate_open"
+  },
+  "screenshots": [
+    "tests/s04-evidence/production-screenshots/reports-desktop.png",
+    "tests/s04-evidence/production-screenshots/reports-tablet.png",
+    "tests/s04-evidence/production-screenshots/reports-mobile.png"
+  ],
+  "secret_material_in_evidence": false
+}

@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-25T05:13:52.738392+00:00",
+  "result": "passed",
+  "database_revision": "s04_0018",
+  "assertions": {
+    "one_created_one_conflict": true,
+    "single_receipt": true,
+    "raw_key_not_persisted": true,
+    "contract_hash_bounded": true,
+    "losing_transaction_rolled_back": true,
+    "database_revision_s04_0018": true
+  },
+  "synthetic_fixture": true,
+  "synthetic_fixture_removed": true,
+  "sensitive_values_recorded": false
+}

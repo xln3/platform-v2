@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './runtime-fixture';
+import { expectSafePageScreenshot } from './screenshot-safety';
 import { prepareVisualPage } from './visual-regression';
 
 const workspaces = [
@@ -14,10 +15,7 @@ const workspaces = [
 
 for (const workspace of workspaces) {
   test(`report ${workspace.section} visual baseline has no page overflow`, async ({ page }) => {
-    const expectCleanRuntime = await prepareVisualPage(
-      page,
-      `/platform/reports/?section=${workspace.section}`,
-    );
+    await prepareVisualPage(page, `/platform/reports/?section=${workspace.section}`);
     if (workspace.section === 'preview') {
       await page.getByText(workspace.ready, { exact: false }).first().waitFor();
     } else {
@@ -26,11 +24,10 @@ for (const workspace of workspaces) {
     await expect
       .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1))
       .toBe(true);
-    await expect(page).toHaveScreenshot(workspace.snapshot, {
+    await expectSafePageScreenshot(page, workspace.snapshot, {
       fullPage: true,
       animations: 'disabled',
       maxDiffPixelRatio: 0.005,
     });
-    expectCleanRuntime();
   });
 }

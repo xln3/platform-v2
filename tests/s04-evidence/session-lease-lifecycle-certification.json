@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-25T03:46:55.735274+00:00",
+  "result": "passed",
+  "source_sha256": {
+    "workflow": "b3b89264df870bcdf92accf8fa396601ec5b9484b630b0eb3123e682ee27b026",
+    "session_workflow": "976589fd40114f82bf5da75b8f309ecae42493ba565659fb02a5f7bf1657560a",
+    "activities": "6a645b2109a41b4aac7df485c12d6f06df7c7c1982523cc2a9ae20f4e162f600",
+    "router": "83c3c98475451569c6b7a0ddd166e8dfb157a7d047f846c471981a4b3383ecf9"
+  },
+  "automated_tests": {
+    "temporal_and_governance_focused": "19/19",
+    "full_python": "152/152"
+  },
+  "production_lease_counts": {
+    "total": 0,
+    "active": 0,
+    "expired_unreleased": 0
+  },
+  "production_services": {
+    "geo-platform-v2-api.service": true,
+    "geo-platform-v2-worker.service": true
+  },
+  "assertions": {
+    "workflow_cleanup_is_finally_guarded": true,
+    "release_activity_is_fenced_and_idempotent": true,
+    "activity_failure_cleanup_tested": true,
+    "external_cancellation_cleanup_tested": true,
+    "session_lifecycle_performs_admission_and_fenced_cleanup": true,
+    "session_lifecycle_external_cancellation_tested": true,
+    "profile_version_commit_releases_lease_atomically": true,
+    "replacement_lease_increments_fence_tested": true,
+    "production_has_no_expired_unreleased_lease": true,
+    "production_services_active": true
+  },
+  "qualification": "Failure/cancellation cleanup uses a real Temporal test environment and production currently has no expired unreleased lease. Live external-platform execution remains subject to the AS-08 admission gate.",
+  "sensitive_values_recorded": false
+}

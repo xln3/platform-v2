@@ -1,17 +1,10 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './runtime-fixture';
 import { readDownload, secretArtifactPattern } from './downloads';
+import { captureSafeScreenshot } from './screenshot-safety';
 
 test('intelligence workbench traces claims, graph, history, verdict and appeal', async ({
   page,
 }, testInfo) => {
-  const consoleErrors: string[] = [];
-  const failedRequests: string[] = [];
-  page.on('console', (message) => {
-    if (message.type() === 'error') consoleErrors.push(message.text());
-  });
-  page.on('requestfailed', (request) =>
-    failedRequests.push(`${request.method()} ${request.url()}`),
-  );
   await page.route('**/api/v2/health', (route) =>
     route.fulfill({
       status: 200,
@@ -34,7 +27,7 @@ test('intelligence workbench traces claims, graph, history, verdict and appeal',
   await expect(page.getByRole('dialog')).toContainText('字符 112–168');
   await expect(page.getByRole('img', { name: /锚点 bbox 84,176,310,42/ })).toBeVisible();
   await page.getByRole('button', { name: '标记锚点已核验' }).click();
-  await expect(page.getByRole('status')).toContainText('核验事件绑定页面 hash');
+  await expect(page.getByRole('status').filter({ hasText: '核验事件绑定页面 hash' })).toBeVisible();
   await page.getByRole('button', { name: '关闭对话框' }).click();
   await expect(page.getByText('锚点已核验', { exact: true })).toBeVisible();
 
@@ -69,12 +62,10 @@ test('intelligence workbench traces claims, graph, history, verdict and appeal',
     generated_at: '2026-07-24T16:00:00+08:00',
   });
   expect(packageContent).not.toMatch(secretArtifactPattern);
-  await expect(page.getByRole('status')).toContainText('4 项完整性检查通过');
+  await expect(page.getByRole('status').filter({ hasText: '4 项完整性检查通过' })).toBeVisible();
 
-  expect(consoleErrors, consoleErrors.join('\n')).toEqual([]);
-  expect(failedRequests, failedRequests.join('\n')).toEqual([]);
   const viewportName = testInfo.project.name.replace('intelligence-', '');
-  await page.screenshot({
+  await captureSafeScreenshot(page, {
     path: `tests/e2e-results/intelligence-workbench-${viewportName}.png`,
     fullPage: true,
   });

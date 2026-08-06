@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-25T03:20:31.087961+00:00",
+  "result": "passed",
+  "database_revision": "s04_0012",
+  "assertions": {
+    "reactivation_blocked": true,
+    "check_violation_sqlstate": true,
+    "stable_constraint_name": true,
+    "state_remains_revoked": true,
+    "trigger_enabled": true,
+    "synthetic_fixture_removed": true
+  },
+  "sensitive_values_recorded": false
+}

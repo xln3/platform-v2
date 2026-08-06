@@ -1,0 +1,276 @@
+{
+  "generated_at": "2026-07-27T12:39:29+08:00",
+  "result": "passed",
+  "static_and_unit_suite": {
+    "typescript_packages": 12,
+    "python_source_files_mypy": 98,
+    "python_tests_passed": 173,
+    "python_tests_failed": 0,
+    "typescript_tests_passed": 168,
+    "lint": "passed",
+    "format": "passed",
+    "openapi_drift": "passed",
+    "frontend_contract_guard": "passed",
+    "production_builds": 12,
+    "customer_terminal_extension_protocol_tests": 2,
+    "customer_terminal_real_chromium_runtime": "passed",
+    "customer_terminal_production_crx_release": "passed",
+    "operations_component_tests": 6,
+    "report_artifact_fk_stress_runs": "21 historical + 10 concurrent/report CAS",
+    "legacy_route_guard": "passed",
+    "ci_workflow_guard": "passed",
+    "business_alert_contract_guard": "passed"
+  },
+  "browser_e2e": {
+    "passed": 411,
+    "unexpected": 0,
+    "skipped": 0,
+    "flaky": 0,
+    "duration_ms": 489091.42,
+    "viewports": ["desktop", "tablet", "mobile"],
+    "applications": 4,
+    "evidence": "tests/s04-evidence/e2e-results-s04-0029-final.json"
+  },
+  "production_browser": {
+    "passed": 45,
+    "total": 45,
+    "identity_source": "legacy_http_only_session",
+    "verified_v2_roles": ["admin"],
+    "browser_actor_headers_used": false,
+    "identity_evidence": "tests/s04-evidence/production-identity-certification.json",
+    "console_errors": 0,
+    "page_errors": 0,
+    "failed_requests": 0,
+    "http_error_responses": 0
+  },
+  "production_runtime_mock_scan": {
+    "passed": 29,
+    "total": 29,
+    "forbidden_fixture_markers": 0,
+    "runtime_errors": 0,
+    "evidence": "tests/s04-evidence/production-mock-scan.json"
+  },
+  "production_rls": {
+    "schema_revision": "s04_0029",
+    "tenant_tables_forced": 85,
+    "api_runtime_superuser": false,
+    "api_runtime_bypass_rls": false,
+    "worker_runtime_superuser": false,
+    "worker_runtime_bypass_rls": false,
+    "database_owner_used_by_runtime_services": false,
+    "row_security_off_blocked": true,
+    "evidence": "tests/s04-evidence/production-rls-certification.json"
+  },
+  "production_actor_identity": {
+    "schema_revision": "s04_0029",
+    "actor_columns_checked": 18,
+    "legacy_external_subject_residue": 0,
+    "strict_platform_user_id_projection": true,
+    "report_role_separation": "passed",
+    "customer_report_recipient_isolation": "passed",
+    "intelligence_author_reviewer_resolver_separation": "passed",
+    "identifiers_or_secrets_recorded": false,
+    "evidence": "tests/s04-evidence/production-actor-identity.json"
+  },
+  "production_report_authoring": {
+    "schema_revision": "s04_0029",
+    "immutable_revision_contract": "passed",
+    "idempotency_key_hash_only": true,
+    "same_operation_replay": "passed",
+    "payload_drift_conflict": "passed",
+    "server_side_frozen_fact_copy": true,
+    "component_evidence_binding": "passed",
+    "concurrent_artifact_lock_and_resume": "passed",
+    "analyst_reviewer_role_separation": "passed",
+    "production_reports": 0,
+    "real_customer_report_acceptance": false,
+    "evidence": "tests/s04-evidence/production-report-authoring.json"
+  },
+  "production_operations_lifecycle": {
+    "live_api_contract": "passed",
+    "tenant_and_role_scope": "passed",
+    "bounded_secret_free_projection": "passed",
+    "production_viewports": 3,
+    "production_pages": 4,
+    "console_page_request_http_errors": 0,
+    "evidence": [
+      "tests/s04-evidence/production-browser-acceptance.json",
+      "tests/s04-evidence/e2e-results-s04-operations-live-final.json"
+    ]
+  },
+  "anti_geo_dataset_governance": {
+    "schema_revision": "s04_0029",
+    "registry_tables": 5,
+    "registry_tables_force_rls": true,
+    "approved_source_retention": true,
+    "independent_dataset_approval": true,
+    "independent_model_admission": true,
+    "approved_external_label_sets": 0,
+    "qualified_admission_chains": 0,
+    "production_calibration_claimed": false,
+    "evidence": "tests/s04-evidence/anti-geo-evaluation-boundary.json"
+  },
+  "production_business_alerting": {
+    "schema_revision": "s04_0029",
+    "prometheus_rules_loaded": 12,
+    "aggregate_rows": 12,
+    "fixed_admission_dimensions": 5,
+    "identifier_labels_emitted": false,
+    "delivered_alert_observed": "GeoCollectionAnalysisAdmissionBlocked",
+    "current_firing_alerts": 0,
+    "current_analysis_admission_backlog": 0,
+    "prometheus_to_alertmanager": "passed",
+    "alertmanager_to_safe_receiver": "passed",
+    "receiver_delivery_observed_in_loki": "passed",
+    "grafana_business_panels": 4,
+    "evidence": "tests/s04-evidence/production-business-alerting.json"
+  },
+  "generated_api_contract": {
+    "paths": 97,
+    "openapi_sha256": "2da140787236a2395018b0062d75402531990b49c4a5a697a04235f726cecf26",
+    "typescript_schema_sha256": "63d1bd0e89c2d9bed7aa471412a1259df3852abd16306a6995b066002f1656b9",
+    "regeneration_drift": 0
+  },
+  "migrated_collection_lineage": {
+    "legacy_task_answers": 146,
+    "answers_with_run_and_config_lineage": 146,
+    "answers_with_v2_rebuilt_analysis": 146,
+    "completion_events_reconciled": 4,
+    "completion_events_unpublished": 0,
+    "idempotent_second_run_writes": 0,
+    "evidence": [
+      "tests/s04-evidence/production-core-migration-lineage-rerun.json",
+      "tests/s04-evidence/production-core-migration-lineage-idempotent-rerun.json",
+      "tests/s04-evidence/production-runtime-data-counts.json"
+    ]
+  },
+  "production_postgres_credential_rotation": {
+    "configured_roles_authenticated": 3,
+    "credentials_distinct_per_role": true,
+    "runtime_roles_unprivileged": true,
+    "database_consumers_active": 4,
+    "credential_values_or_digests_recorded": false,
+    "legacy_service_modified": false,
+    "evidence": "tests/s04-evidence/production-postgres-credential-rotation.json"
+  },
+  "report_delivery_confirmation": {
+    "schema_revision": "s04_0025",
+    "production_assertions_passed": 11,
+    "delivery_and_confirmation_separate": true,
+    "recipient_isolation": true,
+    "idempotent_actor_attributed_audit": true,
+    "real_customer_identity_acceptance": false,
+    "evidence": "tests/s04-evidence/production-report-delivery-confirmation.json"
+  },
+  "production_vault_transit": {
+    "configured": true,
+    "health": "healthy",
+    "tls": true,
+    "persistent_raft": true,
+    "credential_separation": "passed",
+    "restart_and_backup": "passed",
+    "fresh_dek_rotation_and_version_aad": "passed",
+    "kek_rotation_recovery_and_rollback_boundary": "passed",
+    "authorized_customer_profile_tested": false,
+    "evidence": "tests/s04-evidence/production-vault-transit.json"
+  },
+  "profile_vault_rekey": {
+    "fenced_and_profile_bound": true,
+    "idempotent_replay": true,
+    "fresh_dek_and_versioned_aad": true,
+    "superseded_version_state": true,
+    "secret_free_audit": true,
+    "authorized_customer_profile_tested": false,
+    "evidence": "tests/s04-evidence/profile-vault-rekey-certification.json"
+  },
+  "session_lease_lifecycle": {
+    "activity_failure_cleanup": "passed",
+    "external_workflow_cancellation_cleanup": "passed",
+    "profile_version_atomic_release": "passed",
+    "replacement_fencing_token_increment": "passed",
+    "production_expired_unreleased": 0,
+    "evidence": "tests/s04-evidence/session-lease-lifecycle-certification.json",
+    "platform_session_production_temporal_probe": "passed",
+    "platform_session_probe_fixture": "isolated_synthetic_not_customer_authorized",
+    "platform_session_evidence": "tests/s04-evidence/production-session-lifecycle.json"
+  },
+  "account_revocation_lifecycle": {
+    "fail_closed_state_and_start_command_atomic": "passed",
+    "durable_temporal_retry_and_already_started_recovery": "passed",
+    "duplicate_request_idempotency": "passed",
+    "device_task_intervention_capability_propagation": "passed",
+    "production_outbox_temporal_postgres_vault_probe": "passed_11_of_11",
+    "same_name_key_recreation_nonreactivation": "passed",
+    "authorized_customer_profile_tested": false,
+    "evidence": "tests/s04-evidence/production-account-revocation.json"
+  },
+  "authorization_revocation_propagation": {
+    "current_authorization_checked_at_capability_validation": true,
+    "current_authorization_checked_at_intervention_create_and_complete": true,
+    "current_authorization_checked_at_terminal_bind_and_complete": true,
+    "revoked_account_reauthorization_blocked": true,
+    "evidence": "tests/s04-evidence/authorization-revocation-propagation.json"
+  },
+  "authorization_replacement_propagation": {
+    "old_wide_grants_revoked_atomically": true,
+    "capability_session_intervention_task_downgrade": true,
+    "active_account_state_preserved": true,
+    "evidence": "tests/s04-evidence/authorization-replacement-propagation.json"
+  },
+  "evidence_parent_concurrency": {
+    "logical_cas_advisory_lock": true,
+    "sixteen_writer_single_parent": true,
+    "report_api_stress": "passed",
+    "evidence": "tests/s04-evidence/evidence-parent-concurrency.json"
+  },
+  "workflow_start_outbox": {
+    "api_and_command_atomic": true,
+    "already_started_convergence": true,
+    "delayed_failure_reclaim": true,
+    "collection_terminal_state_persisted": true,
+    "same_key_different_request_conflict": true,
+    "production_temporal_probe": "passed",
+    "evidence": "tests/s04-evidence/production-workflow-start-outbox.json"
+  },
+  "revoked_account_terminal_state": {
+    "database_trigger_enabled": true,
+    "direct_sql_reactivation_blocked": true,
+    "stable_check_violation": true,
+    "production_schema_revision": "s04_0012",
+    "evidence": "tests/s04-evidence/production-revoked-account-terminal-state.json"
+  },
+  "customer_terminal_extension_runtime": {
+    "manifest_v3_real_chromium": true,
+    "non_extractable_key_and_export_rejection": "passed",
+    "key_persistence_across_browser_restart": "passed",
+    "signed_pair_and_minimal_completion": "passed",
+    "post_completion_state": "awaiting_platform_probe",
+    "authorized_customer_native_canary": false,
+    "evidence": "tests/s04-evidence/customer-terminal-extension-runtime.json"
+  },
+  "customer_terminal_extension_release": {
+    "format": "CRX3",
+    "stable_extension_id": "ikgoabapccnkocienglhebfnefaibdoj",
+    "production_hash_and_size": "passed",
+    "root_only_signing_key_and_backup": "passed",
+    "authorized_customer_installation": false,
+    "evidence": "tests/s04-evidence/customer-terminal-extension-release.json"
+  },
+  "ci_workflow": {
+    "jobs": 5,
+    "fresh_pgvector_dependencies": true,
+    "migration_before_tests": true,
+    "browser_e2e_and_failure_artifacts": true,
+    "contract_and_release_guards": true,
+    "local_equivalent": "passed",
+    "hosted_remote_run": "unavailable_no_git_remote",
+    "evidence": "tests/s04-evidence/ci-workflow-certification.json"
+  },
+  "production_fixture_boundary": {
+    "e2e_output_directory": "build-e2e",
+    "production_output_directory": "build",
+    "strict_preview_ports": true,
+    "contract_identity_payload_present_in_production_bundles": false,
+    "automated_guard": "scripts/check_production_bundles.py"
+  }
+}

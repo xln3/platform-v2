@@ -1,0 +1,36 @@
+{
+  "generated_at": "2026-07-24T21:23:46.175Z",
+  "result": "passed",
+  "production_url": "https://127.0.0.1:8443",
+  "version": "0.1.0-s04",
+  "schema_revision": "s04_0008",
+  "customer_web_index_sha256": "0b815f5f55569dd790a6437e27b952ac84fa068b42e6b57caa673366c73de5e7",
+  "contract": {
+    "responsible_member_list": "/api/v2/customer/platform-accounts/responsible-members",
+    "registration_assignment": true,
+    "authorization_update_assignment": true,
+    "tenant_scoped": true,
+    "disabled_revoked_service_accounts_excluded": true,
+    "cross_tenant_and_missing_result": 404,
+    "pii_labels_returned": false
+  },
+  "quality": {
+    "postgres_integration": "3/3",
+    "python_suite": "99/99",
+    "generated_client_tests": "13/13",
+    "customer_unit": "11/11",
+    "three_viewport_live_contract_e2e": "3/3",
+    "full_package_gate": "passed"
+  },
+  "production_browser": {
+    "total": 24,
+    "passed": 24,
+    "customer_accounts_viewports": ["desktop", "tablet", "mobile"],
+    "console_errors": 0,
+    "page_errors": 0,
+    "failed_requests": 0,
+    "http_error_responses": 0
+  },
+  "legacy_cutover": false,
+  "secrets_emitted": false
+}

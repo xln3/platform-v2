@@ -1,0 +1,57 @@
+{
+  "generated_at": "2026-07-25T07:18:00+08:00",
+  "result": "source_and_fail_closed_deployment_passed_external_live_gate_open",
+  "provider": "Vault Transit",
+  "implementation": {
+    "external_https_origin_required": true,
+    "url_credentials_paths_queries_fragments_rejected": true,
+    "token_source": "restricted systemd credential file",
+    "token_embedded_in_environment": false,
+    "token_rotation_without_api_restart": true,
+    "symlinked_or_group_world_readable_token_rejected": true,
+    "envelope_plaintext": "per-profile-version 256-bit DEK",
+    "external_key_scope": "one non-identifying Transit key per tenant and account",
+    "external_account_key_destroy": "idempotent DELETE; 404 accepted, other failures fail closed",
+    "runtime_policy_can_delete_keys": false,
+    "provision_and_deletion_policies_separated": true,
+    "aad_forwarded_as_transit_context": true,
+    "database_and_backups_store_only_vault_ciphertext": true,
+    "network_and_response_failures": "fail_closed"
+  },
+  "configuration_templates": [
+    "deploy/production/vault-transit.env.example",
+    "deploy/production/vault-transit-api.conf.example",
+    "deploy/production/vault-transit-worker.conf.example",
+    "deploy/production/vault-transit-runtime-policy.hcl",
+    "deploy/production/vault-transit-provision-policy.hcl",
+    "deploy/production/vault-transit-deletion-policy.hcl"
+  ],
+  "verification": {
+    "focused_security_tests": "17/17",
+    "full_python_tests": "111/111",
+    "mypy": "passed",
+    "ruff": "passed",
+    "production_build_and_contract_gate": "passed",
+    "legacy_route_guard": "passed",
+    "production_health": 200,
+    "legacy_route_status": 401
+  },
+  "real_dependency_integration": {
+    "evidence": "tests/s04-evidence/vault-transit-real-integration.json",
+    "vault_version": "2.0.3",
+    "tls": true,
+    "per_account_keys_distinct": true,
+    "retained_backup_reactivation_after_key_delete_and_same_name_recreate": "blocked",
+    "unrelated_account_decryption_after_delete": "passed",
+    "production_data_touched": false
+  },
+  "production_state": {
+    "provider_configured": false,
+    "profile_vault_behavior": "503 profile_vault_unavailable",
+    "external_vault_endpoint_or_token_present": false,
+    "live_encrypt_decrypt_rekey_delete": "not_run",
+    "backup_restore_after_external_deletion": "mechanism_passed_against_isolated_real_vault; production_authority_not_run"
+  },
+  "remaining_authority_gate": "An independently operated Vault/HSM, approved runtime/provision/deletion policies, restricted tokens and authorized per-account profile must be provisioned for live encrypt/decrypt/key-delete/backup-restore certification. Source readiness is not live KMS verification.",
+  "secret_material_in_evidence": false
+}

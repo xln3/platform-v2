@@ -1,0 +1,31 @@
+{
+  "generated_at": "2026-07-25T16:55:08+08:00",
+  "result": "passed",
+  "legacy_baseline": {
+    "source": "/home/xln/geo-system/backups/s04-production-predeploy-20260725T0050CST/config/geosys",
+    "sha256": "7048d2ad6a4a1df25e4dc48078a216b1b84ef1574162e21b0a51e5d69674ad78"
+  },
+  "deployed_server_config": {
+    "source": "deploy/production/geosys-with-v2.conf",
+    "sha256": "bddb2a80cd24cf14ef2922a8e5d7a1d4803d9ff1ca6c50da9511d59380c9e11b",
+    "change_scope": "one additive include before the unchanged legacy /api/ fallback"
+  },
+  "v2_location_include": {
+    "source": "deploy/production/nginx-v2-locations.conf",
+    "deployed_sha256": "59ddf7893e2c4b70fb3c0d754b6f55e5309272aa59e8181b37a042c3b9d6c7dc"
+  },
+  "probes": [
+    { "path": "/portal", "status": 200, "redirected": false },
+    { "path": "/ops", "status": 200, "redirected": false },
+    { "path": "/client", "status": 200, "redirected": false },
+    { "path": "/geo", "status": 401, "redirected": false, "note": "legacy login boundary" },
+    { "path": "/api/health", "status": 200, "redirected": false },
+    { "path": "/platform/customer/", "status": 200, "redirected": false },
+    { "path": "/platform/operations/", "status": 200, "redirected": false },
+    { "path": "/platform/reports/", "status": 200, "redirected": false },
+    { "path": "/platform/intelligence/", "status": 200, "redirected": false },
+    { "path": "/api/v2/health", "status": 200, "redirected": false }
+  ],
+  "legacy_service": "active",
+  "nginx_config_test": "passed"
+}

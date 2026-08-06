@@ -1,0 +1,78 @@
+{
+  "schema_version": "1.0",
+  "source_snapshot_sha256": "e6ce86fcde2c920f2af3b178570c0c3088e4556124e35964a7964c87c37a1bea",
+  "run_pub_id": "mig_4XWDJV2HEK3RZRBBADFJF2ZRDD",
+  "excluded": [
+    "password_hash",
+    "session",
+    "otp",
+    "browser_profile"
+  ],
+  "counts": {
+    "tenant": {
+      "seen": 1,
+      "written": 0,
+      "skipped": 1
+    },
+    "app_user": {
+      "seen": 1,
+      "written": 0,
+      "skipped": 1
+    },
+    "membership": {
+      "seen": 1,
+      "written": 0,
+      "skipped": 1
+    },
+    "customer": {
+      "seen": 3,
+      "written": 0,
+      "skipped": 3
+    },
+    "project": {
+      "seen": 5,
+      "written": 0,
+      "skipped": 5
+    },
+    "monitoring_config": {
+      "seen": 5,
+      "written": 0,
+      "skipped": 5
+    },
+    "brand_project": {
+      "seen": 5,
+      "written": 0,
+      "skipped": 5
+    },
+    "competitor_project": {
+      "seen": 3,
+      "written": 0,
+      "skipped": 3
+    },
+    "query_item": {
+      "seen": 77,
+      "written": 0,
+      "skipped": 77
+    },
+    "collection_run": {
+      "seen": 7,
+      "written": 0,
+      "skipped": 7
+    },
+    "collection_task": {
+      "seen": 192,
+      "written": 0,
+      "skipped": 192
+    },
+    "answer": {
+      "seen": 146,
+      "written": 0,
+      "skipped": 146
+    },
+    "collection_completion_reconciliation": {
+      "seen": 0,
+      "written": 0,
+      "skipped": 0
+    }
+  }
+}

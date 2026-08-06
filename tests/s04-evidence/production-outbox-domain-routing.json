@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-25T05:51:33.625080+00:00",
+  "result": "passed",
+  "database_revision": "s04_0022",
+  "assertions": {
+    "analytics_event_delivered": true,
+    "analytics_event_marked_published": true,
+    "collection_event_not_delivered_to_analytics": true,
+    "collection_event_left_for_own_consumer": true
+  },
+  "synthetic_fixture": true,
+  "synthetic_fixture_removed": true,
+  "sensitive_values_recorded": false
+}
