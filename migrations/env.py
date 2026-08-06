@@ -3,6 +3,8 @@ from logging.config import fileConfig
 from alembic import context
 from geo_platform.collection import models as collection_models  # noqa: F401
 from geo_platform.config import get_settings
+from geo_platform.intake import models as intake_models  # noqa: F401
+from geo_platform.intake_form import models as intake_form_models  # noqa: F401
 from geo_platform.projects import models as project_models  # noqa: F401
 from geo_platform.tenancy import models as tenancy_models  # noqa: F401
 from geo_platform.tenancy.database import Base
