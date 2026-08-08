@@ -1,11 +1,11 @@
 {
   "deployment_template": {
     "path": "deploy/production/geo-platform-v2.conf",
-    "sha256": "b9b022ec781db9c7ddd35f85537248a6ae4f476062c8c39df39dbd31a0a5c16a"
+    "sha256": "fb6c4f22b2436d38a17d02113dacadd9e9dcf36ad21659e2869d2d7393e5e885"
   },
   "v2_include": {
     "path": "deploy/production/nginx-v2-locations.conf",
-    "sha256": "7133548dc7ec66538c5c449cf9ea55339f9bea1f7c8a05a5015b0457e6aa19be"
+    "sha256": "082b678b2fc09ef5a2a65157bf520b91860ec3a44161b80975e51aca89c482a5"
   },
   "required_routes": [
     "/api/v2/",
@@ -15,5 +15,9 @@
     "/platform/reports/",
     "/platform/intake-form/"
   ],
-  "forbidden_markers": ["127.0.0.1:8010", "/api/otp/", "/novnc/"]
+  "forbidden_markers": [
+    "127.0.0.1:8010",
+    "/api/otp/",
+    "/novnc/"
+  ]
 }
