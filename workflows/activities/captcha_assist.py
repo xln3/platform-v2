@@ -29,6 +29,7 @@ workflow 撞码时调 ``captcha_assist_start``：attach 常驻 headed Chromium�
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import itertools
 import json
@@ -50,12 +51,16 @@ from temporalio.exceptions import ApplicationError
 
 from workflows.activities.assist_notify import push_captcha_assist
 from workflows.activities.browser_driver import load_sync_browser_driver
-from workflows.activities.doubao_adapter import _captcha_hit
+from workflows.activities.deepseek_adapter import _captcha_hit as _deepseek_captcha_hit
+from workflows.activities.doubao_adapter import _captcha_hit as _doubao_captcha_hit
 
 # resident_cdp_url 显式再导出（同名 as）：tools/otp_assist_login.py 经本模块消费，
 # 与会话内部共用同一 monkeypatch 点（strict mypy 的 no_implicit_reexport 要求）。
 from workflows.activities.resident_browser import browser_lock
 from workflows.activities.resident_browser import resident_cdp_url as resident_cdp_url
+from workflows.activities.tongyi_adapter import _captcha_hit as _tongyi_captcha_hit
+from workflows.activities.yiyan_adapter import _captcha_hit as _yiyan_captcha_hit
+from workflows.activities.yuanbao_adapter import _captcha_hit as _yuanbao_captcha_hit
 
 log = structlog.get_logger()
 
@@ -65,16 +70,51 @@ _LOCK_TIMEOUT_S = 60.0    # assist 在 workflow 保证的串行点启动，等�
 _READY_WAIT_S = 30.0      # start() 等会话就绪上限（CDP attach 本地理应秒级）
 _DEFAULT_TTL_S = 4200     # 70min 兜底自杀：管理员忘接管也不留孤儿会话/不放干锁
 
-_PLATFORM_LABELS = {"doubao": "豆包"}
+_PLATFORM_LABELS = {
+    "doubao": "豆包",
+    "deepseek": "DeepSeek",
+    "tongyi": "通义千问",
+    "yiyan": "文心一言",
+    "yuanbao": "腾讯元宝",
+}
+
+# 「wall 仍存在」特征判定表（2026-08-07 起五平台）：直接复用各 live adapter
+# 的 ``_captcha_hit``——选择器词表单一真源在各 adapter（其 _CAPTCHA_SELECTORS
+# 是各自平台风控组件的实测/移植词表），本模块绝不复制。cleared = 接管页面上
+# 该平台撞码特征全部消失。表外平台 → fail-closed（不判 cleared，靠超时回退）。
+_CAPTCHA_HIT_BY_PLATFORM: dict[str, Callable[[Any], str | None]] = {
+    "doubao": _doubao_captcha_hit,
+    "deepseek": _deepseek_captcha_hit,
+    "tongyi": _tongyi_captcha_hit,
+    "yiyan": _yiyan_captcha_hit,
+    "yuanbao": _yuanbao_captcha_hit,
+}
 
 
-def _captcha_cleared_check(page: Any) -> bool:
-    """缺省 cleared_check：撞码选择器全部消失 = 已清（workflow 撞码接管语义）。
+def _captcha_cleared_check_for(platform: str) -> Callable[[Any], bool] | None:
+    """按平台取「已清」判定：撞码选择器全部消失 = 已清（workflow 撞码接管语义）。
+
+    未知/无特征表平台返回 None——fail-closed：bridge /status 的 cleared 恒
+    False，绝不误判已清，等不到人工确认就靠 60min 超时回退旧语义。
 
     登录/OTP 接管（tools/otp_assist_login.py）显式传 None——没有"已清"概念，
     bridge /status 的 cleared 恒 False，完成信号只认人工确认。
     """
-    return _captcha_hit(page) is None
+    hit = _CAPTCHA_HIT_BY_PLATFORM.get(platform)
+    if hit is None:
+        return None
+
+    def _cleared(page: Any) -> bool:
+        return hit(page) is None
+
+    return _cleared
+
+
+class _PlatformDefaultCheck:
+    """sentinel：AssistSession.cleared_check 缺省 = 按会话平台查特征表推导。"""
+
+
+_PLATFORM_DEFAULT_CHECK = _PlatformDefaultCheck()
 
 
 # ---------------------------------------------------------------------------
@@ -527,14 +567,17 @@ class AssistSession:
     复用扩展点（workflow 撞码路径两个参数都传缺省，语义逐字节不变）：
       * ``page_picker``：选页策略，缺省 ``_pick_page``（撞码页优先，否则 pages[0]）；
         登录/OTP 接管传" pages[0]"策略——登录页没有撞码概念。
-      * ``cleared_check``：缺省 ``_captcha_cleared_check``；传 None 则 bridge
-        /status 的 cleared 恒 False（登录/OTP 无自动完成检测）。
+      * ``cleared_check``：缺省 ``_PLATFORM_DEFAULT_CHECK`` sentinel = 按会话
+        平台查 ``_CAPTCHA_HIT_BY_PLATFORM`` 推导（表外平台 fail-closed 恒不清）；
+        显式传 None 则 bridge /status 的 cleared 恒 False（登录/OTP 无自动
+        完成检测）。
     """
 
     def __init__(self, *, platform: str, run_pub_id: str, session_id: str,
                  ticket_hash: str, max_lifetime_s: int = _DEFAULT_TTL_S,
                  page_picker: Callable[[Any], Any] | None = None,
-                 cleared_check: Callable[[Any], bool] | None = _captcha_cleared_check):
+                 cleared_check: Callable[[Any], bool] | None | _PlatformDefaultCheck = (
+                     _PLATFORM_DEFAULT_CHECK)):
         self._platform = platform
         self._run_pub_id = run_pub_id
         self._session_id = session_id
@@ -610,9 +653,13 @@ class AssistSession:
             browser = pw.chromium.connect_over_cdp(cdp_url)
             picker = self._page_picker if self._page_picker is not None else self._pick_page
             page = picker(browser)
+            check = self._cleared_check
+            if isinstance(check, _PlatformDefaultCheck):
+                # 缺省 = 按平台特征表推导；表外平台 fail-closed（cleared 恒 False）。
+                check = _captcha_cleared_check_for(self._platform)
             bridge = InterventionBridge(
                 _MarshalledPage(self._marshal),
-                cleared_check=self._cleared_check,
+                cleared_check=check,
             )
             self.port = bridge.start()
             self.alive = True
@@ -651,18 +698,21 @@ class AssistSession:
             self.port = None
 
     def _pick_page(self, browser):
-        """选页：撞码页优先（逐 candidate 跑 _captcha_hit），都不命中取 pages[0]。"""
+        """选页：撞码页优先（逐 candidate 跑本平台的 _captcha_hit），都不命中取
+        pages[0]。表外平台无特征可判，直接 pages[0]。"""
         contexts = list(getattr(browser, "contexts", None) or [])
         pages = list(getattr(contexts[0], "pages", None) or []) if contexts else []
-        for cand in pages:
-            # 选页本就在 owner 线程：用直调 shim 套 marshal 门面跑 _captcha_hit
-            # （同一接口子集，但探测发生在 _pump_calls 启动前，不能走队列泵）。
-            facade = _MarshalledPage(lambda fn, p=cand: fn(p))
-            try:
-                if _captcha_hit(facade):
-                    return cand
-            except Exception:
-                continue
+        hit = _CAPTCHA_HIT_BY_PLATFORM.get(self._platform)
+        if hit is not None:
+            for cand in pages:
+                # 选页本就在 owner 线程：用直调 shim 套 marshal 门面跑 _captcha_hit
+                # （同一接口子集，但探测发生在 _pump_calls 启动前，不能走队列泵）。
+                facade = _MarshalledPage(lambda fn, p=cand: fn(p))
+                try:
+                    if hit(facade):
+                        return cand
+                except Exception:
+                    continue
         if pages:
             return pages[0]
         # 不该替用户开页（contexts[0].new_page() 否决）——如实上报，可重试
@@ -733,7 +783,7 @@ _SESSIONS_LOCK = threading.Lock()
 class CaptchaAssistInput:
     tenant_pub_id: str
     run_pub_id: str
-    platform: str            # 本期只有 "doubao"
+    platform: str            # 五平台 slug（doubao/deepseek/tongyi/yiyan/yuanbao）
     business_key: str        # 撞码题
     evidence_ref: str | None = None
 
@@ -753,7 +803,21 @@ class CaptchaAssistStopInput:
 
 @activity.defn(name="captcha_assist_start")
 async def captcha_assist_start(input: CaptchaAssistInput) -> CaptchaAssistStarted:
-    """启动/复用撞码接管会话（幂等：同 run_pub_id 不双开 attach、不重推送）。"""
+    """启动/复用撞码接管会话（幂等：同 run_pub_id 不双开 attach、不重推送）。
+
+    async activity 跑在 worker 事件循环上，而会话启动全程同步阻塞（sess.start
+    就绪等最长 30s + 推送 urllib + 全程持 _SESSIONS_LOCK）——2026-08-07 起整个
+    阻塞体经 ``asyncio.to_thread`` 挪出事件循环（与 batch activity 的
+    ``_blocking``/to_thread 同款，豆包 2026-08-06 循环直跑 sync API 事故教训），
+    避免撞码接管期间吊死同 loop 上 batch activity 的 heartbeat。锁在 to_thread
+    工作线程内持有，并发 start 仍串行，语义与持锁直跑完全一致；直接 await 本
+    函数的调用方（drill 脚本/单测）零感知。
+    """
+    return await asyncio.to_thread(_captcha_assist_start_blocking, input)
+
+
+def _captcha_assist_start_blocking(input: CaptchaAssistInput) -> CaptchaAssistStarted:
+    """captcha_assist_start 的同步阻塞体（在 to_thread 工作线程里跑）。"""
     ttl_s = _ttl_s()
     with _SESSIONS_LOCK:
         sess = _SESSIONS.get(input.run_pub_id)
@@ -842,7 +906,16 @@ async def captcha_assist_start(input: CaptchaAssistInput) -> CaptchaAssistStarte
 
 @activity.defn(name="captcha_assist_stop")
 async def captcha_assist_stop(input: CaptchaAssistStopInput) -> None:
-    """幂等关会话（best-effort：一切异常记日志不抛出，绝不阻断 workflow）。"""
+    """幂等关会话（best-effort：一切异常记日志不抛出，绝不阻断 workflow）。
+
+    sess.stop() 的 t.join(timeout=15) 是同步阻塞——与 start 同理经
+    ``asyncio.to_thread`` 挪出事件循环。
+    """
+    await asyncio.to_thread(_captcha_assist_stop_blocking, input)
+
+
+def _captcha_assist_stop_blocking(input: CaptchaAssistStopInput) -> None:
+    """captcha_assist_stop 的同步阻塞体（在 to_thread 工作线程里跑）。"""
     try:
         with _SESSIONS_LOCK:
             sess = _SESSIONS.pop(input.run_pub_id, None)

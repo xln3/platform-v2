@@ -1020,3 +1020,140 @@ async def test_captcha_pause_limit_falls_back_after_three_interventions() -> Non
     assert len(batch_calls) == 4
     assert sum(1 for e in assist_events if e[0] == "start") == 3
     assert persisted_items == [("c-1", "wall"), ("c-2", "aborted")]
+
+
+# ---------------------------------------------------------------------------
+# captcha-assist-v1 门放开（2026-08-07）：非豆包平台 pause 同样挂起接管；
+# 畸形 pause 不当挂起处理，按旧语义全量落库
+# ---------------------------------------------------------------------------
+
+
+@activity.defn(name="captcha_assist_start")
+async def captcha_assist_start_platform_fixture(
+    input: CaptchaAssistInput,
+) -> CaptchaAssistStarted:
+    """记录 platform 的 start fixture（非豆包 slug 门放开断言用）。"""
+    session_id = f"sess-{sum(1 for e in assist_events if e[0] == 'start') + 1}"
+    assist_events.append(
+        ("start", input.run_pub_id, f"{input.platform}|{input.business_key}|{session_id}")
+    )
+    return CaptchaAssistStarted(
+        session_id=session_id,
+        assist_url="https://fixture.local/api/v2/assist/ticket",
+        pushed=True,
+    )
+
+
+@activity.defn(name="collect_tongyi_batch")
+async def collect_tongyi_batch_captcha_once(
+    batch: CollectionBatchInput,
+) -> CollectionBatchResult:
+    """tongyi 首段（t-1 开头）第 2 题撞码并标注 pause；续跑段全题 ok。"""
+    batch_calls.append([item.business_key for item in batch.items])
+    if batch.items[0].business_key == "t-1":
+        return _captcha_pause_batch_result(batch.items, 1)
+    return _ok_batch_result(batch.items)
+
+
+async def test_captcha_pause_non_doubao_slug_suspends_and_resumes() -> None:
+    """门放开（不再限 doubao）：tongyi batch 撞码 → 挂起等人工 → signal 解围
+    → 断点起重采；assist_start 收到的 platform 原样是 tongyi。"""
+    batch_calls.clear()
+    persisted_items.clear()
+    assist_events.clear()
+    async with await WorkflowEnvironment.start_time_skipping() as environment:
+        async with Worker(
+            environment.client,
+            task_queue="s01-captcha-tongyi-test",
+            workflows=[GeoCollectionWorkflow],
+            activities=[
+                collect_tongyi_batch_captcha_once,
+                captcha_assist_start_platform_fixture,
+                captcha_assist_stop_fixture,
+                persist_collection_result_fixture,
+                publish_downstream_event,
+                mark_collection_run_terminal,
+            ],
+        ):
+            handle = await environment.client.start_workflow(
+                GeoCollectionWorkflow.run,
+                GeoCollectionInput(
+                    tenant_pub_id="tnt_captcha_ty",
+                    project_pub_id="prj_captcha_ty",
+                    run_pub_id="run_captcha_ty",
+                    config_version_pub_id="cfv_captcha_ty",
+                    tasks=[
+                        _batch_task("t-1", "tongyi"),
+                        _batch_task("t-2", "tongyi"),
+                        _batch_task("t-3", "tongyi"),
+                    ],
+                    persist_results=True,
+                    inter_task_delay_max_s=0.0,
+                ),
+                id="geo-collection/captcha-tongyi-test",
+                task_queue="s01-captcha-tongyi-test",
+            )
+            await _await_assist_starts(1)
+            await handle.signal(GeoCollectionWorkflow.captcha_solved, "sess-1")
+            result = await handle.result()
+    assert result.state == "completed"
+    # 首段全量一次 + 断点续跑段（撞码题 t-2 重发）
+    assert batch_calls == [["t-1", "t-2", "t-3"], ["t-2", "t-3"]]
+    assert persisted_items == [("t-1", "ok"), ("t-2", "ok"), ("t-3", "ok")]
+    assert ("start", "run_captcha_ty", "tongyi|t-2|sess-1") in assist_events
+    assert ("stop", "run_captcha_ty", "sess-1") in assist_events
+
+
+@activity.defn(name="collect_doubao_batch")
+async def collect_doubao_batch_malformed_pause(
+    batch: CollectionBatchInput,
+) -> CollectionBatchResult:
+    """adapter 契约违背 fixture：等长结果照旧，但 pause.resume_index 越界。"""
+    batch_calls.append([item.business_key for item in batch.items])
+    result = _captcha_pause_batch_result(batch.items, 1)
+    result.captcha_pause = CaptchaPause(
+        resume_index=len(batch.items) + 1,
+        business_key=batch.items[1].business_key,
+        evidence_ref="fixture://screenshots/wall.png",
+    )
+    return result
+
+
+async def test_malformed_captcha_pause_falls_back_to_full_persist() -> None:
+    """畸形 pause（resume_index 越界）不当挂起处理：不起 assist 会话、不续跑，
+    等长结果按旧语义全量落库（撞码题 wall 原样持久化）。"""
+    batch_calls.clear()
+    persisted_items.clear()
+    assist_events.clear()
+    async with await WorkflowEnvironment.start_time_skipping() as environment:
+        async with Worker(
+            environment.client,
+            task_queue="s01-captcha-malformed-test",
+            workflows=[GeoCollectionWorkflow],
+            activities=[
+                collect_doubao_batch_malformed_pause,
+                captcha_assist_start_fixture,
+                captcha_assist_stop_fixture,
+                persist_collection_result_fixture,
+                publish_downstream_event,
+                mark_collection_run_terminal,
+            ],
+        ):
+            result = await environment.client.execute_workflow(
+                GeoCollectionWorkflow.run,
+                GeoCollectionInput(
+                    tenant_pub_id="tnt_captcha_bad",
+                    project_pub_id="prj_captcha_bad",
+                    run_pub_id="run_captcha_bad",
+                    config_version_pub_id="cfv_captcha_bad",
+                    tasks=[_batch_task("c-1", "doubao"), _batch_task("c-2", "doubao")],
+                    persist_results=True,
+                    inter_task_delay_max_s=0.0,
+                ),
+                id="geo-collection/captcha-malformed-test",
+                task_queue="s01-captcha-malformed-test",
+            )
+    assert result.state == "completed"
+    assert batch_calls == [["c-1", "c-2"]]
+    assert persisted_items == [("c-1", "ok"), ("c-2", "wall")]
+    assert assist_events == []                     # 畸形 pause 绝不起接管会话

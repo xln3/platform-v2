@@ -108,6 +108,31 @@ CAPTCHA_ASSIST_WAIT_TIMEOUT = timedelta(minutes=60)
 MAX_CAPTCHA_PAUSES_PER_RUN = 3
 
 
+def gate_captcha_pause(
+    patched: bool,
+    pause: CaptchaPause | None,
+    *,
+    items: int,
+    results: int,
+) -> CaptchaPause | None:
+    """captcha-assist-v1 门控纯函数（可单测）。
+
+    workflow 侧 ``workflow.patched("captcha-assist-v1")`` 每次循环迭代只调一次
+    传入本函数（重放确定性）；门控判定本身与 sandbox 解耦：
+
+    - 未打补丁的历史重放 → 丢弃 pause（旧语义：等长结果原样全量落库）；
+    - adapter 契约违背（resume_index 越界 / 结果与题数不等长）→ 不当 pause
+      处理，丢弃后同样按旧语义全量落库；
+    - 五平台 live adapter 的正常 pause 标注一律放行进入挂起接管分支——门只
+      看 patch，不看平台 slug（2026-08-07 起非豆包四平台也产 pause 标记）。
+    """
+    if not patched or pause is None:
+        return None
+    if not (0 <= pause.resume_index < items and results == items):
+        return None
+    return pause
+
+
 def doubao_batch_timeout_minutes(item_count: int, per_item_minutes: float) -> float:
     """batch 超时公式：min(上限, 题数 × per-item 预算)。"""
     return min(DOUBAO_BATCH_MAX_TIMEOUT_MINUTES, max(1, item_count) * per_item_minutes)
@@ -501,24 +526,30 @@ class GeoCollectionWorkflow:
                             ],
                         ),
                     )
-                    pause = batch_output.captcha_pause
-                    if not workflow.patched("captcha-assist-v1") or slug != "doubao":
-                        # 未打补丁的历史重放走旧语义；pause 只由 doubao live 适配器
-                        # 产生，其余词表 adapter 永不标注。
-                        pause = None
-                    if pause is not None and not (
-                        0 <= pause.resume_index < len(remaining_items)
-                        and len(batch_output.results) == len(remaining_items)
+                    # captcha-assist-v1 patch 每次循环迭代只调一次（重放确定性），
+                    # 门控判定走纯函数 gate_captcha_pause：未 patch 的历史重放与
+                    # 畸形 pause 一律丢弃按旧语义落库；五平台 live adapter 的正常
+                    # pause 标注都进挂起接管分支，不再限 doubao。
+                    captcha_assist_patched = workflow.patched("captcha-assist-v1")
+                    pause = gate_captcha_pause(
+                        captcha_assist_patched,
+                        batch_output.captcha_pause,
+                        items=len(remaining_items),
+                        results=len(batch_output.results),
+                    )
+                    if (
+                        pause is None
+                        and batch_output.captcha_pause is not None
+                        and captcha_assist_patched
                     ):
                         # adapter 契约违背：不当 pause 处理，按旧语义全量落库。
                         workflow.logger.warning(
                             "ignoring malformed captcha_pause "
                             "(resume_index=%d, items=%d, results=%d)",
-                            pause.resume_index,
+                            batch_output.captcha_pause.resume_index,
                             len(remaining_items),
                             len(batch_output.results),
                         )
-                        pause = None
                     prefix = (
                         batch_output.results[: pause.resume_index]
                         if pause

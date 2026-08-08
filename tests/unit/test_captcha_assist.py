@@ -29,6 +29,7 @@ from workflows.activities.captcha_assist import (
     captcha_assist_start,
     captcha_assist_stop,
 )
+from workflows.activities import deepseek_adapter, tongyi_adapter, yiyan_adapter, yuanbao_adapter
 from workflows.activities.doubao_adapter import _CAPTCHA_SELECTORS, _captcha_hit
 from workflows.activities.resident_browser import browser_lock
 
@@ -201,9 +202,9 @@ def _clean_sessions():
     captcha_assist._SESSIONS.clear()
 
 
-def _input(run_pub_id: str = "run_1") -> CaptchaAssistInput:
+def _input(run_pub_id: str = "run_1", platform: str = "doubao") -> CaptchaAssistInput:
     return CaptchaAssistInput(
-        tenant_pub_id="tenant_1", run_pub_id=run_pub_id, platform="doubao",
+        tenant_pub_id="tenant_1", run_pub_id=run_pub_id, platform=platform,
         business_key="run_1-task-7", evidence_ref="file:///tmp/ev.png",
     )
 
@@ -455,3 +456,117 @@ async def test_start_fails_fast_when_unconfigured(
     with pytest.raises(ApplicationError) as excinfo2:
         await captcha_assist_start(_input("run_unconfigured"))
     assert excinfo2.value.type == "assist_not_configured"
+
+
+# ── 平台化 cleared 判定（captcha-assist-v1 门放开，2026-08-07） ───────────────────
+
+# 每平台取其 adapter _CAPTCHA_SELECTORS 词表的最末项做探针——词表单一真源在
+# 各 adapter，本测试只验证「assist 用的是该平台那张表」，不复制词表内容。
+_PLATFORM_ADAPTERS = {
+    "doubao": None,  # doubao 用文件头部已导入的 _CAPTCHA_SELECTORS
+    "deepseek": deepseek_adapter,
+    "tongyi": tongyi_adapter,
+    "yiyan": yiyan_adapter,
+    "yuanbao": yuanbao_adapter,
+}
+
+
+@pytest.mark.parametrize("platform", ["doubao", "deepseek", "tongyi", "yiyan", "yuanbao"])
+def test_platform_cleared_check_uses_platform_feature_table(platform: str) -> None:
+    mod = _PLATFORM_ADAPTERS[platform]
+    sels = mod._CAPTCHA_SELECTORS if mod is not None else _CAPTCHA_SELECTORS
+    check = captcha_assist._captcha_cleared_check_for(platform)
+    assert check is not None
+    page = _FakePage()
+    page._visible_sels = {sels[-1]}                            # wall 仍在 → 未清
+    assert check(page) is False
+    page._visible_sels = set()                                 # wall 全消失 → 已清
+    assert check(page) is True
+
+
+def test_unknown_platform_cleared_check_fail_closed() -> None:
+    """表外平台 fail-closed：无 cleared 判定（bridge 恒未清），靠超时回退。"""
+    assert captcha_assist._captcha_cleared_check_for("obscure-platform") is None
+
+
+async def test_session_cleared_check_follows_input_platform(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """会话默认 cleared_check 按 input.platform 查表解析：tongyi 会话用通义
+    特征判清（sentinel 在 _run 建桥时解析，doubao 行为与旧版逐字节一致）。"""
+    sel = tongyi_adapter._CAPTCHA_SELECTORS[-1]
+    page = _FakePage()
+    page._visible_sels = {sel}
+    _wire(monkeypatch, tmp_path, [page])
+    started = await captcha_assist_start(_input("run_ty", platform="tongyi"))
+    assert started.pushed is True
+    rec = json.loads(next(tmp_path.glob("*.json")).read_text(encoding="utf-8"))
+    assert rec["platform"] == "tongyi"
+    url = f"http://127.0.0.1:{rec['port']}"
+    assert (await asyncio.to_thread(_http_json, f"{url}/status"))["cleared"] is False
+    page._visible_sels = set()
+    assert (await asyncio.to_thread(_http_json, f"{url}/status"))["cleared"] is True
+
+
+async def test_session_unknown_platform_cleared_stays_false(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """表外平台会话：无任何 wall 可见也绝不报已清（fail-closed）。"""
+    _wire(monkeypatch, tmp_path, [_FakePage()])
+    await captcha_assist_start(_input("run_unk", platform="obscure-platform"))
+    rec = json.loads(next(tmp_path.glob("*.json")).read_text(encoding="utf-8"))
+    url = f"http://127.0.0.1:{rec['port']}"
+    assert (await asyncio.to_thread(_http_json, f"{url}/status"))["cleared"] is False
+
+
+# ── 事件循环不阻塞（async activity 的同步阻塞段走 asyncio.to_thread） ─────────────
+
+
+def test_activities_stay_async_for_direct_await_callers() -> None:
+    """activity 签名必须保持 async def：scripts/drill_captcha_assist.py 等
+    直接 await 本 activity（to_thread 化在内部，对外零感知）。"""
+    assert asyncio.iscoroutinefunction(captcha_assist_start)
+    assert asyncio.iscoroutinefunction(captcha_assist_stop)
+
+
+async def test_start_stop_do_not_block_event_loop(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """sess.start 就绪等（最长 30s）与 stop 的 join（最长 15s）若跑在事件循环
+    上会吊死同 loop 其它 coroutine（batch heartbeat 30s 饥饿竞争位）。探针
+    tick 在 start/stop 全程应持续推进——tick 数远大于阻塞时长对应的上限。"""
+    page = _FakePage(captcha_visible=True)
+    _wire(monkeypatch, tmp_path, [page])
+    real_start = captcha_assist.AssistSession.start
+    real_stop = captcha_assist.AssistSession.stop
+
+    def _slow_start(self, **kw):               # 同步阻塞模拟 CDP attach 慢
+        time.sleep(0.4)
+        return real_start(self, **kw)
+
+    def _slow_stop(self):                      # 同步阻塞模拟会话线程 join 慢
+        time.sleep(0.4)
+        return real_stop(self)
+
+    monkeypatch.setattr(captcha_assist.AssistSession, "start", _slow_start)
+    monkeypatch.setattr(captcha_assist.AssistSession, "stop", _slow_stop)
+
+    ticks = 0
+    halt = asyncio.Event()
+
+    async def _ticker() -> None:
+        nonlocal ticks
+        while not halt.is_set():
+            ticks += 1
+            await asyncio.sleep(0.02)
+
+    ticker = asyncio.create_task(_ticker())
+    try:
+        started = await captcha_assist_start(_input("run_noblock"))
+        await captcha_assist_stop(
+            CaptchaAssistStopInput(run_pub_id="run_noblock", session_id=started.session_id))
+    finally:
+        halt.set()
+        await ticker
+    # 0.8s 同步阻塞若压在循环上 tick ≈ 0；to_thread 化后应持续走（0.8s/0.02s ≈ 40）
+    assert ticks >= 10
