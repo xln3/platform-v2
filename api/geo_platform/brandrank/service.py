@@ -1,0 +1,326 @@
+"""品牌可见度分析服务层：按需计算（读 analytics.answer → LLM 抽取 → 规则归并 → 指标）。
+
+数据通路（INV-1 口径延续：只读测量结果行，绝不触碰账号/profile 维）：
+- 答案：``analytics.answer``（tenant+project+时间窗+``eligible AND NOT degraded``，
+  对应旧库 answer_agg_blind 视图语义）；
+- 信源：``analytics.citation_fact``（ordinal/host/canonical_url）；
+- 项目/品牌/竞品：``platform.project/brand/competitor``（target_brand/competitors 缺省来源）。
+
+LLM 抽取缓存走 domain.brandrank.cache（runtime/ JSON 文件，键=domain+答案哈希；
+不落 PG——本包零表零 migration）。failed 条不进品牌分析但进信源分析，
+失败计数在 extraction 账目里披露（INV-32 零合成）。
+
+诚实边界：
+- LLM 未配置（GEO_BRANDRANK_LLM_API_KEY 缺失）且存在待抽取答案 → LlmDisabled
+  （API 503 llm_disabled）；全部命中缓存或窗内零答案时无需 LLM，照常返回并如实披露。
+- 窗内零答案 → insufficient=true 的空分析（如实空，不假装有数据）。
+"""
+from __future__ import annotations
+
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+import psycopg
+import structlog
+from psycopg.rows import dict_row
+
+from domain.brandrank import adapter, cache, extract, metrics
+from domain.brandrank.rules import DEFAULT_DOMAIN, DomainRules, domain_for_industry, load_domain
+
+from ..tenancy.psycopg import tenant_connection
+
+log = structlog.getLogger()
+
+_MAX_ANSWERS = 2000          # 单窗防御性上限（超出截断并披露 truncated）
+_MAX_COMPETITORS = 20        # 照旧库 api.py 口径
+MAX_TOP_NS = 8               # 照旧库 api.py 口径；top_n 取值 1..50
+
+
+class ProjectNotFound(LookupError):
+    """project 在本租户内不存在 → API 404 project_not_found（跨租户同 404，不泄露存在性）。"""
+
+
+class UnknownDomain(ValueError):
+    """显式指定的 domain 无规则包 → API 400 unknown_domain。"""
+
+
+class UnmappedIndustry(ValueError):
+    """行业有值但未映射规则包 → API 400 unmapped_industry（绝不静默回退保险包）。"""
+
+
+class LlmDisabled(RuntimeError):
+    """存在待抽取答案但 LLM 未配置 → API 503 llm_disabled（诚实降级，绝不合成）。"""
+
+    def __init__(self, status: dict[str, Any]) -> None:
+        super().__init__("llm_disabled")
+        self.status = status
+
+
+# ── DB 读取接缝（单测 monkeypatch 点；生产走真 PG）──────────────────────────
+@contextmanager
+def _platform_tenant_connection(
+    dsn: str, tenant_pub_id: str
+) -> Iterator[psycopg.Connection[Any]]:
+    """platform schema 读连接：解析 tenant uuid 并置 app.tenant_id + app.tenant_pub_id。
+
+    照 analytics/service.py 同款双 selector 口径（platform.* 表 RLS 按 app.tenant_id）。
+    """
+    with psycopg.connect(dsn, row_factory=dict_row) as connection:
+        tenant_row = connection.execute(
+            "SELECT id FROM platform.tenant WHERE pub_id=%s", (tenant_pub_id,)
+        ).fetchone()
+        if tenant_row is None:
+            raise LookupError("tenant_not_found")
+        connection.execute(
+            "SELECT set_config('app.tenant_id', %s, true), "
+            "set_config('app.tenant_pub_id', %s, true)",
+            (str(tenant_row["id"]), tenant_pub_id),
+        )
+        yield connection
+
+
+def fetch_project(dsn: str, tenant_pub_id: str, project_pub_id: str) -> dict[str, Any] | None:
+    """项目 + 品牌名列表 + 竞品名列表；不存在 → None（跨租户同 None）。
+
+    品牌/竞品只取 name（target_brand/competitors 缺省来源），不取 website 等无关列。
+    """
+    with _platform_tenant_connection(dsn, tenant_pub_id) as connection:
+        project = connection.execute(
+            """
+            SELECT id, pub_id, name FROM platform.project
+            WHERE pub_id=%s
+              AND tenant_id=NULLIF(current_setting('app.tenant_id', true), '')::uuid
+            """,
+            (project_pub_id,),
+        ).fetchone()
+        if project is None:
+            return None
+        brands = connection.execute(
+            """
+            SELECT name FROM platform.brand
+            WHERE tenant_id=NULLIF(current_setting('app.tenant_id', true), '')::uuid
+              AND project_id=%s
+            ORDER BY created_at, pub_id
+            """,
+            (project["id"],),
+        ).fetchall()
+        competitors = connection.execute(
+            """
+            SELECT name FROM platform.competitor
+            WHERE tenant_id=NULLIF(current_setting('app.tenant_id', true), '')::uuid
+              AND project_id=%s
+            ORDER BY created_at, pub_id
+            """,
+            (project["id"],),
+        ).fetchall()
+    return {
+        "pub_id": project["pub_id"],
+        "name": project["name"],
+        "brand_names": [row["name"] for row in brands],
+        "competitor_names": [row["name"] for row in competitors],
+    }
+
+
+def fetch_answers(
+    dsn: str, tenant_pub_id: str, project_pub_id: str, since: datetime
+) -> tuple[list[dict[str, Any]], bool]:
+    """本窗 eligible 答案（eligible AND NOT degraded = 旧库 answer_agg_blind 语义）。
+
+    返回 (rows, truncated)：超 _MAX_ANSWERS 截断并置标记（诚实披露，绝不静默丢）。"""
+    with tenant_connection(dsn, tenant_pub_id, row_factory=dict_row) as connection:
+        rows = connection.execute(
+            """
+            SELECT pub_id, query_text, response_text, model, region, mode, capture_time
+            FROM analytics.answer
+            WHERE tenant_pub_id=%s AND project_pub_id=%s
+              AND eligible AND NOT degraded
+              AND capture_time >= %s
+            ORDER BY capture_time, pub_id
+            LIMIT %s
+            """,
+            (tenant_pub_id, project_pub_id, since, _MAX_ANSWERS + 1),
+        ).fetchall()
+    truncated = len(rows) > _MAX_ANSWERS
+    return [dict(row) for row in rows[:_MAX_ANSWERS]], truncated
+
+
+def fetch_citations(
+    dsn: str, tenant_pub_id: str, answer_pub_ids: list[str]
+) -> dict[str, list[dict[str, Any]]]:
+    """答案的引用事实（信源分析原料）：{answer_pub_id: [{ordinal,host,url},...]}。
+
+    只取每个答案**最新一次** analysis_run 的引用：citation_fact 的 UNIQUE 键含
+    analysis_run_pub_id，重分析（新 run）会让同一 ordinal 出现多行——不收敛会把
+    信源权重重复计数（旧口径=每答案引用计一次）。answer_analysis 的 latest 口径
+    （created_at DESC,id DESC）照 analytics/service.py aggregate_competitors 先例。
+    """
+    if not answer_pub_ids:
+        return {}
+    with tenant_connection(dsn, tenant_pub_id, row_factory=dict_row) as connection:
+        rows = connection.execute(
+            """
+            WITH latest_run AS (
+              SELECT DISTINCT ON (answer_pub_id) answer_pub_id, analysis_run_pub_id
+              FROM analytics.citation_fact
+              WHERE tenant_pub_id=%s AND answer_pub_id=ANY(%s::text[])
+              ORDER BY answer_pub_id, id DESC
+            )
+            SELECT c.answer_pub_id, c.ordinal, c.host, c.canonical_url, c.original_url
+            FROM analytics.citation_fact c
+            JOIN latest_run lr ON lr.answer_pub_id=c.answer_pub_id
+                              AND lr.analysis_run_pub_id=c.analysis_run_pub_id
+            WHERE c.tenant_pub_id=%s
+            ORDER BY c.answer_pub_id, c.ordinal
+            """,
+            (tenant_pub_id, answer_pub_ids, tenant_pub_id),
+        ).fetchall()
+    out: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        out.setdefault(row["answer_pub_id"], []).append(dict(row))
+    return out
+
+
+# ── 编排 ──────────────────────────────────────────────────────────────────
+def resolve_rules(domain: str | None, industry: str | None) -> tuple[DomainRules, str]:
+    """domain 解析优先级：显式 domain > 显式 industry（fail-loud 映射）> 缺省包。
+
+    V2 项目无持久化行业字段（intake profile 无 industry 列，见 intake/contract.py），
+    故行业只能由调用方显式给出；两者都缺 → DEFAULT_DOMAIN 并如实标 domain_source。
+    """
+    if domain and domain.strip():
+        try:
+            return load_domain(domain.strip()), "explicit"
+        except ValueError as exc:
+            raise UnknownDomain(str(exc)) from exc
+    if industry and industry.strip():
+        try:
+            return load_domain(domain_for_industry(industry)), "industry"
+        except ValueError as exc:
+            raise UnmappedIndustry(str(exc)) from exc
+    return load_domain(DEFAULT_DOMAIN), "default"
+
+
+def compute_brand_visibility(
+    *,
+    dsn: str,
+    tenant_pub_id: str,
+    project_pub_id: str,
+    window_days: int,
+    domain: str | None = None,
+    industry: str | None = None,
+    category: str | None = None,
+    target_brand: str | None = None,
+    competitors: list[str] | None = None,
+    top_ns: tuple[int, ...] | None = None,
+    client_factory: Callable[[], Any] | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """按需计算品牌可见度：读窗内答案 → 缓存命中跳过 → LLM 补抽 → 指标快照。
+
+    client_factory 是测试缝（生产=extract.default_client）；返回 envelope+result 全量 dict。
+    """
+    project = fetch_project(dsn, tenant_pub_id, project_pub_id)
+    if project is None:
+        raise ProjectNotFound(project_pub_id)
+    rules, domain_source = resolve_rules(domain, industry)
+    resolved_category = (category or "").strip() or rules.category
+    resolved_top_ns = tuple(top_ns) if top_ns else metrics.DEFAULT_TOP_NS
+    resolved_target = (target_brand or "").strip() or (
+        project["brand_names"][0] if project["brand_names"] else None
+    )
+    resolved_competitors = (
+        [c.strip() for c in competitors if c.strip()][:_MAX_COMPETITORS]
+        if competitors is not None
+        else project["competitor_names"][:_MAX_COMPETITORS]
+    )
+
+    now = now or datetime.now(UTC)
+    since = now - timedelta(days=window_days)
+    answers, truncated = fetch_answers(dsn, tenant_pub_id, project_pub_id, since)
+    citations = fetch_citations(dsn, tenant_pub_id, [a["pub_id"] for a in answers])
+
+    # ── 抽取：缓存命中（同 domain 同文本）跳过；未命中批量补抽 ──
+    entries: dict[str, list[str]] = {}
+    pending: list[tuple[dict[str, Any], str]] = []
+    for answer in answers:
+        key = cache.cache_key(rules.domain, answer.get("response_text") or "")
+        hit = cache.load(key)
+        if hit is not None:
+            entries[answer["pub_id"]] = list(hit["brands"])
+        else:
+            pending.append((answer, key))
+
+    cfg = extract.load_config()
+    model = cfg[3] if cfg else None
+    n_ok_new = n_failed_new = 0
+    if pending:
+        if cfg is None:
+            raise LlmDisabled(extract.llm_status(rules))
+        factory = client_factory or extract.default_client
+        client = factory()
+        tasks = [(i, a.get("response_text") or "", resolved_category) for i, (a, _k) in
+                 enumerate(pending)]
+        for idx, brands, error in extract.extract_brands_batch(
+                client, tasks, model=model or "", rules=rules):
+            answer, key = pending[idx]
+            if error is None:
+                cache.store(key, brands=brands or [], model=model or "", status="ok",
+                            domain=rules.domain)
+                entries[answer["pub_id"]] = list(brands or [])
+                n_ok_new += 1
+            else:
+                cache.store(key, brands=[], model=model or "", status="failed",
+                            error=error, domain=rules.domain)
+                n_failed_new += 1
+                log.warning("brandrank_extract_failed", answer_pub_id=answer["pub_id"],
+                            error=error[:200])
+
+    # ── 组装她的 brand_list 记录（仅抽取成功条）与信源记录（全部 eligible 条）──
+    records: list[dict[str, Any]] = []
+    source_records: list[dict[str, Any]] = []
+    n_failed_total = 0
+    for answer in answers:
+        thinking_mode = adapter.mode_label(answer.get("mode") or "")
+        for citation in citations.get(answer["pub_id"], []):
+            source_records.append({
+                **adapter.citation_to_source_entry(citation),
+                "thinking_mode": thinking_mode,
+                "ip": answer.get("region") or "",
+            })
+        brands = entries.get(answer["pub_id"])
+        if brands is None:
+            n_failed_total += 1                      # 无缓存=抽取失败，诚实剔除（INV-32）
+            continue
+        records.append(adapter.answer_to_brand_record(answer, brands))
+
+    result = metrics.analyze(
+        records, source_records, rules=rules,
+        target_brand=resolved_target, competitors=resolved_competitors,
+        top_ns=resolved_top_ns)
+    result["insufficient"] = len(answers) == 0       # 0 条 eligible=数据不足（照报告 T1 语义）
+    result["extraction"] = {                         # 抽取账目披露（诚实边界）
+        "n_answers": len(answers),
+        "cached_ok": len(answers) - len(pending),
+        "extracted_new": n_ok_new,
+        "failed_new": n_failed_new,
+        "failed_total": n_failed_total,
+        "llm_model": model,
+    }
+
+    return {
+        "project_pub_id": project_pub_id,
+        "project_name": project["name"],
+        "window_days": window_days,
+        "since": since.isoformat(),
+        "generated_at": now.isoformat(),
+        "domain": rules.domain,
+        "domain_source": domain_source,
+        "category": resolved_category,
+        "target_brand": resolved_target,
+        "competitors": resolved_competitors,
+        "truncated": truncated,
+        "llm": {"enabled": cfg is not None, "model": model},
+        "result": result,
+    }

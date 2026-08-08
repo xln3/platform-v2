@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from opentelemetry import context
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
+from .brandrank.router import router as brandrank_router
 from .collection.assist_router import router as assist_router
 from .collection.capability_router import router as capability_router
 from .collection.customer_account_router import router as customer_account_router
@@ -182,6 +183,7 @@ app.include_router(intake_form_router)
 app.include_router(intake_form_token_router)
 app.include_router(variants_router)
 app.include_router(post_analysis_router)
+app.include_router(brandrank_router)
 
 
 @app.get("/api/v2/health", response_model=Health, tags=["platform"], operation_id="getHealth")
