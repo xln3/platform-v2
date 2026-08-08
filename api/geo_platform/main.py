@@ -29,6 +29,7 @@ from .intake_form.router import router as intake_form_router
 from .intake_form.router import token_router as intake_form_token_router
 from .logging import configure_logging
 from .observability import instrument_app
+from .otp.router import router as otp_router
 from .post_analysis.router import router as post_analysis_router
 from .posting.router import router as posting_router
 from .projects.catalog_router import router as project_catalog_router
@@ -165,6 +166,7 @@ app.include_router(customer_router)
 app.include_router(onboarding_router)
 app.include_router(collection_router)
 app.include_router(assist_router)
+app.include_router(otp_router)
 app.include_router(schedule_router)
 app.include_router(operations_router)
 app.include_router(governance_router)

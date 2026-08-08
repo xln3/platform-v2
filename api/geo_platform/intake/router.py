@@ -12,6 +12,7 @@
 import datetime
 import hashlib
 import json
+from dataclasses import replace
 from typing import Annotated, Any
 from urllib.parse import quote
 
@@ -677,6 +678,19 @@ def delete_intake_trigger(
 # 落库纪律（照旧版 + 零合成）：profile 只填**当前为空**的字段并记 prefilled provenance；
 # 无 promo 时才建 product≤3 + company≤1 草稿；问法收录 draft ≤20 条；词表 fail-closed
 # 已在 research._filter_vocab 完成（丢弃值在响应 dropped 里披露）。
+@router.get("/{project_pub_id}/intake/research-models")
+def intake_research_models(
+    project_pub_id: str,
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """前端 AI 面板的调研模型下拉清单（GEO_RESEARCH_LLM_MODELS，缺省模型恒在首位）。"""
+    principal.require("intake:read")
+    repository = TenantRepository(session, principal.tenant_pub_id)
+    _project(session, repository.tenant.id, project_pub_id)
+    return {"models": research.available_models(get_settings())}
+
+
 @router.post("/{project_pub_id}/intake/ai-research")
 def intake_ai_research(
     project_pub_id: str,
@@ -688,7 +702,12 @@ def intake_ai_research(
     repository = TenantRepository(session, principal.tenant_pub_id)
     project = _project(session, repository.tenant.id, project_pub_id, lock=True)
     hints = {"website": body.website} if body.website else None
-    config = research.config_from_settings(get_settings())
+    settings = get_settings()
+    try:
+        model = research.resolve_research_model(settings, body.model)
+    except research.ResearchModelNotAllowed:
+        raise HTTPException(status_code=400, detail={"code": "model_not_allowed"}) from None
+    config = replace(research.config_from_settings(settings), model=model)
     try:
         result = research.research_brand_fields(body.brand, hints, config=config)
     except research.ResearchDisabled:

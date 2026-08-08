@@ -310,6 +310,7 @@ class TriggerListView(StrictModel):
 class AiResearchRequest(StrictModel):
     brand: str = Field(min_length=1, max_length=200)
     website: str | None = Field(default=None, max_length=500)
+    model: str | None = Field(default=None, max_length=120)
 
     @field_validator("brand", mode="after")
     @classmethod
@@ -317,6 +318,17 @@ class AiResearchRequest(StrictModel):
         v = value.strip()
         if not v:
             raise ValueError("brand_required")
+        assert_secret_free(v)
+        return v
+
+    @field_validator("model", mode="after")
+    @classmethod
+    def check_model(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        v = value.strip()
+        if not v:
+            return None
         assert_secret_free(v)
         return v
 

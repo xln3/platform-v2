@@ -1,14 +1,19 @@
+import json
 import os
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+import httpx
 import psycopg
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from geo_platform.analytics.service import AnalyticsService
+from geo_platform.config import get_settings
 from geo_platform.evidence.object_store import ContentAddressedObjectStore
 from geo_platform.evidence.service import EvidenceService
 from geo_platform.identity.policy import Principal, Role, get_principal
+from geo_platform.reports import narrative
 from geo_platform.s02_routers import router
 
 from domain.evidence.provenance import AccessClass, CaptureChannel, RedactedProvenance
@@ -997,3 +1002,142 @@ def test_s02_router_bundle_exposes_tenant_scoped_safe_analytics_and_evidence() -
         "独立复核未发现足以改写原裁决的新证据",
         True,
     )
+
+
+def test_s02_report_ai_draft_model_selection_and_output_capability(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AI 起草端点：报告独立模型清单、temperature 规则、不发 max token 字段、
+    输出不过滤（反编造为提示词层纪律+人工确认门）、503/400/404 诚实降级。"""
+    suffix = uuid4().hex
+    tenant = f"tnt_{suffix[:20]}"
+    tenant_id = uuid4()
+    user_id = uuid4()
+    user_pub_id = f"usr_analyst_{suffix[:12]}"
+    subject = f"analyst-subject-{suffix}"
+    captured = datetime.now(UTC)
+    with psycopg.connect(POSTGRES_DSN) as connection:
+        connection.execute(
+            """
+            INSERT INTO platform.tenant (id,pub_id,name,state,created_at,updated_at)
+            VALUES (%s,%s,'AI draft tenant','active',%s,%s)
+            """,
+            (tenant_id, tenant, captured, captured),
+        )
+        connection.execute(
+            """
+            INSERT INTO platform.app_user (id,pub_id,subject,display_name,is_service_account,created_at)
+            VALUES (%s,%s,%s,'AI draft analyst',false,%s)
+            """,
+            (user_id, user_pub_id, subject, captured),
+        )
+        connection.execute(
+            """
+            INSERT INTO platform.membership (id,pub_id,tenant_id,user_id,role,state,revoked_at,created_at)
+            VALUES (%s,%s,%s,%s,'analyst','active',NULL,%s)
+            """,
+            (uuid4(), f"mbr_{suffix[:12]}", tenant_id, user_id, captured),
+        )
+        connection.commit()
+
+    app = FastAPI()
+    app.include_router(router)
+    client = TestClient(app)
+    app.dependency_overrides[get_principal] = lambda: Principal(
+        subject=subject,
+        role=Role.ANALYST,
+        tenant_pub_id=tenant,
+        user_pub_id=user_pub_id,
+    )
+
+    canned_text = "品牌提及数为 1 次，样本边界内保持保守判断。具体份额以完整报告数据为准。"
+    seen_requests: list[dict] = []
+
+    def fake_factory(config: object, base_url: str) -> httpx.Client:
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen_requests.append(json.loads(request.content.decode()))
+            return httpx.Response(
+                200,
+                json={"choices": [{"message": {"content": canned_text}}]},
+            )
+
+        return httpx.Client(
+            transport=httpx.MockTransport(handler), base_url="http://llm.test/v1"
+        )
+
+    monkeypatch.setenv("GEO_RESEARCH_LLM_API_KEY", "test-key")
+    monkeypatch.setattr(narrative, "_default_client_factory", fake_factory)
+    get_settings.cache_clear()
+    try:
+        report = client.post(
+            "/api/v2/reports",
+            json={
+                "project_pub_id": f"prj_{suffix}",
+                "title": "AI 起草测试报告",
+                "window_start": captured.isoformat(),
+                "window_end": (captured + timedelta(seconds=1)).isoformat(),
+                "filters": {},
+                "metric_version": "metrics-v2",
+                "scorer_version": "scorer-v2",
+                "fact_rows": [{"metric": "mention_count", "value": 1}],
+                "components": [{"component_type": "section", "title": "执行摘要", "body": "占位。"}],
+            },
+        )
+        assert report.status_code == 201, report.text
+        report_pub_id = report.json()["report_pub_id"]
+
+        # 模型清单 = 报告独立真源（GEO_REPORT_LLM_MODELS 缺省七项，首项缺省）
+        models = client.get("/api/v2/reports/ai-draft-models")
+        assert models.status_code == 200
+        assert models.json() == {
+            "models": [
+                "deep-deepseek-v4-flash",
+                "deep-deepseek-v4-pro",
+                "claude-opus-5",
+                "gpt-5.6-sol",
+                "gemini-3.6-flash",
+                "baidu-glm-5.2",
+                "moonshot-kimi-k3",
+            ]
+        }
+
+        # 显式选 Kimi K3：请求只带 model/messages——不发 temperature、不发 max token 字段
+        drafted = client.post(
+            f"/api/v2/reports/{report_pub_id}/ai-draft",
+            json={"title": "执行摘要", "model": "moonshot-kimi-k3"},
+        )
+        assert drafted.status_code == 200, drafted.text
+        assert drafted.json()["model"] == "moonshot-kimi-k3"
+        assert seen_requests[-1]["model"] == "moonshot-kimi-k3"
+        assert "temperature" not in seen_requests[-1]
+        assert "max_tokens" not in seen_requests[-1]
+        assert "max_completion_tokens" not in seen_requests[-1]
+        # 提示词纪律钉死：客户语言 + 禁内部术语 + 只依据冻结指标
+        system_msg = seen_requests[-1]["messages"][0]["content"]
+        assert "客户语言" in system_msg
+        assert "不要臆造" in system_msg
+        # 输出原样透传（不过滤；反编造=提示词纪律+人工确认门）
+        assert drafted.json()["body"] == canned_text
+
+        # 缺省模型 = 清单首项
+        defaulted = client.post(
+            f"/api/v2/reports/{report_pub_id}/ai-draft", json={"title": "执行摘要"}
+        )
+        assert defaulted.status_code == 200
+        assert defaulted.json()["model"] == "deep-deepseek-v4-flash"
+        assert "temperature" not in seen_requests[-1]
+
+        rejected = client.post(
+            f"/api/v2/reports/{report_pub_id}/ai-draft",
+            json={"title": "执行摘要", "model": "gpt-5.6-luna"},
+        )
+        assert rejected.status_code == 400
+        assert rejected.json()["detail"]["code"] == "model_not_allowed"
+
+        missing = client.post(
+            "/api/v2/reports/rpt_nonexistent/ai-draft", json={"title": "执行摘要"}
+        )
+        assert missing.status_code == 404
+    finally:
+        get_settings.cache_clear()
+        app.dependency_overrides.clear()

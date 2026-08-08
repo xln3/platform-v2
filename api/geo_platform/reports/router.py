@@ -1,13 +1,14 @@
 # ruff: noqa: B008
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from hashlib import sha256
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 from psycopg.rows import dict_row
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -18,10 +19,12 @@ from geo_platform.evidence.service import EvidenceService
 
 from ..config import get_settings
 from ..identity.policy import Principal, Role, get_principal
+from ..intake import research
 from ..tenancy.database import get_db
 from ..tenancy.models import Membership, Tenant, User
 from ..tenancy.psycopg import tenant_connection
 from ..tenancy.repository import set_tenant_context
+from . import narrative
 from .service import ReportRevisionIdempotencyConflict, ReportRevisionIncomplete, ReportService
 
 router = APIRouter(prefix="/api/v2/reports", tags=["reports"])
@@ -89,6 +92,31 @@ class ActionUpdate(StrictModel):
 class EffectRetestCreate(StrictModel):
     measured_at: datetime
     result: dict[str, Any]
+
+
+class AiDraftRequest(StrictModel):
+    title: str = Field(min_length=1, max_length=200)
+    model: str | None = Field(default=None, max_length=120)
+
+    @field_validator("title", mode="after")
+    @classmethod
+    def check_title(cls, value: str) -> str:
+        v = value.strip()
+        if not v:
+            raise ValueError("title_required")
+        assert_secret_free(v)
+        return v
+
+    @field_validator("model", mode="after")
+    @classmethod
+    def check_model(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        v = value.strip()
+        if not v:
+            return None
+        assert_secret_free(v)
+        return v
 
 
 class ReportSummary(StrictModel):
@@ -653,6 +681,42 @@ def create_effect_retest(
         recorded_by_pub_id=principal.actor_pub_id,
     )
     return {"effect_retest_pub_id": retest_pub_id}
+
+
+# ══ AI 起草（LLM 散文层；不落库——草稿由前端以 source='ai' 走不可变版本 + 人工确认门）══
+# 静态路由必须先于 /{report_pub_id} 声明；模型清单 = 报告独立真源 GEO_REPORT_LLM_MODELS
+# （与 intake 调研清单互不影响，每个功能独立选模型）。
+@router.get("/ai-draft-models")
+def list_ai_draft_models(principal: Principal = Depends(get_principal)) -> dict[str, Any]:
+    principal.require("project:read")
+    return {"models": narrative.available_report_models(get_settings())}
+
+
+@router.post("/{report_pub_id}/ai-draft")
+def ai_draft_report_section(
+    report_pub_id: str,
+    body: AiDraftRequest,
+    principal: Principal = Depends(get_principal),
+) -> dict[str, Any]:
+    principal.require("report:write")
+    settings = get_settings()
+    try:
+        model = narrative.resolve_report_model(settings, body.model)
+    except narrative.ReportModelNotAllowed:
+        raise HTTPException(status_code=400, detail={"code": "model_not_allowed"}) from None
+    config = replace(research.config_from_settings(settings), model=model)
+    try:
+        title, facts = narrative.load_frozen_facts(_dsn(), principal.tenant_pub_id, report_pub_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail={"code": "report_not_found"}) from exc
+    try:
+        return narrative.draft_section(
+            report_title=title, section_title=body.title, facts=facts, config=config
+        )
+    except narrative.ReportNarrativeDisabled:
+        raise HTTPException(status_code=503, detail={"code": "llm_disabled"}) from None
+    except narrative.ReportNarrativeFailed as exc:
+        raise HTTPException(status_code=502, detail={"code": "ai_draft_failed"}) from exc
 
 
 @router.get("", response_model=ReportPage)

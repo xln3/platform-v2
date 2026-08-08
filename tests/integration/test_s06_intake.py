@@ -316,8 +316,8 @@ def test_trigger_questions_dedup_and_draft_freeze(
     assert client.delete(f"{base}/{second_pub}", headers=customer).status_code == 404
 
 
-def _mock_llm_payload() -> dict[str, object]:
-    inner = {
+def _mock_llm_data() -> dict[str, object]:
+    return {
         "company_name": "示例科技",
         "industry": "互联网 / 软件",
         "description": "一句话简介",
@@ -360,6 +360,10 @@ def _mock_llm_payload() -> dict[str, object]:
         "sources": [{"title": "官网", "url": "https://ai.example"}],
         "summary": "调研小结",
     }
+
+
+def _mock_llm_payload() -> dict[str, object]:
+    inner = _mock_llm_data()
     return {
         "output": [
             {
@@ -482,6 +486,86 @@ def test_ai_research_prefills_only_empty_fields(
         profile2 = client.get(profile_url, headers=customer).json()
         assert profile2["website"] == "https://user.example"
         assert profile2["wechat"] == "example-mp"
+    finally:
+        get_settings.cache_clear()
+
+
+def test_ai_research_model_selection(
+    intake_env: tuple[TestClient, str, dict[str, str], dict[str, str], str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, _, customer, _, project = intake_env
+    seen: list[tuple[str, dict]] = []  # (path, request_body)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode())
+        seen.append((request.url.path, body))
+        if request.url.path.endswith("/chat/completions"):
+            # gemini *-search 传输：chat/completions 形状
+            return httpx.Response(
+                200,
+                json={
+                    "choices": [
+                        {"message": {"content": json.dumps(_mock_llm_data(), ensure_ascii=False)}}
+                    ],
+                    "usage": {"prompt_tokens": 100, "completion_tokens": 50},
+                },
+            )
+        return httpx.Response(200, json=_mock_llm_payload())
+
+    def fake_build_client(config: research.LlmConfig, base_url: str) -> httpx.Client:
+        return httpx.Client(
+            transport=httpx.MockTransport(handler),
+            base_url="http://llm.test/v1",
+            headers={"Authorization": f"Bearer {config.api_key}"},
+        )
+
+    monkeypatch.setenv("GEO_RESEARCH_LLM_API_KEY", "test-key")
+    monkeypatch.setenv("GEO_RESEARCH_LLM_MODELS", "gpt-5.5, gpt-5.4, gemini-2.5-flash-search")
+    monkeypatch.setattr(research, "_build_client", fake_build_client)
+    get_settings.cache_clear()
+    try:
+        # 模型清单端点：缺省模型恒在首位，去白名单化裁剪
+        listed = client.get(
+            f"/api/v2/projects/{project}/intake/research-models", headers=customer
+        )
+        assert listed.status_code == 200
+        assert listed.json() == {
+            "models": ["gpt-5.6-luna", "gpt-5.5", "gpt-5.4", "gemini-2.5-flash-search"]
+        }
+
+        # 显式选择白名单内模型 → 请求体与响应均落所选模型（gpt 走 Responses）
+        ok = client.post(
+            f"/api/v2/projects/{project}/intake/ai-research",
+            headers=customer,
+            json={"brand": "示例科技", "model": "gpt-5.5"},
+        )
+        assert ok.status_code == 200, ok.text
+        assert ok.json()["model"] == "gpt-5.5"
+        assert seen[0][0] == "/v1/responses"
+        assert seen[0][1]["model"] == "gpt-5.5"
+
+        # gemini *-search 系 → 自动切 /chat/completions（搜索内建，不带 tools）
+        gemini = client.post(
+            f"/api/v2/projects/{project}/intake/ai-research",
+            headers=customer,
+            json={"brand": "示例科技", "model": "gemini-2.5-flash-search"},
+        )
+        assert gemini.status_code == 200, gemini.text
+        assert gemini.json()["model"] == "gemini-2.5-flash-search"
+        assert seen[-1][0] == "/v1/chat/completions"
+        assert seen[-1][1]["model"] == "gemini-2.5-flash-search"
+        assert "tools" not in seen[-1][1]
+
+        # 白名单外模型 → 400 model_not_allowed（不发 LLM 请求）
+        rejected = client.post(
+            f"/api/v2/projects/{project}/intake/ai-research",
+            headers=customer,
+            json={"brand": "示例科技", "model": "gemini-2.5-pro-search"},
+        )
+        assert rejected.status_code == 400
+        assert rejected.json()["error"]["code"] == "model_not_allowed"
+        assert len(seen) == 2
     finally:
         get_settings.cache_clear()
 

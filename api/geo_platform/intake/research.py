@@ -1,7 +1,9 @@
 """AI 联网调研（旧 server/geosys/intake/ai_research.py 的 httpx 移植版）。
 
-口径：OpenAI Responses API（POST {base}/responses，**非流式**）+ 宿主 ``web_search`` 工具
-（搜索+开网页一体，信源走 url_citation 标注），模型把品牌公开信息结构化为严格 JSON，
+口径：双传输——gpt 系走 OpenAI Responses API（POST {base}/responses，**非流式**）+
+宿主 ``web_search`` 工具（搜索+开网页一体，信源走 url_citation 标注）；gemini *-search
+后缀系走 ``/chat/completions``（Google grounding 搜索内建于模型，不带 tools，20260808
+生产网关实测真联网）。模型把品牌公开信息结构化为严格 JSON，
 供客户信息表（profile/promo/trigger）草稿预填。多轮补缺 loop：每轮后盘点仍空字段定向追问，
 直到填满、模型确认公开渠道查不到（unavailable）、或达 max_rounds（缺省 3，硬上限 5）。
 
@@ -52,6 +54,34 @@ _WEB_SEARCH_TOOLS: list[dict[str, Any]] = [
 
 class ResearchDisabled(RuntimeError):
     """GEO_RESEARCH_LLM_API_KEY 未配置 → API 503 llm_disabled。"""
+
+
+class ResearchModelNotAllowed(RuntimeError):
+    """请求模型不在 GEO_RESEARCH_LLM_MODELS 允许清单内 → API 400 model_not_allowed。"""
+
+
+def available_models(settings: Settings) -> list[str]:
+    """前端可选调研模型清单：GEO_RESEARCH_LLM_MODELS 逗号分隔，缺省模型恒在首位。
+
+    两类可入清单（均需实测真联网）：gpt-5.x 系（Responses API + web_search）、
+    gemini *-search 后缀系（/chat/completions，搜索内建）。
+    """
+    configured = settings.research_llm_model.strip() or _DEFAULT_MODEL
+    models = [m.strip() for m in settings.research_llm_models.split(",") if m.strip()]
+    if configured not in models:
+        models.insert(0, configured)
+    return models[:10]
+
+
+def resolve_research_model(settings: Settings, requested: str | None) -> str:
+    """校验并解析本次调研用模型：空 = 缺省；不在清单 → ResearchModelNotAllowed。"""
+    allowed = available_models(settings)
+    candidate = (requested or "").strip()
+    if not candidate:
+        return allowed[0]
+    if candidate not in allowed:
+        raise ResearchModelNotAllowed(candidate)
+    return candidate
 
 
 class ResearchFailed(RuntimeError):
@@ -221,6 +251,13 @@ def _extract_json(text: str) -> dict[str, Any]:
         raise ResearchFailed("AI 输出 JSON 解析失败") from e
 
 
+def _is_chat_search_model(model: str) -> bool:
+    """gemini *-search 后缀模型：联网搜索内建于模型（Google grounding），走
+    /chat/completions 且不带 tools 参数（20260808 生产网关实测真联网）。"""
+    name = model.strip().lower()
+    return name.startswith("gemini-") and name.endswith("-search")
+
+
 def _run_once(
     client: httpx.Client,
     model: str,
@@ -229,8 +266,43 @@ def _run_once(
     instructions: str = SYSTEM_PROMPT,
     tools: list[dict[str, Any]] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, str]], dict[str, int]]:
-    """单轮非流式 Responses 调用 → (data, sources, usage)；HTTP 错误原样上抛由调用方定重试。
-    tools=None 时带宿主 web_search（联网调研）；tools=[] 时不带任何工具（纯生成）。"""
+    """单轮非流式调用 → (data, sources, usage)；HTTP 错误原样上抛由调用方定重试。
+    双传输：gpt 系走 Responses API + 宿主 web_search（tools=None 默认带）；
+    gemini *-search 系走 /chat/completions（搜索内建，不带 tools），sources 取
+    模型按提示词回填的 JSON sources 字段。"""
+    if _is_chat_search_model(model):
+        chat_body: dict[str, Any] = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": instructions},
+                {"role": "user", "content": user_msg},
+            ],
+        }
+        # 参数最小化：不发 temperature/max_tokens
+        resp = client.post("/chat/completions", json=chat_body)
+        resp.raise_for_status()
+        chat_payload: dict[str, Any] = resp.json()
+        choices = chat_payload.get("choices") or []
+        chat_text = ""
+        if choices and isinstance(choices[0], dict):
+            chat_text = str((choices[0].get("message") or {}).get("content") or "").strip()
+        if not chat_text:
+            raise ResearchFailed("AI 未返回任何文本内容")
+        data = _extract_json(chat_text)
+        chat_sources: list[dict[str, str]] = []
+        if isinstance(data.get("sources"), list):
+            chat_sources = [s for s in data["sources"] if isinstance(s, dict)]
+        chat_usage_raw = chat_payload.get("usage") or {}
+        chat_usage = {
+            "input_tokens": int(
+                chat_usage_raw.get("prompt_tokens") or chat_usage_raw.get("input_tokens") or 0
+            ),
+            "output_tokens": int(
+                chat_usage_raw.get("completion_tokens") or chat_usage_raw.get("output_tokens") or 0
+            ),
+        }
+        return data, chat_sources, chat_usage
+
     body: dict[str, Any] = {
         "model": model,
         "instructions": instructions,
