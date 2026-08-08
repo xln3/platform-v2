@@ -327,4 +327,34 @@ describe('createExperienceLoader', () => {
     await expect(createExperienceLoader(fixture)()).resolves.toEqual({ kind: 'forbidden' });
     expect(getValidatedIdentityHeaders()).toBeNull();
   });
+
+  it('derives validated request headers from the session when no browser hints exist', async () => {
+    // 生产 cookie 会话（operations-web 登录只写 cookie，不写 localStorage hints）：
+    //  mutation guard 依赖 getValidatedIdentityHeaders() 非空，否则静默拦截一切写操作。
+    //  无 hints 且无 fixture 时才走到会话探测（等价于生产 VITE_ALLOW_CONTRACT_FIXTURES=false）。
+    installStorage({});
+    getIdentitySession.mockResolvedValue({
+      kind: 'ready',
+      session: {
+        tenant_pub_id: 'tnt_cookie',
+        user_pub_id: 'usr_cookie',
+        role: 'customer',
+        permissions: [],
+      },
+      projects: {
+        data: [{ pub_id: 'prj_cookie', name: 'Cookie 会话项目', status: 'active' }],
+        next_cursor: null,
+      },
+    });
+
+    await expect(createExperienceLoader()()).resolves.toMatchObject({
+      kind: 'ready',
+      value: { projectPubId: 'prj_cookie', source: 'live' },
+    });
+    expect(getValidatedIdentityHeaders()).toEqual({
+      'X-Tenant-Id': 'tnt_cookie',
+      'X-Actor-Id': 'usr_cookie',
+      'X-Actor-Role': 'customer',
+    });
+  });
 });

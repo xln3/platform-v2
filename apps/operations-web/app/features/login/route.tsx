@@ -73,13 +73,13 @@ export default function OperationsLoginRoute() {
         GEO Platform
       </a>
       <section className="operations-login-card" aria-labelledby="operations-login-title">
-        <span className="operations-login-eyebrow">Operations Web</span>
+        <span className="operations-login-eyebrow">GEO Platform</span>
         <h1 id="operations-login-title">
-          {experience?.source === 'live' ? '内部会话已建立' : '内部人员登录'}
+          {experience?.source === 'live' ? '平台会话已建立' : 'GEO 平台登录'}
         </h1>
         {experience?.source === 'live' ? (
           <>
-            <p>当前浏览器已经通过内部账号验证，可以进入运营首页发起采集并处理执行任务。</p>
+            <p>当前浏览器已经通过平台账号验证，可以进入运营工作台发起采集并处理执行任务。</p>
             <a className="operations-login-submit" href={OPERATIONS_HOME}>
               进入运营工作台
             </a>
@@ -87,7 +87,7 @@ export default function OperationsLoginRoute() {
         ) : (
           <>
             <p>
-              使用现有内部邮箱账户登录并进入运营首页。账号密码只提交给同源认证接口，不写入浏览器存储。
+              使用平台账号邮箱登录，登录成功后进入运营工作台。账号密码只提交给同源认证接口，不写入浏览器存储。
             </p>
             <form onSubmit={(event) => void submit(event)}>
               <label htmlFor="operations-login-email">邮箱</label>

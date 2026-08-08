@@ -65,6 +65,7 @@ import {
   getIntakeFormSchema,
   getIntakeProfile,
   getIntakeProfileDocx,
+  getIntakeResearchModels,
   getReport,
   getReportArtifact,
   isReportVersionPubId,
@@ -137,6 +138,7 @@ import {
   useCustomerMutationGuard,
   type CustomerAccountMutationTicket,
 } from './account-mutation-guard';
+import './ai-dock.css';
 
 const nav = [
   { id: 'home', label: '首页' },
@@ -9298,9 +9300,14 @@ function IntakeWorkspace() {
     if (!ticket) return;
     setResearchState('running');
     setResearchResult(null);
+    const selectedModel = readAiOperationModel('intake-research');
     const result = await runIntakeAiResearch(
       projectPubId,
-      { brand: value.brand, ...(value.website ? { website: value.website } : {}) },
+      {
+        brand: value.brand,
+        ...(value.website ? { website: value.website } : {}),
+        ...(selectedModel ? { model: selectedModel } : {}),
+      },
       headers,
     );
     if (!researchWrite.finish(ticket)) return;
@@ -9753,55 +9760,182 @@ function Placeholder({ active }: { active: string }) {
   );
 }
 
+// ══ AI 操作右栏（20260807 起）：可展开/折叠，列出所有使用 AI 的操作；══════════════
+// 每个操作带下拉抽屉（<details>）选择模型。模型清单由服务端下发
+// （GEO_RESEARCH_LLM_MODELS 为唯一真源），选择记忆在 localStorage（geo.ai.model.<opId>），
+// 提交时由对应工作区读取。
+const aiDockExpandedKey = 'geo.ai.dock.expanded';
+const aiOperationModelKey = (opId: string) => `geo.ai.model.${opId}`;
+
+type AiOperation = Readonly<{ id: string; label: string; description: string }>;
+const aiOperations: readonly AiOperation[] = [
+  {
+    id: 'intake-research',
+    label: 'AI 一键调研预填',
+    description: '联网调研品牌公开信息，预填客户信息表的空字段（绝不覆盖已确认内容）。',
+  },
+];
+
+const readAiDockStorage = (key: string): string => {
+  try {
+    return localStorage.getItem(key)?.trim() ?? '';
+  } catch {
+    return '';
+  }
+};
+const writeAiDockStorage = (key: string, value: string): void => {
+  try {
+    if (value) localStorage.setItem(key, value);
+    else localStorage.removeItem(key);
+  } catch {
+    // 隐私模式等写失败仅影响记忆，不影响功能
+  }
+};
+
+/** 工作区提交 AI 操作时读取面板选中的模型；空 = 服务端缺省模型。 */
+export const readAiOperationModel = (opId: string): string =>
+  readAiDockStorage(aiOperationModelKey(opId));
+
+function AiOpsDock() {
+  const experience = useOptionalExperienceContext();
+  const live = experience?.source === 'live' && Boolean(experience?.projectPubId);
+  const [expanded, setExpanded] = useState(() => readAiDockStorage(aiDockExpandedKey) !== '0');
+  const [models, setModels] = useState<readonly string[]>([]);
+  const [pinned, setPinned] = useState(() => readAiOperationModel('intake-research'));
+  useEffect(() => {
+    if (!live || !experience?.projectPubId) {
+      setModels([]);
+      return;
+    }
+    const headers = getValidatedIdentityHeaders();
+    if (!headers) return;
+    const projectPubId = experience.projectPubId;
+    let cancelled = false;
+    void getIntakeResearchModels(projectPubId, headers).then((result) => {
+      if (!cancelled && result.kind === 'ready') setModels(result.data);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [experience, live]);
+  const toggle = () => {
+    setExpanded((current) => {
+      writeAiDockStorage(aiDockExpandedKey, current ? '0' : '1');
+      return !current;
+    });
+  };
+  const effective = pinned && models.includes(pinned) ? pinned : (models[0] ?? '');
+  const choose = (opId: string, model: string) => {
+    // 选中缺省模型（清单首位）时清除记忆，跟随服务端缺省漂移
+    const next = model === models[0] ? '' : model;
+    writeAiDockStorage(aiOperationModelKey(opId), next);
+    setPinned(next);
+  };
+  return (
+    <aside className={expanded ? 'ai-dock ai-dock-open' : 'ai-dock'} aria-label="AI 操作面板">
+      <button
+        type="button"
+        className="ai-dock-toggle"
+        onClick={toggle}
+        aria-expanded={expanded}
+        aria-label={expanded ? '收起 AI 面板' : '展开 AI 面板'}
+      >
+        {expanded ? '收起 AI 面板 ›' : '‹ AI'}
+      </button>
+      {expanded ? (
+        <div className="ai-dock-body">
+          <h2 className="ai-dock-title">AI 操作</h2>
+          <p className="ai-dock-subtitle">系统内所有使用 AI 的操作；点开可为每个操作单独选模型。</p>
+          {aiOperations.map((op) => (
+            <details key={op.id} className="ai-op" open={aiOperations.length === 1}>
+              <summary>
+                <span>{op.label}</span>
+                <span className="ai-op-model">{pinned || '默认模型'}</span>
+              </summary>
+              <div className="ai-op-body">
+                <p>{op.description}</p>
+                <label>
+                  调研模型
+                  <select
+                    aria-label={`${op.label}模型选择`}
+                    value={effective}
+                    disabled={models.length === 0}
+                    onChange={(event) => choose(op.id, event.target.value)}
+                  >
+                    {models.length ? (
+                      models.map((model, index) => (
+                        <option key={model} value={model}>
+                          {index === 0 ? `${model}（默认）` : model}
+                        </option>
+                      ))
+                    ) : (
+                      <option value="">
+                        {live ? '模型清单加载中…' : '登录真实项目后可选模型'}
+                      </option>
+                    )}
+                  </select>
+                </label>
+              </div>
+            </details>
+          ))}
+        </div>
+      ) : null}
+    </aside>
+  );
+}
+
 export default function Shell() {
   const experience = useOptionalExperienceContext();
   return (
-    <ProductShell
-      product="Customer Web"
-      title="客户工作台"
-      description="从项目资料到监测、证据、报告与平台账号授权的安全协作入口。"
-      nav={experience?.source === 'live' ? liveNav : nav}
-      probe={getHealth}
-    >
-      {(active) =>
-        experience?.source === 'live' &&
-        ![
-          'home',
-          'profile',
-          'intake',
-          'assets',
-          'monitoring',
-          'accounts',
-          'questions',
-          'evidence',
-          'reports',
-          'members',
-        ].includes(active) ? (
-          <StatePanel state="insufficient" />
-        ) : active === 'home' ? (
-          <HomeWorkspace />
-        ) : active === 'monitoring' ? (
-          <Monitoring />
-        ) : active === 'accounts' ? (
-          <Accounts />
-        ) : active === 'profile' ? (
-          <ProfileWorkspace />
-        ) : active === 'intake' ? (
-          <IntakeWorkspace />
-        ) : active === 'assets' ? (
-          <AssetsWorkspace />
-        ) : active === 'questions' ? (
-          <QuestionsWorkspace />
-        ) : active === 'evidence' ? (
-          <EvidenceWorkspace />
-        ) : active === 'reports' ? (
-          <ReportsWorkspace />
-        ) : active === 'members' ? (
-          <MembersWorkspace />
-        ) : (
-          <Placeholder active={active} />
-        )
-      }
-    </ProductShell>
+    <>
+      <ProductShell
+        product="Customer Web"
+        title="客户工作台"
+        description="从项目资料到监测、证据、报告与平台账号授权的安全协作入口。"
+        nav={experience?.source === 'live' ? liveNav : nav}
+        probe={getHealth}
+      >
+        {(active) =>
+          experience?.source === 'live' &&
+          ![
+            'home',
+            'profile',
+            'intake',
+            'assets',
+            'monitoring',
+            'accounts',
+            'questions',
+            'evidence',
+            'reports',
+            'members',
+          ].includes(active) ? (
+            <StatePanel state="insufficient" />
+          ) : active === 'home' ? (
+            <HomeWorkspace />
+          ) : active === 'monitoring' ? (
+            <Monitoring />
+          ) : active === 'accounts' ? (
+            <Accounts />
+          ) : active === 'profile' ? (
+            <ProfileWorkspace />
+          ) : active === 'intake' ? (
+            <IntakeWorkspace />
+          ) : active === 'assets' ? (
+            <AssetsWorkspace />
+          ) : active === 'questions' ? (
+            <QuestionsWorkspace />
+          ) : active === 'evidence' ? (
+            <EvidenceWorkspace />
+          ) : active === 'reports' ? (
+            <ReportsWorkspace />
+          ) : active === 'members' ? (
+            <MembersWorkspace />
+          ) : (
+            <Placeholder active={active} />
+          )
+        }
+      </ProductShell>
+      <AiOpsDock />
+    </>
   );
 }

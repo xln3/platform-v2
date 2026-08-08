@@ -48,6 +48,25 @@ describe('Report Studio', () => {
     vi.unstubAllGlobals();
   });
 
+  it('renders the collapsible AI operations dock with a per-operation model drawer', async () => {
+    const user = userEvent.setup();
+    localStorage.removeItem('geo.ai.dock.expanded');
+    localStorage.removeItem('geo.ai.model.report-draft');
+    renderShell();
+    // 默认展开：列出 AI 操作与当前模型徽章；fixture 环境下模型下拉禁用
+    expect(screen.getByLabelText('AI 操作面板')).toBeTruthy();
+    expect(screen.getByText('AI 操作')).toBeTruthy();
+    expect(screen.getByText('默认模型')).toBeTruthy();
+    const select = screen.getByLabelText('AI 起草报告章节模型选择') as HTMLSelectElement;
+    expect(select.disabled).toBe(true);
+    // 折叠后清单消失、状态记忆到 localStorage；再展开恢复
+    await user.click(screen.getByRole('button', { name: '收起 AI 面板' }));
+    expect(screen.queryByText('AI 操作')).toBeNull();
+    expect(localStorage.getItem('geo.ai.dock.expanded')).toBe('0');
+    await user.click(screen.getByRole('button', { name: '展开 AI 面板' }));
+    expect(screen.getByText('AI 操作')).toBeTruthy();
+  });
+
   it('freezes facts, traces a KPI and distinguishes AI from human edits', async () => {
     const user = userEvent.setup();
     renderShell();

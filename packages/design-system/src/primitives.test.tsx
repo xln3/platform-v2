@@ -10,8 +10,11 @@ import {
   downloadSafeGeneratedFile,
   ExperienceProvider,
   type ExperienceLoadResult,
+  identitySessionHintStorageKeys,
+  logoutPlatformSession,
   MetricGrid,
   Pagination,
+  platformLoginHref,
   ProjectionLimitNotice,
   ProductShell,
   projectSafePdfPageViewport,
@@ -26,6 +29,11 @@ import {
   type VerifiedBlobDownloadResult,
   useExperienceContext,
 } from './index';
+
+const { logoutIdentitySessionMock } = vi.hoisted(() => ({
+  logoutIdentitySessionMock: vi.fn(async () => true),
+}));
+vi.mock('@geo/api-client', () => ({ logoutIdentitySession: logoutIdentitySessionMock }));
 
 afterEach(() => {
   cleanup();
@@ -834,5 +842,86 @@ describe('shared experience primitives', () => {
     expect(screen.getByRole('alert').textContent).toBe('保存失败');
     rerender(<Toast>保存成功</Toast>);
     expect(screen.getByRole('status').textContent).toBe('保存成功');
+  });
+});
+
+describe('platform session lifecycle UX', () => {
+  it('offers a re-login entry on the forbidden state panel', () => {
+    render(<StatePanel state="forbidden" />);
+
+    const link = screen.getByRole('link', { name: '重新登录' });
+    expect(link.getAttribute('href')).toBe(platformLoginHref);
+    expect(platformLoginHref).toBe('/platform/operations/login');
+  });
+
+  it('keeps other data states free of the re-login entry', () => {
+    render(<StatePanel state="failed" onRetry={() => undefined} />);
+
+    expect(screen.queryByRole('link', { name: '重新登录' })).toBeNull();
+    expect(screen.getByRole('button', { name: '重试此区域' })).toBeTruthy();
+  });
+
+  it('revokes the session, clears identity hints only and navigates to the login entry', async () => {
+    const order: string[] = [];
+    const revoke = vi.fn(async () => {
+      order.push('revoke');
+      return true;
+    });
+    const navigate = vi.fn((href: string) => {
+      order.push(`navigate:${href}`);
+    });
+    window.localStorage.setItem('geo.session.tenant', 'tnt_hint');
+    window.localStorage.setItem('geo.session.actor', 'usr_hint');
+    window.localStorage.setItem('geo.session.role', 'customer');
+    window.localStorage.setItem('geo.preference.panel', 'kept');
+
+    await logoutPlatformSession(revoke, navigate);
+
+    expect(revoke).toHaveBeenCalledOnce();
+    for (const key of identitySessionHintStorageKeys) {
+      expect(window.localStorage.getItem(key)).toBeNull();
+    }
+    expect(window.localStorage.getItem('geo.preference.panel')).toBe('kept');
+    expect(order).toEqual(['revoke', `navigate:${platformLoginHref}`]);
+  });
+
+  it('still clears identity hints and navigates when revocation fails', async () => {
+    const navigate = vi.fn();
+    window.localStorage.setItem('geo.session.actor', 'usr_hint');
+
+    await logoutPlatformSession(
+      async () => {
+        throw new Error('network down');
+      },
+      navigate,
+    );
+
+    expect(window.localStorage.getItem('geo.session.actor')).toBeNull();
+    expect(navigate).toHaveBeenCalledWith(platformLoginHref);
+  });
+
+  it('signs out from the shared shell topbar through the audited logout boundary', async () => {
+    logoutIdentitySessionMock.mockClear();
+    logoutIdentitySessionMock.mockResolvedValue(true);
+    window.localStorage.setItem('geo.session.role', 'admin');
+    render(
+      <ProductShell
+        product="Customer Web"
+        title="客户工作台"
+        description="安全工作区"
+        nav={[{ id: 'home', label: '首页' }]}
+        probe={async () => ({ status: 'ok' })}
+      >
+        {() => <section>安全业务内容</section>}
+      </ProductShell>,
+    );
+
+    const button = screen.getByRole('button', { name: '退出登录' });
+    fireEvent.click(button);
+
+    await waitFor(() => expect(logoutIdentitySessionMock).toHaveBeenCalledOnce());
+    await waitFor(() =>
+      expect(window.localStorage.getItem('geo.session.role')).toBeNull(),
+    );
   });
 });

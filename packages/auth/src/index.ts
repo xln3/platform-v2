@@ -6,6 +6,7 @@ import {
 import {
   containsClientSecret,
   containsUnsafeClientControlCharacter,
+  identitySessionHintStorageKeys,
   scrubClientStorage,
   type ExperienceContextValue,
   type ExperienceLoadResult,
@@ -52,7 +53,7 @@ const safeProjectLabel = (value: string | undefined): string =>
   value && isSafeProjectedValue(value, 120) ? value : '未命名项目';
 const allowContractFixtures =
   import.meta.env.DEV || import.meta.env.VITE_ALLOW_CONTRACT_FIXTURES === 'true';
-const sessionHintKeys = ['geo.session.tenant', 'geo.session.actor', 'geo.session.role'] as const;
+const sessionHintKeys = identitySessionHintStorageKeys;
 const sessionHintKeySet = new Set<string>(sessionHintKeys);
 
 function readBrowserHints(fixture?: ExperienceFixture): {
@@ -161,7 +162,14 @@ export function createExperienceLoader(
     ) {
       return { kind: 'forbidden' };
     }
-    validatedRequestHeaders = { ...headers };
+    // Cookie-only sessions carry no localStorage hints; derive the identity triple from the
+    // validated session so mutation guards can fingerprint the actor. In native_session mode
+    // the API authenticates by cookie and ignores these headers, so projection is safe.
+    validatedRequestHeaders = {
+      'X-Tenant-Id': headers['X-Tenant-Id'] ?? result.session.tenant_pub_id,
+      'X-Actor-Id': headers['X-Actor-Id'] ?? result.session.user_pub_id,
+      'X-Actor-Role': headers['X-Actor-Role'] ?? result.session.role,
+    };
     const project = result.projects.data[0];
     const projectPubId = project && isSafeProjectedValue(project.pub_id, 120) ? project.pub_id : '';
     return {

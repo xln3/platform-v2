@@ -853,9 +853,34 @@ async function boundGeoApiJsonResponse(
   return response;
 }
 
+/**
+ * Production bundles never transmit browser identity headers: native_session authenticates by
+ * cookie, and every other production identity mode rejects these headers outright, so sending
+ * them only leaks actor claims into logs and violates the zero-actor-header browser invariant.
+ * The validated triple stays in @geo/auth memory as a local mutation-guard fingerprint. Fixture
+ * builds (vite dev / e2e) keep transmitting them for the contract-fixture identity flow.
+ */
+export type BrowserBuildIdentityEnv = {
+  DEV?: boolean;
+  VITE_ALLOW_CONTRACT_FIXTURES?: string;
+};
+
+export const allowsFixtureIdentityHeaders = (
+  env: BrowserBuildIdentityEnv | undefined,
+): boolean => env?.DEV === true || env?.VITE_ALLOW_CONTRACT_FIXTURES === 'true';
+
 async function secureGeoApiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const source = new Request(input, init);
   const headers = new Headers(source.headers);
+  if (
+    !allowsFixtureIdentityHeaders(
+      (import.meta as ImportMeta & { env?: BrowserBuildIdentityEnv }).env,
+    )
+  ) {
+    headers.delete('X-Tenant-Id');
+    headers.delete('X-Actor-Id');
+    headers.delete('X-Actor-Role');
+  }
   const artifactMatch =
     /^\/api\/v2\/reports\/[^/]+\/versions\/[^/]+\/artifacts\/(docx|html|pdf|xlsx)$/.exec(
       new URL(source.url).pathname,
@@ -1221,6 +1246,25 @@ export async function getIdentitySession(
       : { kind: 'unavailable' };
   } catch {
     return { kind: 'unavailable' };
+  }
+}
+
+/**
+ * Revokes the current native session. The logout endpoint is intentionally excluded from the
+ * generated OpenAPI surface, so this wrapper drives the audited secure fetch boundary directly
+ * instead of the typed client. Best-effort by contract: returns whether the server acknowledged
+ * the revocation (204), and never throws — callers must always continue local cleanup.
+ */
+export async function logoutIdentitySession(
+  request: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> = secureGeoApiFetch,
+): Promise<boolean> {
+  try {
+    const response = await request(`${configuredApiBase}/api/v2/identity/logout`, {
+      method: 'POST',
+    });
+    return response.status === 204;
+  } catch {
+    return false;
   }
 }
 
@@ -5810,6 +5854,52 @@ export async function publishReport(
   }
 }
 
+export type ReportAiDraft = { body: string; model: string };
+
+/** AI 起草章节散文（不落库；前端以 source='ai' 走不可变版本 + 人工确认门）。 */
+export async function draftReportSection(
+  reportPubId: string,
+  body: { title: string; model?: string },
+  headers: IdentitySessionHeaders,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<ProjectResourceResult<ReportAiDraft>> {
+  try {
+    const result = await projectedApiClient(client).POST(
+      '/api/v2/reports/{report_pub_id}/ai-draft',
+      {
+        params: { path: { report_pub_id: reportPubId }, header: headers },
+        body: { title: body.title, ...(body.model ? { model: body.model } : {}) },
+      },
+    );
+    if (!result.data) return classifyResourceFailure(result.response.status);
+    const candidate = result.data as Record<string, unknown>;
+    const draftBody = safeBrowserString(candidate.body, 32768);
+    const model = safeBrowserString(candidate.model, 120);
+    return draftBody && model
+      ? { kind: 'ready', data: { body: draftBody, model } }
+      : { kind: 'unavailable' };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+/** AI 起草模型下拉清单（与 intake 调研同一 GEO_RESEARCH_LLM_MODELS 真源）。 */
+export async function getReportAiDraftModels(
+  headers: IdentitySessionHeaders,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<ProjectResourceResult<string[]>> {
+  try {
+    const result = await projectedApiClient(client).GET('/api/v2/reports/ai-draft-models', {
+      params: { header: headers },
+    });
+    if (!result.data) return classifyResourceFailure(result.response.status);
+    const projected = projectIntakeResearchModels(result.data);
+    return projected ? { kind: 'ready', data: projected } : { kind: 'unavailable' };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
 export async function createReportAction(
   reportPubId: string,
   body: ReportActionCreate,
@@ -10233,7 +10323,7 @@ export async function deleteIntakeTrigger(
 /** 同步长调用（最长 5 轮 LLM，可能 1-3 分钟）；503 llm_disabled → kind:'disabled'。 */
 export async function runIntakeAiResearch(
   projectPubId: string,
-  body: { brand: string; website?: string },
+  body: { brand: string; website?: string; model?: string },
   headers: IdentitySessionHeaders,
   client: ProjectedApiClientOverride = apiClient,
 ): Promise<IntakeAiResearchResult> {
@@ -10245,6 +10335,7 @@ export async function runIntakeAiResearch(
         body: {
           brand: body.brand,
           ...(body.website ? { website: body.website } : {}),
+          ...(body.model ? { model: body.model } : {}),
         },
       },
     );
@@ -10253,6 +10344,39 @@ export async function runIntakeAiResearch(
       return classifyResourceFailure(result.response.status);
     }
     const projected = projectIntakeAiResearch(result.data);
+    return projected ? { kind: 'ready', data: projected } : { kind: 'unavailable' };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+const projectIntakeResearchModels = (value: unknown): string[] | null => {
+  if (!isBrowserRecord(value) || !Array.isArray(value.models)) return null;
+  if (value.models.length === 0 || value.models.length > 10) return null;
+  const models: string[] = [];
+  for (const entry of value.models) {
+    const model = safeBrowserString(entry, 120);
+    if (!model) return null;
+    models.push(model);
+  }
+  return models;
+};
+
+/** 调研模型下拉清单（服务端 GEO_RESEARCH_LLM_MODELS 为唯一真源，缺省模型恒在首位）。 */
+export async function getIntakeResearchModels(
+  projectPubId: string,
+  headers: IdentitySessionHeaders,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<ProjectResourceResult<string[]>> {
+  try {
+    const result = await projectedApiClient(client).GET(
+      '/api/v2/projects/{project_pub_id}/intake/research-models',
+      {
+        params: { path: { project_pub_id: projectPubId }, header: headers },
+      },
+    );
+    if (!result.data) return classifyResourceFailure(result.response.status);
+    const projected = projectIntakeResearchModels(result.data);
     return projected ? { kind: 'ready', data: projected } : { kind: 'unavailable' };
   } catch {
     return { kind: 'unavailable' };

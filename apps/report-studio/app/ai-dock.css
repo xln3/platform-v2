@@ -1,0 +1,113 @@
+/* AI 操作右栏：可展开/折叠；每个 AI 操作一个 <details> 下拉抽屉选模型。 */
+.ai-dock {
+  position: fixed;
+  right: 16px;
+  top: 88px;
+  /* 必须低于 .modal-backdrop(30)：否则浮层会盖住弹窗关闭按钮并拦截点击。 */
+  z-index: 25;
+  width: 44px;
+  font-size: 14px;
+}
+.ai-dock-open {
+  width: 300px;
+}
+.ai-dock-toggle {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+  color: var(--green);
+  padding: 8px 6px;
+  box-shadow: 0 6px 24px rgb(24 34 31 / 0.12);
+}
+.ai-dock:not(.ai-dock-open) .ai-dock-toggle {
+  writing-mode: vertical-rl;
+  letter-spacing: 2px;
+}
+.ai-dock-body {
+  margin-top: 8px;
+  max-height: calc(100vh - 170px);
+  overflow: auto;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px 16px;
+  box-shadow: 0 10px 32px rgb(24 34 31 / 0.14);
+}
+.ai-dock-title {
+  margin: 0;
+  font-size: 15px;
+  color: var(--ink);
+}
+.ai-dock-subtitle {
+  margin: 4px 0 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.ai-op {
+  border-top: 1px solid var(--line);
+  padding: 8px 0 10px;
+}
+.ai-op summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+  font-weight: 600;
+  color: var(--ink);
+}
+.ai-op summary::-webkit-details-marker {
+  display: none;
+}
+.ai-op summary::after {
+  content: '▸';
+  color: var(--muted);
+}
+.ai-op[open] summary::after {
+  content: '▾';
+}
+.ai-op-model {
+  margin-left: auto;
+  margin-right: 6px;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 400;
+  font-size: 12px;
+  color: var(--green);
+  background: var(--green-soft);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.ai-op-body p {
+  margin: 8px 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.ai-op-body label {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.ai-op-body select {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
+  padding: 6px 8px;
+}
+@media (max-width: 720px) {
+  .ai-dock {
+    right: 8px;
+    top: auto;
+    bottom: 16px;
+  }
+  .ai-dock-open {
+    width: min(300px, calc(100vw - 32px));
+  }
+}

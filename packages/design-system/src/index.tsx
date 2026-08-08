@@ -13,6 +13,16 @@ import {
 } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
+/** Browser localStorage keys that carry identity hints in fixture mode; production never persists them. */
+export const identitySessionHintStorageKeys = [
+  'geo.session.tenant',
+  'geo.session.actor',
+  'geo.session.role',
+] as const;
+
+/** Unified platform sign-in entry shared by every product shell and session-expired surface. */
+export const platformLoginHref = '/platform/operations/login';
+
 export type ExperienceContextValue = {
   tenantPubId: string;
   tenantLabel: string;
@@ -1023,6 +1033,11 @@ export function StatePanel({
         <button className="button button-secondary" onClick={onRetry}>
           重试此区域
         </button>
+      ) : null}
+      {state === 'forbidden' ? (
+        <a className="button button-secondary" href={platformLoginHref}>
+          重新登录
+        </a>
       ) : null}
     </section>
   );
@@ -2323,6 +2338,33 @@ export function AccountSummary({ account }: { account: AccountSummaryProjection 
   );
 }
 
+/**
+ * Best-effort platform sign-out: revokes the native session server-side, clears browser identity
+ * hints (never UI preferences or other local state) and lands on the shared login entry. Local
+ * cleanup and navigation always run, even when the revocation request itself fails. The API
+ * client is imported lazily so Node-side tooling that consumes this package's source directly
+ * never evaluates the browser API boundary.
+ */
+export async function logoutPlatformSession(
+  revoke: () => Promise<unknown> = async () => {
+    const { logoutIdentitySession } = await import('@geo/api-client');
+    return logoutIdentitySession();
+  },
+  navigate: (href: string) => void = (href) => window.location.assign(href),
+): Promise<void> {
+  try {
+    await revoke();
+  } catch {
+    // Revocation is best-effort; local cleanup and navigation must still run.
+  }
+  try {
+    for (const key of identitySessionHintStorageKeys) window.localStorage.removeItem(key);
+  } catch {
+    // Storage can be unavailable; the navigation below still tears the document down.
+  }
+  navigate(platformLoginHref);
+}
+
 export function ProductShell({
   product,
   title,
@@ -2350,6 +2392,7 @@ export function ProductShell({
   const [status, setStatus] = useState('checking');
   const [contextOpen, setContextOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [logoutPending, setLogoutPending] = useState(false);
   const experience = useOptionalExperienceContext();
   const navId = useId();
   const mainRef = useRef<HTMLElement>(null);
@@ -2481,6 +2524,18 @@ export function ProductShell({
               <div className="avatar" title={experience?.userLabel}>
                 {experience?.userLabel.slice(0, 1) ?? '林'}
               </div>
+              <button
+                type="button"
+                className="session-logout"
+                disabled={logoutPending}
+                onClick={() => {
+                  if (logoutPending) return;
+                  setLogoutPending(true);
+                  void logoutPlatformSession();
+                }}
+              >
+                {logoutPending ? '正在退出…' : '退出登录'}
+              </button>
             </div>
           </header>
           <main id="main-content" ref={mainRef} tabIndex={-1}>

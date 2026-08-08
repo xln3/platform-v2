@@ -353,6 +353,9 @@ importers:
 
   packages/design-system:
     dependencies:
+      '@geo/api-client':
+        specifier: workspace:*
+        version: link:../api-client
       '@tanstack/react-query':
         specifier: ^5.101.4
         version: 5.101.4(react@19.2.8)

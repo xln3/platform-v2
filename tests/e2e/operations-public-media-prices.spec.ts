@@ -41,7 +41,7 @@ test('the operations login page reports rejected email credentials in place', as
       const requestUrl =
         typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       if (
-        new URL(requestUrl, globalThis.location.origin).pathname === '/auth/login' &&
+        new URL(requestUrl, globalThis.location.origin).pathname === '/api/v2/identity/login' &&
         (init?.method ?? 'GET').toUpperCase() === 'POST'
       ) {
         const response = new Response(JSON.stringify({ error: 'invalid_credentials' }), {
@@ -61,7 +61,7 @@ test('the operations login page reports rejected email credentials in place', as
   await page.goto('/platform/operations/login');
   await page.getByLabel('邮箱').fill('operator@example.com');
   await page.getByLabel('密码').fill('wrong-test-password');
-  await page.getByRole('button', { name: '登录并进入比价台' }).click();
+  await page.getByRole('button', { name: '登录并进入运营工作台' }).click();
 
   await expect(page.getByRole('alert')).toHaveText('邮箱或密码错误。');
   await expect(page).toHaveURL(/\/platform\/operations\/login$/);

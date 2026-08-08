@@ -13,6 +13,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@geo/api-client": "workspace:*",
     "@tanstack/react-query": "^5.101.4",
     "react": "19.2.8"
   },

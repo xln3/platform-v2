@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   admitEvaluatedModel,
+  allowsFixtureIdentityHeaders,
   approveEvaluationDataset,
   authorizeCustomerAccount,
   bindOidcIdentity,
@@ -68,6 +69,7 @@ import {
   loadProjectReportCatalog,
   listResponsibleMembers,
   listSopProjects,
+  logoutIdentitySession,
   publishReport,
   projectCustomerAccountView,
   projectCustomerEventView,
@@ -5612,6 +5614,12 @@ describe('posting batch browser boundary', () => {
       quoted_total_amount: '88.00',
       status: 'queued',
       note: '',
+      sop_project_pub_id: null,
+      article_version_pub_id: null,
+      approval_state: 'approved',
+      approval_requested_by_pub_id: 'usr_test',
+      approved_by_pub_id: 'usr_test',
+      approved_at: '2026-07-29T08:00:00Z',
       created_by_pub_id: 'usr_test',
       created_at: '2026-07-29T08:00:00Z',
       updated_at: '2026-07-29T08:00:00Z',
@@ -7628,5 +7636,96 @@ describe('post analysis browser boundary', () => {
         client,
       ),
     ).resolves.toEqual({ kind: 'forbidden' });
+  });
+});
+
+describe('identity logout boundary', () => {
+  it('posts the native logout endpoint to the same-origin API base by default', async () => {
+    const request = vi.fn(async () => new Response(null, { status: 204 }));
+
+    await expect(logoutIdentitySession(request)).resolves.toBe(true);
+
+    expect(request).toHaveBeenCalledOnce();
+    expect(request).toHaveBeenCalledWith('/api/v2/identity/logout', { method: 'POST' });
+  });
+
+  it('reports a non-acknowledging revocation response without throwing', async () => {
+    const request = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ detail: { code: 'session_expired' } }), {
+          status: 401,
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+
+    await expect(logoutIdentitySession(request)).resolves.toBe(false);
+  });
+
+  it('never throws when the revocation transport fails', async () => {
+    const request = vi.fn(async () => {
+      throw new TypeError('network down');
+    });
+
+    await expect(logoutIdentitySession(request)).resolves.toBe(false);
+  });
+});
+
+describe('production identity header boundary', () => {
+  const identityHeaders: IdentitySessionHeaders = {
+    'X-Tenant-Id': 'tnt_safe',
+    'X-Actor-Id': 'usr_safe',
+    'X-Actor-Role': 'customer',
+  };
+  const recordIdentityHeaderPresence = () => {
+    const sent: boolean[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const request = input as Request;
+        sent.push(
+          request.headers.has('X-Tenant-Id') ||
+            request.headers.has('X-Actor-Id') ||
+            request.headers.has('X-Actor-Role'),
+        );
+        const body = request.url.endsWith('/identity/session')
+          ? {
+              tenant_pub_id: 'tnt_safe',
+              user_pub_id: 'usr_safe',
+              role: 'customer',
+              permissions: [],
+            }
+          : { data: [], page: { next_cursor: null, has_more: false } };
+        return new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }),
+    );
+    return sent;
+  };
+
+  it('keeps fixture identity headers on the wire in development and e2e builds', async () => {
+    const sent = recordIdentityHeaderPresence();
+
+    const result = await getIdentitySession(
+      identityHeaders,
+      createGeoApiClient('https://geo.example'),
+    );
+
+    expect(result.kind).toBe('ready');
+    expect(sent.length).toBeGreaterThan(0);
+    expect(sent.every((present) => present)).toBe(true);
+  });
+
+  it('strips browser identity headers when the build env is a production bundle', () => {
+    expect(allowsFixtureIdentityHeaders({ DEV: false })).toBe(false);
+    expect(allowsFixtureIdentityHeaders({ DEV: false, VITE_ALLOW_CONTRACT_FIXTURES: '' })).toBe(
+      false,
+    );
+    expect(allowsFixtureIdentityHeaders(undefined)).toBe(false);
+    expect(allowsFixtureIdentityHeaders({ DEV: true })).toBe(true);
+    expect(
+      allowsFixtureIdentityHeaders({ DEV: false, VITE_ALLOW_CONTRACT_FIXTURES: 'true' }),
+    ).toBe(true);
   });
 });

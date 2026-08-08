@@ -184,6 +184,11 @@ button {
 .top-actions button {
   min-width: 24px;
 }
+.top-actions .session-logout {
+  white-space: nowrap;
+  font-size: 13px;
+  padding: 0 6px;
+}
 .top-actions {
   display: flex;
   align-items: center;
