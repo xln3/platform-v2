@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily GEO Platform V2 production backup
+
+[Timer]
+# 03:22 + up to 10 min jitter: fires between 03:22 and 03:32, never on the hour.
+OnCalendar=*-*-* 03:22:00
+RandomizedDelaySec=600
+FixedRandomDelay=true
+Persistent=true
+
+[Install]
+WantedBy=timers.target
