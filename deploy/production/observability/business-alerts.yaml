@@ -103,6 +103,24 @@ groups:
           service: s02-worker
         annotations:
           summary: Completed collections await analysis admission
+      - alert: GeoAnalyticsOutboxBacklog
+        expr: sum(geo_business_analytics_outbox_backlog) > 0
+        for: 5m
+        labels:
+          severity: warning
+          category: analysis
+          service: outbox-worker
+        annotations:
+          summary: Analytics outbox events are not being projected
+      - alert: GeoAnalyticsOutboxQuarantined
+        expr: sum(geo_business_analytics_outbox_quarantined) > 0
+        for: 2m
+        labels:
+          severity: critical
+          category: analysis
+          service: outbox-worker
+        annotations:
+          summary: Poisoned analytics outbox events are quarantined and await manual recovery
       - alert: GeoReportDeliveryConfirmationOverdue
         expr: geo_business_report_delivery_confirmation_overdue > 0
         for: 15m

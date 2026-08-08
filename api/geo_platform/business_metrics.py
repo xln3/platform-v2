@@ -11,6 +11,7 @@ import structlog
 from prometheus_client import Gauge, start_http_server
 from psycopg.rows import dict_row
 
+from .analytics.outbox import ANALYTICS_EVENT_TYPES
 from .config import get_settings
 from .logging import configure_logging
 
@@ -22,10 +23,24 @@ ADMISSION_REASONS = (
     "unknown",
 )
 
+# 分析 outbox 告警 label 词表：事件类型单源=analytics/outbox.py
+# ANALYTICS_EVENT_TYPES；"unknown" 是词表外事件的钳位桶（防 label 基数失控）。
+OUTBOX_EVENT_TYPE_LABELS = (*ANALYTICS_EVENT_TYPES, "unknown")
+
 COLLECTION_ANALYSIS_ADMISSION = Gauge(
     "geo_business_collection_analysis_admission_backlog",
     "Completed collection events awaiting an admitted analysis fan-out",
     ("reason",),
+)
+ANALYTICS_OUTBOX_BACKLOG = Gauge(
+    "geo_business_analytics_outbox_backlog",
+    "Analytics outbox events unpublished for at least fifteen minutes",
+    ("event_type",),
+)
+ANALYTICS_OUTBOX_QUARANTINED = Gauge(
+    "geo_business_analytics_outbox_quarantined",
+    "Analytics outbox events quarantined after repeated projection failures",
+    ("event_type",),
 )
 WORKFLOW_START_STALE = Gauge(
     "geo_business_workflow_start_stale",
@@ -73,6 +88,12 @@ class BusinessMetricsSnapshot:
     analysis_admission_backlog: dict[str, int] = field(
         default_factory=lambda: dict.fromkeys(ADMISSION_REASONS, 0)
     )
+    analytics_outbox_backlog: dict[str, int] = field(
+        default_factory=lambda: dict.fromkeys(OUTBOX_EVENT_TYPE_LABELS, 0)
+    )
+    analytics_outbox_quarantined: dict[str, int] = field(
+        default_factory=lambda: dict.fromkeys(OUTBOX_EVENT_TYPE_LABELS, 0)
+    )
 
 
 def _psycopg_dsn(value: str) -> str:
@@ -103,6 +124,11 @@ def collect_business_metrics(dsn: str) -> BusinessMetricsSnapshot:
             if reason not in ADMISSION_REASONS:
                 reason = "unknown"
             snapshot.analysis_admission_backlog[reason] += value
+        elif metric in ("analytics_outbox_backlog", "analytics_outbox_quarantined"):
+            event_type = str(row["dimension"])
+            if event_type not in OUTBOX_EVENT_TYPE_LABELS:
+                event_type = "unknown"
+            getattr(snapshot, metric)[event_type] += value
         elif metric in scalar_fields:
             setattr(snapshot, scalar_fields[metric], value)
     return snapshot
@@ -118,6 +144,13 @@ def apply_business_metrics(snapshot: BusinessMetricsSnapshot) -> None:
     for reason in ADMISSION_REASONS:
         COLLECTION_ANALYSIS_ADMISSION.labels(reason=reason).set(
             snapshot.analysis_admission_backlog[reason]
+        )
+    for event_type in OUTBOX_EVENT_TYPE_LABELS:
+        ANALYTICS_OUTBOX_BACKLOG.labels(event_type=event_type).set(
+            snapshot.analytics_outbox_backlog[event_type]
+        )
+        ANALYTICS_OUTBOX_QUARANTINED.labels(event_type=event_type).set(
+            snapshot.analytics_outbox_quarantined[event_type]
         )
     COLLECTION_SUCCESS.set(1)
     COLLECTION_LAST_SUCCESS.set(time.time())

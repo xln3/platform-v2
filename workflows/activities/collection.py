@@ -1,5 +1,6 @@
 import json
 import mimetypes
+import os
 import re
 import uuid
 from collections.abc import Callable
@@ -546,6 +547,78 @@ async def collect_with_adapter(item: CollectionTaskInput) -> CollectionTaskResul
     )
 
 
+# INV-1 合格性判定的 geo 二元来源（2026-08-08 起）：平台→静态住宅中继出口省码，
+# 由运营在 worker env ``GEO_MEASUREMENT_EXIT_GB_MAP`` 声明
+# （``slug:6位GB,slug:6位GB``，与 GEO_REGION_GB_MAP 同格式）。中继上游租约在
+# 采集时已验出口省码（wukong validate/probe），fidelity 与旧系统 lease 期观测
+# 同级；换上游必须同步更新本映射（见 deploy/production/RESIDENT-BROWSERS.md）。
+ENV_MEASUREMENT_EXIT_GB_MAP = "GEO_MEASUREMENT_EXIT_GB_MAP"
+
+
+def _measurement_exit_gb_map() -> dict[str, str]:
+    """解析 GEO_MEASUREMENT_EXIT_GB_MAP；畸形条目 fail-closed（不容忍半张图）。"""
+    raw = os.environ.get(ENV_MEASUREMENT_EXIT_GB_MAP, "").strip()
+    if not raw:
+        return {}
+    result: dict[str, str] = {}
+    for item in raw.split(","):
+        slug, sep, gb = item.strip().partition(":")
+        if not sep or not slug.strip() or not (gb.strip().isdigit() and len(gb.strip()) == 6):
+            raise ApplicationError(
+                f"{ENV_MEASUREMENT_EXIT_GB_MAP} must use slug:6-digit-gb entries",
+                type="measurement_exit_gb_map_invalid",
+                non_retryable=True,
+            )
+        result[slug.strip().lower()] = gb.strip()
+    return result
+
+
+def _measurement_geo_provenance(adapter: str) -> dict[str, str]:
+    """geo_source/observed_gb_code 二元：有声明出口→observed_gb_code；无声明→
+    unverified（measurement_eligible 判不合格，宁缺不编造，INV-1 fail-loud）。"""
+    exit_gb = _measurement_exit_gb_map().get((adapter or "").strip().lower())
+    if exit_gb is None:
+        return {"geo_source": "unverified", "observed_gb_code": ""}
+    return {"geo_source": "observed_gb_code", "observed_gb_code": exit_gb}
+
+
+def _analysis_dimensions(
+    task_input: CollectionTaskInput,
+    *,
+    run_pub_id: str,
+    config_version_pub_id: str | None,
+) -> dict[str, str]:
+    """answer_analysis fanout 的 dimensions（含 INV-1 五元 provenance 盖章）。
+
+    五元取值是 fanout 边界的结构事实：
+    - captcha_mode=not_challenged：只有采集成功（state=completed）的答案才进入
+      fanout——撞墙/撞码未解题一律 failed 落库、绝不进分析链；captcha-assist
+      人工过码后从断点重采，最终答案产自过码后的干净会话（旧系统对应
+      solved_as_human，两值同在合格集，判定结论不受影响）。
+    - degraded_flag=0：同上边界保证（wall/incomplete/软限流信号题的答案根本
+      不会持久化为 completed）。
+    - account_source=self_pool：V2 测量账号=运营自有干净号（OTP 手工注入）。
+    - rate_policy=pool_burn：V2 现行唯一采集策略（单常驻浏览器+固定地域中继+
+      真人节奏串行）满足 pool_burn 语义，系统内不存在 burst 路径；将来引入
+      第二策略时本值必须改由采集记录供给。
+    - geo 二元见 _measurement_geo_provenance。
+    """
+    return {
+        "query_text": task_input.query,
+        "model": task_input.model,
+        "region": task_input.region,
+        "mode": task_input.mode,
+        "channel": "api",
+        "run_pub_id": run_pub_id,
+        "config_version_pub_id": config_version_pub_id or "",
+        "captcha_mode": "not_challenged",
+        "degraded_flag": "0",
+        "account_source": "self_pool",
+        "rate_policy": "pool_burn",
+        **_measurement_geo_provenance(task_input.adapter),
+    }
+
+
 @activity.defn
 def publish_downstream_event(
     run_pub_id: str,
@@ -660,17 +733,13 @@ def publish_downstream_event(
                         "competitors": [item.name for item in competitors],
                         "citations": json.loads(task.citations_json or "[]"),
                         "search_queries": json.loads(task.search_queries_json or "[]"),
-                        "dimensions": {
-                            "query_text": task_input.query,
-                            "model": task_input.model,
-                            "region": task_input.region,
-                            "mode": task_input.mode,
-                            "channel": "api",
-                            "run_pub_id": run_pub_id,
-                            "config_version_pub_id": (
+                        "dimensions": _analysis_dimensions(
+                            task_input,
+                            run_pub_id=run_pub_id,
+                            config_version_pub_id=(
                                 config_version.pub_id if config_version is not None else None
                             ),
-                        },
+                        ),
                         "own_domains": [brand.website] if brand.website else [],
                         "adapter_version": task_input.adapter,
                         "capture_time": task.created_at.astimezone(UTC).isoformat(),

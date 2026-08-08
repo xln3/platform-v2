@@ -24,6 +24,11 @@
 3. 消费侧端口不变，**无需联动重启浏览器/worker**；浏览器进程的既有连接随页面
    导航自然走新上游（要立即生效可再 restart 对应 `browser@<platform>`，注意共用
    同一中继的平台会一起换）。
+4. **若上游出口城市变了**（不只是换同城市节点）：同步改
+   `/etc/geo-platform-v2/worker-adapters.env` 的 `GEO_MEASUREMENT_EXIT_GB_MAP`
+   里该平台 slug 的 6 位出口省码并 restart `geo-platform-v2-worker`——该映射是
+   INV-1 合格性判定的 geo provenance 来源（2026-08-08 起），漂移会让新答案
+   的 `observed_gb_code` 失真。
 
 换 profile / 端口 / 本地代理指向：改 `browser-<slug>.env` + `restart
 geo-platform-v2-browser@<slug>`。重启期间采集 attach 断连按

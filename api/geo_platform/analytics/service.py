@@ -15,6 +15,7 @@ from domain.evidence.dlp import assert_secret_free
 from domain.evidence.provenance import RedactedProvenance
 from domain.metrics.core import MetricRegistry
 from domain.scoring.analyzer import CitationInput, analyze_answer
+from domain.scoring.eligibility import resolve_measurement_eligibility
 from geo_platform.tenancy.ids import new_pub_id
 from geo_platform.tenancy.psycopg import tenant_connection
 
@@ -24,6 +25,39 @@ _DISPARAGEMENT_DIMENSIONS = {
     "subject_brand": "subject_brand",
     "platform": "platform",
 }
+
+# overview/competitors 读路径的 eligible 口径（与 breakdown 的 ``a.eligible`` 过滤一致）：
+# 只排除显式标记 ineligible 的 rollup；无标记的历史行（2026-08-08 前写入，
+# dimensions 无 eligible 键）继承现状视为 eligible。
+_INELIGIBLE_DIMENSIONS_FILTER = '{"eligible":"false"}'
+
+
+def _metric_daily_lock_key(
+    *,
+    tenant_pub_id: str,
+    project_pub_id: str,
+    metric_date: date,
+    metric_name: str,
+    dimensions_hash: str,
+    metric_version: str,
+    scorer_version: str,
+) -> str:
+    """metric_daily 并发 upsert 的 advisory 锁键=唯一约束列的稳定拼接。
+
+    与 ``analytics.metric_daily`` 的 ON CONFLICT 列组逐字对齐；列值内部不含
+    分隔符 ``|``（pub_id/date/hash/版本串均受控），拼接无歧义。
+    """
+    return "|".join(
+        (
+            tenant_pub_id,
+            project_pub_id,
+            metric_date.isoformat(),
+            metric_name,
+            dimensions_hash,
+            metric_version,
+            scorer_version,
+        )
+    )
 
 
 @contextmanager
@@ -96,6 +130,12 @@ class AnalyticsService:
         analysis_run_pub_id = new_pub_id("arun")
         analysis_pub_id = new_pub_id("ana")
         event_id = new_pub_id("evt")
+        # INV-1（2026-08-08 起）：eligible 不再默认 true——带五元 provenance 的
+        # 负载由 measurement_eligible 真实计算；无五元键的历史/重放负载继承现状
+        # （eligible 缺省 true、dimensions 不补键，metric dimensions_hash 零漂移）。
+        # metric_dimensions 只用于 metric_trace/metric_daily 快照与 outbox 事件
+        # payload；analyze_answer 的输入维持调用方原样。
+        eligible, degraded, metric_dimensions = resolve_measurement_eligibility(dimensions)
         with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
             persisted_answer = connection.execute(
                 """
@@ -120,8 +160,8 @@ class AnalyticsService:
                     dimensions.get("model", "unknown"),
                     dimensions.get("region", "unknown"),
                     dimensions.get("mode", "unknown"),
-                    dimensions.get("eligible", "true").lower() == "true",
-                    dimensions.get("degraded", "false").lower() == "true",
+                    eligible,
+                    degraded,
                     provenance.channel.value,
                     provenance.adapter_version,
                     provenance.capture_time,
@@ -138,8 +178,8 @@ class AnalyticsService:
                 dimensions.get("model", "unknown"),
                 dimensions.get("region", "unknown"),
                 dimensions.get("mode", "unknown"),
-                dimensions.get("eligible", "true").lower() == "true",
-                dimensions.get("degraded", "false").lower() == "true",
+                eligible,
+                degraded,
                 provenance.channel.value,
                 provenance.adapter_version,
                 provenance.capture_time,
@@ -234,7 +274,7 @@ class AnalyticsService:
             projected_metrics: list[dict[str, Any]] = []
             for metric in metrics:
                 dimensions_json = json.dumps(
-                    dimensions, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+                    metric_dimensions, ensure_ascii=False, sort_keys=True, separators=(",", ":")
                 )
                 dimensions_hash = sha256(dimensions_json.encode()).hexdigest()
                 value_sum = (
@@ -276,6 +316,25 @@ class AnalyticsService:
                         metric.state.value,
                         metric.metric_version,
                         metric.scorer_version,
+                    ),
+                )
+                # 临界区串行化（2026-08-08）：「插 trace → SUM → upsert metric_daily」
+                # 原实现无锁，同 run 多题并发（fanout 每题独立 workflow）时后提交者
+                # 用旧快照覆盖先提交者 = 丢更新。按 metric_daily 唯一键取
+                # 事务级 advisory 锁：后到者等先到者提交后再 SUM，必见全部 trace。
+                # 锁获取顺序 = 固定 metric 迭代顺序（所有事务同序），无死锁。
+                connection.execute(
+                    "SELECT pg_advisory_xact_lock(hashtext(%s))",
+                    (
+                        _metric_daily_lock_key(
+                            tenant_pub_id=tenant_pub_id,
+                            project_pub_id=project_pub_id,
+                            metric_date=metric_date,
+                            metric_name=metric.metric,
+                            dimensions_hash=dimensions_hash,
+                            metric_version=metric.metric_version,
+                            scorer_version=metric.scorer_version,
+                        ),
                     ),
                 )
                 rollup = connection.execute(
@@ -349,7 +408,7 @@ class AnalyticsService:
                     {
                         "metric_name": metric.metric,
                         "dimensions_hash": dimensions_hash,
-                        "dimensions": dimensions,
+                        "dimensions": metric_dimensions,
                         "value": str(rollup_value) if rollup_value is not None else None,
                         "numerator": rollup_numerator,
                         "denominator": rollup_denominator,
@@ -369,7 +428,7 @@ class AnalyticsService:
                     "config_version_pub_id": dimensions.get("config_version_pub_id"),
                     "query_pub_id": dimensions.get("question_pub_id"),
                     "event_time": provenance.capture_time.isoformat(),
-                    "dimensions": dimensions,
+                    "dimensions": metric_dimensions,
                     "mentioned": result.fact.mentioned,
                     "rank": result.fact.rank,
                     "sentiment": result.fact.sentiment,
@@ -458,6 +517,7 @@ class AnalyticsService:
                 WHERE tenant_pub_id=%s AND project_pub_id=%s
                   AND metric_date BETWEEN %s AND %s
                   AND dimensions @> %s::jsonb
+                  AND NOT (dimensions @> %s::jsonb)
                 GROUP BY metric_name,metric_version,scorer_version
                 ORDER BY metric_name
                 """,
@@ -467,6 +527,7 @@ class AnalyticsService:
                     start,
                     end,
                     json.dumps(dimensions),
+                    _INELIGIBLE_DIMENSIONS_FILTER,
                 ),
             ).fetchall()
         return [
@@ -565,6 +626,7 @@ class AnalyticsService:
                   WHERE tenant_pub_id=%s AND project_pub_id=%s
                     AND metric_date BETWEEN %s AND %s
                     AND dimensions @> %s::jsonb
+                    AND NOT (dimensions @> %s::jsonb)
                 ), latest_analysis AS (
                   SELECT DISTINCT ON (aa.answer_pub_id)
                     aa.answer_pub_id,aa.competitor_ranks
@@ -594,6 +656,7 @@ class AnalyticsService:
                     start,
                     end,
                     json.dumps(dimensions),
+                    _INELIGIBLE_DIMENSIONS_FILTER,
                     tenant_pub_id,
                 ),
             ).fetchall()
