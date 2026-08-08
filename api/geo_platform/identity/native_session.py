@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from ..config import get_settings
+from ..config import DEFAULT_NATIVE_AUTH_PEPPER, get_settings
 from ..tenancy.ids import new_pub_id
 
 EMAIL = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
@@ -102,10 +102,14 @@ def _legacy_subject(email: str) -> str:
     return f"legacy-metadata:{hashlib.sha256(email.casefold().encode()).hexdigest()}"
 
 
-def _password_material(value: str) -> bytes:
-    pepper = get_settings().native_auth_pepper
-    if get_settings().env in {"production", "prod"} and len(pepper) < 32:
-        raise RuntimeError("native_auth_pepper_not_configured")
+def _password_material(value: str, pepper: str | None = None) -> bytes:
+    if pepper is None:
+        settings = get_settings()
+        pepper = settings.native_auth_pepper
+        if settings.env in {"production", "prod"} and (
+            len(pepper) < 32 or pepper == DEFAULT_NATIVE_AUTH_PEPPER
+        ):
+            raise RuntimeError("native_auth_pepper_not_configured")
     return value.encode("utf-8") + b"\0" + pepper.encode("utf-8")
 
 
@@ -116,15 +120,72 @@ def _derive_password(
     n: int = SCRYPT_N,
     r: int = SCRYPT_R,
     p: int = SCRYPT_P,
+    pepper: str | None = None,
 ) -> bytes:
     return hashlib.scrypt(
-        _password_material(value),
+        _password_material(value, pepper),
         salt=salt,
         n=n,
         r=r,
         p=p,
         dklen=64,
         maxmem=128 * 1024 * 1024,
+    )
+
+
+def _verify_password_hash(
+    value: str,
+    salt: bytes,
+    expected: bytes,
+    *,
+    n: int,
+    r: int,
+    p: int,
+) -> tuple[bool, bool]:
+    """比对候选哈希，返回 (是否命中, 是否走的是旧缺省 pepper)。
+
+    当前 pepper 优先；未命中且当前 pepper 已轮换（≠旧缺省字面量）时，用旧缺省
+    再试一次——命中即由调用方按当前 pepper 惰性重hash 升级落库。显式传 pepper
+    的派生绕开生产守卫，否则生产轮换后旧哈希永远无法被读出。
+    """
+    candidate = _derive_password(value, salt, n=n, r=r, p=p)
+    if hmac.compare_digest(candidate, expected):
+        return True, False
+    if get_settings().native_auth_pepper == DEFAULT_NATIVE_AUTH_PEPPER:
+        return False, False
+    legacy = _derive_password(value, salt, n=n, r=r, p=p, pepper=DEFAULT_NATIVE_AUTH_PEPPER)
+    if hmac.compare_digest(legacy, expected):
+        return True, True
+    return False, False
+
+
+def _upgrade_pepper_credential(
+    session: Session,
+    *,
+    tenant_id: uuid.UUID,
+    user_id: uuid.UUID,
+    password: str,
+) -> None:
+    """旧缺省 pepper 命中后按当前 pepper 惰性重hash 落库（密码未改，不动既有会话）。"""
+    salt = secrets.token_bytes(32)
+    session.execute(
+        text(
+            """
+            UPDATE platform.user_password_credential
+            SET salt=:salt,password_hash=:password_hash,
+                scrypt_n=:n,scrypt_r=:r,scrypt_p=:p,password_changed_at=now()
+            WHERE tenant_id=:tenant_id AND user_id=:user_id
+            """
+        ),
+        {
+            "salt": salt,
+            "password_hash": _derive_password(password, salt),
+            "n": SCRYPT_N,
+            "r": SCRYPT_R,
+            "p": SCRYPT_P,
+            "tenant_id": tenant_id,
+            "user_id": user_id,
+        },
     )
 
 
@@ -312,14 +373,15 @@ def create_native_session(
         )
         session.commit()
         raise PermissionError("invalid_credentials")
-    candidate = _derive_password(
+    matched, legacy_pepper_hit = _verify_password_hash(
         password,
         bytes(row["salt"]),
+        bytes(row["password_hash"]),
         n=int(row["scrypt_n"]),
         r=int(row["scrypt_r"]),
         p=int(row["scrypt_p"]),
     )
-    if not hmac.compare_digest(candidate, bytes(row["password_hash"])):
+    if not matched:
         _record_attempt(
             session,
             subject_hash=subject_hash,
@@ -328,6 +390,13 @@ def create_native_session(
         )
         session.commit()
         raise PermissionError("invalid_credentials")
+    if legacy_pepper_hit:
+        _upgrade_pepper_credential(
+            session,
+            tenant_id=row["tenant_id"],
+            user_id=row["user_id"],
+            password=password,
+        )
     session.execute(
         text(
             "SELECT set_config('app.tenant_id', :tenant_id, true), "

@@ -2,6 +2,10 @@ from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# 开发缺省 pepper 字面量。生产配置相同值（或长度不足）一律 fail-loud；
+# identity/native_session.py 校验期对该旧缺省做一次性双读以完成惰性轮换。
+DEFAULT_NATIVE_AUTH_PEPPER = "development-only-native-auth-pepper-change-me"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="GEO_", env_file=".env", extra="ignore")
@@ -34,7 +38,7 @@ class Settings(BaseSettings):
     vault_transit_key_name: str = ""
     bootstrap_secret: str = "development-bootstrap"
     identity_mode: str = "trusted_headers"
-    native_auth_pepper: str = "development-only-native-auth-pepper-change-me"
+    native_auth_pepper: str = DEFAULT_NATIVE_AUTH_PEPPER
     native_session_hours: int = 12
     # Read-only source used once to upgrade an existing password into a native
     # V2 credential after the user successfully proves the original password.
@@ -60,6 +64,16 @@ class Settings(BaseSettings):
     research_llm_base_url: str = "https://aihubmix.com"
     research_llm_base_url_fallback: str = "https://api.inferera.com"
     research_llm_max_rounds: int = 3
+    # AI 调研可选模型清单（GEO_RESEARCH_LLM_MODELS，逗号分隔）：暴露给前端下拉选择；
+    # 空 = 仅缺省模型可选。缺省模型（research_llm_model）恒在清单首位。
+    research_llm_models: str = ""
+    # AI 报告起草（reports/narrative）可选模型清单（GEO_REPORT_LLM_MODELS，逗号分隔，
+    # 首项=缺省）。七项为既定选型（developlog/implementation/fix-20260807-174349.md §8），
+    # 20260808 经 aihubmix /chat/completions 逐台实测。
+    report_llm_models: str = (
+        "deep-deepseek-v4-flash,deep-deepseek-v4-pro,claude-opus-5,gpt-5.6-sol,"
+        "gemini-3.6-flash,baidu-glm-5.2,moonshot-kimi-k3"
+    )
     # CORS（GEO_CORS_ORIGINS 逗号分隔；缺省=e2e 端口 origin）。
     cors_origins: str = (
         "http://127.0.0.1:45101,http://127.0.0.1:45102,http://127.0.0.1:45103,"

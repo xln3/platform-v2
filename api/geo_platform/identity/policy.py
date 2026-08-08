@@ -283,6 +283,10 @@ def get_principal(
     if row is None:
         raise HTTPException(status_code=401, detail={"code": "membership_invalid"})
     membership, user = row
+    if settings.env in {"production", "prod"} and not user.is_service_account:
+        # 生产环境身份头路径仅放行 service-account（下方强验 token）；其他主体
+        # 一律拒绝——伪造 X-Tenant-Id/X-Actor-Id/X-Actor-Role 不得绕过 cookie 认证。
+        raise HTTPException(status_code=401, detail={"code": "identity_headers_not_allowed"})
     if user.is_service_account:
         if not x_service_token:
             raise HTTPException(status_code=401, detail={"code": "service_token_required"})
