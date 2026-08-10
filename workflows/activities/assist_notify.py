@@ -14,6 +14,7 @@ import re
 import urllib.parse
 import urllib.request
 from email.header import Header
+from typing import Any
 
 import structlog
 
@@ -30,10 +31,11 @@ def _extract_url(body: str) -> str:
 
 def _request(req: urllib.request.Request, timeout_s: float) -> bool:
     with urllib.request.urlopen(req, timeout=timeout_s) as resp:
-        return 200 <= resp.status < 300
+        status: int = resp.status  # urlopen 响应的 status 在 typeshed 为 Any，收窄为 int
+        return 200 <= status < 300
 
 
-def _json_post(url: str, payload: dict) -> urllib.request.Request:
+def _json_post(url: str, payload: dict[str, Any]) -> urllib.request.Request:
     return urllib.request.Request(
         url,
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
@@ -73,8 +75,7 @@ def push_captcha_assist(
             return _request(urllib.request.Request(f"{base}?{qs}", method="GET"), timeout_s)
         if flavor == "wecom":
             return _request(
-                _json_post(base, {"msgtype": "text",
-                                  "text": {"content": f"{title}\n{body}"}}),
+                _json_post(base, {"msgtype": "text", "text": {"content": f"{title}\n{body}"}}),
                 timeout_s,
             )
         if flavor == "ntfy":
@@ -87,8 +88,15 @@ def push_captcha_assist(
             return _request(req, timeout_s)
         if flavor == "raw":
             return _request(
-                _json_post(base, {"event": "captcha_assist", "title": title,
-                                  "body": body, "url": _extract_url(body)}),
+                _json_post(
+                    base,
+                    {
+                        "event": "captcha_assist",
+                        "title": title,
+                        "body": body,
+                        "url": _extract_url(body),
+                    },
+                ),
                 timeout_s,
             )
         log.warning("assist_notify.unknown_flavor", flavor=flavor)

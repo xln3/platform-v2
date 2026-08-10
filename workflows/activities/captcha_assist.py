@@ -69,9 +69,9 @@ log = structlog.get_logger()
 
 # 注册表目录（相对 platform-v2 仓库根）；测试 monkeypatch 本变量到 tmp_path。
 _REGISTRY_DIR = Path(__file__).resolve().parents[2] / "runtime" / "captcha-assist"
-_LOCK_TIMEOUT_S = 60.0    # assist 在 workflow 保证的串行点启动，等不到锁 = 调度出错
-_READY_WAIT_S = 30.0      # start() 等会话就绪上限（CDP attach 本地理应秒级）
-_DEFAULT_TTL_S = 4200     # 70min 兜底自杀：管理员忘接管也不留孤儿会话/不放干锁
+_LOCK_TIMEOUT_S = 60.0  # assist 在 workflow 保证的串行点启动，等不到锁 = 调度出错
+_READY_WAIT_S = 30.0  # start() 等会话就绪上限（CDP attach 本地理应秒级）
+_DEFAULT_TTL_S = 4200  # 70min 兜底自杀：管理员忘接管也不留孤儿会话/不放干锁
 
 _PLATFORM_LABELS = {
     "doubao": "豆包",
@@ -134,7 +134,7 @@ def _registry_path(ticket_hash: str) -> Path:
     return _REGISTRY_DIR / f"{ticket_hash}.json"
 
 
-def _write_registry(record: dict) -> None:
+def _write_registry(record: dict[str, Any]) -> None:
     """0600 + tmp/os.replace 原子写：API 侧永远读到完整 JSON。"""
     _REGISTRY_DIR.mkdir(parents=True, exist_ok=True)
     path = _registry_path(record["ticket_hash"])
@@ -146,9 +146,10 @@ def _write_registry(record: dict) -> None:
     os.chmod(path, 0o600)  # replace 保留 tmp 权限，这里再保险一次
 
 
-def _read_registry(ticket_hash: str) -> dict | None:
+def _read_registry(ticket_hash: str) -> dict[str, Any] | None:
     try:
-        return json.loads(_registry_path(ticket_hash).read_text(encoding="utf-8"))
+        record: dict[str, Any] = json.loads(_registry_path(ticket_hash).read_text(encoding="utf-8"))
+        return record
     except (OSError, json.JSONDecodeError):
         return None
 
@@ -165,7 +166,7 @@ def _patch_registry(ticket_hash: str, **fields: Any) -> None:
         pass
 
 
-def registry_expired(record: dict, *, now: float | None = None) -> bool:
+def registry_expired(record: dict[str, Any], *, now: float | None = None) -> bool:
     """过期判定（API 侧 done 端点与本模块共用同一口径：now >= expires_at）。"""
     return (now if now is not None else time.time()) >= float(record.get("expires_at", 0))
 
@@ -197,7 +198,7 @@ class InterventionBridge:
         {"cleared": cleared_check(page)}.  If None, cleared is always False.
     """
 
-    def __init__(self, page, *, cleared_check: Callable | None = None):
+    def __init__(self, page: Any, *, cleared_check: Callable[[Any], bool] | None = None) -> None:
         self._page = page
         self._cleared_check = cleared_check
         self._server: HTTPServer | None = None
@@ -211,7 +212,7 @@ class InterventionBridge:
         # ThreadingHTTPServer：每个连接一条 handler 线程；/input 不再排在 /frame 后面。
         # 线程安全由调用方保证——page 必须是 marshal 门面（AssistSession 即如此）。
         server = ThreadingHTTPServer(("127.0.0.1", 0), self._make_handler())
-        server.daemon_threads = True   # 关停不等在飞的 handler 线程
+        server.daemon_threads = True  # 关停不等在飞的 handler 线程
         server.allow_reuse_address = True
         self._server = server
         self.port = server.server_address[1]
@@ -232,21 +233,21 @@ class InterventionBridge:
         self.port = None
 
     # context manager support
-    def __enter__(self):
+    def __enter__(self) -> InterventionBridge:
         self.start()
         return self
 
-    def __exit__(self, *_):
+    def __exit__(self, *_: Any) -> None:
         self.stop()
 
     # ── internal helpers ──────────────────────────────────────────────────────
 
-    def _write_status(self, *, active: bool, port) -> None:
+    def _write_status(self, *, active: bool, port: int | None) -> None:
         """no-op（移植改动点）：旧链写 bridge_status.json，但 runtime/captcha-assist/
         下多会话会互相覆盖该文件；会话状态以注册表文件为唯一权威，此处不再落盘。"""
         return
 
-    def _iframe_offset(self, page) -> dict:
+    def _iframe_offset(self, page: Any) -> dict[str, float]:
         """Return {x, y} pixel offset of the verifycenter iframe on the page.
 
         Mirrors the same logic used by CdpInputActuator in captcha_actuator.
@@ -267,7 +268,7 @@ class InterventionBridge:
             pass
         return {"x": 0.0, "y": 0.0}
 
-    def _dispatch_input(self, body: dict) -> dict:
+    def _dispatch_input(self, body: dict[str, Any]) -> dict[str, Any]:
         """Actuate a drag/click via CDP (iframe offset corrected), or keyboard via page.keyboard.
 
         A new CDP session is created per call and detached after (mouse path).
@@ -298,18 +299,26 @@ class InterventionBridge:
             if itype == "click":
                 at = body.get("at", [0, 0])
                 x, y = float(at[0]) + ox, float(at[1]) + oy
-                cdp.send("Input.dispatchMouseEvent", {
-                    "type": "mousePressed",
-                    "x": x, "y": y,
-                    "button": "left",
-                    "clickCount": 1,
-                })
-                cdp.send("Input.dispatchMouseEvent", {
-                    "type": "mouseReleased",
-                    "x": x, "y": y,
-                    "button": "left",
-                    "clickCount": 1,
-                })
+                cdp.send(
+                    "Input.dispatchMouseEvent",
+                    {
+                        "type": "mousePressed",
+                        "x": x,
+                        "y": y,
+                        "button": "left",
+                        "clickCount": 1,
+                    },
+                )
+                cdp.send(
+                    "Input.dispatchMouseEvent",
+                    {
+                        "type": "mouseReleased",
+                        "x": x,
+                        "y": y,
+                        "button": "left",
+                        "clickCount": 1,
+                    },
+                )
                 return {"ok": True, "type": "click", "at": [x, y]}
 
             elif itype == "drag":
@@ -318,28 +327,38 @@ class InterventionBridge:
                 sx, sy = float(start[0]) + ox, float(start[1]) + oy
                 ex, ey = float(end[0]) + ox, float(end[1]) + oy
                 steps = 25
-                cdp.send("Input.dispatchMouseEvent", {
-                    "type": "mousePressed",
-                    "x": sx, "y": sy,
-                    "button": "left",
-                    "clickCount": 1,
-                })
+                cdp.send(
+                    "Input.dispatchMouseEvent",
+                    {
+                        "type": "mousePressed",
+                        "x": sx,
+                        "y": sy,
+                        "button": "left",
+                        "clickCount": 1,
+                    },
+                )
                 for i in range(1, steps + 1):
                     t = i / steps
-                    cdp.send("Input.dispatchMouseEvent", {
-                        "type": "mouseMoved",
-                        "x": sx + (ex - sx) * t,
-                        "y": sy + (ey - sy) * t,
+                    cdp.send(
+                        "Input.dispatchMouseEvent",
+                        {
+                            "type": "mouseMoved",
+                            "x": sx + (ex - sx) * t,
+                            "y": sy + (ey - sy) * t,
+                            "button": "left",
+                        },
+                    )
+                cdp.send(
+                    "Input.dispatchMouseEvent",
+                    {
+                        "type": "mouseReleased",
+                        "x": ex,
+                        "y": ey,
                         "button": "left",
-                    })
-                cdp.send("Input.dispatchMouseEvent", {
-                    "type": "mouseReleased",
-                    "x": ex, "y": ey,
-                    "button": "left",
-                    "clickCount": 1,
-                })
-                return {"ok": True, "type": "drag",
-                        "start": [sx, sy], "end": [ex, ey]}
+                        "clickCount": 1,
+                    },
+                )
+                return {"ok": True, "type": "drag", "start": [sx, sy], "end": [ex, ey]}
 
             else:
                 return {"ok": False, "error": f"unknown type: {itype!r}"}
@@ -349,14 +368,14 @@ class InterventionBridge:
             except Exception:
                 pass
 
-    def _make_handler(self):
+    def _make_handler(self) -> type[BaseHTTPRequestHandler]:
         bridge = self  # captured in closure
 
         class _Handler(BaseHTTPRequestHandler):
-            def log_message(self, fmt, *args):  # silence access log
+            def log_message(self, fmt: str, *args: Any) -> None:  # silence access log
                 pass
 
-            def _send_json(self, data: dict, status: int = 200):
+            def _send_json(self, data: dict[str, Any], status: int = 200) -> None:
                 body = json.dumps(data).encode()
                 self.send_response(status)
                 self.send_header("Content-Type", "application/json")
@@ -364,14 +383,14 @@ class InterventionBridge:
                 self.end_headers()
                 self.wfile.write(body)
 
-            def _send_bytes(self, data: bytes, content_type: str, status: int = 200):
+            def _send_bytes(self, data: bytes, content_type: str, status: int = 200) -> None:
                 self.send_response(status)
                 self.send_header("Content-Type", content_type)
                 self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
                 self.wfile.write(data)
 
-            def do_GET(self):
+            def do_GET(self) -> None:
                 parsed = urlparse(self.path)
                 path = parsed.path
                 if path == "/status":
@@ -381,23 +400,23 @@ class InterventionBridge:
                             cleared = bool(bridge._cleared_check(bridge._page))
                         except Exception:
                             cleared = False
-                    self._send_json({
-                        "active": True,
-                        "cleared": cleared,
-                        "port": bridge.port,
-                    })
+                    self._send_json(
+                        {
+                            "active": True,
+                            "cleared": cleared,
+                            "port": bridge.port,
+                        }
+                    )
                 elif path == "/frame":
                     try:
-                        data = bridge._page.screenshot(
-                            type="jpeg", quality=50
-                        )
+                        data = bridge._page.screenshot(type="jpeg", quality=50)
                         self._send_bytes(data, "image/jpeg")
                     except Exception as exc:
                         self._send_json({"error": str(exc)}, 503)
                 else:
                     self._send_json({"error": "not found"}, 404)
 
-            def do_POST(self):
+            def do_POST(self) -> None:
                 parsed = urlparse(self.path)
                 path = parsed.path
                 if path == "/input":
@@ -424,77 +443,81 @@ class InterventionBridge:
 # 跨线程调用即 greenlet.error（旧链生产实证：RelaySession 每个 /frame 503）。
 # 门面把 InterventionBridge 用到的 page 接口子集全部经 ``call(fn)`` 编组回
 # 持有浏览器的专属线程串行执行（AssistSession._pump_calls 泵），结果/异常回抛。
+# call(fn) -> fn(page) 在 owner 线程执行（marshal 门面通用编组函数类型）
+_MarshalCall = Callable[[Callable[[Any], Any]], Any]
+
+
 class _MarshalledPage:
     """InterventionBridge 所需的 page 接口子集，全部 marshal 回 owner 线程。"""
 
-    def __init__(self, call):
-        self._call = call          # call(fn) -> fn(page) 在 owner 线程执行
-        self._stash: dict = {}     # cdp session 等真身，键控存取（仅 owner 线程读写）
+    def __init__(self, call: _MarshalCall) -> None:
+        self._call = call  # call(fn) -> fn(page) 在 owner 线程执行
+        self._stash: dict[str, Any] = {}  # cdp session 等真身，键控存取（仅 owner 线程读写）
 
-    def screenshot(self, **kw):
+    def screenshot(self, **kw: Any) -> Any:
         return self._call(lambda page: page.screenshot(**kw))
 
-    def evaluate(self, expr, arg=None):
+    def evaluate(self, expr: str, arg: Any = None) -> Any:
         if arg is None:
             return self._call(lambda page: page.evaluate(expr))
         return self._call(lambda page: page.evaluate(expr, arg))
 
-    def wait_for_timeout(self, ms):
+    def wait_for_timeout(self, ms: float) -> Any:
         return self._call(lambda page: page.wait_for_timeout(ms))
 
-    def set_viewport_size(self, size):
+    def set_viewport_size(self, size: dict[str, int]) -> Any:
         return self._call(lambda page: page.set_viewport_size(size))
 
     @property
-    def viewport_size(self):
+    def viewport_size(self) -> Any:
         return self._call(lambda page: page.viewport_size)
 
-    def locator(self, selector):
+    def locator(self, selector: str) -> _MarshalledLocator:
         return _MarshalledLocator(self._call, selector)
 
     @property
-    def keyboard(self):
+    def keyboard(self) -> _MarshalledKeyboard:
         return _MarshalledKeyboard(self._call)
 
     @property
-    def mouse(self):
+    def mouse(self) -> _MarshalledMouse:
         return _MarshalledMouse(self._call)
 
     @property
-    def context(self):
+    def context(self) -> _MarshalledContext:
         return _MarshalledContext(self._call, self._stash)
 
 
 class _MarshalledKeyboard:
-    def __init__(self, call):
+    def __init__(self, call: _MarshalCall) -> None:
         self._call = call
 
-    def press(self, key):
+    def press(self, key: str) -> Any:
         return self._call(lambda page: page.keyboard.press(key))
 
-    def type(self, text, delay=0):
+    def type(self, text: str, delay: float = 0) -> Any:
         return self._call(lambda page: page.keyboard.type(text, delay=delay))
 
 
 class _MarshalledMouse:
     """mouse 子集（move/down/up/click/wheel）。"""
 
-    def __init__(self, call):
+    def __init__(self, call: _MarshalCall) -> None:
         self._call = call
 
-    def move(self, x, y):
+    def move(self, x: float, y: float) -> Any:
         return self._call(lambda page: page.mouse.move(x, y))
 
-    def down(self, **kw):
+    def down(self, **kw: Any) -> Any:
         return self._call(lambda page: page.mouse.down(**kw))
 
-    def up(self, **kw):
+    def up(self, **kw: Any) -> Any:
         return self._call(lambda page: page.mouse.up(**kw))
 
-    def click(self, x, y, **kw):
+    def click(self, x: float, y: float, **kw: Any) -> Any:
         return self._call(lambda page: page.mouse.click(x, y, **kw))
 
-    def wheel(self, dx, dy):
+    def wheel(self, dx: float, dy: float) -> Any:
         return self._call(lambda page: page.mouse.wheel(dx, dy))
 
 
@@ -505,32 +528,32 @@ class _MarshalledLocator:
     故无需 stash 真身。仅覆盖探测用子集：``.first`` / ``is_visible`` / ``inner_text``。
     """
 
-    def __init__(self, call, selector, *, first=False):
+    def __init__(self, call: _MarshalCall, selector: str, *, first: bool = False) -> None:
         self._call = call
         self._selector = selector
         self._first = first
 
     @property
-    def first(self):
+    def first(self) -> _MarshalledLocator:
         return _MarshalledLocator(self._call, self._selector, first=True)
 
-    def _resolve(self, page):
+    def _resolve(self, page: Any) -> Any:
         loc = page.locator(self._selector)
         return loc.first if self._first else loc
 
-    def is_visible(self, timeout=None):
+    def is_visible(self, timeout: float | None = None) -> Any:
         return self._call(lambda page: self._resolve(page).is_visible(timeout=timeout))
 
-    def inner_text(self, timeout=None):
+    def inner_text(self, timeout: float | None = None) -> Any:
         return self._call(lambda page: self._resolve(page).inner_text(timeout=timeout))
 
 
 class _MarshalledContext:
-    def __init__(self, call, stash):
+    def __init__(self, call: _MarshalCall, stash: dict[str, Any]) -> None:
         self._call = call
         self._stash = stash
 
-    def new_cdp_session(self, _page):
+    def new_cdp_session(self, _page: Any) -> _MarshalledCdp:
         return _MarshalledCdp(self._call, self._stash)
 
 
@@ -539,17 +562,16 @@ class _MarshalledCdp:
 
     _ids = itertools.count(1)
 
-    def __init__(self, call, stash):
+    def __init__(self, call: _MarshalCall, stash: dict[str, Any]) -> None:
         self._call = call
         self._stash = stash
         self._key = f"cdp_{next(type(self)._ids)}"
-        self._call(lambda page: stash.__setitem__(
-            self._key, page.context.new_cdp_session(page)))
+        self._call(lambda page: stash.__setitem__(self._key, page.context.new_cdp_session(page)))
 
-    def send(self, method, params=None):
+    def send(self, method: str, params: dict[str, Any] | None = None) -> Any:
         return self._call(lambda page: self._stash[self._key].send(method, params or {}))
 
-    def detach(self):
+    def detach(self) -> Any:
         return self._call(lambda page: self._stash.pop(self._key).detach())
 
 
@@ -576,12 +598,20 @@ class AssistSession:
         完成检测）。
     """
 
-    def __init__(self, *, platform: str, run_pub_id: str, session_id: str,
-                 ticket_hash: str, max_lifetime_s: int = _DEFAULT_TTL_S,
-                 instance_key: str | None = None,
-                 page_picker: Callable[[Any], Any] | None = None,
-                 cleared_check: Callable[[Any], bool] | None | _PlatformDefaultCheck = (
-                     _PLATFORM_DEFAULT_CHECK)):
+    def __init__(
+        self,
+        *,
+        platform: str,
+        run_pub_id: str,
+        session_id: str,
+        ticket_hash: str,
+        max_lifetime_s: int = _DEFAULT_TTL_S,
+        instance_key: str | None = None,
+        page_picker: Callable[[Any], Any] | None = None,
+        cleared_check: Callable[[Any], bool] | None | _PlatformDefaultCheck = (
+            _PLATFORM_DEFAULT_CHECK
+        ),
+    ):
         self._platform = platform
         # 浏览器矩阵化（2026-08-09 起）：锁/CDP/fence 用实例键（attach 撞码 batch
         # 的同一台常驻浏览器），撞码特征表/选页/已清判定仍按平台 slug。
@@ -596,7 +626,9 @@ class AssistSession:
         self._cleared_check = cleared_check
         self._stop_evt = threading.Event()
         self._ready_evt = threading.Event()
-        self._call_q: queue.Queue = queue.Queue()   # handler 线程 → assist 线程的 marshal 队列
+        self._call_q: queue.Queue[
+            tuple[Callable[[Any], Any] | None, queue.Queue[tuple[bool, Any]]]
+        ] = queue.Queue()  # handler 线程 → assist 线程的 marshal 队列
         self._thread: threading.Thread | None = None
         self.port: int | None = None
         self.error: BaseException | None = None
@@ -617,15 +649,17 @@ class AssistSession:
     def start(self, *, wait_ready_s: float = _READY_WAIT_S) -> int:
         """启动会话（幂等：已 alive → 直接返回现有 port）。失败回抛线程内捕获的异常。"""
         if self.alive and self.port:
-            return self.port                      # 幂等：同会话不双开 attach
+            return self.port  # 幂等：同会话不双开 attach
         self._thread = threading.Thread(
-            target=self._run, daemon=True, name=f"captcha-assist-{self._session_id[:8]}")
+            target=self._run, daemon=True, name=f"captcha-assist-{self._session_id[:8]}"
+        )
         self._thread.start()
         if not self._ready_evt.wait(wait_ready_s):
             self.stop()
             raise RuntimeError("assist_start_timeout")
         if self.error is not None:
             raise self.error
+        assert self.port is not None  # ready 且 error 为空 ⇒ bridge.start() 已回填端口
         return int(self.port)
 
     def stop(self) -> None:
@@ -645,8 +679,7 @@ class AssistSession:
             # workflow 保证 assist 在串行点启动，本不该等锁；60s 拿不到 = 调度出错，如实上报
             if not lock.acquire(timeout=_LOCK_TIMEOUT_S):
                 raise ApplicationError(
-                    f"platform browser lock busy for {self._lock_key} "
-                    f"(>{_LOCK_TIMEOUT_S:.0f}s)",
+                    f"platform browser lock busy for {self._lock_key} (>{_LOCK_TIMEOUT_S:.0f}s)",
                     type="assist_browser_busy",
                 )
             locked = True
@@ -657,7 +690,7 @@ class AssistSession:
                 raise ApplicationError(
                     f"resident browser CDP URL not configured for {self._lock_key}",
                     type="assist_no_resident_browser",
-                    non_retryable=True,   # workflow 走超时回退，重试无意义
+                    non_retryable=True,  # workflow 走超时回退，重试无意义
                 )
             browser = pw.chromium.connect_over_cdp(cdp_url)
             picker = self._page_picker if self._page_picker is not None else self._pick_page
@@ -674,10 +707,10 @@ class AssistSession:
             self.alive = True
             self._ready_evt.set()
             # handler 线程的一切 playwright 调用 marshal 回本线程（_pump_calls）执行
-            self._pump_calls(page)              # 串行执行 marshal 来的调用；stop/寿命尽则返
-        except Exception as exc:                # noqa: BLE001 — 记录后经 start() 回抛，finally 全清
+            self._pump_calls(page)  # 串行执行 marshal 来的调用；stop/寿命尽则返
+        except Exception as exc:  # noqa: BLE001 — 记录后经 start() 回抛，finally 全清
             self.error = exc
-            self._ready_evt.set()               # 唤醒 start() 的等待者去读 error
+            self._ready_evt.set()  # 唤醒 start() 的等待者去读 error
         finally:
             self.alive = False
             try:
@@ -685,7 +718,7 @@ class AssistSession:
                     bridge.stop()
             except Exception:
                 pass
-            self._drain_calls()                 # 拒答关停后到达的 marshal 请求，防 handler 吊死
+            self._drain_calls()  # 拒答关停后到达的 marshal 请求，防 handler 吊死
             try:
                 if browser is not None:
                     # connect_over_cdp 的 close 只断 CDP 连接——绝不杀常驻浏览器进程、
@@ -706,7 +739,7 @@ class AssistSession:
             _patch_registry(self._ticket_hash, state="closed")
             self.port = None
 
-    def _pick_page(self, browser):
+    def _pick_page(self, browser: Any) -> Any:
         """选页：撞码页优先（逐 candidate 跑本平台的 _captcha_hit），都不命中取
         pages[0]。表外平台无特征可判，直接 pages[0]。"""
         contexts = list(getattr(browser, "contexts", None) or [])
@@ -716,7 +749,10 @@ class AssistSession:
             for cand in pages:
                 # 选页本就在 owner 线程：用直调 shim 套 marshal 门面跑 _captcha_hit
                 # （同一接口子集，但探测发生在 _pump_calls 启动前，不能走队列泵）。
-                facade = _MarshalledPage(lambda fn, p=cand: fn(p))
+                def _direct(fn: Callable[[Any], Any], p: Any = cand) -> Any:
+                    return fn(p)
+
+                facade = _MarshalledPage(_direct)
                 try:
                     if hit(facade):
                         return cand
@@ -739,18 +775,18 @@ class AssistSession:
         """
         return self._marshal(fn)
 
-    def _marshal(self, fn):
+    def _marshal(self, fn: Callable[[Any], Any]) -> Any:
         """把 ``fn(page)`` 编组进 assist 专属线程执行；结果/异常回抛给调用线程。"""
         if self._stop_evt.is_set():
             raise RuntimeError("assist_closed")
-        resq: queue.Queue = queue.Queue()
+        resq: queue.Queue[tuple[bool, Any]] = queue.Queue()
         self._call_q.put((fn, resq))
         ok, val = resq.get()
         if not ok:
             raise val
         return val
 
-    def _pump_calls(self, page) -> None:
+    def _pump_calls(self, page: Any) -> None:
         """owner 线程泵：取队列里的 fn(page) 串行执行，直到 stop 或 max_lifetime 兜底自杀。"""
         deadline = time.monotonic() + self._max_lifetime_s
         while not self._stop_evt.is_set():
@@ -758,13 +794,13 @@ class AssistSession:
                 fn, resq = self._call_q.get(timeout=0.2)
             except queue.Empty:
                 if time.monotonic() >= deadline:
-                    return                      # 兜底自杀：忘接管也不留孤儿会话/不放干锁
+                    return  # 兜底自杀：忘接管也不留孤儿会话/不放干锁
                 continue
             if fn is None:
                 return
             try:
                 resq.put((True, fn(page)))
-            except Exception as exc:            # noqa: BLE001 — 异常回抛调用线程
+            except Exception as exc:  # noqa: BLE001 — 异常回抛调用线程
                 resq.put((False, exc))
 
     def _drain_calls(self) -> None:
@@ -792,8 +828,8 @@ _SESSIONS_LOCK = threading.Lock()
 class CaptchaAssistInput:
     tenant_pub_id: str
     run_pub_id: str
-    platform: str            # 五平台 slug（doubao/deepseek/tongyi/yiyan/yuanbao）
-    business_key: str        # 撞码题
+    platform: str  # 五平台 slug（doubao/deepseek/tongyi/yiyan/yuanbao）
+    business_key: str  # 撞码题
     evidence_ref: str | None = None
     # 浏览器矩阵化（2026-08-09 起）：撞码 batch 实际使用的常驻实例键
     # （doubao_sh 等）——锁/CDP/fence 都按实例键，assist 接管 attach 同一台
@@ -837,8 +873,9 @@ def _captcha_assist_start_blocking(input: CaptchaAssistInput) -> CaptchaAssistSt
         sess = _SESSIONS.get(input.run_pub_id)
         if sess is not None and sess.alive:
             return CaptchaAssistStarted(
-                session_id=sess.session_id, assist_url=sess.assist_url, pushed=sess.pushed)
-        if sess is not None:                    # 旧会话已死 → 清掉重开
+                session_id=sess.session_id, assist_url=sess.assist_url, pushed=sess.pushed
+            )
+        if sess is not None:  # 旧会话已死 → 清掉重开
             try:
                 sess.stop()
             except Exception:
@@ -873,8 +910,11 @@ def _captcha_assist_start_blocking(input: CaptchaAssistInput) -> CaptchaAssistSt
         th = _ticket_hash(ticket)
         now = int(time.time())
         sess = AssistSession(
-            platform=input.platform, run_pub_id=input.run_pub_id,
-            session_id=session_id, ticket_hash=th, max_lifetime_s=ttl_s,
+            platform=input.platform,
+            run_pub_id=input.run_pub_id,
+            session_id=session_id,
+            ticket_hash=th,
+            max_lifetime_s=ttl_s,
             instance_key=input.instance_key,
         )
         # 持锁启动（管理员低频动作）：同 run 并发 start 只赢出一个会话。
@@ -913,25 +953,26 @@ def _captcha_assist_start_blocking(input: CaptchaAssistInput) -> CaptchaAssistSt
             f"有效期: {round(ttl_s / 60)} 分钟\n"
             f"接管链接: {assist_url}"
         )
-        pushed = push_captcha_assist(
-            flavor=flavor, url=notify_url, title=title, body=body)
+        pushed = push_captcha_assist(flavor=flavor, url=notify_url, title=title, body=body)
         if pushed:
             _patch_registry(th, push_sent=True)
         else:
             # 推送失败仍保留会话：operator 可能恰好在本机（/ops 台账可查），
             # 且 60min 等待窗内随时可人工补推——不因此废掉这次接管机会。
-            log.warning("captcha_assist.push_failed",
-                        run_pub_id=input.run_pub_id, flavor=flavor)
+            log.warning("captcha_assist.push_failed", run_pub_id=input.run_pub_id, flavor=flavor)
 
         sess.assist_url = assist_url
         sess.pushed = pushed
         _SESSIONS[input.run_pub_id] = sess
-        log.info("captcha_assist.session_started",
-                 run_pub_id=input.run_pub_id, session_id=session_id,
-                 platform=input.platform, business_key=input.business_key,
-                 pushed=pushed)                 # ticket 明文绝不进日志
-        return CaptchaAssistStarted(
-            session_id=session_id, assist_url=assist_url, pushed=pushed)
+        log.info(
+            "captcha_assist.session_started",
+            run_pub_id=input.run_pub_id,
+            session_id=session_id,
+            platform=input.platform,
+            business_key=input.business_key,
+            pushed=pushed,
+        )  # ticket 明文绝不进日志
+        return CaptchaAssistStarted(session_id=session_id, assist_url=assist_url, pushed=pushed)
 
 
 @activity.defn(name="captcha_assist_stop")
@@ -950,17 +991,18 @@ def _captcha_assist_stop_blocking(input: CaptchaAssistStopInput) -> None:
         with _SESSIONS_LOCK:
             sess = _SESSIONS.pop(input.run_pub_id, None)
         if sess is None:
-            return                                # 无会话 → no-op
+            return  # 无会话 → no-op
         if sess.session_id != input.session_id:
-            log.warning("captcha_assist.stop_session_mismatch",
-                        run_pub_id=input.run_pub_id, session_id=input.session_id)
+            log.warning(
+                "captcha_assist.stop_session_mismatch",
+                run_pub_id=input.run_pub_id,
+                session_id=input.session_id,
+            )
         try:
             # 线程 finally：bridge.stop → browser.close(仅断 CDP) → pw.stop → 放锁 → 注册表 closed
             sess.stop()
         except Exception:
-            log.warning("captcha_assist.stop_failed",
-                        run_pub_id=input.run_pub_id, exc_info=True)
+            log.warning("captcha_assist.stop_failed", run_pub_id=input.run_pub_id, exc_info=True)
         _patch_registry(sess.ticket_hash, state="closed")
     except Exception:
-        log.warning("captcha_assist.stop_unexpected",
-                    run_pub_id=input.run_pub_id, exc_info=True)
+        log.warning("captcha_assist.stop_unexpected", run_pub_id=input.run_pub_id, exc_info=True)

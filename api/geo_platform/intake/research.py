@@ -262,7 +262,8 @@ def _extract_json(text: str) -> dict[str, Any]:
         raise ResearchFailed("AI 输出中未找到合法 JSON")
     candidate = s[start : end + 1]
     try:
-        return json.loads(candidate)
+        strict_parsed: dict[str, Any] = json.loads(candidate)
+        return strict_parsed
     except json.JSONDecodeError:
         pass
     cleaned = re.sub(r",(\s*[}\]])", r"\1", candidate)

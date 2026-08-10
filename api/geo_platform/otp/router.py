@@ -75,7 +75,7 @@ _BODY_MAX_BYTES = 65536  # SMS 体很小；公网面兜底防滥（同 assist_ro
 _TZ_CN = ZoneInfo("Asia/Shanghai")  # status 时间戳显示口径（运维/手机同一时区）
 
 _DEFAULT_WITHIN_S = 180  # 默认取「3 分钟内」的验证码（旧系统用户设计）
-_MAX_WITHIN_S = 900      # 上限 15 分钟（防把远古旧码当新码返回）
+_MAX_WITHIN_S = 900  # 上限 15 分钟（防把远古旧码当新码返回）
 
 # 简易频控：每 phone 滑窗（进程内状态；生产 uvicorn --workers 2，故实际限额≈
 # 配置值×worker 数——push/latest 的真实流量远低于此，放宽无感；同 assist_router 惯例）。
@@ -87,9 +87,15 @@ _rate_lock = threading.Lock()
 
 # meta 键：URL query 补空缺（body 已解析出的值更权威，优先）——比 body 稳
 # （SMS 正文含换行/引号会破坏 JSON body→丢字段），旧链 live 教训。
-_QUERY_META_KEYS = (("slot", "sim_slot"), ("card_slot", "sim_slot"),
-                    ("subid", "sub_id"), ("sub_id", "sub_id"), ("card_subid", "sub_id"),
-                    ("siminfo", "sim_info"), ("sim_info", "sim_info"))
+_QUERY_META_KEYS = (
+    ("slot", "sim_slot"),
+    ("card_slot", "sim_slot"),
+    ("subid", "sub_id"),
+    ("sub_id", "sub_id"),
+    ("card_subid", "sub_id"),
+    ("siminfo", "sim_info"),
+    ("sim_info", "sim_info"),
+)
 
 
 def _inbox_dir() -> Path:
@@ -117,15 +123,23 @@ def _require_token(
 
 
 def _require_relay_token(request: Request) -> None:
-    _require_token(request, env_name="GEO_OTP_RELAY_TOKEN", header_name="X-Relay-Token",
-                   disabled_code="otp_relay_disabled", unauthorized_code="otp_relay_unauthorized")
+    _require_token(
+        request,
+        env_name="GEO_OTP_RELAY_TOKEN",
+        header_name="X-Relay-Token",
+        disabled_code="otp_relay_disabled",
+        unauthorized_code="otp_relay_unauthorized",
+    )
 
 
 def _require_operator_token(request: Request) -> None:
-    _require_token(request, env_name="GEO_OTP_OPERATOR_TOKEN",
-                   header_name="X-Operator-Token",
-                   disabled_code="otp_operator_disabled",
-                   unauthorized_code="otp_operator_unauthorized")
+    _require_token(
+        request,
+        env_name="GEO_OTP_OPERATOR_TOKEN",
+        header_name="X-Operator-Token",
+        disabled_code="otp_operator_disabled",
+        unauthorized_code="otp_operator_unauthorized",
+    )
 
 
 def _rate_limited(kind: str, key: str) -> bool:
@@ -144,7 +158,7 @@ def _rate_limited(kind: str, key: str) -> bool:
     return False
 
 
-def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
+def _atomic_write_json(path: Path, payload: dict[str, Any] | list[dict[str, Any]]) -> None:
     """同目录临时文件 + os.replace，读侧（latest/登录 seam）永远读到完整 JSON。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
@@ -157,8 +171,7 @@ def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
             os.unlink(tmp)
 
 
-def _append_event_best_effort(rec: dict[str, Any], *, code_source: str,
-                              remote_addr: str) -> None:
+def _append_event_best_effort(rec: dict[str, Any], *, code_source: str, remote_addr: str) -> None:
     """把本条推送追加进 append-only JSONL 台账（审计/对账）。best-effort：
     失败只 warning，绝不影响推送/取码。不放 raw（原文含码+PII，仅留存于
     每号收件箱文件，与旧链缺省不留原文同口径）。"""
@@ -178,8 +191,9 @@ def _append_event_best_effort(rec: dict[str, Any], *, code_source: str,
         with open(inbox / "otp_events.jsonl", "a", encoding="utf-8") as f:  # O_APPEND 并发不丢行
             f.write(json.dumps(event, ensure_ascii=False) + "\n")
     except Exception as e:  # noqa: BLE001 — 台账失败绝不阻断推送（短信已落收件箱）
-        log.warning("otp_ledger_append_failed", phone=mask_phone(str(rec.get("phone") or "")),
-                    error=repr(e))
+        log.warning(
+            "otp_ledger_append_failed", phone=mask_phone(str(rec.get("phone") or "")), error=repr(e)
+        )
 
 
 def _clamp_within(raw: str | None) -> int:
@@ -294,8 +308,10 @@ async def otp_push(request: Request) -> JSONResponse:
     # T-39 语音验证码通道：显式 code_source='voice'（body 字段或 ?code_source=/?source=）
     # → 跳过 SMS 抽码（语音无短信正文可佐证 standalone），直接采纳人工听写的 code，
     # 仍按 HINT_RE（4-8 位数字）校验。
-    voice = (str(norm.get("code_source") or "") == "voice"
-             or (query.get("code_source") or query.get("source") or "").strip() == "voice")
+    voice = (
+        str(norm.get("code_source") or "") == "voice"
+        or (query.get("code_source") or query.get("source") or "").strip() == "voice"
+    )
     if voice:
         hint = str(norm.get("code_hint") or "").strip()
         code = hint if HINT_RE.match(hint) else ""
@@ -309,8 +325,14 @@ async def otp_push(request: Request) -> JSONResponse:
         meta["extract_method"] = method
         norm["meta"] = meta
 
-    rec: dict[str, Any] = {"ts": time.time(), "phone": phone, "code": code, "raw": raw,
-                           "from": str(norm["from"] or ""), "platform": platform}
+    rec: dict[str, Any] = {
+        "ts": time.time(),
+        "phone": phone,
+        "code": code,
+        "raw": raw,
+        "from": str(norm["from"] or ""),
+        "platform": platform,
+    }
     if norm["meta"]:
         rec["meta"] = norm["meta"]
     remote_addr = request.client.host if request.client else ""
@@ -319,17 +341,31 @@ async def otp_push(request: Request) -> JSONResponse:
 
     # 绝不把短信正文（含验证码明文）写日志——只记长度/平台，phone 掩码。
     if not code and raw:
-        log.warning("otp_push_no_code", phone=mask_phone(phone), raw_len=len(raw),
-                    platform=platform or "-")
+        log.warning(
+            "otp_push_no_code", phone=mask_phone(phone), raw_len=len(raw), platform=platform or "-"
+        )
     if not routed:
         log.warning("otp_push_unrouted", have_code=bool(code), platform=platform or "-")
-    log.info("otp_push", phone=mask_phone(phone), platform=platform or "-",
-             have_code=bool(code), code_len=len(code), routed=routed,
-             slot=meta.get("sim_slot", "-"))
-    return JSONResponse(status_code=200, content={
-        "ok": True, "have_code": bool(code), "code_len": len(code),
-        "phone": mask_phone(phone), "routed": routed, "platform": platform,
-    })
+    log.info(
+        "otp_push",
+        phone=mask_phone(phone),
+        platform=platform or "-",
+        have_code=bool(code),
+        code_len=len(code),
+        routed=routed,
+        slot=meta.get("sim_slot", "-"),
+    )
+    return JSONResponse(
+        status_code=200,
+        content={
+            "ok": True,
+            "have_code": bool(code),
+            "code_len": len(code),
+            "phone": mask_phone(phone),
+            "routed": routed,
+            "platform": platform,
+        },
+    )
 
 
 @router.get("/otp/latest")
@@ -348,25 +384,47 @@ def otp_latest(request: Request) -> JSONResponse:
     within = _clamp_within(request.query_params.get("within"))
     path = _inbox_dir() / f"{phone}.json"
     if not path.exists():
-        return JSONResponse(content={"ok": True, "found": False, "within": within,
-                                     "reason": "no_sms_for_phone"})
+        return JSONResponse(
+            content={"ok": True, "found": False, "within": within, "reason": "no_sms_for_phone"}
+        )
     try:
         rec = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return JSONResponse(content={"ok": True, "found": False, "within": within,
-                                     "reason": "unreadable"})
+        return JSONResponse(
+            content={"ok": True, "found": False, "within": within, "reason": "unreadable"}
+        )
     ts = float(rec.get("ts", 0) or 0)
     age = time.time() - ts
     code = str(rec.get("code") or "").strip()
     if age > within:
-        return JSONResponse(content={"ok": True, "found": False, "within": within,
-                                     "age_s": round(age, 1), "reason": "stale"})
+        return JSONResponse(
+            content={
+                "ok": True,
+                "found": False,
+                "within": within,
+                "age_s": round(age, 1),
+                "reason": "stale",
+            }
+        )
     if not code:
-        return JSONResponse(content={"ok": True, "found": False, "within": within,
-                                     "age_s": round(age, 1), "reason": "no_code_extracted"})
-    return JSONResponse(content={"ok": True, "found": True, "code": code,
-                                 "platform": str(rec.get("platform") or ""),
-                                 "age_s": round(age, 1)})
+        return JSONResponse(
+            content={
+                "ok": True,
+                "found": False,
+                "within": within,
+                "age_s": round(age, 1),
+                "reason": "no_code_extracted",
+            }
+        )
+    return JSONResponse(
+        content={
+            "ok": True,
+            "found": True,
+            "code": code,
+            "platform": str(rec.get("platform") or ""),
+            "age_s": round(age, 1),
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -445,14 +503,18 @@ def _build_remark(phone: str, carrier: str, slot: str) -> str:
 
 def _slot_remarks() -> list[str]:
     raw = os.environ.get("GEO_OTP_SLOT_REMARKS", "").strip()
-    env_items = ([item.strip() for item in raw.split(",") if item.strip()]
-                 if raw else list(_DEFAULT_SLOT_REMARKS))
+    env_items = (
+        [item.strip() for item in raw.split(",") if item.strip()]
+        if raw
+        else list(_DEFAULT_SLOT_REMARKS)
+    )
     # 合并注册表：按手机号去重，同号以注册表为准（注册动作更新、更近）。
     registered = _read_registry()
     reg_phones = {str(e["phone"]) for e in registered}
     merged = [r for r in env_items if phone_from_slot(r) not in reg_phones]
     merged.extend(str(e["remark"]) for e in registered)
     return merged
+
 
 _RATE_LIMITS["setup"] = (30, 60.0)
 
@@ -484,13 +546,14 @@ async def otp_register(request: Request) -> JSONResponse:
     existing = _read_registry()
     created = all(str(e.get("phone")) != phone for e in existing)
     entries = [e for e in existing if str(e.get("phone")) != phone]
-    entries.append({"phone": phone, "carrier": carrier, "slot": slot,
-                    "remark": remark, "ts": time.time()})
+    entries.append(
+        {"phone": phone, "carrier": carrier, "slot": slot, "remark": remark, "ts": time.time()}
+    )
     _atomic_write_json(_registry_path(), entries)
-    log.info("otp_number_registered", phone=mask_phone(phone), created=created,
-             slot=slot or "-")
-    return JSONResponse(content={"ok": True, "created": created,
-                                 "phone": mask_phone(phone), "remark": remark})
+    log.info("otp_number_registered", phone=mask_phone(phone), created=created, slot=slot or "-")
+    return JSONResponse(
+        content={"ok": True, "created": created, "phone": mask_phone(phone), "remark": remark}
+    )
 
 
 @router.get("/otp/setup-info")
@@ -502,16 +565,18 @@ def otp_setup_info(request: Request) -> JSONResponse:
     if _rate_limited("setup", request.client.host if request.client else "?"):
         return JSONResponse(status_code=429, content={"error": "rate_limited"})
     origin = str(request.base_url).rstrip("/")
-    return JSONResponse(content={
-        "ok": True,
-        "push_url": f"{origin}/api/v2/otp/push",
-        "relay_token": os.environ.get("GEO_OTP_RELAY_TOKEN", ""),
-        "body_template": _BODY_TEMPLATE,
-        "whitelist_regex": _WHITELIST_REGEX,
-        "slot_remarks": _slot_remarks(),
-        "apk_url": f"{origin}/api/v2/otp/smsforwarder.apk",
-        "latest_example": f"{origin}/api/v2/otp/latest?phone=13121622231",
-    })
+    return JSONResponse(
+        content={
+            "ok": True,
+            "push_url": f"{origin}/api/v2/otp/push",
+            "relay_token": os.environ.get("GEO_OTP_RELAY_TOKEN", ""),
+            "body_template": _BODY_TEMPLATE,
+            "whitelist_regex": _WHITELIST_REGEX,
+            "slot_remarks": _slot_remarks(),
+            "apk_url": f"{origin}/api/v2/otp/smsforwarder.apk",
+            "latest_example": f"{origin}/api/v2/otp/latest?phone=13121622231",
+        }
+    )
 
 
 @router.get("/otp/status")
@@ -535,13 +600,15 @@ def otp_status(request: Request) -> JSONResponse:
             continue
         code = str(rec.get("code") or "")
         ts = float(rec.get("ts", 0) or 0)
-        rows.append({
-            "phone": mask_phone(str(rec.get("phone") or path.stem)),
-            "platform": str(rec.get("platform") or "") or "-",
-            "code_len": len(code),
-            "time": datetime.fromtimestamp(ts, tz=_TZ_CN).strftime("%Y-%m-%d %H:%M:%S"),
-            "age_s": round(now - ts, 1),
-        })
+        rows.append(
+            {
+                "phone": mask_phone(str(rec.get("phone") or path.stem)),
+                "platform": str(rec.get("platform") or "") or "-",
+                "code_len": len(code),
+                "time": datetime.fromtimestamp(ts, tz=_TZ_CN).strftime("%Y-%m-%d %H:%M:%S"),
+                "age_s": round(now - ts, 1),
+            }
+        )
     return JSONResponse(content={"ok": True, "recent": rows})
 
 
