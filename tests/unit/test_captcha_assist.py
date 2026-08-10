@@ -21,7 +21,13 @@ import urllib.request
 import pytest
 from temporalio.exceptions import ApplicationError
 
-from workflows.activities import captcha_assist
+from workflows.activities import (
+    captcha_assist,
+    deepseek_adapter,
+    tongyi_adapter,
+    yiyan_adapter,
+    yuanbao_adapter,
+)
 from workflows.activities.captcha_assist import (
     CaptchaAssistInput,
     CaptchaAssistStopInput,
@@ -29,7 +35,6 @@ from workflows.activities.captcha_assist import (
     captcha_assist_start,
     captcha_assist_stop,
 )
-from workflows.activities import deepseek_adapter, tongyi_adapter, yiyan_adapter, yuanbao_adapter
 from workflows.activities.doubao_adapter import _CAPTCHA_SELECTORS, _captcha_hit
 from workflows.activities.resident_browser import browser_lock
 
@@ -570,3 +575,91 @@ async def test_start_stop_do_not_block_event_loop(
         await ticker
     # 0.8s 同步阻塞若压在循环上 tick ≈ 0；to_thread 化后应持续走（0.8s/0.02s ≈ 40）
     assert ticks >= 10
+
+
+# ── 浏览器矩阵化：实例键（锁/CDP/fence）与平台 slug（特征表）拆分 ──────────────
+
+
+class _RecordingLock:
+    """browser_lock fake：记录 acquire/release，绝不起真锁。"""
+
+    def __init__(self) -> None:
+        self.acquired = False
+
+    def acquire(self, blocking: bool = True, timeout: float = -1) -> bool:
+        del blocking, timeout
+        self.acquired = True
+        return True
+
+    def release(self) -> None:
+        self.acquired = False
+
+
+async def test_instance_key_routes_lock_and_cdp_but_features_stay_slug(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """CaptchaAssistInput.instance_key=doubao_sh：锁与 CDP 按实例键（attach 撞码
+    batch 的同一台常驻浏览器），撞码特征表/选页仍按平台 slug doubao。"""
+    page = _FakePage(captcha_visible=True)   # doubao 特征命中 → 选页选中它
+    _browser, _handle, _pushes = _wire(monkeypatch, tmp_path, [page])
+    lock_calls: list[str] = []
+    cdp_key_calls: list[str] = []
+
+    def _lock_recorder(key: str) -> _RecordingLock:
+        lock_calls.append(key)
+        return _RecordingLock()
+
+    monkeypatch.setattr(captcha_assist, "browser_lock", _lock_recorder)
+    monkeypatch.setattr(
+        captcha_assist, "resident_cdp_url",
+        lambda key: cdp_key_calls.append(key) or "http://127.0.0.1:19222",
+    )
+    started = await captcha_assist_start(CaptchaAssistInput(
+        tenant_pub_id="tenant_1", run_pub_id="run_inst", platform="doubao",
+        business_key="bk", instance_key="doubao_sh"))
+    try:
+        assert lock_calls == ["doubao_sh"]           # 锁/fence 键 = 实例键
+        assert cdp_key_calls == ["doubao_sh"]        # CDP 解析键 = 实例键
+        rec = json.loads(next(tmp_path.glob("*.json")).read_text(encoding="utf-8"))
+        assert rec["platform"] == "doubao"           # 特征语义仍是平台 slug
+        assert rec["instance_key"] == "doubao_sh"
+    finally:
+        await captcha_assist_stop(CaptchaAssistStopInput(
+            run_pub_id="run_inst", session_id=started.session_id))
+
+
+async def test_instance_key_none_falls_back_to_platform_lock(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """旧调用（instance_key=None）：锁/CDP 回退平台 slug——启用矩阵化前的行为。"""
+    _wire(monkeypatch, tmp_path, [_FakePage()])
+    lock_calls: list[str] = []
+
+    def _lock_recorder(key: str) -> _RecordingLock:
+        lock_calls.append(key)
+        return _RecordingLock()
+
+    monkeypatch.setattr(captcha_assist, "browser_lock", _lock_recorder)
+    started = await captcha_assist_start(_input("run_legacy"))
+    try:
+        assert lock_calls == ["doubao"]
+        rec = json.loads(next(tmp_path.glob("*.json")).read_text(encoding="utf-8"))
+        assert rec["instance_key"] == "doubao"       # 注册表记实际生效键（回退 slug）
+    finally:
+        await captcha_assist_stop(CaptchaAssistStopInput(
+            run_pub_id="run_legacy", session_id=started.session_id))
+
+
+async def test_instance_key_platform_mismatch_fails_closed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """实例键第一段 ≠ 平台 slug = 路由出错：fail-closed，绝不起会话/占锁/落注册表。"""
+    _wire(monkeypatch, tmp_path, [_FakePage()])
+    with pytest.raises(ApplicationError) as exc_info:
+        await captcha_assist_start(CaptchaAssistInput(
+            tenant_pub_id="tenant_1", run_pub_id="run_bad", platform="doubao",
+            business_key="bk", instance_key="tongyi_bj"))
+    assert exc_info.value.type == "assist_instance_platform_mismatch"
+    assert exc_info.value.non_retryable is True
+    assert captcha_assist._SESSIONS == {}
+    assert list(tmp_path.glob("*.json")) == []

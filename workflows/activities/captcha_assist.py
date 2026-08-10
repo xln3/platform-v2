@@ -23,8 +23,11 @@ workflow 撞码时调 ``captcha_assist_start``：attach 常驻 headed Chromium�
 - 绝不杀常驻浏览器：退出只 ``browser.close()`` 断开 CDP 连接，绝不 close
   context/page（profile/登录态归 supervisor）。
 - ticket 明文绝不出现在注册表文件/日志/Temporal payload——只出现在推送 URL。
-- assist 会话整个生命周期持有 ``browser_lock(platform)``，防同 worker 另一 run
-  的 batch 抢占同一常驻浏览器。
+- assist 会话整个生命周期持有 ``browser_lock(lock_key)``，防同 worker 另一 run
+  的 batch 抢占同一常驻浏览器。2026-08-09 起（浏览器矩阵化）``lock_key`` =
+  常驻实例键（``doubao_sh`` 等，CaptchaAssistInput.instance_key），与 batch 侧
+  的锁/CDP/fence 同键互斥；撞码特征表/选页/已清判定仍按平台 slug。
+  旧调用 instance_key=None → lock_key 回退平台 slug（启用前行为不变）。
 """
 
 from __future__ import annotations
@@ -575,10 +578,16 @@ class AssistSession:
 
     def __init__(self, *, platform: str, run_pub_id: str, session_id: str,
                  ticket_hash: str, max_lifetime_s: int = _DEFAULT_TTL_S,
+                 instance_key: str | None = None,
                  page_picker: Callable[[Any], Any] | None = None,
                  cleared_check: Callable[[Any], bool] | None | _PlatformDefaultCheck = (
                      _PLATFORM_DEFAULT_CHECK)):
         self._platform = platform
+        # 浏览器矩阵化（2026-08-09 起）：锁/CDP/fence 用实例键（attach 撞码 batch
+        # 的同一台常驻浏览器），撞码特征表/选页/已清判定仍按平台 slug。
+        # instance_key=None（旧调用）→ 回退 platform（启用前行为逐字节不变）。
+        self._lock_key = (instance_key or "").strip().lower() or platform
+        self._instance_key = self._lock_key
         self._run_pub_id = run_pub_id
         self._session_id = session_id
         self._ticket_hash = ticket_hash
@@ -630,23 +639,23 @@ class AssistSession:
     def _run(self) -> None:
         pw = browser = None
         bridge: InterventionBridge | None = None
-        lock = browser_lock(self._platform)
+        lock = browser_lock(self._lock_key)
         locked = False
         try:
             # workflow 保证 assist 在串行点启动，本不该等锁；60s 拿不到 = 调度出错，如实上报
             if not lock.acquire(timeout=_LOCK_TIMEOUT_S):
                 raise ApplicationError(
-                    f"platform browser lock busy for {self._platform} "
+                    f"platform browser lock busy for {self._lock_key} "
                     f"(>{_LOCK_TIMEOUT_S:.0f}s)",
                     type="assist_browser_busy",
                 )
             locked = True
             _driver_name, sync_playwright, _pw_timeout = load_sync_browser_driver()
             pw = sync_playwright().start()
-            cdp_url = resident_cdp_url(self._platform)
+            cdp_url = resident_cdp_url(self._lock_key)
             if not cdp_url:
                 raise ApplicationError(
-                    f"resident browser CDP URL not configured for {self._platform}",
+                    f"resident browser CDP URL not configured for {self._lock_key}",
                     type="assist_no_resident_browser",
                     non_retryable=True,   # workflow 走超时回退，重试无意义
                 )
@@ -786,6 +795,11 @@ class CaptchaAssistInput:
     platform: str            # 五平台 slug（doubao/deepseek/tongyi/yiyan/yuanbao）
     business_key: str        # 撞码题
     evidence_ref: str | None = None
+    # 浏览器矩阵化（2026-08-09 起）：撞码 batch 实际使用的常驻实例键
+    # （doubao_sh 等）——锁/CDP/fence 都按实例键，assist 接管 attach 同一台
+    # 常驻浏览器；特征表/页面逻辑仍按 platform slug。None（旧调用/旧历史
+    # payload）→ 回退用 platform 取锁/CDP（启用矩阵化前的行为）。
+    instance_key: str | None = None
 
 
 @dataclass
@@ -842,6 +856,18 @@ def _captcha_assist_start_blocking(input: CaptchaAssistInput) -> CaptchaAssistSt
                 non_retryable=True,
             )
 
+        # 浏览器矩阵化：实例键第一段恒为平台 slug（browser_router 契约）——
+        # 失配说明 workflow/activity 路由出错，fail-closed 绝不 attach 错浏览器。
+        if input.instance_key:
+            key_platform = input.instance_key.strip().lower().split("_", 1)[0]
+            if key_platform != input.platform:
+                raise ApplicationError(
+                    f"instance_key {input.instance_key!r} does not belong to platform "
+                    f"{input.platform!r}",
+                    type="assist_instance_platform_mismatch",
+                    non_retryable=True,
+                )
+
         ticket = secrets.token_urlsafe(32)
         session_id = secrets.token_urlsafe(24)
         th = _ticket_hash(ticket)
@@ -849,6 +875,7 @@ def _captcha_assist_start_blocking(input: CaptchaAssistInput) -> CaptchaAssistSt
         sess = AssistSession(
             platform=input.platform, run_pub_id=input.run_pub_id,
             session_id=session_id, ticket_hash=th, max_lifetime_s=ttl_s,
+            instance_key=input.instance_key,
         )
         # 持锁启动（管理员低频动作）：同 run 并发 start 只赢出一个会话。
         # 启动失败（无 CDP/无页/锁忙）异常原样上抛，finally 已全清，不进注册表。
@@ -863,6 +890,9 @@ def _captcha_assist_start_blocking(input: CaptchaAssistInput) -> CaptchaAssistSt
             "ticket_hash": th,
             "port": sess.port,
             "platform": input.platform,
+            # 浏览器矩阵化：实际 attach 的常驻实例键（ops 台账用；旧调用=None→
+            # 回退平台 slug，与锁/CDP 口径一致）。
+            "instance_key": sess._instance_key,
             "state": "active",
             "business_key": input.business_key,
             "evidence_ref": input.evidence_ref,
