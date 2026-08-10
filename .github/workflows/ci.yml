@@ -38,12 +38,16 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      # pnpm 必须先于 setup-node 可用：setup-node 的 cache: pnpm 解析依赖 pnpm 可执行文件，
+      # 而 corepack enable 在其后才跑会导致 "Unable to locate executable file: pnpm"。
+      # pnpm/action-setup 缺省读取根 package.json 的 packageManager 字段（pnpm@11.17.0）。
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
-      - run: corepack enable && pnpm install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile
       - run: pnpm format:check
       - run: pnpm turbo run lint typecheck test build
 
@@ -71,12 +75,14 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+      # 同 typescript job：pnpm 必须先于 setup-node(cache: pnpm) 可用。
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
-      - run: corepack enable && pnpm install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm test:e2e
         env:

@@ -17,7 +17,7 @@ def main() -> None:
         "typescript matrix": "pnpm turbo run lint typecheck test build",
         "OpenAPI guard": "pnpm check:api",
         "production bundle guard": "pnpm check:production-bundles",
-        "legacy route guard": "pnpm check:legacy-routes",
+        "production route guard": "pnpm check:production-routes",
         "business alert guard": "pnpm check:observability",
         "browser E2E": "pnpm test:e2e",
         "browser install": "playwright install --with-deps chromium",

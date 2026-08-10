@@ -21,6 +21,9 @@ EXPECTED_ALERTS = {
     "GeoRevocationStalled",
     "GeoExpiredSessionLease",
     "GeoCollectionAnalysisAdmissionBlocked",
+    # 20260808 INV-1 接入（6a26a4a）新增的 outbox 毒消息兜底告警，基线同步补齐。
+    "GeoAnalyticsOutboxBacklog",
+    "GeoAnalyticsOutboxQuarantined",
     "GeoReportDeliveryConfirmationOverdue",
 }
 ALLOWED_RULE_LABELS = {"severity", "category", "service"}
