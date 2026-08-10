@@ -24,21 +24,21 @@ from domain.scoring.analyzer import CitationInput
 POSTGRES_DSN = os.getenv(
     "S02_POSTGRES_DSN", "postgresql://geo:geo_dev_only@127.0.0.1:55433/geo_platform"
 )
+CLICKHOUSE_ENDPOINT = os.getenv("S02_CLICKHOUSE_ENDPOINT", "http://127.0.0.1:18123")
+MINIO_ENDPOINT = os.getenv("S02_MINIO_ENDPOINT", "http://127.0.0.1:19000")
 
 
 def services() -> tuple[
     AnalyticsService, EvidenceService, ReportService, IntelligenceService, ClickHouseWriter
 ]:
     store = ContentAddressedObjectStore(
-        endpoint="http://127.0.0.1:19000",
+        endpoint=MINIO_ENDPOINT,
         access_key="geo",
         secret_key="geo_dev_only_password",
     )
     store.ensure_bucket()
     evidence = EvidenceService(dsn=POSTGRES_DSN, store=store)
-    clickhouse = ClickHouseWriter(
-        endpoint="http://127.0.0.1:18123", user="geo", password="geo_dev_only"
-    )
+    clickhouse = ClickHouseWriter(endpoint=CLICKHOUSE_ENDPOINT, user="geo", password="geo_dev_only")
     return (
         AnalyticsService(dsn=POSTGRES_DSN),
         evidence,

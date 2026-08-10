@@ -11,12 +11,14 @@ from geo_platform.evidence.object_store import ContentAddressedObjectStore
 POSTGRES_DSN = os.getenv(
     "S02_POSTGRES_DSN", "postgresql://geo:geo_dev_only@127.0.0.1:55433/geo_platform"
 )
+CLICKHOUSE_ENDPOINT = os.getenv("S02_CLICKHOUSE_ENDPOINT", "http://127.0.0.1:18123")
+MINIO_ENDPOINT = os.getenv("S02_MINIO_ENDPOINT", "http://127.0.0.1:19000")
 
 
 @pytest.fixture
 def object_store() -> ContentAddressedObjectStore:
     store = ContentAddressedObjectStore(
-        endpoint="http://127.0.0.1:19000",
+        endpoint=MINIO_ENDPOINT,
         access_key="geo",
         secret_key="geo_dev_only_password",
     )
@@ -41,9 +43,7 @@ def test_minio_content_addressing_dlp_hash_and_tamper_detection(
 
 
 def test_clickhouse_rejects_account_secrets_and_accepts_opaque_dimension() -> None:
-    writer = ClickHouseWriter(
-        endpoint="http://127.0.0.1:18123", user="geo", password="geo_dev_only"
-    )
+    writer = ClickHouseWriter(endpoint=CLICKHOUSE_ENDPOINT, user="geo", password="geo_dev_only")
     event_id = f"evt_{uuid4().hex}"
     row = {
         "tenant_pub_id": "tnt_test",

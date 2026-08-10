@@ -122,6 +122,10 @@ def test_business_alert_query_indexes_exist() -> None:
 
 
 def test_business_alert_snapshot_is_fixed_aggregate_and_worker_only() -> None:
+    suffix = uuid.uuid4().hex
+    tenant_pub_id = f"tnt_alert_snap_{suffix[:16]}"
+    quarantined_event_id = f"evt_alert_quarantined_{suffix}"
+    backlog_event_id = f"evt_alert_backlog_{suffix}"
     with psycopg.connect(POSTGRES_DSN) as connection:
         function = connection.execute(
             """
@@ -141,7 +145,7 @@ def test_business_alert_snapshot_is_fixed_aggregate_and_worker_only() -> None:
         ).fetchone()
         assert public_execute_row is not None
         public_execute = public_execute_row[0]
-        rows = connection.execute(
+        baseline_rows = connection.execute(
             """
             SELECT metric,dimension,value
             FROM integration.business_alert_snapshot()
@@ -165,12 +169,51 @@ def test_business_alert_snapshot_is_fixed_aggregate_and_worker_only() -> None:
             ).fetchone()
             assert privilege_row is not None
             role_privileges[role] = bool(privilege_row[0])
+    # 动态分组行（毒消息隔离 attempts>=8 / 健康积压超 15 分钟）由本测试显式种入：
+    # 它们的数目取决于宿主库遗留事件——fresh 库没有历史毒消息，基线只有固定骨架
+    # （7 个标量 + 5 个 admission 原因 = 12 行），断言不得依赖环境残留（2026-08-11
+    # CI 干净库少一行而红，此前断言的 13 行实为 dev 库三行遗留隔离事件的巧合）。
+    try:
+        with psycopg.connect(POSTGRES_DSN) as connection:
+            connection.execute(
+                """
+                INSERT INTO integration.outbox_event
+                  (event_id,tenant_pub_id,event_type,aggregate_pub_id,trace_id,payload,
+                   occurred_at,attempts)
+                VALUES
+                  (%s,%s,'analytics.answer.analyzed',%s,'test','{}',now(),8),
+                  (%s,%s,'source_audit.recorded',%s,'test','{}',
+                   now()-interval '20 minutes',0)
+                """,
+                (
+                    quarantined_event_id,
+                    tenant_pub_id,
+                    f"ans_{suffix}",
+                    backlog_event_id,
+                    tenant_pub_id,
+                    f"sra_{suffix}",
+                ),
+            )
+        with psycopg.connect(POSTGRES_DSN) as connection:
+            observed_rows = connection.execute(
+                """
+                SELECT metric,dimension,value
+                FROM integration.business_alert_snapshot()
+                """
+            ).fetchall()
+    finally:
+        with psycopg.connect(POSTGRES_DSN) as connection:
+            connection.execute(
+                "DELETE FROM integration.outbox_event WHERE event_id=ANY(%s)",
+                ([quarantined_event_id, backlog_event_id],),
+            )
     assert function == (True, ["search_path=pg_catalog"])
     assert public_execute is False
     assert role_privileges.get("geo_worker", True) is True
     assert role_privileges.get("geo_api", False) is False
-    assert len(rows) == 13
-    assert {row[0] for row in rows} == {
+    baseline = {(str(m), str(d)): int(v) for m, d, v in baseline_rows}
+    observed = {(str(m), str(d)): int(v) for m, d, v in observed_rows}
+    scalar_metrics = {
         "tenant_count",
         "workflow_start_stale",
         "workflow_signal_stale",
@@ -178,7 +221,33 @@ def test_business_alert_snapshot_is_fixed_aggregate_and_worker_only() -> None:
         "revocation_stalled",
         "expired_session_leases",
         "report_delivery_overdue",
-        "analysis_admission_backlog",
-        "analytics_outbox_quarantined",
     }
-    assert all(isinstance(row[1], str) and isinstance(row[2], int) for row in rows)
+    admission_reasons = {
+        "not_requested",
+        "missing_brand",
+        "missing_completed_answers",
+        "partial_fanout",
+        "unknown",
+    }
+    dynamic_metrics = {"analytics_outbox_backlog", "analytics_outbox_quarantined"}
+    skeleton = {(metric, "") for metric in scalar_metrics} | {
+        ("analysis_admission_backlog", reason) for reason in admission_reasons
+    }
+    # 固定骨架按行集合精确对齐：任何环境（含 fresh 库）都恒有这 12 行，不多不少
+    assert {key for key in observed if key[0] not in dynamic_metrics} == skeleton
+    # 动态分组值级精确对齐：快照 = 基线 + 本测试种入的两行，环境残留各行原样保留
+    quarantined_key = ("analytics_outbox_quarantined", "analytics.answer.analyzed")
+    backlog_key = ("analytics_outbox_backlog", "source_audit.recorded")
+    expected_dynamic = {key: value for key, value in baseline.items() if key[0] in dynamic_metrics}
+    for seeded_key in (quarantined_key, backlog_key):
+        expected_dynamic[seeded_key] = expected_dynamic.get(seeded_key, 0) + 1
+    assert {
+        key: value for key, value in observed.items() if key[0] in dynamic_metrics
+    } == expected_dynamic
+    # 指标词表封闭：骨架 8 个 + 动态 2 个，快照不会长出词表外的指标
+    assert {key[0] for key in observed} == {
+        *scalar_metrics,
+        "analysis_admission_backlog",
+        *dynamic_metrics,
+    }
+    assert all(isinstance(row[1], str) and isinstance(row[2], int) for row in observed_rows)

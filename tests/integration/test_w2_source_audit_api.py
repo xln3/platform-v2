@@ -51,6 +51,8 @@ from workflows.activities.source_fetch import (
 POSTGRES_DSN = os.getenv(
     "S02_POSTGRES_DSN", "postgresql://geo:geo_dev_only@127.0.0.1:55433/geo_platform"
 )
+CLICKHOUSE_ENDPOINT = os.getenv("S02_CLICKHOUSE_ENDPOINT", "http://127.0.0.1:18123")
+MINIO_ENDPOINT = os.getenv("S02_MINIO_ENDPOINT", "http://127.0.0.1:19000")
 
 _TEXT = (
     "中意人寿保险有限公司成立于二零零二年，注册资本三十七亿元人民币，"
@@ -231,7 +233,7 @@ def seeded_run() -> Any:
 
 def _services() -> tuple[EvidenceService, ContentAddressedObjectStore, ClickHouseWriter]:
     store = ContentAddressedObjectStore(
-        endpoint="http://127.0.0.1:19000",
+        endpoint=MINIO_ENDPOINT,
         access_key="geo",
         secret_key="geo_dev_only_password",
     )
@@ -239,7 +241,7 @@ def _services() -> tuple[EvidenceService, ContentAddressedObjectStore, ClickHous
     return (
         EvidenceService(dsn=POSTGRES_DSN, store=store),
         store,
-        ClickHouseWriter(endpoint="http://127.0.0.1:18123", user="geo", password="geo_dev_only"),
+        ClickHouseWriter(endpoint=CLICKHOUSE_ENDPOINT, user="geo", password="geo_dev_only"),
     )
 
 

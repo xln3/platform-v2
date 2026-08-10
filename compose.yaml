@@ -24,7 +24,11 @@ services:
       CLICKHOUSE_USER: geo
       CLICKHOUSE_PASSWORD: geo_dev_only
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: '1'
-    volumes: [clickhouse-data:/var/lib/clickhouse]
+    # initdb 仅对空数据卷首跑生效（CI/新检出自动建 geo_analytics schema）；
+    # 既有 dev 卷不会重放，schema 演进仍靠 deploy/clickhouse/*.sql 手动执行。
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - ./deploy/clickhouse:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test:
         [

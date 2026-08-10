@@ -36,6 +36,8 @@ from workflows.activities.source_audit import AuditLlmConfig, _MinioSourceTextSt
 POSTGRES_DSN = os.getenv(
     "S02_POSTGRES_DSN", "postgresql://geo:geo_dev_only@127.0.0.1:55433/geo_platform"
 )
+CLICKHOUSE_ENDPOINT = os.getenv("S02_CLICKHOUSE_ENDPOINT", "http://127.0.0.1:18123")
+MINIO_ENDPOINT = os.getenv("S02_MINIO_ENDPOINT", "http://127.0.0.1:19000")
 
 _BRAND = "中意人寿"
 _COMPETITOR = "友邦"
@@ -166,7 +168,7 @@ def seeded_run() -> Any:
 
 def _store() -> ContentAddressedObjectStore:
     store = ContentAddressedObjectStore(
-        endpoint="http://127.0.0.1:19000",
+        endpoint=MINIO_ENDPOINT,
         access_key="geo",
         secret_key="geo_dev_only_password",
     )
@@ -276,9 +278,7 @@ def test_w3_disparagement_end_to_end(seeded_run: Any) -> None:
     assert count == (result.judged,)
 
     # outbox → projection → CH disparagement_fact
-    clickhouse = ClickHouseWriter(
-        endpoint="http://127.0.0.1:18123", user="geo", password="geo_dev_only"
-    )
+    clickhouse = ClickHouseWriter(endpoint=CLICKHOUSE_ENDPOINT, user="geo", password="geo_dev_only")
     consumer = OutboxConsumer(
         dsn=POSTGRES_DSN,
         consumer_name=f"w3-test-{uuid.uuid4().hex[:8]}",
