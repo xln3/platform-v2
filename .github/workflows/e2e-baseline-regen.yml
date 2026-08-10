@@ -1,0 +1,52 @@
+# E2E 视觉基线再生成（手动触发）——与 ci.yml browser-e2e 完全同环境。
+#
+# 用途：基线机的渲染环境与 CI 漂移时（字体包/渲染库版本差），在 CI 环境重生成基线，
+# 避免「本地绿、CI 红」的死锁。产物下载后人工复核、提交，禁止不经复核直接推送。
+#
+# 流程：
+#   1. Actions → e2e-baseline-regen → Run workflow（可选填 ref，默认 master）。
+#   2. 等运行结束，下载 artifact `e2e-regenerated-snapshots`。
+#   3. 解压覆盖 tests/e2e/*-snapshots/，逐批复核 diff（只应含预期的渲染/内容变化）。
+#   4. 本地 `pnpm test:e2e` 抽查后提交；提交信息注明 regen 来源 run id。
+name: e2e-baseline-regen
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: '在哪条 ref 上重生成（默认 master）'
+        default: 'master'
+        required: true
+
+# 与 ci.yml browser-e2e 逐步对齐；改一边必须同步另一边（含字体步）。
+jobs:
+  regen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      # 与 ci.yml browser-e2e 的字体步保持一致（Noto CJK 对齐基线机 zh-cn 回退）。
+      - run: |
+          sudo apt-get install -y fonts-noto-cjk
+          fc-match "sans-serif:lang=zh-cn"
+          fc-match "serif:lang=zh-cn"
+      - run: pnpm test:e2e --update-snapshots=changed --grep-invert @live-api
+        env:
+          GEO_E2E_OUTPUT_DIR: test-results
+          GEO_E2E_JSON_REPORT: test-results/e2e-results.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: e2e-regenerated-snapshots
+          path: tests/e2e/*-snapshots/
+          if-no-files-found: error
+          retention-days: 7

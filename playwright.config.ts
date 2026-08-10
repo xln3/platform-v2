@@ -30,6 +30,18 @@ export default defineConfig({
     timezoneId: 'Asia/Shanghai',
     trace: 'off',
     screenshot: 'off',
+    launchOptions: {
+      // 视觉基线跨环境确定性：关闭 hinting/次像素定位/LCD 次像素渲染，钉死 sRGB。
+      // 基线机(jammy)与 CI(noble)的 freetype/harfbuzz 版本不同，hinted 渲染在字形边缘
+      // 产生系统性像素差（run 31432561202 字体包对齐后仍 16 例稀疏文本边缘 diff）；
+      // 无 hinting + 整数定位 + 灰阶 AA 的渲染路径跨版本稳定，本地与 CI 收敛同一像素。
+      args: [
+        '--font-render-hinting=none',
+        '--disable-font-subpixel-positioning',
+        '--disable-lcd-text',
+        '--force-color-profile=srgb',
+      ],
+    },
   },
   projects: [
     {
