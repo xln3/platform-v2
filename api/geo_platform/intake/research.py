@@ -1,9 +1,11 @@
 """AI 联网调研（旧 server/geosys/intake/ai_research.py 的 httpx 移植版）。
 
-口径：双传输——gpt 系走 OpenAI Responses API（POST {base}/responses，**非流式**）+
-宿主 ``web_search`` 工具（搜索+开网页一体，信源走 url_citation 标注）；gemini *-search
-后缀系走 ``/chat/completions``（Google grounding 搜索内建于模型，不带 tools，20260808
-生产网关实测真联网）。模型把品牌公开信息结构化为严格 JSON，
+口径：多传输按模型路由（``_transport_for_model``，20260810 aihubmix 逐台实证）——
+gpt 系/gemini-3.6-flash 走 OpenAI Responses API（POST {base}/responses，**非流式**）+
+宿主 ``web_search`` 工具（搜索+开网页一体，信源走 url_citation 标注）；claude 系走
+Anthropic 原生 ``/v1/messages`` + server 工具 ``web_search_20250305``；qwen 系走
+``/chat/completions`` + ``enable_search:true``；gemini *-search 后缀系走
+``/chat/completions``（grounding 内建）。模型把品牌公开信息结构化为严格 JSON，
 供客户信息表（profile/promo/trigger）草稿预填。多轮补缺 loop：每轮后盘点仍空字段定向追问，
 直到填满、模型确认公开渠道查不到（unavailable）、或达 max_rounds（缺省 3，硬上限 5）。
 
@@ -63,14 +65,24 @@ class ResearchModelNotAllowed(RuntimeError):
 def available_models(settings: Settings) -> list[str]:
     """前端可选调研模型清单：GEO_RESEARCH_LLM_MODELS 逗号分隔，缺省模型恒在首位。
 
-    两类可入清单（均需实测真联网）：gpt-5.x 系（Responses API + web_search）、
-    gemini *-search 后缀系（/chat/completions，搜索内建）。
+    入清单前提=实测真联网（传输路由见 _transport_for_model 的实证注释）。
     """
     configured = settings.research_llm_model.strip() or _DEFAULT_MODEL
     models = [m.strip() for m in settings.research_llm_models.split(",") if m.strip()]
     if configured not in models:
         models.insert(0, configured)
-    return models[:10]
+    return models[:16]
+
+
+def grouped_models(settings: Settings) -> list[dict[str, Any]]:
+    """按 provider 分组的级联选项（同 provider 的模型归一组，保持清单顺序）。
+    provider = 型号 ID 的字母前缀（gpt-5.6-luna→gpt、qwen3.7-max→qwen）。"""
+    groups: dict[str, list[str]] = {}
+    for model in available_models(settings):
+        match = re.match(r"[a-z]+", model.strip().lower())
+        provider = match.group() if match else model.split("-", 1)[0]
+        groups.setdefault(provider, []).append(model)
+    return [{"provider": provider, "models": models} for provider, models in groups.items()]
 
 
 def resolve_research_model(settings: Settings, requested: str | None) -> str:
@@ -234,7 +246,11 @@ def _build_user_prompt(brand: str, hints: dict[str, Any] | None = None) -> str:
 
 
 def _extract_json(text: str) -> dict[str, Any]:
-    """从模型输出中抽取 JSON 对象（兼容裸 JSON / ```json 代码块）。"""
+    """从模型输出中抽取 JSON 对象（兼容裸 JSON / ```json 代码块）。
+
+    gemini 系经 /chat/completions 的输出偶发尾逗号等瑕疵（20260808 生产实测），
+    首试严格解析，失败再做一次尾逗号清理重试，仍败才判 ResearchFailed。
+    """
     s = text.strip()
     if s.startswith("```"):
         s = s.strip("`")
@@ -244,18 +260,39 @@ def _extract_json(text: str) -> dict[str, Any]:
     end = s.rfind("}")
     if start == -1 or end == -1 or end <= start:
         raise ResearchFailed("AI 输出中未找到合法 JSON")
+    candidate = s[start : end + 1]
     try:
-        parsed: dict[str, Any] = json.loads(s[start : end + 1])
+        return json.loads(candidate)
+    except json.JSONDecodeError:
+        pass
+    cleaned = re.sub(r",(\s*[}\]])", r"\1", candidate)
+    try:
+        parsed: dict[str, Any] = json.loads(cleaned)
         return parsed
     except json.JSONDecodeError as e:
         raise ResearchFailed("AI 输出 JSON 解析失败") from e
 
 
-def _is_chat_search_model(model: str) -> bool:
-    """gemini *-search 后缀模型：联网搜索内建于模型（Google grounding），走
-    /chat/completions 且不带 tools 参数（20260808 生产网关实测真联网）。"""
+def _transport_for_model(model: str) -> str:
+    """按模型选传输与联网激活方式（20260810 aihubmix 逐台实证，勿凭想象改）：
+
+    - ``claude-*`` → Anthropic 原生 ``/v1/messages`` + server 工具
+      ``web_search_20250305``（OpenAI 兼容端点不透传搜索执行；/responses 会忽略 tools）；
+    - ``qwen*`` → ``/chat/completions`` + ``enable_search:true``（服务端检索）；
+    - ``gemini-*-search`` 后缀系 → ``/chat/completions``（grounding 内建，不带 tools）；
+    - 其余（gpt-*、gemini-3.6-flash 等）→ Responses API + 宿主 ``web_search`` 工具。
+    """
     name = model.strip().lower()
-    return name.startswith("gemini-") and name.endswith("-search")
+    if name.startswith("claude-"):
+        return "anthropic"
+    if name.startswith("qwen"):
+        return "chat_enable_search"
+    if name.startswith("gemini-") and name.endswith("-search"):
+        return "chat_builtin"
+    return "responses"
+
+
+_ANTHROPIC_MAX_TOKENS = 32768  # /v1/messages 强制字段（API 要求），取模型输出上限级，非人为截断
 
 
 def _run_once(
@@ -267,10 +304,42 @@ def _run_once(
     tools: list[dict[str, Any]] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, str]], dict[str, int]]:
     """单轮非流式调用 → (data, sources, usage)；HTTP 错误原样上抛由调用方定重试。
-    双传输：gpt 系走 Responses API + 宿主 web_search（tools=None 默认带）；
-    gemini *-search 系走 /chat/completions（搜索内建，不带 tools），sources 取
-    模型按提示词回填的 JSON sources 字段。"""
-    if _is_chat_search_model(model):
+    传输按 _transport_for_model 路由；sources 在非 Responses 路径取模型按提示词
+    回填的 JSON sources 字段。各路径均不发 temperature/人为 max token（/v1/messages
+    的 max_tokens 为 API 强制字段，取模型输出上限级）。"""
+    transport = _transport_for_model(model)
+
+    if transport == "anthropic":
+        ant_body: dict[str, Any] = {
+            "model": model,
+            "max_tokens": _ANTHROPIC_MAX_TOKENS,
+            "system": instructions,
+            "messages": [{"role": "user", "content": user_msg}],
+            "tools": [{"type": "web_search_20250305", "name": "web_search"}],
+        }
+        resp = client.post("/messages", json=ant_body)
+        resp.raise_for_status()
+        ant_payload: dict[str, Any] = resp.json()
+        ant_parts = [
+            str(block.get("text") or "")
+            for block in ant_payload.get("content") or []
+            if isinstance(block, dict) and block.get("type") == "text"
+        ]
+        ant_text = "\n".join(p for p in ant_parts if p).strip()
+        if not ant_text:
+            raise ResearchFailed("AI 未返回任何文本内容")
+        ant_data = _extract_json(ant_text)
+        ant_sources: list[dict[str, str]] = []
+        if isinstance(ant_data.get("sources"), list):
+            ant_sources = [s for s in ant_data["sources"] if isinstance(s, dict)]
+        ant_usage_raw = ant_payload.get("usage") or {}
+        ant_usage = {
+            "input_tokens": int(ant_usage_raw.get("input_tokens") or 0),
+            "output_tokens": int(ant_usage_raw.get("output_tokens") or 0),
+        }
+        return ant_data, ant_sources, ant_usage
+
+    if transport in ("chat_enable_search", "chat_builtin"):
         chat_body: dict[str, Any] = {
             "model": model,
             "messages": [
@@ -278,6 +347,8 @@ def _run_once(
                 {"role": "user", "content": user_msg},
             ],
         }
+        if transport == "chat_enable_search":
+            chat_body["enable_search"] = True
         # 参数最小化：不发 temperature/max_tokens
         resp = client.post("/chat/completions", json=chat_body)
         resp.raise_for_status()

@@ -500,8 +500,19 @@ def test_ai_research_model_selection(
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content.decode())
         seen.append((request.url.path, body))
+        if request.url.path.endswith("/messages"):
+            # claude 系传输：Anthropic 原生形状
+            return httpx.Response(
+                200,
+                json={
+                    "content": [
+                        {"type": "text", "text": json.dumps(_mock_llm_data(), ensure_ascii=False)}
+                    ],
+                    "usage": {"input_tokens": 100, "output_tokens": 50},
+                },
+            )
         if request.url.path.endswith("/chat/completions"):
-            # gemini *-search 传输：chat/completions 形状
+            # qwen/gemini-search 系传输：chat/completions 形状
             return httpx.Response(
                 200,
                 json={
@@ -521,20 +532,35 @@ def test_ai_research_model_selection(
         )
 
     monkeypatch.setenv("GEO_RESEARCH_LLM_API_KEY", "test-key")
-    monkeypatch.setenv("GEO_RESEARCH_LLM_MODELS", "gpt-5.5, gpt-5.4, gemini-2.5-flash-search")
+    monkeypatch.setenv(
+        "GEO_RESEARCH_LLM_MODELS",
+        "gpt-5.5, claude-opus-5, qwen3.7-max, gemini-2.5-flash-search",
+    )
     monkeypatch.setattr(research, "_build_client", fake_build_client)
     get_settings.cache_clear()
     try:
-        # 模型清单端点：缺省模型恒在首位，去白名单化裁剪
+        # 模型清单端点：缺省模型恒在首位 + 按 provider 级联分组
         listed = client.get(
             f"/api/v2/projects/{project}/intake/research-models", headers=customer
         )
         assert listed.status_code == 200
         assert listed.json() == {
-            "models": ["gpt-5.6-luna", "gpt-5.5", "gpt-5.4", "gemini-2.5-flash-search"]
+            "models": [
+                "gpt-5.6-luna",
+                "gpt-5.5",
+                "claude-opus-5",
+                "qwen3.7-max",
+                "gemini-2.5-flash-search",
+            ],
+            "groups": [
+                {"provider": "gpt", "models": ["gpt-5.6-luna", "gpt-5.5"]},
+                {"provider": "claude", "models": ["claude-opus-5"]},
+                {"provider": "qwen", "models": ["qwen3.7-max"]},
+                {"provider": "gemini", "models": ["gemini-2.5-flash-search"]},
+            ],
         }
 
-        # 显式选择白名单内模型 → 请求体与响应均落所选模型（gpt 走 Responses）
+        # gpt 系 → Responses + web_search 工具
         ok = client.post(
             f"/api/v2/projects/{project}/intake/ai-research",
             headers=customer,
@@ -544,28 +570,49 @@ def test_ai_research_model_selection(
         assert ok.json()["model"] == "gpt-5.5"
         assert seen[0][0] == "/v1/responses"
         assert seen[0][1]["model"] == "gpt-5.5"
+        assert seen[0][1]["tools"][0]["type"] == "web_search"
 
-        # gemini *-search 系 → 自动切 /chat/completions（搜索内建，不带 tools）
+        # claude 系 → Anthropic /v1/messages + web_search_20250305 server 工具
+        claude = client.post(
+            f"/api/v2/projects/{project}/intake/ai-research",
+            headers=customer,
+            json={"brand": "示例科技", "model": "claude-opus-5"},
+        )
+        assert claude.status_code == 200, claude.text
+        assert seen[-1][0] == "/v1/messages"
+        assert seen[-1][1]["tools"] == [{"type": "web_search_20250305", "name": "web_search"}]
+        assert seen[-1][1]["max_tokens"] >= 16384  # API 强制字段，取输出上限级
+
+        # qwen 系 → /chat/completions + enable_search:true
+        qwen = client.post(
+            f"/api/v2/projects/{project}/intake/ai-research",
+            headers=customer,
+            json={"brand": "示例科技", "model": "qwen3.7-max"},
+        )
+        assert qwen.status_code == 200, qwen.text
+        assert seen[-1][0] == "/v1/chat/completions"
+        assert seen[-1][1]["enable_search"] is True
+
+        # gemini *-search 系 → /chat/completions（搜索内建，不带 tools/enable_search）
         gemini = client.post(
             f"/api/v2/projects/{project}/intake/ai-research",
             headers=customer,
             json={"brand": "示例科技", "model": "gemini-2.5-flash-search"},
         )
         assert gemini.status_code == 200, gemini.text
-        assert gemini.json()["model"] == "gemini-2.5-flash-search"
         assert seen[-1][0] == "/v1/chat/completions"
-        assert seen[-1][1]["model"] == "gemini-2.5-flash-search"
         assert "tools" not in seen[-1][1]
+        assert "enable_search" not in seen[-1][1]
 
         # 白名单外模型 → 400 model_not_allowed（不发 LLM 请求）
         rejected = client.post(
             f"/api/v2/projects/{project}/intake/ai-research",
             headers=customer,
-            json={"brand": "示例科技", "model": "gemini-2.5-pro-search"},
+            json={"brand": "示例科技", "model": "doubao-seed-2-1-pro"},
         )
         assert rejected.status_code == 400
         assert rejected.json()["error"]["code"] == "model_not_allowed"
-        assert len(seen) == 2
+        assert len(seen) == 4
     finally:
         get_settings.cache_clear()
 

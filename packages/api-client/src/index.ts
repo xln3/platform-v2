@@ -10614,7 +10614,7 @@ export async function runIntakeAiResearch(
 
 const projectIntakeResearchModels = (value: unknown): string[] | null => {
   if (!isBrowserRecord(value) || !Array.isArray(value.models)) return null;
-  if (value.models.length === 0 || value.models.length > 10) return null;
+  if (value.models.length === 0 || value.models.length > 16) return null;
   const models: string[] = [];
   for (const entry of value.models) {
     const model = safeBrowserString(entry, 120);
@@ -10624,12 +10624,33 @@ const projectIntakeResearchModels = (value: unknown): string[] | null => {
   return models;
 };
 
-/** 调研模型下拉清单（服务端 GEO_RESEARCH_LLM_MODELS 为唯一真源，缺省模型恒在首位）。 */
+export type ResearchModelCatalog = {
+  models: string[];
+  groups: { provider: string; models: string[] }[];
+};
+
+const projectIntakeResearchModelCatalog = (value: unknown): ResearchModelCatalog | null => {
+  if (!isBrowserRecord(value)) return null;
+  const models = projectIntakeResearchModels({ models: value.models });
+  if (!models) return null;
+  if (!Array.isArray(value.groups) || value.groups.length > 16) return null;
+  const groups: { provider: string; models: string[] }[] = [];
+  for (const entry of value.groups) {
+    if (!isBrowserRecord(entry)) return null;
+    const provider = safeBrowserString(entry.provider, 40);
+    const groupModels = projectIntakeResearchModels({ models: entry.models });
+    if (!provider || !groupModels) return null;
+    groups.push({ provider, models: groupModels });
+  }
+  return { models, groups };
+};
+
+/** 调研模型清单（服务端 GEO_RESEARCH_LLM_MODELS 为唯一真源；groups=按 provider 级联分组）。 */
 export async function getIntakeResearchModels(
   projectPubId: string,
   headers: IdentitySessionHeaders,
   client: ProjectedApiClientOverride = apiClient,
-): Promise<ProjectResourceResult<string[]>> {
+): Promise<ProjectResourceResult<ResearchModelCatalog>> {
   try {
     const result = await projectedApiClient(client).GET(
       '/api/v2/projects/{project_pub_id}/intake/research-models',
@@ -10638,7 +10659,7 @@ export async function getIntakeResearchModels(
       },
     );
     if (!result.data) return classifyResourceFailure(result.response.status);
-    const projected = projectIntakeResearchModels(result.data);
+    const projected = projectIntakeResearchModelCatalog(result.data);
     return projected ? { kind: 'ready', data: projected } : { kind: 'unavailable' };
   } catch {
     return { kind: 'unavailable' };

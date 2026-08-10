@@ -684,11 +684,16 @@ def intake_research_models(
     principal: Principal = Depends(get_principal),
     session: Session = Depends(get_db),
 ) -> dict[str, Any]:
-    """前端 AI 面板的调研模型下拉清单（GEO_RESEARCH_LLM_MODELS，缺省模型恒在首位）。"""
+    """前端 AI 面板的调研模型清单（GEO_RESEARCH_LLM_MODELS 为唯一真源，缺省模型恒在首位）；
+    groups 为按 provider 分组的级联选项。"""
     principal.require("intake:read")
     repository = TenantRepository(session, principal.tenant_pub_id)
     _project(session, repository.tenant.id, project_pub_id)
-    return {"models": research.available_models(get_settings())}
+    settings = get_settings()
+    return {
+        "models": research.available_models(settings),
+        "groups": research.grouped_models(settings),
+    }
 
 
 @router.post("/{project_pub_id}/intake/ai-research")

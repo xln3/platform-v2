@@ -123,6 +123,7 @@ import {
   type ProjectedCursorPage,
   type ProjectResourceView,
   type ReportArtifactIntegrity,
+  type ResearchModelCatalog,
 } from '@geo/api-client';
 import { getValidatedIdentityHeaders } from '@geo/auth';
 import { GeoBarChart } from '@geo/charts';
@@ -9800,11 +9801,11 @@ function AiOpsDock() {
   const experience = useOptionalExperienceContext();
   const live = experience?.source === 'live' && Boolean(experience?.projectPubId);
   const [expanded, setExpanded] = useState(() => readAiDockStorage(aiDockExpandedKey) !== '0');
-  const [models, setModels] = useState<readonly string[]>([]);
+  const [catalog, setCatalog] = useState<ResearchModelCatalog | null>(null);
   const [pinned, setPinned] = useState(() => readAiOperationModel('intake-research'));
   useEffect(() => {
     if (!live || !experience?.projectPubId) {
-      setModels([]);
+      setCatalog(null);
       return;
     }
     const headers = getValidatedIdentityHeaders();
@@ -9812,12 +9813,14 @@ function AiOpsDock() {
     const projectPubId = experience.projectPubId;
     let cancelled = false;
     void getIntakeResearchModels(projectPubId, headers).then((result) => {
-      if (!cancelled && result.kind === 'ready') setModels(result.data);
+      if (!cancelled && result.kind === 'ready') setCatalog(result.data);
     });
     return () => {
       cancelled = true;
     };
   }, [experience, live]);
+  const models = catalog?.models ?? [];
+  const groups = catalog?.groups ?? [];
   const toggle = () => {
     setExpanded((current) => {
       writeAiDockStorage(aiDockExpandedKey, current ? '0' : '1');
@@ -9863,11 +9866,24 @@ function AiOpsDock() {
                     onChange={(event) => choose(op.id, event.target.value)}
                   >
                     {models.length ? (
-                      models.map((model, index) => (
-                        <option key={model} value={model}>
-                          {index === 0 ? `${model}（默认）` : model}
-                        </option>
-                      ))
+                      groups.length ? (
+                        // 同 provider 的模型归为一组（级联选项）
+                        groups.map((group) => (
+                          <optgroup key={group.provider} label={group.provider}>
+                            {group.models.map((model) => (
+                              <option key={model} value={model}>
+                                {model === models[0] ? `${model}（默认）` : model}
+                              </option>
+                            ))}
+                          </optgroup>
+                        ))
+                      ) : (
+                        models.map((model, index) => (
+                          <option key={model} value={model}>
+                            {index === 0 ? `${model}（默认）` : model}
+                          </option>
+                        ))
+                      )
                     ) : (
                       <option value="">
                         {live ? '模型清单加载中…' : '登录真实项目后可选模型'}
