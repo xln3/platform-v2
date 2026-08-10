@@ -40,6 +40,8 @@ class ProjectSummary(ContractModel):
     tenant_pub_id: str = Field(pattern=r"^tnt_[0-9A-HJKMNP-TV-Z]{26}$")
     name: str
     state: Literal["draft", "active", "paused", "archived"]
+    # 项目级 brandrank 规则包 domain 真源（s06_0014；None=未设置，读取回退缺省包）
+    brandrank_domain: str | None = None
     created_at: datetime
     updated_at: datetime
 

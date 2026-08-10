@@ -1,23 +1,29 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import os
+import re
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
 from geo_platform.analytics.service import AnalyticsService
+from geo_platform.brandrank.service import fetch_project_brandrank_domain
 from geo_platform.config import get_settings
 from geo_platform.evidence.object_store import ContentAddressedObjectStore
 from geo_platform.evidence.service import EvidenceService
 from geo_platform.evidence.session_gateway import SessionGatewayClient
 from geo_platform.intelligence.service import IntelligenceService
 from geo_platform.reports.service import ReportService
+from geo_platform.tenancy.ids import new_pub_id
 from geo_platform.tenancy.psycopg import tenant_connection
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from domain.brandrank import extract
+from domain.brandrank.rules import load_domain
 from domain.evidence.provenance import AccessClass, CaptureChannel, RedactedProvenance
 from domain.intelligence.core import EvidenceRelation, SourceAssessment, score_investigation
 from domain.metrics.core import MetricRegistry
@@ -98,6 +104,132 @@ async def analyze_answer_activity(payload: dict[str, Any]) -> dict[str, Any]:
             "outbox_event_id": persisted["outbox_event_id"],
         }
     return response
+
+
+_ERROR_CLASS_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*(?:Error|Exception|Timeout)\b")
+
+
+def _sanitize_extract_error(message: str, *, limit: int = 500) -> str:
+    """落库 error 消毒：异常类名（ReadTimeout/ConnectError/...）一律抹为 <exc>。
+
+    纪律（W3 任务书）：异常类名不落值——error 列只留稳定错误类别
+    （api_error/bad_json/bad_shape 前缀）与冒号后语义，实现细节不进审计账目。
+    """
+    return _ERROR_CLASS_RE.sub("<exc>", message)[:limit]
+
+
+def _record_brand_extract(
+    dsn: str,
+    *,
+    tenant_pub_id: str,
+    answer_pub_id: str,
+    domain: str,
+    brands: list[str],
+    status: str,
+    model: str,
+    error: str | None,
+) -> None:
+    """answer_brand_extract 幂等落账：UNIQUE(tenant,answer,domain)+ON CONFLICT 重写。
+
+    Temporal activity 重试/重放安全：同键重抽覆盖旧行，绝不重复落行。"""
+    with tenant_connection(dsn, tenant_pub_id) as connection:
+        connection.execute(
+            """
+            INSERT INTO analytics.answer_brand_extract
+              (pub_id,tenant_pub_id,answer_pub_id,domain,brands,status,model,error,extracted_at)
+            VALUES (%s,%s,%s,%s,%s::jsonb,%s,%s,%s,now())
+            ON CONFLICT (tenant_pub_id,answer_pub_id,domain) DO UPDATE SET
+              brands=EXCLUDED.brands, status=EXCLUDED.status, model=EXCLUDED.model,
+              error=EXCLUDED.error, extracted_at=EXCLUDED.extracted_at
+            """,
+            (
+                new_pub_id("abx"),
+                tenant_pub_id,
+                answer_pub_id,
+                domain,
+                json.dumps(list(brands), ensure_ascii=False),
+                status,
+                model,
+                error,
+            ),
+        )
+
+
+@activity.defn
+async def extract_brands_activity(payload: dict[str, Any]) -> dict[str, Any]:
+    """fanout 品牌抽取侧车（AnswerAnalysisWorkflow patch 门 brandrank-extract-v1 之后）。
+
+    诚实纪律（INV-32 零合成，与 brand-visibility 端点同口径）：
+    - 项目未设 brandrank_domain 真源 → 跳过 LLM，落 failed/domain_unset 标记行
+      （选"落账留痕"而非"静默跳过"：每条 fanout 答案都有可审计的抽取账目，
+      domain 列以 '' 占位保唯一键幂等，项目补设真源后按真 domain 另起新行）；
+    - LLM 未配 key → failed/llm_disabled；LLM 单条失败 → failed+消毒后错误类别；
+    - 绝不把失败伪装成空品牌列表，绝不阻塞分析主链（本 activity 自身不抛 LLM 类
+      失败；仅 DB 等基础设施异常上抛，由 workflow 侧捕获降级为 warning）。
+    - 非 fanout 持久化载荷（persist 缺省/缺 tenant/answer 标识，如直接起 workflow
+      的调试载荷）→ skipped 不落账不烧 LLM。
+    """
+    tenant_pub_id = str(payload.get("tenant_pub_id") or "")
+    answer_pub_id = str(payload.get("answer_pub_id") or "")
+    project_pub_id = str(payload.get("project_pub_id") or "")
+    text = str(payload.get("text") or "")
+    if not payload.get("persist") or not tenant_pub_id or not answer_pub_id:
+        return {"state": "skipped", "reason": "missing_context"}
+    dsn = _postgres_dsn()
+
+    def _failed(domain: str, model: str, error: str) -> dict[str, Any]:
+        _record_brand_extract(
+            dsn,
+            tenant_pub_id=tenant_pub_id,
+            answer_pub_id=answer_pub_id,
+            domain=domain,
+            brands=[],
+            status="failed",
+            model=model,
+            error=error,
+        )
+        return {"state": "failed", "error": error, "domain": domain}
+
+    domain = fetch_project_brandrank_domain(dsn, tenant_pub_id, project_pub_id)
+    if not domain:
+        return _failed("", "", "domain_unset")
+    try:
+        rules = load_domain(domain)
+    except ValueError:
+        # 真源列值非法（绕过 API 词表校验的直写）：fail-loud 落账，绝不臆造规则包
+        return _failed(domain, "", "unknown_domain")
+    cfg = extract.load_config()
+    if cfg is None:
+        return _failed(domain, "", "llm_disabled")
+    model = cfg[3]
+    try:
+        # httpx 同步 client 阻塞调用挪 to_thread：activity 事件循环不被 60s LLM 冻结
+        brands = await asyncio.to_thread(
+            extract.extract_brands_with_llm,
+            extract.default_client(),
+            text,
+            rules.category,
+            model=model,
+            rules=rules,
+        )
+    except extract.ExtractError as exc:
+        return _failed(domain, model, _sanitize_extract_error(str(exc)))
+    _record_brand_extract(
+        dsn,
+        tenant_pub_id=tenant_pub_id,
+        answer_pub_id=answer_pub_id,
+        domain=domain,
+        brands=brands,
+        status="ok",
+        model=model,
+        error=None,
+    )
+    return {
+        "state": "ok",
+        "domain": domain,
+        "model": model,
+        "brand_count": len(brands),
+    }
 
 
 @activity.defn

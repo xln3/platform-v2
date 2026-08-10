@@ -11,6 +11,7 @@ from temporalio.worker import Worker
 from workflows.activities.s02 import (
     analyze_answer_activity,
     capture_evidence_activity,
+    extract_brands_activity,
     finalize_report_activity,
     freeze_report_activity,
     persist_investigation_verdict_activity,
@@ -33,6 +34,7 @@ S02_WORKFLOWS = (
 )
 S02_ACTIVITIES = (
     analyze_answer_activity,
+    extract_brands_activity,
     prepare_evidence_activity,
     capture_evidence_activity,
     freeze_report_activity,

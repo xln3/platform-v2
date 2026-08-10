@@ -1,0 +1,30 @@
+{
+  "domain": "cybersecurity",
+  "category": "网络安全",
+  "source": "已拍板入库（2026-08-10）。实测依据：webray-geo.onrender.com（WebRAY GEO Monitor）内嵌观测批次，checked_at 2026-08-07 21:42–23:53，35 条记录（WZ-01..WZ-20 的 original/optimized 对）× 3 引擎（DeepSeek 原生API / 文心一言 aihubmix / 豆包 火山引擎原生），取其 mentioned_names 与 competitors 字段。merge_rules 仅收录观测到的别名形态（不臆造未观测变体；标准名=观测到的通行简称，未观测到完整工商名不强行补全）；中国电科/中电科在同一 competitor 列表中并列出现，判为同一主体不同写法。exclude_terms 为观测到的非厂商主体：CTID=国家网络身份认证平台本身（查询主题而非厂商）、互联网+可信身份认证平台=平台名。RayTAG 为盛邦安全的产品品牌（2026-08-10 用户确认），RAYTAG/RayTAG/raytag/RayTAG 网证 四种观测形态全部并入盛邦安全。公安三所（研究所）、华为/腾讯云/阿里云/蚂蚁集团/京东科技/360（大平台安全线）观测为单形厂商，经拍板保留不剔。prompt/system_message 结构照 insurance/legal 版，仅改领域描述。",
+  "merge_rules": {
+    "盛邦": "盛邦安全",
+    "盛邦安全": "盛邦安全",
+    "远江盛邦": "盛邦安全",
+    "WebRAY": "盛邦安全",
+    "Webray": "盛邦安全",
+    "webray": "盛邦安全",
+    "RAYTAG": "盛邦安全",
+    "RayTAG": "盛邦安全",
+    "raytag": "盛邦安全",
+    "RayTAG 网证": "盛邦安全",
+    "中电科": "中国电科",
+    "中国电科": "中国电科"
+  },
+  "exclude_terms": [
+    "CTID",
+    "互联网+可信身份认证平台"
+  ],
+  "llm": {
+    "prompt_template": "请从以下关于\"{category}\"的AI回复文本中，提取出所有被推荐的网络安全厂商/服务商名称。\n\n要求：\n1. 只提取网络安全厂商/服务商的名称即可，不需要包含具体的产品名、版本号等其他内容\n2. 按照文本中出现的顺序排列，并去掉重复出现的厂商\n3. 返回一个厂商名称列表\n4. 如果回答中以简称提及厂商（如\"奇安信\"\"卫士通\"），提取该简称即可。如果回答中列出的是产品名，请提取厂商的名字，而不要提取产品名；如果你不知道产品属于哪家厂商，请提取完整的产品名\n\n输出格式为JSON：{\"brands\": [\"厂商1\", \"厂商2\", ...]}\n\n以下是AI回复文本：\n{reply_text}",
+    "system_message": "你是一个专业的数据提取助手，擅长从文本中提取品牌信息。",
+    "temperature": 0,
+    "response_format": "json_object",
+    "max_workers_default": 10
+  }
+}

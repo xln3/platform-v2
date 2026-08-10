@@ -11,6 +11,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from domain.brandrank.rules import load_domain
+
 from ..contracts import PageMeta, ProjectPage, ProjectSummary
 from ..identity.policy import Principal, get_principal
 from ..tenancy.database import get_db
@@ -26,14 +28,40 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+def _validate_brandrank_domain(value: str | None) -> str | None:
+    """项目级 brandrank domain 真源校验：None/空白 → None（清除）；非法值 → 400。
+
+    词表单源 = domain/brandrank/rules.py（rules_data/ 已落盘规则包集合）；
+    校验先于我方任何 DB 写入（fail-fast，非法请求不留审计垃圾）。
+    """
+    if value is None:
+        return None
+    cleaned = value.strip()
+    if not cleaned:
+        return None
+    try:
+        load_domain(cleaned)
+    except ValueError as exc:
+        # projects router 本地惯例：plain HTTPException（全局 handler 丢 details，
+        # 故只带 code；可用词表见 brand-visibility 端点 unknown_domain 的 details）
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "unknown_brandrank_domain"},
+        ) from exc
+    return cleaned
+
+
 class ProjectCreate(StrictModel):
     name: str = Field(min_length=1, max_length=200)
     customer_name: str = Field(min_length=1, max_length=200)
+    brandrank_domain: str | None = Field(default=None, max_length=40)
 
 
 class ProjectPatch(StrictModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     state: str | None = Field(default=None, pattern="^(draft|active|paused|archived)$")
+    # 显式 null = 清除真源设置；缺省 = 不动（model_fields_set 区分）
+    brandrank_domain: str | None = Field(default=None, max_length=40)
     expected_version: int = Field(ge=1)
 
 
@@ -71,6 +99,7 @@ def as_summary(project: Project, tenant_pub_id: str) -> ProjectSummary:
         tenant_pub_id=tenant_pub_id,
         name=project.name,
         state=project.state,
+        brandrank_domain=project.brandrank_domain,
         created_at=project.created_at,
         updated_at=project.updated_at,
     )
@@ -108,6 +137,7 @@ def create_project(
     session: Session = Depends(get_db),
 ) -> ProjectSummary:
     principal.require("project:write")
+    brandrank_domain = _validate_brandrank_domain(body.brandrank_domain)
     repository = TenantRepository(session, principal.tenant_pub_id)
     receipt_action = f"project.created:{hashlib.sha256(idempotency_key.encode()).hexdigest()}"
     prior = session.scalar(
@@ -136,6 +166,7 @@ def create_project(
         tenant_id=repository.tenant.id,
         customer_id=customer.id,
         name=body.name,
+        brandrank_domain=brandrank_domain,
     )
     session.add(project)
     session.flush()
@@ -162,6 +193,11 @@ def update_project(
     session: Session = Depends(get_db),
 ) -> ProjectSummary:
     principal.require("project:write")
+    brandrank_domain_marker = (
+        _validate_brandrank_domain(body.brandrank_domain)
+        if "brandrank_domain" in body.model_fields_set
+        else None
+    )
     repository = TenantRepository(session, principal.tenant_pub_id)
     project = session.scalar(
         select(Project).where(
@@ -176,6 +212,9 @@ def update_project(
         project.name = body.name
     if body.state is not None:
         project.state = body.state
+    if "brandrank_domain" in body.model_fields_set:
+        # 显式传值（含 null/空白=清除）才动真源列；缺省不动
+        project.brandrank_domain = brandrank_domain_marker
     project.version += 1
     session.commit()
     return as_summary(project, principal.tenant_pub_id)

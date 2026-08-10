@@ -1,4 +1,8 @@
-"""LLM 抽取结果缓存：runtime/ 下的 JSON 文件缓存（V2 不落 PG——禁新表/禁 migration）。
+"""LLM 抽取结果文件缓存：runtime/ 下的 JSON 文件缓存。
+
+s06_0014 起抽取的权威落账在 ``analytics.answer_brand_extract`` 表（fanout 写入），
+本文件缓存退居**只读兜底 + 端点现抽的工作缓存**：brand-visibility 端点读取顺序
+表 → 本缓存 → LLM 现抽；端点现抽成功仍写本缓存（不回写表，表只由 fanout 写）。
 
 键 = sha256(domain + "\\n" + 答案全文)——**domain 必在键内**：抽取 prompt 随 domain 变，
 异 domain 缓存绝不当命中（旧库律所事故同型隐患；旧库靠 brandrank_extract.domain 列

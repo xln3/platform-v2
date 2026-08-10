@@ -177,3 +177,23 @@ def test_analyze_sources_grouped_by_dims(rules):
     assert res["sources"]["overall"]["total"] == 2
     assert res["sources"]["by_mode"]["快速"]["total"] == 1
     assert res["sources"]["by_ip"]["上海"]["unique_urls"] == 1
+
+
+# ── by_engine：V2 附加维（纯增量分组，既有分组零变化）────────────────────
+def test_by_engine_additive_grouping(rules):
+    """engine 维分组（adapter 附加的 provenance 字段）；无 engine 的记录落 '' 桶
+    （与 by_ip 的 '' 桶同口径）；overall/by_mode/by_ip/by_type 数值与键集合零变化。"""
+    without_engine = metrics.analyze(_records(), [], rules=rules)
+    assert set(without_engine["by_engine"]) == {""}                    # 她的记录无 engine
+    assert without_engine["by_engine"][""]["denominators"]["n_answers"] == 4
+
+    records = [dict(r, engine=engine)
+               for r, engine in zip(_records(),
+                                    ["doubao", "deepseek", "doubao", "doubao"], strict=True)]
+    res = metrics.analyze(records, [], rules=rules)
+    assert set(res["by_engine"]) == {"doubao", "deepseek"}
+    assert res["by_engine"]["doubao"]["denominators"]["n_answers"] == 3
+    assert res["by_engine"]["deepseek"]["denominators"]["n_answers"] == 1
+    # 零漂移：既有分组与 overall 与无 engine 时逐键一致
+    for key in ("overall", "by_mode", "by_ip", "by_type"):
+        assert res[key] == without_engine[key]

@@ -34,7 +34,7 @@ DEFAULT_DOMAIN = "insurance"
 
 # 客户行业（中文行业词）→ 规则包 domain。旧库生产事故根因：律所客户拿保险包静默跑——
 # 行业有值但未映射 / 映射到的包不存在，都必须 fail-loud，绝不静默回退保险包。
-INDUSTRY_DOMAIN = {"保险": "insurance", "法律": "legal"}
+INDUSTRY_DOMAIN = {"保险": "insurance", "法律": "legal", "网络安全": "cybersecurity"}
 
 
 def domain_for_industry(industry: str | None) -> str:

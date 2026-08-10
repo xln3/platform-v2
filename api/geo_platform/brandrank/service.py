@@ -1,18 +1,24 @@
-"""品牌可见度分析服务层：按需计算（读 analytics.answer → LLM 抽取 → 规则归并 → 指标）。
+"""品牌可见度分析服务层：按需计算（读 analytics.answer → 抽取 → 规则归并 → 指标）。
 
 数据通路（INV-1 口径延续：只读测量结果行，绝不触碰账号/profile 维）：
 - 答案：``analytics.answer``（tenant+project+时间窗+``eligible AND NOT degraded``，
   对应旧库 answer_agg_blind 视图语义）；
 - 信源：``analytics.citation_fact``（ordinal/host/canonical_url）；
-- 项目/品牌/竞品：``platform.project/brand/competitor``（target_brand/competitors 缺省来源）。
+- 项目/品牌/竞品：``platform.project/brand/competitor``（target_brand/competitors 缺省来源；
+  ``project.brandrank_domain`` = 项目级规则包 domain 真源，s06_0014 起）。
 
-LLM 抽取缓存走 domain.brandrank.cache（runtime/ JSON 文件，键=domain+答案哈希；
-不落 PG——本包零表零 migration）。failed 条不进品牌分析但进信源分析，
-失败计数在 extraction 账目里披露（INV-32 零合成）。
+LLM 抽取读取顺序（s06_0014 起）：
+1. ``analytics.answer_brand_extract`` 表（fanout 落账，status='ok' 才算命中；
+   failed 行与文件缓存 failed 条目同口径=未命中，下同）；
+2. 文件缓存 ``runtime/brandrank-extract/``（domain.brandrank.cache，只读兜底——
+   端点现抽成功仍写文件缓存，不回写表）；
+3. LLM 现抽（端点对历史未覆盖 run 的兜底）。
+表与文件缓存字段口径一致（status/model/error/domain/extracted_at）。
+failed 条不进品牌分析但进信源分析，失败计数在 extraction 账目里披露（INV-32 零合成）。
 
 诚实边界：
 - LLM 未配置（GEO_BRANDRANK_LLM_API_KEY 缺失）且存在待抽取答案 → LlmDisabled
-  （API 503 llm_disabled）；全部命中缓存或窗内零答案时无需 LLM，照常返回并如实披露。
+  （API 503 llm_disabled）；全部命中表/缓存或窗内零答案时无需 LLM，照常返回并如实披露。
 - 窗内零答案 → insufficient=true 的空分析（如实空，不假装有数据）。
 """
 from __future__ import annotations
@@ -84,12 +90,13 @@ def _platform_tenant_connection(
 def fetch_project(dsn: str, tenant_pub_id: str, project_pub_id: str) -> dict[str, Any] | None:
     """项目 + 品牌名列表 + 竞品名列表；不存在 → None（跨租户同 None）。
 
-    品牌/竞品只取 name（target_brand/competitors 缺省来源），不取 website 等无关列。
+    品牌/竞品只取 name（target_brand/competitors 缺省来源），不取 website 等无关列；
+    brandrank_domain = 项目级规则包 domain 真源（s06_0014，可空）。
     """
     with _platform_tenant_connection(dsn, tenant_pub_id) as connection:
         project = connection.execute(
             """
-            SELECT id, pub_id, name FROM platform.project
+            SELECT id, pub_id, name, brandrank_domain FROM platform.project
             WHERE pub_id=%s
               AND tenant_id=NULLIF(current_setting('app.tenant_id', true), '')::uuid
             """,
@@ -118,9 +125,38 @@ def fetch_project(dsn: str, tenant_pub_id: str, project_pub_id: str) -> dict[str
     return {
         "pub_id": project["pub_id"],
         "name": project["name"],
+        "brandrank_domain": project["brandrank_domain"],
         "brand_names": [row["name"] for row in brands],
         "competitor_names": [row["name"] for row in competitors],
     }
+
+
+def fetch_project_brandrank_domain(
+    dsn: str, tenant_pub_id: str, project_pub_id: str
+) -> str | None:
+    """项目级 brandrank domain 真源（fanout extract_brands_activity 的取值缝）。
+
+    租户/项目不存在或未设置 → None（调用方落 failed/domain_unset 标记，
+    绝不臆造规则包；不存在不抛错——这是永久态而非可重试的基础设施故障）。
+    """
+    if not project_pub_id:
+        return None
+    try:
+        with _platform_tenant_connection(dsn, tenant_pub_id) as connection:
+            row = connection.execute(
+                """
+                SELECT brandrank_domain FROM platform.project
+                WHERE pub_id=%s
+                  AND tenant_id=NULLIF(current_setting('app.tenant_id', true), '')::uuid
+                """,
+                (project_pub_id,),
+            ).fetchone()
+    except LookupError:
+        return None                                # tenant_not_found ≈ 未设置
+    if row is None:
+        return None
+    value = (row["brandrank_domain"] or "").strip()
+    return value or None
 
 
 def fetch_answers(
@@ -182,12 +218,39 @@ def fetch_citations(
     return out
 
 
+def fetch_brand_extracts(
+    dsn: str, tenant_pub_id: str, answer_pub_ids: list[str], domain: str
+) -> dict[str, dict[str, Any]]:
+    """fanout 落账表读取接缝：{answer_pub_id: row}（analytics.answer_brand_extract）。
+
+    只按 (tenant, domain) 取本批答案的行；命中口径与文件缓存一致——调用方只把
+    status='ok' 行当命中，failed 行视为未命中（留给缓存/LLM 兜底重试）。
+    """
+    if not answer_pub_ids:
+        return {}
+    with tenant_connection(dsn, tenant_pub_id, row_factory=dict_row) as connection:
+        rows = connection.execute(
+            """
+            SELECT answer_pub_id, brands, status, model, error, domain, extracted_at
+            FROM analytics.answer_brand_extract
+            WHERE tenant_pub_id=%s AND domain=%s AND answer_pub_id=ANY(%s::text[])
+            """,
+            (tenant_pub_id, domain, answer_pub_ids),
+        ).fetchall()
+    return {row["answer_pub_id"]: dict(row) for row in rows}
+
+
 # ── 编排 ──────────────────────────────────────────────────────────────────
-def resolve_rules(domain: str | None, industry: str | None) -> tuple[DomainRules, str]:
-    """domain 解析优先级：显式 domain > 显式 industry（fail-loud 映射）> 缺省包。
+def resolve_rules(
+    domain: str | None, industry: str | None, project_domain: str | None = None
+) -> tuple[DomainRules, str]:
+    """domain 解析优先级：显式 domain > 显式 industry（fail-loud 映射）> 项目真源
+    （project.brandrank_domain，s06_0014）> 缺省包。
 
     V2 项目无持久化行业字段（intake profile 无 industry 列，见 intake/contract.py），
-    故行业只能由调用方显式给出；两者都缺 → DEFAULT_DOMAIN 并如实标 domain_source。
+    故行业只能由调用方显式给出；项目真源值非法（绕过 API 词表校验的直写）同样
+    fail-loud 400，绝不静默回退保险包；全部缺省 → DEFAULT_DOMAIN 并如实标
+    domain_source=default。
     """
     if domain and domain.strip():
         try:
@@ -199,6 +262,11 @@ def resolve_rules(domain: str | None, industry: str | None) -> tuple[DomainRules
             return load_domain(domain_for_industry(industry)), "industry"
         except ValueError as exc:
             raise UnmappedIndustry(str(exc)) from exc
+    if project_domain and project_domain.strip():
+        try:
+            return load_domain(project_domain.strip()), "project"
+        except ValueError as exc:
+            raise UnknownDomain(str(exc)) from exc
     return load_domain(DEFAULT_DOMAIN), "default"
 
 
@@ -224,7 +292,7 @@ def compute_brand_visibility(
     project = fetch_project(dsn, tenant_pub_id, project_pub_id)
     if project is None:
         raise ProjectNotFound(project_pub_id)
-    rules, domain_source = resolve_rules(domain, industry)
+    rules, domain_source = resolve_rules(domain, industry, project.get("brandrank_domain"))
     resolved_category = (category or "").strip() or rules.category
     resolved_top_ns = tuple(top_ns) if top_ns else metrics.DEFAULT_TOP_NS
     resolved_target = (target_brand or "").strip() or (
@@ -241,14 +309,27 @@ def compute_brand_visibility(
     answers, truncated = fetch_answers(dsn, tenant_pub_id, project_pub_id, since)
     citations = fetch_citations(dsn, tenant_pub_id, [a["pub_id"] for a in answers])
 
-    # ── 抽取：缓存命中（同 domain 同文本）跳过；未命中批量补抽 ──
+    # ── 抽取读取顺序（s06_0014）：表（ok 行）→ 文件缓存（只读兜底）→ LLM 现抽 ──
+    table_rows = fetch_brand_extracts(
+        dsn, tenant_pub_id, [a["pub_id"] for a in answers], rules.domain
+    )
     entries: dict[str, list[str]] = {}
     pending: list[tuple[dict[str, Any], str]] = []
+    n_table_ok = n_cache_ok = 0
     for answer in answers:
+        table_row = table_rows.get(answer["pub_id"])
+        if table_row is not None and table_row.get("status") == "ok":
+            brands = table_row.get("brands")
+            if isinstance(brands, list) and all(isinstance(b, str) for b in brands):
+                entries[answer["pub_id"]] = list(brands)
+                n_table_ok += 1
+                continue
+            # ok 行但 brands 形状不符 → 与坏缓存同口径：不当命中，落兜底重抽
         key = cache.cache_key(rules.domain, answer.get("response_text") or "")
         hit = cache.load(key)
         if hit is not None:
             entries[answer["pub_id"]] = list(hit["brands"])
+            n_cache_ok += 1
         else:
             pending.append((answer, key))
 
@@ -302,7 +383,8 @@ def compute_brand_visibility(
     result["insufficient"] = len(answers) == 0       # 0 条 eligible=数据不足（照报告 T1 语义）
     result["extraction"] = {                         # 抽取账目披露（诚实边界）
         "n_answers": len(answers),
-        "cached_ok": len(answers) - len(pending),
+        "table_ok": n_table_ok,                      # fanout 落账表命中（s06_0014）
+        "cached_ok": n_cache_ok,                     # 文件缓存命中（只读兜底）
         "extracted_new": n_ok_new,
         "failed_new": n_failed_new,
         "failed_total": n_failed_total,

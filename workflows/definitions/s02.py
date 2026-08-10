@@ -10,6 +10,7 @@ with workflow.unsafe.imports_passed_through():
     from workflows.activities.s02 import (
         analyze_answer_activity,
         capture_evidence_activity,
+        extract_brands_activity,
         finalize_report_activity,
         freeze_report_activity,
         persist_investigation_verdict_activity,
@@ -30,12 +31,30 @@ _RETRY = RetryPolicy(
 class AnswerAnalysisWorkflow:
     @workflow.run
     async def run(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return await workflow.execute_activity(
+        result: dict[str, Any] = await workflow.execute_activity(
             analyze_answer_activity,
             payload,
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=_RETRY,
         )
+        # brandrank-extract-v1（W3）：分析主链之后追加品牌抽取侧车。
+        # 未打补丁的历史重放不含 marker → patched() 返回 False → 不排新 activity
+        # （旧 history 逐字节按旧语义重放）。LLM 单条 60s 超时+线程切换开销，
+        # 30s 装不下，start_to_close 给 120s。侧车失败绝不阻塞分析主链：
+        # activity 内部对 LLM 失败已诚实落 failed 行，这里只对基础设施级
+        # 异常（重试耗尽）降级为 warning 留痕。
+        if workflow.patched("brandrank-extract-v1"):
+            try:
+                result["brand_extract"] = await workflow.execute_activity(
+                    extract_brands_activity,
+                    payload,
+                    start_to_close_timeout=timedelta(seconds=120),
+                    retry_policy=_RETRY,
+                )
+            except Exception as exc:
+                workflow.logger.warning("brandrank extract sidecar failed: %r", exc)
+                result["brand_extract"] = {"state": "sidecar_failed"}
+        return result
 
 
 @workflow.defn(name="EvidenceCaptureWorkflow")

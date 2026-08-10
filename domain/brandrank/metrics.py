@@ -241,8 +241,12 @@ def analyze(records: list[dict[str, Any]], source_records: list[dict[str, Any]],
             rules: DomainRules, target_brand: str | None = None,
             competitors: Iterable[str] = (),
             top_ns: Iterable[int] = DEFAULT_TOP_NS) -> dict[str, Any]:
-    """一次运行的完整指标快照：overall/by_mode/by_ip/by_type 双口径排名表
+    """一次运行的完整指标快照：overall/by_mode/by_ip/by_type/by_engine 双口径排名表
     + 目标品牌/竞品专项 + 信源分析 + 全量分母披露。
+
+    by_engine 是 V2 附加维（她的数据全是豆包无此维；engine=adapter 附加的
+    provenance 字段，缺省 '' 桶，与 by_ip 的 '' 桶同口径）——纯增量分组，
+    overall/by_mode/by_ip/by_type 的数值与键集合零变化。
 
     records: 她的 brand_list 记录（adapter 产出；**只含抽取成功的 answer**——failed 条
     不进 brands 分析，但其 references 仍进信源分析，由调用方分别组装）。
@@ -280,6 +284,7 @@ def analyze(records: list[dict[str, Any]], source_records: list[dict[str, Any]],
         "by_mode": grouped(lambda r: r.get("thinking_mode") or ""),
         "by_ip": grouped(lambda r: r.get("ip") or ""),
         "by_type": grouped(lambda r: r.get("rec_type") or "其他"),   # None→'其他' 桶（她的词）
+        "by_engine": grouped(lambda r: r.get("engine") or ""),      # V2 附加维（纯增量分组）
         "target_brand": None,
         "competitors": [],
         "sources": {

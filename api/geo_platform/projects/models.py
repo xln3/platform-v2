@@ -30,6 +30,8 @@ class Project(TenantModel, Base):
     customer_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("platform.customer.id"))
     name: Mapped[str] = mapped_column(String(200))
     state: Mapped[str] = mapped_column(String(30), default="draft")
+    # 项目级 brandrank 规则包 domain 真源（s06_0014，可空；词表校验在 API 层）
+    brandrank_domain: Mapped[str | None] = mapped_column(String(40))
 
 
 class Brand(TenantModel, Base):

@@ -57,8 +57,8 @@ def _citation(host: str, ordinal: int = 1) -> dict:
             "canonical_url": f"https://{host}/a", "original_url": f"https://{host}/a"}
 
 
-def _project() -> dict:
-    return {"pub_id": PROJECT, "name": "测试项目",
+def _project(brandrank_domain: str | None = None) -> dict:
+    return {"pub_id": PROJECT, "name": "测试项目", "brandrank_domain": brandrank_domain,
             "brand_names": ["中意人寿"], "competitor_names": ["中国平安"]}
 
 
@@ -80,8 +80,9 @@ def _override_principal(role: Role = Role.OPERATOR, tenant: str = TENANT) -> Non
 
 def _patch_fetch(monkeypatch: pytest.MonkeyPatch, *, answers: list[dict],
                  citations: dict[str, list[dict]] | None = None,
-                 project: dict | None = None) -> dict:
-    """monkeypatch service 的三个 DB 接缝；返回记录调用参数的盒子。"""
+                 project: dict | None = None,
+                 table_rows: dict[str, dict] | None = None) -> dict:
+    """monkeypatch service 的四个 DB 接缝；返回记录调用参数的盒子。"""
     seen: dict[str, object] = {}
 
     def fake_fetch_project(dsn: str, tenant_pub_id: str, project_pub_id: str):
@@ -96,9 +97,15 @@ def _patch_fetch(monkeypatch: pytest.MonkeyPatch, *, answers: list[dict],
     def fake_fetch_citations(dsn: str, tenant_pub_id: str, answer_pub_ids: list[str]):
         return dict(citations or {})
 
+    def fake_fetch_brand_extracts(dsn: str, tenant_pub_id: str,
+                                  answer_pub_ids: list[str], domain: str):
+        seen["extract_domain"] = domain
+        return dict(table_rows or {})
+
     monkeypatch.setattr(service, "fetch_project", fake_fetch_project)
     monkeypatch.setattr(service, "fetch_answers", fake_fetch_answers)
     monkeypatch.setattr(service, "fetch_citations", fake_fetch_citations)
+    monkeypatch.setattr(service, "fetch_brand_extracts", fake_fetch_brand_extracts)
     return seen
 
 
@@ -161,7 +168,7 @@ def test_unknown_domain_400(monkeypatch: pytest.MonkeyPatch) -> None:
     assert resp.status_code == 400
     body = resp.json()
     assert body["error"]["code"] == "unknown_domain"
-    assert sorted(body["error"]["details"]["available"]) == ["insurance", "legal"]
+    assert sorted(body["error"]["details"]["available"]) == ["cybersecurity", "insurance", "legal"]
 
 
 # ── LLM 禁用态（诚实降级）──────────────────────────────────────────────────
@@ -350,3 +357,125 @@ def test_resolve_rules_priority() -> None:
         service.resolve_rules(None, "餐饮")
     with pytest.raises(service.UnknownDomain):
         service.resolve_rules("不存在", None)
+
+
+# ── s06_0014：表→文件→LLM 读取顺序 + 项目级 domain 真源 ─────────────────────
+def _table_row(brands: list[str], *, status: str = "ok", model: str = "m-fanout") -> dict:
+    return {"brands": brands, "status": status, "model": model,
+            "error": None if status == "ok" else "api_error: upstream_500",
+            "domain": "insurance", "extracted_at": NOW.isoformat()}
+
+
+def test_table_hit_short_circuits_cache_and_llm(monkeypatch: pytest.MonkeyPatch) -> None:
+    """fanout 落账表 ok 行直接命中：不读文件缓存、不调 LLM，账目 table_ok 如实披露。"""
+    _override_principal()
+    _patch_fetch(
+        monkeypatch,
+        answers=[_answer("ans_1", "答案甲"), _answer("ans_2", "答案乙")],
+        citations={}, project=_project(),
+        table_rows={"ans_1": _table_row(["中意人寿", "中国平安"]),
+                    "ans_2": _table_row(["中国人寿"])},
+    )
+    monkeypatch.setattr(extract, "default_client",
+                        lambda: pytest.fail("表命中不应再调 LLM"))
+    resp = _get()
+    assert resp.status_code == 200
+    body = resp.json()
+    ext = body["result"]["extraction"]
+    assert ext["table_ok"] == 2 and ext["cached_ok"] == 0 and ext["extracted_new"] == 0
+    assert {r["brand"] for r in body["result"]["overall"]["merged"]} == {
+        "中意人寿", "中国平安", "中国人寿"}
+
+
+def test_table_failed_row_falls_through_to_file_cache(
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """表内 failed 行=未命中（与文件缓存 failed 条目同口径）→ 落文件缓存兜底。"""
+    from domain.brandrank import cache
+
+    _override_principal()
+    _patch_fetch(
+        monkeypatch,
+        answers=[_answer("ans_1", "答案甲")],
+        citations={}, project=_project(),
+        table_rows={"ans_1": _table_row([], status="failed")},
+    )
+    # 文件缓存预置同 domain 同文本的 ok 条目
+    cache.store(cache.cache_key("insurance", "答案甲"),
+                brands=["中意人寿"], model="m-cached", status="ok", domain="insurance")
+    monkeypatch.setattr(extract, "default_client",
+                        lambda: pytest.fail("缓存兜底命中不应再调 LLM"))
+    resp = _get()
+    assert resp.status_code == 200
+    ext = resp.json()["result"]["extraction"]
+    assert ext["table_ok"] == 0 and ext["cached_ok"] == 1 and ext["extracted_new"] == 0
+    assert resp.json()["result"]["overall"]["merged"][0]["brand"] == "中意人寿"
+
+
+def test_table_failed_and_no_cache_falls_through_to_llm(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """表 failed + 缓存未命中 → LLM 现抽兜底（端点对历史未覆盖 run 的旧行为保持）。"""
+    _override_principal()
+    monkeypatch.setenv("GEO_BRANDRANK_LLM_API_KEY", "k-test")
+    monkeypatch.setenv("GEO_BRANDRANK_LLM_MODEL", "m-test")
+    _patch_fetch(
+        monkeypatch,
+        answers=[_answer("ans_1", "答案甲")],
+        citations={}, project=_project(),
+        table_rows={"ans_1": _table_row([], status="failed")},
+    )
+    fake = FakeClient(_two_answers_behavior)
+    monkeypatch.setattr(extract, "default_client", lambda: fake)
+    resp = _get()
+    assert resp.status_code == 200
+    ext = resp.json()["result"]["extraction"]
+    assert fake.calls == 1
+    assert ext["table_ok"] == 0 and ext["extracted_new"] == 1
+
+
+def test_project_brandrank_domain_is_default_source(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """项目设了 brandrank_domain → 缺省用它（真源），domain_source=project 如实披露。"""
+    _override_principal()
+    _patch_fetch(monkeypatch, answers=[], project=_project(brandrank_domain="legal"))
+    resp = _get()                                   # 无显式 domain/industry 参数
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["domain"] == "legal" and body["domain_source"] == "project"
+    assert body["category"] == "律师事务所"
+
+
+def test_explicit_domain_and_industry_beat_project_domain(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """显式 domain/industry 参数优先于项目真源（端点行为保持）。"""
+    _override_principal()
+    _patch_fetch(monkeypatch, answers=[], project=_project(brandrank_domain="legal"))
+    resp = _get("?domain=insurance")
+    assert resp.status_code == 200
+    assert resp.json()["domain"] == "insurance"
+    assert resp.json()["domain_source"] == "explicit"
+    resp2 = _get("?industry=保险")
+    assert resp2.status_code == 200
+    assert resp2.json()["domain"] == "insurance"
+    assert resp2.json()["domain_source"] == "industry"
+
+
+def test_project_domain_invalid_fail_loud_400(monkeypatch: pytest.MonkeyPatch) -> None:
+    """真源列值非法（绕过 API 词表校验的直写）→ 400 unknown_domain，绝不静默回退。"""
+    _override_principal()
+    _patch_fetch(monkeypatch, answers=[], project=_project(brandrank_domain="不存在的领域"))
+    resp = _get()
+    assert resp.status_code == 400
+    assert resp.json()["error"]["code"] == "unknown_domain"
+
+
+def test_resolve_rules_project_domain_priority() -> None:
+    rules, source = service.resolve_rules(None, None, "legal")
+    assert rules.domain == "legal" and source == "project"          # 项目真源>缺省包
+    rules, source = service.resolve_rules("insurance", None, "legal")
+    assert rules.domain == "insurance" and source == "explicit"     # 显式参数仍最优先
+    rules, source = service.resolve_rules(None, "法律", "insurance")
+    assert rules.domain == "legal" and source == "industry"         # 显式行业>项目真源
+    rules, source = service.resolve_rules(None, None, "  ")
+    assert rules.domain == "insurance" and source == "default"      # 空白真源视同未设
+    with pytest.raises(service.UnknownDomain):
+        service.resolve_rules(None, None, "不存在")                  # 非法真源 fail-loud
