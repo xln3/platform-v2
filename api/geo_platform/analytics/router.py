@@ -1,22 +1,41 @@
 # ruff: noqa: B008
 from __future__ import annotations
 
+import re
 from datetime import date, datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from urllib.parse import urlsplit, urlunsplit
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
+from fastapi.responses import JSONResponse
 from psycopg.rows import dict_row
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from domain.brandrank.rules import available_domains
 from domain.evidence.dlp import assert_secret_free
 
+from ..brandrank import compare as brandrank_compare
+from ..brandrank import service as brandrank_service
 from ..config import get_settings
 from ..identity.policy import Principal, get_principal
 from ..tenancy.psycopg import tenant_connection
+from . import comparisons
 from .service import AnalyticsService
 
 router = APIRouter(prefix="/api/v2/analytics", tags=["analytics"])
+
+# POST 可选幂等头（sop 同款轻量口径：校验 16–128 可打印 ASCII + 响应头回显，不去重）
+IdempotencyKey = Annotated[
+    str | None,
+    Header(
+        alias="Idempotency-Key",
+        min_length=16,
+        max_length=128,
+        pattern=r"^[\x20-\x7e]+$",
+    ),
+]
+
+_RUN_PUB_ID_RE = re.compile(r"run_[A-Za-z0-9_-]{1,116}")
 
 
 class StrictModel(BaseModel):
@@ -237,6 +256,24 @@ def _dsn() -> str:
     settings = get_settings()
     return (settings.runtime_postgres_dsn or settings.postgres_dsn).replace(
         "postgresql+psycopg://", "postgresql://"
+    )
+
+
+def _error(request: Request, status_code: int, code: str,
+           details: dict[str, Any] | None = None) -> JSONResponse:
+    """与 main.py 全局错误体同形的 JSONResponse（details 本层自定义填充——
+    全局 HTTPException handler 丢弃 details，照 brandrank/fact_suggestions 路由先例）。"""
+    request_id = getattr(request.state, "request_id", None)
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "error": {
+                "code": code,
+                "message": code.replace("_", " "),
+                "request_id": request_id if isinstance(request_id, str) else "",
+                "details": details or {},
+            }
+        },
     )
 
 
@@ -659,7 +696,12 @@ def delta(
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any]:
     """前后等长窗口四指标 delta；config_version（冻结配置 pub_id）传入时两窗口
-    只统计该配置产出的答案（报价单前后对比口径），不传时行为与旧版一致。"""
+    只统计该配置产出的答案（报价单前后对比口径），不传时行为与旧版一致。
+
+    口径标注：本端点为 metric_daily **启发式层**（casefold 子串判提及、正则排名、
+    top1/3/10 单分母、0..1 比率）。品牌前后对比（报价单服务④口径：brandrank 层
+    LLM 抽取 + 规则归并 + 双分母，与报告 before_after 扩展组同一份代码）请用
+    POST/GET /api/v2/analytics/comparisons。"""
     principal.require("project:read")
     result = AnalyticsService(dsn=_dsn()).previous_period_delta(
         tenant_pub_id=principal.tenant_pub_id,
@@ -672,6 +714,97 @@ def delta(
         metric: {key: float(value) if value is not None else None for key, value in values.items()}
         for metric, values in result.items()
     }
+
+
+class ComparisonCreate(StrictModel):
+    project_pub_id: str = Field(min_length=5, max_length=40)
+    name: str = Field(min_length=1, max_length=200)
+    baseline_run_pub_ids: list[str] = Field(min_length=1, max_length=100)
+    optimized_run_pub_ids: list[str] = Field(min_length=1, max_length=100)
+    note: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("baseline_run_pub_ids", "optimized_run_pub_ids")
+    @classmethod
+    def run_pub_id_shape(cls, value: list[str]) -> list[str]:
+        for item in value:
+            if not _RUN_PUB_ID_RE.fullmatch(item):
+                raise ValueError("invalid_run_pub_id")
+        return value
+
+
+@router.post("/comparisons", status_code=201, response_model=None)
+def create_run_comparison(
+    request: Request,
+    body: ComparisonCreate,
+    response: Response,
+    idempotency_key: IdempotencyKey = None,
+    principal: Principal = Depends(get_principal),
+) -> dict[str, Any] | JSONResponse:
+    """创建「基线 run 组 vs 优化后 run 组」对比实体（报价单服务④，brandrank 层口径）。
+
+    两臂数组非空且元素须为合法 run pub id 形状（否则 422）；所有 run 必须存在
+    且属于本 tenant+project，否则 400 unknown_run_pub_id（跨项目/跨租户同码，
+    不泄露存在性）。幂等头照 sop 轻量口径：接受 + 校验 + 响应头回显，不去重。
+    """
+    principal.require("schedule:manage")
+    try:
+        entity = comparisons.create_comparison(
+            _dsn(), principal.tenant_pub_id,
+            project_pub_id=body.project_pub_id, name=body.name,
+            baseline_run_pub_ids=body.baseline_run_pub_ids,
+            optimized_run_pub_ids=body.optimized_run_pub_ids,
+            note=body.note, created_by=principal.actor_pub_id)
+    except comparisons.UnknownRunPubId as exc:
+        return _error(request, 400, "unknown_run_pub_id",
+                      {"unknown_run_pub_ids": exc.unknown})
+    if idempotency_key is not None:
+        response.headers["Idempotency-Key"] = idempotency_key
+    return entity
+
+
+@router.get("/comparisons")
+def list_run_comparisons(
+    project_pub_id: str,
+    limit: int = Query(default=100, ge=1, le=500),
+    principal: Principal = Depends(get_principal),
+) -> dict[str, Any]:
+    """项目下全部 run 组对比实体（created_at 倒序）。"""
+    principal.require("project:read")
+    items = comparisons.list_comparisons(
+        _dsn(), principal.tenant_pub_id, project_pub_id, limit)
+    return {"items": items}
+
+
+@router.get("/comparisons/{comparison_pub_id}", response_model=None)
+def get_run_comparison(
+    request: Request,
+    comparison_pub_id: str,
+    principal: Principal = Depends(get_principal),
+) -> dict[str, Any] | JSONResponse:
+    """对比实体 + 现场计算的 result（brandrank 层 compare.py，与报告 before_after
+    扩展组同一份代码：同臂谓词、同 analyze 管线、同五指标行结构、同 insufficient 语义）。
+
+    result.aggregate.metrics = 扩展组同构五行；result.questions = 逐题配对
+    （query_text 配对键），只在一臂出现（答案级）的进 unpaired。
+    """
+    principal.require("project:read")
+    entity = comparisons.fetch_comparison(
+        _dsn(), principal.tenant_pub_id, comparison_pub_id)
+    if entity is None:
+        raise HTTPException(status_code=404, detail={"code": "comparison_not_found"})
+    try:
+        result = brandrank_compare.compute_run_comparison(
+            dsn=_dsn(), tenant_pub_id=principal.tenant_pub_id, comparison=entity)
+    except brandrank_service.ProjectNotFound as exc:
+        raise HTTPException(status_code=404, detail={"code": "project_not_found"}) from exc
+    except brandrank_compare.DomainUnset:
+        return _error(request, 400, "domain_unset",
+                      {"why": "项目未设置 brandrank_domain（规则包真源），"
+                              "请先在项目设置中选择分析域"})
+    except brandrank_service.UnknownDomain as exc:
+        return _error(request, 400, "unknown_domain",
+                      {"available": available_domains(), "why": str(exc)})
+    return {**entity, "result": result}
 
 
 @router.get("/competitors")

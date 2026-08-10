@@ -56,6 +56,11 @@ class UnmappedIndustry(ValueError):
     """行业有值但未映射规则包 → API 400 unmapped_industry（绝不静默回退保险包）。"""
 
 
+class DomainUnresolved(ValueError):
+    """无显式 domain/industry 且项目真源未设 → API 400 brandrank_domain_unresolved
+    （仅 brand-visibility 端点路径 fail-loud；resolve_rules 缺省行为不变）。"""
+
+
 class LlmDisabled(RuntimeError):
     """存在待抽取答案但 LLM 未配置 → API 503 llm_disabled（诚实降级，绝不合成）。"""
 
@@ -242,15 +247,18 @@ def fetch_brand_extracts(
 
 # ── 编排 ──────────────────────────────────────────────────────────────────
 def resolve_rules(
-    domain: str | None, industry: str | None, project_domain: str | None = None
+    domain: str | None, industry: str | None, project_domain: str | None = None,
+    *, allow_default: bool = True,
 ) -> tuple[DomainRules, str]:
     """domain 解析优先级：显式 domain > 显式 industry（fail-loud 映射）> 项目真源
     （project.brandrank_domain，s06_0014）> 缺省包。
 
     V2 项目无持久化行业字段（intake profile 无 industry 列，见 intake/contract.py），
     故行业只能由调用方显式给出；项目真源值非法（绕过 API 词表校验的直写）同样
-    fail-loud 400，绝不静默回退保险包；全部缺省 → DEFAULT_DOMAIN 并如实标
-    domain_source=default。
+    fail-loud 400，绝不静默回退保险包；全部缺省且 allow_default → DEFAULT_DOMAIN
+    并如实标 domain_source=default；allow_default=False（brand-visibility 端点
+    路径）→ DomainUnresolved fail-loud（400 brandrank_domain_unresolved，
+    绝不静默拿保险包跑评测）。
     """
     if domain and domain.strip():
         try:
@@ -267,6 +275,10 @@ def resolve_rules(
             return load_domain(project_domain.strip()), "project"
         except ValueError as exc:
             raise UnknownDomain(str(exc)) from exc
+    if not allow_default:
+        raise DomainUnresolved(
+            "未给出显式 domain/industry 且项目未设置 brandrank_domain"
+            "（规则包真源），无法确定分析域")
     return load_domain(DEFAULT_DOMAIN), "default"
 
 
@@ -288,11 +300,14 @@ def compute_brand_visibility(
     """按需计算品牌可见度：读窗内答案 → 缓存命中跳过 → LLM 补抽 → 指标快照。
 
     client_factory 是测试缝（生产=extract.default_client）；返回 envelope+result 全量 dict。
+    domain 解析 fail-loud（allow_default=False）：无显式 domain/industry 且项目真源
+    未设 → DomainUnresolved（API 400 brandrank_domain_unresolved），不回退缺省包。
     """
     project = fetch_project(dsn, tenant_pub_id, project_pub_id)
     if project is None:
         raise ProjectNotFound(project_pub_id)
-    rules, domain_source = resolve_rules(domain, industry, project.get("brandrank_domain"))
+    rules, domain_source = resolve_rules(
+        domain, industry, project.get("brandrank_domain"), allow_default=False)
     resolved_category = (category or "").strip() or rules.category
     resolved_top_ns = tuple(top_ns) if top_ns else metrics.DEFAULT_TOP_NS
     resolved_target = (target_brand or "").strip() or (

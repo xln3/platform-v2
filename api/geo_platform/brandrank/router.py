@@ -11,6 +11,9 @@
         &competitors=中国平安    竞品专项（可重复参数；可选，缺省=项目 competitor 名单）
         &top_ns=3&top_ns=5       Top-N 口径（可重复，1..50，≤8 个，缺省 3/5/10）
 
+domain 解析：显式 domain > 显式 industry > 项目真源 project.brandrank_domain；
+三者皆无 → 400 brandrank_domain_unresolved（fail-loud，绝不静默回退缺省保险包）。
+
 诚实边界：
 - LLM 未配置（GEO_BRANDRANK_LLM_API_KEY 缺失）且窗内存在待抽取答案 → 503 llm_disabled
   （body details.llm 带 enabled/model/why，照旧库 503 口径）；
@@ -133,6 +136,9 @@ def brand_visibility(
         return _error(request, 400, "unmapped_industry", {"why": str(exc)})
     except service.UnknownDomain as exc:
         return _error(request, 400, "unknown_domain",
+                      {"available": available_domains(), "why": str(exc)})
+    except service.DomainUnresolved as exc:
+        return _error(request, 400, "brandrank_domain_unresolved",
                       {"available": available_domains(), "why": str(exc)})
     except service.LlmDisabled as exc:
         return _error(request, 503, "llm_disabled", {"llm": exc.status})

@@ -57,7 +57,7 @@ def _citation(host: str, ordinal: int = 1) -> dict:
             "canonical_url": f"https://{host}/a", "original_url": f"https://{host}/a"}
 
 
-def _project(brandrank_domain: str | None = None) -> dict:
+def _project(brandrank_domain: str | None = "insurance") -> dict:
     return {"pub_id": PROJECT, "name": "测试项目", "brandrank_domain": brandrank_domain,
             "brand_names": ["中意人寿"], "competitor_names": ["中国平安"]}
 
@@ -229,7 +229,7 @@ def test_happy_path_then_cache_hit(monkeypatch: pytest.MonkeyPatch) -> None:
     # 窗与项目上下文
     assert body["project_pub_id"] == PROJECT and body["window_days"] == 30
     assert seen["since"] is not None
-    assert body["domain"] == "insurance" and body["domain_source"] == "default"
+    assert body["domain"] == "insurance" and body["domain_source"] == "project"
     # 合并榜：中意人寿（别名/产品名归并）occ=2 avg_rank=1.0 score=2.0 居首
     merged = body["result"]["overall"]["merged"]
     assert merged[0]["brand"] == "中意人寿"
@@ -357,6 +357,41 @@ def test_resolve_rules_priority() -> None:
         service.resolve_rules(None, "餐饮")
     with pytest.raises(service.UnknownDomain):
         service.resolve_rules("不存在", None)
+
+
+def test_resolve_rules_allow_default_false_fail_loud() -> None:
+    """allow_default=False（visibility 端点路径）：三者皆无 → DomainUnresolved，
+    绝不静默回退缺省包；显式 domain/industry/项目真源不受影响。"""
+    with pytest.raises(service.DomainUnresolved):
+        service.resolve_rules(None, None, allow_default=False)
+    with pytest.raises(service.DomainUnresolved):
+        service.resolve_rules(None, None, "  ", allow_default=False)     # 空白真源视同未设
+    rules, source = service.resolve_rules("insurance", None, allow_default=False)
+    assert source == "explicit" and rules.domain == "insurance"
+    rules, source = service.resolve_rules(None, "法律", allow_default=False)
+    assert source == "industry" and rules.domain == "legal"
+    rules, source = service.resolve_rules(None, None, "cybersecurity", allow_default=False)
+    assert source == "project" and rules.domain == "cybersecurity"
+
+
+def test_visibility_domain_unresolved_fail_loud_400(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """端点路径：无显式 domain/industry 且项目真源未设 → 400 brandrank_domain_unresolved；
+    显式 domain/industry 参数仍可正常解析（不受 fail-loud 影响）。"""
+    _override_principal()
+    _patch_fetch(monkeypatch, answers=[], project=_project(brandrank_domain=None))
+    resp = _get()
+    assert resp.status_code == 400
+    body = resp.json()
+    assert body["error"]["code"] == "brandrank_domain_unresolved"
+    assert sorted(body["error"]["details"]["available"]) == [
+        "cybersecurity", "insurance", "legal"]
+    resp2 = _get("?domain=insurance")
+    assert resp2.status_code == 200
+    assert resp2.json()["domain_source"] == "explicit"
+    resp3 = _get("?industry=保险")
+    assert resp3.status_code == 200
+    assert resp3.json()["domain_source"] == "industry"
 
 
 # ── s06_0014：表→文件→LLM 读取顺序 + 项目级 domain 真源 ─────────────────────

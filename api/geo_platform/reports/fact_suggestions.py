@@ -9,7 +9,9 @@
   （毫秒级），未覆盖的 answer 诚实剔除并在 coverage 披露（INV-32 零合成）。
 
 口径纪律：只取 brandrank 层（LLM 抽取 + 规则归并 + 双分母）；启发式层
-mention_rate 不进报告。每行 method='brandrank-llm-v1' 标清。
+mention_rate 不进报告。每行 method='brandrank-llm-v1' 标清。before/after
+臂读取、臂记录构建、五指标聚合行构造已迁入 brandrank/compare.py（与
+analytics comparisons 端点同一份代码，口径统一单点），本模块经 import 引用。
 
 domain 真源 = ``project.brandrank_domain``（唯一，不回退缺省包）：未设置 →
 DomainUnset（API 400 domain_unset，诚实，绝不静默用保险包）；值非法 →
@@ -34,18 +36,20 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 import psycopg
-from psycopg.rows import dict_row
 
 from domain.brandrank import adapter, metrics
 from domain.brandrank.rules import load_domain, normalize_brand
 from domain.evidence.dlp import assert_secret_free
 
 from ..analytics import service as analytics_service
+from ..brandrank import compare as brandrank_compare
 from ..brandrank import service as brandrank_service
-from ..tenancy.psycopg import tenant_connection
+from ..brandrank.compare import _fact_row, fetch_answers_window
 
-FACT_METHOD = "brandrank-llm-v1"
-FACT_SOURCE = "system_computed"
+# 单测接缝（test_report_before_after.py monkeypatch 本模块全局名）：before/after 路径
+# 调用点把 fetch_answers_window 显式注入 compare 的臂构建函数，解析走本模块全局命名空间。
+FACT_METHOD = brandrank_compare.FACT_METHOD
+FACT_SOURCE = brandrank_compare.FACT_SOURCE
 REPORT_TOP_NS = (1, 3, 5)               # 报价单口径：Top1/Top3/Top5 出现率
 _MAX_COMPETITORS = 20                   # 照 brandrank service 口径
 # 防御性上限（真实窗 ~数十组），超出截断并 groups_truncated 披露；与 api-client
@@ -61,13 +65,9 @@ W2_FACT_METHOD = "w2-site-audit-v1"
 _MAX_JUDGMENTS = 2000                   # W3 窗级判定防御性上限（超出截断并披露）
 _MAX_CASES = 20                         # 典型案例上限（照 analytics cases 端点缺省 limit=20）
 _MAX_SUGGESTIONS = 50                   # 官网优化建议上限（T2 最新批次，超出截断并披露）
-_MAX_ARM_ANSWERS = 2000                 # before/after 单臂答案上限（照 brandrank service 口径）
 # W3 方向词表：target=被评对象 / subject=拉踩方（均先过 rules 归并再比对项目品牌/竞品）
 DIRECTION_SMEAR_ON_OWN = "smear_on_own"                 # 第三方/竞品 → 己方（抹黑己方）
 DIRECTION_OWN_ON_COMPETITOR = "own_smear_on_competitor"  # 己方 → 竞品（己方拉踩竞品）
-# 优化前后对比指标词表（mention_rate=品牌提及率；topN=Top-N 出现率 of_total 口径，
-# of_mentions 成对进 extra——双分母纪律与主建议一致）
-BEFORE_AFTER_METRICS = ("mention_rate", "avg_rank", "top1", "top3", "top5")
 
 
 class ProjectNotFound(LookupError):
@@ -89,27 +89,6 @@ def _group_key(answer: dict[str, Any]) -> tuple[str, str, str]:
         str(answer.get("region") or ""),
         str(answer.get("query_text") or ""),
     )
-
-
-def _fact_row(*, metric: str, value: float | None, unit: str, numerator: int,
-              denominator: int, dimensions: dict[str, str], domain: str,
-              window: dict[str, str], method: str = FACT_METHOD,
-              extra: dict[str, Any] | None = None) -> dict[str, Any]:
-    row: dict[str, Any] = {
-        "metric": metric,
-        "value": value,
-        "unit": unit,
-        "numerator": numerator,
-        "denominator": denominator,
-        "dimensions": dimensions,
-        "source": FACT_SOURCE,
-        "method": method,
-        "domain": domain,
-        "window": window,
-    }
-    if extra:
-        row["extra"] = extra
-    return row
 
 
 def _section_unavailable(note: str) -> dict[str, Any]:
@@ -405,30 +384,8 @@ def fetch_site_audit_suggestions(
     }
 
 
-def fetch_answers_window(
-    dsn: str, tenant_pub_id: str, project_pub_id: str,
-    start: datetime, end: datetime,
-) -> tuple[list[dict[str, Any]], bool]:
-    """[start, end) 窗内 eligible 答案（eligible AND NOT degraded，与
-    brandrank.service.fetch_answers 同口径 + 上界；before/after 双臂各自调用）。
-
-    返回 (rows, truncated)：超 _MAX_ARM_ANSWERS 截断并置标记。
-    """
-    with tenant_connection(dsn, tenant_pub_id, row_factory=dict_row) as connection:
-        rows = connection.execute(
-            """
-            SELECT pub_id, query_text, response_text, model, region, mode, capture_time
-            FROM analytics.answer
-            WHERE tenant_pub_id=%s AND project_pub_id=%s
-              AND eligible AND NOT degraded
-              AND capture_time >= %s AND capture_time < %s
-            ORDER BY capture_time, pub_id
-            LIMIT %s
-            """,
-            (tenant_pub_id, project_pub_id, start, end, _MAX_ARM_ANSWERS + 1),
-        ).fetchall()
-    truncated = len(rows) > _MAX_ARM_ANSWERS
-    return [dict(row) for row in rows[:_MAX_ARM_ANSWERS]], truncated
+# fetch_answers_window / _arm_records / _fact_row 已迁入 brandrank/compare.py
+# （本文件顶部 import 同名引用，单测 monkeypatch 本模块全局名仍生效）。
 
 
 # ── 扩展组：输出清洗（照 analytics/router.py 同款：进报告的事实先过 DLP/URL 收窄）──
@@ -675,29 +632,6 @@ def _parse_iso_date(value: str | None) -> date | None:
         return None
 
 
-def _arm_records(
-    dsn: str, tenant_pub_id: str, project_pub_id: str, domain: str,
-    start_date: date, end_date: date,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], bool]:
-    """单臂 [start_date, end_date]（含首尾日，UTC 日界）：eligible 答案 → fanout
-    抽取 ok 行 → brandrank 记录（口径与主建议逐行一致：形状不符诚实剔除）。"""
-    start = datetime(start_date.year, start_date.month, start_date.day, tzinfo=UTC)
-    end = datetime(end_date.year, end_date.month, end_date.day, tzinfo=UTC) + timedelta(days=1)
-    answers, truncated = fetch_answers_window(dsn, tenant_pub_id, project_pub_id, start, end)
-    table_rows = brandrank_service.fetch_brand_extracts(
-        dsn, tenant_pub_id, [a["pub_id"] for a in answers], domain)
-    records: list[dict[str, Any]] = []
-    for answer in answers:
-        table_row = table_rows.get(answer["pub_id"])
-        if table_row is None or table_row.get("status") != "ok":
-            continue
-        brands = table_row.get("brands")
-        if not (isinstance(brands, list) and all(isinstance(b, str) for b in brands)):
-            continue                                # ok 行但形状不符=未覆盖（诚实剔除）
-        records.append(adapter.answer_to_brand_record(answer, list(brands)))
-    return answers, records, truncated
-
-
 def _build_before_after_section(
     *, dsn: str, tenant_pub_id: str, project_pub_id: str, rules: Any,
     target_brand: str | None, domain: str,
@@ -706,6 +640,10 @@ def _build_before_after_section(
 ) -> dict[str, Any] | None:
     """优化前后对比组：双臂各自跑 metrics.analyze（同一把规则、同一目标品牌），
     产出 before_after_metric 行（value=after−before 差值，before/after/分母进 extra）。
+
+    臂构建与五指标行构造在 brandrank/compare.py（与 analytics comparisons 端点
+    同一份代码）；fetch_answers_window 经本模块全局名注入（单测接缝，见文件头
+    import 注释）——对外行为与迁入前逐字段一致。
 
     与旧系统 build_before_after_compare 的口径差异（移植时有意的两处简化，留痕）：
     - 旧系统按单一 split_at 切分；本组由调用方显式给 before/after 两个闭区间日期窗
@@ -725,10 +663,12 @@ def _build_before_after_section(
     windows = {"before_start": b_start.isoformat(), "before_end": b_end.isoformat(),
                "after_start": a_start.isoformat(), "after_end": a_end.isoformat()}
 
-    before_answers, before_records, before_truncated = _arm_records(
-        dsn, tenant_pub_id, project_pub_id, domain, b_start, b_end)
-    after_answers, after_records, after_truncated = _arm_records(
-        dsn, tenant_pub_id, project_pub_id, domain, a_start, a_end)
+    before_answers, before_records, before_truncated = brandrank_compare._arm_records(
+        dsn, tenant_pub_id, project_pub_id, domain, b_start, b_end,
+        fetch_answers=fetch_answers_window)
+    after_answers, after_records, after_truncated = brandrank_compare._arm_records(
+        dsn, tenant_pub_id, project_pub_id, domain, a_start, a_end,
+        fetch_answers=fetch_answers_window)
     coverage = {
         "before_answers": len(before_answers), "before_with_extract": len(before_records),
         "after_answers": len(after_answers), "after_with_extract": len(after_records),
@@ -751,51 +691,9 @@ def _build_before_after_section(
                 "window": compare_window, "windows": windows, "coverage": coverage,
                 "fact_rows": []}
 
-    before_special = metrics.analyze(
-        before_records, [], rules=rules, target_brand=target_brand,
-        top_ns=REPORT_TOP_NS)["target_brand"]
-    after_special = metrics.analyze(
-        after_records, [], rules=rules, target_brand=target_brand,
-        top_ns=REPORT_TOP_NS)["target_brand"]
-    denominators = {"before_n": len(before_records), "after_n": len(after_records)}
-
-    rows: list[dict[str, Any]] = []
-    for name in BEFORE_AFTER_METRICS:
-        extra: dict[str, Any] = {"metric_name": name, "denominators": denominators,
-                                 "windows": windows}
-        if name == "mention_rate":
-            before_value = before_special["appearance_rate"]
-            after_value = after_special["appearance_rate"]
-            unit = "percent"
-            before_numerator = before_special["mentions"]
-            after_numerator = after_special["mentions"]
-        elif name == "avg_rank":
-            before_value = before_special["avg_rank"]       # 零提及 → None（诚实空值）
-            after_value = after_special["avg_rank"]
-            unit = "rank"
-            before_numerator = before_special["mentions"]
-            after_numerator = after_special["mentions"]
-        else:
-            top_n = int(name[3:])
-            before_rates = before_special["top_rates"][str(top_n)]
-            after_rates = after_special["top_rates"][str(top_n)]
-            before_value = before_rates["of_total"]         # 占总条数口径（与主建议一致）
-            after_value = after_rates["of_total"]
-            unit = "percent"
-            before_numerator = sum(1 for r in before_special["ranks"] if r <= top_n)
-            after_numerator = sum(1 for r in after_special["ranks"] if r <= top_n)
-            # 双分母成对披露（of_mentions=占提及条数），与主建议 topN 行同款
-            extra["before_of_mentions"] = before_rates["of_mentions"]
-            extra["after_of_mentions"] = after_rates["of_mentions"]
-        diff = (round(after_value - before_value, 2)
-                if before_value is not None and after_value is not None else None)
-        rows.append(_fact_row(
-            metric="before_after_metric", value=diff, unit=unit,
-            numerator=after_numerator, denominator=len(after_records),
-            dimensions={"platform": "", "region": "", "query": ""},
-            domain=domain, window=compare_window,
-            extra={**extra, "before": before_value, "after": after_value,
-                   "before_numerator": before_numerator}))
+    rows = brandrank_compare.build_before_after_fact_rows(
+        before_records, after_records, rules=rules, target_brand=target_brand or "",
+        domain=domain, window=compare_window, windows=windows, top_ns=REPORT_TOP_NS)
 
     return {"status": "ok", "insufficient_reasons": [], "window": compare_window,
             "windows": windows, "coverage": coverage, "fact_rows": rows}
