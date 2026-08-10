@@ -862,6 +862,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/otp/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Otp Register
+         * @description 在册号码注册（operator 门内）：``{"phone","carrier"?,"slot"?}`` → 登记进
+         *     服务端注册表（原子写），setup-info 即刻下发。幂等：同号再注册=更新备注。
+         *     响应带完整 remark（operator 自填自拿，装机页一键复制进手机卡槽备注）。
+         */
+        post: operations["otp_register_api_v2_otp_register_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/otp/setup-info": {
         parameters: {
             query?: never;
@@ -872,7 +894,8 @@ export interface paths {
         /**
          * Otp Setup Info
          * @description 装机配置（operator 门内）：推送地址/relay token/Body 模板/白名单正则/卡槽备注。
-         *     URL 从请求 origin 派生（公网访问即公网地址），零额外配置。
+         *     URL 从请求 origin 派生（供工具消费；**装机页展示不用它**——页面以浏览器
+         *     location.origin 拼地址，反代 Host $host 丢端口时页面依然正确）。
          */
         get: operations["otp_setup_info_api_v2_otp_setup_info_get"];
         put?: never;
@@ -1456,7 +1479,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Delta */
+        /**
+         * Delta
+         * @description 前后等长窗口四指标 delta；config_version（冻结配置 pub_id）传入时两窗口
+         *     只统计该配置产出的答案（报价单前后对比口径），不传时行为与旧版一致。
+         */
         get: operations["delta_api_v2_analytics_delta_get"];
         put?: never;
         post?: never;
@@ -1515,6 +1542,48 @@ export interface paths {
          * @description W3 典型案例清单：disparagement=true 按 confidence 降序（证据+出处链接）。
          */
         get: operations["disparagement_cases_api_v2_analytics_disparagement_cases_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/analytics/source-audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Source Audit Overview
+         * @description W2 信源审计聚合（官网引用能效）：窗口内信源文档、官网命中占比与判定分布。
+         */
+        get: operations["source_audit_overview_api_v2_analytics_source_audit_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/analytics/source-audit/site-suggestions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Site Audit Suggestions
+         * @description W2 官网内容问题与优化建议：契约表 T2 最新批次。
+         *
+         *     T2 未迁移上线 / 无数据时批次字段全 null + suggestions=[]（不 404/500）。
+         */
+        get: operations["site_audit_suggestions_api_v2_analytics_source_audit_site_suggestions_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1894,6 +1963,26 @@ export interface paths {
         };
         /** Report Artifact */
         get: operations["report_artifact_api_v2_reports__report_pub_id__versions__version_pub_id__artifacts__format_name__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/projects/{project_pub_id}/report-fact-suggestions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Report Fact Suggestions
+         * @description 报告事实建议草稿（报价单四指标；只读 brandrank 层，严禁 LLM）。
+         */
+        get: operations["report_fact_suggestions_api_v2_projects__project_pub_id__report_fact_suggestions_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3013,7 +3102,8 @@ export interface paths {
         };
         /**
          * Intake Research Models
-         * @description 前端 AI 面板的调研模型下拉清单（GEO_RESEARCH_LLM_MODELS，缺省模型恒在首位）。
+         * @description 前端 AI 面板的调研模型清单（GEO_RESEARCH_LLM_MODELS 为唯一真源，缺省模型恒在首位）；
+         *     groups 为按 provider 分组的级联选项。
          */
         get: operations["intake_research_models_api_v2_projects__project_pub_id__intake_research_models_get"];
         put?: never;
@@ -5290,6 +5380,23 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+            /** Content Origin */
+            content_origin: string;
+            fact_check?: components["schemas"]["DisparagementFactCheckView"] | null;
+        };
+        /** DisparagementFactCheckView */
+        DisparagementFactCheckView: {
+            /** Verdict */
+            verdict: string;
+            /** Summary */
+            summary: string | null;
+            /** Source Url */
+            source_url: string | null;
+            /**
+             * Checked At
+             * Format: date-time
+             */
+            checked_at: string;
         };
         /** DisparagementRateView */
         DisparagementRateView: {
@@ -6989,6 +7096,8 @@ export interface components {
             name?: string | null;
             /** State */
             state?: string | null;
+            /** Brandrank Domain */
+            brandrank_domain?: string | null;
             /** Expected Version */
             expected_version: number;
         };
@@ -7005,6 +7114,8 @@ export interface components {
              * @enum {string}
              */
             state: "draft" | "active" | "paused" | "archived";
+            /** Brandrank Domain */
+            brandrank_domain?: string | null;
             /**
              * Created At
              * Format: date-time
@@ -8184,6 +8295,30 @@ export interface components {
             /** Permissions */
             permissions: string[];
         };
+        /** SiteAuditSuggestionView */
+        SiteAuditSuggestionView: {
+            /** Category */
+            category: string;
+            /** Severity */
+            severity: string;
+            /** Title */
+            title: string;
+            /** Detail */
+            detail: string;
+            /** Evidence Document Pub Id */
+            evidence_document_pub_id: string | null;
+        };
+        /** SiteAuditSuggestionsView */
+        SiteAuditSuggestionsView: {
+            /** Batch Pub Id */
+            batch_pub_id: string | null;
+            /** Generated At */
+            generated_at: string | null;
+            /** Model */
+            model: string | null;
+            /** Suggestions */
+            suggestions: components["schemas"]["SiteAuditSuggestionView"][];
+        };
         /** SopPage[ArticleView] */
         SopPage_ArticleView_: {
             /** Data */
@@ -8273,6 +8408,104 @@ export interface components {
             /** Data */
             data: components["schemas"]["WorkLogView"][];
             page: components["schemas"]["PageMeta"];
+        };
+        /** SourceAuditHostView */
+        SourceAuditHostView: {
+            /** Host */
+            host: string;
+            /** Is Own Site */
+            is_own_site: boolean;
+            /** Documents */
+            documents: number;
+            /** Transcript Total */
+            transcript_total: number;
+            /** Transcript Accurate */
+            transcript_accurate: number;
+        };
+        /** SourceAuditItemAuditView */
+        SourceAuditItemAuditView: {
+            /** Dimension */
+            dimension: string;
+            /** Verdict */
+            verdict: string | null;
+            /** Audit Status */
+            audit_status: string;
+            /** Rationale */
+            rationale: string | null;
+        };
+        /** SourceAuditItemView */
+        SourceAuditItemView: {
+            /** Pub Id */
+            pub_id: string;
+            /** Url */
+            url: string;
+            /** Host */
+            host: string;
+            /** Final Url */
+            final_url: string | null;
+            /** Http Status */
+            http_status: number | null;
+            /** Extract Status */
+            extract_status: string;
+            /**
+             * Fetched At
+             * Format: date-time
+             */
+            fetched_at: string;
+            /** Is Own Site */
+            is_own_site: boolean;
+            /** Audits */
+            audits: components["schemas"]["SourceAuditItemAuditView"][];
+        };
+        /** SourceAuditOverviewView */
+        SourceAuditOverviewView: {
+            /** Project Pub Id */
+            project_pub_id: string;
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
+            /** Own Site Host */
+            own_site_host: string | null;
+            /** Documents Total */
+            documents_total: number;
+            /** Own Site Documents */
+            own_site_documents: number;
+            /** Own Site Share */
+            own_site_share: number | null;
+            /** Own Site Transcript Total */
+            own_site_transcript_total: number;
+            /** Own Site Transcript Accurate */
+            own_site_transcript_accurate: number;
+            /** Own Site Adoption Rate */
+            own_site_adoption_rate: number | null;
+            verdicts: components["schemas"]["SourceAuditVerdictsView"];
+            /** Hosts */
+            hosts: components["schemas"]["SourceAuditHostView"][];
+            /** Items */
+            items: components["schemas"]["SourceAuditItemView"][];
+        };
+        /** SourceAuditVerdictBucketView */
+        SourceAuditVerdictBucketView: {
+            /** Accurate */
+            accurate: number;
+            /** Inaccurate */
+            inaccurate: number;
+            /** Unsupported */
+            unsupported: number;
+            /** Unverifiable */
+            unverifiable: number;
+        };
+        /** SourceAuditVerdictsView */
+        SourceAuditVerdictsView: {
+            transcript: components["schemas"]["SourceAuditVerdictBucketView"];
+            factual: components["schemas"]["SourceAuditVerdictBucketView"];
         };
         /** StepView */
         StepView: {
@@ -8980,6 +9213,8 @@ export interface components {
             name: string;
             /** Customer Name */
             customer_name: string;
+            /** Brandrank Domain */
+            brandrank_domain?: string | null;
         };
         /** ProjectCreate */
         geo_platform__sop__router__ProjectCreate: {
@@ -12962,6 +13197,53 @@ export interface operations {
             };
         };
     };
+    otp_register_api_v2_otp_register_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
     otp_setup_info_api_v2_otp_setup_info_get: {
         parameters: {
             query?: never;
@@ -15435,6 +15717,7 @@ export interface operations {
                 project_pub_id: string;
                 start: string;
                 end: string;
+                config_version?: string | null;
             };
             header?: {
                 "X-Tenant-Id"?: string | null;
@@ -15679,6 +15962,144 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DisparagementCaseView"][];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    source_audit_overview_api_v2_analytics_source_audit_get: {
+        parameters: {
+            query: {
+                project_pub_id: string;
+                start: string;
+                end: string;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceAuditOverviewView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    site_audit_suggestions_api_v2_analytics_source_audit_site_suggestions_get: {
+        parameters: {
+            query: {
+                project: string;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteAuditSuggestionsView"];
                 };
             };
             /** @description Bad Request */
@@ -17368,6 +17789,80 @@ export interface operations {
                 report_pub_id: string;
                 version_pub_id: string;
                 format_name: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    report_fact_suggestions_api_v2_projects__project_pub_id__report_fact_suggestions_get: {
+        parameters: {
+            query?: {
+                window_days?: number;
+                before_start?: string | null;
+                before_end?: string | null;
+                after_start?: string | null;
+                after_end?: string | null;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
             };
             cookie?: {
                 "__Host-geo_session"?: string | null;

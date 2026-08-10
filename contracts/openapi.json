@@ -10976,13 +10976,63 @@
         }
       }
     },
+    "/api/v2/otp/register": {
+      "post": {
+        "tags": [
+          "otp"
+        ],
+        "summary": "Otp Register",
+        "description": "在册号码注册（operator 门内）：``{\"phone\",\"carrier\"?,\"slot\"?}`` → 登记进\n服务端注册表（原子写），setup-info 即刻下发。幂等：同号再注册=更新备注。\n响应带完整 remark（operator 自填自拿，装机页一键复制进手机卡槽备注）。",
+        "operationId": "otp_register_api_v2_otp_register_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/otp/setup-info": {
       "get": {
         "tags": [
           "otp"
         ],
         "summary": "Otp Setup Info",
-        "description": "装机配置（operator 门内）：推送地址/relay token/Body 模板/白名单正则/卡槽备注。\nURL 从请求 origin 派生（公网访问即公网地址），零额外配置。",
+        "description": "装机配置（operator 门内）：推送地址/relay token/Body 模板/白名单正则/卡槽备注。\nURL 从请求 origin 派生（供工具消费；**装机页展示不用它**——页面以浏览器\nlocation.origin 拼地址，反代 Host $host 丢端口时页面依然正确）。",
         "operationId": "otp_setup_info_api_v2_otp_setup_info_get",
         "responses": {
           "200": {
@@ -17808,6 +17858,7 @@
           "analytics"
         ],
         "summary": "Delta",
+        "description": "前后等长窗口四指标 delta；config_version（冻结配置 pub_id）传入时两窗口\n只统计该配置产出的答案（报价单前后对比口径），不传时行为与旧版一致。",
         "operationId": "delta_api_v2_analytics_delta_get",
         "parameters": [
           {
@@ -17837,6 +17888,23 @@
               "type": "string",
               "format": "date",
               "title": "End"
+            }
+          },
+          {
+            "name": "config_version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^cfg_[A-Za-z0-9_-]{1,116}$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Config Version"
             }
           },
           {
@@ -18743,6 +18811,428 @@
                     "$ref": "#/components/schemas/DisparagementCaseView"
                   },
                   "title": "Response Disparagement Cases Api V2 Analytics Disparagement Cases Get"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/analytics/source-audit": {
+      "get": {
+        "tags": [
+          "analytics"
+        ],
+        "summary": "Source Audit Overview",
+        "description": "W2 信源审计聚合（官网引用能效）：窗口内信源文档、官网命中占比与判定分布。",
+        "operationId": "source_audit_overview_api_v2_analytics_source_audit_get",
+        "parameters": [
+          {
+            "name": "project_pub_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Pub Id"
+            }
+          },
+          {
+            "name": "start",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "title": "Start"
+            }
+          },
+          {
+            "name": "end",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "title": "End"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceAuditOverviewView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/analytics/source-audit/site-suggestions": {
+      "get": {
+        "tags": [
+          "analytics"
+        ],
+        "summary": "Site Audit Suggestions",
+        "description": "W2 官网内容问题与优化建议：契约表 T2 最新批次。\n\nT2 未迁移上线 / 无数据时批次字段全 null + suggestions=[]（不 404/500）。",
+        "operationId": "site_audit_suggestions_api_v2_analytics_source_audit_site_suggestions_get",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteAuditSuggestionsView"
                 }
               }
             }
@@ -23529,6 +24019,285 @@
             "schema": {
               "type": "string",
               "title": "Format Name"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/projects/{project_pub_id}/report-fact-suggestions": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Report Fact Suggestions",
+        "description": "报告事实建议草稿（报价单四指标；只读 brandrank 层，严禁 LLM）。",
+        "operationId": "report_fact_suggestions_api_v2_projects__project_pub_id__report_fact_suggestions_get",
+        "parameters": [
+          {
+            "name": "project_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Pub Id"
+            }
+          },
+          {
+            "name": "window_days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 366,
+              "minimum": 1,
+              "default": 30,
+              "title": "Window Days"
+            }
+          },
+          {
+            "name": "before_start",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 32
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before Start"
+            }
+          },
+          {
+            "name": "before_end",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 32
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before End"
+            }
+          },
+          {
+            "name": "after_start",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 32
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After Start"
+            }
+          },
+          {
+            "name": "after_end",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 32
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After End"
             }
           },
           {
@@ -43161,7 +43930,7 @@
           "intake"
         ],
         "summary": "Intake Research Models",
-        "description": "前端 AI 面板的调研模型下拉清单（GEO_RESEARCH_LLM_MODELS，缺省模型恒在首位）。",
+        "description": "前端 AI 面板的调研模型清单（GEO_RESEARCH_LLM_MODELS 为唯一真源，缺省模型恒在首位）；\ngroups 为按 provider 分组的级联选项。",
         "operationId": "intake_research_models_api_v2_projects__project_pub_id__intake_research_models_get",
         "parameters": [
           {
@@ -54127,6 +54896,20 @@
             "type": "string",
             "format": "date-time",
             "title": "Created At"
+          },
+          "content_origin": {
+            "type": "string",
+            "title": "Content Origin"
+          },
+          "fact_check": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DisparagementFactCheckView"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,
@@ -54145,9 +54928,54 @@
           "model",
           "prompt_version",
           "source_url",
-          "created_at"
+          "created_at",
+          "content_origin"
         ],
         "title": "DisparagementCaseView"
+      },
+      "DisparagementFactCheckView": {
+        "properties": {
+          "verdict": {
+            "type": "string",
+            "title": "Verdict"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          },
+          "checked_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Checked At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "verdict",
+          "summary",
+          "source_url",
+          "checked_at"
+        ],
+        "title": "DisparagementFactCheckView"
       },
       "DisparagementRateView": {
         "properties": {
@@ -58974,6 +59802,18 @@
             ],
             "title": "State"
           },
+          "brandrank_domain": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brandrank Domain"
+          },
           "expected_version": {
             "type": "integer",
             "minimum": 1.0,
@@ -59012,6 +59852,17 @@
               "archived"
             ],
             "title": "State"
+          },
+          "brandrank_domain": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brandrank Domain"
           },
           "created_at": {
             "type": "string",
@@ -62074,6 +62925,101 @@
         ],
         "title": "SessionView"
       },
+      "SiteAuditSuggestionView": {
+        "properties": {
+          "category": {
+            "type": "string",
+            "title": "Category"
+          },
+          "severity": {
+            "type": "string",
+            "title": "Severity"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          },
+          "evidence_document_pub_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Document Pub Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "category",
+          "severity",
+          "title",
+          "detail",
+          "evidence_document_pub_id"
+        ],
+        "title": "SiteAuditSuggestionView"
+      },
+      "SiteAuditSuggestionsView": {
+        "properties": {
+          "batch_pub_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Batch Pub Id"
+          },
+          "generated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generated At"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "suggestions": {
+            "items": {
+              "$ref": "#/components/schemas/SiteAuditSuggestionView"
+            },
+            "type": "array",
+            "title": "Suggestions"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "batch_pub_id",
+          "generated_at",
+          "model",
+          "suggestions"
+        ],
+        "title": "SiteAuditSuggestionsView"
+      },
       "SopPage_ArticleView_": {
         "properties": {
           "data": {
@@ -62388,6 +63334,303 @@
           "page"
         ],
         "title": "SopPage[WorkLogView]"
+      },
+      "SourceAuditHostView": {
+        "properties": {
+          "host": {
+            "type": "string",
+            "title": "Host"
+          },
+          "is_own_site": {
+            "type": "boolean",
+            "title": "Is Own Site"
+          },
+          "documents": {
+            "type": "integer",
+            "title": "Documents"
+          },
+          "transcript_total": {
+            "type": "integer",
+            "title": "Transcript Total"
+          },
+          "transcript_accurate": {
+            "type": "integer",
+            "title": "Transcript Accurate"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "host",
+          "is_own_site",
+          "documents",
+          "transcript_total",
+          "transcript_accurate"
+        ],
+        "title": "SourceAuditHostView"
+      },
+      "SourceAuditItemAuditView": {
+        "properties": {
+          "dimension": {
+            "type": "string",
+            "title": "Dimension"
+          },
+          "verdict": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verdict"
+          },
+          "audit_status": {
+            "type": "string",
+            "title": "Audit Status"
+          },
+          "rationale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rationale"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "dimension",
+          "verdict",
+          "audit_status",
+          "rationale"
+        ],
+        "title": "SourceAuditItemAuditView"
+      },
+      "SourceAuditItemView": {
+        "properties": {
+          "pub_id": {
+            "type": "string",
+            "title": "Pub Id"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          },
+          "host": {
+            "type": "string",
+            "title": "Host"
+          },
+          "final_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Final Url"
+          },
+          "http_status": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Http Status"
+          },
+          "extract_status": {
+            "type": "string",
+            "title": "Extract Status"
+          },
+          "fetched_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Fetched At"
+          },
+          "is_own_site": {
+            "type": "boolean",
+            "title": "Is Own Site"
+          },
+          "audits": {
+            "items": {
+              "$ref": "#/components/schemas/SourceAuditItemAuditView"
+            },
+            "type": "array",
+            "title": "Audits"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "pub_id",
+          "url",
+          "host",
+          "final_url",
+          "http_status",
+          "extract_status",
+          "fetched_at",
+          "is_own_site",
+          "audits"
+        ],
+        "title": "SourceAuditItemView"
+      },
+      "SourceAuditOverviewView": {
+        "properties": {
+          "project_pub_id": {
+            "type": "string",
+            "title": "Project Pub Id"
+          },
+          "start": {
+            "type": "string",
+            "format": "date",
+            "title": "Start"
+          },
+          "end": {
+            "type": "string",
+            "format": "date",
+            "title": "End"
+          },
+          "own_site_host": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Own Site Host"
+          },
+          "documents_total": {
+            "type": "integer",
+            "title": "Documents Total"
+          },
+          "own_site_documents": {
+            "type": "integer",
+            "title": "Own Site Documents"
+          },
+          "own_site_share": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Own Site Share"
+          },
+          "own_site_transcript_total": {
+            "type": "integer",
+            "title": "Own Site Transcript Total"
+          },
+          "own_site_transcript_accurate": {
+            "type": "integer",
+            "title": "Own Site Transcript Accurate"
+          },
+          "own_site_adoption_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Own Site Adoption Rate"
+          },
+          "verdicts": {
+            "$ref": "#/components/schemas/SourceAuditVerdictsView"
+          },
+          "hosts": {
+            "items": {
+              "$ref": "#/components/schemas/SourceAuditHostView"
+            },
+            "type": "array",
+            "title": "Hosts"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SourceAuditItemView"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "project_pub_id",
+          "start",
+          "end",
+          "own_site_host",
+          "documents_total",
+          "own_site_documents",
+          "own_site_share",
+          "own_site_transcript_total",
+          "own_site_transcript_accurate",
+          "own_site_adoption_rate",
+          "verdicts",
+          "hosts",
+          "items"
+        ],
+        "title": "SourceAuditOverviewView"
+      },
+      "SourceAuditVerdictBucketView": {
+        "properties": {
+          "accurate": {
+            "type": "integer",
+            "title": "Accurate"
+          },
+          "inaccurate": {
+            "type": "integer",
+            "title": "Inaccurate"
+          },
+          "unsupported": {
+            "type": "integer",
+            "title": "Unsupported"
+          },
+          "unverifiable": {
+            "type": "integer",
+            "title": "Unverifiable"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "accurate",
+          "inaccurate",
+          "unsupported",
+          "unverifiable"
+        ],
+        "title": "SourceAuditVerdictBucketView"
+      },
+      "SourceAuditVerdictsView": {
+        "properties": {
+          "transcript": {
+            "$ref": "#/components/schemas/SourceAuditVerdictBucketView"
+          },
+          "factual": {
+            "$ref": "#/components/schemas/SourceAuditVerdictBucketView"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "transcript",
+          "factual"
+        ],
+        "title": "SourceAuditVerdictsView"
       },
       "StepView": {
         "properties": {
@@ -64498,6 +65741,18 @@
             "maxLength": 200,
             "minLength": 1,
             "title": "Customer Name"
+          },
+          "brandrank_domain": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brandrank Domain"
           }
         },
         "additionalProperties": false,

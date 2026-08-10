@@ -31,7 +31,17 @@ page_coverage = {
     "operations": {
         "app": "operations-web",
         "sections": {"overview", "sessions", "interventions", "events"},
-        "external_sections": {"execution", "media-prices", "sop", "onboarding", "post-analysis"},
+        "external_sections": {
+            "execution",
+            "media-prices",
+            "sop",
+            "onboarding",
+            "post-analysis",
+            "service-visibility",
+            "service-risk",
+            "service-site-audit",
+            "service-pilot",
+        },
         "spec": "operations-visual.spec.ts",
     },
     "reports": {
@@ -145,11 +155,19 @@ for app, basename in apps.items():
         # The login feature is the pre-session credential boundary: no identity headers or
         # session context exist yet, so it posts to the identity endpoint directly.
         # The onboarding wizard follows the execution feature's operations-side client pattern.
+        # The four service workspaces reuse that raw client pattern plus raw fetches for the
+        # analytics endpoints that have no generated wrapper yet.
         if app == "operations-web" and (
             source.is_relative_to(app_root / "app" / "features" / "execution")
             or source.is_relative_to(app_root / "app" / "features" / "login")
             or source.is_relative_to(app_root / "app" / "features" / "onboarding")
+            or source.is_relative_to(app_root / "app" / "features" / "services")
         ):
+            continue
+        # report-studio 的扩展 fact 面板直连同源扩展组端点：扩展键（w3_disparagement/
+        # w2_site_audit/before_after）过不了 api-client 主数组的 fail-closed 词表投影，
+        # 与 operations-web services 工作区同属"无生成 wrapper 的分析端点"原始客户端模式。
+        if app == "report-studio" and source == app_root / "app" / "fact-suggestions.tsx":
             continue
         text = source.read_text(encoding="utf-8")
         if re.search(r"\bfetch\s*\(", text):
@@ -1641,9 +1659,9 @@ for fragment in (
 ):
     if fragment not in api_client:
         errors.append(f"@geo/api-client browser identity type is missing {fragment}")
-if api_client.count("client: ProjectedApiClientOverride = apiClient") != 116:
+if api_client.count("client: ProjectedApiClientOverride = apiClient") != 117:
     errors.append(
-        "@geo/api-client must keep all 116 projected wrapper overrides free of the raw "
+        "@geo/api-client must keep all 117 projected wrapper overrides free of the raw "
         "generated client type"
     )
 projected_client_unwraps = len(
@@ -1652,7 +1670,7 @@ projected_client_unwraps = len(
         api_client,
     )
 ) + api_client.count("const api = projectedApiClient(client);")
-if projected_client_unwraps != 116:
+if projected_client_unwraps != 117:
     errors.append(
         "@geo/api-client must unwrap every projected wrapper override only inside its "
         "generated request implementation"
@@ -1844,6 +1862,7 @@ for app_name in apps:
         if app_name == "operations-web" and (
             "features/execution" in source_path.relative_to(app_root).as_posix()
             or "features/onboarding" in source_path.relative_to(app_root).as_posix()
+            or "features/services" in source_path.relative_to(app_root).as_posix()
         ):
             continue
         source = source_path.read_text(encoding="utf-8")
