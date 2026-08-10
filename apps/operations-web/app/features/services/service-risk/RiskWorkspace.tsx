@@ -182,7 +182,10 @@ export function RiskWorkspace({ session, project }: { session: SessionContext; p
                       {item.content_origin === 'own_content' ? (
                         <>
                           {' '}
-                          <span className="status warn" title="己方 SOP 定稿稿件的拉踩判定（报价单服务2·己方内容检测通道）">
+                          <span
+                            className="status warn"
+                            title="己方 SOP 定稿稿件的拉踩判定（报价单服务2·己方内容检测通道）"
+                          >
                             己方稿件
                           </span>
                         </>

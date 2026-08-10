@@ -88,10 +88,10 @@ describe('VisibilityWorkspace', () => {
       vi.fn(async (input: string | URL | Request) => {
         const url = input instanceof Request ? input.url : String(input);
         if (url.includes('/brand-visibility')) {
-          return new Response(
-            JSON.stringify({ error: { code: 'brandrank_domain_unresolved' } }),
-            { status: 400, headers: { 'Content-Type': 'application/json' } },
-          );
+          return new Response(JSON.stringify({ error: { code: 'brandrank_domain_unresolved' } }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          });
         }
         return new Response(JSON.stringify([]), {
           status: 200,

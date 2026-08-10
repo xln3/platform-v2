@@ -32,17 +32,17 @@
 - **消费侧**：worker 的 `GEO_<P>_PROXY_URL` 与浏览器的 `RESIDENT_PROXY_URL`
   都指中继本地端口；采集 attach 走 `GEO_BROWSER_<KEY>_CDP_URL`。
 
-| 实例键 | profile 目录 | 中继（出口） | CDP 端口 | 状态 |
-|---|---|---|---|---|
-| doubao_sh | runtime/profiles/doubao-sh | relay@sh :19323（上海） | 19222 | active |
-| deepseek_tj | runtime/profiles/deepseek-tj | relay@tj :19324（天津） | 19224 | active |
-| tongyi_bj | runtime/profiles/tongyi-bj | relay@bj :19325（北京） | 19225 | active |
-| yiyan_sh | runtime/profiles/yiyan-sh | relay@sh :19323（上海） | 19226 | active |
-| yuanbao_tj | runtime/profiles/yuanbao-tj | relay@tj :19324（天津） | 19227 | active |
-| doubao_bj | runtime/profiles/doubao-bj | relay@bj :19325（北京） | 19230 | active（20260810 开户+live 验收） |
-| deepseek_sh | runtime/profiles/deepseek-sh | relay@sh :19323（上海） | 19231 | active（20260810 人工手动登录+batch live 验收） |
-| yiyan_bj | runtime/profiles/yiyan-bj | relay@bj :19325（北京） | 19232 | active（20260810 开户+live 验收） |
-| deepseek_bj | runtime/profiles/deepseek-bj | relay@bj :19325（北京） | 19233 | active（20260810 开户+live 验收） |
+| 实例键      | profile 目录                 | 中继（出口）            | CDP 端口 | 状态                                            |
+| ----------- | ---------------------------- | ----------------------- | -------- | ----------------------------------------------- |
+| doubao_sh   | runtime/profiles/doubao-sh   | relay@sh :19323（上海） | 19222    | active                                          |
+| deepseek_tj | runtime/profiles/deepseek-tj | relay@tj :19324（天津） | 19224    | active                                          |
+| tongyi_bj   | runtime/profiles/tongyi-bj   | relay@bj :19325（北京） | 19225    | active                                          |
+| yiyan_sh    | runtime/profiles/yiyan-sh    | relay@sh :19323（上海） | 19226    | active                                          |
+| yuanbao_tj  | runtime/profiles/yuanbao-tj  | relay@tj :19324（天津） | 19227    | active                                          |
+| doubao_bj   | runtime/profiles/doubao-bj   | relay@bj :19325（北京） | 19230    | active（20260810 开户+live 验收）               |
+| deepseek_sh | runtime/profiles/deepseek-sh | relay@sh :19323（上海） | 19231    | active（20260810 人工手动登录+batch live 验收） |
+| yiyan_bj    | runtime/profiles/yiyan-bj    | relay@bj :19325（北京） | 19232    | active（20260810 开户+live 验收）               |
+| deepseek_bj | runtime/profiles/deepseek-bj | relay@bj :19325（北京） | 19233    | active（20260810 开户+live 验收）               |
 
 CDP 端口分配：19222-19227、19230-19233 已分配（见表；新实例接着 19234
 起分配并登记本表）。
@@ -102,9 +102,9 @@ geo-platform-v2-browser@<实例键>`。重启期间采集 attach 断连按
 ## 多 worker fencing（2026-08-07 起，s06_0012）
 
 - `platform.browser_fence` 表 + `resident_browser.py` 复合锁（进程内锁 + DB lease
-  + fencing token + 30s 心跳续期）。`browser_lock()`/`platform_browser()` 签名不变，
-  captcha-assist 持锁语义不变。2026-08-09 起 fence 键 = 实例键（opaque 串，
-  String(80) 直装无需迁移）；旧 slug 租约行已全释放过期（见迁移一节）。
+  - fencing token + 30s 心跳续期）。`browser_lock()`/`platform_browser()` 签名不变，
+    captcha-assist 持锁语义不变。2026-08-09 起 fence 键 = 实例键（opaque 串，
+    String(80) 直装无需迁移）；旧 slug 租约行已全释放过期（见迁移一节）。
 - env（worker）：`GEO_BROWSER_FENCING=db|local`（**缺省 db**，fail-closed——DB 不可达
   抛 `BrowserBusyError`，绝不降级）、`GEO_BROWSER_FENCE_HOLDER`（缺省 hostname:pid）、
   `GEO_BROWSER_FENCE_TTL_S`（缺省 7200）、`GEO_BROWSER_FENCE_HEARTBEAT_S`（缺省 30）。

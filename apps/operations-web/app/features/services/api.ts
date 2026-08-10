@@ -1,8 +1,10 @@
+import { allowsFixtureIdentityHeaders, type BrowserBuildIdentityEnv } from '@geo/api-client';
 import {
-  allowsFixtureIdentityHeaders,
-  type BrowserBuildIdentityEnv,
-} from '@geo/api-client';
-import { executionApi, type FrozenConfig, type Project, type SessionContext } from '../execution/api';
+  executionApi,
+  type FrozenConfig,
+  type Project,
+  type SessionContext,
+} from '../execution/api';
 
 const API_BASE =
   (import.meta as ImportMeta & { env?: { VITE_GEO_API_BASE?: string } }).env?.VITE_GEO_API_BASE ??
@@ -486,9 +488,7 @@ export const servicesApi = {
           title: asString(row.title),
           detail: asString(row.detail),
           evidence_document_pub_id:
-            typeof row.evidence_document_pub_id === 'string'
-              ? row.evidence_document_pub_id
-              : null,
+            typeof row.evidence_document_pub_id === 'string' ? row.evidence_document_pub_id : null,
         };
       }),
     };

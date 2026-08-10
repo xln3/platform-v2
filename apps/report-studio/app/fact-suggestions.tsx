@@ -45,10 +45,7 @@ export const suggestionMetricLabel = (metric: ReportFactSuggestionMetric): strin
 };
 
 /** 报告窗口（YYYY-MM-DD 起止）→ 建议端点的 window_days（1..366，含首尾日）。 */
-export function computeSuggestionWindowDays(
-  windowStart: string,
-  windowEnd: string,
-): number | null {
+export function computeSuggestionWindowDays(windowStart: string, windowEnd: string): number | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(windowStart) || !/^\d{4}-\d{2}-\d{2}$/.test(windowEnd)) {
     return null;
   }
@@ -202,9 +199,7 @@ const projectExtendedSection = (value: unknown): ExtendedSection | null => {
     if (row) factRows.push(row);
   }
   const reasons = Array.isArray(value.insufficient_reasons)
-    ? value.insufficient_reasons.filter(
-        (reason): reason is string => typeof reason === 'string',
-      )
+    ? value.insufficient_reasons.filter((reason): reason is string => typeof reason === 'string')
     : [];
   const { status, insufficient_reasons, fact_rows, ...meta } = value;
   void insufficient_reasons;
@@ -228,8 +223,8 @@ export function projectExtendedFactSections(value: unknown): ExtendedFactSection
 }
 
 const configuredApiBase =
-  (import.meta as ImportMeta & { env?: { VITE_GEO_API_BASE?: string } }).env
-    ?.VITE_GEO_API_BASE ?? '';
+  (import.meta as ImportMeta & { env?: { VITE_GEO_API_BASE?: string } }).env?.VITE_GEO_API_BASE ??
+  '';
 
 export type CompareWindows = {
   beforeStart: string;
@@ -242,12 +237,7 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** 四个对比窗日期齐全且各自不倒置 → 可请求 before_after 组；否则 null（不发）。 */
 export function validCompareWindows(compare: CompareWindows): CompareWindows | null {
-  const values = [
-    compare.beforeStart,
-    compare.beforeEnd,
-    compare.afterStart,
-    compare.afterEnd,
-  ];
+  const values = [compare.beforeStart, compare.beforeEnd, compare.afterStart, compare.afterEnd];
   if (values.some((value) => !ISO_DATE.test(value))) return null;
   if (compare.beforeStart > compare.beforeEnd || compare.afterStart > compare.afterEnd) {
     return null;
@@ -382,13 +372,14 @@ export function extendedMetricLabel(row: ExtendedFactRow): string {
   }
 }
 
-const factCheckBadge = (factCheck: unknown): { label: string; tone: 'positive' | 'danger' | 'neutral' } | null => {
+const factCheckBadge = (
+  factCheck: unknown,
+): { label: string; tone: 'positive' | 'danger' | 'neutral' } | null => {
   if (!isRecord(factCheck)) return null;
   const verdict = typeof factCheck.verdict === 'string' ? factCheck.verdict : '';
   const label = FACT_CHECK_VERDICT_LABELS[verdict];
   if (!label) return null;
-  const tone =
-    verdict === 'supported' ? 'positive' : verdict === 'refuted' ? 'danger' : 'neutral';
+  const tone = verdict === 'supported' ? 'positive' : verdict === 'refuted' ? 'danger' : 'neutral';
   return { label: `事实核查：${label}`, tone };
 };
 
@@ -437,7 +428,7 @@ export function buildExtendedFactPayload(
   let value: number | null = row.value;
   let invalid = false;
   if (trimmed === '') {
-    invalid = true;                     // 数值行清空=无法解析（案例行不适用，见上）
+    invalid = true; // 数值行清空=无法解析（案例行不适用，见上）
   } else {
     const parsed = Number(trimmed);
     if (!Number.isFinite(parsed) || Math.abs(parsed) > 1_000_000) {
@@ -516,12 +507,7 @@ export function FactSuggestionsPanel({
       );
       setStatus('ready');
       // 扩展组（W3/W2/前后对比）：独立直连拉取，失败只丢扩展组不影响主草稿
-      const sections = await fetchExtendedFactSections(
-        projectPubId,
-        windowDays,
-        headers,
-        compare,
-      );
+      const sections = await fetchExtendedFactSections(projectPubId, windowDays, headers, compare);
       if (requestGeneration !== generation.current) return;
       setExtended(sections);
       const flat = flattenExtendedRows(sections);
@@ -601,8 +587,7 @@ export function FactSuggestionsPanel({
 
   const metaNumber = (meta: Record<string, unknown>, key: string): number | null =>
     safeNumber(meta[key]);
-  const metaText = (meta: Record<string, unknown>, key: string): string =>
-    safeText(meta[key], 200);
+  const metaText = (meta: Record<string, unknown>, key: string): string => safeText(meta[key], 200);
   const formatMaybe = (value: unknown): string => {
     const number = safeNumber(value);
     return number === null ? '—' : String(number);
@@ -624,9 +609,7 @@ export function FactSuggestionsPanel({
           type="checkbox"
           aria-label={`包含扩展组第 ${flatIndex + 1} 行事实`}
           checked={!edit.removed}
-          onChange={(event) =>
-            updateExtendedEdit(flatIndex, { removed: !event.target.checked })
-          }
+          onChange={(event) => updateExtendedEdit(flatIndex, { removed: !event.target.checked })}
         />
         <span>{extendedMetricLabel(row)}</span>
       </label>
@@ -636,7 +619,11 @@ export function FactSuggestionsPanel({
       row.value === null ? null : (
         <label>
           {row.metric === 'before_after_metric' ? '差值' : '数值'}（
-          {row.unit === 'percent' ? (row.metric === 'before_after_metric' ? '百分点' : '%') : '排名'}
+          {row.unit === 'percent'
+            ? row.metric === 'before_after_metric'
+              ? '百分点'
+              : '%'
+            : '排名'}
           ）
           <input
             aria-label={`扩展组第 ${flatIndex + 1} 行事实数值`}
@@ -704,13 +691,7 @@ export function FactSuggestionsPanel({
           <div className="account-head">
             {checkbox}
             <Badge
-              tone={
-                severity === 'high'
-                  ? 'danger'
-                  : severity === 'medium'
-                    ? 'warning'
-                    : 'neutral'
-              }
+              tone={severity === 'high' ? 'danger' : severity === 'medium' ? 'warning' : 'neutral'}
             >
               严重程度：{SEVERITY_LABELS[severity] ?? severity ?? '未知'}
             </Badge>
@@ -978,9 +959,7 @@ export function FactSuggestionsPanel({
                           value={edit.value}
                           disabled={edit.removed}
                           maxLength={40}
-                          onChange={(event) =>
-                            updateEdit(index, { value: event.target.value })
-                          }
+                          onChange={(event) => updateEdit(index, { value: event.target.value })}
                         />
                       </label>
                     </article>
@@ -999,9 +978,7 @@ export function FactSuggestionsPanel({
       {status === 'ready' && data
         ? renderExtendedSection('w3', '内容风险核查（拉踩/抹黑）', w3Subtitle)
         : null}
-      {status === 'ready' && data
-        ? renderExtendedSection('w2', '官网引用能效', w2Subtitle)
-        : null}
+      {status === 'ready' && data ? renderExtendedSection('w2', '官网引用能效', w2Subtitle) : null}
       {status === 'ready' && data
         ? renderExtendedSection('beforeAfter', '优化前后对比', baSubtitle)
         : null}

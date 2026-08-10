@@ -150,7 +150,9 @@ function RunsPanelRow({
           {run.completed_tasks}/{run.total_tasks}
         </td>
         <td data-label="失败">{run.failed_tasks}</td>
-        <td data-label="时间">{new Date(run.created_at ?? run.updated_at).toLocaleString('zh-CN')}</td>
+        <td data-label="时间">
+          {new Date(run.created_at ?? run.updated_at).toLocaleString('zh-CN')}
+        </td>
         <td data-label="问答">
           <button aria-expanded={answersOpen} onClick={onToggleAnswers}>
             {answersOpen ? '收起' : '问答'}

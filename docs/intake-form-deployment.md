@@ -13,7 +13,7 @@
 2. API 指向主站，二选一：
    - **反代（推荐）**：目标服务器 nginx 加 `location /api/v2/ { proxy_pass https://<主站>:8443; proxy_read_timeout 300s; }`，前端同源调用，零 CORS 改动。注意 `proxy_pass` 到 8443 需 `proxy_ssl_verify off` 或信任主站证书。
    - **直连**：构建前设 `VITE_GEO_API_BASE=https://<主站>:8443`，并在主站 `/etc/geo-platform-v2/platform.env` 配 `GEO_CORS_ORIGINS=https://<填表页域名>`，重启 `geo-platform-v2-api`。token 走 `X-Intake-Token` 头，无 cookie 依赖，跨域无 SameSite 问题。
-3.  SPA fallback：所有路径回退到 `index.html`（照主站 `try_files $uri $uri/ /platform/intake-form/index.html;` 的语义；若部署在非 `/platform/intake-form/` 路径，需用对应 basename 重新构建）。
+3. SPA fallback：所有路径回退到 `index.html`（照主站 `try_files $uri $uri/ /platform/intake-form/index.html;` 的语义；若部署在非 `/platform/intake-form/` 路径，需用对应 basename 重新构建）。
 
 ## 运营要点
 

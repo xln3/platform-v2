@@ -138,9 +138,7 @@ export function SiteAuditWorkspace({
             <article>
               <span>官网引用率</span>
               <strong>
-                {data.own_site_share === null
-                  ? '—'
-                  : `${(data.own_site_share * 100).toFixed(1)}%`}
+                {data.own_site_share === null ? '—' : `${(data.own_site_share * 100).toFixed(1)}%`}
               </strong>
             </article>
             <article>
@@ -304,9 +302,7 @@ export function SiteAuditWorkspace({
                 <tr key={`${suggestion.category}-${index}`}>
                   <td>{CATEGORY_LABELS[suggestion.category] ?? suggestion.category}</td>
                   <td>
-                    <span
-                      className={`status ${SEVERITY_STATUS[suggestion.severity] ?? 'warn'}`}
-                    >
+                    <span className={`status ${SEVERITY_STATUS[suggestion.severity] ?? 'warn'}`}>
                       {SEVERITY_LABELS[suggestion.severity] ?? suggestion.severity}
                     </span>
                   </td>

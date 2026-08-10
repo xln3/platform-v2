@@ -889,12 +889,9 @@ describe('platform session lifecycle UX', () => {
     const navigate = vi.fn();
     window.localStorage.setItem('geo.session.actor', 'usr_hint');
 
-    await logoutPlatformSession(
-      async () => {
-        throw new Error('network down');
-      },
-      navigate,
-    );
+    await logoutPlatformSession(async () => {
+      throw new Error('network down');
+    }, navigate);
 
     expect(window.localStorage.getItem('geo.session.actor')).toBeNull();
     expect(navigate).toHaveBeenCalledWith(platformLoginHref);
@@ -920,8 +917,6 @@ describe('platform session lifecycle UX', () => {
     fireEvent.click(button);
 
     await waitFor(() => expect(logoutIdentitySessionMock).toHaveBeenCalledOnce());
-    await waitFor(() =>
-      expect(window.localStorage.getItem('geo.session.role')).toBeNull(),
-    );
+    await waitFor(() => expect(window.localStorage.getItem('geo.session.role')).toBeNull());
   });
 });

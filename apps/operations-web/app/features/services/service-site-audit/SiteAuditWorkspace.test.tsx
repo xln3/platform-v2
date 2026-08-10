@@ -33,8 +33,7 @@ function stubApis(reportPayload: unknown, suggestionsPayload: unknown = emptySug
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: string | URL | Request) => {
-      const url =
-        typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       expect(url).toContain('project');
       const payload = url.includes('site-suggestions') ? suggestionsPayload : reportPayload;
       if (!url.includes('site-suggestions')) {
@@ -53,8 +52,7 @@ function stubSourceAudit(payload: unknown, status = 200) {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (input: string | URL | Request) => {
-      const url =
-        typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       if (url.includes('site-suggestions')) {
         return new Response(JSON.stringify(emptySuggestions), {
           status: 200,

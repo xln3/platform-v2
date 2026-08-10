@@ -7724,8 +7724,8 @@ describe('production identity header boundary', () => {
     );
     expect(allowsFixtureIdentityHeaders(undefined)).toBe(false);
     expect(allowsFixtureIdentityHeaders({ DEV: true })).toBe(true);
-    expect(
-      allowsFixtureIdentityHeaders({ DEV: false, VITE_ALLOW_CONTRACT_FIXTURES: 'true' }),
-    ).toBe(true);
+    expect(allowsFixtureIdentityHeaders({ DEV: false, VITE_ALLOW_CONTRACT_FIXTURES: 'true' })).toBe(
+      true,
+    );
   });
 });

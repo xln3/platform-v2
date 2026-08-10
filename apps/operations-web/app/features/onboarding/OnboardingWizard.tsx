@@ -170,10 +170,7 @@ export function OnboardingWizard({ session }: Props) {
             </label>
             <label>
               项目名称
-              <input
-                value={projectName}
-                onChange={(event) => setProjectName(event.target.value)}
-              />
+              <input value={projectName} onChange={(event) => setProjectName(event.target.value)} />
             </label>
             <label>
               对接人角色
@@ -217,10 +214,7 @@ export function OnboardingWizard({ session }: Props) {
             </label>
             <label>
               产品名称
-              <input
-                value={productName}
-                onChange={(event) => setProductName(event.target.value)}
-              />
+              <input value={productName} onChange={(event) => setProductName(event.target.value)} />
             </label>
             <label>
               竞品（逗号或换行分隔）
@@ -302,7 +296,12 @@ export function OnboardingWizard({ session }: Props) {
           />
           客户已书面确认以上信息真实、准确、合法（真实性确认）
         </label>
-        <button type="button" className="submit" onClick={() => void submit()} disabled={!canSubmit}>
+        <button
+          type="button"
+          className="submit"
+          onClick={() => void submit()}
+          disabled={!canSubmit}
+        >
           {busy ? '提交中…' : '提交开户'}
         </button>
       </fieldset>

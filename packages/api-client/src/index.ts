@@ -865,9 +865,8 @@ export type BrowserBuildIdentityEnv = {
   VITE_ALLOW_CONTRACT_FIXTURES?: string;
 };
 
-export const allowsFixtureIdentityHeaders = (
-  env: BrowserBuildIdentityEnv | undefined,
-): boolean => env?.DEV === true || env?.VITE_ALLOW_CONTRACT_FIXTURES === 'true';
+export const allowsFixtureIdentityHeaders = (env: BrowserBuildIdentityEnv | undefined): boolean =>
+  env?.DEV === true || env?.VITE_ALLOW_CONTRACT_FIXTURES === 'true';
 
 async function secureGeoApiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const source = new Request(input, init);
@@ -6154,7 +6153,6 @@ export async function getReportFactSuggestions(
     return { kind: 'unavailable' };
   }
 }
-
 
 export async function createReportAction(
   reportPubId: string,

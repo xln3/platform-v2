@@ -2600,7 +2600,9 @@ function LiveEditorWorkspace({
               {draftState === 'running' ? 'AI 起草中…' : 'AI 起草本章节'}
             </button>
             {draftState === 'failed' ? (
-              <Toast tone="negative">AI 起草失败（未配置模型或上游不可用），请重试或手工撰写。</Toast>
+              <Toast tone="negative">
+                AI 起草失败（未配置模型或上游不可用），请重试或手工撰写。
+              </Toast>
             ) : null}
           </div>
         ) : null}
@@ -3835,8 +3837,7 @@ const writeAiDockStorage = (key: string, value: string): void => {
 };
 
 /** 工作区提交 AI 操作时读取面板选中的模型；空 = 服务端缺省模型。 */
-const readAiOperationModel = (opId: string): string =>
-  readAiDockStorage(aiOperationModelKey(opId));
+const readAiOperationModel = (opId: string): string => readAiDockStorage(aiOperationModelKey(opId));
 
 function AiOpsDock() {
   const experience = useOptionalExperienceContext();
@@ -4164,152 +4165,153 @@ export default function Shell() {
         probe={getHealth}
         nav={experience?.source === 'live' ? liveNav : nav}
       >
-      {(active) =>
-        active === 'window' ? (
-          <>
-            {ownsCurrentReportResult && catalogProjection.total > 1 ? (
-              <ProjectionLimitNotice
-                items={[
-                  {
-                    key: 'report-catalog',
-                    label: '当前检索窗口内的项目报告',
-                    total: catalogProjection.total,
-                    shown: catalogProjection.shown,
-                  },
-                ]}
+        {(active) =>
+          active === 'window' ? (
+            <>
+              {ownsCurrentReportResult && catalogProjection.total > 1 ? (
+                <ProjectionLimitNotice
+                  items={[
+                    {
+                      key: 'report-catalog',
+                      label: '当前检索窗口内的项目报告',
+                      total: catalogProjection.total,
+                      shown: catalogProjection.shown,
+                    },
+                  ]}
+                />
+              ) : null}
+              {ownsCurrentReportResult && catalogProjection.incomplete ? (
+                <div className="confirmation projection-limit-notice" role="status">
+                  <Badge tone="warning">项目目录仍在后续页</Badge>
+                  <span>
+                    已安全扫描 {catalogProjection.scanned}{' '}
+                    条租户报告但尚未确认下一份当前项目报告；可用分页继续扫描，且不会据此推断项目报告总数。
+                  </span>
+                </div>
+              ) : null}
+              {ownsCurrentReportResult && catalogProjection.invalid ? (
+                <div className="confirmation projection-limit-notice" role="alert">
+                  <Badge tone="warning">安全投影不完整</Badge>
+                  <span>
+                    报告目录包含跨项目、重复标识、乱序时间、游标不一致或未通过 DLP
+                    校验的记录；未请求其详情。
+                  </span>
+                </div>
+              ) : null}
+              {ownsCurrentReportResult && detailProjectionInvalid ? (
+                <div className="confirmation projection-limit-notice" role="alert">
+                  <Badge tone="warning">详情投影已拒绝</Badge>
+                  <span>
+                    报告详情未与请求报告和当前项目严格绑定，或根级标题、状态、时间未通过安全校验；未采用任何版本事实。
+                  </span>
+                </div>
+              ) : null}
+              <WindowWorkspace
+                state={state}
+                onFreeze={() => setState('frozen')}
+                livePage={livePage}
+                liveState={effectiveLiveState}
+                page={requestedPage}
+                pageCount={reportPageCount}
+                onPageChange={changeReportPage}
+                onRetry={retry}
+                emptyContent={
+                  experience?.source === 'live' ? (
+                    <CreateReportWorkspace
+                      projectPubId={experience.projectPubId}
+                      canAuthor={reportCapabilities.author}
+                      onCreated={retry}
+                    />
+                  ) : undefined
+                }
               />
-            ) : null}
-            {ownsCurrentReportResult && catalogProjection.incomplete ? (
-              <div className="confirmation projection-limit-notice" role="status">
-                <Badge tone="warning">项目目录仍在后续页</Badge>
-                <span>
-                  已安全扫描 {catalogProjection.scanned}{' '}
-                  条租户报告但尚未确认下一份当前项目报告；可用分页继续扫描，且不会据此推断项目报告总数。
-                </span>
-              </div>
-            ) : null}
-            {ownsCurrentReportResult && catalogProjection.invalid ? (
-              <div className="confirmation projection-limit-notice" role="alert">
-                <Badge tone="warning">安全投影不完整</Badge>
-                <span>
-                  报告目录包含跨项目、重复标识、乱序时间、游标不一致或未通过 DLP
-                  校验的记录；未请求其详情。
-                </span>
-              </div>
-            ) : null}
-            {ownsCurrentReportResult && detailProjectionInvalid ? (
-              <div className="confirmation projection-limit-notice" role="alert">
-                <Badge tone="warning">详情投影已拒绝</Badge>
-                <span>
-                  报告详情未与请求报告和当前项目严格绑定，或根级标题、状态、时间未通过安全校验；未采用任何版本事实。
-                </span>
-              </div>
-            ) : null}
-            <WindowWorkspace
-              state={state}
-              onFreeze={() => setState('frozen')}
-              livePage={livePage}
-              liveState={effectiveLiveState}
-              page={requestedPage}
-              pageCount={reportPageCount}
-              onPageChange={changeReportPage}
-              onRetry={retry}
-              emptyContent={
-                experience?.source === 'live' ? (
-                  <CreateReportWorkspace
-                    projectPubId={experience.projectPubId}
-                    canAuthor={reportCapabilities.author}
-                    onCreated={retry}
-                  />
-                ) : undefined
+            </>
+          ) : active === 'review' && experience?.source === 'live' ? (
+            effectiveLiveState === 'loading' ? (
+              <StatePanel state="loading" />
+            ) : effectiveLiveState === 'failed' ? (
+              <StatePanel state="failed" onRetry={retry} />
+            ) : effectiveLiveState === 'forbidden' ? (
+              <StatePanel state="forbidden" />
+            ) : liveTarget ? (
+              <ReviewWorkspace
+                key={`review:${liveTarget.reportPubId}:${liveTarget.versionPubId}`}
+                state={state}
+                onState={setState}
+                liveTarget={liveTarget}
+                capabilities={reportCapabilities}
+                onReconcile={reconcileLiveReport}
+                onReconcileDelivery={reconcileReportDelivery}
+              />
+            ) : (
+              <StatePanel state="empty" />
+            )
+          ) : active === 'outcomes' && experience?.source === 'live' ? (
+            effectiveLiveState === 'loading' ? (
+              <StatePanel state="loading" />
+            ) : effectiveLiveState === 'failed' ? (
+              <StatePanel state="failed" onRetry={retry} />
+            ) : effectiveLiveState === 'forbidden' ? (
+              <StatePanel state="forbidden" />
+            ) : liveTarget ? (
+              <OutcomesWorkspace
+                key={`outcomes:${liveTarget.reportPubId}:${liveTarget.versionPubId}`}
+                liveTarget={liveTarget}
+                canAuthor={reportCapabilities.author}
+                onReconcile={reconcileLiveReport}
+              />
+            ) : (
+              <StatePanel state="empty" />
+            )
+          ) : experience?.source === 'live' ? (
+            effectiveLiveState === 'loading' ? (
+              <StatePanel state="loading" />
+            ) : effectiveLiveState === 'failed' ? (
+              <StatePanel state="failed" onRetry={retry} />
+            ) : effectiveLiveState === 'forbidden' ? (
+              <StatePanel state="forbidden" />
+            ) : liveTarget &&
+              ['trace', 'editor', 'diff', 'evidence', 'preview'].includes(active) ? (
+              <LiveDetailWorkspace
+                key={`${active}:${liveTarget.reportPubId}`}
+                active={active as 'trace' | 'editor' | 'diff' | 'evidence' | 'preview'}
+                target={liveTarget}
+                canAuthor={reportCapabilities.author}
+                onVerifyRevision={(reportPubId) => readLiveReportProjection(reportPubId, false)}
+                onAdoptRevision={adoptVerifiedLiveReport}
+              />
+            ) : (
+              <StatePanel state="empty" />
+            )
+          ) : active === 'trace' ? (
+            <TraceWorkspace />
+          ) : active === 'editor' ? (
+            <EditorWorkspace
+              sections={sections}
+              onChange={setSections}
+              savedVersions={savedVersions}
+              onSaveVersion={(version) =>
+                setSavedVersions((current) => [
+                  version,
+                  ...current.filter(
+                    (item) =>
+                      item.sectionId !== version.sectionId || item.version !== version.version,
+                  ),
+                ])
               }
             />
-          </>
-        ) : active === 'review' && experience?.source === 'live' ? (
-          effectiveLiveState === 'loading' ? (
-            <StatePanel state="loading" />
-          ) : effectiveLiveState === 'failed' ? (
-            <StatePanel state="failed" onRetry={retry} />
-          ) : effectiveLiveState === 'forbidden' ? (
-            <StatePanel state="forbidden" />
-          ) : liveTarget ? (
-            <ReviewWorkspace
-              key={`review:${liveTarget.reportPubId}:${liveTarget.versionPubId}`}
-              state={state}
-              onState={setState}
-              liveTarget={liveTarget}
-              capabilities={reportCapabilities}
-              onReconcile={reconcileLiveReport}
-              onReconcileDelivery={reconcileReportDelivery}
-            />
+          ) : active === 'diff' ? (
+            <VersionDiffWorkspace versions={savedVersions} />
+          ) : active === 'evidence' ? (
+            <EvidenceWorkspace />
+          ) : active === 'preview' ? (
+            <PreviewWorkspace sections={sections} />
+          ) : active === 'review' ? (
+            <ReviewWorkspace state={state} onState={setState} capabilities={reportCapabilities} />
           ) : (
-            <StatePanel state="empty" />
+            <OutcomesWorkspace canAuthor={reportCapabilities.author} />
           )
-        ) : active === 'outcomes' && experience?.source === 'live' ? (
-          effectiveLiveState === 'loading' ? (
-            <StatePanel state="loading" />
-          ) : effectiveLiveState === 'failed' ? (
-            <StatePanel state="failed" onRetry={retry} />
-          ) : effectiveLiveState === 'forbidden' ? (
-            <StatePanel state="forbidden" />
-          ) : liveTarget ? (
-            <OutcomesWorkspace
-              key={`outcomes:${liveTarget.reportPubId}:${liveTarget.versionPubId}`}
-              liveTarget={liveTarget}
-              canAuthor={reportCapabilities.author}
-              onReconcile={reconcileLiveReport}
-            />
-          ) : (
-            <StatePanel state="empty" />
-          )
-        ) : experience?.source === 'live' ? (
-          effectiveLiveState === 'loading' ? (
-            <StatePanel state="loading" />
-          ) : effectiveLiveState === 'failed' ? (
-            <StatePanel state="failed" onRetry={retry} />
-          ) : effectiveLiveState === 'forbidden' ? (
-            <StatePanel state="forbidden" />
-          ) : liveTarget && ['trace', 'editor', 'diff', 'evidence', 'preview'].includes(active) ? (
-            <LiveDetailWorkspace
-              key={`${active}:${liveTarget.reportPubId}`}
-              active={active as 'trace' | 'editor' | 'diff' | 'evidence' | 'preview'}
-              target={liveTarget}
-              canAuthor={reportCapabilities.author}
-              onVerifyRevision={(reportPubId) => readLiveReportProjection(reportPubId, false)}
-              onAdoptRevision={adoptVerifiedLiveReport}
-            />
-          ) : (
-            <StatePanel state="empty" />
-          )
-        ) : active === 'trace' ? (
-          <TraceWorkspace />
-        ) : active === 'editor' ? (
-          <EditorWorkspace
-            sections={sections}
-            onChange={setSections}
-            savedVersions={savedVersions}
-            onSaveVersion={(version) =>
-              setSavedVersions((current) => [
-                version,
-                ...current.filter(
-                  (item) =>
-                    item.sectionId !== version.sectionId || item.version !== version.version,
-                ),
-              ])
-            }
-          />
-        ) : active === 'diff' ? (
-          <VersionDiffWorkspace versions={savedVersions} />
-        ) : active === 'evidence' ? (
-          <EvidenceWorkspace />
-        ) : active === 'preview' ? (
-          <PreviewWorkspace sections={sections} />
-        ) : active === 'review' ? (
-          <ReviewWorkspace state={state} onState={setState} capabilities={reportCapabilities} />
-        ) : (
-          <OutcomesWorkspace canAuthor={reportCapabilities.author} />
-        )
-      }
+        }
       </ProductShell>
       <AiOpsDock />
     </>

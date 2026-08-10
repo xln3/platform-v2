@@ -123,9 +123,7 @@ export function ComparisonPanel({
     void executionApi.runs(session).then(
       (fetched) => {
         if (cancelled) return;
-        setRuns(
-          (fetched as RunRow[]).filter((run) => run.project_pub_id === project.pub_id),
-        );
+        setRuns((fetched as RunRow[]).filter((run) => run.project_pub_id === project.pub_id));
       },
       () => {
         if (!cancelled) setRuns([]);

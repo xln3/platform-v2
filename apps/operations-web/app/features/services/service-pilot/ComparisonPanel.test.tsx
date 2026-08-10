@@ -198,9 +198,9 @@ describe('ComparisonPanel', () => {
         !/\/api\/v2\/analytics\/comparisons\/[^/]+/.test(call.url),
     );
     expect(lists.length).toBeGreaterThanOrEqual(2);
-    expect(
-      calls.some((call) => call.url.includes('/api/v2/analytics/comparisons/cmp_new')),
-    ).toBe(true);
+    expect(calls.some((call) => call.url.includes('/api/v2/analytics/comparisons/cmp_new'))).toBe(
+      true,
+    );
   });
 
   it('renders aggregate deltas and per-question rows with honest null placeholders', async () => {
@@ -323,9 +323,7 @@ describe('ComparisonPanel', () => {
     await pickArms();
     fireEvent.change(screen.getByLabelText('对比名称'), { target: { value: 'x' } });
     fireEvent.click(screen.getByRole('button', { name: '创建对比' }));
-    await waitFor(() =>
-      expect(screen.getByRole('alert').textContent).toContain('run_ghost_9'),
-    );
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('run_ghost_9'));
   });
 
   it('rejects overlapping arms locally without posting', async () => {

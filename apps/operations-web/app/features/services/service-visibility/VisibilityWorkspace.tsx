@@ -274,7 +274,8 @@ export function VisibilityWorkspace({
           )
         ) : brands.kind === 'brandrank_domain_unresolved' ? (
           <p className="service-note">
-            项目未设置品牌规则包域，请先在项目设置中配置 brandrank_domain。品牌榜单暂不可用，基础指标不受影响。
+            项目未设置品牌规则包域，请先在项目设置中配置
+            brandrank_domain。品牌榜单暂不可用，基础指标不受影响。
           </p>
         ) : brands.kind === 'unmapped_industry' ? (
           <p className="service-note">
