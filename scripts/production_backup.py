@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Daily production backup: PostgreSQL custom dump + ClickHouse table exports + MinIO volume tar.
+"""Daily production backup: PostgreSQL custom dump + ClickHouse table exports + MinIO volume tar
++ durable runtime state files.
 
 Design choices (see deploy/production/):
 - PostgreSQL: `docker exec <pg> pg_dump --format=custom` streams to stdout. The container's
@@ -11,6 +12,13 @@ Design choices (see deploy/production/):
 - MinIO: the evidence bucket is immutable CAS objects, so a plain `tar czf` of the /data
   volume (read via --volumes-from with GNU tar from the PostgreSQL image — the MinIO
   image ships no tar) is sufficient; no S3 credentials needed.
+- Runtime state: small durable operator-state files under runtime/ that cannot be
+  reconstructed after a disk loss — currently the OTP registered-numbers registry
+  (`runtime/otp_registered_numbers.json`, env ``GEO_OTP_REGISTRY_PATH`` override, mirroring
+  api/geo_platform/otp/router.py). Deliberately EXCLUDES otp_inbox: per-phone code files
+  expire in minutes and the events ledger holds plaintext codes — zero restore value,
+  real secret-hygiene cost in 14 retained snapshots. A missing state file is a logged
+  skip, not a failure (e.g. registry legitimately absent before first registration).
 - Any component failure is logged and makes the overall exit code non-zero (fail-loud);
   the remaining components still run so one failure never leaves everything unbacked.
 - Retention keeps the newest N (default 14) snapshot directories created by this script
@@ -192,6 +200,38 @@ def backup_minio(dest_dir: Path, artifacts: list[dict]) -> None:
     )
 
 
+def runtime_state_files() -> list[Path]:
+    """Durable operator-state files under runtime/ (read per-call so tests can point
+    the env override at tmp; mirrors api/geo_platform/otp/router.py `_registry_path`)."""
+    registry = Path(
+        os.environ.get("GEO_OTP_REGISTRY_PATH")
+        or PLATFORM_ROOT / "runtime" / "otp_registered_numbers.json"
+    )
+    return [registry]
+
+
+def backup_runtime_state(dest_dir: Path, artifacts: list[dict]) -> None:
+    """Copy durable runtime state files verbatim (sha256-manifested). Missing file =
+    logged skip, not a failure — e.g. the OTP registry legitimately does not exist
+    before the first registration; an absent file restores as "empty registry" anyway."""
+    for src in runtime_state_files():
+        if not src.is_file():
+            log(f"runtime_state: {src} not present, skipped")
+            continue
+        data = src.read_bytes()
+        dest = dest_dir / f"runtime-{src.name}"
+        dest.write_bytes(data)
+        artifacts.append(
+            {
+                "file": dest.name,
+                "component": "runtime_state",
+                "bytes": len(data),
+                "sha256": hashlib.sha256(data).hexdigest(),
+                "detail": f"verbatim copy of {src} (durable operator state)",
+            }
+        )
+
+
 def apply_retention(backup_root: Path, keep: int) -> None:
     snapshots: list[Path] = []
     for entry in backup_root.iterdir():
@@ -230,6 +270,7 @@ def main() -> int:
         "postgres": backup_postgres,
         "clickhouse": backup_clickhouse,
         "minio": backup_minio,
+        "runtime_state": backup_runtime_state,
     }
     status: dict[str, str] = {}
     for name, fn in components.items():
