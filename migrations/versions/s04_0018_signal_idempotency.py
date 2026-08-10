@@ -15,6 +15,12 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
+    # Fresh-replay fix (2026-08-10): the UPDATE below uses pgcrypto's digest().
+    # Dev/CI databases get the extension from deploy/postgres-init, but a bare
+    # `CREATE DATABASE` replay (the documented CI-repro procedure) does not, so
+    # ensure it here like s02_0002/s02_0005 do for the vector extension.
+    # Databases that already applied this revision never re-run it.
+    op.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
     op.execute(
         """
         ALTER TABLE integration.workflow_signal_command
