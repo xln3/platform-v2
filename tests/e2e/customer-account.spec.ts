@@ -412,6 +412,10 @@ test('validated customer lifecycle writes stay single under synchronous duplicat
   await expectSafePageScreenshot(page, 'customer-live-revocation-receipt.png', {
     fullPage: true,
     animations: 'disabled',
+    // 跨渲染器 AA 残余兜底：本页内容全静态，但 jammy/noble 的 freetype 版本差在彩色
+    // 文字（绿色徽标/标签）边缘产生 21~35px 覆盖值残余（run 31436523820 三档实测，
+    // 页高一致、差异全部位于字形边缘）。缺省预算是 0 像素，故按实测两倍余量给 64。
+    maxDiffPixels: 64,
   });
 
   expect(writes).toHaveLength(7);
