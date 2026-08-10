@@ -126,8 +126,17 @@ def seeded_run() -> Any:
             "total_tasks,completed_tasks,failed_tasks,paused) "
             "SELECT %s,%s,%s,1,%s,%s,%s,v.id,%s,%s,'completed',1,1,0,false "
             "FROM platform.monitoring_config_version v WHERE v.tenant_id=%s",
-            (run_id, run_pub, tenant_id, now, now, project_id, f"w3-{suffix}",
-             f"w3/workflow/{suffix}", tenant_id),
+            (
+                run_id,
+                run_pub,
+                tenant_id,
+                now,
+                now,
+                project_id,
+                f"w3-{suffix}",
+                f"w3/workflow/{suffix}",
+                tenant_id,
+            ),
         )
         connection.execute(
             "INSERT INTO platform.collection_task (id,pub_id,tenant_id,version,created_at,"
@@ -135,9 +144,7 @@ def seeded_run() -> Any:
             "VALUES (%s,%s,%s,1,%s,%s,%s,'q1',%s,'done',1,%s)",
             (uuid.uuid4(), new_pub_id("ans"), tenant_id, now, now, run_id, matrix, _ANSWER),
         )
-    yield SimpleNamespace(
-        tenant=tenant_pub, project=project_pub, run=run_pub, tenant_id=tenant_id
-    )
+    yield SimpleNamespace(tenant=tenant_pub, project=project_pub, run=run_pub, tenant_id=tenant_id)
     with psycopg.connect(POSTGRES_DSN) as connection:
         for table, column in (
             ("integration.outbox_event", "tenant_pub_id"),
@@ -232,9 +239,7 @@ def test_w3_disparagement_end_to_end(seeded_run: Any) -> None:
             "set_config('app.tenant_pub_id', %s, true)",
             (str(seeded_run.tenant_id), seeded_run.tenant),
         )
-        judgments = connection.execute(
-            "SELECT * FROM platform.disparagement_judgment"
-        ).fetchall()
+        judgments = connection.execute("SELECT * FROM platform.disparagement_judgment").fetchall()
         events = connection.execute(
             "SELECT * FROM integration.outbox_event "
             "WHERE event_type='disparagement.recorded' AND tenant_pub_id=%s",
@@ -242,9 +247,7 @@ def test_w3_disparagement_end_to_end(seeded_run: Any) -> None:
         ).fetchall()
     assert len(judgments) == result.judged
     assert len(events) == result.judged
-    by_target = {
-        (row["subject_type"], row["target_brand"]): row for row in judgments
-    }
+    by_target = {(row["subject_type"], row["target_brand"]): row for row in judgments}
     # 答案里的友邦窗：stub 判 negative+拉踩
     answer_youbang = by_target[("answer", _COMPETITOR)]
     assert answer_youbang["attitude"] == "negative"
@@ -352,8 +355,7 @@ def test_w3_dictionary_fallback_marks_experimental(seeded_run: Any) -> None:
             (str(seeded_run.tenant_id),),
         )
         rows = connection.execute(
-            "SELECT method, prompt_version, judgment_status "
-            "FROM platform.disparagement_judgment"
+            "SELECT method, prompt_version, judgment_status FROM platform.disparagement_judgment"
         ).fetchall()
     assert rows
     for row in rows:

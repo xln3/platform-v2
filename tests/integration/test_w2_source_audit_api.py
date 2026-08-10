@@ -331,9 +331,9 @@ def test_w2_fetch_then_audit_end_to_end(seeded_run: Any) -> None:
     assert ok_doc["http_status"] == 200
     assert ok_doc["extractor"] == "density-extract-v1"
     assert ok_doc["text_cas_key"] and ok_doc["text_sha256"]
-    assert store.get_verified(ok_doc["text_cas_key"], ok_doc["text_sha256"]).decode(
-        "utf-8"
-    ) == _TEXT
+    assert (
+        store.get_verified(ok_doc["text_cas_key"], ok_doc["text_sha256"]).decode("utf-8") == _TEXT
+    )
     bad_doc = next(row for row in documents if row["url"] == _URL_404)
     assert bad_doc["extract_status"] == "http_error"
     assert bad_doc["text_cas_key"] is None
@@ -351,9 +351,9 @@ def test_w2_fetch_then_audit_end_to_end(seeded_run: Any) -> None:
         e.url: e.source_document_pub_id for e in fetch_result.fetched
     }
     with psycopg.connect(POSTGRES_DSN) as connection:
-        assert connection.execute(
-            "SELECT count(*) FROM platform.source_document"
-        ).fetchone() == (2,)
+        assert connection.execute("SELECT count(*) FROM platform.source_document").fetchone() == (
+            2,
+        )
         assert connection.execute(
             "SELECT count(*) FROM evidence.evidence_asset WHERE kind='source_text'"
         ).fetchone() == (1,)
@@ -417,9 +417,7 @@ def test_w2_fetch_then_audit_end_to_end(seeded_run: Any) -> None:
     assert len(audits) == 4
     assert len(events) == 4
     ok_audit = next(
-        row
-        for row in audits
-        if row["audit_status"] == "ok" and row["dimension"] == "transcript"
+        row for row in audits if row["audit_status"] == "ok" and row["dimension"] == "transcript"
     )
     assert ok_audit["verdict"] == "accurate"
     assert ok_audit["model"] == "gpt-5.6-luna"

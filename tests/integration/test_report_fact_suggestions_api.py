@@ -4,6 +4,7 @@
 analytics.answer、answer_brand_extract（ok/failed）→ 端点 200 四指标草稿
 （分组/分母/双分母实测）；未设真源 400 domain_unset；跨租户 404（RLS 不泄露存在性）。
 """
+
 from __future__ import annotations
 
 import json
@@ -63,16 +64,15 @@ def _seed_brand_competitor(tenant_pub_id: str, project_pub_id: str) -> None:
                   (id, pub_id, tenant_id, project_id, name, version, created_at, updated_at)
                 VALUES (%s, %s, %s, %s, %s, 1, now(), now())
                 """,
-                (str(uuid4()), f"{table[:3]}_{uuid4().hex[:24]}", tenant_id, project_id,
-                 name),
+                (str(uuid4()), f"{table[:3]}_{uuid4().hex[:24]}", tenant_id, project_id, name),
             )
 
 
-def _seed_answer(tenant_pub_id: str, project_pub_id: str, pub_id: str, *,
-                 model: str, region: str, query: str) -> None:
+def _seed_answer(
+    tenant_pub_id: str, project_pub_id: str, pub_id: str, *, model: str, region: str, query: str
+) -> None:
     with psycopg.connect(POSTGRES_DSN) as connection:
-        connection.execute(
-            "SELECT set_config('app.tenant_pub_id', %s, true)", (tenant_pub_id,))
+        connection.execute("SELECT set_config('app.tenant_pub_id', %s, true)", (tenant_pub_id,))
         connection.execute(
             """
             INSERT INTO analytics.answer
@@ -84,11 +84,16 @@ def _seed_answer(tenant_pub_id: str, project_pub_id: str, pub_id: str, *,
         )
 
 
-def _seed_extract(tenant_pub_id: str, answer_pub_id: str, brands: list[str],
-                  *, status: str = "ok", domain: str = "insurance") -> None:
+def _seed_extract(
+    tenant_pub_id: str,
+    answer_pub_id: str,
+    brands: list[str],
+    *,
+    status: str = "ok",
+    domain: str = "insurance",
+) -> None:
     with psycopg.connect(POSTGRES_DSN) as connection:
-        connection.execute(
-            "SELECT set_config('app.tenant_pub_id', %s, true)", (tenant_pub_id,))
+        connection.execute("SELECT set_config('app.tenant_pub_id', %s, true)", (tenant_pub_id,))
         connection.execute(
             """
             INSERT INTO analytics.answer_brand_extract
@@ -98,8 +103,12 @@ def _seed_extract(tenant_pub_id: str, answer_pub_id: str, brands: list[str],
                     %s, now())
             """,
             (
-                f"abx_{uuid4().hex[:26]}", tenant_pub_id, answer_pub_id, domain,
-                json.dumps(brands, ensure_ascii=False), status,
+                f"abx_{uuid4().hex[:26]}",
+                tenant_pub_id,
+                answer_pub_id,
+                domain,
+                json.dumps(brands, ensure_ascii=False),
+                status,
                 None if status == "ok" else "api_error: timeout",
             ),
         )
@@ -112,8 +121,11 @@ def test_report_fact_suggestions_round_trip() -> None:
     created = client.post(
         "/api/v2/projects",
         headers={**headers, "Idempotency-Key": f"idem-{secrets.token_hex(16)}"},
-        json={"name": f"RFS {suffix}", "customer_name": "RFS Customer",
-              "brandrank_domain": "insurance"},
+        json={
+            "name": f"RFS {suffix}",
+            "customer_name": "RFS Customer",
+            "brandrank_domain": "insurance",
+        },
     )
     assert created.status_code == 201, created.text
     project = created.json()["pub_id"]
@@ -126,8 +138,7 @@ def test_report_fact_suggestions_round_trip() -> None:
         ("ans_b1", "deepseek", "上海", "保险产品对比"),
         ("ans_b2", "deepseek", "上海", "保险产品对比"),
     ):
-        _seed_answer(tenant, project, f"{pub_id}_{suffix}", model=model,
-                     region=region, query=query)
+        _seed_answer(tenant, project, f"{pub_id}_{suffix}", model=model, region=region, query=query)
     _seed_extract(tenant, f"ans_a1_{suffix}", ["中意人寿保险", "中国平安"])
     _seed_extract(tenant, f"ans_a2_{suffix}", ["擎天柱11号", "中国平安"])
     _seed_extract(tenant, f"ans_b1_{suffix}", ["中国人寿"])
@@ -142,14 +153,16 @@ def test_report_fact_suggestions_round_trip() -> None:
     assert body["insufficient"] is False and body["domain"] == "insurance"
     assert body["target_brand"] == "中意人寿" and body["competitors"] == ["中国平安"]
     assert body["coverage"]["n_answers"] == 4
-    assert body["coverage"]["n_with_extract"] == 3      # failed 行不算覆盖
+    assert body["coverage"]["n_with_extract"] == 3  # failed 行不算覆盖
     assert body["coverage"]["n_groups"] == 2
     rows = body["fact_rows"]
-    assert len(rows) == 2 * (5 + 1)                     # 每组 5 目标行 + 1 竞品行
+    assert len(rows) == 2 * (5 + 1)  # 每组 5 目标行 + 1 竞品行
 
-    group_a = [r for r in rows
-               if r["dimensions"] == {"platform": "doubao", "region": "北京",
-                                      "query": "保险公司推荐"}]
+    group_a = [
+        r
+        for r in rows
+        if r["dimensions"] == {"platform": "doubao", "region": "北京", "query": "保险公司推荐"}
+    ]
     by_metric = {r["metric"]: r for r in group_a}
     # 品牌提及率：两条合并归并后均命中（中意人寿保险/擎天柱11号→中意人寿）
     assert by_metric["brand_appearance_rate"]["value"] == 100.0
@@ -191,7 +204,6 @@ def test_report_fact_suggestions_round_trip() -> None:
 
     # 跨租户 → 404（RLS 不泄露存在性）
     _other, other_headers = _bootstrap(client, f"rfs-other-{suffix}")
-    resp3 = client.get(
-        f"/api/v2/projects/{project}/report-fact-suggestions", headers=other_headers)
+    resp3 = client.get(f"/api/v2/projects/{project}/report-fact-suggestions", headers=other_headers)
     assert resp3.status_code == 404
     assert resp3.json()["error"]["code"] == "project_not_found"
