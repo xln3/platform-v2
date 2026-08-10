@@ -362,6 +362,7 @@ def answers(
     model: str | None = None,
     region: str | None = None,
     mode: str | None = None,
+    run_pub_id: str | None = None,
     principal: Principal = Depends(get_principal),
 ) -> AnswerPage:
     principal.require("project:read")
@@ -388,6 +389,7 @@ def answers(
               AND (%s::text IS NULL OR a.model=%s::text)
               AND (%s::text IS NULL OR a.region=%s::text)
               AND (%s::text IS NULL OR a.mode=%s::text)
+              AND (%s::text IS NULL OR a.run_pub_id=%s::text)
             ORDER BY a.pub_id LIMIT %s
             """,
             (
@@ -403,6 +405,8 @@ def answers(
                 region,
                 mode,
                 mode,
+                run_pub_id,
+                run_pub_id,
                 limit + 1,
             ),
         ).fetchall()

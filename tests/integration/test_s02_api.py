@@ -1145,3 +1145,112 @@ def test_s02_report_ai_draft_model_selection_and_output_capability(
     finally:
         get_settings.cache_clear()
         app.dependency_overrides.clear()
+
+
+def test_s02_answers_filter_by_run_pub_id() -> None:
+    """answers 端点 run_pub_id 过滤：只返回该 run 的答案；缺省不过滤返回全部。"""
+    suffix = uuid4().hex
+    tenant = f"tnt_{suffix[:20]}"
+    project = f"prj_{suffix}"
+    tenant_id = uuid4()
+    user_id = uuid4()
+    user_pub_id = f"usr_admin_{suffix[:12]}"
+    subject = f"admin-subject-{suffix}"
+    captured = datetime.now(UTC)
+    with psycopg.connect(POSTGRES_DSN) as connection:
+        connection.execute(
+            """
+            INSERT INTO platform.tenant (id,pub_id,name,state,created_at,updated_at)
+            VALUES (%s,%s,'answers run filter tenant','active',%s,%s)
+            """,
+            (tenant_id, tenant, captured, captured),
+        )
+        connection.execute(
+            """
+            INSERT INTO platform.app_user (id,pub_id,subject,display_name,
+                is_service_account,created_at)
+            VALUES (%s,%s,%s,'run filter admin',false,%s)
+            """,
+            (user_id, user_pub_id, subject, captured),
+        )
+        connection.execute(
+            """
+            INSERT INTO platform.membership (id,pub_id,tenant_id,user_id,role,state,
+                revoked_at,created_at)
+            VALUES (%s,%s,%s,%s,'admin','active',NULL,%s)
+            """,
+            (uuid4(), f"mbr_{suffix[:12]}", tenant_id, user_id, captured),
+        )
+    provenance = RedactedProvenance(
+        platform_account_pub_id=None,
+        browser_profile_version_pub_id=None,
+        session_event_pub_id=None,
+        channel=CaptureChannel.API,
+        authorization_scope=("read",),
+        adapter_version="api-test-v1",
+        capture_time=captured,
+        access_class=AccessClass.PUBLIC,
+    )
+    run_a = f"run_{suffix[:20]}_a"
+    run_b = f"run_{suffix[:20]}_b"
+    service = AnalyticsService(dsn=POSTGRES_DSN)
+    for index, run_pub_id in enumerate((run_a, run_b)):
+        service.analyze_and_persist(
+            tenant_pub_id=tenant,
+            project_pub_id=project,
+            answer_pub_id=f"ans_{suffix[:20]}_{index}",
+            answer_text=f"Acme 回答 {index}。",
+            brand="Acme",
+            competitors=(),
+            citations=(),
+            dimensions={
+                "model": "api-test",
+                "region": "east",
+                "mode": "quick",
+                "question_pub_id": f"qry_{suffix[:20]}_{index}",
+                "query_text": f"run 过滤测试问题 {index}",
+                "run_pub_id": run_pub_id,
+            },
+            own_domains=(),
+            provenance=provenance,
+            scorer_version="scorer-v2",
+            metric_version="metrics-v2",
+            model_version="rules-v1",
+        )
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_principal] = lambda: Principal(
+        subject=subject,
+        role=Role.ADMIN,
+        tenant_pub_id=tenant,
+        user_pub_id=user_pub_id,
+    )
+    client = TestClient(app)
+    filtered = client.get(
+        "/api/v2/analytics/answers",
+        params={"project_pub_id": project, "run_pub_id": run_a},
+    )
+    assert filtered.status_code == 200, filtered.text
+    assert [item["pub_id"] for item in filtered.json()["data"]] == [f"ans_{suffix[:20]}_0"]
+    assert filtered.json()["data"][0]["run_pub_id"] == run_a
+    filtered_b = client.get(
+        "/api/v2/analytics/answers",
+        params={"project_pub_id": project, "run_pub_id": run_b},
+    )
+    assert filtered_b.status_code == 200, filtered_b.text
+    assert [item["pub_id"] for item in filtered_b.json()["data"]] == [f"ans_{suffix[:20]}_1"]
+    unfiltered = client.get(
+        "/api/v2/analytics/answers",
+        params={"project_pub_id": project},
+    )
+    assert unfiltered.status_code == 200, unfiltered.text
+    assert [item["pub_id"] for item in unfiltered.json()["data"]] == [
+        f"ans_{suffix[:20]}_0",
+        f"ans_{suffix[:20]}_1",
+    ]
+    missing_run = client.get(
+        "/api/v2/analytics/answers",
+        params={"project_pub_id": project, "run_pub_id": "run_missing"},
+    )
+    assert missing_run.status_code == 200
+    assert missing_run.json()["data"] == []
