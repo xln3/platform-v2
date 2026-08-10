@@ -36,7 +36,9 @@ ATTITUDES = ("support", "neutral", "negative")
 
 METHOD_LLM = "llm"
 METHOD_DICTIONARY = "dictionary_experimental"
-PROMPT_VERSION = "disparage-v1"
+# disparage-v2（20260810）：evidence_quote 完整性约束——prompt 要求完整句/表格整行，
+# 判定侧 expand_table_fragment_quote 把表格碎片 deterministic 扩到整行。
+PROMPT_VERSION = "disparage-v2"
 DICTIONARY_VERSION = "dictionary-v1"
 
 # 判定状态词表：ok / validation_failure（LLM 失败→词典兜底，不单列 llm_error 状态行）
@@ -80,6 +82,31 @@ def quote_is_verbatim(quote: str, blob: str) -> bool:
     if not needle:
         return False
     return needle in normalize_verbatim(blob)
+
+
+def expand_table_fragment_quote(quote: str, window_text: str) -> str:
+    """表格碎片 quote 确定性扩到整行（disparage-v2 起）。
+
+    LLM 摘表格证据易只给单元格碎片（如 `| 盛邦安全 | 弱 |` 中的一截），碎片
+    虽过逐字校验但语义不完整。规则：quote（空白归一后）完全落在窗文本某一
+    Markdown 表格行（去外侧 pipe 后仍含 | 的行）内、且不等于该行全文 → 返回
+    该行 strip 后的原文；多行命中取第一行；其余情况（非表格行/跨行/已是整行）
+    原样返回。返回值仍是窗文本逐字子串（整行本就是窗的切片），校验语义不变。
+    """
+    needle = normalize_verbatim(quote)
+    if not needle or "\n" in quote.strip():
+        return quote
+    if normalize_verbatim(quote) == normalize_verbatim(window_text):
+        return quote
+    for line in window_text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped == quote.strip():
+            continue
+        if stripped.strip("|").count("|") < 1:  # 非表格行（单元格分隔符不足）
+            continue
+        if needle in normalize_verbatim(stripped):
+            return stripped
+    return quote
 
 
 def _occurrences(text: str, term: str) -> list[tuple[int, int]]:
@@ -375,9 +402,14 @@ def dictionary_judge(
 
 
 def clamp_window_limit(
-    raw: str | None, *, default: int = 50, hard_min: int = 1, hard_max: int = 200
+    raw: str | None, *, default: int = 1000, hard_min: int = 1, hard_max: int = 10000
 ) -> int:
-    """GEO_DISPARAGEMENT_WINDOW_LIMIT 解析：缺省 50，硬夹 1..200，坏值回落缺省。"""
+    """GEO_DISPARAGEMENT_WINDOW_LIMIT 解析：缺省 1000，硬夹 1..10000，坏值回落缺省。
+
+    20260810 起缺省 50→1000：50 窗对正式 run（数十题×多品牌×信源窗）必然截断，
+    交付口径残缺；配合幂等 resume（重试跳过已落库判定）与 sidecar 120min 预算，
+    上限只当防爆安全阀，超出仍如实记 truncated，绝不暗吞。
+    """
     if raw is None or not raw.strip():
         return default
     try:

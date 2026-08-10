@@ -21,6 +21,7 @@ from domain.scoring.disparagement import (
     clamp_window_limit,
     dedupe_windows,
     dictionary_judge,
+    expand_table_fragment_quote,
     extract_windows,
     quote_is_verbatim,
     validate_judgment,
@@ -350,12 +351,49 @@ def test_dictionary_judge_support_and_neutral() -> None:
 
 
 def test_clamp_window_limit() -> None:
-    assert clamp_window_limit(None) == 50
-    assert clamp_window_limit("") == 50
+    # 20260810 起缺省 50→1000、硬夹上限 200→10000：正式 run 50 窗必然截断
+    assert clamp_window_limit(None) == 1000
+    assert clamp_window_limit("") == 1000
     assert clamp_window_limit("0") == 1
-    assert clamp_window_limit("999") == 200
+    assert clamp_window_limit("999") == 999
+    assert clamp_window_limit("20000") == 10000
     assert clamp_window_limit("80") == 80
-    assert clamp_window_limit("abc") == 50
+    assert clamp_window_limit("abc") == 1000
+
+
+def test_expand_table_fragment_quote_expands_to_full_row() -> None:
+    window = (
+        "各厂商能力对比如下：\n\n"
+        "| 厂商 | 双非排查深度 | 应急响应 |\n"
+        "| --- | --- | --- |\n"
+        "| 盛邦安全 | 弱，覆盖不全 | 7×24 |\n"
+        "| 友商甲 | 强 | 7×24 |\n"
+    )
+    # 单元格碎片 → 扩到整行
+    assert (
+        expand_table_fragment_quote("弱，覆盖不全", window) == "| 盛邦安全 | 弱，覆盖不全 | 7×24 |"
+    )
+    # 跨单元格碎片同样扩行
+    assert (
+        expand_table_fragment_quote("盛邦安全 | 弱", window) == "| 盛邦安全 | 弱，覆盖不全 | 7×24 |"
+    )
+    # 已是整行 → 原样
+    full_row = "| 友商甲 | 强 | 7×24 |"
+    assert expand_table_fragment_quote(full_row, window) == full_row
+
+
+def test_expand_table_fragment_quote_passthrough() -> None:
+    window = "盛邦安全的双非排查深度不如友商。\n这是完整段落证据。"
+    # 普通段落 quote 不动
+    assert (
+        expand_table_fragment_quote("盛邦安全的双非排查深度不如友商。", window)
+        == "盛邦安全的双非排查深度不如友商。"
+    )
+    # 空 quote 不动
+    assert expand_table_fragment_quote("", window) == ""
+    # 跨行 quote 不动
+    multi = "盛邦安全的双非排查深度不如友商。\n这是完整段落证据。"
+    assert expand_table_fragment_quote(multi, window) == multi
 
 
 # ---------------------------------------------------------------------------

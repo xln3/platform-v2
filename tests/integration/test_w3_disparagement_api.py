@@ -254,7 +254,7 @@ def test_w3_disparagement_end_to_end(seeded_run: Any) -> None:
     assert answer_youbang["disparagement"] is True
     assert answer_youbang["method"] == "llm"
     assert answer_youbang["model"] == "gpt-5.6-luna"
-    assert answer_youbang["prompt_version"] == "disparage-v1"
+    assert answer_youbang["prompt_version"] == "disparage-v2"
     assert answer_youbang["platform"] == "doubao"
     # 信源正文窗：platform=host、source_url 落库
     doc_brand = by_target[("source_document", _BRAND)]

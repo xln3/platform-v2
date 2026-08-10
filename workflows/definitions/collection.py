@@ -890,9 +890,9 @@ class GeoCollectionWorkflow:
                             project_pub_id=data.project_pub_id,
                             run_pub_id=data.run_pub_id,
                         ),
-                        start_to_close_timeout=timedelta(minutes=30),
+                        start_to_close_timeout=timedelta(minutes=120),
                         heartbeat_timeout=timedelta(seconds=60),
-                        retry_policy=RetryPolicy(maximum_attempts=2),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
                     )
                 except (AsyncioCancelledError, CancelledError):
                     raise

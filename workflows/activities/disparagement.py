@@ -14,7 +14,8 @@
 - LLM 未配 key / 调用失败 → 词典弱判定兜底（domain.scoring.disparagement
   .dictionary_judge），行标 method="dictionary_experimental"、prompt_version=
   "dictionary-v1"；LLM 判定标 method="llm" + model + prompt_version=
-  "disparage-v1"。LLM 调用失败同时如实记入结果 failures。
+  "disparage-v2"（v2 起 evidence_quote 须完整：表格证据引用整行，碎片由
+  expand_table_fragment_quote 确定性扩行）。LLM 调用失败同时如实记入结果 failures。
 - 幂等：(subject_pub_id, window_hash, target_brand, model, prompt_version)
   唯一键，重跑跳过已落库判定（重判 = 升 prompt_version）；pub_id/event_id
   确定性派生 + ON CONFLICT DO NOTHING，activity 重试安全。
@@ -22,8 +23,9 @@
   输出，每窗 60s 超时；key 只走 settings（GEO_AUDIT_LLM_*，缺省复用
   GEO_RESEARCH_LLM_*，与 W2 同口径），严禁入库/日志。
 - env：``GEO_DISPARAGEMENT_ENABLED``（缺省 true，false → disabled 零 IO）；
-  ``GEO_DISPARAGEMENT_WINDOW_LIMIT``（缺省 50，硬夹 1..200，超出如实记
-  truncated，绝不暗吞）。
+  ``GEO_DISPARAGEMENT_WINDOW_LIMIT``（缺省 1000，硬夹 1..10000，超出如实记
+  truncated，绝不暗吞；20260810 起缺省 50→1000——50 窗对正式 run 必然截断，
+  配合幂等 resume 与 sidecar 120min 预算，上限只当防爆安全阀）。
 """
 
 from __future__ import annotations
@@ -33,7 +35,7 @@ import json
 import os
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from hashlib import sha256
 from typing import Any, Protocol
@@ -59,6 +61,7 @@ from domain.scoring.disparagement import (
     clamp_window_limit,
     dedupe_windows,
     dictionary_judge,
+    expand_table_fragment_quote,
     extract_windows,
     validate_judgment,
 )
@@ -116,7 +119,7 @@ class DisparagementResult:
 
 
 # ---------------------------------------------------------------------------
-# 判定 prompt（disparage-v1）
+# 判定 prompt（disparage-v2）
 # ---------------------------------------------------------------------------
 
 _INSTRUCTIONS = (
@@ -132,7 +135,9 @@ _INSTRUCTIONS = (
     "叙述）。\n"
     "target：必须原样回显【评价目标品牌】。\n"
     "evidence_quote：窗文本中支撑你判定的**逐字原文**片段（程序会做逐字子串校验，"
-    "不得改写、不得翻译、不得补字）。\n"
+    "不得改写、不得翻译、不得补字）。必须引用完整：完整的句子或从句；证据在 "
+    "Markdown 表格中时，必须引用该表格的完整一行（含全部单元格），不得只摘"
+    "单元格碎片。\n"
     "confidence：0 到 1 的判定置信度。"
 )
 
@@ -790,6 +795,11 @@ def execute_disparagement(
                 )
             )
             continue
+        # disparage-v2：表格碎片 quote 先确定性扩到整行（扩后仍是窗内逐字子串），再校验
+        judgment = replace(
+            judgment,
+            evidence_quote=expand_table_fragment_quote(judgment.evidence_quote, window.text),
+        )
         failure = validate_judgment(
             judgment,
             window_text=window.text,

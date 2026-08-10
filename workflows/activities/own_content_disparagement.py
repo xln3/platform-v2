@@ -20,7 +20,7 @@ OwnContentDisparagementWorkflow，见 api/geo_platform/sop/service.py 钩子）�
   pub_id/event_id 派生 + ON CONFLICT DO NOTHING，重试/重定稿安全。
 - outbox 事件 "disparagement.recorded" 与采集侧同型：run_pub_id/project_pub_id
   无对应物填空字符串（绝不编造），另带 content_origin 供下游区分。
-- 窗数上限复用 ``GEO_DISPARAGEMENT_WINDOW_LIMIT``（缺省 50，硬夹 1..200）。
+- 窗数上限复用 ``GEO_DISPARAGEMENT_WINDOW_LIMIT``（缺省 1000，硬夹 1..10000）。
 - env：``GEO_OWN_CONTENT_DISPARAGEMENT_ENABLED``（缺省 true，false → disabled 零 IO）。
 """
 
@@ -30,7 +30,7 @@ import asyncio
 import json
 import os
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from hashlib import sha256
 from typing import Any, Protocol
@@ -51,6 +51,7 @@ from domain.scoring.disparagement import (
     clamp_window_limit,
     dedupe_windows,
     dictionary_judge,
+    expand_table_fragment_quote,
     extract_windows,
     validate_judgment,
 )
@@ -501,6 +502,11 @@ def execute_own_content_disparagement(
                 )
             )
             continue
+        # disparage-v2：表格碎片 quote 先确定性扩到整行（扩后仍是窗内逐字子串），再校验
+        judgment = replace(
+            judgment,
+            evidence_quote=expand_table_fragment_quote(judgment.evidence_quote, window.text),
+        )
         failure = validate_judgment(
             judgment,
             window_text=window.text,

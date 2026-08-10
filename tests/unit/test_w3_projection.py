@@ -43,7 +43,7 @@ def _event() -> dict[str, Any]:
             "confidence": 0.9,
             "method": "llm",
             "model": "gpt-5.6-luna",
-            "prompt_version": "disparage-v1",
+            "prompt_version": "disparage-v2",
             "judgment_status": "ok",
             "event_time": "2026-08-05T12:30:00+00:00",
         },
@@ -73,7 +73,7 @@ def test_projection_routes_disparagement_event_to_fact_table() -> None:
     assert row["disparagement"] == 1
     assert row["confidence"] == pytest.approx(0.9)
     assert row["method"] == "llm"
-    assert row["prompt_version"] == "disparage-v1"
+    assert row["prompt_version"] == "disparage-v2"
     assert row["judgment_status"] == "ok"
     assert row["event_id"] == "evt_disparagement_test"
     assert row["event_time"].year == 2026
