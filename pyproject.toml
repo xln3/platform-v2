@@ -60,3 +60,9 @@ mypy_path = ["api", "."]
 [[tool.mypy.overrides]]
 module = "reportlab.*"
 ignore_missing_imports = true
+
+# patchright 是生产浏览器驱动（worker 部署环境单独安装），不在 .[dev] 依赖内——
+# CI/开发 venv 没有它，browser_driver 内的惰性 import 会报 import-not-found；按 reportlab 先例豁免。
+[[tool.mypy.overrides]]
+module = "patchright.*"
+ignore_missing_imports = true

@@ -48,7 +48,9 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
-      - run: pnpm format:check
+      # format:check 内含 .venv/bin/ruff format --check，而本 job 无 python 环境（.venv 不存在）；
+      # ruff format 门由 python job 以相同 scope 显式执行，此处只跑 prettier 半边。
+      - run: pnpm exec prettier --check .
       - run: pnpm turbo run lint typecheck test build
 
   contract-and-release-guards:
@@ -65,6 +67,9 @@ jobs:
       - run: corepack enable && pnpm install --frozen-lockfile
       - run: python -m venv .venv && .venv/bin/pip install -e '.[dev]'
       - run: pnpm check:api
+      # production-bundles 守卫检查的是构建产物 apps/*/build/client，CI 干净检出不带 build，
+      # 必须先构建再守卫（守卫语义=生产 bundle 不夹带测试身份 fixture）。
+      - run: pnpm turbo run build
       - run: pnpm check:production-bundles
       - run: pnpm check:production-routes
       - run: pnpm check:observability
@@ -84,7 +89,9 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
-      - run: pnpm test:e2e
+      # --grep-invert @live-api：两个打真实 API（identity/bootstrap 需可写库）的用例显式划入
+      # live 车道，本 job 无 API 可打；排除是显式标记而非静默 skip，本地有 API 时可全量跑。
+      - run: pnpm test:e2e --grep-invert @live-api
         env:
           GEO_E2E_OUTPUT_DIR: test-results
           GEO_E2E_JSON_REPORT: test-results/e2e-results.json
