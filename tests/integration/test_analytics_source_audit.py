@@ -450,6 +450,38 @@ def test_source_audit_aggregation_and_own_site_matching(seeded: Any) -> None:
     assert other_body["items"][0]["is_own_site"] is False
 
 
+def test_latest_prompt_version_wins_per_dimension(seeded: Any) -> None:
+    """口径升版重判后：同一文档同一口径只展示/统计最新 prompt_version 的判定行。"""
+    with psycopg.connect(POSTGRES_DSN, row_factory=dict_row) as connection:
+        project_id = connection.execute(
+            "SELECT id FROM platform.project WHERE pub_id=%s", (seeded.project_a,)
+        ).fetchone()["id"]
+        connection.execute(
+            "INSERT INTO platform.source_audit (id,pub_id,tenant_id,project_id,"
+            "source_document_id,dimension,verdict,quote_source,quote_answer,rationale,"
+            "audit_status,model,prompt_version,created_at,updated_at) "
+            "VALUES (%s,%s,%s,%s,%s,'factual','accurate',NULL,NULL,'新版判定',"
+            "'ok','m-test','audit-v2',now(),now())",
+            (uuid.uuid4(), new_pub_id("sau"), seeded.tenant_id, project_id, seeded.docs["d1"]),
+        )
+        connection.commit()
+
+    response = _get(seeded.client, seeded.headers, seeded.project_a)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    by_url = {item["url"]: item for item in body["items"]}
+    d1 = by_url["https://www.cyberpeace.cn/about"]
+    # 旧 v1 行（inaccurate / 长 rationale）被 v2 行替换，每口径仍各一行
+    assert [a["dimension"] for a in d1["audits"]] == ["factual", "transcript"]
+    factual = d1["audits"][0]
+    assert factual["verdict"] == "accurate"
+    assert factual["rationale"] == "新版判定"
+    # 分布口径同步去重：d1 factual 的旧 inaccurate 不计入
+    assert body["verdicts"]["factual"] == {
+        "accurate": 2, "inaccurate": 0, "unsupported": 0, "unverifiable": 0,
+    }
+
+
 def test_window_validation_422(seeded: Any) -> None:
     inverted = _get(
         seeded.client, seeded.headers, seeded.project_a, start="2026-08-10", end="2026-08-01"

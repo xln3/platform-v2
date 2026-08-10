@@ -7,8 +7,12 @@
 - 口径A 转述准确性（dimension="transcript"）：豆包引述（citations_json 里该 url 的
   cited_text）vs 信源正文 → {verdict: accurate/inaccurate/unsupported,
   quote_source, quote_answer, rationale≤500}。
-- 口径B 事实准确性（dimension="factual"）：信源正文 vs 客户已确认事实
-  （intake_profile.truth_confirmed 为真时的 selling_points + licenses 资质）→ 同 schema。
+- 口径B 事实准确性（dimension="factual"）：信源正文 vs 事实基底 → 同 schema。
+  事实基底两级来源（可叠加）：① 客户已确认事实（intake_profile.truth_confirmed
+  为真时的 selling_points + licenses 资质）；② 官网语料（本 run W4 官网快照
+  正文，evidence own_site_snapshot JSON 资产，按最新 asset_confirmation_version.
+  website 的 host 过滤——官网纠错前的旧域名快照绝不混入）。两级皆空 →
+  口径B 落 "no_confirmed_facts"，绝不编造判定。
 
 纪律：
 
@@ -16,9 +20,10 @@
   （空白归一化后程序校验）；不过 → 丢弃该判分，落 audit_status="validation_failure"
   行如实记录（verdict 置 NULL，判分绝不入 CH 分布）。
 - 抓不到正文（extract_status != "ok"）→ 两口径都落 "unverifiable"，绝不编造判定；
-  引用无 cited_text → 口径A "unverifiable"；无已确认事实 → 口径B "no_confirmed_facts"。
+  引用无 cited_text → 口径A "unverifiable"；事实基底为空 → 口径B "no_confirmed_facts"。
 - LLM 超时/5xx/格式坏 → "llm_error"；API key 缺失 → "llm_unavailable"（如实落库，
-  绝不编造判定）。模型名 + prompt 版本（"source-audit-v1"）随判定落库。
+  绝不编造判定）。模型名 + prompt 版本随判定落库（口径A "source-audit-v1"，口径B
+  "source-audit-v2"——事实基底引入官网语料后升版重判，幂等键含版本互不干扰）。
 - LLM 调用：OpenAI Responses API 非流式 + text.format json_schema 严格结构化输出，
   超时 60s；key 只走 settings（GEO_AUDIT_LLM_*，缺省复用 GEO_RESEARCH_LLM_*），
   严禁入库/日志。
@@ -40,6 +45,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from hashlib import sha256
 from typing import Any, Protocol
+from urllib.parse import urlsplit
 
 import httpx
 import psycopg
@@ -58,16 +64,31 @@ log = structlog.get_logger()
 
 ENV_ENABLED = "GEO_SOURCE_FETCH_ENABLED"  # 与抓取层同一总开关（规格：false→两 activity 都 skipped）
 
-PROMPT_VERSION = "source-audit-v1"
+PROMPT_VERSION_TRANSCRIPT = "source-audit-v1"
+# 口径B v2：事实基底从「仅 intake 已确认事实」扩为「已确认事实 + 官网语料」，
+# 判定语义与 prompt 均变，升版重判（旧 v1 行保留，读路径按版本取最新）。
+PROMPT_VERSION_FACTUAL = "source-audit-v2"
 _LLM_TIMEOUT_S = 60.0
 _HEARTBEAT_INTERVAL_S = 10.0  # 与 own_site_snapshot 同款泵频
 _MAX_RATIONALE_CHARS = 500
 _MAX_PROMPT_TEXT_CHARS = 12_000  # 送审正文截断（判定用）；verbatim 校验仍对全文
-_MAX_FACTS_CHARS = 4_000
+_MAX_FACTS_CHARS = 4_000  # 口径A 引述 / 口径B 已确认事实节截断
+_MAX_SITE_PAGE_CHARS = 3_000  # 官网语料单页正文截断
+_MAX_SITE_PAGES = 10  # 官网语料页数上限（W4 快照上限 20，取前 10 页足够覆盖）
+_MAX_SITE_CORPUS_CHARS = 24_000  # 官网语料总截断
+_MAX_FACT_BASE_CHARS = 28_000  # 口径B 事实基底送审总上限（确认事实节 + 官网语料）
 
 _DIMENSION_TRANSCRIPT = "transcript"
 _DIMENSION_FACTUAL = "factual"
 _DIMENSIONS = (_DIMENSION_TRANSCRIPT, _DIMENSION_FACTUAL)
+
+
+def prompt_version_for(dimension: str) -> str:
+    """口径各自的 prompt 版本（幂等键成分）：口径B 升 v2 后口径A 历史判定仍幂等命中。"""
+    return (
+        PROMPT_VERSION_TRANSCRIPT if dimension == _DIMENSION_TRANSCRIPT
+        else PROMPT_VERSION_FACTUAL
+    )
 
 # audit_status 词表：ok / validation_failure / llm_error / llm_unavailable /
 # no_confirmed_facts / unverifiable
@@ -226,6 +247,122 @@ def citations_answer_blob(citations_by_url: dict[str, list[str]], url: str) -> s
 
 
 # ---------------------------------------------------------------------------
+# 官网语料（口径B 事实基底第二级来源）
+# ---------------------------------------------------------------------------
+
+# own_site 判定助手：复制自 api/geo_platform/analytics/service.py（写边界隔离，
+# 允许复制；site_suggestions.py 同款复制件）。改判定规则必须三处同步。
+
+
+def _host_from_website(value: object) -> str | None:
+    """官网 URL/website → host（小写、去 scheme/路径/端口）；缺 scheme 裸串按 https 解析。"""
+    if not isinstance(value, str) or not value or len(value) > 2048:
+        return None
+    candidate = value.strip() if isinstance(value, str) else value
+    if not candidate:
+        return None
+    candidate = candidate if "://" in candidate else f"https://{candidate}"
+    try:
+        hostname = urlsplit(candidate).hostname
+    except ValueError:
+        return None
+    return hostname or None
+
+
+def _is_own_site_host(host: object, own_site_host: str | None) -> bool:
+    """own_site 判定：与官网 host 相同、互为 www./裸域变体、或为官网裸域的子域。"""
+    if not isinstance(host, str) or not host or not own_site_host:
+        return False
+    candidate = host.lower()
+    apex = own_site_host[4:] if own_site_host.startswith("www.") else own_site_host
+    if not apex:
+        return candidate == own_site_host
+    return (
+        candidate == own_site_host
+        or candidate == apex
+        or candidate == f"www.{apex}"
+        or candidate.endswith(f".{apex}")
+    )
+
+
+def _resolve_official_site_host(*candidates: object) -> str | None:
+    """确认官网 host：按优先级取第一个可解析的 website（acv → intake → brand）。"""
+    for candidate in candidates:
+        host = _host_from_website(candidate)
+        if host:
+            return host
+    return None
+
+
+@dataclass(frozen=True)
+class OfficialSiteAsset:
+    """本 run 官网快照正文资产引用（loader 已按确认官网 host 过滤）。"""
+
+    pub_id: str
+    source_url: str
+    object_key: str
+    sha256: str
+
+
+@dataclass(frozen=True)
+class OfficialSitePage:
+    """官网页正文（CAS JSON payload 解出）。"""
+
+    url: str
+    title: str
+    text: str
+
+
+_HOMEPAGE_PATHS = frozenset({"", "/", "/index.html", "/index.htm", "/index.php"})
+
+
+def _is_homepage_url(url: str) -> bool:
+    try:
+        path = urlsplit(url).path.rstrip("/").lower() or "/"
+    except ValueError:
+        return False
+    return path in _HOMEPAGE_PATHS or f"{path}/" in _HOMEPAGE_PATHS
+
+
+def build_official_site_corpus(pages: list[OfficialSitePage]) -> str:
+    """官网语料装配：主页排前（其余保序），每页截 3000、总截 24000、上限 10 页。
+
+    页节带 URL 供判词引证（"依据来自官网哪页"）；空正文页跳过。
+    """
+    ordered = sorted(pages, key=lambda page: 0 if _is_homepage_url(page.url) else 1)
+    sections: list[str] = []
+    total = 0
+    for page in ordered:
+        if len(sections) >= _MAX_SITE_PAGES:
+            break
+        text = page.text[:_MAX_SITE_PAGE_CHARS].strip()
+        if not text:
+            continue
+        section = f"【官网页 {page.url}】\n{text}"
+        separator = 2 if sections else 0  # "\n\n" 拼接符计入总量
+        if total + separator + len(section) > _MAX_SITE_CORPUS_CHARS:
+            remaining = _MAX_SITE_CORPUS_CHARS - total - separator
+            if remaining < 200:  # 剩余空间装不出有意义的一节，直接截停
+                break
+            section = section[:remaining]
+        sections.append(section)
+        total += separator + len(section)
+    return "\n\n".join(sections)
+
+
+def build_fact_base_blob(confirmed_facts: list[str], site_corpus: str) -> str:
+    """口径B 事实基底：已确认事实节 + 官网语料节（可叠加）；两级皆空 → 空串。"""
+    sections: list[str] = []
+    facts = "\n".join(confirmed_facts).strip()
+    if facts:
+        sections.append(f"【客户已确认事实】\n{facts[:_MAX_FACTS_CHARS]}")
+    corpus = site_corpus.strip()
+    if corpus:
+        sections.append(f"【客户官网公开信息】\n{corpus[:_MAX_SITE_CORPUS_CHARS]}")
+    return "\n\n".join(sections)
+
+
+# ---------------------------------------------------------------------------
 # 判定 prompt（source-audit-v1）
 # ---------------------------------------------------------------------------
 
@@ -254,15 +391,16 @@ _TRANSCRIPT_INSTRUCTIONS = (
 )
 
 _FACTUAL_INSTRUCTIONS = (
-    "你是 GEO 信源质量审计员。给你【客户已确认事实】（客户书面确认过的核心卖点与资质）"
-    "与【信源正文】。判定正文中涉及该客户的陈述与已确认事实是否一致：\n"
-    "- accurate：正文相关陈述与已确认事实一致\n"
-    "- inaccurate：正文相关陈述与已确认事实矛盾（如卖点、资质、数据不符）\n"
-    "- unsupported：正文未涉及这些已确认事实，无法比对\n"
+    "你是 GEO 信源质量审计员。给你【事实基底】（由「客户已确认事实」=客户书面确认过的"
+    "核心卖点与资质，和「客户官网公开信息」=客户官网各页面正文组成，均为客户侧权威信息）"
+    "与【信源正文】。判定正文中涉及该客户的陈述与事实基底是否一致：\n"
+    "- accurate：正文相关陈述与事实基底一致\n"
+    "- inaccurate：正文相关陈述与事实基底矛盾（如卖点、资质、数据、定位不符）\n"
+    "- unsupported：事实基底未涉及正文的相关陈述，无法比对\n"
     "quote_source=正文中支撑你判定的**逐字原文**片段；"
-    "quote_answer=已确认事实中被你判定的**逐字原文**片段（两者程序会校验是否逐字，不得改写）；"
+    "quote_answer=事实基底中被你判定的**逐字原文**片段（两者程序会校验是否逐字，不得改写）；"
     "verdict 为 unsupported 时两个 quote 可留空字符串。"
-    "rationale 用中文、不超过 200 字，只讲判定依据。"
+    "rationale 用中文、不超过 200 字，只讲判定依据；依据来自官网时必须注明具体官网页 URL。"
 )
 
 
@@ -272,11 +410,13 @@ def build_judge_user_prompt(
     source_excerpt = source_text[:_MAX_PROMPT_TEXT_CHARS]
     if dimension == _DIMENSION_TRANSCRIPT:
         answer_label = "AI 助手引述"
+        answer_limit = _MAX_FACTS_CHARS
     else:
-        answer_label = "客户已确认事实"
+        answer_label = "事实基底（客户已确认事实＋客户官网公开信息）"
+        answer_limit = _MAX_FACT_BASE_CHARS
     return (
         f"信源 URL：{url}\n\n"
-        f"【{answer_label}】\n{answer_blob[:_MAX_FACTS_CHARS]}\n\n"
+        f"【{answer_label}】\n{answer_blob[:answer_limit]}\n\n"
         f"【信源正文】\n{source_excerpt}\n\n"
         "请按 JSON schema 输出判定。"
     )
@@ -331,6 +471,10 @@ class RunAuditContext:
     confirmed_facts: list[str]
     # (doc_pub, dimension, model, prompt_version)
     existing_keys: frozenset[tuple[str, str, str, str]]
+    # 确认官网 host（最新 asset_confirmation_version.website → intake → brand 回退）
+    official_site_host: str | None = None
+    # 本 run 官网快照正文资产（loader 已按 official_site_host 过滤）
+    official_site_assets: list[OfficialSiteAsset] = field(default_factory=list)
 
 
 class AuditContextLoader(Protocol):
@@ -554,11 +698,39 @@ class _PostgresAuditLoader:
             ).fetchall()
             profile_row = connection.execute(
                 """
-                SELECT truth_confirmed, selling_points, licenses
+                SELECT truth_confirmed, selling_points, licenses, website
                 FROM platform.intake_profile WHERE project_id = %s
                 """,
                 (run_row["project_id"],),
             ).fetchone()
+            # 确认官网 host：最新 asset_confirmation_version.website 为权威（与
+            # analytics 读路径 own_site_host 同口径），回退 intake.website → brand.website
+            # （与 W4 own_site_snapshot 种子同口径）。
+            acv_row = connection.execute(
+                """
+                SELECT website FROM platform.asset_confirmation_version
+                WHERE project_id = %s
+                ORDER BY revision DESC, created_at DESC, pub_id DESC
+                LIMIT 1
+                """,
+                (run_row["project_id"],),
+            ).fetchone()
+            official_site_host = _resolve_official_site_host(
+                acv_row["website"] if acv_row is not None else None,
+                profile_row["website"] if profile_row is not None else None,
+                self._brand_website(connection, run_row["project_id"]),
+            )
+            official_site_assets = (
+                self._load_official_site_assets(
+                    connection,
+                    tenant_pub_id=tenant_pub_id,
+                    run_id=str(run_row["id"]),
+                    run_pub_id=run_pub_id,
+                    official_site_host=official_site_host,
+                )
+                if official_site_host
+                else []
+            )
         created_at = run_row["created_at"]
         if not isinstance(created_at, datetime):
             raise ApplicationError(
@@ -627,7 +799,75 @@ class _PostgresAuditLoader:
             citations_by_url=citations_by_url,
             confirmed_facts=collect_confirmed_facts(profile),
             existing_keys=existing_keys,
+            official_site_host=official_site_host,
+            official_site_assets=official_site_assets,
         )
+
+    @staticmethod
+    def _brand_website(connection: Any, project_id: Any) -> str | None:
+        """brand.website 回退种子（与 W4 own_site_snapshot loader 同口径）。"""
+        brand_row = connection.execute(
+            "SELECT website FROM platform.brand WHERE project_id=%s "
+            "ORDER BY created_at, pub_id LIMIT 1",
+            (project_id,),
+        ).fetchone()
+        if brand_row is not None:
+            website = brand_row["website"]
+            if isinstance(website, str) and website.strip():
+                return website.strip()
+        return None
+
+    @staticmethod
+    def _load_official_site_assets(
+        connection: Any,
+        *,
+        tenant_pub_id: str,
+        run_id: str,
+        run_pub_id: str,
+        official_site_host: str,
+    ) -> list[OfficialSiteAsset]:
+        """本 run 官网快照正文资产（W4 产物）：own_site_page（挂 run）∪ own_site_snapshot
+        引用页（挂 task），再按确认官网 host 过滤——官网纠错前旧域名的快照绝不混入。"""
+        rows = connection.execute(
+            """
+            SELECT e.pub_id, e.source_url, e.object_key, e.sha256
+            FROM evidence.evidence_asset e
+            WHERE e.tenant_pub_id = %s
+              AND e.kind = 'own_site_snapshot'
+              AND e.mime_type = 'application/json'
+              AND e.pub_id IN (
+                  SELECT rel.to_pub_id FROM evidence.evidence_relation rel
+                  WHERE rel.tenant_pub_id = %s
+                    AND rel.relation_type = 'own_site_page'
+                    AND rel.from_pub_id = %s
+                  UNION
+                  SELECT rel.to_pub_id FROM evidence.evidence_relation rel
+                  JOIN platform.collection_task ct ON ct.pub_id = rel.from_pub_id
+                  WHERE rel.tenant_pub_id = %s
+                    AND rel.relation_type = 'own_site_snapshot'
+                    AND ct.run_id = %s
+              )
+            ORDER BY e.created_at, e.pub_id
+            """,
+            (tenant_pub_id, tenant_pub_id, run_pub_id, tenant_pub_id, run_id),
+        ).fetchall()
+        assets: list[OfficialSiteAsset] = []
+        for row in rows:
+            source_url = str(row["source_url"] or "")
+            page_host = _host_from_website(source_url)
+            if not _is_own_site_host(page_host, official_site_host):
+                continue
+            if not row["object_key"] or not row["sha256"]:
+                continue
+            assets.append(
+                OfficialSiteAsset(
+                    pub_id=str(row["pub_id"]),
+                    source_url=source_url,
+                    object_key=str(row["object_key"]),
+                    sha256=str(row["sha256"]),
+                )
+            )
+        return assets
 
 
 class _MinioSourceTextStore:
@@ -747,6 +987,45 @@ def _noop_progress(stage: str, url: str) -> None:
     del stage, url
 
 
+def _load_official_site_corpus(
+    context: RunAuditContext, text_store: SourceTextStore
+) -> str:
+    """读本 run 官网快照正文（CAS JSON → text）装配官网语料；读失败的页记日志跳过。"""
+    if not context.official_site_assets:
+        return ""
+    pages: list[OfficialSitePage] = []
+    for asset in context.official_site_assets:
+        try:
+            payload = json.loads(text_store.get_text(asset.object_key, asset.sha256))
+        except Exception as exc:
+            log.warning(
+                "official_site_corpus_read_failed",
+                url=asset.source_url,
+                error=f"{type(exc).__name__}: {exc}",
+            )
+            continue
+        if not isinstance(payload, dict):
+            continue
+        text = payload.get("text")
+        if not isinstance(text, str) or not text.strip():
+            continue
+        pages.append(
+            OfficialSitePage(
+                url=asset.source_url,
+                title=str(payload.get("title") or ""),
+                text=text,
+            )
+        )
+    corpus = build_official_site_corpus(pages)
+    log.info(
+        "official_site_corpus_built",
+        run_pub_id=context.run_pub_id,
+        pages=len(pages),
+        chars=len(corpus),
+    )
+    return corpus
+
+
 def execute_source_audit(
     item: SourceAuditInput,
     *,
@@ -772,6 +1051,13 @@ def execute_source_audit(
     llm_available = bool(llm.api_key) and judge is not None
 
     result = SourceAuditResult()
+    site_corpus: str | None = None  # 惰性装载：首个 ok 文档走到口径B 时才读 CAS
+
+    def _site_corpus() -> str:
+        nonlocal site_corpus
+        if site_corpus is None:
+            site_corpus = _load_official_site_corpus(context, text_store)
+        return site_corpus
 
     def _persist(record: AuditRecord) -> None:
         progress("persist", record.url)
@@ -786,7 +1072,7 @@ def execute_source_audit(
         )
 
     def _skip_existing(doc: AuditDocument, dimension: str) -> bool:
-        key = (doc.pub_id, dimension, model, PROMPT_VERSION)
+        key = (doc.pub_id, dimension, model, prompt_version_for(dimension))
         if key in context.existing_keys:
             result.skipped.append(
                 AuditSkipped(url=doc.url, dimension=dimension, reason="already_audited")
@@ -814,7 +1100,7 @@ def execute_source_audit(
                     rationale=f"LLM 判定失败：{exc}"[:_MAX_RATIONALE_CHARS],
                     audit_status="llm_error",
                     model=model,
-                    prompt_version=PROMPT_VERSION,
+                    prompt_version=prompt_version_for(dimension),
                 )
             )
             return
@@ -836,7 +1122,7 @@ def execute_source_audit(
                     )[:_MAX_RATIONALE_CHARS],
                     audit_status="validation_failure",
                     model=model,
-                    prompt_version=PROMPT_VERSION,
+                    prompt_version=prompt_version_for(dimension),
                 )
             )
             return
@@ -852,7 +1138,7 @@ def execute_source_audit(
                 rationale=judgment.rationale[:_MAX_RATIONALE_CHARS],
                 audit_status="ok",
                 model=model,
-                prompt_version=PROMPT_VERSION,
+                prompt_version=prompt_version_for(dimension),
             )
         )
 
@@ -875,7 +1161,7 @@ def execute_source_audit(
                             rationale=f"正文未抓取成功（extract_status={doc.extract_status}）",
                             audit_status="unverifiable",
                             model=model,
-                            prompt_version=PROMPT_VERSION,
+                            prompt_version=prompt_version_for(dimension),
                         )
                     )
                 continue
@@ -911,12 +1197,12 @@ def execute_source_audit(
                                 rationale="该 URL 在答案引用中无 cited_text 可比对",
                                 audit_status="unverifiable",
                                 model=model,
-                                prompt_version=PROMPT_VERSION,
+                                prompt_version=prompt_version_for(dimension),
                             )
                         )
                         continue
                 else:
-                    blob = "\n".join(context.confirmed_facts)
+                    blob = build_fact_base_blob(context.confirmed_facts, _site_corpus())
                     if not blob.strip():
                         _persist(
                             AuditRecord(
@@ -927,10 +1213,14 @@ def execute_source_audit(
                                 verdict=None,
                                 quote_source=None,
                                 quote_answer=None,
-                                rationale="intake 无已确认事实（truth_confirmed/卖点/资质为空）",
+                                rationale=(
+                                    "intake 无已确认事实且官网语料为空"
+                                    "（truth_confirmed 未确认/卖点资质为空；"
+                                    "本 run 官网快照缺失或与确认官网 host 不符）"
+                                ),
                                 audit_status="no_confirmed_facts",
                                 model=model,
-                                prompt_version=PROMPT_VERSION,
+                                prompt_version=prompt_version_for(dimension),
                             )
                         )
                         continue
@@ -947,7 +1237,7 @@ def execute_source_audit(
                             rationale="未配置 GEO_AUDIT_LLM_API_KEY（含 GEO_RESEARCH_LLM_* 复用）",
                             audit_status="llm_unavailable",
                             model=model,
-                            prompt_version=PROMPT_VERSION,
+                            prompt_version=prompt_version_for(dimension),
                         )
                     )
                     continue

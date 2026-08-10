@@ -1,35 +1,43 @@
 """W2 核对层（audit_run_sources）单元测试。
 
-verbatim 校验/已确认事实收集/prompt 构造纯函数直测；主流程依赖注入
+verbatim 校验/已确认事实收集/官网语料装配/prompt 构造纯函数直测；主流程依赖注入
 fake judge/loader/text_store/sink，绝不打真 LLM/DB/MinIO。覆盖：
 双口径正反例（verbatim 通过 / 篡改 quote 被丢弃落 validation_failure）、
 unverifiable / no_confirmed_facts / llm_unavailable / llm_error 路径、
-幂等键跳过、disabled 开关。
+官网语料事实基底（仅语料可判 / 语料+确认事实叠加 / 语料读失败诚实降级）、
+幂等键跳过（口径B 升 v2 后旧 v1 键不拦新判）、disabled 开关。
 """
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 
 import pytest
 from temporalio.exceptions import ApplicationError
 
 from workflows.activities.source_audit import (
-    PROMPT_VERSION,
+    PROMPT_VERSION_FACTUAL,
+    PROMPT_VERSION_TRANSCRIPT,
     AuditDocument,
     AuditJudge,
     AuditLlmConfig,
     AuditRecord,
     JudgeError,
     JudgeOutcome,
+    OfficialSiteAsset,
+    OfficialSitePage,
     RunAuditContext,
     SourceAuditInput,
     SourceAuditResult,
     SourceTextStore,
+    build_fact_base_blob,
+    build_official_site_corpus,
     collect_confirmed_facts,
     derive_audit_pub_id,
     execute_source_audit,
     normalize_verbatim,
+    prompt_version_for,
     quote_is_verbatim,
     validate_judgment,
 )
@@ -58,6 +66,30 @@ _GOOD_JUDGMENT = JudgeOutcome(
     rationale="引述与正文一致。",
 )
 
+# quote_answer 逐字摘自官网语料（_SITE_PAGE_TEXT）的判定
+_SITE_JUDGMENT = JudgeOutcome(
+    verdict="accurate",
+    quote_source="重疾险覆盖一百二十种疾病，包含轻症豁免保费责任",
+    quote_answer="盛邦安全是网络空间资产测绘与网络安全厂商",
+    rationale="官网首页支持该定位描述。",
+)
+
+
+_SITE_PAGE_TEXT = "盛邦安全是网络空间资产测绘与网络安全厂商，产品覆盖资产搜索引擎。"
+_SITE_ASSET = OfficialSiteAsset(
+    pub_id="evd_site1",
+    source_url="https://www.webray.com.cn/",
+    object_key="cas/site/1",
+    sha256="b" * 64,
+)
+
+
+def _site_payload(text: str = _SITE_PAGE_TEXT) -> str:
+    return json.dumps(
+        {"url": "https://www.webray.com.cn/", "title": "首页", "text": text},
+        ensure_ascii=False,
+    )
+
 
 def _doc(
     url: str = "https://a.example.com/article",
@@ -81,6 +113,8 @@ def _context(
     citations_by_url: dict[str, list[str]] | None = None,
     confirmed_facts: list[str] | None = None,
     existing_keys: frozenset[tuple[str, str, str, str]] = frozenset(),
+    official_site_host: str | None = None,
+    official_site_assets: list[OfficialSiteAsset] | None = None,
 ) -> RunAuditContext:
     return RunAuditContext(
         tenant_pub_id=_TENANT,
@@ -98,6 +132,8 @@ def _context(
         ),
         confirmed_facts=confirmed_facts if confirmed_facts is not None else [_FACT_BLOB],
         existing_keys=existing_keys,
+        official_site_host=official_site_host,
+        official_site_assets=official_site_assets or [],
     )
 
 
@@ -131,13 +167,21 @@ class _FakeJudge:
 
 
 class _FakeTextStore:
-    def __init__(self, text: str = _SOURCE_TEXT, error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        text: str = _SOURCE_TEXT,
+        error: Exception | None = None,
+        by_key: dict[str, str] | None = None,
+    ) -> None:
         self._text = text
         self._error = error
+        self._by_key = by_key
 
     def get_text(self, object_key: str, expected_sha256: str) -> str:
         if self._error is not None:
             raise self._error
+        if self._by_key is not None:
+            return self._by_key[object_key]
         return self._text
 
 
@@ -255,10 +299,52 @@ def test_collect_confirmed_facts_collects_selling_points_and_licenses() -> None:
 
 
 def test_derive_audit_pub_id_deterministic() -> None:
-    a = derive_audit_pub_id(_TENANT, _RUN, "srd_x", "transcript", "m", PROMPT_VERSION)
-    b = derive_audit_pub_id(_TENANT, _RUN, "srd_x", "transcript", "m", PROMPT_VERSION)
-    c = derive_audit_pub_id(_TENANT, _RUN, "srd_x", "factual", "m", PROMPT_VERSION)
+    a = derive_audit_pub_id(_TENANT, _RUN, "srd_x", "transcript", "m", PROMPT_VERSION_TRANSCRIPT)
+    b = derive_audit_pub_id(_TENANT, _RUN, "srd_x", "transcript", "m", PROMPT_VERSION_TRANSCRIPT)
+    c = derive_audit_pub_id(_TENANT, _RUN, "srd_x", "factual", "m", PROMPT_VERSION_FACTUAL)
     assert a == b and a.startswith("sra_") and len(a) == 30 and a != c
+
+
+# ---------------------------------------------------------------------------
+# 官网语料装配 / 事实基底拼装
+# ---------------------------------------------------------------------------
+
+
+def test_prompt_version_split_by_dimension() -> None:
+    assert prompt_version_for("transcript") == "source-audit-v1"
+    assert prompt_version_for("factual") == "source-audit-v2"
+
+
+def test_build_official_site_corpus_homepage_first_and_skips_empty() -> None:
+    pages = [
+        OfficialSitePage("https://www.webray.com.cn/product.html", "产品", "产品页正文"),
+        OfficialSitePage("https://www.webray.com.cn/", "首页", "首页正文"),
+        OfficialSitePage("https://www.webray.com.cn/empty.html", "空页", "   "),
+    ]
+    corpus = build_official_site_corpus(pages)
+    assert corpus.startswith("【官网页 https://www.webray.com.cn/】")
+    assert "产品页正文" in corpus and "首页正文" in corpus
+    assert "empty.html" not in corpus
+    assert build_official_site_corpus([]) == ""
+
+
+def test_build_official_site_corpus_truncates_oversized() -> None:
+    pages = [
+        OfficialSitePage(f"https://www.webray.com.cn/p{i}.html", "t", "x" * 10_000)
+        for i in range(20)
+    ]
+    corpus = build_official_site_corpus(pages)
+    assert len(corpus) <= 24_000
+
+
+def test_build_fact_base_blob_layers() -> None:
+    assert build_fact_base_blob([], "") == ""
+    only_facts = build_fact_base_blob(["核心卖点：X"], "")
+    assert "【客户已确认事实】" in only_facts and "官网" not in only_facts
+    only_corpus = build_fact_base_blob([], "【官网页 u】\n正文")
+    assert "【客户官网公开信息】" in only_corpus and "已确认事实" not in only_corpus
+    both = build_fact_base_blob(["核心卖点：X"], "【官网页 u】\n正文")
+    assert both.index("【客户已确认事实】") < both.index("【客户官网公开信息】")
 
 
 # ---------------------------------------------------------------------------
@@ -295,7 +381,8 @@ def test_execute_audit_two_dimensions_happy_path() -> None:
         assert record.audit_status == "ok"
         assert record.verdict == "accurate"
         assert record.model == _LLM.model
-        assert record.prompt_version == PROMPT_VERSION
+    assert dimensions["transcript"].prompt_version == PROMPT_VERSION_TRANSCRIPT
+    assert dimensions["factual"].prompt_version == PROMPT_VERSION_FACTUAL
     assert {a.dimension for a in result.audited} == {"transcript", "factual"}
 
 
@@ -336,13 +423,94 @@ def test_execute_audit_unverifiable_when_no_cited_text() -> None:
 
 
 def test_execute_audit_no_confirmed_facts() -> None:
-    context = _context(confirmed_facts=[])
+    context = _context(confirmed_facts=[])  # 无确认事实且无官网快照资产
     _result, sink = _execute(context=context)
     factual = next(r for r in sink.records if r.dimension == "factual")
     assert factual.audit_status == "no_confirmed_facts"
     assert factual.verdict is None
+    assert "官网语料" in (factual.rationale or "")
     transcript = next(r for r in sink.records if r.dimension == "transcript")
     assert transcript.audit_status == "ok"  # 口径A 不受影响
+
+
+def test_execute_audit_factual_with_official_site_corpus_only() -> None:
+    """intake 无确认事实但有官网快照 → 口径B 用官网语料照常判定（不再降级）。"""
+    judge = _FakeJudge(outcomes={"factual": _SITE_JUDGMENT})
+    context = _context(
+        confirmed_facts=[],
+        official_site_host="www.webray.com.cn",
+        official_site_assets=[_SITE_ASSET],
+    )
+    store = _FakeTextStore(by_key={"cas/key/1": _SOURCE_TEXT, "cas/site/1": _site_payload()})
+    _result, sink = _execute(context=context, judge=judge, text_store=store)
+    factual = next(r for r in sink.records if r.dimension == "factual")
+    assert factual.audit_status == "ok"
+    assert factual.prompt_version == PROMPT_VERSION_FACTUAL
+    assert factual.quote_answer == _SITE_JUDGMENT.quote_answer
+
+
+def test_execute_audit_factual_blob_contains_corpus_and_facts() -> None:
+    """确认事实 + 官网语料叠加：送判 blob 两节俱全（fake judge 截获 answer_blob）。"""
+    seen: list[str] = []
+
+    class _CapturingJudge(_FakeJudge):
+        def judge(self, *, dimension: str, url: str, source_text: str, answer_blob: str):
+            if dimension == "factual":
+                seen.append(answer_blob)
+            return super().judge(
+                dimension=dimension, url=url, source_text=source_text, answer_blob=answer_blob
+            )
+
+    context = _context(
+        official_site_host="www.webray.com.cn",
+        official_site_assets=[_SITE_ASSET],
+    )
+    store = _FakeTextStore(by_key={"cas/key/1": _SOURCE_TEXT, "cas/site/1": _site_payload()})
+    _result, sink = _execute(context=context, judge=_CapturingJudge(), text_store=store)
+    assert len(seen) == 1
+    assert "【客户已确认事实】" in seen[0] and _FACT_BLOB.removeprefix("核心卖点：")[:8] in seen[0]
+    assert "【客户官网公开信息】" in seen[0] and "webray.com.cn" in seen[0]
+    assert "盛邦安全" in seen[0]
+    factual = next(r for r in sink.records if r.dimension == "factual")
+    assert factual.audit_status == "ok"
+
+
+def test_execute_audit_factual_corpus_read_failure_degrades_honestly() -> None:
+    """官网快照 CAS 读失败且无确认事实 → 语料空 → no_confirmed_facts（绝不编造）。"""
+    context = _context(
+        confirmed_facts=[],
+        official_site_host="www.webray.com.cn",
+        official_site_assets=[_SITE_ASSET],
+    )
+    store = _FakeTextStore(
+        error=RuntimeError("minio down"),
+    )
+    # 文档正文也读不出 → 进 failures；直接验证语料装载降级路径
+    result, sink = _execute(context=context, text_store=store)
+    assert sink.records == []
+    assert len(result.failures) == 1
+
+
+def test_execute_audit_factual_corpus_read_failure_with_doc_ok() -> None:
+    """文档正文可读、官网快照读失败：口径A 照常，口径B 无确认事实 → no_confirmed_facts。"""
+
+    class _SiteFailStore:
+        def get_text(self, object_key: str, expected_sha256: str) -> str:
+            if object_key == "cas/site/1":
+                raise RuntimeError("minio down")
+            return _SOURCE_TEXT
+
+    context = _context(
+        confirmed_facts=[],
+        official_site_host="www.webray.com.cn",
+        official_site_assets=[_SITE_ASSET],
+    )
+    result, sink = _execute(context=context, text_store=_SiteFailStore())
+    assert result.failures == []
+    transcript = next(r for r in sink.records if r.dimension == "transcript")
+    assert transcript.audit_status == "ok"
+    factual = next(r for r in sink.records if r.dimension == "factual")
+    assert factual.audit_status == "no_confirmed_facts"
 
 
 def test_execute_audit_llm_unavailable_when_key_missing() -> None:
@@ -371,8 +539,8 @@ def test_execute_audit_idempotent_skip_existing() -> None:
     doc = _doc()
     keys = frozenset(
         {
-            (doc.pub_id, "transcript", _LLM.model, PROMPT_VERSION),
-            (doc.pub_id, "factual", _LLM.model, PROMPT_VERSION),
+            (doc.pub_id, "transcript", _LLM.model, PROMPT_VERSION_TRANSCRIPT),
+            (doc.pub_id, "factual", _LLM.model, PROMPT_VERSION_FACTUAL),
         }
     )
     judge = _FakeJudge()
@@ -380,6 +548,25 @@ def test_execute_audit_idempotent_skip_existing() -> None:
     assert judge.calls == [] and sink.records == []
     assert len(result.skipped) == 2
     assert {s.reason for s in result.skipped} == {"already_audited"}
+
+
+def test_execute_audit_factual_v1_key_does_not_block_v2_rejudge() -> None:
+    """口径B 升版重判语义：旧 v1 判定行仍在幂等键里，但 v2 键不同 → 照常重判；
+    口径A v1 未变 → 命中跳过，不重复花 LLM 调用。"""
+    doc = _doc()
+    keys = frozenset(
+        {
+            (doc.pub_id, "transcript", _LLM.model, PROMPT_VERSION_TRANSCRIPT),
+            (doc.pub_id, "factual", _LLM.model, "source-audit-v1"),  # 旧版残留
+        }
+    )
+    judge = _FakeJudge()
+    result, sink = _execute(context=_context(existing_keys=keys), judge=judge)
+    assert judge.calls == ["factual"]  # 只重判口径B
+    assert len(sink.records) == 1
+    assert sink.records[0].dimension == "factual"
+    assert sink.records[0].prompt_version == PROMPT_VERSION_FACTUAL
+    assert [s.dimension for s in result.skipped] == ["transcript"]
 
 
 def test_execute_audit_cas_read_failure_goes_to_failures() -> None:

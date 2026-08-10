@@ -943,9 +943,11 @@ class AnalyticsService:
         （join platform.collection_run）。own_site_host=该项目最新确认版本
         （asset_confirmation_version 最大 revision）官网的 host；判定分布只统计
         audit_status='ok' 且 verdict 非 NULL 的行（判分丢弃/未产生的行绝不入
-        分布）；未知项目按全零 + own_site_host=None 如实返回（不 404，与
-        overview/disparagement 读路径同口径）。文本字段在此不清洗，输出清洗
-        （URL/rationale）在 router 层与既有端点同款。
+        分布）；同一文档同一口径存在多版本判定（prompt 升版重判）时只取最新
+        prompt_version 一行，旧版不重复展示、不重复计数；未知项目按全零 +
+        own_site_host=None 如实返回（不 404，与 overview/disparagement 读路径
+        同口径）。文本字段在此不清洗，输出清洗（URL/rationale）在 router 层与
+        既有端点同款。
         """
         with _platform_tenant_connection(self.dsn, tenant_pub_id) as connection:
             project = connection.execute(
@@ -989,13 +991,15 @@ class AnalyticsService:
                         dict(row)
                         for row in connection.execute(
                             """
-                            SELECT a.source_document_id, a.dimension, a.verdict,
+                            SELECT DISTINCT ON (a.source_document_id, a.dimension)
+                                   a.source_document_id, a.dimension, a.verdict,
                                    a.audit_status, a.rationale
                             FROM platform.source_audit a
                             WHERE a.tenant_id
                                   = NULLIF(current_setting('app.tenant_id', true), '')::uuid
                               AND a.source_document_id = ANY(%s::uuid[])
-                            ORDER BY a.dimension, a.pub_id
+                            ORDER BY a.source_document_id, a.dimension,
+                                     a.prompt_version DESC, a.pub_id
                             """,
                             ([row["id"] for row in documents],),
                         ).fetchall()

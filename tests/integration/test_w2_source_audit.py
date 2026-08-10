@@ -2,7 +2,9 @@
 
 真实 loader/sink/CAS/outbox/projection/ClickHouse，抓取与 LLM 判定注入 fake
 （不打外网/真 LLM）。覆盖：source_document 幂等落库、CAS 正文可回读、
-source_audit 两口径落库 + outbox 事件、重跑不重复、CH source_audit_fact 投影。
+source_audit 两口径落库 + outbox 事件、口径B 官网语料事实基底（确认官网域命中 /
+外域快照 host 过滤剔除）、口径分版本幂等（口径A v1 / 口径B v2）、重跑不重复、
+CH source_audit_fact 投影。
 """
 
 from __future__ import annotations
@@ -22,10 +24,13 @@ from geo_platform.analytics.projection import AnalyticsProjection
 from geo_platform.evidence.object_store import ContentAddressedObjectStore
 from geo_platform.evidence.service import EvidenceService
 from geo_platform.tenancy.ids import new_pub_id
+from geo_platform.tenancy.psycopg import tenant_connection
 from psycopg.rows import dict_row
 
+from domain.evidence.provenance import AccessClass, CaptureChannel, RedactedProvenance
 from workflows.activities.source_audit import (
-    PROMPT_VERSION,
+    PROMPT_VERSION_FACTUAL,
+    PROMPT_VERSION_TRANSCRIPT,
     AuditLlmConfig,
     JudgeOutcome,
     SourceAuditInput,
@@ -61,6 +66,12 @@ _CITED = "中意人寿的重疾险覆盖一百二十种疾病，包含轻症豁�
 _URL_OK = "https://sources.example.com/zyrs-profile"
 _URL_404 = "https://sources.example.com/gone"
 
+# 官网语料（口径B 事实基底第二级）：确认官网域 + 外域各一页，host 过滤必须剔除外域
+_OWN_SITE = "https://www.zyrs-ins.example.com/"
+_OWN_SITE_TEXT = "中意人寿官网首页：重疾险覆盖一百二十种疾病，轻症豁免保费，注册资本三十七亿元。"
+_FOREIGN_SITE = "https://foreign.example.com/x"
+_FOREIGN_SITE_TEXT = "外站正文，绝不应混入官网语料。"
+
 
 class _StubFetcher:
     """集成测试抓取替身：一个 URL 返回正文，另一个返回 404（不打外网）。"""
@@ -80,9 +91,14 @@ class _StubFetcher:
 class _StubJudge:
     """verbatim 恒通过的判定替身（quote 直接取自真实正文/引述，不打真 LLM）。"""
 
+    def __init__(self) -> None:
+        self.factual_blobs: list[str] = []
+
     def judge(
         self, *, dimension: str, url: str, source_text: str, answer_blob: str
     ) -> JudgeOutcome:
+        if dimension == "factual":
+            self.factual_blobs.append(answer_blob)
         return JudgeOutcome(
             verdict="accurate",
             quote_source="重疾险覆盖一百二十种疾病，包含轻症豁免保费责任",
@@ -184,10 +200,18 @@ def seeded_run() -> Any:
                 json.dumps([{"name": "保险许可证", "no": "P10001"}]),
             ),
         )
+        connection.execute(
+            "INSERT INTO platform.asset_confirmation_version (id,pub_id,tenant_id,project_id,"
+            "version,revision,brand_name,website,product_name,competitor_name,"
+            "prohibited_claim,declared_by,created_at,updated_at) "
+            "VALUES (%s,%s,%s,%s,1,1,'中意人寿',%s,'重疾险','友邦','无','test',now(),now())",
+            (uuid.uuid4(), new_pub_id("acv"), tenant_id, project_id, _OWN_SITE),
+        )
     yield SimpleNamespace(tenant=tenant_pub, project=project_pub, run=run_pub)
     with psycopg.connect(POSTGRES_DSN) as connection:
         for table, column in (
             ("integration.outbox_event", "tenant_pub_id"),
+            ("evidence.evidence_relation", "tenant_pub_id"),
             ("evidence.evidence_asset", "tenant_pub_id"),
             ("platform.source_audit", "tenant_id"),
             ("platform.source_document", "tenant_id"),
@@ -195,6 +219,7 @@ def seeded_run() -> Any:
             ("platform.collection_run", "tenant_id"),
             ("platform.monitoring_config_version", "tenant_id"),
             ("platform.monitoring_config", "tenant_id"),
+            ("platform.asset_confirmation_version", "tenant_id"),
             ("platform.intake_profile", "tenant_id"),
             ("platform.project", "tenant_id"),
             ("platform.customer", "tenant_id"),
@@ -216,6 +241,62 @@ def _services() -> tuple[EvidenceService, ContentAddressedObjectStore, ClickHous
         store,
         ClickHouseWriter(endpoint="http://127.0.0.1:18123", user="geo", password="geo_dev_only"),
     )
+
+
+def _seed_own_site_snapshot(
+    *,
+    evidence: EvidenceService,
+    tenant: str,
+    project: str,
+    run: str,
+    url: str,
+    text: str,
+) -> None:
+    """模拟 W4 产物：own_site_snapshot 正文 JSON 资产 + own_site_page relation（挂 run）。"""
+    payload = json.dumps(
+        {
+            "url": url,
+            "final_url": url,
+            "title": "快照页",
+            "fetched_at": "2026-08-05T12:00:00+00:00",
+            "text": text,
+            "text_bytes": len(text.encode("utf-8")),
+            "extractor": "innertext-v1",
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    pub_id = new_pub_id("evd")
+    provenance = RedactedProvenance(
+        platform_account_pub_id=None,
+        browser_profile_version_pub_id=None,
+        session_event_pub_id=None,
+        channel=CaptureChannel.WEB,
+        authorization_scope=(),
+        adapter_version="test-own-site",
+        capture_time=datetime(2026, 8, 5, 12, 0, tzinfo=UTC),
+        access_class=AccessClass.CUSTOMER_PRIVATE,
+    )
+    with tenant_connection(POSTGRES_DSN, tenant) as connection:
+        evidence.capture(
+            evidence_pub_id=pub_id,
+            tenant_pub_id=tenant,
+            project_pub_id=project,
+            kind="own_site_snapshot",
+            payload=payload,
+            mime_type="application/json",
+            source_url=url,
+            provenance=provenance,
+            db_connection=connection,
+        )
+        connection.execute(
+            "INSERT INTO evidence.evidence_relation "
+            "(tenant_pub_id,from_pub_id,to_pub_id,relation_type) "
+            "VALUES (%s,%s,%s,'own_site_page') ON CONFLICT DO NOTHING",
+            (tenant, run, pub_id),
+        )
+        connection.commit()
 
 
 def test_w2_fetch_then_audit_end_to_end(seeded_run: Any) -> None:
@@ -277,7 +358,26 @@ def test_w2_fetch_then_audit_end_to_end(seeded_run: Any) -> None:
             "SELECT count(*) FROM evidence.evidence_asset WHERE kind='source_text'"
         ).fetchone() == (1,)
 
+    # 官网快照（模拟 W4 产物）：确认官网域一页 + 外域一页（host 过滤必须剔除外域）
+    _seed_own_site_snapshot(
+        evidence=evidence,
+        tenant=seeded_run.tenant,
+        project=seeded_run.project,
+        run=seeded_run.run,
+        url=_OWN_SITE,
+        text=_OWN_SITE_TEXT,
+    )
+    _seed_own_site_snapshot(
+        evidence=evidence,
+        tenant=seeded_run.tenant,
+        project=seeded_run.project,
+        run=seeded_run.run,
+        url=_FOREIGN_SITE,
+        text=_FOREIGN_SITE_TEXT,
+    )
+
     # 核对层：ok 文档两口径 ok，404 文档两口径 unverifiable
+    judge = _StubJudge()
     audit_result = execute_source_audit(
         SourceAuditInput(
             tenant_pub_id=seeded_run.tenant,
@@ -286,7 +386,7 @@ def test_w2_fetch_then_audit_end_to_end(seeded_run: Any) -> None:
         ),
         enabled=True,
         llm=AuditLlmConfig(api_key="test-key", model="gpt-5.6-luna", base_url="https://x"),
-        judge=_StubJudge(),
+        judge=judge,
         loader=_PostgresAuditLoader(POSTGRES_DSN),
         text_store=_MinioSourceTextStore(store),
         sink=_PostgresAuditSink(POSTGRES_DSN),
@@ -298,6 +398,14 @@ def test_w2_fetch_then_audit_end_to_end(seeded_run: Any) -> None:
     assert status_by[(_URL_OK, "factual")].audit_status == "ok"
     assert status_by[(_URL_404, "transcript")].audit_status == "unverifiable"
     assert status_by[(_URL_404, "factual")].audit_status == "unverifiable"
+
+    # 口径B 事实基底 = 已确认事实 + 官网语料（外域快照已被 host 过滤剔除）
+    assert len(judge.factual_blobs) == 1
+    factual_blob = judge.factual_blobs[0]
+    assert "【客户已确认事实】" in factual_blob
+    assert "【客户官网公开信息】" in factual_blob
+    assert _OWN_SITE_TEXT in factual_blob
+    assert _FOREIGN_SITE_TEXT not in factual_blob
 
     with psycopg.connect(POSTGRES_DSN, row_factory=dict_row) as connection:
         audits = connection.execute("SELECT * FROM platform.source_audit").fetchall()
@@ -315,7 +423,11 @@ def test_w2_fetch_then_audit_end_to_end(seeded_run: Any) -> None:
     )
     assert ok_audit["verdict"] == "accurate"
     assert ok_audit["model"] == "gpt-5.6-luna"
-    assert ok_audit["prompt_version"] == PROMPT_VERSION
+    assert ok_audit["prompt_version"] == PROMPT_VERSION_TRANSCRIPT
+    factual_audit = next(
+        row for row in audits if row["audit_status"] == "ok" and row["dimension"] == "factual"
+    )
+    assert factual_audit["prompt_version"] == PROMPT_VERSION_FACTUAL
 
     # 重跑幂等：全部 skipped，无新行/新事件
     rerun = execute_source_audit(
@@ -356,6 +468,10 @@ def test_w2_fetch_then_audit_end_to_end(seeded_run: Any) -> None:
     for fact in ok_facts:
         assert fact["verdict"] == "accurate"
         assert fact["model"] == "gpt-5.6-luna"
-        assert fact["prompt_version"] == PROMPT_VERSION
+        assert fact["prompt_version"] == (
+            PROMPT_VERSION_TRANSCRIPT
+            if fact["dimension"] == "transcript"
+            else PROMPT_VERSION_FACTUAL
+        )
     unverifiable = [f for f in facts if f["audit_status"] == "unverifiable"]
     assert len(unverifiable) == 2
