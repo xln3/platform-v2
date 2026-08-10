@@ -24,6 +24,9 @@ jobs:
       - run: python -m venv .venv && .venv/bin/pip install -e '.[dev]'
       - run: docker compose -f compose.yaml -f deploy/s02/compose.pgvector.yaml up -d --wait
       - run: .venv/bin/alembic upgrade head
+      # 报告 PDF 渲染对非拉丁字符 fail-loud 要求 CJK 字体（GEO_REPORT_PDF_FONT_PATH →
+      # DroidSansFallbackFull → SimHei → SimSun）；生产/开发机有 Droid，CI 干净镜像没有，先装再上 pytest。
+      - run: sudo apt-get install -y fonts-droid-fallback
       - run: .venv/bin/ruff check api domain workflows migrations tests tools scripts
       - run: .venv/bin/ruff format --check api domain workflows migrations tests tools scripts
       - run: .venv/bin/mypy api workflows domain
@@ -89,6 +92,15 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium
+      # 视觉基线的 CJK 渲染环境对齐：基线机的 zh-cn 回退=Noto Sans/Serif CJK SC
+      # （fonts-noto-cjk 自带 70-fonts-noto-cjk.conf 完成 zh-cn→SC 强绑定 prepend）。
+      # CI 镜像默认无 Noto CJK，--with-deps 拉入的 wqy-zenhei/ipafont 接管回退，
+      # 字宽/行高不同 → 全量视觉 diff（135 例 @ run 31428552379，含页面高度漂移）。
+      # 装包即得同款 conf，无需额外 fontconfig；fc-match 输出留证。
+      - run: |
+          sudo apt-get install -y fonts-noto-cjk
+          fc-match "sans-serif:lang=zh-cn"
+          fc-match "serif:lang=zh-cn"
       # --grep-invert @live-api：两个打真实 API（identity/bootstrap 需可写库）的用例显式划入
       # live 车道，本 job 无 API 可打；排除是显式标记而非静默 skip，本地有 API 时可全量跑。
       - run: pnpm test:e2e --grep-invert @live-api
