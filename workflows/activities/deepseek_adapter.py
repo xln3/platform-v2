@@ -4,19 +4,30 @@
 移植自旧链（``server/proxyllm/engines/deepseek.py``、``server/geosys/collector_deepseek.py``），
 关键面 2026-07-27 已 live 校准：输入框 placeholder / 回答气泡
 ``div.ds-markdown.ds-assistant-message-main-content`` / SSE JSON-patch 增量流 schema
-（见 ``_collect_event_text``，含 answer_len=1 根因记录）；登录墙 /sign_in 跳转为旧链
+（见 ``_assemble_deepseek_record`` 碎片状态机——含 answer_len=1 根因记录与
+20260810 deep_think+智能搜索实测流校准）；登录墙 /sign_in 跳转为旧链
 CONFIRMED 信号。仍未校准项在各常量行内标注（发送按钮锚点、「新对话」入口、
 尾部噪声词表等）。
 
 DeepSeek 特性：``/api/v0/chat/completion`` 每请求带 WASM PoW（``x-ds-pow-*``），
 真实浏览器管线自动解题——故坚持 DOM/浏览器路径，绝不直连 API、绝不重实现 wasm。
 
-v1 边界（mode 门不变）：
+mode 支持（20260810 起，用户拍板测量口径。deepseek 特殊性：专家模式不支持
+搜索，快速模式同时支持深度思考与搜索——故 GEO 评测不测专家模式，只测快速
+模式的两种组合）：
 
-- 仅 ``mode='normal'``；``mode='deep_think'`` 及其他 mode →
-  ``ApplicationError(..., type="unsupported_mode", non_retryable=True)``。
-  深度思考(R1) 开关点击超出 v1（selector 未校准，误点即脏数据）。
-- 联网搜索(联网搜索)开关 v1 不点击（selector 未校准；诚实声明 answer 为默认会话口径）。
+- ``mode='normal'``：快速模式 tab + 智能搜索 chip **开** + 深度思考 chip **关**。
+- ``mode='deep_think'``：快速模式 tab + 智能搜索 chip **开** + 深度思考 chip **开**。
+- 两种 mode 都在发送前显式确保（20260810 live 校准：chip=
+  ``div.ds-toggle-button`` + ``aria-pressed`` 状态位，语义属性跨构建稳定；模式
+  tab 条选中态用结构差分判定——hash class 跨构建漂移，绝不硬编码）；幂等
+  （状态已到位零点击）。全部后置校验确认不了 → ``mode_toggle_failed``
+  non_retryable，绝不静默按错误口径采集。
+- 其他 mode → ``ApplicationError(..., type="unsupported_mode", non_retryable=True)``。
+- 正文纯净：SSE fragments 只收 ``type=="RESPONSE"``（THINK/TOOL_SEARCH/
+  TOOL_OPEN 痕迹碎片不进正文）；DOM 兜底经 ``_REASONING_TRACE_MARKERS``
+  剥离推理/搜索痕迹行；``[reference:N]`` 渲染层锚点剔除，引用卡片进
+  references（results/result/references 三载体形状判形）。
 - 配置全走 env（秘密绝不进 task payload）：
   ``GEO_DEEPSEEK_PROFILE_DIR``（必填，persistent profile 目录；缺失/不存在 →
   ``adapter_not_configured`` non_retryable）；``GEO_DEEPSEEK_PROXY_URL``（可选，
@@ -92,7 +103,7 @@ import random
 import re
 import time
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -101,6 +112,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from workflows.activities.browser_driver import load_sync_browser_driver
+from workflows.activities.browser_router import resolve_batch_instance
 from workflows.activities.collection import (
     CollectionBatchInput,
     CollectionBatchItemResult,
@@ -132,6 +144,9 @@ _DEFAULT_EVIDENCE_DIR = (
 _HEARTBEAT_INTERVAL_S = 10.0  # workflow heartbeat_timeout=30s，泵频 ≤15s 硬约束
 _NAV_TIMEOUT_MS = 25_000
 _CHAT_TIMEOUT_S = 120.0  # normal 模式流式完成预算（workflow 总预算 5 分钟）
+# deep_think（深度思考+智能搜索）流远长于 normal——对齐豆包 600s；workflow
+# 缺省总预算 15min（activity_timeout_minutes）放得下。
+_CHAT_TIMEOUT_DEEP_THINK_S = 600.0
 
 _CHAT_URL = "https://chat.deepseek.com/"
 _SIGN_IN_PATH = "/sign_in"  # 未登录访问 / 自动跳 /sign_in（旧链 CONFIRMED 信号）
@@ -380,12 +395,17 @@ _FLATTEN_FOR_SCREENSHOT_JS = r"""
 
 @dataclass(frozen=True)
 class DeepseekAdapterConfig:
-    """env 配置。proxy_url 原文只在启动浏览器时使用，绝不落日志/payload。"""
+    """env 配置。proxy_url 原文只在启动浏览器时使用，绝不落日志/payload。
+
+    ``browser_key``（2026-08-09 起，浏览器矩阵化）：attach/互斥锁/fence 用的
+    opaque "platform"——batch 路径由 browser_router 解析为常驻实例键
+    （``deepseek_tj`` 等）；缺省平台 slug（per-task 老路径/测试行为不变）。"""
 
     profile_dir: Path
     proxy_url: str | None
     evidence_dir: Path
     headless: bool
+    browser_key: str = _PLATFORM
 
     @classmethod
     def from_env(cls, *, proxy_url_override: str | None = None) -> DeepseekAdapterConfig:
@@ -473,6 +493,15 @@ class _IncompleteCapture(RuntimeError):
         self.evidence_path = evidence_path
 
 
+class _ModeToggleFailed(RuntimeError):
+    """模式开关无法确认到位（快速模式 tab / 深度思考 / 智能搜索；non_retryable；
+    绝不静默按错误口径采集）。"""
+
+    def __init__(self, message: str, evidence_path: Path | None = None) -> None:
+        super().__init__(message)
+        self.evidence_path = evidence_path
+
+
 @dataclass
 class CollectedAnswer:
     answer_text: str
@@ -508,7 +537,9 @@ class DeepseekBatchItemOutcome:
 class _BrowserSession(Protocol):
     """Playwright 交互隔离面：测试注入 fake，绝不启动真浏览器。"""
 
-    def collect(self, query: str, on_stage: Callable[[str], None]) -> CollectedAnswer: ...
+    def collect(
+        self, query: str, on_stage: Callable[[str], None], *, mode: str = "normal"
+    ) -> CollectedAnswer: ...
 
     def collect_batch(
         self, items: list[DeepseekBatchItemSpec], on_stage: Callable[[str], None]
@@ -580,14 +611,20 @@ async def run_deepseek_batch(
             del payload
 
     for item in batch.items:
-        if item.mode != "normal":
+        if item.mode not in ("normal", "deep_think"):
             raise ApplicationError(
-                f"unsupported mode: {item.mode!r} (deepseek adapter supports only 'normal'; "
-                "deep_think not enabled in adapter v1)",
+                f"unsupported mode: {item.mode!r} (expected 'normal' or 'deep_think')",
                 type="unsupported_mode",
                 non_retryable=True,
             )
+    # 浏览器矩阵化（2026-08-09 起）：batch 段（同平台同地域）路由到对应常驻
+    # 实例，实例键当 opaque platform 进 platform_browser/锁/fence/CDP 解析；
+    # 无实例/地域不符/清单畸形一律 fail-closed。空 batch 不解析（旧契约不变）。
+    route = resolve_batch_instance(batch.items)
+    instance_key = route.instance_key if route is not None else None
     config = DeepseekAdapterConfig.from_env(proxy_url_override=proxy_url_override)
+    if route is not None:
+        config = replace(config, browser_key=route.instance_key)
     config.evidence_dir.mkdir(parents=True, exist_ok=True)
     batch_stem = f"batch-{_safe_stem(batch.run_pub_id)}-a{attempt}"
     specs = [
@@ -658,6 +695,22 @@ async def run_deepseek_batch(
                 for item in batch.items
             ]
         )
+    except _ModeToggleFailed as toggle:
+        # 防御：toggle 失败应在题内转 outcome；逃出即按 session 级 wall 诚实记录。
+        evidence_suffix = f"; evidence={toggle.evidence_path}" if toggle.evidence_path else ""
+        bound.info("deepseek_batch_session_toggle_failed", stage=progress["stage"])
+        return CollectionBatchResult(
+            results=[
+                _failure_batch_item(
+                    item,
+                    status="wall",
+                    error_type="mode_toggle_failed",
+                    error_message=f"{toggle}{evidence_suffix}",
+                    evidence_path=toggle.evidence_path,
+                )
+                for item in batch.items
+            ]
+        )
     except _IncompleteCapture as inc:
         # session 级临时故障（浏览器启动失败等）：一题未发，raise 走 batch 重试。
         evidence_suffix = f"; evidence={inc.evidence_path}" if inc.evidence_path else ""
@@ -683,7 +736,7 @@ async def run_deepseek_batch(
         failed=sum(1 for r in results if r.status != "ok"),
         stage=progress["stage"],
     )
-    return batch_result_with_captcha_pause(results)
+    return batch_result_with_captcha_pause(results, instance_key=instance_key)
 
 
 def _failure_batch_item(
@@ -757,9 +810,9 @@ async def run_deepseek_collection(
     session_factory/heartbeat 缺省用真实实现与 no-op——platform_registry dispatcher
     只传 ``(item, heartbeat=..., proxy_url_override=...)``，与本签名对齐。
     """
-    if item.mode != "normal":
+    if item.mode not in ("normal", "deep_think"):
         raise ApplicationError(
-            "deep_think not enabled in adapter v1",
+            f"unsupported mode: {item.mode!r} (expected 'normal' or 'deep_think')",
             type="unsupported_mode",
             non_retryable=True,
         )
@@ -781,7 +834,9 @@ async def run_deepseek_collection(
     def _blocking() -> CollectedAnswer:
         assert session_factory is not None
         session = session_factory(config, config.evidence_dir, file_stem)
-        return session.collect(item.query, on_stage=lambda s: progress.__setitem__("stage", s))
+        return session.collect(
+            item.query, on_stage=lambda s: progress.__setitem__("stage", s), mode=item.mode
+        )
 
     try:
         if uses_default_session:
@@ -801,6 +856,12 @@ async def run_deepseek_collection(
         raise ApplicationError(
             f"{wall}{evidence}", type=wall.wall_type, non_retryable=True
         ) from wall
+    except _ModeToggleFailed as toggle:
+        evidence = f"; evidence={toggle.evidence_path}" if toggle.evidence_path else ""
+        bound.info("deepseek_mode_toggle_failed", stage=progress["stage"])
+        raise ApplicationError(
+            f"{toggle}{evidence}", type="mode_toggle_failed", non_retryable=True
+        ) from toggle
     except _IncompleteCapture as inc:
         evidence = f"; evidence={inc.evidence_path}" if inc.evidence_path else ""
         bound.info("deepseek_capture_incomplete", reason=str(inc), stage=progress["stage"])
@@ -888,11 +949,13 @@ class _PlaywrightDeepseekSession:
         self._rng = random.Random()
         self._mouse_pos: tuple[float, float] | None = None
 
-    def collect(self, query: str, on_stage: Callable[[str], None]) -> CollectedAnswer:
+    def collect(
+        self, query: str, on_stage: Callable[[str], None], *, mode: str = "normal"
+    ) -> CollectedAnswer:
         spec = DeepseekBatchItemSpec(
             business_key=self._file_stem,
             query=query,
-            mode="normal",
+            mode=mode,
             file_stem=self._file_stem,
         )
         with self._browser_session(on_stage) as (context, page, pw_timeout, driver):
@@ -915,6 +978,15 @@ class _PlaywrightDeepseekSession:
                     outcomes.append(self._failure_outcome(spec, "wall", wall.wall_type, wall))
                     outcomes.extend(
                         self._aborted_outcome(rest, spec, wall.wall_type)
+                        for rest in items[index + 1 :]
+                    )
+                    return outcomes
+                except _ModeToggleFailed as toggle:
+                    outcomes.append(
+                        self._failure_outcome(spec, "wall", "mode_toggle_failed", toggle)
+                    )
+                    outcomes.extend(
+                        self._aborted_outcome(rest, spec, "mode_toggle_failed")
                         for rest in items[index + 1 :]
                     )
                     return outcomes
@@ -947,7 +1019,7 @@ class _PlaywrightDeepseekSession:
         spec: DeepseekBatchItemSpec,
         status: str,
         error_type: str,
-        exc: _WallError | _IncompleteCapture,
+        exc: _WallError | _IncompleteCapture | _ModeToggleFailed,
     ) -> DeepseekBatchItemOutcome:
         return DeepseekBatchItemOutcome(
             business_key=spec.business_key,
@@ -1031,7 +1103,9 @@ class _PlaywrightDeepseekSession:
 
             resident = False
             try:
-                with platform_browser(pw, platform=_PLATFORM, launch=_launch) as lease:
+                with platform_browser(
+                    pw, platform=self._config.browser_key, launch=_launch
+                ) as lease:
                     context, page, is_resident = lease
                     resident = is_resident
 
@@ -1124,6 +1198,20 @@ class _PlaywrightDeepseekSession:
                 shot=_shot,
             )
 
+            # 测量口径（20260810 用户拍板）：两种 mode 都显式确保——normal=
+            # 快速模式+智能搜索开+深度思考关；deep_think=快速+搜索开+思考开。
+            # 必须在打字/发送之前完成并经后置校验确认；确认不了即诚实失败，
+            # 绝不静默按错误口径采集（思考开/关错态 = 答案口径错标）。
+            on_stage("ensure_mode")
+            if not _set_collection_mode(page, self._rng, spec.mode):
+                raise _ModeToggleFailed(
+                    f"mode toggles could not be confirmed for mode={spec.mode!r} "
+                    "(快速模式 tab / 深度思考 chip / 智能搜索 chip; selector drift "
+                    "or control unavailable)",
+                    _shot("mode_toggle"),
+                )
+            _pace(*_PACE_AFTER_NEW_CHAT_S)  # 切完（或确认完）开关回神再回到输入框
+
             on_stage("typing")
             # 页面就绪：真人先端详一眼再动手（零停顿直点输入框是机器人指纹）。
             _pace(*_PACE_PAGE_READY_S)
@@ -1171,7 +1259,13 @@ class _PlaywrightDeepseekSession:
 
             on_stage("await_stream")
             meta = capture.wait_finish(
-                page, appearance_timeout_s=20.0, timeout_s=_CHAT_TIMEOUT_S
+                page,
+                appearance_timeout_s=20.0,
+                timeout_s=(
+                    _CHAT_TIMEOUT_DEEP_THINK_S
+                    if spec.mode == "deep_think"
+                    else _CHAT_TIMEOUT_S
+                ),
             )
             answer_text = ""
             references: list[dict[str, Any]] = []
@@ -1510,6 +1604,144 @@ def _ensure_fresh_chat(
     )
 
 
+# ---------------------------------------------------------------------------
+# 模式开关确保（20260810 live 校准：快速模式 tab + 深度思考/智能搜索 chips）
+# ---------------------------------------------------------------------------
+
+# 开关 chip = ``div.ds-toggle-button``（ds- 设计系统 class，跨构建稳定），状态位
+# 用语义属性 ``aria-pressed``（优先于 ``ds-toggle-button--selected`` class 判定）。
+
+# 模式 tab 条（快速/专家/识图）选中态探针：hash class 跨构建漂移，绝不硬编码——
+# 用结构差分（选中 tab 容器比兄弟多一个 class token；20260810 实测快速模式容器
+# = 3 token，未选中 = 2 token）。三标签凑不齐（非新会话首页布局）/无法唯一差分
+# → found:false / selected:null，调用方按「不可观测」处理，绝不猜。
+_TAB_STATE_JS = """() => {
+  const labels = ["快速模式", "专家模式", "识图模式"];
+  const rows = [];
+  for (const label of labels) {
+    let hit = null;
+    for (const el of document.querySelectorAll("div")) {
+      if ((el.innerText || "").trim() !== label) continue;
+      if (el.children.length > 1) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 || r.width > 240) continue;
+      hit = el;
+      break;
+    }
+    if (!hit) return {found: false};
+    let cont = hit;
+    for (let i = 0; i < 2 && cont.parentElement; i++) cont = cont.parentElement;
+    const tokens = (cont.className || "").toString().trim().split(/\\s+/).filter(Boolean);
+    rows.push({label, n: tokens.length});
+  }
+  const max = Math.max(...rows.map(r => r.n));
+  const top = rows.filter(r => r.n === max);
+  if (top.length !== 1) return {found: true, selected: null};
+  return {found: true, selected: top[0].label};
+}"""
+
+
+def _chip_locator(page: Any, name: str) -> Any | None:
+    """composer 区具名开关 chip（可见才返回 Locator；找不到返回 None）。"""
+    try:
+        loc = page.locator(f'div.ds-toggle-button:has-text("{name}")').first
+        if loc.count() > 0 and loc.is_visible(timeout=500):
+            return loc
+    except Exception:
+        pass
+    return None
+
+
+def _chip_engaged(page: Any, name: str) -> bool | None:
+    """chip 当前是否按下；找不到/读不到状态 → None（调用方诚实失败，绝不猜）。"""
+    loc = _chip_locator(page, name)
+    if loc is None:
+        return None
+    try:
+        pressed = loc.get_attribute("aria-pressed")
+    except Exception:
+        return None
+    if pressed is None:
+        return None
+    return pressed.strip().lower() == "true"
+
+
+def _fast_mode_engaged(page: Any) -> bool | None:
+    """tab 条选中态：快速模式选中 → True；明确选中其他模式 → False；tab 条不在屏
+    （非新会话首页布局）或结构差分失败 → None。"""
+    try:
+        state = page.evaluate(_TAB_STATE_JS)
+    except Exception:
+        return None
+    if not isinstance(state, dict) or not state.get("found"):
+        return None
+    selected = state.get("selected")
+    if selected is None:
+        return None
+    return selected == "快速模式"
+
+
+def _ensure_fast_mode(page: Any, rng: random.Random) -> bool:
+    """确保 tab 条选中快速模式。已在快速 → True；明确在其他模式 → 拟人点击
+    「快速模式」并二次确认；tab 条不可观测 → 不阻断（ chips 仍严格校验——
+    快速模式是账号缺省且两生产 profile 实证选中，tab 条只在新会话首页出现）。"""
+    state = _fast_mode_engaged(page)
+    if state is None:
+        return True
+    if state:
+        return True
+    tab = page.locator('span:text-is("快速模式")').first
+    try:
+        if tab.count() == 0 or not tab.is_visible(timeout=500):
+            return False
+        human_click(tab, page, rng)
+    except Exception:
+        return False
+    page.wait_for_timeout(400)
+    if _fast_mode_engaged(page) is not True:
+        # 隔拍二次确认（豆包 T-03 同款纪律：UI 可能乐观翻转后回退）。
+        page.wait_for_timeout(400)
+        if _fast_mode_engaged(page) is not True:
+            return False
+    return True
+
+
+def _ensure_chip(page: Any, rng: random.Random, name: str, want: bool) -> bool:
+    """把具名 chip 确保到 want 态：已在目标态零点击（幂等，不制造多余行为
+    指纹）；否则拟人点击 + 状态翻转等待 + 隔拍二次确认。找不到/读不出状态/
+    点了不翻转 → False（调用方诚实失败，绝不猜）。"""
+    current = _chip_engaged(page, name)
+    if current is None:
+        return False
+    if current is want:
+        return True
+    chip = _chip_locator(page, name)
+    if chip is None:
+        return False
+    try:
+        human_click(chip, page, rng)
+    except Exception:
+        return False
+    page.wait_for_timeout(400)
+    if _chip_engaged(page, name) is not want:
+        # 隔拍二次确认（豆包 T-03 同款纪律：UI 可能乐观翻转后回退）。
+        page.wait_for_timeout(400)
+        if _chip_engaged(page, name) is not want:
+            return False
+    return True
+
+
+def _set_collection_mode(page: Any, rng: random.Random, mode: str) -> bool:
+    """测量口径（20260810 用户拍板——专家模式不支持搜索，GEO 评测不测专家）：
+    ``normal`` = 快速模式 tab + 智能搜索开 + 深度思考关；``deep_think`` =
+    快速 + 搜索开 + 思考开。全部后置校验确认才 True；确认不了 False。"""
+    if not _ensure_fast_mode(page, rng):
+        return False
+    if not _ensure_chip(page, rng, "智能搜索", True):
+        return False
+    return _ensure_chip(page, rng, "深度思考", mode == "deep_think")
+
+
 def _wait_for_input(page: Any, *, timeout_ms: int) -> Any | None:
     """轮询输入框可见（SPA 会在 domcontentloaded 后继续换 DOM）。"""
     deadline = time.monotonic() + timeout_ms / 1000
@@ -1810,98 +2042,153 @@ def _is_real_url(u: Any) -> bool:
     return isinstance(u, str) and (u.startswith("http://") or u.startswith("https://"))
 
 
+# 引用卡片判形（20260810 deep_think+智能搜索实测流）：带真实 url 且带标题/站点/
+# 摘要任一即卡片——载体有三种（答案 ``references`` 数组 / TOOL_SEARCH ``results``
+# SET 数组 / TOOL_OPEN ``result`` 单卡），按形状识别比按父键名识别更抗漂移。
+# 指针型 dict（{"id":3,"type":"TOOL_SEARCH"} 引用锚）无 url，天然滤掉。
+_REF_LABEL_KEYS = ("title", "name", "site_name", "sitename", "source", "snippet", "summary")
+
+
+def _append_reference_card(
+    card: Any, sink: list[dict[str, Any]], seen_urls: set[str]
+) -> None:
+    """引用卡片判形（带真实 url 才收）+ 按 URL（去 query）去重 + 字段归一。"""
+    if not isinstance(card, dict):
+        return
+    url = card.get("url") or card.get("link") or ""
+    if not _is_real_url(url):
+        return
+    dedup = str(url).split("?")[0]
+    if dedup in seen_urls:
+        return
+    seen_urls.add(dedup)
+    sink.append(
+        {
+            "url": url,
+            "title": card.get("title") or card.get("name"),
+            "sitename": (card.get("site_name") or card.get("sitename") or card.get("source")),
+            "summary": card.get("snippet") or card.get("summary"),
+        }
+    )
+
+
 def _walk_references(node: Any, sink: list[dict[str, Any]], seen_urls: set[str]) -> None:
-    """递归找所有 "references" 数组里的 {url,...} 卡片（旧链 _references_native 口径，
-    ⚠ 字段名 GUESS：url|link / title|name / site_name|sitename|source），按 URL 去重。"""
+    """递归找引用卡片（判形见 ``_append_reference_card``；旧链 _references_native
+    口径，⚠ 字段名 GUESS：url|link / title|name / site_name|sitename|source），
+    按 URL 去重。"""
     if isinstance(node, dict):
-        for key, value in node.items():
-            if key == "references" and isinstance(value, list):
-                for card in value:
-                    if not isinstance(card, dict):
-                        continue
-                    url = card.get("url") or card.get("link") or ""
-                    if not _is_real_url(url):
-                        continue
-                    dedup = str(url).split("?")[0]
-                    if dedup in seen_urls:
-                        continue
-                    seen_urls.add(dedup)
-                    sink.append(
-                        {
-                            "url": url,
-                            "title": card.get("title") or card.get("name"),
-                            "sitename": (
-                                card.get("site_name") or card.get("sitename") or card.get("source")
-                            ),
-                            "summary": card.get("snippet") or card.get("summary"),
-                        }
-                    )
-            else:
-                _walk_references(value, sink, seen_urls)
+        if _is_real_url(node.get("url") or node.get("link") or "") and any(
+            node.get(key) for key in _REF_LABEL_KEYS
+        ):
+            _append_reference_card(node, sink, seen_urls)
+            return  # 卡片不再下钻（卡内 url 字段唯一，防重复计数）
+        for value in node.values():
+            _walk_references(value, sink, seen_urls)
     elif isinstance(node, list):
         for item in node:
             _walk_references(item, sink, seen_urls)
 
 
-def _walk_snapshot_fragments(node: Any, sink: list[str]) -> None:
-    """初始快照 {"v":{"response":{...,"fragments":[...]}}} 里取 type=="RESPONSE" 的
-    fragment.content 正文碎片（THINK/SEARCH 等痕迹碎片不进正文）。"""
-    if isinstance(node, dict):
-        fragments = node.get("fragments")
-        if isinstance(fragments, list):
-            for frag in fragments:
-                if not isinstance(frag, dict):
-                    continue
-                if frag.get("type") != "RESPONSE":
-                    continue
-                content = frag.get("content")
-                if isinstance(content, str) and content:
-                    sink.append(content)
-        for value in node.values():
-            _walk_snapshot_fragments(value, sink)
-    elif isinstance(node, list):
-        for item in node:
-            _walk_snapshot_fragments(item, sink)
-
-
-def _collect_event_text(data: Any, sink: list[str]) -> None:
-    """按 live 实测 schema（2026-07-27 校准）收集单个 SSE 事件的正文增量：
-
-    - ``{"v":{"response":{...fragments...}}}`` 初始快照 → fragments[type=RESPONSE].content；
-    - ``{"p":"response/fragments/-1/content","o":"APPEND","v":"..."}`` patch 追加；
-    - ``{"v":"..."}`` 裸增量（无 p/o 单键——实测主流式形态；首版只认 APPEND 导致
-      整流只抽到 patch 形式的 "！" 一个字符，answer_len=1 的根因）；
-    - ``{"o":"SET"/"BATCH",...}`` 状态/批处理 op 一律跳过（防 "FINISHED" 混入正文）。
-    """
-    if not isinstance(data, dict):
-        return
-    v = data.get("v")
-    if isinstance(v, dict):
-        _walk_snapshot_fragments(v, sink)
-        return
-    if not (isinstance(v, str) and v):
-        return
-    o = data.get("o")
-    p = data.get("p") or ""
-    if o == "APPEND":
-        if not p or p.endswith("/content"):
-            sink.append(v)
-    elif o is None and not p:
-        sink.append(v)
+# 引用锚点（[reference:N]）：渲染层 chip 的机器锚点，不是正文文本——剔除（引用
+# 本身进 references；DOM 兜底路径本就不含这些字面量，两个抽取口径对齐）。
+_REFERENCE_ANCHOR_RE = re.compile(r"\s*\[reference:\d+\]")
 
 
 def _assemble_deepseek_record(events: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """把 SSE 事件序列组装成 answer_text + references；零正文 → None（→ DOM 兜底）。"""
+    """把 SSE 事件序列组装成 answer_text + references；零正文 → None（→ DOM 兜底）。
+
+    正文 = 碎片状态机（20260810 deep_think+智能搜索实测流校准，兼容 20260727
+    normal 流）：
+
+    - 碎片建档（按到达顺序登记 ``type``）：初始快照
+      ``{"v":{"response":{"fragments":[...]}}}``；独立新增
+      ``{"p":"response/fragments","o":"APPEND","v":[...]}``；BATCH 内相对路径
+      ``{"p":"fragments","o":"APPEND"}``。
+    - 增量归属：``{"p":"response/fragments/<N>/content","o":"APPEND"}``（N=-1=最后
+      一个）→ 指定碎片；裸增量 ``{"v":"..."}`` 与裸子补丁列 ``{"v":[...]}`` →
+      当前最后碎片（实测：碎片切换后裸增量立即跟随新碎片）。
+    - 只收 ``type=="RESPONSE"`` 碎片的 content——THINK/TOOL_SEARCH/TOOL_OPEN 等
+      痕迹碎片不进正文（normal 流答案即唯一 RESPONSE 碎片，行为与旧版一致；
+      deep_think 流思考链混入正文是旧版状态无关设计的实测缺陷）。
+    - ``{"o":"SET"/"BATCH"}`` 状态/批处理 op 一律不进正文（防 "FINISHED" 混入）。
+    """
+    frag_types: list[str] = []
     parts: list[str] = []
     references: list[dict[str, Any]] = []
     seen_urls: set[str] = set()
+
+    def _register(frags: Any) -> None:
+        if not isinstance(frags, list):
+            return
+        for frag in frags:
+            if not isinstance(frag, dict):
+                continue
+            frag_types.append(str(frag.get("type") or ""))
+            # 快照/新增碎片自带的起始 content（只收 RESPONSE）
+            content = frag.get("content")
+            if frag_types[-1] == "RESPONSE" and isinstance(content, str) and content:
+                parts.append(content)
+
+    def _target_index(path: str) -> int | None:
+        m = re.search(r"fragments/(-?\d+)(?:/|$)", path)
+        if not m:
+            return None
+        idx = int(m.group(1))
+        if idx < 0:
+            idx += len(frag_types)
+        return idx if 0 <= idx < len(frag_types) else None
+
+    def _accept(idx: int | None, text: Any) -> None:
+        if idx is None or not isinstance(text, str) or not text:
+            return
+        if frag_types[idx] == "RESPONSE":
+            parts.append(text)
+
+    def _sub_patches(subs: Any, base_idx: int | None) -> None:
+        """BATCH/裸列的子补丁（相对路径：base = response 或某个 fragment）。"""
+        if not isinstance(subs, list):
+            return
+        for sub in subs:
+            if not isinstance(sub, dict):
+                continue
+            sp, so, sv = sub.get("p") or "", sub.get("o"), sub.get("v")
+            if sp == "fragments" and so == "APPEND":
+                _register(sv)
+            elif so == "APPEND" and sp == "content":
+                _accept(base_idx, sv)
+            elif so == "APPEND" and sp.endswith("/content"):
+                _accept(_target_index(sp), sv)
+
     for ev in events:
         data = ev.get("data")
-        if data is None:
+        if not isinstance(data, dict):
             continue
-        _collect_event_text(data, parts)
         _walk_references(data, references, seen_urls)
-    answer_text = _recover_mojibake("".join(parts)).strip()
+        v = data.get("v")
+        o = data.get("o")
+        p = data.get("p") or ""
+        if isinstance(v, dict):
+            resp = v.get("response")
+            if isinstance(resp, dict):
+                _register(resp.get("fragments"))
+            continue
+        if isinstance(v, list):
+            if o == "APPEND" and p.rstrip("/").endswith("fragments"):
+                _register(v)  # 独立碎片新增
+            elif o == "BATCH":
+                _sub_patches(v, _target_index(p) if "fragments/" in p else None)
+            elif o is None and not p:
+                _sub_patches(v, len(frag_types) - 1 if frag_types else None)
+            continue
+        if not (isinstance(v, str) and v):
+            continue
+        if o == "APPEND":
+            idx = _target_index(p) if p else (len(frag_types) - 1 if frag_types else None)
+            _accept(idx, v)
+        elif o is None and not p:
+            _accept(len(frag_types) - 1 if frag_types else None, v)
+
+    answer_text = _REFERENCE_ANCHOR_RE.sub("", _recover_mojibake("".join(parts))).strip()
     if not answer_text:
         return None
     return {"answer_text": answer_text, "references": references}

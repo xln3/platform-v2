@@ -8,8 +8,12 @@
   （含最后一题）/ 证据逐题 / CDP capture 每题 detach；
 - wall → 后续题 aborted 零浏览器交互；
 - activity 层：outcome 映射 / session 级墙全题 wall / session 级 incomplete 可重试 /
-  mode 门（deep_think→unsupported_mode）/ 配置门 / 空 batch / 契约违背 /
-  默认 session 路径必须 to_thread（thread-probe 回归测试）。
+  mode 门（normal/deep_think 放行透传，未知 mode→unsupported_mode）/ 配置门 /
+  空 batch / 契约违背 / 默认 session 路径必须 to_thread（thread-probe 回归测试）；
+- 模式确保（20260810 起，两种 mode 都显式确保）：normal=快速模式 tab+智能搜索
+  开+深度思考关；deep_think=快速+搜索开+思考开（已到位零点击、点击先于打字）；
+  无法确认 → mode_toggle_failed non_retryable（题级 wall + 后续题 aborted；
+  session 级防御全题 wall）。
 
 与豆包 fake 的关键差异（平台机制差异，非语义差异）：DeepSeek 发送主路径是
 Enter 键盘提交（2026-07-27 live 校准），发送按钮点击是兜底——fake 的
@@ -49,7 +53,7 @@ def _item(mode: str = "normal") -> CollectionTaskInput:
         business_key="run-9-task-5",
         query="你好，请用一句话介绍你自己",
         model="deepseek",
-        region="Tianjin",
+        region="CN-TJ",
         mode=mode,
         adapter="deepseek",
     )
@@ -63,6 +67,12 @@ _COMPOSER_BB = {"x": 80.0, "y": 600.0, "width": 600.0, "height": 48.0}
 _SEND_BB = {"x": 640.0, "y": 610.0, "width": 32.0, "height": 32.0}
 _NEW_CHAT_BB = {"x": 40.0, "y": 120.0, "width": 96.0, "height": 32.0}
 _OVERLAY_BB = {"x": 300.0, "y": 200.0, "width": 90.0, "height": 32.0}
+# deep_think 开关（composer 下方 chips / 上方模式 tab 条；与真实布局同相对位置）
+_CHIP_BB = {
+    "深度思考": {"x": 80.0, "y": 660.0, "width": 92.0, "height": 32.0},
+    "智能搜索": {"x": 180.0, "y": 660.0, "width": 92.0, "height": 32.0},
+}
+_FAST_TAB_BB = {"x": 320.0, "y": 400.0, "width": 96.0, "height": 32.0}
 
 # DeepSeek SSE JSON-patch 增量流（2026-07-27 live 校准 schema）：初始快照
 # fragments[type=RESPONSE].content + 裸增量 {"v":"..."} + [DONE]。
@@ -222,6 +232,18 @@ class _FakeLocator:
     def inner_text(self, timeout: int | None = None) -> str:
         return self._page.body_text
 
+    def get_attribute(self, name: str, timeout: int | None = None) -> str | None:
+        """chip 状态位探针（aria-pressed）；非 chip 选择器/未配状态 → None。"""
+        if name != "aria-pressed":
+            return None
+        for chip, sel in (
+            ("深度思考", 'div.ds-toggle-button:has-text("深度思考")'),
+            ("智能搜索", 'div.ds-toggle-button:has-text("智能搜索")'),
+        ):
+            if self._selector == sel and chip in self._page.chips:
+                return "true" if self._page.chips[chip] else "false"
+        return None
+
 
 class _FakePage:
     """记录全事件序列的 page 替身。messages>0 模拟旧会话残留；route_send 让
@@ -237,6 +259,9 @@ class _FakePage:
         goto_clears: bool = False,
         visible_overlays: frozenset[str] | None = None,
         swallow_sends_from: int | None = None,
+        chips: dict[str, bool] | None = None,
+        tab_selected: str = "快速模式",
+        tab_found: bool = True,
     ) -> None:
         self.clock = _FakeClock()
         self.events: list[tuple] = []
@@ -256,6 +281,13 @@ class _FakePage:
         # composer、不再触发 completion 流——驱动 wall_send 路径。
         self.swallow_sends_from = swallow_sends_from
         self.send_attempts = 0
+        # deep_think 开关态：chips = aria-pressed 语义；tab_* = 模式 tab 条探针结果。
+        # 缺省全开/快速（幂等路径零点击）；测试用 False/缺 key 驱动点击与失败路径。
+        self.chips: dict[str, bool] = (
+            dict(chips) if chips is not None else {"深度思考": True, "智能搜索": True}
+        )
+        self.tab_selected = tab_selected
+        self.tab_found = tab_found
 
     def classify(self, selector: str) -> tuple[str, bool, dict[str, float] | None]:
         if selector == "body":
@@ -268,6 +300,11 @@ class _FakePage:
             return ("new_chat", True, _NEW_CHAT_BB)
         if selector in self.visible_overlays:
             return ("overlay", True, _OVERLAY_BB)
+        for chip, bb in _CHIP_BB.items():
+            if selector == f'div.ds-toggle-button:has-text("{chip}")':
+                return ("chip", chip in self.chips, bb)
+        if selector == 'span:text-is("快速模式")':
+            return ("fast_tab", self.tab_found, _FAST_TAB_BB)
         return ("none", False, None)
 
     def route_send(self) -> None:
@@ -286,6 +323,12 @@ class _FakePage:
             self.route_send()
         elif _in_bb(_NEW_CHAT_BB, x, y):
             self.messages = 0  # 「新对话」切到全新会话
+        for chip, bb in _CHIP_BB.items():
+            if chip in self.chips and _in_bb(bb, x, y):
+                self.chips[chip] = not self.chips[chip]  # toggle 语义
+                return
+        if self.tab_found and _in_bb(_FAST_TAB_BB, x, y):
+            self.tab_selected = "快速模式"
 
     def locator(self, selector: str) -> _FakeLocator:
         self.events.append(("locator", selector))
@@ -299,6 +342,10 @@ class _FakePage:
             return self.messages
         if script == deepseek_adapter._FLATTEN_FOR_SCREENSHOT_JS:
             return {}
+        if script == deepseek_adapter._TAB_STATE_JS:
+            if not self.tab_found:
+                return {"found": False}
+            return {"found": True, "selected": self.tab_selected}
         return None
 
     def goto(self, url: str, **_kw: Any) -> None:
@@ -718,7 +765,7 @@ async def test_run_deepseek_batch_maps_outcomes(
                 business_key=f"run-7-task-{index}",
                 query=f"查询{index}",
                 model="deepseek",
-                region="Tianjin",
+                region="CN-TJ",
                 mode="normal",
                 adapter="deepseek",
             )
@@ -800,8 +847,8 @@ async def test_run_deepseek_batch_session_incomplete_raises_retryable(
 async def test_run_deepseek_batch_config_and_mode_gates(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """配置类错误照常 raise：mode 门（deep_think→unsupported_mode）在浏览器
-    启动之前；profile 缺失 fail-closed。"""
+    """配置类错误照常 raise：mode 门（normal/deep_think 之外的未知 mode →
+    unsupported_mode）在浏览器启动之前；profile 缺失 fail-closed。"""
     monkeypatch.setenv("GEO_DEEPSEEK_PROFILE_DIR", str(tmp_path))
     monkeypatch.setenv("GEO_ADAPTER_EVIDENCE_DIR", str(tmp_path / "evidence"))
 
@@ -812,7 +859,7 @@ async def test_run_deepseek_batch_config_and_mode_gates(
     factory = lambda config, evidence_dir, stem: _NeverCalled()  # noqa: E731
     with pytest.raises(ApplicationError) as exc_info:
         await run_deepseek_batch(
-            _batch([_item(mode="deep_think")]),
+            _batch([_item(mode="vision")]),
             session_factory=factory,
             heartbeat=lambda p: None,
         )
@@ -896,3 +943,218 @@ async def test_run_deepseek_batch_default_session_runs_in_thread(
     )
     assert seen["on_main_thread"] is False
     assert result.results[0].error_type == "aborted_after_failure"
+
+
+# ---------------------------------------------------------------------------
+# deep_think（20260810 起）：快速模式 tab + 深度思考/智能搜索 chips 确保与失败语义
+# ---------------------------------------------------------------------------
+
+
+async def test_collect_one_deep_think_enables_toggles_before_typing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """deep_think 题（per-task 真 session + fake 浏览器）：发送前完成 快速模式
+    tab + 深度思考/智能搜索 chips 全开；点击全部落在打字之前；幂等——已开的
+    开关零重复点击。"""
+    _adapter_env(tmp_path, monkeypatch)
+    page = _FakePage(
+        messages=0,
+        chips={"深度思考": False, "智能搜索": True},  # 只差点深度思考
+        tab_selected="专家模式",
+    )
+    _install_fake_browser(monkeypatch, page)
+
+    result = await run_deepseek_collection(
+        _item(mode="deep_think"),
+        session_factory=_PlaywrightDeepseekSession,
+        heartbeat=lambda p: None,
+    )
+
+    assert result.quality_state == "live_valid"
+    assert page.chips == {"深度思考": True, "智能搜索": True}
+    assert page.tab_selected == "快速模式"
+    first_key = next(i for i, e in enumerate(page.events) if e[0] == "key")
+    toggle_clicks = [
+        i
+        for i, e in enumerate(page.events)
+        if e[0] == "mouse_click"
+        and (
+            _in_bb(_CHIP_BB["深度思考"], e[1], e[2])
+            or _in_bb(_FAST_TAB_BB, e[1], e[2])
+        )
+    ]
+    # tab + 深度思考各点一次（智能搜索已开零点击），且全部先于打字
+    assert len(toggle_clicks) == 2
+    assert max(toggle_clicks) < first_key
+    assert not [
+        e
+        for e in page.events
+        if e[0] == "mouse_click" and _in_bb(_CHIP_BB["智能搜索"], e[1], e[2])
+    ]
+
+
+async def test_collect_one_deep_think_toggle_failure_is_honest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """chip 缺失（选择器漂移）→ mode_toggle_failed non_retryable，
+    绝不带 normal 答案蒙混（一个字都不打）。"""
+    _adapter_env(tmp_path, monkeypatch)
+    page = _FakePage(messages=0, chips={"深度思考": False})  # 智能搜索 chip 缺失
+    _install_fake_browser(monkeypatch, page)
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await run_deepseek_collection(
+            _item(mode="deep_think"),
+            session_factory=_PlaywrightDeepseekSession,
+            heartbeat=lambda p: None,
+        )
+    assert exc_info.value.type == "mode_toggle_failed"
+    assert exc_info.value.non_retryable is True
+    assert not [e for e in page.events if e[0] == "key"]  # 零输入
+
+
+async def test_batch_deep_think_toggle_failure_walls_and_aborts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """batch 题级 toggle 失败 → 本题 wall(mode_toggle_failed) + 后续题
+    aborted（零浏览器交互）。"""
+    page = _FakePage(messages=0, chips={"深度思考": False})  # 智能搜索 chip 缺失
+    session = _make_session(tmp_path, monkeypatch, page)
+    specs = [
+        deepseek_adapter.DeepseekBatchItemSpec(
+            business_key=f"run-2-task-{index}",
+            query=f"第{index}题",
+            mode="deep_think",
+            file_stem=f"run-2-task-{index}-a1",
+        )
+        for index in (1, 2)
+    ]
+
+    outcomes = session.collect_batch(specs, on_stage=lambda s: None)
+
+    assert [o.status for o in outcomes] == ["wall", "aborted"]
+    assert outcomes[0].error_type == "mode_toggle_failed"
+    assert outcomes[1].error_type == "aborted_after_failure"
+    assert "mode_toggle_failed" in (outcomes[1].error_message or "")
+    assert not [e for e in page.events if e[0] == "key"]  # 两题都零输入
+
+
+async def test_run_deepseek_batch_deep_think_passthrough(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """mode 门放行 deep_think：spec.mode 原样透传到 session 层。"""
+    monkeypatch.setenv("GEO_DEEPSEEK_PROFILE_DIR", str(tmp_path))
+    monkeypatch.setenv("GEO_ADAPTER_EVIDENCE_DIR", str(tmp_path / "evidence"))
+    seen: list[str] = []
+    shot = tmp_path / "evidence" / "run-9-task-5-a1.png"
+    shot.parent.mkdir(exist_ok=True)
+    shot.write_bytes(b"\x89PNG-fake")
+
+    class _RecSession:
+        def collect_batch(self, items: Any, on_stage: Any) -> list[Any]:
+            seen.extend(spec.mode for spec in items)
+            return [
+                deepseek_adapter.DeepseekBatchItemOutcome(
+                    business_key=items[0].business_key,
+                    status="ok",
+                    answer=CollectedAnswer(
+                        answer_text="深度思考后的回答", references=[], screenshot_path=shot
+                    ),
+                )
+            ]
+
+    result = await run_deepseek_batch(
+        _batch([_item(mode="deep_think")]),
+        session_factory=lambda config, evidence_dir, stem: _RecSession(),
+        heartbeat=lambda p: None,
+    )
+    assert seen == ["deep_think"]
+    assert result.results[0].status == "ok"
+    assert result.results[0].quality_state == "live_valid"
+
+
+async def test_run_deepseek_batch_session_toggle_failure_marks_all_items(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """防御：toggle 失败逃出题内映射（session 级抛出）→ 全题 wall 诚实记录。"""
+    monkeypatch.setenv("GEO_DEEPSEEK_PROFILE_DIR", str(tmp_path))
+    monkeypatch.setenv("GEO_ADAPTER_EVIDENCE_DIR", str(tmp_path / "evidence"))
+
+    class _ToggleFailSession:
+        def collect_batch(self, items: Any, on_stage: Any) -> list[Any]:
+            raise deepseek_adapter._ModeToggleFailed("chip not found", None)
+
+    result = await run_deepseek_batch(
+        _batch([_item(mode="deep_think"), _item(mode="deep_think")]),
+        session_factory=lambda config, evidence_dir, stem: _ToggleFailSession(),
+        heartbeat=lambda p: None,
+    )
+    assert [r.status for r in result.results] == ["wall", "wall"]
+    assert all(r.error_type == "mode_toggle_failed" for r in result.results)
+
+
+async def test_collect_one_normal_turns_deep_think_off(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """normal 口径（20260810 用户拍板）= 快速模式+智能搜索开+深度思考**关**：
+    账号粘滞的思考开态必须被关掉（幂等——已在目标态的开关零点击）。"""
+    _adapter_env(tmp_path, monkeypatch)
+    page = _FakePage(
+        messages=0,
+        chips={"深度思考": True, "智能搜索": True},  # 思考开（深度思考跑过的粘滞态）
+        tab_selected="快速模式",
+    )
+    _install_fake_browser(monkeypatch, page)
+
+    result = await run_deepseek_collection(
+        _item(mode="normal"),
+        session_factory=_PlaywrightDeepseekSession,
+        heartbeat=lambda p: None,
+    )
+
+    assert result.quality_state == "live_valid"
+    assert page.chips == {"深度思考": False, "智能搜索": True}
+    first_key = next(i for i, e in enumerate(page.events) if e[0] == "key")
+    think_clicks = [
+        i
+        for i, e in enumerate(page.events)
+        if e[0] == "mouse_click" and _in_bb(_CHIP_BB["深度思考"], e[1], e[2])
+    ]
+    assert len(think_clicks) == 1 and think_clicks[0] < first_key
+    # 智能搜索已在目标态 → 零点击；tab 已是快速 → 零点击
+    assert not [
+        e
+        for e in page.events
+        if e[0] == "mouse_click" and _in_bb(_CHIP_BB["智能搜索"], e[1], e[2])
+    ]
+    assert not [
+        e for e in page.events if e[0] == "mouse_click" and _in_bb(_FAST_TAB_BB, e[1], e[2])
+    ]
+
+
+async def test_collect_one_normal_turns_search_on(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """normal 口径下智能搜索被关过 → 必须重新点开（搜索是 GEO 评测引用的来源）。"""
+    _adapter_env(tmp_path, monkeypatch)
+    page = _FakePage(
+        messages=0,
+        chips={"深度思考": False, "智能搜索": False},
+        tab_selected="快速模式",
+    )
+    _install_fake_browser(monkeypatch, page)
+
+    result = await run_deepseek_collection(
+        _item(mode="normal"),
+        session_factory=_PlaywrightDeepseekSession,
+        heartbeat=lambda p: None,
+    )
+
+    assert result.quality_state == "live_valid"
+    assert page.chips == {"深度思考": False, "智能搜索": True}
+    search_clicks = [
+        e
+        for e in page.events
+        if e[0] == "mouse_click" and _in_bb(_CHIP_BB["智能搜索"], e[1], e[2])
+    ]
+    assert len(search_clicks) == 1

@@ -42,7 +42,7 @@ def _item(mode: str = "normal") -> CollectionTaskInput:
         business_key="run-7-task-3",
         query="中意人寿的重疾险有哪些",
         model="doubao",
-        region="Beijing",
+        region="CN-SH",
         mode=mode,
         adapter="doubao",
     )
@@ -1114,7 +1114,7 @@ async def test_run_doubao_batch_maps_outcomes(
                 business_key=f"run-7-task-{index}",
                 query=f"查询{index}",
                 model="doubao",
-                region="Beijing",
+                region="CN-SH",
                 mode="normal",
                 adapter="doubao",
             )

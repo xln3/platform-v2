@@ -1,6 +1,7 @@
-"""deepseek 采集适配器 v1 单元测试：浏览器层全部 mock（依赖注入 fake session），
-绝不启动真浏览器。覆盖：成功字段映射 / 登录墙 / deep_think 拒绝 / profile 未配置 /
-screenshot_ref 过 DLP / 代理口令打码。
+"""deepseek 采集适配器单元测试：浏览器层全部 mock（依赖注入 fake session），
+绝不启动真浏览器。覆盖：成功字段映射 / 登录墙 / deep_think 透传与 toggle 失败 /
+未知 mode 拒绝 / profile 未配置 / screenshot_ref 过 DLP / 代理口令打码 /
+deep_think 开关 helper（chip aria-pressed + tab 结构差分）。
 """
 
 from __future__ import annotations
@@ -17,6 +18,9 @@ from workflows.activities.collection import CollectionTaskInput
 from workflows.activities.deepseek_adapter import (
     CollectedAnswer,
     DeepseekAdapterConfig,
+    _chip_engaged,
+    _ModeToggleFailed,
+    _fast_mode_engaged,
     _rich_record_from_sse,
     _WallError,
     mask_proxy_url,
@@ -47,10 +51,14 @@ class _FakeSession:
         self._result = result
         self._error = error
         self.stages: list[str] = []
+        self.modes: list[str] = []
 
-    def collect(self, query: str, on_stage: Callable[[str], None]) -> CollectedAnswer:
+    def collect(
+        self, query: str, on_stage: Callable[[str], None], *, mode: str = "normal"
+    ) -> CollectedAnswer:
         on_stage("fake_stage")
         self.stages.append("fake_stage")
+        self.modes.append(mode)
         if self._error is not None:
             raise self._error
         assert self._result is not None
@@ -126,11 +134,50 @@ async def test_login_wall_is_non_retryable(adapter_env: Path) -> None:
     assert "evidence=" in str(exc_info.value)
 
 
-async def test_deep_think_rejected_as_unsupported_mode(adapter_env: Path) -> None:
-    session = _FakeSession(result=None)
+async def test_deep_think_mode_passes_through_to_session(adapter_env: Path) -> None:
+    """20260810 起 deep_think 解锁：mode 原样透传到浏览器层，由 session 负责
+    快速模式 tab + 深度思考/智能搜索 chips 的 UI 确保。"""
+    shot = adapter_env / "run-9-task-5-a1.png"
+    shot.write_bytes(b"\x89PNG-fake")
+    session = _FakeSession(
+        result=CollectedAnswer(
+            answer_text="深度思考后的回答",
+            references=[],
+            screenshot_path=shot,
+        )
+    )
+    result = await run_deepseek_collection(
+        _item(mode="deep_think"), session_factory=_factory(session), heartbeat=lambda p: None
+    )
+    assert session.modes == ["deep_think"]
+    assert result.quality_state == "live_valid"
+    assert "深度思考后的回答" in result.answer_text
+
+
+async def test_deep_think_toggle_failure_is_non_retryable(adapter_env: Path) -> None:
+    """开关无法确认启用 → mode_toggle_failed，绝不静默回退 normal。"""
+    evidence = adapter_env / "run-9-task-5-a1-deep_think.png"
+    evidence.write_bytes(b"\x89PNG-fake")
+    session = _FakeSession(
+        error=_ModeToggleFailed("深度思考 chip aria-pressed stuck false", evidence)
+    )
     with pytest.raises(ApplicationError) as exc_info:
         await run_deepseek_collection(
             _item(mode="deep_think"),
+            session_factory=_factory(session),
+            heartbeat=lambda p: None,
+        )
+    assert exc_info.value.type == "mode_toggle_failed"
+    assert exc_info.value.non_retryable is True
+    assert "evidence=" in str(exc_info.value)
+
+
+async def test_unknown_mode_rejected_as_unsupported(adapter_env: Path) -> None:
+    """normal/deep_think 之外的 mode 仍诚实拒绝（mode 门在浏览器启动之前）。"""
+    session = _FakeSession(result=None)
+    with pytest.raises(ApplicationError) as exc_info:
+        await run_deepseek_collection(
+            _item(mode="vision"),
             session_factory=_factory(session),
             heartbeat=lambda p: None,
         )
@@ -246,4 +293,112 @@ def test_sse_assembly_think_fragment_excluded() -> None:
             "sitename": "example.com",
             "summary": None,
         }
+    ]
+
+
+# ---------------------------------------------------------------------------
+# deep_think 开关 helper（chip aria-pressed / tab 结构差分）纯函数边界
+# ---------------------------------------------------------------------------
+
+
+class _HelperFakeLocator:
+    """chip/tab helper 探针替身：只实现 helper 用到的面。"""
+
+    def __init__(self, present: bool, pressed: str | None = None) -> None:
+        self._present = present
+        self._pressed = pressed
+
+    @property
+    def first(self) -> "_HelperFakeLocator":
+        return self
+
+    def count(self) -> int:
+        return 1 if self._present else 0
+
+    def is_visible(self, timeout: int | None = None) -> bool:
+        return self._present
+
+    def get_attribute(self, name: str) -> str | None:
+        assert name == "aria-pressed"
+        return self._pressed
+
+
+class _HelperFakePage:
+    def __init__(self, chips: dict[str, str | None], tab_state: object) -> None:
+        self._chips = chips  # name -> aria-pressed 值；缺 key = chip 不在屏
+        self._tab_state = tab_state  # evaluate 返回值原样透传
+
+    def locator(self, selector: str) -> _HelperFakeLocator:
+        for name in ("深度思考", "智能搜索"):
+            if f'has-text("{name}")' in selector:
+                return _HelperFakeLocator(name in self._chips, self._chips.get(name))
+        raise AssertionError(f"unexpected selector: {selector}")
+
+    def evaluate(self, script: str) -> object:
+        return self._tab_state
+
+
+def test_chip_engaged_states() -> None:
+    assert _chip_engaged(_HelperFakePage({"深度思考": "true"}, None), "深度思考") is True
+    assert _chip_engaged(_HelperFakePage({"深度思考": "false"}, None), "深度思考") is False
+    # chip 不在屏 / 状态读不出 → None（调用方诚实失败，绝不猜）
+    assert _chip_engaged(_HelperFakePage({}, None), "深度思考") is None
+    assert _chip_engaged(_HelperFakePage({"深度思考": None}, None), "深度思考") is None
+
+
+def test_fast_mode_engaged_states() -> None:
+    assert (
+        _fast_mode_engaged(_HelperFakePage({}, {"found": True, "selected": "快速模式"}))
+        is True
+    )
+    assert (
+        _fast_mode_engaged(_HelperFakePage({}, {"found": True, "selected": "专家模式"}))
+        is False
+    )
+    # tab 条不在屏 / 结构差分失败 / 探针异常 → None（不可观测不阻断、不猜）
+    assert _fast_mode_engaged(_HelperFakePage({}, {"found": False})) is None
+    assert _fast_mode_engaged(_HelperFakePage({}, {"found": True, "selected": None})) is None
+    assert _fast_mode_engaged(_HelperFakePage({}, None)) is None
+
+
+def test_sse_assembly_deep_think_stream_excludes_think_and_tools() -> None:
+    """回归（20260810 live 实测 deep_think+智能搜索流）：THINK/TOOL_SEARCH/
+    TOOL_OPEN 碎片与 [reference:N] 锚点不进正文；引用卡片从 results/result
+    载体抽出并按 URL 去重。
+
+    旧版状态无关组装器把思考链当正文（裸增量无路径归属，THINK 碎片流式期间
+    的 {"v":...} 全被收进答案）——本流固定实测结构：快照(THINK) → 路径/裸
+    增量（思考） → BATCH 加 TOOL_SEARCH → results SET → 独立 APPEND 加
+    RESPONSE → 裸增量（正文） → BATCH fragments/-1 引用锚点。"""
+    body = (
+        'data: {"v":{"response":{"message_id":2,"role":"ASSISTANT","thinking_enabled":true,'
+        '"search_enabled":true,"fragments":[{"id":2,"type":"THINK","content":"用户",'
+        '"references":[],"stage_id":1}]}}}\n\n'
+        'data: {"p":"response/fragments/-1/content","o":"APPEND","v":"想知道"}\n\n'
+        'data: {"v":"最近一周的科技新闻。"}\n\n'
+        'data: {"p":"response","o":"BATCH","v":[{"p":"fragments","o":"APPEND","v":'
+        '[{"id":3,"type":"TOOL_SEARCH","status":"WIP","content":null,'
+        '"queries":[{"query":"科技新闻"}],"results":[],"stage_id":1}]}]}\n\n'
+        'data: {"p":"response/fragments/-1/results","o":"SET","v":'
+        '[{"url":"https://example.com/a","title":"标题A","site_name":"站点A","snippet":"摘要A"},'
+        '{"url":"https://example.com/b","title":"标题B","site_name":"站点B"}]}\n\n'
+        # TOOL_OPEN 的 result 单卡（与 results 卡同 URL → 去重）
+        'data: {"p":"response/fragments/4/result","o":"SET","v":'
+        '{"url":"https://example.com/b","title":"标题B","site_name":"站点B"}}\n\n'
+        'data: {"p":"response/fragments","o":"APPEND","v":'
+        '[{"id":18,"type":"RESPONSE","content":"过去","references":[],"stage_id":3}]}\n\n'
+        'data: {"v":"一周"}\n\n'
+        'data: {"v":"，科技新闻如下"}\n\n'
+        'data: {"p":"response/fragments/-1","o":"BATCH","v":'
+        '[{"p":"content","o":"APPEND","v":"[reference:1]"},'
+        '{"p":"references","v":[{"id":3,"type":"TOOL_SEARCH"}]}]}\n\n'
+        'data: {"v":"。"}\n\n'
+        'data: {"p":"response/status","o":"SET","v":"FINISHED"}\n\n'
+    )
+    rich = _rich_record_from_sse(body)
+    assert rich is not None
+    assert rich["answer_text"] == "过去一周，科技新闻如下。"
+    assert [r["url"] for r in rich["references"]] == [
+        "https://example.com/a",
+        "https://example.com/b",
     ]

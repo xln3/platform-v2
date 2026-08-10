@@ -22,6 +22,15 @@ v1 边界（2026-08-05 W1 起 deep_think 解锁）：
   历史教训：route patch 改写 /chat/completion 请求体（need_deep_think 0→1）已被否决——
   豆包客户端对请求体签名，改字节即签名失效、服务端静默吞发送（旧链 2026-07-15
   live 实证），UI toggle 是唯一合法机制。
+  请求态≠实际态分开记录（旧链纪律：请求 deep_think ≠ 实际启用）：发送前的
+  picker 后置校验只确认「请求已下达」；流结束后以 SSE 证据（thinking root
+  block_type=10040）二次确认实际态——``_mode_evidence`` 产出
+  {requested, ui_toggle_engaged, sse_deep_think_active, actual}，actual 仅当
+  SSE 证据为正才标 deep_think，证据缺失（DOM 兜底/解析失败）或为负一律如实
+  标 normal（旧链 portal 同款口径：「请求了深度思考，但证据中未检测到启用」
+  不计深度态）。结论注入 trace JSON 的 ``mode`` 段随证据落盘并进
+  ``CollectedAnswer.meta``；请求 deep 而未获 SSE 确认时另发
+  ``doubao_deep_think_unconfirmed`` 警告日志。
 - 配置全走 env（秘密绝不进 task payload）：
   ``GEO_DOUBAO_PROFILE_DIR``（必填，浏览器 persistent profile 目录；缺失/不存在 →
   ``adapter_not_configured`` non_retryable）；``GEO_DOUBAO_PROXY_URL``（可选，
@@ -131,7 +140,7 @@ import random
 import re
 import time
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import urlsplit
@@ -141,6 +150,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from workflows.activities.browser_driver import load_sync_browser_driver
+from workflows.activities.browser_router import resolve_batch_instance
 from workflows.activities.collection import (
     CaptchaPause,
     CollectionBatchInput,
@@ -411,13 +421,18 @@ _FLATTEN_FOR_SCREENSHOT_JS = r"""
 
 @dataclass(frozen=True)
 class DoubaoAdapterConfig:
-    """env 配置。proxy_url 原文只在启动浏览器时使用，绝不落日志/payload。"""
+    """env 配置。proxy_url 原文只在启动浏览器时使用，绝不落日志/payload。
+
+    ``browser_key``（2026-08-09 起，浏览器矩阵化）：attach/互斥锁/fence 用的
+     opaque "platform"——batch 路径由 browser_router 解析为常驻实例键
+    （``doubao_sh`` 等）；缺省平台 slug（per-task 老路径/测试行为不变）。"""
 
     profile_dir: Path
     proxy_url: str | None
     evidence_dir: Path
     headless: bool
     chat_timeout_s: float = _DEFAULT_CHAT_TIMEOUT_S
+    browser_key: str = _PLATFORM_SLUG
 
     @classmethod
     def from_env(cls, *, proxy_url_override: str | None = None) -> DoubaoAdapterConfig:
@@ -641,14 +656,25 @@ async def collect_doubao_batch(batch: CollectionBatchInput) -> CollectionBatchRe
     )
 
 
-def _batch_result_with_pause(results: list[CollectionBatchItemResult]) -> CollectionBatchResult:
+def _batch_result_with_pause(
+    results: list[CollectionBatchItemResult],
+    *,
+    instance_key: str | None = None,
+) -> CollectionBatchResult:
     """等长结果 → CollectionBatchResult；首个 wall_captcha 题标注 captcha_pause。
 
     captcha-assist-v1：撞码是可人工恢复的暂停点而非终局失败——workflow 见到
     pause 会挂起等人工接管、从 resume_index 起重采；results 仍保持等长全占
     位（未打补丁的旧 workflow 重放本结果，行为与今天完全一致）。非撞码失败
     （登录墙/incomplete/toggle）不产生 pause，维持现行语义。
+
+    ``instance_key``（浏览器矩阵化）：batch 出口统一盖实例章——逐结果写
+    ``browser_instance``（persist 进 matrix_json 的 provenance 来源）且 pause
+    携带实例键（assist 接管 attach 同一台常驻浏览器）。None = 旧行为不变。
     """
+    if instance_key is not None:
+        for result in results:
+            result.browser_instance = instance_key
     for index, result in enumerate(results):
         if result.status == "wall" and result.error_type == "wall_captcha":
             return CollectionBatchResult(
@@ -658,6 +684,7 @@ def _batch_result_with_pause(results: list[CollectionBatchItemResult]) -> Collec
                     business_key=result.business_key,
                     wall_type=result.error_type,
                     evidence_ref=result.screenshot_ref,
+                    instance_key=instance_key,
                 ),
             )
     return CollectionBatchResult(results=results)
@@ -695,7 +722,15 @@ async def run_doubao_batch(
                 type="unsupported_mode",
                 non_retryable=True,
             )
+    # 浏览器矩阵化（2026-08-09 起）：batch 段（同平台同地域）路由到对应常驻
+    # 实例，实例键当 opaque platform 进 platform_browser/锁/fence/CDP 解析；
+    # 无实例/地域不符/清单畸形一律 fail-closed（诚实失败，绝不静默替换）。
+    # 空 batch 不解析（零浏览器交互的旧契约不变）。
+    route = resolve_batch_instance(batch.items)
+    instance_key = route.instance_key if route is not None else None
     config = DoubaoAdapterConfig.from_env(proxy_url_override=proxy_url_override)
+    if route is not None:
+        config = replace(config, browser_key=route.instance_key)
     config.evidence_dir.mkdir(parents=True, exist_ok=True)
     batch_stem = f"batch-{_safe_stem(batch.run_pub_id)}-a{attempt}"
     specs = [
@@ -761,7 +796,8 @@ async def run_doubao_batch(
                     evidence_path=wall.evidence_path,
                 )
                 for item in batch.items
-            ]
+            ],
+            instance_key=instance_key,
         )
     except _DeepThinkToggleFailed as toggle:
         # 防御：toggle 失败应在题内转 outcome；逃出即按 session 级 wall 诚实记录。
@@ -804,7 +840,7 @@ async def run_doubao_batch(
         failed=sum(1 for r in results if r.status != "ok"),
         stage=progress["stage"],
     )
-    return _batch_result_with_pause(results)
+    return _batch_result_with_pause(results, instance_key=instance_key)
 
 
 def _failure_batch_item(
@@ -1240,7 +1276,7 @@ class _PlaywrightDoubaoSession:
 
         on_stage("browser_launch")
         with sync_playwright() as pw:
-            resident = resident_cdp_url(_PLATFORM_SLUG) is not None
+            resident = resident_cdp_url(self._config.browser_key) is not None
             if not resident:
                 # 启动前愈合前任进程的崩溃标记（activity 取消/SIGKILL 会绕过正常 close，
                 # Chromium 未写回 exit_type=Normal → 下次启动弹「Restore pages?」）。
@@ -1275,7 +1311,7 @@ class _PlaywrightDoubaoSession:
             with contextlib.ExitStack() as stack:
                 try:
                     context, page, is_resident = stack.enter_context(
-                        platform_browser(pw, platform=_PLATFORM_SLUG, launch=_launch)
+                        platform_browser(pw, platform=self._config.browser_key, launch=_launch)
                     )
                 except (_IncompleteCapture, BrowserBusyError):
                     # launch 失败已包装（可重试）；锁排队超时如实上报（契约词表）。
@@ -1339,6 +1375,9 @@ class _PlaywrightDoubaoSession:
         """单题主体：await_input → fresh_chat → [deep_think toggle] → 拟人输入/
         发送 → SSE 捕获/组装/证据落盘。per-task 单题与 batch 每题共用。"""
         capture = _CompletionCapture(context, page)
+        # 请求态≠实际态：deep_think 的 UI toggle 后置校验结果（None=本题未请求
+        # deep_think，无 toggle 环节）。toggle 失败在下方诚实 raise，走不到这里。
+        deep_think_ui_engaged: bool | None = None
         try:
 
             def _pace(lo: float, hi: float) -> float:
@@ -1409,6 +1448,8 @@ class _PlaywrightDoubaoSession:
                         "(selector drift or mode unavailable)",
                         _shot("deep_think"),
                     )
+                # UI 后置校验通过 = 请求态已确认下达（实际态仍待 SSE 证据二次确认）。
+                deep_think_ui_engaged = True
                 _pace(*_PACE_AFTER_TOGGLE_S)  # 切完模式回神再回到输入框
                 on_stage("typing")
             # 点输入框聚焦（贝塞尔移动 + 悬停 + 框内随机偏移点击）。human_click
@@ -1522,6 +1563,24 @@ class _PlaywrightDoubaoSession:
                     source_url=_CHAT_URL,
                 )
             ]
+
+            # 请求态≠实际态（旧链纪律：请求 deep_think ≠ 实际启用）。actual 仅当
+            # SSE 证据（thinking root block_type=10040）为正才标 deep_think；证据
+            # 缺失（DOM 兜底/解析失败）或为负一律如实 normal。结论注入 trace 的
+            # mode 段随证据落盘——注入在截断阶梯之后（~120B 固定开销，不挤占
+            # 业务字段水位）；normal 题同样记录（反向错配=请求 normal 实际 deep
+            # 也如实可见）。
+            mode_evidence = _mode_evidence(
+                spec.mode, ui_engaged=deep_think_ui_engaged, sse_trace=sse_trace
+            )
+            if sse_trace is not None:
+                sse_trace["mode"] = mode_evidence
+            if spec.mode == "deep_think" and mode_evidence["actual"] != "deep_think":
+                log.warning(
+                    "doubao_deep_think_unconfirmed",
+                    business_key=spec.business_key,
+                    sse_deep_think_active=mode_evidence["sse_deep_think_active"],
+                )
 
             # W1：SSE 结构化 trace 落盘进证据链（kind="sse"）。写盘失败不拖垮
             # 已成功的采集——如实 warning 且不出该证据（绝不出残缺/编造证据）。
@@ -1644,6 +1703,7 @@ class _PlaywrightDoubaoSession:
                     "share_link": share_link_audit,
                     "source_screenshots": source_audit,
                     "sse_trace_persisted": sse_trace is not None,
+                    "mode": mode_evidence,
                 },
                 search_queries=search_queries,
             )
@@ -2830,6 +2890,33 @@ def _build_sse_trace_record(
     assert record is not None
     record["stats"]["truncated"] = truncated
     return record
+
+
+def _mode_evidence(
+    requested_mode: str,
+    *,
+    ui_engaged: bool | None,
+    sse_trace: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """请求态 vs 实际态分开记录（旧链纪律：请求 deep_think ≠ 实际启用——旧链
+    portal 对「请求了深度思考但证据中未检测到启用」的答案拒记深度态）。
+
+    - ``requested``：任务请求的 mode（normal/deep_think）；
+    - ``ui_toggle_engaged``：发送前 picker 后置校验是否确认切换（None=本题
+      未请求 deep_think，无 toggle 环节；toggle 失败已诚实 raise，走不到这里）；
+    - ``sse_deep_think_active``：SSE 流证据（thinking root block_type=10040
+      是否出现；None=无 SSE 可判——DOM 兜底/解析失败）；
+    - ``actual``：仅当 SSE 证据为正才标 deep_think；证据缺失或为负一律如实
+      normal，绝不把请求态当实际态。反向错配（请求 normal 而 SSE 见 thinking
+      root）同样如实标 deep_think。
+    """
+    sse_active = sse_trace.get("deep_think_active") if sse_trace is not None else None
+    return {
+        "requested": requested_mode,
+        "ui_toggle_engaged": ui_engaged,
+        "sse_deep_think_active": sse_active,
+        "actual": "deep_think" if sse_active is True else "normal",
+    }
 
 
 # ---------------------------------------------------------------------------
