@@ -24,10 +24,21 @@
 - 参考来源：DOM best-effort 抽取（`参考`/`来源` 容器内锚点），抽不到即空列表——
   不合成。
 
-v1 边界：
+v1 边界（20260810 deep_think 解锁）：
 
-- 仅 ``mode='normal'``；``mode='deep_think'`` →
+- ``mode='normal'`` 与 ``mode='deep_think'`` 均支持；其他 mode →
   ``ApplicationError(..., type="unsupported_mode", non_retryable=True)``。
+  deep_think = composer 左侧「深度思考」chip（``div.ci-model-button:has(
+  div.internet-search-icon)``，20260810 live 校准）：开=容器 class
+  ``ci-model-button-active`` 且 ``data-ci-show-ext`` 的 ``is_open:"1"``，
+  关=``ci-model-button-inactive``/``is_open:"0"``。chip 态账号级粘滞——
+  每题发送前显式确保目标态（幂等，已在目标态零点击）；点击后读不回
+  目标态 → ``mode_toggle_failed`` non_retryable，绝不按错误口径采。
+- deep_think 思考链落证据：思考步在 ``div.ai-thinking-steps``（答案
+  generate 块内部，header「深度思考完成/中」）——逐 step ``main`` 叶节点
+  原文拼装，落 trace JSON（kind="sse"，transport="dom"：文心 SW 中转抓不到
+  SSE，思考链来自 DOM 实渲染，与豆包/DeepSeek 的 SSE 来源差异如实标注）；
+  正文抽取经 JS clone 剔除思考块，绝不混入 answer_text。
 - 配置全走 env（秘密绝不进 task payload）：
   ``GEO_YIYAN_PROFILE_DIR``（必填，persistent profile 目录；缺失/不存在 →
   ``adapter_not_configured`` non_retryable）；``GEO_YIYAN_PROXY_URL``（可选，
@@ -109,6 +120,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import os
 import random
 import re
@@ -128,6 +140,7 @@ from workflows.activities.collection import (
     CollectionBatchInput,
     CollectionBatchItemResult,
     CollectionBatchResult,
+    CollectionEvidenceRef,
     CollectionTaskInput,
     CollectionTaskResult,
     batch_result_with_captcha_pause,
@@ -154,6 +167,42 @@ _DEFAULT_EVIDENCE_DIR = (
 _HEARTBEAT_INTERVAL_S = 10.0  # workflow heartbeat_timeout=30s，泵频 ≤15s 硬约束
 _NAV_TIMEOUT_MS = 25_000
 _CHAT_TIMEOUT_S = 120.0  # normal 模式流式完成预算（workflow 总预算 5 分钟）
+# deep_think（深度思考）思考+作答远长于 normal——对齐豆包/DeepSeek 600s；
+# workflow per-item 预算 15min 放得下。
+_CHAT_TIMEOUT_DEEP_THINK_S = 600.0
+# deep_think 阶段切换（思考→整理→作答）DOM 静默期长于 normal 的 2.5s 稳定窗，
+# 放宽到 8s 防提前判完成截断答案（20260810 live 校准观察窗）。
+_DEEP_THINK_QUIET_S = 8.0
+
+# 深度思考 chip（20260810 live 校准，yiyan_bj 常驻浏览器实证）：composer 左侧
+# 「深度思考」入口 = div.ci-model-button:has(div.internet-search-icon)；开=
+# 容器 class 含 ci-model-button-active 且 data-ci-show-ext 的 is_open:"1"，
+# 关=ci-model-button-inactive/is_open:"0"。chip 态账号级粘滞。
+_DEEP_THINK_CHIP_SELECTOR = "div.ci-model-button:has(div.internet-search-icon)"
+_DEEP_THINK_CHIP_STATE_JS = r"""() => {
+  const btn = document.querySelector('div.ci-model-button:has(div.internet-search-icon)');
+  if (!btn) return null;
+  const cls = btn.className || '';
+  const m = (btn.getAttribute('data-ci-show-ext') || '').match(/"is_open":"(\d)"/);
+  return {
+    active: cls.includes('ci-model-button-active'),
+    inactive: cls.includes('ci-model-button-inactive'),
+    is_open: m ? m[1] : null,
+  };
+}"""
+
+# 思考链块（20260810 live 校准）：答案 generate 块内 div.ai-thinking-steps，
+# header「深度思考完成/深度思考中」，逐 step 文本在叶 main 元素。
+_THINKING_BLOCK_SELECTOR = "div.ai-thinking-steps"
+# 正文抽取剔除思考块与信源卡片：clone 后 remove，原 DOM 不动（截图证据仍含
+# 原样）。div.cosd-note-list = deep_think 信源卡片列表（20260810 live 校准：
+# 卡片 a[href] 已结构化进 citations，正文尾部不再重复其文本碎片）。
+_STRIP_THINKING_JS = r"""(el) => {
+  const c = el.cloneNode(true);
+  for (const t of c.querySelectorAll('div.ai-thinking-steps')) t.remove();
+  for (const t of c.querySelectorAll('div.cosd-note-list')) t.remove();
+  return c.innerText;
+}"""
 
 _CHAT_URL = "https://yiyan.baidu.com/"
 
@@ -436,12 +485,118 @@ class _IncompleteCapture(RuntimeError):
         self.evidence_path = evidence_path
 
 
+class _ModeToggleFailed(RuntimeError):
+    """深度思考 chip 无法确认到目标态（non_retryable；绝不按错误口径采）。"""
+
+    def __init__(self, message: str, evidence_path: Path | None = None) -> None:
+        super().__init__(message)
+        self.evidence_path = evidence_path
+
+
+def _deep_think_chip_state(page: Any) -> bool | None:
+    """读深度思考 chip 当前态：True=开 / False=关 / None=不可观测（不猜）。"""
+    try:
+        state = page.evaluate(_DEEP_THINK_CHIP_STATE_JS)
+    except Exception:
+        return None
+    if not isinstance(state, dict):
+        return None
+    active = state.get("active") is True and state.get("is_open") == "1"
+    inactive = state.get("inactive") is True and state.get("is_open") == "0"
+    if active and not inactive:
+        return True
+    if inactive and not active:
+        return False
+    return None  # class 与 is_open 不一致 → 不可观测，诚实 None
+
+
+def _ensure_deep_think(
+    page: Any,
+    rng: random.Random,
+    *,
+    engaged: bool,
+    shot: Callable[[str], Path | None],
+    mouse_pos: tuple[float, float] | None = None,
+) -> tuple[float, float] | None:
+    """把深度思考 chip 确保到目标态（幂等：已在目标态零点击）。
+
+    chip 态账号级粘滞——每题发送前显式确保，防止上一 run 的残留态污染本题
+    口径。最多两次点击尝试；读不回目标态 → _ModeToggleFailed（存证截图）。
+    """
+    for _attempt in range(2):
+        state = _deep_think_chip_state(page)
+        if state is not None and state == engaged:
+            return mouse_pos
+        try:
+            chip = page.locator(_DEEP_THINK_CHIP_SELECTOR).first
+            clicked_at = human_click(chip, page, rng, start=mouse_pos)
+            if clicked_at is not None:
+                mouse_pos = clicked_at
+        except Exception:
+            pass
+        page.wait_for_timeout(800)
+        state = _deep_think_chip_state(page)
+        if state is not None and state == engaged:
+            return mouse_pos
+    raise _ModeToggleFailed(
+        f"deep_think chip could not be confirmed to target state engaged={engaged}",
+        shot("mode_toggle"),
+    )
+
+
+def _extract_thinking_text(page: Any) -> str:
+    """抽深度思考链原文（最后一个答案容器内 div.ai-thinking-steps 的叶 main 文本）。
+
+    零合成：块不存在/无文本即空串。叶 main = 不含子 main 的 main（思考步容器
+    与内层展开区会嵌套重复，取叶去重）。
+    """
+    try:
+        text = page.evaluate(
+            r"""() => {
+              const sel = 'div.conversation-flow-answer-container';
+              const containers = document.querySelectorAll(sel);
+              if (!containers.length) return '';
+              const last = containers[containers.length - 1];
+              const think = last.querySelector('div.ai-thinking-steps');
+              if (!think) return '';
+              const mains = Array.from(think.querySelectorAll('main'))
+                .filter((m) => !m.querySelector('main'));
+              const parts = mains.map((m) => (m.innerText || '').trim()).filter(Boolean);
+              if (parts.length) return parts.join('\n\n');
+              return (think.innerText || '').trim();
+            }"""
+        )
+    except Exception:
+        return ""
+    return str(text or "").strip()
+
+
+def _build_yiyan_trace(thinking_text: str, *, deep_think_active: bool) -> dict[str, Any]:
+    """思考链 → trace record（kind="sse" 证据内容，词表对齐豆包/DeepSeek）。
+
+    transport="dom" 如实标注：文心 SW 中转抓不到 completion SSE（20260727
+    probe_transport 实证），思考链来自 DOM 实渲染，与 SSE 来源差异不掩盖。
+    """
+    thinking_chain: list[dict[str, Any]] = []
+    if thinking_text:
+        thinking_chain.append({"kind": "reasoning", "text": thinking_text})
+    return {
+        "engine": "yiyan",
+        "transport": "dom",
+        "deep_think_active": deep_think_active,
+        "thinking_chain": thinking_chain,
+        "search_blocks": [],
+    }
+
+
 @dataclass
 class CollectedAnswer:
     answer_text: str
     references: list[dict[str, Any]]
     screenshot_path: Path
     meta: dict[str, Any] = field(default_factory=dict)
+    # 思考链 trace 证据路径（kind="sse"，transport="dom"；无思考/写盘失败=None 诚实缺省）
+    trace_path: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -471,7 +626,9 @@ class YiyanBatchItemOutcome:
 class _BrowserSession(Protocol):
     """Playwright 交互隔离面：测试注入 fake，绝不启动真浏览器。"""
 
-    def collect(self, query: str, on_stage: Callable[[str], None]) -> CollectedAnswer: ...
+    def collect(
+        self, query: str, on_stage: Callable[[str], None], *, mode: str = "normal"
+    ) -> CollectedAnswer: ...
 
     def collect_batch(
         self, items: list[YiyanBatchItemSpec], on_stage: Callable[[str], None]
@@ -534,9 +691,9 @@ async def run_yiyan_batch(
     factory = session_factory or _PlaywrightYiyanSession
     beat = heartbeat or _noop_heartbeat
     for item in batch.items:
-        if item.mode != "normal":
+        if item.mode not in ("normal", "deep_think"):
             raise ApplicationError(
-                f"unsupported mode: {item.mode!r} (expected 'normal')",
+                f"unsupported mode: {item.mode!r} (expected 'normal' or 'deep_think')",
                 type="unsupported_mode",
                 non_retryable=True,
             )
@@ -712,9 +869,9 @@ async def run_yiyan_collection(
     与 activity 上下文解耦（session_factory/heartbeat/attempt 注入），测试全程 mock
     浏览器层。session_factory 缺省 = 真 patchright 会话（worker 注册路径）。
     """
-    if item.mode != "normal":
+    if item.mode not in ("normal", "deep_think"):
         raise ApplicationError(
-            "deep_think not enabled in adapter v1",
+            f"unsupported mode: {item.mode!r} (expected 'normal' or 'deep_think')",
             type="unsupported_mode",
             non_retryable=True,
         )
@@ -733,7 +890,9 @@ async def run_yiyan_collection(
 
     def _blocking() -> CollectedAnswer:
         session = factory(config, config.evidence_dir, file_stem)
-        return session.collect(item.query, on_stage=lambda s: progress.__setitem__("stage", s))
+        return session.collect(
+            item.query, on_stage=lambda s: progress.__setitem__("stage", s), mode=item.mode
+        )
 
     try:
         if uses_default_session:
@@ -753,6 +912,12 @@ async def run_yiyan_collection(
         raise ApplicationError(
             f"{wall}{evidence}", type=wall.wall_type, non_retryable=True
         ) from wall
+    except _ModeToggleFailed as toggle:
+        evidence = f"; evidence={toggle.evidence_path}" if toggle.evidence_path else ""
+        bound.info("yiyan_mode_toggle_failed", stage=progress["stage"])
+        raise ApplicationError(
+            f"{toggle}{evidence}", type="mode_toggle_failed", non_retryable=True
+        ) from toggle
     except _IncompleteCapture as inc:
         evidence = f"; evidence={inc.evidence_path}" if inc.evidence_path else ""
         bound.info("yiyan_capture_incomplete", reason=str(inc), stage=progress["stage"])
@@ -773,12 +938,39 @@ def _task_result_from_collected(
     run_yiyan_collection 与 batch per-item ok 映射共用。"""
     answer_text = _compose_answer_text(collected.answer_text, collected.references)
     screenshot_ref = f"file://{collected.screenshot_path}"
+    # 结构化信源（W2 source_fetch 的唯一输入）：references 判形时已保证真实
+    # http(s) URL；cited_text 无逐句引述可填 → None，transcript 口径诚实落
+    # unverifiable。
+    citations = [
+        {
+            "url": str(ref["url"]),
+            "title": str(ref["title"]).strip() if ref.get("title") else None,
+            "cited_text": None,
+        }
+        for ref in collected.references
+        if isinstance(ref, dict)
+        and isinstance(ref.get("url"), str)
+        and ref["url"].startswith(("http://", "https://"))
+    ]
+    evidence: list[CollectionEvidenceRef] = []
+    if collected.trace_path is not None:
+        evidence.append(
+            CollectionEvidenceRef(
+                kind="sse",
+                path=str(collected.trace_path),
+                relation_type="answer_sse_trace",
+                mime_type="application/json",
+                source_url=_CHAT_URL,
+            )
+        )
     # DLP 统一由 persist 层脱敏处理（单一权威边界，2026-08-06 起）。
     return CollectionTaskResult(
         business_key=item.business_key,
         answer_text=answer_text,
         screenshot_ref=screenshot_ref,
         quality_state="live_valid",
+        citations=citations,
+        evidence=evidence,
     )
 
 
@@ -841,11 +1033,13 @@ class _PlaywrightYiyanSession:
         self._rng = random.Random()
         self._mouse_pos: tuple[float, float] | None = None
 
-    def collect(self, query: str, on_stage: Callable[[str], None]) -> CollectedAnswer:
+    def collect(
+        self, query: str, on_stage: Callable[[str], None], *, mode: str = "normal"
+    ) -> CollectedAnswer:
         spec = YiyanBatchItemSpec(
             business_key=self._file_stem,
             query=query,
-            mode="normal",
+            mode=mode,
             file_stem=self._file_stem,
         )
         with self._browser_session(on_stage) as (context, page, pw_timeout, driver):
@@ -868,6 +1062,17 @@ class _PlaywrightYiyanSession:
                     outcomes.append(self._failure_outcome(spec, "wall", wall.wall_type, wall))
                     outcomes.extend(
                         self._aborted_outcome(rest, spec, wall.wall_type)
+                        for rest in items[index + 1 :]
+                    )
+                    return outcomes
+                except _ModeToggleFailed as toggle:
+                    # chip 确认不了目标态=口径无法保证：本题诚实失败、后续题
+                    # aborted（零浏览器交互），绝不按错误口径采。
+                    outcomes.append(
+                        self._failure_outcome(spec, "wall", "mode_toggle_failed", toggle)
+                    )
+                    outcomes.extend(
+                        self._aborted_outcome(rest, spec, "mode_toggle_failed")
                         for rest in items[index + 1 :]
                     )
                     return outcomes
@@ -900,7 +1105,7 @@ class _PlaywrightYiyanSession:
         spec: YiyanBatchItemSpec,
         status: str,
         error_type: str,
-        exc: _WallError | _IncompleteCapture,
+        exc: _WallError | _IncompleteCapture | _ModeToggleFailed,
     ) -> YiyanBatchItemOutcome:
         return YiyanBatchItemOutcome(
             business_key=spec.business_key,
@@ -1075,6 +1280,18 @@ class _PlaywrightYiyanSession:
             shot=_shot,
         )
 
+        # 深度思考 chip（20260810 起）：发送前显式确保目标态——chip 态账号级
+        # 粘滞，normal 也要显式确保关，防上一 run 残留态污染本题口径。
+        # 确认不了 → _ModeToggleFailed（non_retryable），绝不按错误口径采。
+        on_stage("mode_toggle")
+        self._mouse_pos = _ensure_deep_think(
+            page,
+            self._rng,
+            engaged=(spec.mode == "deep_think"),
+            shot=_shot,
+            mouse_pos=self._mouse_pos,
+        )
+
         on_stage("typing")
         # 页面就绪：真人先端详一眼再动手（零停顿直点输入框是机器人指纹）。
         _pace(*_PACE_PAGE_READY_S)
@@ -1127,12 +1344,22 @@ class _PlaywrightYiyanSession:
             page.wait_for_timeout(500)
 
         on_stage("await_stream")
-        meta = _wait_dom_stream(page, appearance_timeout_s=20.0, timeout_s=_CHAT_TIMEOUT_S)
+        meta = _wait_dom_stream(
+            page,
+            appearance_timeout_s=20.0,
+            timeout_s=(
+                _CHAT_TIMEOUT_DEEP_THINK_S if spec.mode == "deep_think" else _CHAT_TIMEOUT_S
+            ),
+            quiet_s=_DEEP_THINK_QUIET_S if spec.mode == "deep_think" else 2.5,
+        )
         answer_text = ""
         references: list[dict[str, Any]] = []
+        thinking_text = ""
         if meta.get("found"):
             answer_text = _extract_response_text(page, spec.query)
             references = _extract_references(page)
+            if spec.mode == "deep_think":
+                thinking_text = _extract_thinking_text(page)
         on_stage("answer_extracted")
 
         if not answer_text:
@@ -1175,6 +1402,28 @@ class _PlaywrightYiyanSession:
         page.screenshot(path=str(shot_path), full_page=True)
         if not shot_path.exists():
             raise _IncompleteCapture("evidence-screenshot-failed: no file written")
+        # 思考链 trace 落盘进证据链（kind="sse"，transport="dom"）。写盘失败不
+        # 拖垮已成功的采集——如实 warning 且不出该证据（绝不出残缺/编造证据）。
+        trace_path: Path | None = None
+        if thinking_text:
+            trace_candidate = self._evidence_dir / f"{spec.file_stem}-sse-trace.json"
+            try:
+                trace_candidate.write_text(
+                    json.dumps(
+                        _build_yiyan_trace(thinking_text, deep_think_active=True),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
+                    encoding="utf-8",
+                )
+                trace_path = trace_candidate
+            except Exception:
+                log.warning(
+                    "yiyan_thinking_trace_persist_failed",
+                    file_stem=spec.file_stem,
+                    exc_info=True,
+                )
         return CollectedAnswer(
             answer_text=answer_text,
             references=references,
@@ -1183,7 +1432,13 @@ class _PlaywrightYiyanSession:
                 "stream": meta,
                 "transport": "dom-observed (sw-intercepted, 20260727 calibrated)",
                 "driver": driver,
+                "mode": {
+                    "requested": spec.mode,
+                    "deep_think_chip_engaged": spec.mode == "deep_think",
+                    "thinking_captured": bool(thinking_text),
+                },
             },
+            trace_path=trace_path,
         )
 
     def _shot(self, page: Any, suffix: str, *, stem: str | None = None) -> Path | None:
@@ -1510,13 +1765,24 @@ def _submit_and_confirm(
 
 
 def _extract_response_text(page: Any, query: str = "") -> str:
-    """DOM 抽取：先助手气泡选择器，再按「query 最后出现位置之后」切正文。"""
+    """DOM 抽取：先助手气泡选择器，再按「query 最后出现位置之后」切正文。
+
+    20260810 起经 JS clone 剔除 ``div.ai-thinking-steps`` 思考块（deep_think
+    模式思考链在 generate 块内部——不剔除会混入正文；原 DOM 不动，截图证据
+    仍含思考区）。JS 失败回退 inner_text（旧行为）。
+    """
     for sel in _ASSISTANT_SELECTORS:
         try:
             elements = page.locator(sel).all()
             if not elements:
                 continue
-            text = elements[-1].inner_text(timeout=2000)
+            try:
+                text = str(elements[-1].evaluate(_STRIP_THINKING_JS) or "")
+            except Exception:
+                text = ""
+            if not text.strip():
+                # JS 剔除路径不可用/为空 → 回退 inner_text（20260727 旧行为）
+                text = elements[-1].inner_text(timeout=2000)
             if text and text.strip():
                 return _trim_response(text.strip())
         except Exception:
@@ -1535,11 +1801,14 @@ def _extract_response_text(page: Any, query: str = "") -> str:
 def _extract_references(page: Any) -> list[dict[str, Any]]:
     """参考来源 DOM best-effort 抽取：含「参考/来源」字样容器内的 http 锚点。
 
+    首选 ``div.cosd-note-card a[href^="http"]``（20260810 deep_think live 校准：
+    信源卡片，锚文本为「标题\n站点名」两行，逐行拆开）；其余容器为兜底。
     零合成：抽不到即空列表，绝不从正文猜链接。
     """
     out: list[dict[str, Any]] = []
     seen: set[str] = set()
     containers = (
+        'div.cosd-note-card a[href^="http"]',
         '[class*="reference"] a[href^="http"]',
         '[class*="source"] a[href^="http"]',
         'div:has-text("参考资料") a[href^="http"]',
@@ -1553,7 +1822,7 @@ def _extract_references(page: Any) -> list[dict[str, Any]]:
         for a in anchors:
             try:
                 url = a.get_attribute("href", timeout=500) or ""
-                title = (a.inner_text(timeout=500) or "").strip()
+                raw_text = (a.inner_text(timeout=500) or "").strip()
             except Exception:
                 continue
             if not url.startswith("http"):
@@ -1562,7 +1831,10 @@ def _extract_references(page: Any) -> list[dict[str, Any]]:
             if key in seen:
                 continue
             seen.add(key)
-            out.append({"url": url, "title": title or None, "sitename": None})
+            lines = [ln.strip() for ln in raw_text.split("\n") if ln.strip()]
+            title = lines[0] if lines else None
+            sitename = lines[-1] if len(lines) >= 2 else None
+            out.append({"url": url, "title": title, "sitename": sitename})
         if out:
             break
     return out

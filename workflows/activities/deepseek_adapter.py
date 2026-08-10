@@ -117,6 +117,7 @@ from workflows.activities.collection import (
     CollectionBatchInput,
     CollectionBatchItemResult,
     CollectionBatchResult,
+    CollectionEvidenceRef,
     CollectionTaskInput,
     CollectionTaskResult,
     batch_result_with_captcha_pause,
@@ -508,6 +509,10 @@ class CollectedAnswer:
     references: list[dict[str, Any]]
     screenshot_path: Path
     meta: dict[str, Any] = field(default_factory=dict)
+    # SSE 结构化 trace 证据路径（kind="sse"，含思考链/检索词；解析失败=None 诚实缺省）
+    trace_path: Path | None = None
+    # 平台真实检索词（W1）：[{"query": ..., "ordinal": ...}]；无检索词为空列表。
+    search_queries: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -882,12 +887,37 @@ def _task_result_from_collected(
     run_deepseek_collection 与 batch per-item ok 映射共用。"""
     answer_text = _compose_answer_text(collected.answer_text, collected.references)
     screenshot_ref = f"file://{collected.screenshot_path}"
+    # 结构化信源（W2 source_fetch 的唯一输入）：references 判形时已保证真实 http(s)
+    # URL；cited_text 无逐句引述可填 → None，transcript 口径诚实落 unverifiable。
+    citations = [
+        {
+            "url": str(ref["url"]),
+            "title": str(ref["title"]).strip() if ref.get("title") else None,
+            "cited_text": None,
+        }
+        for ref in collected.references
+        if isinstance(ref, dict) and _is_real_url(ref.get("url"))
+    ]
+    evidence: list[CollectionEvidenceRef] = []
+    if collected.trace_path is not None:
+        evidence.append(
+            CollectionEvidenceRef(
+                kind="sse",
+                path=str(collected.trace_path),
+                relation_type="answer_sse_trace",
+                mime_type="application/json",
+                source_url=_CHAT_URL,
+            )
+        )
     # DLP 统一由 persist 层脱敏处理（单一权威边界，2026-08-06 起）。
     return CollectionTaskResult(
         business_key=item.business_key,
         answer_text=answer_text,
         screenshot_ref=screenshot_ref,
         quality_state="live_valid",
+        citations=citations,
+        evidence=evidence,
+        search_queries=collected.search_queries,
     )
 
 
@@ -1269,12 +1299,36 @@ class _PlaywrightDeepseekSession:
             )
             answer_text = ""
             references: list[dict[str, Any]] = []
+            trace_path: Path | None = None
+            search_queries: list[dict[str, Any]] = []
             sse_body = capture.latest_body()
             if sse_body:
                 rich = _rich_record_from_sse(sse_body)
                 if rich is not None:
                     answer_text = str(rich.get("answer_text") or "").strip()
                     references = list(rich.get("references") or [])
+                    search_queries = list(rich.get("search_queries") or [])
+                    # SSE 结构化 trace 落盘进证据链（kind="sse"，豆包同款流程）：
+                    # 思考链/检索词等结构化产物序列化落证据目录。写盘失败不拖垮
+                    # 已成功的采集——如实 warning 且不出该证据（绝不出残缺/编造）。
+                    trace_path_candidate = self._evidence_dir / f"{spec.file_stem}-sse-trace.json"
+                    try:
+                        trace_path_candidate.write_text(
+                            json.dumps(
+                                _build_sse_trace(rich),
+                                ensure_ascii=False,
+                                sort_keys=True,
+                                separators=(",", ":"),
+                            ),
+                            encoding="utf-8",
+                        )
+                        trace_path = trace_path_candidate
+                    except Exception:
+                        log.warning(
+                            "deepseek_sse_trace_persist_failed",
+                            file_stem=spec.file_stem,
+                            exc_info=True,
+                        )
             if not answer_text and meta.get("found"):
                 # SSE 捕获/解析失败时的 DOM 兜底（推理链剥离后取正文）
                 answer_text = _extract_response_text(page)
@@ -1329,6 +1383,8 @@ class _PlaywrightDeepseekSession:
                     "sse_body_bytes": len(sse_body),
                     "driver": driver,
                 },
+                trace_path=trace_path,
+                search_queries=search_queries,
             )
         finally:
             # batch 内每题一个 CDP session：题末 best-effort detach，避免旧
@@ -1663,7 +1719,7 @@ def _chip_engaged(page: Any, name: str) -> bool | None:
         return None
     if pressed is None:
         return None
-    return pressed.strip().lower() == "true"
+    return str(pressed).strip().lower() == "true"
 
 
 def _fast_mode_engaged(page: Any) -> bool | None:
@@ -1678,7 +1734,7 @@ def _fast_mode_engaged(page: Any) -> bool | None:
     selected = state.get("selected")
     if selected is None:
         return None
-    return selected == "快速模式"
+    return str(selected) == "快速模式"
 
 
 def _ensure_fast_mode(page: Any, rng: random.Random) -> bool:
@@ -2111,9 +2167,16 @@ def _assemble_deepseek_record(events: list[dict[str, Any]]) -> dict[str, Any] | 
       痕迹碎片不进正文（normal 流答案即唯一 RESPONSE 碎片，行为与旧版一致；
       deep_think 流思考链混入正文是旧版状态无关设计的实测缺陷）。
     - ``{"o":"SET"/"BATCH"}`` 状态/批处理 op 一律不进正文（防 "FINISHED" 混入）。
+    - 思考链不落正文但落证据（20260810 起）：THINK 碎片 content 单独累积为
+      ``thinking_text``，TOOL_SEARCH 碎片携带的 ``queries`` 登记为平台真实
+      检索词（W1），快照 ``thinking_enabled`` 记为 ``deep_think_active``——
+      供 SSE trace 证据（kind="sse"）与 search_queries 持久化复用。
     """
     frag_types: list[str] = []
     parts: list[str] = []
+    thinking_parts: list[str] = []
+    search_queries: list[dict[str, Any]] = []
+    deep_think_active = False
     references: list[dict[str, Any]] = []
     seen_urls: set[str] = set()
 
@@ -2124,10 +2187,21 @@ def _assemble_deepseek_record(events: list[dict[str, Any]]) -> dict[str, Any] | 
             if not isinstance(frag, dict):
                 continue
             frag_types.append(str(frag.get("type") or ""))
-            # 快照/新增碎片自带的起始 content（只收 RESPONSE）
+            # 快照/新增碎片自带的起始 content（正文只收 RESPONSE；思考链收 THINK）
             content = frag.get("content")
             if frag_types[-1] == "RESPONSE" and isinstance(content, str) and content:
                 parts.append(content)
+            elif frag_types[-1] == "THINK" and isinstance(content, str) and content:
+                thinking_parts.append(content)
+            elif frag_types[-1] == "TOOL_SEARCH":
+                for query in frag.get("queries") or []:
+                    if not isinstance(query, dict):
+                        continue
+                    text = query.get("query")
+                    if isinstance(text, str) and text.strip():
+                        search_queries.append(
+                            {"query": text.strip(), "ordinal": len(search_queries) + 1}
+                        )
 
     def _target_index(path: str) -> int | None:
         m = re.search(r"fragments/(-?\d+)(?:/|$)", path)
@@ -2143,6 +2217,8 @@ def _assemble_deepseek_record(events: list[dict[str, Any]]) -> dict[str, Any] | 
             return
         if frag_types[idx] == "RESPONSE":
             parts.append(text)
+        elif frag_types[idx] == "THINK":
+            thinking_parts.append(text)
 
     def _sub_patches(subs: Any, base_idx: int | None) -> None:
         """BATCH/裸列的子补丁（相对路径：base = response 或某个 fragment）。"""
@@ -2170,6 +2246,8 @@ def _assemble_deepseek_record(events: list[dict[str, Any]]) -> dict[str, Any] | 
         if isinstance(v, dict):
             resp = v.get("response")
             if isinstance(resp, dict):
+                if resp.get("thinking_enabled") is True:
+                    deep_think_active = True
                 _register(resp.get("fragments"))
             continue
         if isinstance(v, list):
@@ -2191,4 +2269,58 @@ def _assemble_deepseek_record(events: list[dict[str, Any]]) -> dict[str, Any] | 
     answer_text = _REFERENCE_ANCHOR_RE.sub("", _recover_mojibake("".join(parts))).strip()
     if not answer_text:
         return None
-    return {"answer_text": answer_text, "references": references}
+    return {
+        "answer_text": answer_text,
+        "references": references,
+        "thinking_text": _recover_mojibake("".join(thinking_parts)).strip(),
+        "search_queries": search_queries,
+        "deep_think_active": deep_think_active,
+    }
+
+
+def _build_sse_trace(record: dict[str, Any]) -> dict[str, Any]:
+    """组装结果 → SSE 结构化 trace record（kind="sse" 证据内容）。
+
+    形状对齐豆包 trace（collection router 的 build_task_trace_view 消费同一
+    词表：thinking_chain / search_blocks / deep_think_active）——思考链为平台
+    明确传输到浏览器的公开思考碎片原文，不含 HAR/headers/cookies。
+    """
+    thinking_text = str(record.get("thinking_text") or "")
+    search_queries = list(record.get("search_queries") or [])
+    references = list(record.get("references") or [])
+    thinking_chain: list[dict[str, Any]] = []
+    if thinking_text:
+        thinking_chain.append({"kind": "reasoning", "text": thinking_text})
+    if search_queries:
+        thinking_chain.append(
+            {
+                "kind": "search",
+                "queries": [str(q.get("query") or "") for q in search_queries],
+                "summary": "",
+            }
+        )
+    search_blocks: list[dict[str, Any]] = []
+    if search_queries or references:
+        search_blocks.append(
+            {
+                "scene": None,
+                "queries": [str(q.get("query") or "") for q in search_queries],
+                "summary": "",
+                "results": [
+                    {
+                        "title": str(ref.get("title") or "未命名来源"),
+                        "url": ref.get("url"),
+                        "site": ref.get("sitename"),
+                        "rank": index,
+                        "summary": str(ref.get("summary") or ""),
+                    }
+                    for index, ref in enumerate(references, 1)
+                ],
+            }
+        )
+    return {
+        "engine": "deepseek",
+        "deep_think_active": bool(record.get("deep_think_active")),
+        "thinking_chain": thinking_chain,
+        "search_blocks": search_blocks,
+    }

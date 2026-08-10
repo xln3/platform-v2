@@ -18,10 +18,12 @@ from workflows.activities.collection import CollectionTaskInput
 from workflows.activities.deepseek_adapter import (
     CollectedAnswer,
     DeepseekAdapterConfig,
+    _build_sse_trace,
     _chip_engaged,
-    _ModeToggleFailed,
     _fast_mode_engaged,
+    _ModeToggleFailed,
     _rich_record_from_sse,
+    _task_result_from_collected,
     _WallError,
     mask_proxy_url,
     run_deepseek_collection,
@@ -309,7 +311,7 @@ class _HelperFakeLocator:
         self._pressed = pressed
 
     @property
-    def first(self) -> "_HelperFakeLocator":
+    def first(self) -> _HelperFakeLocator:
         return self
 
     def count(self) -> int:
@@ -402,3 +404,119 @@ def test_sse_assembly_deep_think_stream_excludes_think_and_tools() -> None:
         "https://example.com/a",
         "https://example.com/b",
     ]
+
+
+# ---------------------------------------------------------------------------
+# SSE 结构化 trace（思考链/检索词落证据，20260810）与结构化信源映射
+# ---------------------------------------------------------------------------
+
+_DEEP_THINK_STREAM = (
+    'data: {"v":{"response":{"message_id":2,"role":"ASSISTANT","thinking_enabled":true,'
+    '"search_enabled":true,"fragments":[{"id":2,"type":"THINK","content":"用户",'
+    '"references":[],"stage_id":1}]}}}\n\n'
+    'data: {"p":"response/fragments/-1/content","o":"APPEND","v":"想知道"}\n\n'
+    'data: {"v":"最近一周的科技新闻。"}\n\n'
+    'data: {"p":"response","o":"BATCH","v":[{"p":"fragments","o":"APPEND","v":'
+    '[{"id":3,"type":"TOOL_SEARCH","status":"WIP","content":null,'
+    '"queries":[{"query":"科技新闻"}],"results":[],"stage_id":1}]}]}\n\n'
+    'data: {"p":"response/fragments/-1/results","o":"SET","v":'
+    '[{"url":"https://example.com/a","title":"标题A","site_name":"站点A","snippet":"摘要A"},'
+    '{"url":"https://example.com/b","title":"标题B","site_name":"站点B"}]}\n\n'
+    'data: {"p":"response/fragments","o":"APPEND","v":'
+    '[{"id":18,"type":"RESPONSE","content":"过去","references":[],"stage_id":3}]}\n\n'
+    'data: {"v":"一周"}\n\n'
+    'data: {"v":"，科技新闻如下"}\n\n'
+    'data: {"p":"response/fragments/-1","o":"BATCH","v":'
+    '[{"p":"content","o":"APPEND","v":"[reference:1]"},'
+    '{"p":"references","v":[{"id":3,"type":"TOOL_SEARCH"}]}]}\n\n'
+    'data: {"v":"。"}\n\n'
+    'data: {"p":"response/status","o":"SET","v":"FINISHED"}\n\n'
+)
+
+
+def test_sse_assembly_deep_think_captures_thinking_and_queries() -> None:
+    """deep_think 流：THINK 碎片内容/检索词/thinking_enabled 进 record（不进正文）。"""
+    rich = _rich_record_from_sse(_DEEP_THINK_STREAM)
+    assert rich is not None
+    assert rich["answer_text"] == "过去一周，科技新闻如下。"
+    assert rich["thinking_text"] == "用户想知道最近一周的科技新闻。"
+    assert rich["search_queries"] == [{"query": "科技新闻", "ordinal": 1}]
+    assert rich["deep_think_active"] is True
+
+
+def test_sse_assembly_normal_stream_has_empty_thinking() -> None:
+    """normal 流无 THINK 碎片：thinking_text 空、deep_think_active=False。"""
+    body = (
+        'data: {"v":{"response":{"fragments":['
+        '{"id":2,"type":"RESPONSE","content":"正文","references":[]}'
+        "]}}"
+        "}\n\n"
+        'data: {"v":"。"}\n\n'
+    )
+    rich = _rich_record_from_sse(body)
+    assert rich is not None
+    assert rich["thinking_text"] == ""
+    assert rich["search_queries"] == []
+    assert rich["deep_think_active"] is False
+
+
+def test_build_sse_trace_shape() -> None:
+    """trace record 词表对齐豆包（trace 回放端点消费 thinking_chain/search_blocks）。"""
+    rich = _rich_record_from_sse(_DEEP_THINK_STREAM)
+    assert rich is not None
+    trace = _build_sse_trace(rich)
+    assert trace["engine"] == "deepseek"
+    assert trace["deep_think_active"] is True
+    assert trace["thinking_chain"][0] == {
+        "kind": "reasoning",
+        "text": "用户想知道最近一周的科技新闻。",
+    }
+    assert trace["thinking_chain"][1]["kind"] == "search"
+    assert trace["thinking_chain"][1]["queries"] == ["科技新闻"]
+    assert [r["url"] for r in trace["search_blocks"][0]["results"]] == [
+        "https://example.com/a",
+        "https://example.com/b",
+    ]
+
+
+def test_task_result_maps_citations_trace_and_queries(tmp_path: Path) -> None:
+    """ok 映射：references → 结构化 citations（cited_text=None 诚实缺省）；
+    trace_path → kind="sse" 证据；search_queries 透传。"""
+    shot = tmp_path / "run-9-task-5.png"
+    shot.write_bytes(b"\x89PNG-fake")
+    trace = tmp_path / "run-9-task-5-sse-trace.json"
+    trace.write_text("{}", encoding="utf-8")
+    collected = CollectedAnswer(
+        answer_text="正文",
+        references=[
+            {"url": "https://example.com/a", "title": "标题A", "sitename": "站点A"},
+            {"url": "not-a-url", "title": "假链接"},
+        ],
+        screenshot_path=shot,
+        trace_path=trace,
+        search_queries=[{"query": "科技新闻", "ordinal": 1}],
+    )
+    result = _task_result_from_collected(_item(mode="deep_think"), collected)
+    assert result.citations == [
+        {"url": "https://example.com/a", "title": "标题A", "cited_text": None}
+    ]
+    assert len(result.evidence) == 1
+    assert result.evidence[0].kind == "sse"
+    assert result.evidence[0].relation_type == "answer_sse_trace"
+    assert result.evidence[0].path == str(trace)
+    assert result.search_queries == [{"query": "科技新闻", "ordinal": 1}]
+
+
+def test_task_result_without_trace_has_no_evidence(tmp_path: Path) -> None:
+    """SSE 解析失败（DOM 兜底）→ trace_path=None → 不出 sse 证据（诚实缺省）。"""
+    shot = tmp_path / "run-9-task-5.png"
+    shot.write_bytes(b"\x89PNG-fake")
+    collected = CollectedAnswer(
+        answer_text="正文",
+        references=[],
+        screenshot_path=shot,
+    )
+    result = _task_result_from_collected(_item(), collected)
+    assert result.evidence == []
+    assert result.citations == []
+    assert result.search_queries == []

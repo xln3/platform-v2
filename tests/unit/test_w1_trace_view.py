@@ -144,7 +144,7 @@ def test_resolve_task_trace_shapes_response_like_legacy() -> None:
     assert view.totals.results == 1
     assert view.totals.surfaced_reasoning_steps == 1
     assert view.totals.response_text_truncated is False
-    assert "仅展示豆包明确传输到浏览器" in view.disclosure
+    assert "仅展示平台明确传输到浏览器" in view.disclosure
 
 
 def test_build_task_trace_view_truncates_long_response_text() -> None:
@@ -172,3 +172,44 @@ def test_build_task_trace_view_missing_result_title_falls_back() -> None:
     view = build_task_trace_view(**dict(_KWARGS), trace_record=record)
     assert view.search_blocks[0].results[0].title == "未命名来源"
     assert view.search_blocks[0].results[0].site is None
+
+
+def test_build_task_trace_view_consumes_dom_transport_record() -> None:
+    """transport="dom" 记录（文心/元宝/通义 DOM 探针产出：无 version/queries/stats
+    键，search_block scene=None）照常整形成回放响应——词表消费与 SSE 来源一致。"""
+    record = {
+        "engine": "yuanbao",
+        "transport": "dom",
+        "deep_think_active": True,
+        "thinking_chain": [{"kind": "reasoning", "text": "想了一下"}],
+        "search_blocks": [
+            {
+                "scene": None,
+                "queries": [],
+                "summary": "",
+                "results": [
+                    {
+                        "title": "标题A",
+                        "url": "https://example.com/a",
+                        "site": None,
+                        "rank": 1,
+                        "summary": "",
+                    }
+                ],
+            }
+        ],
+    }
+    view = build_task_trace_view(**dict(_KWARGS, stored_search_queries=[]), trace_record=record)
+    assert view.deep_think_active is True
+    assert view.thinking_title is None
+    assert [s.kind for s in view.reasoning] == ["surfaced_reasoning"]
+    assert view.reasoning[0].text == "想了一下"
+    assert len(view.search_blocks) == 1
+    assert view.search_blocks[0].scene is None
+    assert view.search_blocks[0].result_count == 1
+    assert view.search_blocks[0].results[0].title == "标题A"
+    assert view.search_blocks[0].results[0].rank == 1
+    assert view.search_queries == []
+    assert view.totals.queries == 0
+    assert view.totals.results == 1
+    assert view.totals.surfaced_reasoning_steps == 1

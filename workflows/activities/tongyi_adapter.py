@@ -142,6 +142,7 @@ from workflows.activities.collection import (
     CollectionBatchInput,
     CollectionBatchItemResult,
     CollectionBatchResult,
+    CollectionEvidenceRef,
     CollectionTaskInput,
     CollectionTaskResult,
     batch_result_with_captcha_pause,
@@ -540,6 +541,8 @@ class CollectedAnswer:
     references: list[dict[str, Any]]
     screenshot_path: Path
     meta: dict[str, Any] = field(default_factory=dict)
+    # 结构化 trace 证据路径（kind="sse"，transport="dom"；无引用/写盘失败=None 诚实缺省）
+    trace_path: Path | None = None
 
 
 class _BrowserSession(Protocol):
@@ -872,12 +875,24 @@ def _task_result_from_collected(
     run_tongyi_collection 与 batch per-item ok 映射共用。"""
     answer_text = _compose_answer_text(collected.answer_text, collected.references)
     screenshot_ref = f"file://{collected.screenshot_path}"
+    evidence: list[CollectionEvidenceRef] = []
+    if collected.trace_path is not None:
+        evidence.append(
+            CollectionEvidenceRef(
+                kind="sse",
+                path=str(collected.trace_path),
+                relation_type="answer_sse_trace",
+                mime_type="application/json",
+                source_url=_CHAT_URL,
+            )
+        )
     # DLP 统一由 persist 层脱敏处理（单一权威边界，2026-08-06 起）。
     return CollectionTaskResult(
         business_key=item.business_key,
         answer_text=answer_text,
         screenshot_ref=screenshot_ref,
         quality_state="live_valid",
+        evidence=evidence,
     )
 
 
@@ -1358,11 +1373,36 @@ class _PlaywrightTongyiSession:
             _capture_full_page(page, shot_path)
             if not shot_path.exists():
                 raise _IncompleteCapture("evidence-screenshot-failed: no file written")
+            # 结构化 trace 落盘进证据链（kind="sse"，transport="dom"；词表对齐
+            # 其余四平台）：千问思考链与检索词不可得，诚实留空——引用卡片折叠为
+            # 唯一内容，无引用不出空证据。写盘失败不拖垮已成功的采集——如实
+            # warning 且不出该证据（绝不出残缺/编造证据）。
+            trace_path: Path | None = None
+            if references:
+                trace_candidate = self._evidence_dir / f"{spec.file_stem}-sse-trace.json"
+                try:
+                    trace_candidate.write_text(
+                        json.dumps(
+                            _build_tongyi_trace(references),
+                            ensure_ascii=False,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        ),
+                        encoding="utf-8",
+                    )
+                    trace_path = trace_candidate
+                except Exception:
+                    log.warning(
+                        "tongyi_trace_persist_failed",
+                        file_stem=spec.file_stem,
+                        exc_info=True,
+                    )
             return CollectedAnswer(
                 answer_text=answer_text,
                 references=references,
                 screenshot_path=shot_path,
                 meta={"stream": meta, "driver": driver},
+                trace_path=trace_path,
             )
         finally:
             # batch 内每题一个 CDP session：题末 best-effort detach，避免旧
@@ -1899,6 +1939,43 @@ def _extract_response(page: Any) -> tuple[str, list[dict[str, Any]]]:
         except Exception:
             continue
     return "", []
+
+
+def _build_tongyi_trace(references: list[dict[str, Any]]) -> dict[str, Any]:
+    """引用卡片 → trace record（kind="sse" 证据内容，词表对齐其余四平台：
+    collection router 的 build_task_trace_view 消费同一词表）。
+
+    transport="dom" 如实标注：千问流只当完成信号（CDP 不读 body），引用卡片
+    来自 DOM 实渲染。思考链与检索词平台未暴露——thinking_chain/queries 诚实
+    留空（零合成，绝不编造）。references 折叠形态照 DeepSeek _build_sse_trace。
+    """
+    search_blocks: list[dict[str, Any]] = []
+    if references:
+        search_blocks.append(
+            {
+                "scene": None,
+                "queries": [],
+                "summary": "",
+                "results": [
+                    {
+                        "title": str(ref.get("title") or "未命名来源"),
+                        "url": ref.get("url"),
+                        "site": ref.get("sitename"),
+                        "rank": index,
+                        "summary": str(ref.get("summary") or ""),
+                    }
+                    for index, ref in enumerate(references, 1)
+                ],
+            }
+        )
+    return {
+        "engine": "tongyi",
+        "transport": "dom",
+        "deep_think_active": False,
+        "thinking_chain": [],
+        "search_blocks": search_blocks,
+        "queries": [],
+    }
 
 
 def _trim_response(text: str) -> str:

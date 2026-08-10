@@ -12,7 +12,15 @@
 
 v2 边界（与豆包适配器对齐）：
 
-- 仅 ``mode='normal'``；``deep_think`` → ``unsupported_mode`` non_retryable。
+- 两种 mode（20260810 起，对照 deepseek 同日用户拍板口径）：``normal`` =
+  账号默认模型族（Hy3）+ 深度思考**关**；``deep_think`` = Hy3 + 深度思考**开**
+  （hunyuan_gpt_175B_0404 → hunyuan_t1）。**联网搜索无独立开关**——20260810
+  live 实测（CDP attach yuanbao-tj 常驻浏览器）：全页含隐藏元素无任何
+  「联网搜索/连网」控件，元宝联网检索是平台自动行为（检索词/引用卡片平台自决），
+  可控口径只有「模型族 + 深度思考开关」两件，均发送前显式确保 + 后置校验；
+  确认不了 → ``mode_toggle_failed`` non_retryable（绝不静默按错误口径采集，
+  模型/思考错态 = 答案口径错标）；其余 mode → ``unsupported_mode``
+  non_retryable。选择器校准数据见文末「模式开关确保」节注释。
 - 配置全走 env（秘密绝不进 task payload）：``GEO_YUANBAO_PROFILE_DIR``（必填，
   persistent profile 目录，缺失/不存在 → ``adapter_not_configured`` non_retryable）；
   ``GEO_YUANBAO_PROXY_URL``（可选，日志只落打码后的 scheme://host:port）；
@@ -26,7 +34,9 @@ v2 边界（与豆包适配器对齐）：
 - 墙分类（先截屏存证再抛，错误 message 带证据路径、绝不含秘密）：
   登录墙（含匿名发送后弹出的登录模态）→ ``wall_login_required`` non_retryable；
   验证码 → ``wall_captcha`` non_retryable；发送被吞/限流 → ``wall_send``
-  non_retryable（重试只是再撞）。
+  non_retryable（重试只是再撞）；模式开关无法确认到位（模型族/深度思考 toggle
+  选择器漂移或控件不可用）→ ``mode_toggle_failed`` non_retryable（题级 wall +
+  后续题 aborted，绝不按错误口径蒙混）。
 - 成功判据（零合成）：``/api/chat/`` 流真正 loadingFinished 且 DOM 抽取到非空正文
   且无墙特征——缺一都不得返回成功。流未出现/截断/空答案 →
   ``answer_capture_incomplete``（可重试的诚实失败）。
@@ -78,6 +88,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import json
 import os
 import random
 import re
@@ -97,6 +108,7 @@ from workflows.activities.collection import (
     CollectionBatchInput,
     CollectionBatchItemResult,
     CollectionBatchResult,
+    CollectionEvidenceRef,
     CollectionTaskInput,
     CollectionTaskResult,
     batch_result_with_captcha_pause,
@@ -125,6 +137,9 @@ _DEFAULT_EVIDENCE_DIR = (
 _HEARTBEAT_INTERVAL_S = 10.0  # workflow heartbeat_timeout=30s，泵频 ≤15s 硬约束
 _NAV_TIMEOUT_MS = 25_000
 _CHAT_TIMEOUT_S = 120.0  # normal 模式流式完成预算（workflow 总预算 5 分钟）
+# deep_think（深度思考，hunyuan_t1）流远长于 normal——对齐豆包/deepseek 600s；
+# workflow 缺省总预算 15min（activity_timeout_minutes）放得下。
+_CHAT_TIMEOUT_DEEP_THINK_S = 600.0
 _HYDRATION_SETTLE_MS = 11_000  # 旧链实测：Next.js 重 hydration，必须 ≥10s
 
 _CHAT_URL = "https://yuanbao.tencent.com/chat"
@@ -170,6 +185,74 @@ _NEW_CHAT_SELECTORS: tuple[str, ...] = (
     "[class*='newChat']",
 )
 
+# ---------------------------------------------------------------------------
+# 模式开关（20260810 live 校准，CDP attach yuanbao-tj 常驻浏览器 headed 窗口实证；
+# 校准脚本/过程见 developlog fix log）：
+#
+# - 模型选择器 = ``div[dt-button-id='model_switch']``（aria-label「模型选择」），
+#   ``dt-model-id`` 暴露当前模型：Hy3 族 = ``hunyuan_*``（实测 hunyuan_gpt_175B_0404），
+#   DeepSeek 族 = ``deep_seek_*``（实测 deep_seek_v3）。点击弹出
+#   ``div.ybc-model-select-dropdown-item``（Hy3=全能模型 / DeepSeek=适合深度思考）。
+# - 深度思考 toggle = ``div[dt-button-id='deep_think']``（aria-label「深度思考」，
+#   ThinkSelector 组件）：**开态比关态多一个 ``ThinkSelector_selected__*`` class
+#   token**（结构差分——hash 后缀跨构建漂移、``ThinkSelector_selected`` 前缀稳定）；
+#   开启后 dt-model-id 翻转为思考模型（Hy3 族 hunyuan_gpt_175B_0404 → hunyuan_t1，
+#   仅作旁证不作主判据——模型 id 随发版轮换）。
+# - 联网搜索：无控件（全页含隐藏元素实测零命中），平台自动检索，无可确保项。
+#
+# dt-button-id / aria-label 是数据埋点/无障碍语义属性，跨构建稳定性远高于 hash
+# class——作 locator 主锚点；class 前缀仅作兜底。
+# ---------------------------------------------------------------------------
+
+# 深度思考 toggle 定位（命中第一个可见者，顺序即优先级）
+_DEEP_THINK_TOGGLE_SELECTORS: tuple[str, ...] = (
+    "div[dt-button-id='deep_think']",
+    "div[aria-label='深度思考']",
+    "div[class*='ThinkSelector_iconContainer']",
+)
+
+# 模型选择器定位
+_MODEL_SWITCH_SELECTORS: tuple[str, ...] = (
+    "div[dt-button-id='model_switch']",
+    "div[aria-label='模型选择']",
+)
+
+# 模型下拉 Hy3 选项（下拉弹出后可见；:text-is 精确匹配防未来多 Hy 选项歧义）
+_HY3_OPTION_SELECTORS: tuple[str, ...] = (
+    "div.ybc-model-select-dropdown-item-name:text-is('Hy3')",
+    "div[class*='model-select-dropdown-item-name']:text-is('Hy3')",
+    "div[class*='model-select-dropdown-item']:has-text('Hy3')",
+)
+
+# 深度思考开关态探针：选中态 = class token 含 ThinkSelector_selected 前缀（结构
+# 差分，绝不硬编码 hash 后缀）；found:false = 控件不存在/不可见，调用方诚实失败。
+_DEEP_THINK_STATE_JS = r"""() => {
+  const el = document.querySelector("div[dt-button-id='deep_think']")
+    || document.querySelector("div[aria-label='深度思考']")
+    || document.querySelector("div[class*='ThinkSelector_iconContainer']");
+  if (!el) return {found: false};
+  const r = el.getBoundingClientRect();
+  if (r.width === 0 || r.height === 0) return {found: false};
+  const tokens = (el.className || "").toString().trim().split(/\s+/).filter(Boolean);
+  return {
+    found: true,
+    selected: tokens.some((t) => t.startsWith("ThinkSelector_selected")),
+    model: el.getAttribute("dt-model-id") || null,
+  };
+}"""
+
+# 模型族探针：dt-model-id 前缀判族（deep_seek* → deepseek；其余非空 → hunyuan）。
+_MODEL_FAMILY_JS = r"""() => {
+  const el = document.querySelector("div[dt-button-id='model_switch']")
+    || document.querySelector("div[aria-label='模型选择']");
+  if (!el) return {found: false};
+  const r = el.getBoundingClientRect();
+  if (r.width === 0 || r.height === 0) return {found: false};
+  const model = el.getAttribute("dt-model-id") || "";
+  const family = model.startsWith("deep_seek") ? "deepseek" : (model ? "hunyuan" : null);
+  return {found: true, model: model || null, family};
+}"""
+
 # 新会话验证：页面已存在消息节点计数（>0 = 旧会话/进行中的旧回答）。
 # GUESS 选择器组（与 _ASSISTANT_SELECTORS 同源 + 用户气泡对称猜测；
 # 匹配不到=0——此时「新对话」点按/导航兜底后的 composer 空校验仍是硬门）。
@@ -214,16 +297,28 @@ _CAPTCHA_SELECTORS: tuple[str, ...] = (
     'div[class*="verify-wrap"]:visible',
 )
 
-# 助手回答气泡（GUESS：login-gated 未实测；流结束后取最后一个可见气泡）
+# 助手回答气泡（选择器顺序即优先级）：markdown 正文容器优先于整气泡——
+# 20260810 deep_think live 校准：深度思考模式下整气泡 inner_text 会混入
+# 「已深度思考(用时N秒)」+ 思考链（``hyc-component-deepsearch-cot__think`` 子树），
+# 正文权威节点 = ``hyc-content-md`` / ``hyc-common-markdown``（normal 模式同构，
+# 流式完成态 ``hyc-content-md-done``）。取最后一个可见非思考块元素。
 _ASSISTANT_SELECTORS: tuple[str, ...] = (
-    "div[class*='agent-chat__bubble--ai']",
-    "div[class*='hyc-content']",
+    "div[class*='hyc-content-md']",
     "div[class*='hyc-common-markdown']",
+    "div[class*='hyc-content']",
+    "div[class*='agent-chat__bubble--ai']",
     "div[class*='bubble'][class*='ai']",
     "div[class*='answer'] .markdown-body",
     ".markdown-body",
     "div[class*='message'][class*='assistant']",
 )
+
+# 思考链子树 class 特征（深度思考模式）：正文抽取一律跳过——思考链混入正文 =
+# 答案口径事故（20260810 冒烟实证：气泡首命中截取「已深度思考」截断出 1 字答案）。
+_THINK_BLOCK_CLASS_SUBSTR = "deepsearch-cot__think"
+
+# 思考文本单块截断上限（字符）：对齐豆包 _THINKING_TEXT_LIMIT 水位。
+_THINKING_TEXT_LIMIT = 5_000
 
 # 引用卡片（GUESS：login-gated 未实测；只收真实 http(s) href，绝不臆造，按 URL 去重）
 _REFERENCE_SELECTORS: tuple[str, ...] = (
@@ -270,75 +365,6 @@ _INPUT_VALUE_JS = (
     "el => (el.value !== undefined && el.value !== null && el.value !== '') "
     "? el.value : (el.textContent || '')"
 )
-
-# 整页截图前把内部 overflow 滚动容器压平进文档流（与豆包适配器同款 flatten）
-_FLATTEN_FOR_SCREENSHOT_JS = r"""
-() => {
-  const beforeBodyClientH = document.body ? document.body.clientHeight : 0;
-  const beforeBodyScrollH = document.body ? document.body.scrollHeight : 0;
-  const cands = [];
-  for (const el of document.querySelectorAll('div, main, section, article, aside, nav, form')) {
-    const cs = getComputedStyle(el);
-    if ((cs.overflowY === 'auto' || cs.overflowY === 'scroll')
-        && el.scrollHeight > el.clientHeight + 100) {
-      cands.push(el);
-    }
-  }
-  let main = null;
-  let fullHeight = 0;
-  if (cands.length) {
-    cands.sort((a, b) => b.scrollHeight - a.scrollHeight);
-    main = cands[0];
-    fullHeight = main.scrollHeight;
-    let cur = main;
-    while (cur) {
-      if (cur === main) {
-        cur.style.setProperty('height', fullHeight + 'px', 'important');
-      } else {
-        cur.style.setProperty('height', 'auto', 'important');
-      }
-      cur.style.setProperty('max-height', 'none', 'important');
-      cur.style.setProperty('min-height', '0', 'important');
-      cur.style.setProperty('overflow', 'visible', 'important');
-      cur.style.setProperty('flex', '0 0 auto', 'important');
-      cur.style.setProperty('position', 'static', 'important');
-      cur.style.setProperty('transform', 'none', 'important');
-      cur.style.setProperty('contain', 'none', 'important');
-      if (cur === document.documentElement) break;
-      cur = cur.parentElement;
-    }
-  }
-  for (const el of document.querySelectorAll('*')) {
-    const cs = getComputedStyle(el);
-    if (cs.transform && cs.transform !== 'none') {
-      el.style.setProperty('transform', 'none', 'important');
-    }
-    if (cs.position === 'fixed') {
-      el.style.setProperty('position', 'absolute', 'important');
-    }
-  }
-  const targetH = Math.max(fullHeight, beforeBodyScrollH, beforeBodyClientH);
-  document.body.style.setProperty('height', 'auto', 'important');
-  document.body.style.setProperty('min-height', targetH + 'px', 'important');
-  document.body.style.setProperty('overflow', 'visible', 'important');
-  document.body.style.setProperty('transform', 'none', 'important');
-  document.documentElement.style.setProperty('height', 'auto', 'important');
-  document.documentElement.style.setProperty('min-height', targetH + 'px', 'important');
-  document.documentElement.style.setProperty('overflow', 'visible', 'important');
-  document.documentElement.style.setProperty('transform', 'none', 'important');
-  void document.body.offsetHeight;
-  const afterBodyScrollH = document.body ? document.body.scrollHeight : 0;
-  const afterDocScrollH = document.documentElement ? document.documentElement.scrollHeight : 0;
-  return {
-    ok: !!main,
-    scroller_full_height: fullHeight,
-    body_scroll_height_after: afterBodyScrollH,
-    doc_scroll_height_after: afterDocScrollH,
-    viewport_height: window.innerHeight,
-  };
-}
-"""
-
 
 # ---------------------------------------------------------------------------
 # 配置 / 错误类型
@@ -445,12 +471,23 @@ class _IncompleteCapture(RuntimeError):
         self.evidence_path = evidence_path
 
 
+class _ModeToggleFailed(RuntimeError):
+    """模式开关无法确认到位（模型族 Hy3 / 深度思考 toggle；non_retryable；
+    绝不静默按错误口径采集）。"""
+
+    def __init__(self, message: str, evidence_path: Path | None = None) -> None:
+        super().__init__(message)
+        self.evidence_path = evidence_path
+
+
 @dataclass
 class CollectedAnswer:
     answer_text: str
     references: list[dict[str, Any]]
     screenshot_path: Path
     meta: dict[str, Any] = field(default_factory=dict)
+    # 结构化 trace 证据路径（kind="sse"，transport="dom"；无内容/写盘失败=None 诚实缺省）
+    trace_path: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -480,7 +517,9 @@ class YuanbaoBatchItemOutcome:
 class _BrowserSession(Protocol):
     """Playwright 交互隔离面：测试注入 fake，绝不启动真浏览器。"""
 
-    def collect(self, query: str, on_stage: Callable[[str], None]) -> CollectedAnswer: ...
+    def collect(
+        self, query: str, on_stage: Callable[[str], None], *, mode: str = "normal"
+    ) -> CollectedAnswer: ...
 
     def collect_batch(
         self, items: list[YuanbaoBatchItemSpec], on_stage: Callable[[str], None]
@@ -545,9 +584,9 @@ async def run_yuanbao_batch(
         heartbeat = _noop_heartbeat
 
     for item in batch.items:
-        if item.mode != "normal":
+        if item.mode not in ("normal", "deep_think"):
             raise ApplicationError(
-                f"unsupported mode: {item.mode!r} (expected 'normal')",
+                f"unsupported mode: {item.mode!r} (expected 'normal' or 'deep_think')",
                 type="unsupported_mode",
                 non_retryable=True,
             )
@@ -620,6 +659,22 @@ async def run_yuanbao_batch(
                     error_type=wall.wall_type,
                     error_message=f"{wall}{evidence_suffix}",
                     evidence_path=wall.evidence_path,
+                )
+                for item in batch.items
+            ]
+        )
+    except _ModeToggleFailed as toggle:
+        # 防御：toggle 失败应在题内转 outcome；逃出即按 session 级 wall 诚实记录。
+        evidence_suffix = f"; evidence={toggle.evidence_path}" if toggle.evidence_path else ""
+        bound.info("yuanbao_batch_session_toggle_failed", stage=progress["stage"])
+        return CollectionBatchResult(
+            results=[
+                _failure_batch_item(
+                    item,
+                    status="wall",
+                    error_type="mode_toggle_failed",
+                    error_message=f"{toggle}{evidence_suffix}",
+                    evidence_path=toggle.evidence_path,
                 )
                 for item in batch.items
             ]
@@ -717,9 +772,9 @@ async def run_yuanbao_collection(
     与 activity 上下文解耦（session/heartbeat/attempt 注入），测试全程 mock 浏览器层。
     注册层（workers/main.py）按平台门控调用本函数并注入 activity.heartbeat。
     """
-    if item.mode != "normal":
+    if item.mode not in ("normal", "deep_think"):
         raise ApplicationError(
-            "deep_think not enabled in adapter v1",
+            f"unsupported mode: {item.mode!r} (expected 'normal' or 'deep_think')",
             type="unsupported_mode",
             non_retryable=True,
         )
@@ -738,7 +793,9 @@ async def run_yuanbao_collection(
 
     def _blocking() -> CollectedAnswer:
         session = factory(config, config.evidence_dir, file_stem)
-        return session.collect(item.query, on_stage=lambda s: progress.__setitem__("stage", s))
+        return session.collect(
+            item.query, on_stage=lambda s: progress.__setitem__("stage", s), mode=item.mode
+        )
 
     try:
         if uses_default_session:
@@ -758,6 +815,12 @@ async def run_yuanbao_collection(
         raise ApplicationError(
             f"{wall}{evidence}", type=wall.wall_type, non_retryable=True
         ) from wall
+    except _ModeToggleFailed as toggle:
+        evidence = f"; evidence={toggle.evidence_path}" if toggle.evidence_path else ""
+        bound.info("yuanbao_mode_toggle_failed", stage=progress["stage"])
+        raise ApplicationError(
+            f"{toggle}{evidence}", type="mode_toggle_failed", non_retryable=True
+        ) from toggle
     except _IncompleteCapture as inc:
         evidence = f"; evidence={inc.evidence_path}" if inc.evidence_path else ""
         bound.info("yuanbao_capture_incomplete", reason=str(inc), stage=progress["stage"])
@@ -778,12 +841,24 @@ def _task_result_from_collected(
     run_yuanbao_collection 与 batch per-item ok 映射共用。"""
     answer_text = _compose_answer_text(collected.answer_text, collected.references)
     screenshot_ref = f"file://{collected.screenshot_path}"
+    evidence: list[CollectionEvidenceRef] = []
+    if collected.trace_path is not None:
+        evidence.append(
+            CollectionEvidenceRef(
+                kind="sse",
+                path=str(collected.trace_path),
+                relation_type="answer_sse_trace",
+                mime_type="application/json",
+                source_url=_CHAT_URL,
+            )
+        )
     # DLP 统一由 persist 层脱敏处理（单一权威边界，2026-08-06 起）。
     return CollectionTaskResult(
         business_key=item.business_key,
         answer_text=answer_text,
         screenshot_ref=screenshot_ref,
         quality_state="live_valid",
+        evidence=evidence,
     )
 
 
@@ -844,11 +919,13 @@ class _PlaywrightYuanbaoSession:
         self._rng = random.Random()
         self._mouse_pos: tuple[float, float] | None = None
 
-    def collect(self, query: str, on_stage: Callable[[str], None]) -> CollectedAnswer:
+    def collect(
+        self, query: str, on_stage: Callable[[str], None], *, mode: str = "normal"
+    ) -> CollectedAnswer:
         spec = YuanbaoBatchItemSpec(
             business_key=self._file_stem,
             query=query,
-            mode="normal",
+            mode=mode,
             file_stem=self._file_stem,
         )
         with self._browser_session(on_stage) as (context, page, driver):
@@ -867,6 +944,15 @@ class _PlaywrightYuanbaoSession:
                     outcomes.append(self._failure_outcome(spec, "wall", wall.wall_type, wall))
                     outcomes.extend(
                         self._aborted_outcome(rest, spec, wall.wall_type)
+                        for rest in items[index + 1 :]
+                    )
+                    return outcomes
+                except _ModeToggleFailed as toggle:
+                    outcomes.append(
+                        self._failure_outcome(spec, "wall", "mode_toggle_failed", toggle)
+                    )
+                    outcomes.extend(
+                        self._aborted_outcome(rest, spec, "mode_toggle_failed")
                         for rest in items[index + 1 :]
                     )
                     return outcomes
@@ -899,7 +985,7 @@ class _PlaywrightYuanbaoSession:
         spec: YuanbaoBatchItemSpec,
         status: str,
         error_type: str,
-        exc: _WallError | _IncompleteCapture,
+        exc: _WallError | _IncompleteCapture | _ModeToggleFailed,
     ) -> YuanbaoBatchItemOutcome:
         return YuanbaoBatchItemOutcome(
             business_key=spec.business_key,
@@ -1078,6 +1164,20 @@ class _PlaywrightYuanbaoSession:
                 shot=_shot,
             )
 
+            # 测量口径（对照 deepseek 20260810 用户拍板）：两种 mode 都显式确保——
+            # normal=Hy3+深度思考关；deep_think=Hy3+深度思考开（联网检索为平台自动
+            # 行为，无开关可确保）。必须在打字/发送之前完成并经后置校验确认；确认
+            # 不了即诚实失败，绝不静默按错误口径采集（模型/思考错态 = 答案口径错标）。
+            on_stage("ensure_mode")
+            if not _set_collection_mode(page, self._rng, spec.mode):
+                raise _ModeToggleFailed(
+                    f"mode toggles could not be confirmed for mode={spec.mode!r} "
+                    "(模型族 Hy3 / 深度思考 toggle; selector drift or control "
+                    "unavailable)",
+                    _shot("mode_toggle"),
+                )
+            _pace(*_PACE_AFTER_NEW_CHAT_S)  # 切完（或确认完）开关回神再回到输入框
+
             on_stage("typing")
             # 页面就绪：真人先端详一眼再动手（零停顿直点输入框是机器人指纹）。
             _pace(*_PACE_PAGE_READY_S)
@@ -1138,7 +1238,13 @@ class _PlaywrightYuanbaoSession:
 
             on_stage("await_stream")
             meta = capture.wait_finish(
-                page, appearance_timeout_s=20.0, timeout_s=_CHAT_TIMEOUT_S
+                page,
+                appearance_timeout_s=20.0,
+                timeout_s=(
+                    _CHAT_TIMEOUT_DEEP_THINK_S
+                    if spec.mode == "deep_think"
+                    else _CHAT_TIMEOUT_S
+                ),
             )
             # 元宝答案正文以渲染 DOM 为准（旧链 confirmed 路径）：等气泡文本静默
             answer_text = _wait_answer_stable(page, max_seconds=30.0, quiet_seconds=2.5)
@@ -1185,6 +1291,38 @@ class _PlaywrightYuanbaoSession:
             _capture_full_page(page, shot_path)
             if not shot_path.exists():
                 raise _IncompleteCapture("evidence-screenshot-failed: no file written")
+            # 结构化 trace 落盘进证据链（kind="sse"，transport="dom"；词表对齐
+            # 文心/DeepSeek）：思考链（deep_think 模式 DOM 探针）+ 引用卡片折叠。
+            # 写盘失败不拖垮已成功的采集——如实 warning 且不出该证据（绝不出残缺/
+            # 编造证据）。deep_think_active 以实际抽到思考块为准（证据为正才标
+            # true；toggle 已确保但块缺失时如实 false）。
+            thinking_text = (
+                _extract_thinking_text(page) if spec.mode == "deep_think" else ""
+            )
+            trace_path: Path | None = None
+            if thinking_text or references:
+                trace_candidate = self._evidence_dir / f"{spec.file_stem}-sse-trace.json"
+                try:
+                    trace_candidate.write_text(
+                        json.dumps(
+                            _build_yuanbao_trace(
+                                thinking_text,
+                                references,
+                                deep_think_active=bool(thinking_text),
+                            ),
+                            ensure_ascii=False,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        ),
+                        encoding="utf-8",
+                    )
+                    trace_path = trace_candidate
+                except Exception:
+                    log.warning(
+                        "yuanbao_trace_persist_failed",
+                        file_stem=spec.file_stem,
+                        exc_info=True,
+                    )
             return CollectedAnswer(
                 answer_text=answer_text,
                 references=references,
@@ -1193,6 +1331,7 @@ class _PlaywrightYuanbaoSession:
                     "stream": meta,
                     "driver": driver,
                 },
+                trace_path=trace_path,
             )
         finally:
             # batch 内每题一个 CDP session：题末 best-effort detach，避免旧
@@ -1216,8 +1355,10 @@ class _PlaywrightYuanbaoSession:
 class _ChatStreamCapture:
     """CDP Network 层捕获 POST /api/chat/ 事件流（元宝流式回答的完成度 ground-truth）。
 
-    loadingFinished 同步拉 getResponseBody（Chromium 只短暂保留缓冲）；正文仍以
-    渲染 DOM 为准，body 只用于完成度/字节数审计。
+    只把流当「完成信号 + 字节计数」：requestWillBeSent/responseReceived 识别流、
+    dataReceived 累加字节、loadingFinished/loadingFailed 判完成——不读取响应体
+    （无 getResponseBody 调用；结构化 trace 的思考链/引用走 DOM 探针，见
+    _extract_thinking_text / _references_from_dom）。正文以渲染 DOM 为准。
     """
 
     def __init__(self, context: Any, page: Any) -> None:
@@ -1450,6 +1591,115 @@ def _ensure_fresh_chat(
     )
 
 
+# ---------------------------------------------------------------------------
+# 模式开关确保（校准依据见文件头「模式开关」节注释；语义对齐 deepseek 适配器
+# 20260810 同款实现：幂等零点击 + 后置校验 + 隔拍二次确认，确认不了诚实失败）
+# ---------------------------------------------------------------------------
+
+
+def _first_visible(page: Any, selectors: tuple[str, ...]) -> Any | None:
+    """选择器组里第一个可见元素（Locator）；全不可见/异常 → None。"""
+    for sel in selectors:
+        try:
+            loc = page.locator(sel).first
+            if loc.count() > 0 and loc.is_visible(timeout=500):
+                return loc
+        except Exception:
+            continue
+    return None
+
+
+def _deep_think_engaged(page: Any) -> bool | None:
+    """深度思考 toggle 当前是否开启；找不到/读不出状态 → None（调用方诚实失败，
+    绝不猜）。主判据 = ThinkSelector_selected class token 结构差分。"""
+    try:
+        state = page.evaluate(_DEEP_THINK_STATE_JS)
+    except Exception:
+        return None
+    if not isinstance(state, dict) or not state.get("found"):
+        return None
+    selected = state.get("selected")
+    return selected if isinstance(selected, bool) else None
+
+
+def _model_family(page: Any) -> str | None:
+    """当前模型族（'hunyuan' / 'deepseek'）；找不到/读不出 → None。"""
+    try:
+        state = page.evaluate(_MODEL_FAMILY_JS)
+    except Exception:
+        return None
+    if not isinstance(state, dict) or not state.get("found"):
+        return None
+    family = state.get("family")
+    return family if isinstance(family, str) else None
+
+
+def _ensure_default_model(page: Any, rng: random.Random) -> bool:
+    """确保模型族 = Hy3（账号默认全能模型）。已在 Hy3 → 零点击 True；在 DeepSeek
+    族 → 拟人打开模型下拉点 Hy3 选项 + 后置校验；不可观测/点了不变 → False。"""
+    family = _model_family(page)
+    if family is None:
+        return False
+    if family == "hunyuan":
+        return True
+    switch = _first_visible(page, _MODEL_SWITCH_SELECTORS)
+    if switch is None:
+        return False
+    try:
+        human_click(switch, page, rng)
+    except Exception:
+        return False
+    page.wait_for_timeout(600)  # 等下拉弹出
+    option = _first_visible(page, _HY3_OPTION_SELECTORS)
+    if option is None:
+        return False
+    try:
+        human_click(option, page, rng)
+    except Exception:
+        return False
+    page.wait_for_timeout(600)
+    if _model_family(page) != "hunyuan":
+        # 隔拍二次确认（UI 可能乐观翻转后回退）。
+        page.wait_for_timeout(400)
+        if _model_family(page) != "hunyuan":
+            return False
+    return True
+
+
+def _ensure_deep_think(page: Any, rng: random.Random, want: bool) -> bool:
+    """深度思考 toggle 确保到 want 态：已在目标态零点击（幂等，不制造多余行为
+    指纹）；否则拟人点击 + 状态翻转等待 + 隔拍二次确认。找不到/读不出状态/
+    点了不翻转 → False（调用方诚实失败，绝不猜）。"""
+    current = _deep_think_engaged(page)
+    if current is None:
+        return False
+    if current is want:
+        return True
+    toggle = _first_visible(page, _DEEP_THINK_TOGGLE_SELECTORS)
+    if toggle is None:
+        return False
+    try:
+        human_click(toggle, page, rng)
+    except Exception:
+        return False
+    page.wait_for_timeout(400)
+    if _deep_think_engaged(page) is not want:
+        # 隔拍二次确认（豆包 T-03 同款纪律：UI 可能乐观翻转后回退）。
+        page.wait_for_timeout(400)
+        if _deep_think_engaged(page) is not want:
+            return False
+    return True
+
+
+def _set_collection_mode(page: Any, rng: random.Random, mode: str) -> bool:
+    """测量口径：``normal`` = Hy3 + 深度思考关；``deep_think`` = Hy3 + 深度思考开
+    （联网检索为平台自动行为，无开关可确保）。先模型族后开关（切模型可能重置
+    开关态）；全部后置校验确认才 True；确认不了 False。"""
+    if not _ensure_default_model(page, rng):
+        return False
+    return _ensure_deep_think(page, rng, mode == "deep_think")
+
+
 def _click_send_button(
     page: Any,
     rng: random.Random,
@@ -1524,18 +1774,110 @@ def _submit_and_confirm(
 
 
 def _extract_answer_text(page: Any) -> str:
-    """DOM 抽取助手回答文本（最后一个可见气泡为准）。"""
+    """DOM 抽取助手回答文本（最后一个可见 markdown 正文容器/气泡为准；
+    思考链子树一律跳过——深度思考模式的链正文绝不混入答案）。"""
     for sel in _ASSISTANT_SELECTORS:
         try:
             elements = page.locator(sel).all()
             if not elements:
                 continue
-            text = elements[-1].inner_text(timeout=1_500)
-            if text and text.strip():
-                return _trim_response(text.strip())
+            for el in reversed(elements):
+                try:
+                    cls = el.get_attribute("class") or ""
+                except Exception:
+                    cls = ""
+                if _THINK_BLOCK_CLASS_SUBSTR in cls:
+                    continue
+                try:
+                    text = el.inner_text(timeout=1_500)
+                except Exception:
+                    continue
+                if text and text.strip():
+                    return _trim_response(text.strip())
         except Exception:
             continue
     return ""
+
+
+# 深度思考链 DOM 探针（20260810 冒烟实证的结构）：最后一个 AI 气泡内
+# ``[class*='deepsearch-cot__think']`` 块的 ``__content`` 子树即思考链正文
+# （innerText 首行是「已深度思考(用时N秒)」header，剔除）。块不存在/为空 → ""
+# （零合成，不编造）。仅 deep_think 模式调用；normal 模式无此子树。
+_THINKING_EXTRACT_JS = r"""() => {
+  const bubbles = document.querySelectorAll("div[class*='agent-chat__bubble--ai']");
+  if (!bubbles.length) return '';
+  const last = bubbles[bubbles.length - 1];
+  const think = last.querySelector("[class*='deepsearch-cot__think']");
+  if (!think) return '';
+  const content = think.querySelector("[class*='__content']") || think;
+  const text = (content.innerText || '').trim();
+  if (!text) return '';
+  return text
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('已深度思考'))
+    .join('\n')
+    .trim();
+}"""
+
+
+def _extract_thinking_text(page: Any) -> str:
+    """抽深度思考链原文（最后一个 AI 气泡内 deepsearch-cot__think 块的 __content
+    子树文本，剔除「已深度思考(用时N秒)」header 行）。
+
+    零合成：块不存在/无文本/探针异常一律空串（诚实缺省，绝不编造思考链）。
+    """
+    try:
+        text = page.evaluate(_THINKING_EXTRACT_JS)
+    except Exception:
+        return ""
+    return str(text or "").strip()
+
+
+def _build_yuanbao_trace(
+    thinking_text: str,
+    references: list[dict[str, Any]],
+    *,
+    deep_think_active: bool,
+) -> dict[str, Any]:
+    """思考链 + 引用卡片 → trace record（kind="sse" 证据内容，词表对齐文心/
+    DeepSeek：collection router 的 build_task_trace_view 消费同一词表）。
+
+    transport="dom" 如实标注：元宝 /api/chat/ 流只当完成信号（CDP 不读 body），
+    思考链来自 DOM 实渲染。references 折叠形态照 DeepSeek _build_sse_trace
+    （检索词平台未暴露 → queries 诚实留空）。思考文本单块截
+    _THINKING_TEXT_LIMIT 字符（对齐豆包水位）。
+    """
+    thinking_chain: list[dict[str, Any]] = []
+    if thinking_text:
+        thinking_chain.append(
+            {"kind": "reasoning", "text": thinking_text[:_THINKING_TEXT_LIMIT]}
+        )
+    search_blocks: list[dict[str, Any]] = []
+    if references:
+        search_blocks.append(
+            {
+                "scene": None,
+                "queries": [],
+                "summary": "",
+                "results": [
+                    {
+                        "title": str(ref.get("title") or "未命名来源"),
+                        "url": ref.get("url"),
+                        "site": ref.get("sitename"),
+                        "rank": index,
+                        "summary": str(ref.get("summary") or ""),
+                    }
+                    for index, ref in enumerate(references, 1)
+                ],
+            }
+        )
+    return {
+        "engine": "yuanbao",
+        "transport": "dom",
+        "deep_think_active": deep_think_active,
+        "thinking_chain": thinking_chain,
+        "search_blocks": search_blocks,
+    }
 
 
 def _wait_answer_stable(page: Any, *, max_seconds: float, quiet_seconds: float = 2.5) -> str:
@@ -1611,41 +1953,35 @@ def _scan_dom_notices(page: Any) -> dict[str, list[str]]:
 
 
 def _capture_full_page(page: Any, out_path: Path) -> None:
-    """flatten 内部滚动容器后整页截图：CDP captureBeyondViewport 优先，full_page 兜底。"""
-    metrics: dict[str, Any] = {}
+    """整页截图（20260810 重写，零侵入）：CDP captureBeyondViewport 按
+    cssContentSize 直接裁剪整页，``full_page`` 兜底——**绝不做 DOM flatten**。
+
+    旧实现（与豆包同款 flatten JS）在元宝页面必现空白帧（0727 冒烟 + 0810 三次
+    冒烟四张 4365B 全白图）：元宝会话正文是文档流（flatten 探针找不到内层滚动
+    容器，``ok:false``），但 flatten 第三段仍无条件改写 body/html 高度/overflow
+    并剥全页 transform——布局被打塌，随后无论 CDP 还是 full_page 路径截到的都
+    是塌后的空白帧（X11 层窗口像素正常，纯合成器帧被毁）。元宝内容本就是文档
+    流，captureBeyondViewport 不交 flatten 即可截全（0810 探针实证 139-157KB
+    真实帧）。豆包/deepseek 的 flatten 副本不动（其页面实证无恙）。"""
     try:
-        raw = page.evaluate(_FLATTEN_FOR_SCREENSHOT_JS)
-        page.wait_for_timeout(300)
-        if isinstance(raw, dict):
-            metrics = raw
+        cdp = page.context.new_cdp_session(page)
+        layout = cdp.send("Page.getLayoutMetrics")
+        css_size = layout.get("cssContentSize") or layout.get("contentSize") or {}
+        width = int(css_size.get("width") or 0) or 1280
+        height = int(css_size.get("height") or 0) or 720
+        result = cdp.send(
+            "Page.captureScreenshot",
+            {
+                "format": "png",
+                "captureBeyondViewport": True,
+                "fromSurface": True,
+                "clip": {"x": 0, "y": 0, "width": width, "height": height, "scale": 1},
+            },
+        )
+        png_b64 = result.get("data")
+        if png_b64:
+            out_path.write_bytes(base64.b64decode(png_b64))
+            return
     except Exception:
-        metrics = {}
-    target_height = max(
-        int(metrics.get("body_scroll_height_after") or 0),
-        int(metrics.get("doc_scroll_height_after") or 0),
-        int(metrics.get("scroller_full_height") or 0),
-    )
-    viewport_h = int(metrics.get("viewport_height") or 0)
-    if target_height and target_height > viewport_h + 50:
-        try:
-            cdp = page.context.new_cdp_session(page)
-            layout = cdp.send("Page.getLayoutMetrics")
-            css_size = layout.get("cssContentSize") or layout.get("contentSize") or {}
-            width = int(css_size.get("width") or 0) or 1280
-            height = max(target_height, int(css_size.get("height") or 0))
-            result = cdp.send(
-                "Page.captureScreenshot",
-                {
-                    "format": "png",
-                    "captureBeyondViewport": True,
-                    "fromSurface": True,
-                    "clip": {"x": 0, "y": 0, "width": width, "height": height, "scale": 1},
-                },
-            )
-            png_b64 = result.get("data")
-            if png_b64:
-                out_path.write_bytes(base64.b64decode(png_b64))
-                return
-        except Exception:
-            pass
+        pass
     page.screenshot(path=str(out_path), full_page=True)

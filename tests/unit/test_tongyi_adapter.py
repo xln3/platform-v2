@@ -17,7 +17,9 @@ from workflows.activities.collection import CollectionTaskInput
 from workflows.activities.tongyi_adapter import (
     CollectedAnswer,
     TongyiAdapterConfig,
+    _build_tongyi_trace,
     _composer_value_empty,
+    _task_result_from_collected,
     _WallError,
     mask_proxy_url,
     run_tongyi_collection,
@@ -207,3 +209,63 @@ def test_composer_value_empty_recognizes_qianwen_placeholder() -> None:
     assert _composer_value_empty("  ") is True
     assert _composer_value_empty("你好，请用一句话介绍你自己") is False
     assert _composer_value_empty("\ufeff你好") is False
+
+
+# ---------------------------------------------------------------------------
+# 结构化 trace 证据（20260810，kind="sse"/transport="dom"；思考链/检索词平台
+# 未暴露，诚实留空——引用卡片折叠为唯一内容）
+# ---------------------------------------------------------------------------
+
+
+def test_build_tongyi_trace_shape() -> None:
+    """refs → search_blocks 折叠（DeepSeek 形态）；thinking_chain/queries 诚实留空。"""
+    refs = [
+        {"url": "https://example.com/a", "title": "标题A", "sitename": "站点A"},
+        {"url": "https://example.com/b", "title": None, "sitename": None},
+    ]
+    trace = _build_tongyi_trace(refs)
+    assert trace["engine"] == "tongyi"
+    assert trace["transport"] == "dom"
+    assert trace["deep_think_active"] is False
+    assert trace["thinking_chain"] == []
+    assert trace["queries"] == []
+    block = trace["search_blocks"][0]
+    assert block["scene"] is None
+    assert block["queries"] == []
+    assert block["summary"] == ""
+    assert [r["url"] for r in block["results"]] == [
+        "https://example.com/a",
+        "https://example.com/b",
+    ]
+    assert block["results"][0]["rank"] == 1
+    assert block["results"][0]["site"] == "站点A"
+    assert block["results"][1]["title"] == "未命名来源"
+    assert block["results"][1]["summary"] == ""
+    empty = _build_tongyi_trace([])
+    assert empty["search_blocks"] == []
+
+
+def test_task_result_maps_trace_evidence(tmp_path: Path) -> None:
+    """trace_path → kind="sse" 证据（references 折叠 search_blocks）。"""
+    shot = tmp_path / "run-9-task-2.png"
+    shot.write_bytes(b"\x89PNG-fake")
+    trace = tmp_path / "run-9-task-2-sse-trace.json"
+    trace.write_text("{}", encoding="utf-8")
+    collected = CollectedAnswer(
+        answer_text="正文", references=[], screenshot_path=shot, trace_path=trace
+    )
+    result = _task_result_from_collected(_item(), collected)
+    assert len(result.evidence) == 1
+    assert result.evidence[0].kind == "sse"
+    assert result.evidence[0].relation_type == "answer_sse_trace"
+    assert result.evidence[0].mime_type == "application/json"
+    assert result.evidence[0].path == str(trace)
+
+
+def test_task_result_without_trace_has_no_evidence(tmp_path: Path) -> None:
+    """无引用（trace_path=None）→ 不出 sse 证据（诚实缺省，不出空证据）。"""
+    shot = tmp_path / "run-9-task-2.png"
+    shot.write_bytes(b"\x89PNG-fake")
+    collected = CollectedAnswer(answer_text="正文", references=[], screenshot_path=shot)
+    result = _task_result_from_collected(_item(), collected)
+    assert result.evidence == []

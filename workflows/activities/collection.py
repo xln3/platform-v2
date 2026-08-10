@@ -53,14 +53,17 @@ class CollectionTaskInput:
 
 # 平台 × mode 能力表（20260810 起，run 矩阵过滤真源）：只列各适配器实际支持的
 # mode——deepseek 专家模式不支持搜索，GEO 评测不测专家（normal=快速+搜索开+
-# 思考关，deep_think=快速+搜索开+思考开，见 deepseek_adapter docstring）。
+# 思考关，deep_think=快速+搜索开+思考开，见 deepseek_adapter docstring）；元宝
+# 联网检索为平台自动行为（无开关），normal=Hy3+思考关，deep_think=Hy3+思考开
+# （=hunyuan_t1，见 yuanbao_adapter docstring）；yiyan deep_think=composer
+# 「深度思考」chip 开（20260810 live 校准，见 yiyan_adapter docstring）。
 # 未知平台 slug 不在表内 → 不过滤（dispatcher 会诚实报 unsupported adapter）。
 PLATFORM_MODE_CAPABILITIES: dict[str, frozenset[str]] = {
     "doubao": frozenset({"normal", "deep_think"}),
     "deepseek": frozenset({"normal", "deep_think"}),
     "tongyi": frozenset({"normal"}),
-    "yiyan": frozenset({"normal"}),
-    "yuanbao": frozenset({"normal"}),
+    "yiyan": frozenset({"normal", "deep_think"}),
+    "yuanbao": frozenset({"normal", "deep_think"}),
 }
 
 
@@ -304,6 +307,9 @@ def _normalize_search_queries(items: list[dict[str, Any]]) -> list[dict[str, Any
 
 
 def _safe_http_url(value: str | None) -> str | None:
+    """结构校验（scheme/host/无内嵌凭据/长度）。URL 是公开平台输出（引用/信源
+    页面地址），按 2026-08-06 拍板原文存储零 DLP——公开 URL 里的长数字串
+    （文章 id 等）会误命中 phone 模式，绝不允许因此拒绝测量原料。"""
     if value is None:
         return None
     if not isinstance(value, str) or not value or len(value) > 2_048:
@@ -313,13 +319,12 @@ def _safe_http_url(value: str | None) -> str | None:
         raise ValueError("evidence source URL must use HTTP(S)")
     if parsed.username or parsed.password:
         raise ValueError("evidence source URL must not contain credentials")
-    assert_secret_free(value)
     return value
 
 
 def _normalize_citations(items: list[dict[str, Any]]) -> list[dict[str, str | None]]:
     """引用规范化：结构校验（URL/长度/去重）；文本为公开内容，原文存储不脱敏。"""
-    if len(items) > 100:
+    if len(items) > 500:  # deep_think 检索流实测引用卡片可破百（20260810）
         raise ValueError("collection result has too many citations")
     normalized: list[dict[str, str | None]] = []
     seen: set[str] = set()
@@ -415,10 +420,9 @@ def _normalize_evidence_refs(
             if isinstance(item.cited_text, str) and item.cited_text.strip()
             else None
         )
-        if title:
-            assert_secret_free(title)
-        if cited_text:
-            assert_secret_free(cited_text)
+        # title/cited_text 是信源页标题与提及段落原文（公开平台输出）——按
+        # 2026-08-06 拍板原文存储零 DLP（营销稿含 400 电话等字样属正常，
+        # 绝不因此拒绝测量原料）；DLP 只守本地自产路径串。
         if item.ordinal is not None and (not isinstance(item.ordinal, int) or item.ordinal < 1):
             raise ValueError("collection evidence ordinal is invalid")
         normalized.append(

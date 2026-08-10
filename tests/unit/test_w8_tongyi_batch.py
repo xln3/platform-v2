@@ -1128,3 +1128,56 @@ def test_collect_batch_stable_dom_after_stream_passes_settle_gate(
     assert [o.status for o in outcomes] == ["ok"]
     assert outcomes[0].answer is not None
     assert outcomes[0].answer.answer_text == "这是答案"
+
+
+# ---------------------------------------------------------------------------
+# 结构化 trace 证据（20260810，kind="sse"/transport="dom"；思考链/检索词平台
+# 未暴露诚实留空——引用卡片折叠为唯一内容，无引用不出空证据）
+# ---------------------------------------------------------------------------
+
+
+def test_collect_batch_persists_trace_when_references_present(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """有引用：{file_stem}-sse-trace.json 落盘（engine=tongyi/transport=dom/
+    thinking_chain 诚实留空），trace_path 随 CollectedAnswer 返回。"""
+    page = _FakePage(messages=0)
+    page.extract_payload = {
+        "segments": [{"kind": "markdown", "cls": "qk-markdown", "text": "这是答案"}],
+        "refs": [{"url": "https://example.com/a", "title": "例", "sitename": None}],
+    }
+    session = _make_session(tmp_path, monkeypatch, page)
+    spec = _batch_specs(1)[0]
+
+    outcomes = session.collect_batch([spec], on_stage=lambda s: None)
+
+    assert outcomes[0].status == "ok"
+    assert outcomes[0].answer is not None
+    trace_file = tmp_path / "evidence" / f"{spec.file_stem}-sse-trace.json"
+    assert trace_file.is_file()
+    assert outcomes[0].answer.trace_path == trace_file
+    record = json.loads(trace_file.read_text(encoding="utf-8"))
+    assert record["engine"] == "tongyi"
+    assert record["transport"] == "dom"
+    assert record["deep_think_active"] is False
+    assert record["thinking_chain"] == []
+    assert record["queries"] == []
+    assert [r["url"] for r in record["search_blocks"][0]["results"]] == [
+        "https://example.com/a"
+    ]
+
+
+def test_collect_batch_without_references_writes_no_trace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """无引用：trace 不落盘、trace_path=None（无内容不出空证据）。"""
+    page = _FakePage(messages=0)  # 默认 extract 路径 refs=[]
+    session = _make_session(tmp_path, monkeypatch, page)
+    spec = _batch_specs(1)[0]
+
+    outcomes = session.collect_batch([spec], on_stage=lambda s: None)
+
+    assert outcomes[0].status == "ok"
+    assert outcomes[0].answer is not None
+    assert outcomes[0].answer.trace_path is None
+    assert not (tmp_path / "evidence" / f"{spec.file_stem}-sse-trace.json").exists()

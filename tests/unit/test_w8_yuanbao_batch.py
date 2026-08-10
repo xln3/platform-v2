@@ -6,7 +6,10 @@
   阅读停顿每题（含最后一题）、证据逐题落盘、CDP capture 题末 detach；
 - 失败语义：题级 wall → 后续题 aborted（零浏览器交互）；session 级墙 →
   全题 wall 结果不 raise；session 级 incomplete → raise 可重试；
-- activity 层：mode 门（deep_think → unsupported_mode）/空 batch/契约违背；
+- activity 层：mode 门（normal/deep_think 放行，其余 → unsupported_mode）/空 batch/契约违背；
+- 模式开关确保（20260810 口径）：模型族 Hy3 + 深度思考 toggle 发送前显式确保，
+  确认不了 → mode_toggle_failed（题级 wall + 后续题 aborted），绝不静默按错误
+  口径采集；
 - 默认 session 路径必须 to_thread（thread-probe 回归）；
 - 常驻浏览器 attach（GEO_YUANBAO_CDP_URL）：不 launch、不关 context、
   不清理 profile，退出只断开 CDP。
@@ -49,6 +52,11 @@ _COMPOSER_BB = {"x": 80.0, "y": 600.0, "width": 600.0, "height": 48.0}
 _SEND_BB = {"x": 640.0, "y": 610.0, "width": 32.0, "height": 32.0}
 _NEW_CHAT_BB = {"x": 40.0, "y": 120.0, "width": 96.0, "height": 32.0}
 _OVERLAY_BB = {"x": 300.0, "y": 200.0, "width": 90.0, "height": 32.0}
+# 模式开关区（工具行，与 composer/send BB 零相交）：深度思考 toggle / 模型选择器 /
+# 下拉 Hy3 选项（下拉弹出后才可见）
+_THINK_BB = {"x": 90.0, "y": 660.0, "width": 90.0, "height": 28.0}
+_MODEL_SWITCH_BB = {"x": 200.0, "y": 660.0, "width": 90.0, "height": 28.0}
+_HY3_OPTION_BB = {"x": 200.0, "y": 500.0, "width": 160.0, "height": 40.0}
 
 _ANSWER_TEXT = "这是元宝的真实回答。"
 
@@ -222,6 +230,10 @@ class _FakePage:
         goto_clears: bool = False,
         visible_overlays: frozenset[str] | None = None,
         swallow_sends_from: int | None = None,
+        model_family: str = "hunyuan",
+        deep_think_on: bool = False,
+        has_think_toggle: bool = True,
+        has_model_switch: bool = True,
     ) -> None:
         self.clock = _FakeClock()
         self.events: list[tuple] = []
@@ -242,6 +254,12 @@ class _FakePage:
         # 清空 composer、不再触发 /api/chat/ 流——驱动 wall_send 路径。
         self.swallow_sends_from = swallow_sends_from
         self.send_clicks = 0
+        # 模式开关态（20260810 校准口径）：模型族 / 深度思考 toggle / 下拉开合。
+        self.model_family = model_family
+        self.deep_think_on = deep_think_on
+        self.has_think_toggle = has_think_toggle
+        self.has_model_switch = has_model_switch
+        self.dropdown_open = False
 
     def classify(self, selector: str) -> tuple[str, bool, dict[str, float] | None]:
         if selector == "body":
@@ -252,6 +270,12 @@ class _FakePage:
             return ("send", True, _SEND_BB)
         if self.new_chat_button and selector in yuanbao_adapter._NEW_CHAT_SELECTORS:
             return ("new_chat", True, _NEW_CHAT_BB)
+        if self.has_think_toggle and selector in yuanbao_adapter._DEEP_THINK_TOGGLE_SELECTORS:
+            return ("think_toggle", True, _THINK_BB)
+        if self.has_model_switch and selector in yuanbao_adapter._MODEL_SWITCH_SELECTORS:
+            return ("model_switch", True, _MODEL_SWITCH_BB)
+        if self.dropdown_open and selector in yuanbao_adapter._HY3_OPTION_SELECTORS:
+            return ("hy3_option", True, _HY3_OPTION_BB)
         if selector in self.visible_overlays:
             return ("overlay", True, _OVERLAY_BB)
         return ("none", False, None)
@@ -281,6 +305,13 @@ class _FakePage:
             self.messages = 0  # 「新对话」切到全新会话
             self.composer_value = ""
             self.answer_text = ""
+        elif _in_bb(_THINK_BB, x, y) and self.has_think_toggle:
+            self.deep_think_on = not self.deep_think_on  # 深度思考 toggle 翻转
+        elif _in_bb(_MODEL_SWITCH_BB, x, y) and self.has_model_switch:
+            self.dropdown_open = True  # 模型下拉弹出
+        elif _in_bb(_HY3_OPTION_BB, x, y) and self.dropdown_open:
+            self.model_family = "hunyuan"  # 选中 Hy3，下拉合上
+            self.dropdown_open = False
 
     def locator(self, selector: str) -> _FakeLocator:
         self.events.append(("locator", selector))
@@ -290,8 +321,26 @@ class _FakePage:
         self.events.append(("evaluate", script))
         if script == yuanbao_adapter._CHAT_MESSAGE_COUNT_JS:
             return self.messages
-        if script == yuanbao_adapter._FLATTEN_FOR_SCREENSHOT_JS:
-            return {}
+        if script == yuanbao_adapter._DEEP_THINK_STATE_JS:
+            if not self.has_think_toggle:
+                return {"found": False}
+            return {
+                "found": True,
+                "selected": self.deep_think_on,
+                "model": "hunyuan_t1" if self.deep_think_on else "hunyuan_gpt_175B_0404",
+            }
+        if script == yuanbao_adapter._MODEL_FAMILY_JS:
+            if not self.has_model_switch:
+                return {"found": False}
+            return {
+                "found": True,
+                "model": (
+                    "deep_seek_v3"
+                    if self.model_family == "deepseek"
+                    else "hunyuan_gpt_175B_0404"
+                ),
+                "family": self.model_family,
+            }
         return None
 
     def goto(self, url: str, **_kw: Any) -> None:
@@ -865,8 +914,8 @@ async def test_run_yuanbao_batch_session_incomplete_raises_retryable(
 async def test_run_yuanbao_batch_config_and_mode_gates(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """配置类错误照常 raise：mode 门（仅 normal；deep_think 拒绝）在浏览器启动
-    之前；profile 缺失 fail-closed。"""
+    """配置类错误照常 raise：mode 门（normal/deep_think 放行；未知 mode 拒绝）在
+    浏览器启动之前；profile 缺失 fail-closed。"""
     monkeypatch.setenv("GEO_YUANBAO_PROFILE_DIR", str(tmp_path))
     monkeypatch.setenv("GEO_ADAPTER_EVIDENCE_DIR", str(tmp_path / "evidence"))
 
@@ -878,7 +927,7 @@ async def test_run_yuanbao_batch_config_and_mode_gates(
     batch = CollectionBatchInput(
         tenant_pub_id="tnt_test",
         run_pub_id="run_test",
-        items=[_item(mode="deep_think")],
+        items=[_item(mode="expert")],
     )
     with pytest.raises(ApplicationError) as exc_info:
         await run_yuanbao_batch(batch, session_factory=factory, heartbeat=lambda p: None)
@@ -972,3 +1021,375 @@ async def test_run_yuanbao_batch_default_session_runs_in_thread(
     )
     assert seen["on_main_thread"] is False
     assert result.results[0].error_type == "aborted_after_failure"
+
+
+# ---------------------------------------------------------------------------
+# 模式开关确保（20260810 口径：模型族 Hy3 + 深度思考 toggle，发送前显式确保 +
+# 后置校验；确认不了 → mode_toggle_failed，绝不静默按错误口径采集）
+# ---------------------------------------------------------------------------
+
+
+def _clicks_in_bb(events: list[tuple], bb: dict[str, float]) -> list[int]:
+    """鼠标点击事件里落在指定 BB 内的事件下标（按事件序）。"""
+    return [i for i, e in enumerate(events) if e[0] == "mouse_click" and _in_bb(bb, e[1], e[2])]
+
+
+async def test_collect_one_deep_think_turns_toggle_on(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """deep_think 口径：深度思考 toggle 关→开（幂等之外恰好一次拟人点击），
+    且点击严格先于打字；采集照常成功。"""
+    _yuanbao_env(tmp_path, monkeypatch)
+    page = _FakePage(messages=0, deep_think_on=False)
+    _install_fake_browser(monkeypatch, page)
+
+    result = await run_yuanbao_collection(
+        _item(mode="deep_think"),
+        session_factory=_PlaywrightYuanbaoSession,
+        heartbeat=lambda p: None,
+    )
+
+    assert result.answer_text == _ANSWER_TEXT
+    assert page.deep_think_on is True  # toggle 已开到思考态
+    events = page.events
+    think_clicks = [
+        i for i, e in enumerate(events) if e[0] == "mouse_click" and _in_bb(_THINK_BB, e[1], e[2])
+    ]
+    assert len(think_clicks) == 1  # 关→开恰好点一次
+    first_key = next(i for i, e in enumerate(events) if e[0] == "key")
+    assert think_clicks[0] < first_key  # 开关确保严格先于打字
+    # 模型族已是 Hy3（默认），模型选择器零点击
+    assert not [
+        e for e in events if e[0] == "mouse_click" and _in_bb(_MODEL_SWITCH_BB, e[1], e[2])
+    ]
+
+
+async def test_collect_one_normal_turns_deep_think_off(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """normal 口径 = Hy3 + 深度思考**关**：账号残留开态必须显式点关（错态残留 =
+    答案口径错标）。"""
+    _yuanbao_env(tmp_path, monkeypatch)
+    page = _FakePage(messages=0, deep_think_on=True)  # 残留开态
+    _install_fake_browser(monkeypatch, page)
+
+    result = await run_yuanbao_collection(
+        _item(mode="normal"),
+        session_factory=_PlaywrightYuanbaoSession,
+        heartbeat=lambda p: None,
+    )
+
+    assert result.answer_text == _ANSWER_TEXT
+    assert page.deep_think_on is False  # 已点回关态
+    think_clicks = [
+        e for e in page.events if e[0] == "mouse_click" and _in_bb(_THINK_BB, e[1], e[2])
+    ]
+    assert len(think_clicks) == 1
+
+
+async def test_collect_one_mode_toggle_failure_is_honest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """toggle 缺失（选择器漂移）→ mode_toggle_failed non_retryable，
+    绝不带错口径答案蒙混（一个字都不打）。"""
+    evidence = _yuanbao_env(tmp_path, monkeypatch)
+    page = _FakePage(messages=0, has_think_toggle=False)  # 深度思考 toggle 不存在
+    _install_fake_browser(monkeypatch, page)
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await run_yuanbao_collection(
+            _item(mode="deep_think"),
+            session_factory=_PlaywrightYuanbaoSession,
+            heartbeat=lambda p: None,
+        )
+    assert exc_info.value.type == "mode_toggle_failed"
+    assert exc_info.value.non_retryable is True
+    assert not [e for e in page.events if e[0] == "key"]  # 零输入
+    assert (evidence / "run-9-task-5-a1-mode_toggle.png").is_file()  # 存证截图落盘
+
+
+async def test_collect_one_switches_model_family_to_hy3(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """模型族残留在 DeepSeek → 拟人打开模型下拉点 Hy3，再开深度思考；全部开关
+    交互严格先于打字。"""
+    _yuanbao_env(tmp_path, monkeypatch)
+    page = _FakePage(messages=0, model_family="deepseek", deep_think_on=False)
+    _install_fake_browser(monkeypatch, page)
+
+    result = await run_yuanbao_collection(
+        _item(mode="deep_think"),
+        session_factory=_PlaywrightYuanbaoSession,
+        heartbeat=lambda p: None,
+    )
+
+    assert result.answer_text == _ANSWER_TEXT
+    assert page.model_family == "hunyuan"
+    assert page.deep_think_on is True
+    events = page.events
+    first_key = next(i for i, e in enumerate(events) if e[0] == "key")
+    switch_clicks = _clicks_in_bb(events, _MODEL_SWITCH_BB)
+    hy3_clicks = _clicks_in_bb(events, _HY3_OPTION_BB)
+    think_clicks = _clicks_in_bb(events, _THINK_BB)
+    assert len(switch_clicks) == 1 and len(hy3_clicks) == 1 and len(think_clicks) == 1
+    assert switch_clicks[0] < hy3_clicks[0] < first_key  # 开下拉→选 Hy3→打字
+    assert think_clicks[0] < first_key
+
+
+def test_batch_deep_think_toggle_failure_walls_and_aborts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """batch 题级 toggle 失败 → 本题 wall(mode_toggle_failed) + 后续题
+    aborted（零浏览器交互）。"""
+    page = _FakePage(messages=0, has_think_toggle=False)  # toggle 缺失
+    session = _make_session(tmp_path, monkeypatch, page)
+    specs = [
+        yuanbao_adapter.YuanbaoBatchItemSpec(
+            business_key=f"run-2-task-{index}",
+            query=f"第{index}题",
+            mode="deep_think",
+            file_stem=f"run-2-task-{index}-a1",
+        )
+        for index in (1, 2)
+    ]
+
+    outcomes = session.collect_batch(specs, on_stage=lambda s: None)
+
+    assert [o.status for o in outcomes] == ["wall", "aborted"]
+    assert outcomes[0].error_type == "mode_toggle_failed"
+    assert outcomes[1].error_type == "aborted_after_failure"
+    assert "mode_toggle_failed" in (outcomes[1].error_message or "")
+    assert not [e for e in page.events if e[0] == "key"]  # 两题都零输入
+
+
+async def test_run_yuanbao_batch_deep_think_passthrough(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """mode 门放行 deep_think：spec.mode 原样透传到 session 层。"""
+    monkeypatch.setenv("GEO_YUANBAO_PROFILE_DIR", str(tmp_path))
+    monkeypatch.setenv("GEO_ADAPTER_EVIDENCE_DIR", str(tmp_path / "evidence"))
+    seen: list[str] = []
+    shot = tmp_path / "evidence" / "run-9-task-5-a1.png"
+    shot.parent.mkdir(exist_ok=True)
+    shot.write_bytes(b"\x89PNG-fake")
+
+    class _RecSession:
+        def collect_batch(self, items: Any, on_stage: Any) -> list[Any]:
+            seen.extend(spec.mode for spec in items)
+            return [
+                yuanbao_adapter.YuanbaoBatchItemOutcome(
+                    business_key=items[0].business_key,
+                    status="ok",
+                    answer=CollectedAnswer(
+                        answer_text="深度思考后的回答", references=[], screenshot_path=shot
+                    ),
+                )
+            ]
+
+    result = await run_yuanbao_batch(
+        CollectionBatchInput(
+            tenant_pub_id="tnt_test",
+            run_pub_id="run_test",
+            items=[_item(mode="deep_think")],
+        ),
+        session_factory=lambda config, evidence_dir, stem: _RecSession(),
+        heartbeat=lambda p: None,
+    )
+    assert seen == ["deep_think"]
+    assert result.results[0].status == "ok"
+    assert result.results[0].quality_state == "live_valid"
+
+
+async def test_run_yuanbao_batch_session_toggle_failure_marks_all_items(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """防御：toggle 失败逃出题内映射（session 级抛出）→ 全题 wall 诚实记录。"""
+    monkeypatch.setenv("GEO_YUANBAO_PROFILE_DIR", str(tmp_path))
+    monkeypatch.setenv("GEO_ADAPTER_EVIDENCE_DIR", str(tmp_path / "evidence"))
+
+    class _ToggleFailSession:
+        def collect_batch(self, items: Any, on_stage: Any) -> list[Any]:
+            raise yuanbao_adapter._ModeToggleFailed("think toggle not found", None)
+
+    result = await run_yuanbao_batch(
+        CollectionBatchInput(
+            tenant_pub_id="tnt_test",
+            run_pub_id="run_test",
+            items=[_item(mode="deep_think"), _item(mode="deep_think")],
+        ),
+        session_factory=lambda config, evidence_dir, stem: _ToggleFailSession(),
+        heartbeat=lambda p: None,
+    )
+    assert [r.status for r in result.results] == ["wall", "wall"]
+    assert all(r.error_type == "mode_toggle_failed" for r in result.results)
+
+
+def test_extract_answer_text_skips_think_blocks() -> None:
+    """深度思考模式正文抽取（20260810 live 校准）：命中列表尾部的思考链子树
+    （deepsearch-cot__think class）一律跳过，取最后一个非思考块的 markdown
+    正文容器——思考链绝不混入答案正文。"""
+
+    class _El:
+        def __init__(self, text: str, cls: str = "") -> None:
+            self._text = text
+            self._cls = cls
+
+        def get_attribute(self, name: str) -> str | None:
+            return self._cls if name == "class" else None
+
+        def inner_text(self, timeout: int | None = None) -> str:
+            return self._text
+
+    class _Loc:
+        def __init__(self, els: list[_El]) -> None:
+            self._els = els
+
+        def all(self) -> list[_El]:
+            return self._els
+
+    class _Pg:
+        def locator(self, sel: str) -> _Loc:
+            if "hyc-content-md" in sel:
+                return _Loc(
+                    [
+                        _El("干净正文", "hyc-content-md hyc-content-md-done"),
+                        _El(
+                            "已深度思考(用时1秒)\n用户问的是……",
+                            "hyc-content-md hyc-component-deepsearch-cot__think__content",
+                        ),
+                    ]
+                )
+            return _Loc([])
+
+    assert yuanbao_adapter._extract_answer_text(_Pg()) == "干净正文"
+
+
+def test_extract_answer_text_falls_back_to_last_visible_bubble() -> None:
+    """无思考块时维持旧语义：取最后一个可见元素（bubble 兜底链不变）。"""
+
+    class _El:
+        def __init__(self, text: str, cls: str = "") -> None:
+            self._text = text
+            self._cls = cls
+
+        def get_attribute(self, name: str) -> str | None:
+            return self._cls if name == "class" else None
+
+        def inner_text(self, timeout: int | None = None) -> str:
+            return self._text
+
+    class _Loc:
+        def __init__(self, els: list[_El]) -> None:
+            self._els = els
+
+        def all(self) -> list[_El]:
+            return self._els
+
+    class _Pg:
+        def locator(self, sel: str) -> _Loc:
+            if "hyc-content-md" in sel:
+                return _Loc([])
+            if "hyc-common-markdown" in sel:
+                return _Loc([_El("第一题答案"), _El("第二题答案")])
+            return _Loc([])
+
+    assert yuanbao_adapter._extract_answer_text(_Pg()) == "第二题答案"
+
+
+# ---------------------------------------------------------------------------
+# 结构化 trace 证据（20260810，kind="sse"/transport="dom"，词表对齐文心/DeepSeek）
+# ---------------------------------------------------------------------------
+
+
+class _ThinkingFakePage(_FakePage):
+    """deep_think 全链路替身：思考链 DOM 探针返回构造的思考文本。"""
+
+    def __init__(self, thinking_text: str, **kw: Any) -> None:
+        super().__init__(**kw)
+        self._thinking_text = thinking_text
+
+    def evaluate(self, script: str, *_args: Any) -> Any:
+        if script == yuanbao_adapter._THINKING_EXTRACT_JS:
+            return self._thinking_text
+        return super().evaluate(script, *_args)
+
+
+async def test_collect_one_deep_think_persists_trace_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """deep_think 模式：思考链探针有产出 → {file_stem}-sse-trace.json 落盘 +
+    kind="sse" evidence；deep_think_active 以实际抽到思考块为准（证据为正）。"""
+    evidence = _yuanbao_env(tmp_path, monkeypatch)
+    page = _ThinkingFakePage("先拆解问题。\n再作答。", messages=0, deep_think_on=False)
+    _install_fake_browser(monkeypatch, page)
+
+    result = await run_yuanbao_collection(
+        _item(mode="deep_think"),
+        session_factory=_PlaywrightYuanbaoSession,
+        heartbeat=lambda p: None,
+    )
+
+    trace_file = evidence / "run-9-task-5-a1-sse-trace.json"
+    assert trace_file.is_file()
+    record = json.loads(trace_file.read_text(encoding="utf-8"))
+    assert record["engine"] == "yuanbao"
+    assert record["transport"] == "dom"
+    assert record["deep_think_active"] is True
+    assert record["thinking_chain"] == [
+        {"kind": "reasoning", "text": "先拆解问题。\n再作答。"}
+    ]
+    assert record["search_blocks"] == []  # fake 页无引用卡片
+    assert len(result.evidence) == 1
+    assert result.evidence[0].kind == "sse"
+    assert result.evidence[0].relation_type == "answer_sse_trace"
+    assert result.evidence[0].path == str(trace_file)
+
+
+async def test_collect_one_deep_think_without_block_marks_inactive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """deep_think 模式但思考块缺失（toggle 已确保、块未渲染）：探针空 →
+    无引用时 trace 不落盘、evidence 空（绝不按 toggle 态硬标 deep_think_active）。"""
+    evidence = _yuanbao_env(tmp_path, monkeypatch)
+    page = _FakePage(messages=0, deep_think_on=False)  # 探针对未知脚本返回 None
+    _install_fake_browser(monkeypatch, page)
+
+    result = await run_yuanbao_collection(
+        _item(mode="deep_think"),
+        session_factory=_PlaywrightYuanbaoSession,
+        heartbeat=lambda p: None,
+    )
+
+    assert result.quality_state == "live_valid"
+    assert result.evidence == []
+    assert not (evidence / "run-9-task-5-a1-sse-trace.json").exists()
+    # deep_think 模式下探针确实跑过（只是块缺失）
+    assert (
+        "evaluate",
+        yuanbao_adapter._THINKING_EXTRACT_JS,
+    ) in page.events
+
+
+async def test_collect_one_normal_writes_no_trace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """normal 模式：思考链探针不调用；无引用 → trace 不落盘、evidence 空
+    （无内容不出空证据）。"""
+    evidence = _yuanbao_env(tmp_path, monkeypatch)
+    page = _FakePage(messages=0)
+    _install_fake_browser(monkeypatch, page)
+
+    result = await run_yuanbao_collection(
+        _item(mode="normal"),
+        session_factory=_PlaywrightYuanbaoSession,
+        heartbeat=lambda p: None,
+    )
+
+    assert result.quality_state == "live_valid"
+    assert result.evidence == []
+    assert not (evidence / "run-9-task-5-a1-sse-trace.json").exists()
+    assert not [
+        e
+        for e in page.events
+        if e[0] == "evaluate" and e[1] == yuanbao_adapter._THINKING_EXTRACT_JS
+    ]

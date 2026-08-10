@@ -222,6 +222,12 @@ class _FakePage:
         # 清空 composer、不再出现答案容器——驱动 wall_send 路径。
         self.swallow_sends_from = swallow_sends_from
         self.send_clicks = 0
+        # 深度思考 chip 态（20260810）：fake 恒定关——normal 显式确保零点击通过。
+        self.chip_state: dict[str, object] | None = {
+            "active": False,
+            "inactive": True,
+            "is_open": "0",
+        }
 
     def classify(self, selector: str) -> tuple[str, bool, dict[str, float] | None]:
         if selector == "body":
@@ -262,6 +268,8 @@ class _FakePage:
             return True
         if script == yiyan_adapter._CHAT_MESSAGE_COUNT_JS:
             return self.messages
+        if script == yiyan_adapter._DEEP_THINK_CHIP_STATE_JS:
+            return self.chip_state
         return None
 
     def goto(self, url: str, **_kw: Any) -> None:
@@ -735,8 +743,8 @@ async def test_run_yiyan_batch_session_incomplete_raises_retryable(
 async def test_run_yiyan_batch_config_and_mode_gates(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, adapter_env: Path
 ) -> None:
-    """配置类错误照常 raise：mode 门（仅 normal）在浏览器启动之前；profile 缺失
-    fail-closed。"""
+    """配置类错误照常 raise：mode 门（normal/deep_think 之外）在浏览器启动之前；
+    profile 缺失 fail-closed。"""
 
     class _NeverCalled:
         def collect_batch(self, items: Any, on_stage: Any) -> Any:
@@ -746,7 +754,7 @@ async def test_run_yiyan_batch_config_and_mode_gates(
     bad_mode = CollectionBatchInput(
         tenant_pub_id="tnt_test",
         run_pub_id="run_test",
-        items=[_item(mode="deep_think")],
+        items=[_item(mode="expert")],
     )
     with pytest.raises(ApplicationError) as exc_info:
         await run_yiyan_batch(bad_mode, session_factory=factory, heartbeat=lambda p: None)

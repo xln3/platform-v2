@@ -92,20 +92,20 @@ describe('ConfigLauncher', () => {
         queryPlaceholder="国内网络空间资产搜索引擎哪家强"
       />,
     );
-    // 缺省平台 doubao/deepseek/yiyan：deepseek 双 mode（normal+deep_think），
-    // 其余单 normal → 平台×模式数 = 1+2+1 = 4。
-    expect(screen.getByText(/0 题 × 4 平台×模式 × 2 地域 = 每轮 0 任务，采样 2 轮共 0 任务/)).toBeTruthy();
+    // 缺省平台 doubao/deepseek/yiyan：deepseek/yiyan 双 mode（normal+deep_think），
+    // 其余单 normal → 平台×模式数 = 1+2+2 = 5。
+    expect(screen.getByText(/0 题 × 5 平台×模式 × 2 地域 = 每轮 0 任务，采样 2 轮共 0 任务/)).toBeTruthy();
     fillQuestions('问题一\n问题二\n\n问题三');
     expect(
-      screen.getByText(/3 题 × 4 平台×模式 × 2 地域 = 每轮 24 任务，采样 2 轮共 48 任务/),
+      screen.getByText(/3 题 × 5 平台×模式 × 2 地域 = 每轮 30 任务，采样 2 轮共 60 任务/),
     ).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '上海' }));
     expect(
-      screen.getByText(/3 题 × 4 平台×模式 × 1 地域 = 每轮 12 任务，采样 2 轮共 24 任务/),
+      screen.getByText(/3 题 × 5 平台×模式 × 1 地域 = 每轮 15 任务，采样 2 轮共 30 任务/),
     ).toBeTruthy();
     fireEvent.change(screen.getByLabelText(/采样次数/), { target: { value: '4' } });
     expect(
-      screen.getByText(/3 题 × 4 平台×模式 × 1 地域 = 每轮 12 任务，采样 4 轮共 48 任务/),
+      screen.getByText(/3 题 × 5 平台×模式 × 1 地域 = 每轮 15 任务，采样 4 轮共 60 任务/),
     ).toBeTruthy();
   });
 

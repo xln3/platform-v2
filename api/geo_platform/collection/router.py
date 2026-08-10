@@ -523,7 +523,7 @@ class TaskTraceView(StrictModel):
 
 
 _TRACE_DISCLOSURE = (
-    "仅展示豆包明确传输到浏览器的检索与公开思考步骤；"
+    "仅展示平台明确传输到浏览器的检索与公开思考步骤；"
     "未返回的内部推理、资料取舍原因不可据此推断。"
 )
 _TRACE_TEXT_LIMIT = 5_000  # 单段公开思考/回答正文的响应截断上限（对齐旧链口径）
@@ -666,7 +666,7 @@ def collection_task_trace(
     principal: Principal = Depends(get_principal),
     session: Session = Depends(get_db),
 ) -> TaskTraceView:
-    """回放采集任务的豆包 SSE 结构化 trace（W1；对齐旧链 research-trace 语义）。"""
+    """回放采集任务的结构化 trace（W1；对齐旧链 research-trace 语义）。"""
     principal.require("project:read")
     repository = TenantRepository(session, principal.tenant_pub_id)
     task = session.scalar(
