@@ -99,6 +99,13 @@ class DisparagementRateView(StrictModel):
     metric_version: str
 
 
+class DisparagementFactCheckView(StrictModel):
+    verdict: str
+    summary: str | None
+    source_url: str | None
+    checked_at: datetime
+
+
 class DisparagementCaseView(StrictModel):
     judgment_pub_id: str
     subject_type: str
@@ -114,6 +121,8 @@ class DisparagementCaseView(StrictModel):
     prompt_version: str
     source_url: str | None
     created_at: datetime
+    content_origin: str
+    fact_check: DisparagementFactCheckView | None = None
 
 
 class SourceAuditVerdictBucketView(StrictModel):
@@ -171,6 +180,19 @@ class SourceAuditOverviewView(StrictModel):
     items: list[SourceAuditItemView]
 
 
+class SiteAuditSuggestionView(StrictModel):
+    category: str
+    severity: str
+    title: str
+    detail: str
+    evidence_document_pub_id: str | None
+
+
+class SiteAuditSuggestionsView(StrictModel):
+    batch_pub_id: str | None
+    generated_at: datetime | None
+    model: str | None
+    suggestions: list[SiteAuditSuggestionView]
 
 
 class EvidenceAnchorView(StrictModel):
@@ -272,6 +294,26 @@ def _safe_bbox(value: object) -> dict[str, Any] | None:
         if isinstance(value.get(key), int | float)
     }
     return projected or None
+
+
+def _project_fact_check(value: object) -> DisparagementFactCheckView | None:
+    """T1 factcheck 行 → 视图；verdict 不合法（缺失/超长/非串）时整行降级为 None。
+
+    verdict 词表（supported/refuted/unverifiable）由写入方约束，读路径不发明
+    兜底词——宁可不外露也不伪造判定。
+    """
+    if not isinstance(value, dict):
+        return None
+    verdict = _safe_optional_text(value.get("verdict"), 40)
+    checked_at = value.get("checked_at")
+    if verdict is None or not isinstance(checked_at, datetime):
+        return None
+    return DisparagementFactCheckView(
+        verdict=verdict,
+        summary=_safe_optional_text(value.get("summary"), 2000),
+        source_url=_safe_source_url(value.get("source_url")),
+        checked_at=checked_at,
+    )
 
 
 @router.get("/answers", response_model=AnswerPage)
@@ -613,14 +655,18 @@ def delta(
     project_pub_id: str,
     start: date,
     end: date,
+    config_version: str | None = Query(default=None, pattern=r"^cfv_[A-Za-z0-9_-]{1,116}$"),
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any]:
+    """前后等长窗口四指标 delta；config_version（冻结配置 pub_id）传入时两窗口
+    只统计该配置产出的答案（报价单前后对比口径），不传时行为与旧版一致。"""
     principal.require("project:read")
     result = AnalyticsService(dsn=_dsn()).previous_period_delta(
         tenant_pub_id=principal.tenant_pub_id,
         project_pub_id=project_pub_id,
         start=start,
         end=end,
+        config_version=config_version,
     )
     return {
         metric: {key: float(value) if value is not None else None for key, value in values.items()}
@@ -733,6 +779,8 @@ def disparagement_cases(
             prompt_version=row["prompt_version"],
             source_url=_safe_source_url(row["source_url"]),
             created_at=row["created_at"],
+            content_origin=row["content_origin"],
+            fact_check=_project_fact_check(row["fact_check"]),
         )
         for row in rows
     ]
@@ -793,6 +841,42 @@ def source_audit_overview(
                 ],
             )
             for item in overview["items"]
+        ],
+    )
+
+
+@router.get("/source-audit/site-suggestions", response_model=SiteAuditSuggestionsView)
+def site_audit_suggestions(
+    project: str,
+    principal: Principal = Depends(get_principal),
+) -> SiteAuditSuggestionsView:
+    """W2 官网内容问题与优化建议：契约表 T2 最新批次。
+
+    T2 未迁移上线 / 无数据时批次字段全 null + suggestions=[]（不 404/500）。
+    """
+    principal.require("project:read")
+    result = AnalyticsService(dsn=_dsn()).site_audit_suggestions(
+        tenant_pub_id=principal.tenant_pub_id,
+        project_pub_id=project,
+    )
+    return SiteAuditSuggestionsView(
+        batch_pub_id=result["batch_pub_id"],
+        generated_at=result["generated_at"],
+        model=result["model"],
+        suggestions=[
+            SiteAuditSuggestionView(
+                category=_safe_optional_text(row["category"], 40) or "other",
+                severity=_safe_optional_text(row["severity"], 20) or "medium",
+                title=_safe_optional_text(row["title"], 200) or "",
+                detail=_safe_optional_text(row["detail"], 4000) or "",
+                evidence_document_pub_id=(
+                    row["evidence_document_pub_id"]
+                    if isinstance(row["evidence_document_pub_id"], str)
+                    and len(row["evidence_document_pub_id"]) <= 120
+                    else None
+                ),
+            )
+            for row in result["suggestions"]
         ],
     )
 

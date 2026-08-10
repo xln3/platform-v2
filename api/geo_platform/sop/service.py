@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from hashlib import sha256
@@ -9,6 +10,7 @@ from typing import Any
 import psycopg
 from psycopg.rows import dict_row
 
+from ..config import get_settings
 from ..tenancy.ids import new_pub_id
 from ..tenancy.psycopg import tenant_connection
 
@@ -27,6 +29,55 @@ def _public(row: Mapping[str, Any]) -> dict[str, Any]:
 
 def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False)
+
+
+# -- 己方内容拉踩检测触发（P3）------------------------------------------------
+# 唯一定稿触发点：article version 的 publication_ready 由 false→true（发布硬门）。
+# 触发=同事务插 integration.workflow_start_command（post_analysis 同款 outbox 纪律），
+# dispatcher 起 OwnContentDisparagementWorkflow（workflow_type="own_content_disparagement"）。
+# 不在 create_publication / posting create_batch 再挂钩子——同一稿件只在此触发一次，
+# 避免双触发；稿件正文为空/无竞品配置等跳过判定全在 activity 侧（fail-open）。
+_OWN_CONTENT_WORKFLOW_TYPE = "own_content_disparagement"
+
+
+def _should_trigger_own_content_judgment(
+    prior: Mapping[str, Any], fields: Mapping[str, Any]
+) -> bool:
+    """定稿跃迁门：仅 publication_ready 由 false→true 触发（重复 PATCH/翻回再翻不重复）。"""
+    return fields.get("publication_ready") is True and not prior.get("publication_ready")
+
+
+def _enqueue_own_content_judgment(
+    connection: psycopg.Connection[Any],
+    *,
+    tenant_pub_id: str,
+    version_pub_id: str,
+) -> None:
+    """同事务插入 workflow_start_command；workflow_id 确定性（一版本一条），ON CONFLICT 防重。"""
+    connection.execute(
+        """
+        INSERT INTO integration.workflow_start_command
+          (command_id,tenant_pub_id,workflow_type,workflow_id,task_queue,payload,
+           trace_context)
+        VALUES (%s,%s,%s,%s,%s,CAST(%s AS jsonb),CAST(%s AS jsonb))
+        ON CONFLICT (workflow_id) DO NOTHING
+        """,
+        (
+            uuid.uuid4(),
+            tenant_pub_id,
+            _OWN_CONTENT_WORKFLOW_TYPE,
+            f"own-content-disparagement/{tenant_pub_id}/{version_pub_id}",
+            get_settings().temporal_task_queue,
+            json.dumps(
+                {
+                    "tenant_pub_id": tenant_pub_id,
+                    "article_version_pub_id": version_pub_id,
+                },
+                separators=(",", ":"),
+            ),
+            json.dumps({}, separators=(",", ":")),
+        ),
+    )
 
 
 class SopService:
@@ -946,7 +997,7 @@ class SopService:
                 current = version["readiness_checklist"]
                 merged = {**dict(current or {}), **dict(readiness_checklist)}
                 updates["readiness_checklist"] = merged
-            return self._update(
+            row = self._update(
                 connection,
                 table="article_version",
                 tenant_pub_id=tenant_pub_id,
@@ -955,6 +1006,13 @@ class SopService:
                 jsonb_fields=frozenset({"readiness_checklist"}),
                 touch_updated_at=False,
             )
+            if _should_trigger_own_content_judgment(version, fields):
+                _enqueue_own_content_judgment(
+                    connection,
+                    tenant_pub_id=tenant_pub_id,
+                    version_pub_id=version_pub_id,
+                )
+            return row
 
     # -- Stage 8: pre-publish checks ------------------------------------------
 

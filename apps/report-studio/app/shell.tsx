@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Layer, Rect, Stage, Text } from 'react-konva';
 import { useForm } from 'react-hook-form';
@@ -50,6 +50,7 @@ import { WorkflowTimeline } from '@geo/workflow-ui';
 import { useSearchParams } from 'react-router';
 import { z } from 'zod';
 import './ai-dock.css';
+import { FactSuggestionsPanel } from './fact-suggestions';
 
 const nav = [
   { id: 'window', label: '数据窗口' },
@@ -1491,7 +1492,7 @@ function WindowWorkspace({
   );
 }
 
-function CreateReportWorkspace({
+export function CreateReportWorkspace({
   projectPubId,
   canAuthor,
   onCreated,
@@ -1512,6 +1513,20 @@ function CreateReportWorkspace({
   );
   const [writeState, setWriteState] = useState<'idle' | 'saving' | 'failed'>('idle');
   const [receipt, setReceipt] = useState('');
+  const [suggestions, setSuggestions] = useState<{
+    payloads: Record<string, unknown>[];
+    invalidCount: number;
+  }>({ payloads: [], invalidCount: 0 });
+  const handleSuggestionsChange = useCallback(
+    (payloads: Record<string, unknown>[], invalidCount: number) => {
+      setSuggestions((current) =>
+        current.payloads === payloads && current.invalidCount === invalidCount
+          ? current
+          : { payloads, invalidCount },
+      );
+    },
+    [],
+  );
   const operationRef = useRef(`report-studio/${projectPubId}/${crypto.randomUUID()}`);
   const invalid =
     !title.trim() ||
@@ -1519,6 +1534,7 @@ function CreateReportWorkspace({
     !factValue.trim() ||
     !summary.trim() ||
     windowStart > windowEnd ||
+    suggestions.invalidCount > 0 ||
     [title, factLabel, factValue, summary].some(containsClientSecret);
 
   async function submit() {
@@ -1541,6 +1557,7 @@ function CreateReportWorkspace({
             source: 'manual_confirmed',
             measured_at: `${windowEnd}T23:59:59.999Z`,
           },
+          ...suggestions.payloads,
         ],
         components: [
           {
@@ -1611,6 +1628,13 @@ function CreateReportWorkspace({
           />
         </label>
       </div>
+      <FactSuggestionsPanel
+        projectPubId={projectPubId}
+        windowStart={windowStart}
+        windowEnd={windowEnd}
+        disabled={!canAuthor || writeState === 'saving'}
+        onAcceptedChange={handleSuggestionsChange}
+      />
       <label className="form-field">
         <span>执行摘要</span>
         <textarea

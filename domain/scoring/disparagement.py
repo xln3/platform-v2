@@ -4,9 +4,9 @@
 
 两阶段判定：
 
-- 阶段一（本模块）：确定性切窗。对答案/信源正文按 品牌+竞品提及（±200 字符窗）
-  与 竞品共现（≥2 个竞品名、间距上限内合并为一窗）切窗；窗级去重靠
-  (subject_pub_id, window_hash, target_brand)。
+- 阶段一（本模块）：确定性切窗。对答案/信源正文/己方稿件（own_content）按
+  品牌+竞品提及（±200 字符窗）与 竞品共现（≥2 个竞品名、间距上限内合并为一窗）
+  切窗；窗级去重靠 (subject_pub_id, window_hash, target_brand)。
 - 阶段二：窗级 LLM 判定（schema/校验在本模块，传输在
   workflows/activities/disparagement.py）。evidence_quote 逐字子串程序校验，
   不过则丢弃判分；LLM 不可用 → 词典弱判定兜底并标 experimental
@@ -30,7 +30,8 @@ from typing import Any
 WINDOW_RADIUS = 200  # 提及窗半径（字符，规格 W3.1）
 PAIR_SPAN = 600  # 竞品共现合并窗：两个竞品提及间距上限（字符）
 
-SUBJECT_TYPES = ("answer", "source_document")
+# own_content = 己方稿件正文（SOP article version 定稿通道，judge_own_content_disparagement）
+SUBJECT_TYPES = ("answer", "source_document", "own_content")
 ATTITUDES = ("support", "neutral", "negative")
 
 METHOD_LLM = "llm"

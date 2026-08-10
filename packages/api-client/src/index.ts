@@ -5900,6 +5900,262 @@ export async function getReportAiDraftModels(
   }
 }
 
+// ── 报告事实建议（报价单四指标，分析链路自动供给；只读 brandrank 层）──────────
+// 投影纪律照既有 wrapper：形状/词表 fail-closed、DLP 扫描、计数有界。domain_unset
+// 单独成 kind（可操作态：提示运维先配置项目分析域），不与泛化 unavailable 混淆。
+export type ReportFactSuggestionMetric =
+  | 'brand_appearance_rate'
+  | 'rank_distribution'
+  | 'top1_appearance_rate'
+  | 'top3_appearance_rate'
+  | 'top5_appearance_rate'
+  | 'competitor_appearance_rate';
+
+export type ReportFactSuggestionRow = {
+  metric: ReportFactSuggestionMetric;
+  value: number | null;
+  unit: 'percent' | 'rank';
+  numerator: number;
+  denominator: number;
+  dimensions: { platform: string; region: string; query: string };
+  source: 'system_computed';
+  method: 'brandrank-llm-v1';
+  domain: string;
+  window: { start: string; end: string };
+  extra: {
+    of_mentions?: number;
+    competitor?: string;
+    best_rank?: number | null;
+    ranks?: number[];
+  } | null;
+};
+
+export type ReportFactSuggestions = {
+  projectPubId: string;
+  domain: string;
+  windowDays: number;
+  window: { start: string; end: string };
+  targetBrand: string | null;
+  competitors: string[];
+  insufficient: boolean;
+  insufficientReasons: string[];
+  truncated: boolean;
+  coverage: { nAnswers: number; nWithExtract: number; nGroups: number };
+  factRows: ReportFactSuggestionRow[];
+};
+
+export type ReportFactSuggestionsResult =
+  | { kind: 'ready'; data: ReportFactSuggestions }
+  | { kind: 'domain_unset' }
+  | { kind: 'forbidden' }
+  | { kind: 'unavailable' };
+
+const reportFactSuggestionMetrics = [
+  'brand_appearance_rate',
+  'rank_distribution',
+  'top1_appearance_rate',
+  'top3_appearance_rate',
+  'top5_appearance_rate',
+  'competitor_appearance_rate',
+] as const;
+const REPORT_FACT_SUGGESTION_ROW_LIMIT = 5000; // 与 API 侧 200 组 × 25 行上限对齐
+
+const safeFiniteMetricValue = (value: unknown): number | null | undefined =>
+  value === null
+    ? null
+    : typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= 1_000_000
+      ? value
+      : undefined;
+
+/** 维度串允许如实空串（缺维不臆造归属）；非空走 DLP 安全串。 */
+const safeDimensionString = (value: unknown, maxLength: number): string | null =>
+  value === '' ? '' : safeBrowserString(value, maxLength);
+
+const projectReportFactSuggestionRow = (value: unknown): ReportFactSuggestionRow | null => {
+  if (!isBrowserRecord(value)) return null;
+  const metric = safeBrowserEnum(value.metric, reportFactSuggestionMetrics);
+  const rowValue = safeFiniteMetricValue(value.value);
+  const unit = safeBrowserEnum(value.unit, ['percent', 'rank'] as const);
+  const numerator = safeCount(value.numerator);
+  const denominator = safeCount(value.denominator);
+  const domain = safeBrowserString(value.domain, 40);
+  if (
+    !metric ||
+    rowValue === undefined ||
+    !unit ||
+    numerator === null ||
+    denominator === null ||
+    denominator < 1 ||
+    !domain ||
+    value.source !== 'system_computed' ||
+    value.method !== 'brandrank-llm-v1' ||
+    !isBrowserRecord(value.dimensions) ||
+    !isBrowserRecord(value.window)
+  ) {
+    return null;
+  }
+  const platform = safeDimensionString(value.dimensions.platform, 40);
+  const region = safeDimensionString(value.dimensions.region, 40);
+  const query = safeBrowserString(value.dimensions.query, 500);
+  const windowStart = projectSafeIsoTimestamp(value.window.start);
+  const windowEnd = projectSafeIsoTimestamp(value.window.end);
+  if (platform === null || region === null || !query || !windowStart || !windowEnd) return null;
+  let extra: ReportFactSuggestionRow['extra'] = null;
+  if (value.extra !== undefined && value.extra !== null) {
+    if (!isBrowserRecord(value.extra)) return null;
+    const projected: NonNullable<ReportFactSuggestionRow['extra']> = {};
+    if (value.extra.of_mentions !== undefined) {
+      const ofMentions = safeFiniteMetricValue(value.extra.of_mentions);
+      if (ofMentions === null || ofMentions === undefined) return null;
+      projected.of_mentions = ofMentions;
+    }
+    if (value.extra.competitor !== undefined) {
+      const competitor = safeBrowserString(value.extra.competitor, 200);
+      if (!competitor) return null;
+      projected.competitor = competitor;
+    }
+    if (value.extra.best_rank !== undefined) {
+      if (value.extra.best_rank !== null && safeCount(value.extra.best_rank) === null) {
+        return null;
+      }
+      projected.best_rank = value.extra.best_rank as number | null;
+    }
+    if (value.extra.ranks !== undefined) {
+      if (!Array.isArray(value.extra.ranks) || value.extra.ranks.length > 64) return null;
+      const ranks: number[] = [];
+      for (const rank of value.extra.ranks) {
+        const safeRank = safeCount(rank);
+        if (safeRank === null || safeRank < 1) return null;
+        ranks.push(safeRank);
+      }
+      projected.ranks = ranks;
+    }
+    extra = projected;
+  }
+  if (metric === 'competitor_appearance_rate' && !extra?.competitor) return null;
+  if (metric !== 'competitor_appearance_rate' && extra?.competitor) return null;
+  return {
+    metric,
+    value: rowValue,
+    unit,
+    numerator,
+    denominator,
+    dimensions: { platform, region, query },
+    source: 'system_computed',
+    method: 'brandrank-llm-v1',
+    domain,
+    window: { start: windowStart, end: windowEnd },
+    extra,
+  };
+};
+
+const projectReportFactSuggestions = (value: unknown): ReportFactSuggestions | null => {
+  if (!isBrowserRecord(value)) return null;
+  const projectPubId = safeBrowserString(value.project_pub_id, 120);
+  const domain = safeBrowserString(value.domain, 40);
+  const windowDays = safeCount(value.window_days);
+  const targetBrand =
+    value.target_brand === null ? null : safeBrowserString(value.target_brand, 200);
+  const reasons = value.insufficient_reasons;
+  if (
+    !projectPubId ||
+    !domain ||
+    windowDays === null ||
+    windowDays < 1 ||
+    value.target_brand === undefined ||
+    (value.target_brand !== null && !targetBrand) ||
+    typeof value.insufficient !== 'boolean' ||
+    typeof value.truncated !== 'boolean' ||
+    !Array.isArray(reasons) ||
+    reasons.length > 8 ||
+    !reasons.every(
+      (reason) =>
+        typeof reason === 'string' &&
+        ['no_answers', 'no_extraction_coverage', 'target_brand_unset'].includes(reason),
+    ) ||
+    !Array.isArray(value.competitors) ||
+    value.competitors.length > 20 ||
+    !isBrowserRecord(value.window) ||
+    !isBrowserRecord(value.coverage) ||
+    !Array.isArray(value.fact_rows) ||
+    value.fact_rows.length > REPORT_FACT_SUGGESTION_ROW_LIMIT
+  ) {
+    return null;
+  }
+  const windowStart = projectSafeIsoTimestamp(value.window.start);
+  const windowEnd = projectSafeIsoTimestamp(value.window.end);
+  const nAnswers = safeCount(value.coverage.n_answers);
+  const nWithExtract = safeCount(value.coverage.n_with_extract);
+  const nGroups = safeCount(value.coverage.n_groups);
+  if (!windowStart || !windowEnd || nAnswers === null || nWithExtract === null || nGroups === null)
+    return null;
+  const competitors: string[] = [];
+  for (const entry of value.competitors) {
+    const competitor = safeBrowserString(entry, 200);
+    if (!competitor) return null;
+    competitors.push(competitor);
+  }
+  const factRows: ReportFactSuggestionRow[] = [];
+  for (const entry of value.fact_rows) {
+    const row = projectReportFactSuggestionRow(entry);
+    if (!row) return null;
+    factRows.push(row);
+  }
+  return {
+    projectPubId,
+    domain,
+    windowDays,
+    window: { start: windowStart, end: windowEnd },
+    targetBrand,
+    competitors,
+    insufficient: value.insufficient,
+    insufficientReasons: reasons as string[],
+    truncated: value.truncated,
+    coverage: { nAnswers, nWithExtract, nGroups },
+    factRows,
+  };
+};
+
+/** 报告事实建议草稿（报价单四指标；空窗/零覆盖 → ready + insufficient 诚实结构）。 */
+export async function getReportFactSuggestions(
+  projectPubId: string,
+  windowDays: number,
+  headers: IdentitySessionHeaders,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<ReportFactSuggestionsResult> {
+  if (!Number.isSafeInteger(windowDays) || windowDays < 1 || windowDays > 366) {
+    return { kind: 'unavailable' };
+  }
+  try {
+    const result = await projectedApiClient(client).GET(
+      '/api/v2/projects/{project_pub_id}/report-fact-suggestions',
+      {
+        params: {
+          path: { project_pub_id: projectPubId },
+          query: { window_days: windowDays },
+          header: headers,
+        },
+      },
+    );
+    if (!result.data) {
+      if (result.response.status === 400) {
+        const errorBody: unknown = result.error;
+        const code =
+          isBrowserRecord(errorBody) && isBrowserRecord(errorBody.error)
+            ? errorBody.error.code
+            : null;
+        if (code === 'domain_unset') return { kind: 'domain_unset' };
+      }
+      return classifyResourceFailure(result.response.status);
+    }
+    const projected = projectReportFactSuggestions(result.data);
+    return projected ? { kind: 'ready', data: projected } : { kind: 'unavailable' };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+
 export async function createReportAction(
   reportPubId: string,
   body: ReportActionCreate,
@@ -8382,6 +8638,7 @@ export type SopMutationCommand =
       projectPubId: string;
       brandStandardName: string;
       aliases: string;
+      competitors: string;
       targetPlatform: string;
       successMetric: string;
     }
@@ -9138,6 +9395,11 @@ export async function mutateSopStage(
           brand_standard_name: command.brandStandardName,
           brand_profile: {
             aliases: command.aliases
+              .split(',')
+              .map((item) => item.trim())
+              .filter(Boolean),
+            // P3 己方内容拉踩检测的竞品真源（judge_own_content_disparagement 读取）
+            competitors: command.competitors
               .split(',')
               .map((item) => item.trim())
               .filter(Boolean),

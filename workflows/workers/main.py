@@ -29,6 +29,8 @@ from workflows.activities.collection import (
     release_collection_session,
 )
 from workflows.activities.disparagement import judge_run_disparagement
+from workflows.activities.disparagement_factcheck import factcheck_disparagement_cases
+from workflows.activities.own_content_disparagement import judge_own_content_disparagement
 from workflows.activities.own_site_snapshot import capture_own_site_snapshots
 from workflows.activities.post_analysis import (
     analyze_post_content,
@@ -37,10 +39,12 @@ from workflows.activities.post_analysis import (
     fetch_post_snapshot,
     finalize_post_analysis_task,
 )
+from workflows.activities.site_suggestions import generate_site_audit_suggestions
 from workflows.activities.source_audit import audit_run_sources
 from workflows.activities.source_fetch import fetch_run_sources
 from workflows.definitions.collection import GeoCollectionWorkflow
 from workflows.definitions.health import PlatformHealthWorkflow
+from workflows.definitions.own_content import OwnContentDisparagementWorkflow
 from workflows.definitions.post_analysis import PostAnalysisWorkflow
 from workflows.definitions.session import (
     AccountRevocationWorkflow,
@@ -126,6 +130,7 @@ async def run_worker() -> None:
                 PlatformSessionLifecycleWorkflow,
                 AccountRevocationWorkflow,
                 PostAnalysisWorkflow,
+                OwnContentDisparagementWorkflow,
             ],
             activities=[
                 _collect_with_adapter_impl,
@@ -141,10 +146,13 @@ async def run_worker() -> None:
                 captcha_assist_start,
                 captcha_assist_stop,
                 capture_own_site_snapshots,
+                factcheck_disparagement_cases,
                 fetch_post_snapshot,
                 fetch_run_sources,
                 finalize_account_revocation,
                 finalize_post_analysis_task,
+                generate_site_audit_suggestions,
+                judge_own_content_disparagement,
                 judge_run_disparagement,
                 mark_collection_run_terminal,
                 persist_collection_result,

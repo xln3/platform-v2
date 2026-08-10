@@ -121,6 +121,16 @@ def _platform_tenant_connection(
         yield connection
 
 
+def _table_exists(connection: psycopg.Connection[Any], qualified_name: str) -> bool:
+    """契约表存在性探测（to_regclass）：未迁移上线时返回 False，调用方优雅降级。
+
+    不用 try/except UndefinedTable——PG 中语句报错会中止整个事务，污染同一
+    连接上的后续查询；to_regclass 对缺失表返回 NULL，无副作用。
+    """
+    row = connection.execute("SELECT to_regclass(%s) AS reg", (qualified_name,)).fetchone()
+    return row is not None and row["reg"] is not None
+
+
 class AnalyticsService:
     def __init__(self, *, dsn: str) -> None:
         self.dsn = dsn
@@ -610,10 +620,26 @@ class AnalyticsService:
         project_pub_id: str,
         start: date,
         end: date,
+        config_version: str | None = None,
     ) -> dict[str, dict[str, Decimal | None]]:
+        """本期窗口 vs 前一等长窗口的四指标 delta（数据源 metric_daily 聚合）。
+
+        ``config_version``（monitoring_config_version 的 pub_id，报价单前后对比
+        口径）传入时，两窗口都只统计该冻结配置产出的答案，防止同项目其他配置/
+        探针的答案稀释对比。粒度核查结论（2026-08-10）：metric_daily.dimensions
+        JSONB 自 INV-1 fanout 起携带 ``config_version_pub_id`` 键（activities/
+        collection.py ``_analysis_dimensions`` 盖章），即 metric_daily 本身已按
+        配置分桶，无需回退 analytics.answer 实时聚合——复用 ``aggregate`` 的
+        ``dimensions @>`` 过滤即可，与不过滤时保持完全同一条聚合代码路径
+        （含只排显式 ineligible 的读纪律）。未盖章的历史行（无该键）不匹配
+        过滤器 = 如实不计入；不传参时行为与旧实现逐字节一致。
+        """
         days = (end - start).days + 1
         previous_end = start - timedelta(days=1)
         previous_start = previous_end - timedelta(days=days - 1)
+        dimensions = (
+            {"config_version_pub_id": config_version} if config_version is not None else None
+        )
         current = {
             row["metric_name"]: row["value"]
             for row in self.aggregate(
@@ -621,6 +647,7 @@ class AnalyticsService:
                 project_pub_id=project_pub_id,
                 start=start,
                 end=end,
+                dimensions=dimensions,
             )
         }
         previous = {
@@ -630,6 +657,7 @@ class AnalyticsService:
                 project_pub_id=project_pub_id,
                 start=previous_start,
                 end=previous_end,
+                dimensions=dimensions,
             )
         }
         return {
@@ -728,6 +756,9 @@ class AnalyticsService:
         只统计 judgment_status='ok' 的窗级判定（validation_failure 判分已丢弃，
         绝不入分布）；experimental_count 暴露词典兜底行占比，便于消费方区分
         LLM 判定与 experimental 弱判定混口径。
+        只统计采集侧判定（content_origin='collection'）：己方稿件判定
+        （own_content，project_id/run_id 为 NULL）是另一统计总体，不混入比率
+        分母（project 内连接本就会排除，此处显式声明口径）。
         """
         column = _DISPARAGEMENT_DIMENSIONS.get(dimension)
         if column is None:
@@ -750,6 +781,7 @@ class AnalyticsService:
                 WHERE j.tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid
                   AND p.pub_id = %s
                   AND j.judgment_status = 'ok'
+                  AND j.content_origin = 'collection'
                   AND j.created_at::date BETWEEN %s AND %s
                 GROUP BY j.{column}
                 ORDER BY disparagement_count DESC, value
@@ -782,6 +814,14 @@ class AnalyticsService:
 
         出处链接：subject_type=source_document 时取 source_document.url；answer
         判定的出处是答案本身（subject_pub_id，即 collection_task/answer pub_id）。
+        fact_check：按 judgment_pub_id 左联契约表 T1（platform.disparagement_
+        factcheck）最新一行；该表未迁移上线时优雅降级——全部案例 fact_check=None，
+        绝不 500。T1 无 tenant 列：只查本页已确认归属本租户/项目的 judgment
+        pub_id，租户边界由主查询保证。
+        己方稿件判定（content_origin='own_content'，project_id 为 NULL 不依附
+        采集 run）按租户边界并入案例清单——报价单服务2"己方GEO内容拉踩竞品"
+        的取证出口；多项目租户下该通道案例对本租户各项目均可见（已知边界，
+        当前生产一租户一项目）。
         """
         with _platform_tenant_connection(self.dsn, tenant_pub_id) as connection:
             rows = connection.execute(
@@ -789,15 +829,15 @@ class AnalyticsService:
                 SELECT j.pub_id AS judgment_pub_id, j.subject_type, j.subject_pub_id,
                        j.platform, j.subject_brand, j.target_brand, j.attitude,
                        j.evidence_quote, j.confidence, j.method, j.model,
-                       j.prompt_version, j.created_at,
+                       j.prompt_version, j.created_at, j.content_origin,
                        d.url AS source_url
                 FROM platform.disparagement_judgment j
-                JOIN platform.project p ON p.id = j.project_id
+                LEFT JOIN platform.project p ON p.id = j.project_id
                 LEFT JOIN platform.source_document d
                   ON d.tenant_id = j.tenant_id AND d.pub_id = j.subject_pub_id
                  AND j.subject_type = 'source_document'
                 WHERE j.tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid
-                  AND p.pub_id = %s
+                  AND (p.pub_id = %s OR j.content_origin = 'own_content')
                   AND j.judgment_status = 'ok'
                   AND j.disparagement
                   AND j.created_at::date BETWEEN %s AND %s
@@ -806,7 +846,89 @@ class AnalyticsService:
                 """,
                 (project_pub_id, start, end, limit),
             ).fetchall()
-        return [dict(row) for row in rows]
+            fact_check_by_judgment: dict[str, dict[str, Any]] = {}
+            judgment_ids = [row["judgment_pub_id"] for row in rows]
+            if judgment_ids and _table_exists(connection, "platform.disparagement_factcheck"):
+                for fact_check in connection.execute(
+                    """
+                    SELECT DISTINCT ON (f.judgment_pub_id)
+                           f.judgment_pub_id, f.verdict, f.summary, f.source_url,
+                           f.created_at AS checked_at
+                    FROM platform.disparagement_factcheck f
+                    WHERE f.judgment_pub_id = ANY(%s::text[])
+                    ORDER BY f.judgment_pub_id, f.created_at DESC, f.id DESC
+                    """,
+                    (judgment_ids,),
+                ).fetchall():
+                    fact_check_by_judgment[fact_check["judgment_pub_id"]] = dict(fact_check)
+        return [
+            {
+                **dict(row),
+                "fact_check": fact_check_by_judgment.get(row["judgment_pub_id"]),
+            }
+            for row in rows
+        ]
+
+    def site_audit_suggestions(
+        self,
+        *,
+        tenant_pub_id: str,
+        project_pub_id: str,
+    ) -> dict[str, Any]:
+        """W2 官网内容问题与优化建议：契约表 T2（platform.site_audit_suggestion）最新批次。
+
+        降级纪律：T2 未迁移上线 / 项目不存在（或不可见=非本租户）→ 批次字段全
+        None + suggestions=[]，绝不 404/500（与 source_audit_overview 未知项目
+        同口径）。租户边界：T2 无 tenant 列，先经 platform.project（RLS 按
+        app.tenant_id）确认项目归属本租户，再按 project_pub_id 取数。
+        """
+        empty: dict[str, Any] = {
+            "batch_pub_id": None,
+            "generated_at": None,
+            "model": None,
+            "suggestions": [],
+        }
+        with _platform_tenant_connection(self.dsn, tenant_pub_id) as connection:
+            if not _table_exists(connection, "platform.site_audit_suggestion"):
+                return empty
+            project = connection.execute(
+                "SELECT id FROM platform.project WHERE pub_id=%s",
+                (project_pub_id,),
+            ).fetchone()
+            if project is None:
+                return empty
+            latest = connection.execute(
+                """
+                SELECT s.batch_pub_id, s.model, s.created_at
+                FROM platform.site_audit_suggestion s
+                WHERE s.project_pub_id = %s
+                ORDER BY s.created_at DESC, s.id DESC
+                LIMIT 1
+                """,
+                (project_pub_id,),
+            ).fetchone()
+            if latest is None:
+                return empty
+            suggestions = connection.execute(
+                """
+                SELECT s.category, s.severity, s.title, s.detail,
+                       s.evidence_document_pub_id
+                FROM platform.site_audit_suggestion s
+                WHERE s.project_pub_id = %s AND s.batch_pub_id = %s
+                ORDER BY CASE s.severity
+                           WHEN 'high' THEN 0 WHEN 'medium' THEN 1 WHEN 'low' THEN 2
+                           ELSE 3
+                         END, s.id
+                """,
+                (project_pub_id, latest["batch_pub_id"]),
+            ).fetchall()
+        return {
+            "batch_pub_id": latest["batch_pub_id"],
+            "generated_at": latest["created_at"],
+            "model": latest["model"],
+            "suggestions": [dict(row) for row in suggestions],
+        }
+
     def source_audit_overview(
         self,
         *,

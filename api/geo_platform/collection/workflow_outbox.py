@@ -17,7 +17,9 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 
 from workflows.activities.collection import CollectionTaskInput
+from workflows.activities.own_content_disparagement import OwnContentDisparagementInput
 from workflows.definitions.collection import GeoCollectionInput, GeoCollectionWorkflow
+from workflows.definitions.own_content import OwnContentDisparagementWorkflow
 from workflows.definitions.post_analysis import PostAnalysisInput, PostAnalysisWorkflow
 from workflows.definitions.s02 import AnswerAnalysisWorkflow
 from workflows.definitions.session import AccountRevocationWorkflow, RevocationInput
@@ -575,6 +577,16 @@ class WorkflowStartOutbox:
                         PostAnalysisInput(
                             tenant_pub_id=str(payload["tenant_pub_id"]),
                             task_pub_id=str(payload["task_pub_id"]),
+                        ),
+                        id=command.workflow_id,
+                        task_queue=command.task_queue,
+                    )
+                elif command.workflow_type == "own_content_disparagement":
+                    handle = await self.temporal.start_workflow(
+                        OwnContentDisparagementWorkflow.run,
+                        OwnContentDisparagementInput(
+                            tenant_pub_id=str(payload["tenant_pub_id"]),
+                            article_version_pub_id=str(payload["article_version_pub_id"]),
                         ),
                         id=command.workflow_id,
                         task_queue=command.task_queue,
