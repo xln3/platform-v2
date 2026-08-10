@@ -98,7 +98,6 @@ export function VisibilityWorkspace({
     void servicesApi
       .brandVisibility(session, {
         projectPubId: project.pub_id,
-        industry: '网络安全',
         windowDays: 30,
       })
       .then((result) => {
@@ -108,6 +107,10 @@ export function VisibilityWorkspace({
       cancelled = true;
     };
   }, [session, project.pub_id, window_.start, window_.end]);
+
+  // 规则包域以项目真源 project.brandrank_domain 为准，响应 domain 佐证；都未到位时显示中性占位。
+  const rulepackDomain =
+    project.brandrank_domain ?? (brands.kind === 'ready' ? brands.data.domain : undefined);
 
   return (
     <>
@@ -229,7 +232,11 @@ export function VisibilityWorkspace({
           </p>
         )}
 
-        <h3>品牌可见度榜单（近 30 天 · 网络安全行业规则包）</h3>
+        <h3>
+          {`品牌可见度榜单（近 30 天 · ${
+            rulepackDomain ? `规则包：${rulepackDomain}` : '规则包信息加载中…'
+          }）`}
+        </h3>
         {brands.kind === 'ready' ? (
           (brands.data.result?.overall?.merged ?? []).length > 0 ? (
             <div className="table-scroll">
@@ -265,9 +272,13 @@ export function VisibilityWorkspace({
           ) : (
             <p className="empty">该时间窗内可用于榜单的真实答案不足。</p>
           )
+        ) : brands.kind === 'brandrank_domain_unresolved' ? (
+          <p className="service-note">
+            项目未设置品牌规则包域，请先在项目设置中配置 brandrank_domain。品牌榜单暂不可用，基础指标不受影响。
+          </p>
         ) : brands.kind === 'unmapped_industry' ? (
           <p className="service-note">
-            网络安全行业规则包尚未配置，品牌榜单暂不可用，基础指标不受影响。
+            对应行业规则包尚未配置，品牌榜单暂不可用，基础指标不受影响。
           </p>
         ) : brands.kind === 'llm_disabled' ? (
           <p className="service-note">LLM 未配置，品牌榜单暂不可用，基础指标不受影响。</p>

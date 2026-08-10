@@ -18,6 +18,18 @@ const FREQUENCIES = [
   ['monthly', '每月'],
 ] as const;
 
+// 非 manual 频率在冻结成功后落地为真实调度（POST /api/v2/schedules），
+// interval_minutes 与服务端 monitoring_schedule 口径一致。
+const FREQUENCY_INTERVAL_MINUTES: Record<string, number> = {
+  daily: 1440,
+  weekly: 10080,
+  monthly: 43200,
+};
+
+function frequencyLabel(value: string): string {
+  return FREQUENCIES.find(([candidate]) => candidate === value)?.[1] ?? value;
+}
+
 // 平台 mode 词表（20260810 用户拍板）：deepseek 专家模式不支持搜索——GEO 评测
 // 不测专家，测快速+搜索的「思考关/开」两种组合；其余平台仅 normal。与服务端
 // PLATFORM_MODE_CAPABILITIES（workflows/activities/collection.py）保持一致。
@@ -33,6 +45,7 @@ type LaunchResult = {
   revision: number;
   hashPrefix: string;
   startedRuns: number;
+  schedule: { label: string; intervalMinutes: number; nextRunAt: string } | null;
 };
 
 type Props = {
@@ -61,6 +74,7 @@ export function ConfigLauncher({
   const [frequency, setFrequency] = useState<string>('manual');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [result, setResult] = useState<LaunchResult | null>(null);
 
   const questionItems = useMemo(
@@ -99,6 +113,7 @@ export function ConfigLauncher({
     if (!canAct) return;
     setBusy(true);
     setError(null);
+    setScheduleError(null);
     setResult(null);
     try {
       const frozen = await freeze();
@@ -109,10 +124,32 @@ export function ConfigLauncher({
           startedRuns += 1;
         }
       }
+      // 非手动频率落真实调度：冻结/启动已成功时建调度失败只记部分成功，不吞错。
+      let schedule: LaunchResult['schedule'] = null;
+      const intervalMinutes = FREQUENCY_INTERVAL_MINUTES[frequency];
+      if (intervalMinutes !== undefined) {
+        try {
+          const created = await executionApi.createSchedule(session, {
+            projectId: projectPubId,
+            configVersionId: frozen.pub_id,
+            intervalMinutes,
+            nextRunAt: new Date(Date.now() + intervalMinutes * 60_000).toISOString(),
+            responsiblePubId: session.actorId,
+          });
+          schedule = {
+            label: frequencyLabel(frequency),
+            intervalMinutes,
+            nextRunAt: created.next_run_at,
+          };
+        } catch (cause) {
+          setScheduleError(cause instanceof Error ? cause.message : '未知错误');
+        }
+      }
       setResult({
         revision: frozen.revision,
         hashPrefix: frozen.snapshot_hash.slice(0, 8),
         startedRuns,
+        schedule,
       });
       onChanged?.();
     } catch (cause) {
@@ -204,10 +241,23 @@ export function ConfigLauncher({
         </p>
       ) : null}
       {result ? (
-        <p className="receipt">
-          配置 v{result.revision} 已冻结（{result.hashPrefix}）
-          {result.startedRuns > 0 ? `；已启动 ${result.startedRuns} 个采样 run` : ''}
-        </p>
+        <>
+          <p className="receipt">
+            配置 v{result.revision} 已冻结（{result.hashPrefix}）
+            {result.startedRuns > 0 ? `；已启动 ${result.startedRuns} 个采样 run` : ''}
+          </p>
+          {result.schedule ? (
+            <p className="receipt">
+              {`已创建调度：${result.schedule.label}（每 ${result.schedule.intervalMinutes} 分钟），下次运行 ${new Date(result.schedule.nextRunAt).toLocaleString('zh-CN', { hour12: false })}。 `}
+              <a href="/platform/operations/execution">前往「执行与账号」查看调度</a>
+            </p>
+          ) : null}
+          {scheduleError ? (
+            <p className="launcher-error" role="alert">
+              配置已冻结，但自动调度创建失败：{scheduleError}
+            </p>
+          ) : null}
+        </>
       ) : null}
     </section>
   );

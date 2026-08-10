@@ -22,17 +22,33 @@ function fixtureIdentityHeaders(session: SessionContext): Record<string, string>
   return headers;
 }
 
+/** 带错误码与 details 的服务端错误（details 形如 {unknown_run_pub_ids: [...]}）。 */
+export class ServicesApiError extends Error {
+  readonly code: string;
+  readonly details: Record<string, unknown>;
+  constructor(code: string, details?: Record<string, unknown>) {
+    super(code);
+    this.code = code;
+    this.details = details ?? {};
+  }
+}
+
 async function readApiError(response: Response): Promise<Error> {
   let code = `http_${response.status}`;
+  let details: Record<string, unknown> | undefined;
   try {
     const payload = (await response.json()) as
-      | { error?: { code?: string }; detail?: { code?: string } }
+      | {
+          error?: { code?: string; details?: Record<string, unknown> };
+          detail?: { code?: string };
+        }
       | undefined;
     code = payload?.error?.code ?? payload?.detail?.code ?? code;
+    details = payload?.error?.details;
   } catch {
     // 非 JSON 错误体：保留 http_<status> 口径。
   }
-  return new Error(code);
+  return new ServicesApiError(code, details);
 }
 
 async function servicesGet<T>(
@@ -44,6 +60,27 @@ async function servicesGet<T>(
   for (const [key, value] of Object.entries(query)) url.searchParams.set(key, String(value));
   const response = await fetch(url, {
     headers: { Accept: 'application/json', ...fixtureIdentityHeaders(session) },
+    cache: 'no-store',
+    redirect: 'error',
+    referrerPolicy: 'no-referrer',
+  });
+  if (!response.ok) throw await readApiError(response);
+  return (await response.json()) as T;
+}
+
+async function servicesPost<T>(
+  session: SessionContext,
+  path: string,
+  body: Record<string, unknown>,
+): Promise<T> {
+  const response = await fetch(new URL(`${API_BASE}${path}`), {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      ...fixtureIdentityHeaders(session),
+    },
+    body: JSON.stringify(body),
     cache: 'no-store',
     redirect: 'error',
     referrerPolicy: 'no-referrer',
@@ -125,6 +162,7 @@ export type BrandVisibility = {
 export type BrandVisibilityResult =
   | { kind: 'ready'; data: BrandVisibility }
   | { kind: 'unmapped_industry' }
+  | { kind: 'brandrank_domain_unresolved' }
   | { kind: 'llm_disabled' }
   | { kind: 'unavailable' };
 
@@ -208,6 +246,81 @@ export type PilotDeltaResult =
   | { kind: 'ready'; data: PilotDelta }
   | { kind: 'forbidden' }
   | { kind: 'unavailable' };
+
+// ── 前后对比（逐题；报价单服务④，brandrank 层口径，端点 /api/v2/analytics/comparisons）──
+export type RunComparison = {
+  pub_id: string;
+  project_pub_id: string;
+  name: string;
+  baseline_run_pub_ids: string[];
+  optimized_run_pub_ids: string[];
+  note: string | null;
+  created_by: string;
+  created_at: string;
+};
+
+// 逐题快照单指标：mention_rate/topN 为 0–100 百分数（unit='percent'），avg_rank 原始名次；
+// value 可能为 null（一律展示「—」，严禁渲染成 0）。
+export type ComparisonMetricSnapshot = {
+  value: number | null;
+  unit: string;
+  numerator?: number;
+  denominator?: number;
+  of_mentions?: boolean;
+};
+
+export type ComparisonQuestionSnapshot = {
+  mention_rate: ComparisonMetricSnapshot;
+  avg_rank: ComparisonMetricSnapshot;
+  top1: ComparisonMetricSnapshot;
+  top3: ComparisonMetricSnapshot;
+  top5: ComparisonMetricSnapshot;
+};
+
+export type ComparisonMetricName = 'mention_rate' | 'avg_rank' | 'top1' | 'top3' | 'top5';
+
+export type ComparisonQuestion = {
+  query_text: string;
+  status: 'ok' | 'insufficient';
+  insufficient_reasons: string[];
+  before: ComparisonQuestionSnapshot | null;
+  after: ComparisonQuestionSnapshot | null;
+  delta: Record<ComparisonMetricName, number | null>;
+};
+
+export type ComparisonAggregateRow = {
+  metric: string;
+  value: number | null;
+  unit: string;
+  extra: {
+    metric_name: ComparisonMetricName;
+    before: number | null;
+    after: number | null;
+    denominators: { before_n: number; after_n: number };
+    before_of_mentions?: boolean;
+    after_of_mentions?: boolean;
+  };
+};
+
+export type RunComparisonDetail = RunComparison & {
+  result: {
+    status: 'ok' | 'insufficient';
+    insufficient_reasons: string[];
+    domain?: string;
+    target_brand?: string | null;
+    coverage: {
+      before_answers: number;
+      before_with_extract: number;
+      after_answers: number;
+      after_with_extract: number;
+      before_truncated: boolean;
+      after_truncated: boolean;
+    };
+    aggregate: { metrics: ComparisonAggregateRow[] };
+    questions: ComparisonQuestion[];
+    unpaired: { baseline_only: string[]; optimized_only: string[] };
+  };
+};
 
 function asNumber(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
@@ -319,17 +432,20 @@ export const servicesApi = {
     }),
   brandVisibility: async (
     session: SessionContext,
-    input: { projectPubId: string; industry: string; windowDays?: number },
+    input: { projectPubId: string; windowDays?: number },
   ): Promise<BrandVisibilityResult> => {
     try {
+      // 不带 industry：domain 由后端按项目真源 project.brandrank_domain 解析，
+      // 未配置时返回 400 brandrank_domain_unresolved。
       const data = await servicesGet<BrandVisibility>(
         session,
         `/api/v2/projects/${encodeURIComponent(input.projectPubId)}/brand-visibility`,
-        { industry: input.industry, window_days: input.windowDays ?? 30 },
+        { window_days: input.windowDays ?? 30 },
       );
       return { kind: 'ready', data };
     } catch (error) {
       const code = error instanceof Error ? error.message : '';
+      if (code === 'brandrank_domain_unresolved') return { kind: 'brandrank_domain_unresolved' };
       if (code === 'unmapped_industry' || code === 'unknown_domain' || code === 'http_400')
         return { kind: 'unmapped_industry' };
       if (code === 'llm_disabled' || code === 'http_503') return { kind: 'llm_disabled' };
@@ -377,6 +493,44 @@ export const servicesApi = {
       }),
     };
   },
+  listComparisons: async (
+    session: SessionContext,
+    input: { projectPubId: string; limit?: number },
+  ): Promise<RunComparison[]> => {
+    const page = await servicesGet<{ items: RunComparison[] }>(
+      session,
+      '/api/v2/analytics/comparisons',
+      { project_pub_id: input.projectPubId, limit: input.limit ?? 100 },
+    );
+    return Array.isArray(page.items) ? page.items : [];
+  },
+  // 创建失败抛 ServicesApiError：unknown_run_pub_id 时 details.unknown_run_pub_ids 带具体 id。
+  createComparison: async (
+    session: SessionContext,
+    input: {
+      projectPubId: string;
+      name: string;
+      baselineRunPubIds: string[];
+      optimizedRunPubIds: string[];
+      note?: string;
+    },
+  ): Promise<RunComparison> =>
+    servicesPost<RunComparison>(session, '/api/v2/analytics/comparisons', {
+      project_pub_id: input.projectPubId,
+      name: input.name,
+      baseline_run_pub_ids: input.baselineRunPubIds,
+      optimized_run_pub_ids: input.optimizedRunPubIds,
+      ...(input.note ? { note: input.note } : {}),
+    }),
+  getComparison: async (
+    session: SessionContext,
+    comparisonPubId: string,
+  ): Promise<RunComparisonDetail> =>
+    servicesGet<RunComparisonDetail>(
+      session,
+      `/api/v2/analytics/comparisons/${encodeURIComponent(comparisonPubId)}`,
+      {},
+    ),
   analyticsDelta: async (
     session: SessionContext,
     input: { projectPubId: string; start: string; end: string; configVersion?: string | undefined },

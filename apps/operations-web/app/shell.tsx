@@ -32,6 +32,12 @@ export const operationsNav = [
     href: '/platform/operations/service-pilot',
   },
   {
+    // 报告工作室是独立 app（/platform/reports/），无深链路由，纯 <a> 跳转整页打开。
+    id: 'reports-delivery',
+    label: '报告交付',
+    href: '/platform/reports/',
+  },
+  {
     id: 'execution',
     label: '执行与账号',
     href: '/platform/operations/execution',

@@ -41,6 +41,8 @@ page_coverage = {
             "service-risk",
             "service-site-audit",
             "service-pilot",
+            # 报告交付：独立 report-studio app（/platform/reports/）的整页跳转入口。
+            "reports-delivery",
         },
         "spec": "operations-visual.spec.ts",
     },

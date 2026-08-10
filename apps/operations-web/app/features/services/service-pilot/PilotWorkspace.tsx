@@ -9,6 +9,7 @@ import {
   type Project,
   type SessionContext,
 } from '../api';
+import { ComparisonPanel } from './ComparisonPanel';
 
 const METRIC_LABELS: Record<string, string> = {
   mention_rate: '品牌提及率',
@@ -142,6 +143,8 @@ export function PilotWorkspace({
           </div>
         )}
       </section>
+
+      <ComparisonPanel session={session} project={project} runsVersion={runsVersion} />
 
       <div className="service-link-card">
         <div>

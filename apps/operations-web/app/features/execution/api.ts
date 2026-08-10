@@ -61,6 +61,9 @@ export type Project = {
   name: string;
   state: string;
   updated_at: string;
+  // 列表端点 ProjectSummary 契约含 brandrank_domain（schema.generated.ts），
+  // @geo/api-client 导出的 ProjectSummary 投影未带上该字段，这里按真实载荷补齐。
+  brandrank_domain?: string | null;
 };
 
 export type Intervention = {

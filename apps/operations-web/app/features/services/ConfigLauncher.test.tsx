@@ -46,7 +46,24 @@ describe('ConfigLauncher', () => {
               snapshot_hash: 'abcdef1234567890',
               snapshot: {},
             }
-          : { run_pub_id: 'run_new', workflow_id: 'geo-collection/new' };
+          : request.url.includes('/api/v2/schedules')
+            ? {
+                pub_id: 'sch_new',
+                project_pub_id: 'prj_test',
+                config_version_pub_id: 'cfv_frozen',
+                interval_minutes: 1440,
+                timezone: 'Asia/Shanghai',
+                state: 'active',
+                next_run_at: '2026-08-11T00:00:00+08:00',
+                last_run_at: null,
+                last_run_pub_id: null,
+                responsible_pub_id: 'usr_test',
+                created_by_pub_id: 'usr_test',
+                version: 1,
+                created_at: '2026-08-10T00:00:00Z',
+                updated_at: '2026-08-10T00:00:00Z',
+              }
+            : { run_pub_id: 'run_new', workflow_id: 'geo-collection/new' };
         return new Response(JSON.stringify(data), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
@@ -167,6 +184,94 @@ describe('ConfigLauncher', () => {
     await screen.findByText(/配置 v3 已冻结（abcdef12）/);
     expect(calls.filter((call) => call.url.includes('/config/freeze'))).toHaveLength(1);
     expect(calls.filter((call) => call.url.includes('/collection/runs'))).toHaveLength(0);
+  });
+
+  it('creates a real schedule after freezing when frequency is daily', async () => {
+    render(
+      <ConfigLauncher
+        session={session}
+        projectPubId="prj_test"
+        groupName="品牌AI认知评测"
+        queryPlaceholder="国内网络空间资产搜索引擎哪家强"
+      />,
+    );
+    fillQuestions('问题一');
+    fireEvent.change(screen.getByLabelText(/频率/), { target: { value: 'daily' } });
+    fireEvent.click(screen.getByRole('button', { name: '仅冻结配置' }));
+    await screen.findByText(/配置 v3 已冻结（abcdef12）/);
+    await screen.findByText(/已创建调度：每日（每 1440 分钟），下次运行/);
+
+    const scheduleCalls = calls.filter((call) => call.url.includes('/api/v2/schedules'));
+    expect(scheduleCalls).toHaveLength(1);
+    const scheduleBody = scheduleCalls[0]?.body as {
+      project_pub_id: string;
+      config_version_pub_id: string;
+      interval_minutes: number;
+      timezone: string;
+      next_run_at: string;
+      responsible_pub_id: string;
+    };
+    expect(scheduleBody.project_pub_id).toBe('prj_test');
+    expect(scheduleBody.config_version_pub_id).toBe('cfv_frozen');
+    expect(scheduleBody.interval_minutes).toBe(1440);
+    expect(scheduleBody.timezone).toBe('Asia/Shanghai');
+    expect(scheduleBody.responsible_pub_id).toBe('usr_test');
+    // next_run_at 必须带时区（Z 或 ±hh:mm 偏移）。
+    expect(scheduleBody.next_run_at).toMatch(/(Z|[+-]\d{2}:\d{2})$/);
+    expect(Number.isNaN(Date.parse(scheduleBody.next_run_at))).toBe(false);
+
+    const freezeBody = calls.find((call) => call.url.includes('/config/freeze'))?.body as {
+      frequency: string;
+    };
+    expect(freezeBody.frequency).toBe('daily');
+    expect(screen.getByRole('link', { name: '前往「执行与账号」查看调度' })).toBeTruthy();
+  });
+
+  it('surfaces a partial-success error when schedule creation fails after launch', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string | URL | Request) => {
+        const request = requestOf(input);
+        if (request.url.includes('/api/v2/schedules')) {
+          return new Response(JSON.stringify({ error: { code: 'permission_denied' } }), {
+            status: 403,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        const data = request.url.includes('/config/freeze')
+          ? {
+              pub_id: 'cfv_frozen',
+              revision: 3,
+              effective_at: '2026-08-09T00:00:00Z',
+              frozen_at: '2026-08-09T00:00:00Z',
+              snapshot_hash: 'abcdef1234567890',
+              snapshot: {},
+            }
+          : { run_pub_id: 'run_new', workflow_id: 'geo-collection/new' };
+        return new Response(JSON.stringify(data), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }),
+    );
+    render(
+      <ConfigLauncher
+        session={session}
+        projectPubId="prj_test"
+        groupName="品牌AI认知评测"
+        queryPlaceholder="国内网络空间资产搜索引擎哪家强"
+      />,
+    );
+    fillQuestions('问题一');
+    fireEvent.change(screen.getByLabelText(/频率/), { target: { value: 'daily' } });
+    fireEvent.click(screen.getByRole('button', { name: '冻结并启动采样' }));
+    // 部分成功：冻结与采样照常回执，调度失败原因明示不吞错。
+    await screen.findByText(/配置 v3 已冻结（abcdef12）；已启动 2 个采样 run/);
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toContain(
+        '配置已冻结，但自动调度创建失败：permission_denied',
+      ),
+    );
   });
 
   it('shows errors inline when the freeze fails', async () => {
