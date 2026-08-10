@@ -152,6 +152,7 @@ from workflows.activities.human_like import (
     human_read_pause,
     human_type,
 )
+from workflows.activities.raw_capture import dump_raw_evidence_refs, maybe_raw_capture
 from workflows.activities.resident_browser import platform_browser
 
 log = structlog.get_logger()
@@ -475,6 +476,9 @@ class _WallError(RuntimeError):
         super().__init__(message)
         self.wall_type = wall_type
         self.evidence_path = evidence_path
+        # 失败题原始流量证据（2026-08-10 起）：_collect_one 题末挂 raw/HAR ref，
+        # 经 _failure_outcome → 失败 result.evidence 进 CAS。缺省空。
+        self.evidence_refs: list[CollectionEvidenceRef] = []
 
 
 class _IncompleteCapture(RuntimeError):
@@ -483,6 +487,7 @@ class _IncompleteCapture(RuntimeError):
     def __init__(self, message: str, evidence_path: Path | None = None) -> None:
         super().__init__(message)
         self.evidence_path = evidence_path
+        self.evidence_refs: list[CollectionEvidenceRef] = []
 
 
 class _ModeToggleFailed(RuntimeError):
@@ -491,6 +496,7 @@ class _ModeToggleFailed(RuntimeError):
     def __init__(self, message: str, evidence_path: Path | None = None) -> None:
         super().__init__(message)
         self.evidence_path = evidence_path
+        self.evidence_refs: list[CollectionEvidenceRef] = []
 
 
 def _deep_think_chip_state(page: Any) -> bool | None:
@@ -597,6 +603,9 @@ class CollectedAnswer:
     meta: dict[str, Any] = field(default_factory=dict)
     # 思考链 trace 证据路径（kind="sse"，transport="dom"；无思考/写盘失败=None 诚实缺省）
     trace_path: Path | None = None
+    # 原始流量证据 ref（2026-08-10 起：sse_raw/har；GEO_RAW_CAPTURE=0 或写盘
+    # 失败为空——诚实缺省）。_task_result_from_collected 并入 evidence。
+    raw_evidence: list[CollectionEvidenceRef] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -621,6 +630,9 @@ class YiyanBatchItemOutcome:
     error_type: str | None = None
     error_message: str | None = None
     evidence_path: Path | None = None
+    # 失败题的原始流量证据 ref（2026-08-10 起，raw/HAR，由题末异常对象携带
+    # 而来）；aborted 题零浏览器交互，恒空。
+    evidence: list[CollectionEvidenceRef] = field(default_factory=list)
 
 
 class _BrowserSession(Protocol):
@@ -766,6 +778,7 @@ async def run_yiyan_batch(
                     error_type=wall.wall_type,
                     error_message=f"{wall}{evidence_suffix}",
                     evidence_path=wall.evidence_path,
+                    evidence=wall.evidence_refs,
                 )
                 for item in batch.items
             ]
@@ -774,9 +787,7 @@ async def run_yiyan_batch(
         # session 级临时故障（浏览器启动失败等）：一题未发，raise 走 batch 重试。
         evidence_suffix = f"; evidence={inc.evidence_path}" if inc.evidence_path else ""
         bound.info("yiyan_batch_session_incomplete", reason=str(inc), stage=progress["stage"])
-        raise ApplicationError(
-            f"{inc}{evidence_suffix}", type="answer_capture_incomplete"
-        ) from inc
+        raise ApplicationError(f"{inc}{evidence_suffix}", type="answer_capture_incomplete") from inc
     if len(outcomes) != len(batch.items):
         # session 契约：结果列表必须与输入等长（失败/未执行题也占位）。缺斤短两
         # 说明实现有 bug——fail-closed raise（编程错误，重试无意义）。
@@ -805,8 +816,13 @@ def _failure_batch_item(
     error_type: str,
     error_message: str,
     evidence_path: Path | None,
+    evidence: list[CollectionEvidenceRef] | None = None,
 ) -> CollectionBatchItemResult:
-    """失败/未执行题 → CollectionBatchItemResult。DLP 由 persist 层统一脱敏。"""
+    """失败/未执行题 → CollectionBatchItemResult。DLP 由 persist 层统一脱敏。
+
+    ``evidence``（2026-08-10 起）：失败题原始流量证据 ref（raw/HAR）——
+    persist 层 `_persist_collection_failure` 会把它 persist 进 CAS（墙截图
+    维持现状不进 CAS）。"""
     screenshot_ref = f"file://{evidence_path}" if evidence_path is not None else None
     return CollectionBatchItemResult(
         business_key=item.business_key,
@@ -815,6 +831,7 @@ def _failure_batch_item(
         error_message=error_message,
         screenshot_ref=screenshot_ref,
         quality_state=error_type,
+        evidence=list(evidence or []),
     )
 
 
@@ -847,6 +864,7 @@ def _batch_item_result(
         error_type=outcome.error_type or "unknown_failure",
         error_message=outcome.error_message or "",
         evidence_path=outcome.evidence_path,
+        evidence=outcome.evidence,
     )
 
 
@@ -963,6 +981,8 @@ def _task_result_from_collected(
                 source_url=_CHAT_URL,
             )
         )
+    # 原始流量证据（2026-08-10 起）：sse_raw/har，_collect_one 题末导出。
+    evidence.extend(collected.raw_evidence)
     # DLP 统一由 persist 层脱敏处理（单一权威边界，2026-08-06 起）。
     return CollectionTaskResult(
         business_key=item.business_key,
@@ -1113,6 +1133,7 @@ class _PlaywrightYiyanSession:
             error_type=error_type,
             error_message=str(exc),
             evidence_path=exc.evidence_path,
+            evidence=list(exc.evidence_refs),
         )
 
     @staticmethod
@@ -1166,9 +1187,7 @@ class _PlaywrightYiyanSession:
                         user_data_dir=str(self._config.profile_dir),
                         headless=self._config.headless,
                         proxy=(
-                            _parse_proxy(self._config.proxy_url)
-                            if self._config.proxy_url
-                            else None
+                            _parse_proxy(self._config.proxy_url) if self._config.proxy_url else None
                         ),
                         args=["--lang=zh-CN"],
                         locale="zh-CN",
@@ -1229,13 +1248,59 @@ class _PlaywrightYiyanSession:
         pw_timeout: type[Exception],
         driver: str,
     ) -> CollectedAnswer:
-        """单题主体：await_input → fresh_chat → 拟人输入/发送 → DOM 流观测/
-        证据落盘。per-task 单题与 batch 每题共用。
+        """单题入口：原始流量 capture 生命周期（2026-08-10 起）+ 委托
+        ``_collect_one_dom`` 跑 DOM 观测主体。per-task 单题与 batch 每题共用。
 
-        ``context``/``pw_timeout`` 当前未被使用（文心流观测走 DOM，无 CDP
-        capture）——保留与豆包同构签名，未来传输层校准升级不改调用形态。
+        文心流观测走 DOM（SW 中转）；raw capture 挂 page 级独立 CDP session——
+        completion 流量可能经 ServiceWorker 中转而不可见：看不到时 sse_raw
+        诚实缺省（None 不出证据）、HAR 有什么算什么；capture 全程零请求时
+        log warning（live 复核用）。``pw_timeout`` 仍未被使用（与豆包同构
+        签名保留，未来传输层校准升级不改调用形态）。
         """
-        del context, pw_timeout
+        del pw_timeout
+        raw = maybe_raw_capture(
+            context,
+            page,
+            body_url_hints=("yiyan.baidu.com",),
+            creator="geo-yiyan-adapter",
+        )
+        try:
+            answer = self._collect_one_dom(page, spec, on_stage, driver=driver)
+        except (_WallError, _IncompleteCapture, _ModeToggleFailed) as exc:
+            # 失败题同样留 raw/HAR（题末先 dump 后 detach）：ref 挂异常对象，经
+            # _failure_outcome → 失败 result.evidence → persist 层进 CAS。
+            exc.evidence_refs = dump_raw_evidence_refs(
+                raw,
+                self._evidence_dir,
+                spec.file_stem,
+                source_url=_CHAT_URL,
+                warn_tag="yiyan",
+            )
+            raise
+        else:
+            answer.raw_evidence = dump_raw_evidence_refs(
+                raw,
+                self._evidence_dir,
+                spec.file_stem,
+                source_url=_CHAT_URL,
+                warn_tag="yiyan",
+            )
+            return answer
+        finally:
+            if raw is not None:
+                raw.detach()
+
+    def _collect_one_dom(
+        self,
+        page: Any,
+        spec: YiyanBatchItemSpec,
+        on_stage: Callable[[str], None],
+        *,
+        driver: str,
+    ) -> CollectedAnswer:
+        """单题主体：await_input → fresh_chat → 拟人输入/发送 → DOM 流观测/
+        证据落盘（文心流观测走 DOM，无既有 CDP capture）。raw/HAR 留痕由
+        ``_collect_one`` 包装层负责。"""
 
         def _pace(lo: float, hi: float) -> float:
             # 节奏等待走 page.wait_for_timeout：停顿全部留在页面事件序列里
@@ -1307,17 +1372,14 @@ class _PlaywrightYiyanSession:
         # 发送前通读一遍（原实现 type 后固定 800ms 即发送=秒发指纹）。
         _pace(*_PACE_BEFORE_SEND_S)
 
-        submit = _submit_and_confirm(
-            page, input_loc, self._rng, pace=_pace, start=self._mouse_pos
-        )
+        submit = _submit_and_confirm(page, input_loc, self._rng, pace=_pace, start=self._mouse_pos)
         if not submit.get("submitted"):
             # 发送被吞时优先识别登录墙（未登录点发送会弹 pass 登录层，
             # 20260727 live 实测）——比笼统 wall_send 更诚实
             if _detect_login_wall(page):
                 raise _WallError(
                     "wall_login_required",
-                    "login wall surfaced on send (composer not cleared, "
-                    "pass login dialog visible)",
+                    "login wall surfaced on send (composer not cleared, pass login dialog visible)",
                     _shot("login"),
                 )
             raise _WallError(

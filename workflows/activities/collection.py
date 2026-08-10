@@ -56,12 +56,14 @@ class CollectionTaskInput:
 # 思考关，deep_think=快速+搜索开+思考开，见 deepseek_adapter docstring）；元宝
 # 联网检索为平台自动行为（无开关），normal=Hy3+思考关，deep_think=Hy3+思考开
 # （=hunyuan_t1，见 yuanbao_adapter docstring）；yiyan deep_think=composer
-# 「深度思考」chip 开（20260810 live 校准，见 yiyan_adapter docstring）。
+# 「深度思考」chip 开（20260810 live 校准，见 yiyan_adapter docstring）；通义
+# deep_think=composer radix 菜单选「思考研究」（20260810 live 探针实证键盘路径，
+# 见 tongyi_adapter docstring）。
 # 未知平台 slug 不在表内 → 不过滤（dispatcher 会诚实报 unsupported adapter）。
 PLATFORM_MODE_CAPABILITIES: dict[str, frozenset[str]] = {
     "doubao": frozenset({"normal", "deep_think"}),
     "deepseek": frozenset({"normal", "deep_think"}),
-    "tongyi": frozenset({"normal"}),
+    "tongyi": frozenset({"normal", "deep_think"}),
     "yiyan": frozenset({"normal", "deep_think"}),
     "yuanbao": frozenset({"normal", "deep_think"}),
 }
@@ -271,6 +273,11 @@ _EVIDENCE_KINDS = {
     "share_link",
     "source_screenshot",
     "sse",
+    # 原始流量留痕（2026-08-10 起，用户拍板默认开）：sse_raw=completion 端点
+    # 原始响应体；har=本题页面级 HAR 1.2。绝不可复用 kind="sse"——trace 端点
+    # 硬过滤 kind='sse' AND relation='answer_sse_trace'，复用会污染读面。
+    "sse_raw",
+    "har",
 }
 _EVIDENCE_RELATIONS = {
     "answer_page",
@@ -278,6 +285,8 @@ _EVIDENCE_RELATIONS = {
     "official_share_link",
     "cited_source_snapshot",
     "answer_sse_trace",
+    "answer_sse_raw",
+    "answer_har",
 }
 _SAFE_TOKEN_RE = re.compile(r"^[a-z][a-z0-9_]{1,79}$")
 _MAX_EVIDENCE_BYTES = 30 * 1024 * 1024
@@ -394,6 +403,27 @@ def _normalize_evidence_refs(
                 source_url=None,
             ),
         )
+    return _normalize_evidence_list(raw_items)
+
+
+def _evidence_mime_from_name(name: str) -> str | None:
+    """mime 推断补充（2026-08-10）：自有证据后缀显式映射——mimetypes 对
+    ``-har.json`` 只会猜出 application/json、对 ``-sse-raw.txt`` 猜 text/plain，
+    都不是进 CAS 的权威 mime（har=application/har+json 是 DLP JSON-aware 词表
+    成员，sse_raw=text/event-stream）。"""
+    if name.endswith("-har.json"):
+        return "application/har+json"
+    if name.endswith("-sse-raw.txt"):
+        return "text/event-stream"
+    return mimetypes.guess_type(name)[0]
+
+
+def _normalize_evidence_list(raw_items: list[Any]) -> list[CollectionEvidenceRef]:
+    """证据列表逐条规范化（kind/relation 词表 + 本地路径 + mime + URL 形状）。
+
+    ok 题经 ``_normalize_evidence_refs``（含截图前置）调用；失败题直接对
+    ``result.evidence`` 调用——墙截图维持现状不进 CAS（不过截图前置），只有
+    adapter 显式携带的 ref（raw/HAR）进证据链。"""
     if len(raw_items) > 50:
         raise ValueError("collection result has too many evidence assets")
     normalized: list[CollectionEvidenceRef] = []
@@ -408,7 +438,7 @@ def _normalize_evidence_refs(
         ):
             raise ValueError("collection evidence relation is invalid")
         path = _path_from_evidence_ref(item.path)
-        mime_type = item.mime_type or mimetypes.guess_type(path.name)[0]
+        mime_type = item.mime_type or _evidence_mime_from_name(path.name)
         if not mime_type or len(mime_type) > 120:
             raise ValueError("collection evidence MIME type is invalid")
         source_url = _safe_http_url(item.source_url)
@@ -615,9 +645,7 @@ def _measurement_exit_gb_map() -> dict[str, str]:
     return result
 
 
-def _measurement_geo_provenance(
-    adapter: str, instance_key: str | None = None
-) -> dict[str, str]:
+def _measurement_geo_provenance(adapter: str, instance_key: str | None = None) -> dict[str, str]:
     """geo_source/observed_gb_code 二元：有声明出口→observed_gb_code；无声明→
     unverified（measurement_eligible 判不合格，宁缺不编造，INV-1 fail-loud）。
 
@@ -800,8 +828,7 @@ def publish_downstream_event(
                             # 常驻实例）；无记录（历史/per-task 老路径）→ None
                             # → provenance 回退 slug 查表（旧行为）。
                             browser_instance=(
-                                json.loads(task.matrix_json or "{}").get("browser_instance")
-                                or None
+                                json.loads(task.matrix_json or "{}").get("browser_instance") or None
                             ),
                         ),
                         "own_domains": [brand.website] if brand.website else [],
@@ -1106,6 +1133,12 @@ def _persist_collection_failure(
       保证 activity 重试的 replay drift 检查幂等；
     - ``screenshot_ref`` ← 失败存证截图 ref（墙截图，可选）；
     - ``answer_text`` 保持 None——失败题绝不进答案/分析链路（INV-32 零合成）。
+
+    原始流量证据（2026-08-10 起）：adapter 题末 finally 导出的 raw/HAR ref 随
+    ``result.evidence`` 携带，此处与 ok 题同一边界进 CAS（幂等：pub_id 派生 +
+    ON CONFLICT DO NOTHING + 资产行 drift 校验）。``evidence_json`` 列保持
+    failure_record 原样（replay drift 比较不含证据列表）；墙截图维持现状不进
+    CAS（不过 ``_normalize_evidence_refs`` 的截图前置，只规范显式携带的 ref）。
     """
     error_type = (result.error_type or "unknown_failure")[:40]
     error_message = (result.error_message or "")[:1_000]
@@ -1119,6 +1152,14 @@ def _persist_collection_failure(
         raise ApplicationError(
             "collection result rejected by DLP",
             type="collection_result_dlp_rejected",
+            non_retryable=True,
+        ) from error
+    try:
+        evidence = _normalize_evidence_list(list(result.evidence or []))
+    except ValueError as error:
+        raise ApplicationError(
+            f"collection result failed structural validation: {error}",
+            type="collection_result_invalid",
             non_retryable=True,
         ) from error
     failure_json = json.dumps(
@@ -1171,24 +1212,39 @@ def _persist_collection_failure(
             )
             session.add(task)
             run.failed_tasks += 1
-        elif (
-            prior.state,
-            prior.quality_state,
-            prior.matrix_json,
-            prior.evidence_json,
-            prior.screenshot_ref,
-        ) != (
-            "failed",
-            error_type,
-            matrix_json,
-            failure_json,
-            result.screenshot_ref,
-        ):
-            raise ApplicationError(
-                "collection result replay payload drifted",
-                type="collection_result_payload_drift",
-                non_retryable=True,
-            )
+        else:
+            task = prior
+            if (
+                prior.state,
+                prior.quality_state,
+                prior.matrix_json,
+                prior.evidence_json,
+                prior.screenshot_ref,
+            ) != (
+                "failed",
+                error_type,
+                matrix_json,
+                failure_json,
+                result.screenshot_ref,
+            ):
+                raise ApplicationError(
+                    "collection result replay payload drifted",
+                    type="collection_result_payload_drift",
+                    non_retryable=True,
+                )
+        project = session.get(Project, run.project_id)
+        if project is None:
+            raise ApplicationError("collection project not found", type="project_not_found")
+        _persist_evidence_assets(
+            session=session,
+            tenant_pub_id=tenant_pub_id,
+            project_pub_id=project.pub_id,
+            run_pub_id=run_pub_id,
+            answer_pub_id=task.pub_id,
+            business_key=result.business_key,
+            adapter_version=task_input.adapter if task_input is not None else "fixed",
+            evidence=evidence,
+        )
         run.state = _derive_run_state(run)
         session.commit()
 

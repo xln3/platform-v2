@@ -192,6 +192,51 @@ class _FakeLocator:
         return self._page.body_text
 
 
+class _FakeCDP:
+    """共享总线 fake（2026-08-10 起：yiyan 新增 RawTrafficCapture 挂 page 级
+    CDP session）。默认不发任何事件——镜像文心 ServiceWorker 中转、page 级
+    session 可能看不到 completion 流量的情形（sse_raw 诚实缺省）。"""
+
+    def __init__(self, page: _FakePage) -> None:
+        self._page = page
+        self.handlers: dict[str, list[Callable[[dict[str, Any]], None]]] = {}
+        self.detached = 0
+
+    def send(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        if method == "Network.getResponseBody":
+            return {"body": "data: {}\n\n", "base64Encoded": False}
+        return {}
+
+    def on(self, name: str, fn: Callable[[dict[str, Any]], None]) -> None:
+        self.handlers.setdefault(name, []).append(fn)
+
+    def detach(self) -> None:
+        self.detached += 1
+
+    def emit(self, name: str, payload: dict[str, Any]) -> None:
+        for fn in self.handlers.get(name, []):
+            fn(payload)
+
+    def emit_completion_stream(self, rid: str = "req-y1") -> None:
+        """模拟 page 级可见的 completion event-stream（raw capture 命中情形）。"""
+        self.emit(
+            "Network.requestWillBeSent",
+            {
+                "requestId": rid,
+                "request": {
+                    "url": "https://yiyan.baidu.com/eb/chat/completion",
+                    "method": "POST",
+                },
+            },
+        )
+        self.emit(
+            "Network.responseReceived",
+            {"requestId": rid, "response": {"mimeType": "text/event-stream"}},
+        )
+        self.emit("Network.dataReceived", {"requestId": rid, "dataLength": 64})
+        self.emit("Network.loadingFinished", {"requestId": rid, "encodedDataLength": 1})
+
+
 class _FakePage:
     """记录全事件序列的 page 替身。messages>0 / answer_text 非空模拟旧会话
     残留；route_click 让落在发送区/「新对话」区的鼠标点击产生真实副作用。"""
@@ -210,6 +255,7 @@ class _FakePage:
         self.mouse = _FakeMouse(self)
         self.keyboard = _FakeKeyboard(self)
         self.viewport_size = {"width": 1280, "height": 720}
+        self.cdp = _FakeCDP(self)
         self.context: _FakeContext | None = None
         self.url = yiyan_adapter._CHAT_URL
         self.messages = messages
@@ -297,6 +343,9 @@ class _FakeContext:
     def new_page(self) -> _FakePage:
         return self._page
 
+    def new_cdp_session(self, page: _FakePage) -> _FakeCDP:
+        return page.cdp
+
     def set_default_timeout(self, _ms: int) -> None:
         pass
 
@@ -335,9 +384,7 @@ def _install_fake_browser(monkeypatch: pytest.MonkeyPatch, page: _FakePage) -> N
         "load_sync_browser_driver",
         lambda: ("fake", _sync_playwright, TimeoutError),
     )
-    monkeypatch.setattr(
-        yiyan_adapter, "time", SimpleNamespace(monotonic=page.clock.monotonic)
-    )
+    monkeypatch.setattr(yiyan_adapter, "time", SimpleNamespace(monotonic=page.clock.monotonic))
     real_clean = yiyan_adapter._clean_profile_crash_state
 
     def _clean_spy(profile_dir: Path) -> bool:
@@ -408,9 +455,7 @@ async def test_session_collect_full_humanized_flow(
     prefs_dir = tmp_path / "Default"
     prefs_dir.mkdir()
     (prefs_dir / "Preferences").write_text(
-        json.dumps(
-            {"profile": {"exit_type": "Crashed", "exited_cleanly": False}, "other_key": 1}
-        ),
+        json.dumps({"profile": {"exit_type": "Crashed", "exited_cleanly": False}, "other_key": 1}),
         encoding="utf-8",
     )
     page = _FakePage(messages=0)
@@ -506,9 +551,7 @@ def test_fresh_chat_clicks_new_conversation_button() -> None:
         shot=_recording_shot([]),
     )
     assert page.messages == 0  # 点了「新对话」
-    clicks = [
-        e for e in page.events if e[0] == "mouse_click" and _in_bb(_NEW_CHAT_BB, e[1], e[2])
-    ]
+    clicks = [e for e in page.events if e[0] == "mouse_click" and _in_bb(_NEW_CHAT_BB, e[1], e[2])]
     assert len(clicks) == 1
     assert not [e for e in page.events if e[0] == "goto"]  # 按钮优先，不动导航兜底
 
@@ -836,3 +879,125 @@ async def test_collect_yiyan_batch_activity_defn_registered() -> None:
     """activity 注册名契约：协调者按 name='collect_yiyan_batch' 接线。"""
     defn = getattr(yiyan_adapter.collect_yiyan_batch, "__temporal_activity_definition", None)
     assert defn is not None and defn.name == "collect_yiyan_batch"
+
+
+# ---------------------------------------------------------------------------
+# 原始流量证据（2026-08-10 起，用户拍板默认开）：ok/失败题均留 sse_raw+har
+# ---------------------------------------------------------------------------
+
+
+class _StreamVisibleFakePage(_FakePage):
+    """page 级 CDP 可见 completion 流的情形（对照 SW 中转不可见的缺省 fake）。"""
+
+    def route_click(self, x: float, y: float) -> None:
+        super().route_click(x, y)
+        if self.answer_text:  # 发送被受理 → 流出现在 page 级 session
+            self.cdp.emit_completion_stream()
+
+
+def test_collect_batch_ok_item_carries_raw_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ok 题出 sse_raw+har 两条新 ref（文心第一次有 CDP 捕获：page 级 session
+    可见流时命中 body 抓取），文件逐题落盘。"""
+    page = _StreamVisibleFakePage(messages=0)
+    session = _make_session(tmp_path, monkeypatch, page)
+    specs = _batch_specs(2)
+
+    outcomes = session.collect_batch(specs, on_stage=lambda s: None)
+
+    assert [o.status for o in outcomes] == ["ok", "ok"]
+    evidence = tmp_path / "evidence"
+    for outcome, spec in zip(outcomes, specs, strict=True):
+        assert outcome.answer is not None
+        by_kind = {ref.kind: ref for ref in outcome.answer.raw_evidence}
+        assert by_kind["sse_raw"].relation_type == "answer_sse_raw"
+        assert by_kind["sse_raw"].mime_type == "text/event-stream"
+        assert by_kind["har"].relation_type == "answer_har"
+        assert by_kind["har"].mime_type == "application/har+json"
+        raw_path = evidence / f"{spec.file_stem}-sse-raw.txt"
+        har_path = evidence / f"{spec.file_stem}-har.json"
+        assert by_kind["sse_raw"].path == str(raw_path) and raw_path.is_file()
+        assert by_kind["har"].path == str(har_path)
+        har = json.loads(har_path.read_text(encoding="utf-8"))
+        assert har["log"]["creator"]["name"] == "geo-yiyan-adapter"
+
+
+def test_collect_batch_ok_item_sse_raw_honest_absent_when_stream_invisible(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """page 级 session 看不到 completion 流量（SW 中转，缺省 fake 零事件）：
+    sse_raw 诚实缺省（None 不出证据），HAR 有什么算什么（零请求条目也落盘）。"""
+    page = _FakePage(messages=0)
+    session = _make_session(tmp_path, monkeypatch, page)
+    specs = _batch_specs(1)
+
+    outcomes = session.collect_batch(specs, on_stage=lambda s: None)
+
+    assert outcomes[0].status == "ok"
+    assert outcomes[0].answer is not None
+    by_kind = {ref.kind: ref for ref in outcomes[0].answer.raw_evidence}
+    assert "sse_raw" not in by_kind  # 看不到绝不编造
+    assert by_kind["har"].relation_type == "answer_har"
+    har_path = tmp_path / "evidence" / f"{specs[0].file_stem}-har.json"
+    assert har_path.is_file()
+    har = json.loads(har_path.read_text(encoding="utf-8"))
+    assert har["log"]["entries"] == []
+
+
+def test_collect_batch_wall_item_carries_raw_har_ref(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """失败题（wall_send，发送被吞→无流）：sse_raw 诚实缺省，HAR 仍落盘挂到
+    失败 outcome；aborted 题零交互零证据。"""
+    page = _FakePage(messages=0, swallow_sends_from=1)
+    session = _make_session(tmp_path, monkeypatch, page)
+    specs = _batch_specs(2)
+
+    outcomes = session.collect_batch(specs, on_stage=lambda s: None)
+
+    assert [o.status for o in outcomes] == ["wall", "aborted"]
+    wall = outcomes[0]
+    assert wall.error_type == "wall_send"
+    assert [ref.kind for ref in wall.evidence] == ["har"]
+    assert wall.evidence[0].relation_type == "answer_har"
+    har_path = tmp_path / "evidence" / f"{specs[0].file_stem}-har.json"
+    assert wall.evidence[0].path == str(har_path) and har_path.is_file()
+    assert outcomes[1].evidence == []  # aborted：零浏览器交互，无证据可留
+
+
+def test_batch_item_result_maps_raw_evidence_refs() -> None:
+    """outcome→result 映射：ok 题 raw_evidence 并入 result.evidence；失败题
+    outcome.evidence 原样透传（persist 层 `_persist_collection_failure` 的输入）。"""
+    from workflows.activities.collection import CollectionEvidenceRef
+
+    ref = CollectionEvidenceRef(
+        kind="har",
+        path="/tmp/x-har.json",
+        relation_type="answer_har",
+        mime_type="application/har+json",
+        source_url=None,
+    )
+    ok_outcome = yiyan_adapter.YiyanBatchItemOutcome(
+        business_key="run-7-task-3",
+        status="ok",
+        answer=yiyan_adapter.CollectedAnswer(
+            answer_text="答案",
+            references=[],
+            screenshot_path=Path("/tmp/x.png"),
+            raw_evidence=[ref],
+        ),
+    )
+    ok_result = yiyan_adapter._batch_item_result(_item(), ok_outcome)
+    assert [r.kind for r in ok_result.evidence] == ["har"]
+
+    wall_outcome = yiyan_adapter.YiyanBatchItemOutcome(
+        business_key="run-7-task-3",
+        status="wall",
+        error_type="wall_send",
+        error_message="send-not-accepted",
+        evidence=[ref],
+    )
+    wall_result = yiyan_adapter._batch_item_result(_item(), wall_outcome)
+    assert wall_result.status == "wall"
+    assert [r.kind for r in wall_result.evidence] == ["har"]

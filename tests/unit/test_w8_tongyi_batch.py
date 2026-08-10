@@ -6,7 +6,10 @@
 （outcome 映射 / session 级墙 / session 级 incomplete / mode 门 / 配置门 /
 空 batch / 契约违背 / 默认 session 必须 to_thread）、fresh-chat 纪律四态、
 CDP 常驻 attach 路径（不 close context、不动 profile）、per-task 拟人化全链路、
-容器级抽取（卡片段拼接/噪声过滤）与 DOM 稳定门（2026-08-07 截断案回归）。
+容器级抽取（卡片段拼接/噪声过滤）与 DOM 稳定门（2026-08-07 截断案回归）、
+问答模式确保（20260810 deep_think=思考研究：radix 菜单键盘路径 / 幂等 /
+确认失败 mode_toggle_failed / 混合 batch 逐题确保）与思考流程卡 trace
+（思考链/检索词/检索结果折叠，答案正文零混入）。
 """
 
 from __future__ import annotations
@@ -23,7 +26,7 @@ import pytest
 from temporalio.exceptions import ApplicationError
 
 from workflows.activities import tongyi_adapter
-from workflows.activities.collection import CollectionTaskInput
+from workflows.activities.collection import CollectionEvidenceRef, CollectionTaskInput
 from workflows.activities.human_like import human_pause
 from workflows.activities.tongyi_adapter import (
     CollectedAnswer,
@@ -63,6 +66,7 @@ _COMPOSER_BB = {"x": 80.0, "y": 600.0, "width": 600.0, "height": 48.0}
 _SEND_BB = {"x": 640.0, "y": 610.0, "width": 32.0, "height": 32.0}
 _NEW_CHAT_BB = {"x": 40.0, "y": 120.0, "width": 96.0, "height": 32.0}
 _OVERLAY_BB = {"x": 300.0, "y": 200.0, "width": 90.0, "height": 32.0}
+_MODE_TRIGGER_BB = {"x": 90.0, "y": 560.0, "width": 96.0, "height": 28.0}
 
 
 def _in_bb(bb: dict[str, float], x: float, y: float) -> bool:
@@ -83,27 +87,48 @@ class _FakeClock:
 
 
 class _FakeCDP:
+    """共享总线 fake：同页多个 CDP session（既有 _EventStreamCapture + 2026-08-10
+    起的 RawTrafficCapture）各自 on 注册——handlers 为名单，emit 广播给全部。
+
+    emit_stream 带 requestWillBeSent（tongyi.com completion URL）+ getResponseBody
+    有 body：既有 capture 不订阅前者、不调后者（零行为变化），RawTrafficCapture
+    据此命中 body 抓取（sse_raw 证据）。"""
+
     def __init__(self, page: _FakePage) -> None:
         self._page = page
-        self.handlers: dict[str, Callable[[dict[str, Any]], None]] = {}
+        self.handlers: dict[str, list[Callable[[dict[str, Any]], None]]] = {}
         self.detached = 0
 
     def send(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        if method == "Network.getResponseBody":
+            return {"body": "data: {}\n\n", "base64Encoded": False}
         return {}
 
     def on(self, name: str, fn: Callable[[dict[str, Any]], None]) -> None:
-        self.handlers[name] = fn
+        self.handlers.setdefault(name, []).append(fn)
 
     def detach(self) -> None:
         self.detached += 1
 
+    def _emit(self, name: str, payload: dict[str, Any]) -> None:
+        for fn in self.handlers.get(name, []):
+            fn(payload)
+
     def emit_stream(self) -> None:
         rid = f"req-{self._page.send_clicks}"
-        self.handlers["Network.responseReceived"](
-            {"requestId": rid, "response": {"mimeType": "text/event-stream"}}
+        self._emit(
+            "Network.requestWillBeSent",
+            {
+                "requestId": rid,
+                "request": {"url": "https://www.tongyi.com/api/chat/completion", "method": "POST"},
+            },
         )
-        self.handlers["Network.dataReceived"]({"requestId": rid, "dataLength": 128})
-        self.handlers["Network.loadingFinished"]({"requestId": rid, "encodedDataLength": 1})
+        self._emit(
+            "Network.responseReceived",
+            {"requestId": rid, "response": {"mimeType": "text/event-stream"}},
+        )
+        self._emit("Network.dataReceived", {"requestId": rid, "dataLength": 128})
+        self._emit("Network.loadingFinished", {"requestId": rid, "encodedDataLength": 1})
 
 
 class _FakeMouse:
@@ -140,6 +165,23 @@ class _FakeKeyboard:
 
     def press(self, key: str, **_kw: Any) -> None:
         self._page.events.append(("press", key))
+        page = self._page
+        # radix 模式菜单键盘状态机（20260810 实证口径：ArrowDown 开菜单→当前模式
+        # 项高亮；ArrowDown/ArrowUp 移动高亮；Enter 选中；Escape 关菜单）
+        if key == "Escape":
+            page.menu_open = False
+        elif key == "ArrowDown":
+            if page.menu_open:
+                page.menu_highlight = min(page.menu_highlight + 1, 1)
+            else:
+                page.menu_open = True
+                page.menu_highlight = 0 if page.composer_mode == "normal" else 1
+        elif key == "ArrowUp" and page.menu_open:
+            page.menu_highlight = max(page.menu_highlight - 1, 0)
+        elif key == "Enter" and page.menu_open:
+            if not page.mode_switch_fails:
+                page.composer_mode = "deep_think" if page.menu_highlight == 1 else "normal"
+            page.menu_open = False
 
 
 class _FakeLocator:
@@ -252,6 +294,18 @@ class _FakePage:
         # 受理但静默（内容过滤/服务端丢包）：composer 清空但无流、无答案渲染——
         # 驱动 no-stream-and-dom-not-quiet 的 incomplete 路径。
         self.accept_but_silent = False
+        # 模式开关状态机（20260810 deep_think 起）：composer_mode 当前模式；
+        # 菜单开/高亮由 _FakeKeyboard.press 驱动；mode_trigger_present=False
+        # 模拟控件缺失；mode_switch_fails=True 模拟 Enter 后模式不变（确认门
+        # 拦截）；menu_probe_empty=True 模拟菜单项探针落空（回退固定键序）；
+        # thinking_payload = _THINKING_EXTRACT_JS 探针注入面。
+        self.composer_mode = "normal"
+        self.menu_open = False
+        self.menu_highlight = 0
+        self.mode_trigger_present = True
+        self.mode_switch_fails = False
+        self.menu_probe_empty = False
+        self.thinking_payload: dict[str, Any] | None = None
 
     def classify(self, selector: str) -> tuple[str, bool, dict[str, float] | None]:
         if selector == "body":
@@ -260,6 +314,8 @@ class _FakePage:
             return ("composer", True, _COMPOSER_BB)
         if selector == '[data-proxyllm-send="true"]':
             return ("send", True, _SEND_BB)
+        if selector.startswith('[data-chat-input-shell="true"] button[aria-haspopup="menu"]'):
+            return ("mode_trigger", self.mode_trigger_present, _MODE_TRIGGER_BB)
         if self.new_chat_button and selector in tongyi_adapter._NEW_CHAT_SELECTORS:
             return ("new_chat", True, _NEW_CHAT_BB)
         if selector in self.visible_overlays:
@@ -294,6 +350,17 @@ class _FakePage:
             return True
         if script == tongyi_adapter._CHAT_MESSAGE_COUNT_JS:
             return self.messages
+        if script == tongyi_adapter._CHAT_MODE_STATE_JS:
+            return self.composer_mode if self.mode_trigger_present else None
+        if script == tongyi_adapter._CHAT_MODE_MENU_ITEMS_JS:
+            if not self.menu_open or self.menu_probe_empty:
+                return []
+            return [
+                {"text": "快速", "highlighted": self.menu_highlight == 0},
+                {"text": "思考研究", "highlighted": self.menu_highlight == 1},
+            ]
+        if script == tongyi_adapter._THINKING_EXTRACT_JS:
+            return self.thinking_payload
         if script == tongyi_adapter._FLATTEN_FOR_SCREENSHOT_JS:
             return {}
         if script == tongyi_adapter._ANSWER_EXTRACT_JS:
@@ -306,9 +373,7 @@ class _FakePage:
                 self._extract_calls += 1
                 text = f"{self.answer_text}{self._extract_calls}"
             return {
-                "segments": [
-                    {"kind": "markdown", "cls": "qk-markdown", "text": text}
-                ],
+                "segments": [{"kind": "markdown", "cls": "qk-markdown", "text": text}],
                 "refs": [],
             }
         return None
@@ -379,9 +444,7 @@ def _install_fake_browser(monkeypatch: pytest.MonkeyPatch, page: _FakePage) -> N
         "load_sync_browser_driver",
         lambda: ("fake", _sync_playwright, TimeoutError),
     )
-    monkeypatch.setattr(
-        tongyi_adapter, "time", SimpleNamespace(monotonic=page.clock.monotonic)
-    )
+    monkeypatch.setattr(tongyi_adapter, "time", SimpleNamespace(monotonic=page.clock.monotonic))
     real_clean = tongyi_adapter._clean_profile_crash_state
 
     def _clean_spy(profile_dir: Path) -> bool:
@@ -405,12 +468,14 @@ def _recording_shot(calls: list[str]) -> Callable[[str], None]:
     return shot
 
 
-def _batch_specs(count: int) -> list[tongyi_adapter.TongyiBatchItemSpec]:
+def _batch_specs(
+    count: int, *, modes: list[str] | None = None
+) -> list[tongyi_adapter.TongyiBatchItemSpec]:
     return [
         tongyi_adapter.TongyiBatchItemSpec(
             business_key=f"run-1-task-{index}",
             query=f"第{index}题的重疾险有哪些",
-            mode="normal",
+            mode=(modes[index - 1] if modes else "normal"),
             file_stem=f"run-1-task-{index}-a1",
         )
         for index in range(1, count + 1)
@@ -462,9 +527,7 @@ def test_collect_batch_shares_one_browser_session(
     assert keys == expected
 
     # 3) fresh_chat 消息计数探针每题都跑（>=3 次；第 2/3 题答案残留需点「新对话」）
-    count_probes = [
-        e for e in events if e == ("evaluate", tongyi_adapter._CHAT_MESSAGE_COUNT_JS)
-    ]
+    count_probes = [e for e in events if e == ("evaluate", tongyi_adapter._CHAT_MESSAGE_COUNT_JS)]
     assert len(count_probes) >= 3
     new_chat_clicks = [
         e for e in events if e[0] == "mouse_click" and _in_bb(_NEW_CHAT_BB, e[1], e[2])
@@ -484,8 +547,9 @@ def test_collect_batch_shares_one_browser_session(
     for spec in specs:
         assert (evidence / f"{spec.file_stem}.png").is_file()
 
-    # 6) 每题 CDP capture 题末 detach（3 题 = 3 次）
-    assert page.cdp.detached == 3
+    # 6) 每题两个 CDP session（既有 stream capture + 2026-08-10 起的
+    #    RawTrafficCapture）题末各自 detach（3 题 = 6 次）
+    assert page.cdp.detached == 6
 
     # 7) 全程无裸 locator.click（发送/弹层/新对话全走鼠标事件链）
     assert not [e for e in events if e[0] == "locator_click"]
@@ -677,8 +741,8 @@ async def test_run_tongyi_batch_session_incomplete_raises_retryable(
 async def test_run_tongyi_batch_config_and_mode_gates(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """配置类错误照常 raise：mode 门（仅 normal；deep_think 拒绝）在浏览器启动
-    之前；profile 缺失 fail-closed；CDP URL 非法同属配置类。"""
+    """配置类错误照常 raise：mode 门（normal/deep_think 放行，未知 mode 拒绝）
+    在浏览器启动之前；profile 缺失 fail-closed；CDP URL 非法同属配置类。"""
     monkeypatch.setenv("GEO_TONGYI_PROFILE_DIR", str(tmp_path))
     monkeypatch.setenv("GEO_ADAPTER_EVIDENCE_DIR", str(tmp_path / "evidence"))
 
@@ -691,7 +755,7 @@ async def test_run_tongyi_batch_config_and_mode_gates(
 
     with pytest.raises(ApplicationError) as exc_info:
         await tongyi_adapter.run_tongyi_batch(
-            _batch([_item(mode="deep_think")]), session_factory=factory, heartbeat=lambda p: None
+            _batch([_item(mode="expert")]), session_factory=factory, heartbeat=lambda p: None
         )
     assert exc_info.value.type == "unsupported_mode"
     assert exc_info.value.non_retryable is True
@@ -814,9 +878,7 @@ def test_fresh_chat_clicks_new_conversation_button() -> None:
         shot=_recording_shot([]),
     )
     assert page.messages == 0  # 点了「新对话」
-    clicks = [
-        e for e in page.events if e[0] == "mouse_click" and _in_bb(_NEW_CHAT_BB, e[1], e[2])
-    ]
+    clicks = [e for e in page.events if e[0] == "mouse_click" and _in_bb(_NEW_CHAT_BB, e[1], e[2])]
     assert len(clicks) == 1
     assert not [e for e in page.events if e[0] == "goto"]  # 按钮优先，不动导航兜底
 
@@ -863,9 +925,7 @@ def test_fresh_chat_composer_not_empty_is_not_fresh() -> None:
         shot=_recording_shot([]),
     )
     # 点了「新对话」（草稿视为旧会话残留），未走导航兜底
-    clicks = [
-        e for e in page.events if e[0] == "mouse_click" and _in_bb(_NEW_CHAT_BB, e[1], e[2])
-    ]
+    clicks = [e for e in page.events if e[0] == "mouse_click" and _in_bb(_NEW_CHAT_BB, e[1], e[2])]
     assert len(clicks) == 1
     assert not [e for e in page.events if e[0] == "goto"]
 
@@ -919,9 +979,7 @@ def test_browser_session_resident_attach_skips_close_and_profile_clean(
         "load_sync_browser_driver",
         lambda: ("fake", _sync_playwright, TimeoutError),
     )
-    monkeypatch.setattr(
-        tongyi_adapter, "time", SimpleNamespace(monotonic=page.clock.monotonic)
-    )
+    monkeypatch.setattr(tongyi_adapter, "time", SimpleNamespace(monotonic=page.clock.monotonic))
 
     def _clean_forbidden(profile_dir: Path) -> bool:
         raise AssertionError("resident mode must not touch the profile")
@@ -958,9 +1016,7 @@ async def test_session_collect_full_humanized_flow(
     prefs_dir = tmp_path / "Default"
     prefs_dir.mkdir()
     (prefs_dir / "Preferences").write_text(
-        json.dumps(
-            {"profile": {"exit_type": "Crashed", "exited_cleanly": False}, "other_key": 1}
-        ),
+        json.dumps({"profile": {"exit_type": "Crashed", "exited_cleanly": False}, "other_key": 1}),
         encoding="utf-8",
     )
     page = _FakePage(messages=0)
@@ -1162,9 +1218,7 @@ def test_collect_batch_persists_trace_when_references_present(
     assert record["deep_think_active"] is False
     assert record["thinking_chain"] == []
     assert record["queries"] == []
-    assert [r["url"] for r in record["search_blocks"][0]["results"]] == [
-        "https://example.com/a"
-    ]
+    assert [r["url"] for r in record["search_blocks"][0]["results"]] == ["https://example.com/a"]
 
 
 def test_collect_batch_without_references_writes_no_trace(
@@ -1181,3 +1235,365 @@ def test_collect_batch_without_references_writes_no_trace(
     assert outcomes[0].answer is not None
     assert outcomes[0].answer.trace_path is None
     assert not (tmp_path / "evidence" / f"{spec.file_stem}-sse-trace.json").exists()
+
+
+# ---------------------------------------------------------------------------
+# 原始流量证据（2026-08-10 起，用户拍板默认开）：ok/失败题均留 sse_raw+har
+# ---------------------------------------------------------------------------
+
+
+def test_collect_batch_ok_item_carries_raw_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ok 题出 sse_raw+har 两条新 ref（通义第一次抓 body：域级 hint +
+    event-stream mime 命中），文件逐题落盘。"""
+    page = _FakePage(messages=0)
+    session = _make_session(tmp_path, monkeypatch, page)
+    specs = _batch_specs(2)
+
+    outcomes = session.collect_batch(specs, on_stage=lambda s: None)
+
+    assert [o.status for o in outcomes] == ["ok", "ok"]
+    evidence = tmp_path / "evidence"
+    for outcome, spec in zip(outcomes, specs, strict=True):
+        assert outcome.answer is not None
+        by_kind = {ref.kind: ref for ref in outcome.answer.raw_evidence}
+        assert by_kind["sse_raw"].relation_type == "answer_sse_raw"
+        assert by_kind["sse_raw"].mime_type == "text/event-stream"
+        assert by_kind["har"].relation_type == "answer_har"
+        assert by_kind["har"].mime_type == "application/har+json"
+        raw_path = evidence / f"{spec.file_stem}-sse-raw.txt"
+        har_path = evidence / f"{spec.file_stem}-har.json"
+        assert by_kind["sse_raw"].path == str(raw_path) and raw_path.is_file()
+        assert by_kind["har"].path == str(har_path)
+        har = json.loads(har_path.read_text(encoding="utf-8"))
+        assert har["log"]["creator"]["name"] == "geo-tongyi-adapter"
+        urls = [entry["request"]["url"] for entry in har["log"]["entries"]]
+        assert any("tongyi.com" in url for url in urls)
+
+
+def test_batch_item_result_maps_raw_evidence_refs() -> None:
+    """outcome→result 映射：ok 题 raw_evidence 并入 result.evidence；失败题
+    outcome.evidence 原样透传（persist 层 `_persist_collection_failure` 的输入）。"""
+    ref = CollectionEvidenceRef(
+        kind="har",
+        path="/tmp/x-har.json",
+        relation_type="answer_har",
+        mime_type="application/har+json",
+        source_url=None,
+    )
+    ok_outcome = tongyi_adapter.TongyiBatchItemOutcome(
+        business_key="run-9-task-2",
+        status="ok",
+        answer=tongyi_adapter.CollectedAnswer(
+            answer_text="答案",
+            references=[],
+            screenshot_path=Path("/tmp/x.png"),
+            raw_evidence=[ref],
+        ),
+    )
+    ok_result = tongyi_adapter._batch_item_result(_item(), ok_outcome)
+    assert [r.kind for r in ok_result.evidence] == ["har"]
+
+    wall_outcome = tongyi_adapter.TongyiBatchItemOutcome(
+        business_key="run-9-task-2",
+        status="wall",
+        error_type="wall_send",
+        error_message="send-not-accepted",
+        evidence=[ref],
+    )
+    wall_result = tongyi_adapter._batch_item_result(_item(), wall_outcome)
+    assert wall_result.status == "wall"
+    assert [r.kind for r in wall_result.evidence] == ["har"]
+
+
+def test_collect_batch_wall_item_carries_raw_har_ref(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """失败题（wall_send，发送被吞→无 completion 流）：sse_raw 诚实缺省，HAR
+    仍落盘挂到失败 outcome；aborted 题零交互零证据。"""
+    page = _FakePage(messages=0, swallow_sends_from=1)
+    session = _make_session(tmp_path, monkeypatch, page)
+    specs = _batch_specs(2)
+
+    outcomes = session.collect_batch(specs, on_stage=lambda s: None)
+
+    assert [o.status for o in outcomes] == ["wall", "aborted"]
+    wall = outcomes[0]
+    assert wall.error_type == "wall_send"
+    assert [ref.kind for ref in wall.evidence] == ["har"]
+    assert wall.evidence[0].relation_type == "answer_har"
+    har_path = tmp_path / "evidence" / f"{specs[0].file_stem}-har.json"
+    assert wall.evidence[0].path == str(har_path) and har_path.is_file()
+    assert outcomes[1].evidence == []  # aborted：零浏览器交互，无证据可留
+
+
+# ---------------------------------------------------------------------------
+# 问答模式确保（20260810 deep_think=思考研究 解锁；radix 菜单键盘路径实证：
+# 原生 click 被 composer 布局层拦截，focus+ArrowDown/ArrowUp+Enter 唯一可靠）
+# ---------------------------------------------------------------------------
+
+
+def test_ensure_collection_mode_fast_path_zero_interaction() -> None:
+    """已是目标模式：零按键零聚焦（幂等），二次调用同样零交互。"""
+    page = _FakePage(messages=0)
+    page.composer_mode = "deep_think"
+    assert tongyi_adapter._ensure_collection_mode(page, "deep_think") is True
+    assert not [e for e in page.events if e[0] in ("press", "focus", "mouse_click")]
+    assert tongyi_adapter._ensure_collection_mode(page, "deep_think") is True
+    assert not [e for e in page.events if e[0] in ("press", "focus", "mouse_click")]
+
+
+def test_ensure_collection_mode_keyboard_switch_success() -> None:
+    """快速→思考研究：focus trigger → ArrowDown 开菜单 → ArrowDown 到第二项 →
+    Enter 选中；读回确认通过；确保成功后再次调用零按键（幂等）。"""
+    page = _FakePage(messages=0)  # composer_mode=normal
+    assert tongyi_adapter._ensure_collection_mode(page, "deep_think") is True
+    assert page.composer_mode == "deep_think"
+    presses = [e[1] for e in page.events if e[0] == "press"]
+    assert presses == ["ArrowDown", "ArrowDown", "Enter"]
+    assert len([e for e in page.events if e[0] == "focus"]) == 1
+    assert tongyi_adapter._ensure_collection_mode(page, "deep_think") is True
+    assert [e[1] for e in page.events if e[0] == "press"] == [
+        "ArrowDown",
+        "ArrowDown",
+        "Enter",
+    ]
+
+
+def test_ensure_collection_mode_switch_back_to_normal() -> None:
+    """思考研究→快速（混合 batch 反向切换）：菜单探针高亮差分导航 ArrowUp。"""
+    page = _FakePage(messages=0)
+    page.composer_mode = "deep_think"
+    assert tongyi_adapter._ensure_collection_mode(page, "normal") is True
+    assert page.composer_mode == "normal"
+    presses = [e[1] for e in page.events if e[0] == "press"]
+    assert presses == ["ArrowDown", "ArrowUp", "Enter"]
+
+
+def test_ensure_collection_mode_fixed_keypath_when_menu_probe_empty() -> None:
+    """菜单项探针落空（结构漂移）→ 回退「当前模式项高亮」固定键序，确认门兜底。"""
+    page = _FakePage(messages=0)
+    page.menu_probe_empty = True
+    assert tongyi_adapter._ensure_collection_mode(page, "deep_think") is True
+    assert page.composer_mode == "deep_think"
+    presses = [e[1] for e in page.events if e[0] == "press"]
+    assert presses == ["ArrowDown", "ArrowDown", "Enter"]
+
+
+def test_ensure_collection_mode_confirm_failure_returns_false() -> None:
+    """Enter 后模式未切（选中没落上/乐观翻转回退）→ 二次确认不过 → False。"""
+    page = _FakePage(messages=0)
+    page.mode_switch_fails = True
+    assert tongyi_adapter._ensure_collection_mode(page, "deep_think") is False
+    assert page.composer_mode == "normal"
+
+
+def test_ensure_collection_mode_trigger_missing_returns_false() -> None:
+    """控件缺失/读不出当前模式 → False，且零键盘交互（绝不盲按）。"""
+    page = _FakePage(messages=0)
+    page.mode_trigger_present = False
+    assert tongyi_adapter._ensure_collection_mode(page, "deep_think") is False
+    assert not [e for e in page.events if e[0] == "press"]
+
+
+# ---------------------------------------------------------------------------
+# batch 双模式混合 + deep_think 思考链证据 + mode_toggle_failed 诚实失败
+# ---------------------------------------------------------------------------
+
+
+def test_collect_batch_mixed_modes_per_item_ensure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """双模式混合 batch：mode 门放行 + 逐题确保（normal↔deep_think 双向切换），
+    已是目标模式的题零按键（幂等，不制造多余行为指纹）。"""
+    page = _FakePage(messages=0)
+    session = _make_session(tmp_path, monkeypatch, page)
+    specs = _batch_specs(4, modes=["normal", "deep_think", "deep_think", "normal"])
+
+    outcomes = session.collect_batch(specs, on_stage=lambda s: None)
+
+    assert [o.status for o in outcomes] == ["ok"] * 4
+    presses = [e[1] for e in page.events if e[0] == "press" and e[1] != "Escape"]
+    # 题1 normal=现状零按键；题2 切思考研究（开菜单→第二项→回车）；题3 已是
+    # 思考研究零按键；题4 切回快速（开菜单→上一项→回车）
+    assert presses == ["ArrowDown", "ArrowDown", "Enter", "ArrowDown", "ArrowUp", "Enter"]
+    assert page.composer_mode == "normal"
+
+
+def test_collect_batch_deep_think_persists_thinking_trace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """deep_think 题：思考流程卡进 trace（thinking_chain reasoning+search /
+    搜索步骤 results 折叠 search_block / queries 平台真实检索词 /
+    deep_think_active=true），检索词同步进 search_queries（W1），答案正文
+    零思考链混入。"""
+    page = _FakePage(messages=0)
+    page.thinking_payload = {
+        "card_found": True,
+        "steps": [
+            {"kind": "reasoning", "title": "检索最新资产搜索评测", "text": "需搜索最新信息。"},
+            {
+                "kind": "search",
+                "title": "搜索 2 个关键词，参考 3 篇资料",
+                "queries": ["资产搜索引擎对比", "测绘引擎排名"],
+                "results": [{"title": "结果一", "url": "https://example.com/r1"}],
+            },
+        ],
+        "queries": ["资产搜索引擎对比", "测绘引擎排名"],
+    }
+    session = _make_session(tmp_path, monkeypatch, page)
+    spec = _batch_specs(1, modes=["deep_think"])[0]
+
+    outcomes = session.collect_batch([spec], on_stage=lambda s: None)
+
+    assert outcomes[0].status == "ok"
+    answer = outcomes[0].answer
+    assert answer is not None
+    assert answer.answer_text == "这是答案"
+    assert "已完成思考" not in answer.answer_text
+    assert "检索最新资产" not in answer.answer_text
+    assert answer.search_queries == [
+        {"query": "资产搜索引擎对比", "ordinal": 1},
+        {"query": "测绘引擎排名", "ordinal": 2},
+    ]
+    trace_file = tmp_path / "evidence" / f"{spec.file_stem}-sse-trace.json"
+    assert answer.trace_path == trace_file
+    record = json.loads(trace_file.read_text(encoding="utf-8"))
+    assert record["engine"] == "tongyi"
+    assert record["deep_think_active"] is True
+    assert record["queries"] == ["资产搜索引擎对比", "测绘引擎排名"]
+    assert record["thinking_chain"][0] == {
+        "kind": "reasoning",
+        "text": "检索最新资产搜索评测\n需搜索最新信息。",
+    }
+    assert record["thinking_chain"][1] == {
+        "kind": "search",
+        "queries": ["资产搜索引擎对比", "测绘引擎排名"],
+        "summary": "搜索 2 个关键词，参考 3 篇资料",
+    }
+    step_block = record["search_blocks"][0]
+    assert step_block["queries"] == ["资产搜索引擎对比", "测绘引擎排名"]
+    assert step_block["results"][0]["url"] == "https://example.com/r1"
+    assert step_block["results"][0]["site"] is None
+
+
+def test_collect_batch_deep_think_without_thinking_card_stays_honest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """deep_think 题但思考卡缺货（探针空）：trace 不出（无引用无思考卡），
+    deep_think_active 不硬标——诚实缺省，采集本身照常成功。"""
+    page = _FakePage(messages=0)
+    page.thinking_payload = None  # 探针返回 None → 无卡
+    session = _make_session(tmp_path, monkeypatch, page)
+    spec = _batch_specs(1, modes=["deep_think"])[0]
+
+    outcomes = session.collect_batch([spec], on_stage=lambda s: None)
+
+    assert outcomes[0].status == "ok"
+    assert outcomes[0].answer is not None
+    assert outcomes[0].answer.trace_path is None  # 无引用+无思考卡 → 不出空证据
+    assert outcomes[0].answer.search_queries == []
+    assert not (tmp_path / "evidence" / f"{spec.file_stem}-sse-trace.json").exists()
+
+
+def test_collect_batch_mode_toggle_failure_is_honest_wall(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """模式开关确认不了（Enter 后未切到思考研究）→ 本题 wall(mode_toggle_failed)
+    + 后续题 aborted（零浏览器交互），绝不按错误口径采集。"""
+    page = _FakePage(messages=0)
+    page.mode_switch_fails = True
+    session = _make_session(tmp_path, monkeypatch, page)
+    specs = _batch_specs(2, modes=["deep_think", "normal"])
+
+    outcomes = session.collect_batch(specs, on_stage=lambda s: None)
+
+    assert [o.status for o in outcomes] == ["wall", "aborted"]
+    assert outcomes[0].error_type == "mode_toggle_failed"
+    assert outcomes[0].answer is None
+    assert outcomes[1].error_type == "aborted_after_failure"
+    # 确认失败即停：零发送点击（绝不按错误口径发问）+ per-item 存证截图
+    assert page.send_clicks == 0
+    evidence = tmp_path / "evidence"
+    assert (evidence / f"{specs[0].file_stem}-mode_toggle.png").is_file()
+    # 失败题同样留 HAR（raw capture 题末 dump 语义；无 completion 流 → 无 sse_raw）
+    assert [ref.kind for ref in outcomes[0].evidence] == ["har"]
+
+
+async def test_session_collect_deep_think_full_flow(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """per-task deep_think 全链路（run_tongyi_collection + 真 session 类）：
+    mode 透传 → 键盘切换思考研究 → 思考链 trace 进 evidence。"""
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
+    monkeypatch.setenv("GEO_TONGYI_PROFILE_DIR", str(tmp_path))
+    monkeypatch.setenv("GEO_ADAPTER_EVIDENCE_DIR", str(evidence))
+    monkeypatch.setenv("GEO_TONGYI_HEADLESS", "1")
+    page = _FakePage(messages=0)
+    page.thinking_payload = {
+        "card_found": True,
+        "steps": [
+            {"kind": "reasoning", "title": "检索最新资产搜索评测", "text": "需搜索最新信息。"},
+        ],
+        "queries": [],
+    }
+    _install_fake_browser(monkeypatch, page)
+
+    result = await tongyi_adapter.run_tongyi_collection(
+        _item(mode="deep_think"),
+        session_factory=_PlaywrightTongyiSession,
+        heartbeat=lambda p: None,
+    )
+
+    assert result.quality_state == "live_valid"
+    assert page.composer_mode == "deep_think"  # 模式确保真的切了
+    presses = [e[1] for e in page.events if e[0] == "press"]
+    assert "ArrowDown" in presses and "Enter" in presses
+    sse_refs = [r for r in result.evidence if r.kind == "sse"]
+    assert len(sse_refs) == 1
+    record = json.loads(Path(sse_refs[0].path).read_text(encoding="utf-8"))
+    assert record["deep_think_active"] is True
+    assert record["thinking_chain"] == [
+        {"kind": "reasoning", "text": "检索最新资产搜索评测\n需搜索最新信息。"}
+    ]
+
+
+# ---------------------------------------------------------------------------
+# 答案正文不混思考链（20260810 deep_think 硬化：_ANSWER_EXTRACT_JS 兜底分支
+# 显式排除 bar_workflow / thinking-content 内的 .qk-markdown）
+# ---------------------------------------------------------------------------
+
+
+def test_answer_extract_js_excludes_thinking_card_guard() -> None:
+    """JS 锚定：思考流程卡排除 guard 必须存在（防回归被删——否则 deep_think
+    兜底分支 mds[-1] 会把思考块当答案正文）。"""
+    js = tongyi_adapter._ANSWER_EXTRACT_JS
+    assert "bar_workflow" in js
+    assert "thinking-content-" in js
+    assert "inThinkingCard" in js
+
+
+def test_extract_response_deep_think_answer_excludes_thinking_text() -> None:
+    """用 probe 结构构造 fake evaluate 返回（deep_think 页面经 guard 过滤后的
+    产出形状）：answer_text 不含思考步骤标题/正文（「已完成思考」「检索最新
+    资产搜索评测」绝不混入）。"""
+    page = _FakePage(messages=0)
+    page.answer_visible = True
+    page.extract_payload = {
+        "segments": [
+            {
+                "kind": "markdown",
+                "cls": "qk-markdown",
+                "text": "国内网络空间资产搜索引擎经过多年发展，已经形成几款主流产品。",
+            },
+        ],
+        "refs": [],
+    }
+    text, refs = tongyi_adapter._extract_response(page)
+    assert "国内网络空间资产搜索引擎" in text
+    assert "已完成思考" not in text
+    assert "检索最新资产" not in text
+    assert "搜索 6 个关键词" not in text
+    assert refs == []

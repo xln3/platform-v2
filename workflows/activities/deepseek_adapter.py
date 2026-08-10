@@ -129,6 +129,7 @@ from workflows.activities.human_like import (
     human_read_pause,
     human_type,
 )
+from workflows.activities.raw_capture import dump_raw_evidence_refs, maybe_raw_capture
 from workflows.activities.resident_browser import platform_browser
 
 log = structlog.get_logger()
@@ -484,6 +485,9 @@ class _WallError(RuntimeError):
         super().__init__(message)
         self.wall_type = wall_type
         self.evidence_path = evidence_path
+        # 失败题原始流量证据（2026-08-10 起）：_collect_one 题末挂 raw/HAR ref，
+        # 经 _failure_outcome → 失败 result.evidence 进 CAS。缺省空。
+        self.evidence_refs: list[CollectionEvidenceRef] = []
 
 
 class _IncompleteCapture(RuntimeError):
@@ -492,6 +496,7 @@ class _IncompleteCapture(RuntimeError):
     def __init__(self, message: str, evidence_path: Path | None = None) -> None:
         super().__init__(message)
         self.evidence_path = evidence_path
+        self.evidence_refs: list[CollectionEvidenceRef] = []
 
 
 class _ModeToggleFailed(RuntimeError):
@@ -501,6 +506,7 @@ class _ModeToggleFailed(RuntimeError):
     def __init__(self, message: str, evidence_path: Path | None = None) -> None:
         super().__init__(message)
         self.evidence_path = evidence_path
+        self.evidence_refs: list[CollectionEvidenceRef] = []
 
 
 @dataclass
@@ -513,6 +519,9 @@ class CollectedAnswer:
     trace_path: Path | None = None
     # 平台真实检索词（W1）：[{"query": ..., "ordinal": ...}]；无检索词为空列表。
     search_queries: list[dict[str, Any]] = field(default_factory=list)
+    # 原始流量证据 ref（2026-08-10 起：sse_raw/har；GEO_RAW_CAPTURE=0 或写盘
+    # 失败为空——诚实缺省）。_task_result_from_collected 并入 evidence。
+    raw_evidence: list[CollectionEvidenceRef] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -529,7 +538,10 @@ class DeepseekBatchItemSpec:
 class DeepseekBatchItemOutcome:
     """batch 内单题结果（session 层）：ok 携带 CollectedAnswer；失败/未执行
     携带 error_type/error_message/可选存证截图路径。status 词表与
-    CollectionBatchItemResult 对齐（ok/wall/incomplete/aborted）。"""
+    CollectionBatchItemResult 对齐（ok/wall/incomplete/aborted）。
+
+    ``evidence``（2026-08-10 起）：失败题的原始流量证据 ref（raw/HAR，
+    由题末异常对象携带而来）；aborted 题零浏览器交互，恒空。"""
 
     business_key: str
     status: str
@@ -537,6 +549,7 @@ class DeepseekBatchItemOutcome:
     error_type: str | None = None
     error_message: str | None = None
     evidence_path: Path | None = None
+    evidence: list[CollectionEvidenceRef] = field(default_factory=list)
 
 
 class _BrowserSession(Protocol):
@@ -685,9 +698,7 @@ async def run_deepseek_batch(
     except _WallError as wall:
         # session 级墙（导航后登录墙）：一题未发，全题诚实记 wall。
         evidence_suffix = f"; evidence={wall.evidence_path}" if wall.evidence_path else ""
-        bound.info(
-            "deepseek_batch_session_wall", wall_type=wall.wall_type, stage=progress["stage"]
-        )
+        bound.info("deepseek_batch_session_wall", wall_type=wall.wall_type, stage=progress["stage"])
         return CollectionBatchResult(
             results=[
                 _failure_batch_item(
@@ -696,6 +707,7 @@ async def run_deepseek_batch(
                     error_type=wall.wall_type,
                     error_message=f"{wall}{evidence_suffix}",
                     evidence_path=wall.evidence_path,
+                    evidence=wall.evidence_refs,
                 )
                 for item in batch.items
             ]
@@ -712,6 +724,7 @@ async def run_deepseek_batch(
                     error_type="mode_toggle_failed",
                     error_message=f"{toggle}{evidence_suffix}",
                     evidence_path=toggle.evidence_path,
+                    evidence=toggle.evidence_refs,
                 )
                 for item in batch.items
             ]
@@ -720,9 +733,7 @@ async def run_deepseek_batch(
         # session 级临时故障（浏览器启动失败等）：一题未发，raise 走 batch 重试。
         evidence_suffix = f"; evidence={inc.evidence_path}" if inc.evidence_path else ""
         bound.info("deepseek_batch_session_incomplete", reason=str(inc), stage=progress["stage"])
-        raise ApplicationError(
-            f"{inc}{evidence_suffix}", type="answer_capture_incomplete"
-        ) from inc
+        raise ApplicationError(f"{inc}{evidence_suffix}", type="answer_capture_incomplete") from inc
     if len(outcomes) != len(batch.items):
         # session 契约：结果列表必须与输入等长（失败/未执行题也占位）。缺斤短两
         # 说明实现有 bug——fail-closed raise（编程错误，重试无意义）。
@@ -751,8 +762,13 @@ def _failure_batch_item(
     error_type: str,
     error_message: str,
     evidence_path: Path | None,
+    evidence: list[CollectionEvidenceRef] | None = None,
 ) -> CollectionBatchItemResult:
-    """失败/未执行题 → CollectionBatchItemResult。DLP 由 persist 层统一脱敏。"""
+    """失败/未执行题 → CollectionBatchItemResult。DLP 由 persist 层统一脱敏。
+
+    ``evidence``（2026-08-10 起）：失败题原始流量证据 ref（raw/HAR）——
+    persist 层 `_persist_collection_failure` 会把它 persist 进 CAS（墙截图
+    维持现状不进 CAS）。"""
     screenshot_ref = f"file://{evidence_path}" if evidence_path is not None else None
     return CollectionBatchItemResult(
         business_key=item.business_key,
@@ -761,6 +777,7 @@ def _failure_batch_item(
         error_message=error_message,
         screenshot_ref=screenshot_ref,
         quality_state=error_type,
+        evidence=list(evidence or []),
     )
 
 
@@ -793,6 +810,7 @@ def _batch_item_result(
         error_type=outcome.error_type or "unknown_failure",
         error_message=outcome.error_message or "",
         evidence_path=outcome.evidence_path,
+        evidence=outcome.evidence,
     )
 
 
@@ -909,6 +927,8 @@ def _task_result_from_collected(
                 source_url=_CHAT_URL,
             )
         )
+    # 原始流量证据（2026-08-10 起）：sse_raw/har，_collect_one 题末导出。
+    evidence.extend(collected.raw_evidence)
     # DLP 统一由 persist 层脱敏处理（单一权威边界，2026-08-06 起）。
     return CollectionTaskResult(
         business_key=item.business_key,
@@ -1057,6 +1077,7 @@ class _PlaywrightDeepseekSession:
             error_type=error_type,
             error_message=str(exc),
             evidence_path=exc.evidence_path,
+            evidence=list(exc.evidence_refs),
         )
 
     @staticmethod
@@ -1113,9 +1134,7 @@ class _PlaywrightDeepseekSession:
                         user_data_dir=str(self._config.profile_dir),
                         headless=self._config.headless,
                         proxy=(
-                            _parse_proxy(self._config.proxy_url)
-                            if self._config.proxy_url
-                            else None
+                            _parse_proxy(self._config.proxy_url) if self._config.proxy_url else None
                         ),
                         args=["--lang=zh-CN"],
                         locale="zh-CN",
@@ -1141,9 +1160,7 @@ class _PlaywrightDeepseekSession:
 
                     on_stage("navigate")
                     try:
-                        page.goto(
-                            _CHAT_URL, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS
-                        )
+                        page.goto(_CHAT_URL, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
                     except PWTimeout:
                         page.goto(_CHAT_URL, wait_until="load", timeout=_NAV_TIMEOUT_MS)
                     page.wait_for_timeout(6_000)  # SPA + 未登录 /sign_in 跳转 settle（旧链同款）
@@ -1183,6 +1200,16 @@ class _PlaywrightDeepseekSession:
         证据落盘。per-task 单题与 batch 每题共用。"""
         del pw_timeout  # 形参与 doubao._collect_one 对齐；deepseek v1 无信源截图等用途
         capture = _CompletionCapture(context, page)
+        # 原始流量留痕（2026-08-10 起，用户拍板默认开）：独立 CDP session 自组
+        # HAR + 落 completion 原始响应体，与既有 capture 互不干扰。
+        # GEO_RAW_CAPTURE=0 → None（全关回退现状）。
+        raw = maybe_raw_capture(
+            context,
+            page,
+            body_url_hints=_COMPLETION_URL_HINTS,
+            creator="geo-deepseek-adapter",
+        )
+        raw_evidence: list[CollectionEvidenceRef] = []
         try:
 
             def _pace(lo: float, hi: float) -> float:
@@ -1280,10 +1307,7 @@ class _PlaywrightDeepseekSession:
                         f"captcha challenge appeared post-send ({hit})",
                         _shot("captcha"),
                     )
-                if (
-                    capture.has_completion_started()
-                    and time.monotonic() - challenge_start >= 3.5
-                ):
+                if capture.has_completion_started() and time.monotonic() - challenge_start >= 3.5:
                     break
                 page.wait_for_timeout(500)
 
@@ -1292,9 +1316,7 @@ class _PlaywrightDeepseekSession:
                 page,
                 appearance_timeout_s=20.0,
                 timeout_s=(
-                    _CHAT_TIMEOUT_DEEP_THINK_S
-                    if spec.mode == "deep_think"
-                    else _CHAT_TIMEOUT_S
+                    _CHAT_TIMEOUT_DEEP_THINK_S if spec.mode == "deep_think" else _CHAT_TIMEOUT_S
                 ),
             )
             answer_text = ""
@@ -1374,7 +1396,7 @@ class _PlaywrightDeepseekSession:
             _capture_full_page(page, shot_path)
             if not shot_path.exists():
                 raise _IncompleteCapture("evidence-screenshot-failed: no file written")
-            return CollectedAnswer(
+            answer = CollectedAnswer(
                 answer_text=answer_text,
                 references=references,
                 screenshot_path=shot_path,
@@ -1385,10 +1407,35 @@ class _PlaywrightDeepseekSession:
                 },
                 trace_path=trace_path,
                 search_queries=search_queries,
+                raw_evidence=raw_evidence,
             )
+        except (_WallError, _IncompleteCapture, _ModeToggleFailed) as exc:
+            # 失败题同样留 raw/HAR（题末先 dump 后 detach）：ref 挂异常对象，经
+            # _failure_outcome → 失败 result.evidence → persist 层进 CAS。
+            exc.evidence_refs = dump_raw_evidence_refs(
+                raw,
+                self._evidence_dir,
+                spec.file_stem,
+                source_url=_CHAT_URL,
+                warn_tag="deepseek",
+            )
+            raise
+        else:
+            raw_evidence.extend(
+                dump_raw_evidence_refs(
+                    raw,
+                    self._evidence_dir,
+                    spec.file_stem,
+                    source_url=_CHAT_URL,
+                    warn_tag="deepseek",
+                )
+            )
+            return answer
         finally:
             # batch 内每题一个 CDP session：题末 best-effort detach，避免旧
             # session 挂着监听累积（下一题新建 capture，绝不串题读到旧流）。
+            if raw is not None:
+                raw.detach()
             capture.detach()
 
     def _shot(self, page: Any, suffix: str, *, stem: str | None = None) -> Path | None:
@@ -2105,9 +2152,7 @@ def _is_real_url(u: Any) -> bool:
 _REF_LABEL_KEYS = ("title", "name", "site_name", "sitename", "source", "snippet", "summary")
 
 
-def _append_reference_card(
-    card: Any, sink: list[dict[str, Any]], seen_urls: set[str]
-) -> None:
+def _append_reference_card(card: Any, sink: list[dict[str, Any]], seen_urls: set[str]) -> None:
     """引用卡片判形（带真实 url 才收）+ 按 URL（去 query）去重 + 字段归一。"""
     if not isinstance(card, dict):
         return

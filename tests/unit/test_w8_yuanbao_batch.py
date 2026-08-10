@@ -79,33 +79,50 @@ class _FakeClock:
 
 
 class _FakeCDP:
+    """共享总线 fake：同页多个 CDP session（既有 _ChatStreamCapture + 2026-08-10
+    起的 RawTrafficCapture）各自 on 注册——handlers 为名单，emit 广播给全部。
+
+    emit_chat_stream 的 response 带 event-stream mime、getResponseBody 有 body：
+    既有 capture 判形只看 method+URL、从不取 body（零行为变化），
+    RawTrafficCapture 据此命中 body 抓取（sse_raw 证据）。"""
+
     def __init__(self, page: _FakePage) -> None:
         self._page = page
-        self.handlers: dict[str, Callable[[dict[str, Any]], None]] = {}
+        self.handlers: dict[str, list[Callable[[dict[str, Any]], None]]] = {}
         self.detached = 0
         self._emitted = 0
 
     def send(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        if method == "Network.getResponseBody":
+            return {"body": "data: {}\n\n", "base64Encoded": False}
         return {}
 
     def on(self, name: str, fn: Callable[[dict[str, Any]], None]) -> None:
-        self.handlers[name] = fn
+        self.handlers.setdefault(name, []).append(fn)
 
     def detach(self) -> None:
         self.detached += 1
 
+    def _emit(self, name: str, payload: dict[str, Any]) -> None:
+        for fn in self.handlers.get(name, []):
+            fn(payload)
+
     def emit_chat_stream(self) -> None:
         self._emitted += 1
         rid = f"req-{self._emitted}"
-        self.handlers["Network.requestWillBeSent"](
+        self._emit(
+            "Network.requestWillBeSent",
             {
                 "requestId": rid,
                 "request": {"url": "https://yuanbao.tencent.com/api/chat/conv-1", "method": "POST"},
-            }
+            },
         )
-        self.handlers["Network.responseReceived"]({"requestId": rid, "response": {}})
-        self.handlers["Network.dataReceived"]({"requestId": rid, "dataLength": 128})
-        self.handlers["Network.loadingFinished"]({"requestId": rid, "encodedDataLength": 1})
+        self._emit(
+            "Network.responseReceived",
+            {"requestId": rid, "response": {"mimeType": "text/event-stream"}},
+        )
+        self._emit("Network.dataReceived", {"requestId": rid, "dataLength": 128})
+        self._emit("Network.loadingFinished", {"requestId": rid, "encodedDataLength": 1})
 
 
 class _FakeMouse:
@@ -335,9 +352,7 @@ class _FakePage:
             return {
                 "found": True,
                 "model": (
-                    "deep_seek_v3"
-                    if self.model_family == "deepseek"
-                    else "hunyuan_gpt_175B_0404"
+                    "deep_seek_v3" if self.model_family == "deepseek" else "hunyuan_gpt_175B_0404"
                 ),
                 "family": self.model_family,
             }
@@ -408,9 +423,7 @@ def _install_fake_browser(monkeypatch: pytest.MonkeyPatch, page: _FakePage) -> N
         "load_sync_browser_driver",
         lambda: ("fake", _sync_playwright, TimeoutError),
     )
-    monkeypatch.setattr(
-        yuanbao_adapter, "time", SimpleNamespace(monotonic=page.clock.monotonic)
-    )
+    monkeypatch.setattr(yuanbao_adapter, "time", SimpleNamespace(monotonic=page.clock.monotonic))
     real_clean = yuanbao_adapter._clean_profile_crash_state
 
     def _clean_spy(profile_dir: Path) -> bool:
@@ -467,9 +480,7 @@ async def test_session_collect_full_humanized_flow(
     prefs_dir = tmp_path / "Default"
     prefs_dir.mkdir()
     (prefs_dir / "Preferences").write_text(
-        json.dumps(
-            {"profile": {"exit_type": "Crashed", "exited_cleanly": False}, "other_key": 1}
-        ),
+        json.dumps({"profile": {"exit_type": "Crashed", "exited_cleanly": False}, "other_key": 1}),
         encoding="utf-8",
     )
     page = _FakePage(messages=0)
@@ -563,9 +574,7 @@ def test_fresh_chat_clicks_new_conversation_button() -> None:
         shot=_recording_shot([]),
     )
     assert page.messages == 0  # 点了「新对话」
-    clicks = [
-        e for e in page.events if e[0] == "mouse_click" and _in_bb(_NEW_CHAT_BB, e[1], e[2])
-    ]
+    clicks = [e for e in page.events if e[0] == "mouse_click" and _in_bb(_NEW_CHAT_BB, e[1], e[2])]
     assert len(clicks) == 1
     assert not [e for e in page.events if e[0] == "goto"]  # 按钮优先，不动导航兜底
 
@@ -652,9 +661,7 @@ def test_collect_batch_shares_one_browser_session(
     assert keys == expected
 
     # 3) fresh_chat 消息计数探针每题都跑（>=3 次；第 2/3 题答案残留需点「新对话」）
-    count_probes = [
-        e for e in events if e == ("evaluate", yuanbao_adapter._CHAT_MESSAGE_COUNT_JS)
-    ]
+    count_probes = [e for e in events if e == ("evaluate", yuanbao_adapter._CHAT_MESSAGE_COUNT_JS)]
     assert len(count_probes) >= 3
     new_chat_clicks = [
         e for e in events if e[0] == "mouse_click" and _in_bb(_NEW_CHAT_BB, e[1], e[2])
@@ -680,8 +687,9 @@ def test_collect_batch_shares_one_browser_session(
     for spec in specs:
         assert (evidence / f"{spec.file_stem}.png").is_file()
 
-    # 6) 每题 CDP capture 题末 detach（3 题 = 3 次）
-    assert page.cdp.detached == 3
+    # 6) 每题两个 CDP session（既有 stream capture + 2026-08-10 起的
+    #    RawTrafficCapture）题末各自 detach（3 题 = 6 次）
+    assert page.cdp.detached == 6
 
 
 def test_collect_batch_wall_aborts_remaining_items(
@@ -751,9 +759,7 @@ def test_collect_batch_resident_attach_skips_launch_and_cleanup(
         "load_sync_browser_driver",
         lambda: ("fake", _sync_playwright, TimeoutError),
     )
-    monkeypatch.setattr(
-        yuanbao_adapter, "time", SimpleNamespace(monotonic=page.clock.monotonic)
-    )
+    monkeypatch.setattr(yuanbao_adapter, "time", SimpleNamespace(monotonic=page.clock.monotonic))
 
     def _clean_spy(profile_dir: Path) -> bool:
         page.events.append(("clean",))
@@ -898,9 +904,7 @@ async def test_run_yuanbao_batch_session_incomplete_raises_retryable(
         ) -> list[yuanbao_adapter.YuanbaoBatchItemOutcome]:
             raise _IncompleteCapture("browser-launch-failed(patchright): boom")
 
-    batch = CollectionBatchInput(
-        tenant_pub_id="tnt_test", run_pub_id="run_test", items=[_item()]
-    )
+    batch = CollectionBatchInput(tenant_pub_id="tnt_test", run_pub_id="run_test", items=[_item()])
     with pytest.raises(ApplicationError) as exc_info:
         await run_yuanbao_batch(
             batch,
@@ -1059,9 +1063,7 @@ async def test_collect_one_deep_think_turns_toggle_on(
     first_key = next(i for i, e in enumerate(events) if e[0] == "key")
     assert think_clicks[0] < first_key  # 开关确保严格先于打字
     # 模型族已是 Hy3（默认），模型选择器零点击
-    assert not [
-        e for e in events if e[0] == "mouse_click" and _in_bb(_MODEL_SWITCH_BB, e[1], e[2])
-    ]
+    assert not [e for e in events if e[0] == "mouse_click" and _in_bb(_MODEL_SWITCH_BB, e[1], e[2])]
 
 
 async def test_collect_one_normal_turns_deep_think_off(
@@ -1335,14 +1337,14 @@ async def test_collect_one_deep_think_persists_trace_evidence(
     assert record["engine"] == "yuanbao"
     assert record["transport"] == "dom"
     assert record["deep_think_active"] is True
-    assert record["thinking_chain"] == [
-        {"kind": "reasoning", "text": "先拆解问题。\n再作答。"}
-    ]
+    assert record["thinking_chain"] == [{"kind": "reasoning", "text": "先拆解问题。\n再作答。"}]
     assert record["search_blocks"] == []  # fake 页无引用卡片
-    assert len(result.evidence) == 1
-    assert result.evidence[0].kind == "sse"
+    # 2026-08-10 起 ok 题另有原始流量证据（sse_raw/har，RawTrafficCapture 题末导出）
+    assert [ref.kind for ref in result.evidence] == ["sse", "sse_raw", "har"]
     assert result.evidence[0].relation_type == "answer_sse_trace"
     assert result.evidence[0].path == str(trace_file)
+    assert result.evidence[1].relation_type == "answer_sse_raw"
+    assert result.evidence[2].relation_type == "answer_har"
 
 
 async def test_collect_one_deep_think_without_block_marks_inactive(
@@ -1361,7 +1363,8 @@ async def test_collect_one_deep_think_without_block_marks_inactive(
     )
 
     assert result.quality_state == "live_valid"
-    assert result.evidence == []
+    # 无 trace（思考块缺失不出空证据）；2026-08-10 起另有原始流量证据 sse_raw/har
+    assert [ref.kind for ref in result.evidence] == ["sse_raw", "har"]
     assert not (evidence / "run-9-task-5-a1-sse-trace.json").exists()
     # deep_think 模式下探针确实跑过（只是块缺失）
     assert (
@@ -1386,10 +1389,186 @@ async def test_collect_one_normal_writes_no_trace(
     )
 
     assert result.quality_state == "live_valid"
-    assert result.evidence == []
+    # 无 trace（无引用/无思考不出空证据）；2026-08-10 起另有原始流量证据 sse_raw/har
+    assert [ref.kind for ref in result.evidence] == ["sse_raw", "har"]
     assert not (evidence / "run-9-task-5-a1-sse-trace.json").exists()
     assert not [
         e
         for e in page.events
         if e[0] == "evaluate" and e[1] == yuanbao_adapter._THINKING_EXTRACT_JS
     ]
+
+
+# ---------------------------------------------------------------------------
+# 原始流量证据（2026-08-10 起，用户拍板默认开）：ok/失败题均留 sse_raw+har
+# ---------------------------------------------------------------------------
+
+
+def test_collect_batch_ok_item_carries_raw_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ok 题出 sse_raw+har 两条新 ref（元宝第一次抓 body：loadingFinished 同步
+    getResponseBody），文件逐题落盘。"""
+    page = _FakePage(messages=0)
+    session = _make_session(tmp_path, monkeypatch, page)
+    specs = _batch_specs(2)
+
+    outcomes = session.collect_batch(specs, on_stage=lambda s: None)
+
+    assert [o.status for o in outcomes] == ["ok", "ok"]
+    evidence = tmp_path / "evidence"
+    for outcome, spec in zip(outcomes, specs, strict=True):
+        assert outcome.answer is not None
+        by_kind = {ref.kind: ref for ref in outcome.answer.raw_evidence}
+        assert by_kind["sse_raw"].relation_type == "answer_sse_raw"
+        assert by_kind["sse_raw"].mime_type == "text/event-stream"
+        assert by_kind["har"].relation_type == "answer_har"
+        assert by_kind["har"].mime_type == "application/har+json"
+        raw_path = evidence / f"{spec.file_stem}-sse-raw.txt"
+        har_path = evidence / f"{spec.file_stem}-har.json"
+        assert by_kind["sse_raw"].path == str(raw_path) and raw_path.is_file()
+        assert by_kind["har"].path == str(har_path)
+        har = json.loads(har_path.read_text(encoding="utf-8"))
+        assert har["log"]["creator"]["name"] == "geo-yuanbao-adapter"
+        urls = [entry["request"]["url"] for entry in har["log"]["entries"]]
+        assert any("/api/chat/" in url for url in urls)
+
+
+def test_collect_batch_wall_item_carries_raw_har_ref(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """失败题（wall_send，发送被吞→无 completion 流）：sse_raw 诚实缺省，HAR
+    仍落盘挂到失败 outcome；aborted 题零交互零证据。"""
+    page = _FakePage(messages=0, swallow_sends_from=1)
+    session = _make_session(tmp_path, monkeypatch, page)
+    specs = _batch_specs(2)
+
+    outcomes = session.collect_batch(specs, on_stage=lambda s: None)
+
+    assert [o.status for o in outcomes] == ["wall", "aborted"]
+    wall = outcomes[0]
+    assert wall.error_type == "wall_send"
+    assert [ref.kind for ref in wall.evidence] == ["har"]
+    assert wall.evidence[0].relation_type == "answer_har"
+    har_path = tmp_path / "evidence" / f"{specs[0].file_stem}-har.json"
+    assert wall.evidence[0].path == str(har_path) and har_path.is_file()
+    assert outcomes[1].evidence == []  # aborted：零浏览器交互，无证据可留
+
+
+def test_batch_item_result_maps_raw_evidence_refs() -> None:
+    """outcome→result 映射：ok 题 raw_evidence 并入 result.evidence；失败题
+    outcome.evidence 原样透传（persist 层 `_persist_collection_failure` 的输入）。"""
+    from workflows.activities.collection import CollectionEvidenceRef
+
+    ref = CollectionEvidenceRef(
+        kind="har",
+        path="/tmp/x-har.json",
+        relation_type="answer_har",
+        mime_type="application/har+json",
+        source_url=None,
+    )
+    ok_outcome = yuanbao_adapter.YuanbaoBatchItemOutcome(
+        business_key="run-9-task-5",
+        status="ok",
+        answer=yuanbao_adapter.CollectedAnswer(
+            answer_text="答案",
+            references=[],
+            screenshot_path=Path("/tmp/x.png"),
+            raw_evidence=[ref],
+        ),
+    )
+    ok_result = yuanbao_adapter._batch_item_result(_item(), ok_outcome)
+    assert [r.kind for r in ok_result.evidence] == ["har"]
+
+    wall_outcome = yuanbao_adapter.YuanbaoBatchItemOutcome(
+        business_key="run-9-task-5",
+        status="wall",
+        error_type="wall_send",
+        error_message="send-not-accepted",
+        evidence=[ref],
+    )
+    wall_result = yuanbao_adapter._batch_item_result(_item(), wall_outcome)
+    assert wall_result.status == "wall"
+    assert [r.kind for r in wall_result.evidence] == ["har"]
+
+
+# ---------------------------------------------------------------------------
+# 引用资料抽取（20260810 live 校准：doc 列表纯文本 + url 诚实缺省；旧 a[href] 组兜底）
+# ---------------------------------------------------------------------------
+
+
+def test_references_from_docs_list_calibrated() -> None:
+    """校准路径：折叠 doc 列表（num + 「标题 - 站点」textContent）→ 结构化 refs；
+    url 平台不暴露 → None 诚实缺省；无「 - 」后缀的标题 sitename=None。"""
+
+    class _Pg:
+        def evaluate(self, script: str, *_a: Any) -> Any:
+            assert script == yuanbao_adapter._REFS_FROM_DOCS_JS
+            return [
+                {"num": "1", "text": "首个全国产10万卡AI超集群投用 - 网易"},
+                {"num": "2", "text": "Quantum Computing Weekly Round-Up"},
+            ]
+
+        def locator(self, sel: str) -> Any:
+            raise AssertionError("docs 有产出时绝不走 a[href] 兜底组")
+
+    refs = yuanbao_adapter._references_from_dom(_Pg())
+    assert len(refs) == 2
+    assert refs[0]["title"] == "首个全国产10万卡AI超集群投用"
+    assert refs[0]["sitename"] == "网易"
+    assert refs[0]["url"] is None  # 平台不在 DOM 暴露 URL，诚实缺省
+    assert refs[0]["index"] == 0
+    assert refs[1]["title"] == "Quantum Computing Weekly Round-Up"
+    assert refs[1]["sitename"] is None
+
+
+def test_references_empty_docs_fall_back_to_href_groups() -> None:
+    """doc 列表为空（normal 模式/无检索）→ 旧 a[href] 兜底组接管（只收真实
+    http(s) href，按 URL 去重）；两组皆空 → [] 诚实返回。"""
+
+    class _El:
+        def __init__(self, href: str, text: str) -> None:
+            self._href = href
+            self._text = text
+
+        def get_attribute(self, name: str) -> str | None:
+            return self._href if name == "href" else None
+
+        def inner_text(self, timeout: int | None = None) -> str:
+            return self._text
+
+    class _Loc:
+        def __init__(self, els: list[_El]) -> None:
+            self._els = els
+
+        def all(self) -> list[_El]:
+            return self._els
+
+    class _Pg:
+        def evaluate(self, script: str, *_a: Any) -> Any:
+            return []  # doc 列表空
+
+        def locator(self, sel: str) -> _Loc:
+            if "hyc-card-box" in sel:
+                return _Loc(
+                    [
+                        _El("https://example.com/a", "来源A"),
+                        _El("https://example.com/a", "来源A重复"),
+                        _El("not-a-url", "坏条目"),
+                    ]
+                )
+            return _Loc([])
+
+    refs = yuanbao_adapter._references_from_dom(_Pg())
+    assert len(refs) == 1
+    assert refs[0]["url"] == "https://example.com/a"
+    assert refs[0]["title"] == "来源A"
+
+    class _EmptyPg:
+        def evaluate(self, script: str, *_a: Any) -> Any:
+            return []
+
+        def locator(self, sel: str) -> _Loc:
+            return _Loc([])
+
+    assert yuanbao_adapter._references_from_dom(_EmptyPg()) == []

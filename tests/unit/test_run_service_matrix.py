@@ -43,17 +43,21 @@ def _config(
 
 class TestTaskMatrixModeCapabilities:
     def test_unsupported_platform_mode_pairs_dropped(self) -> None:
-        config = _config(
-            models=["doubao", "deepseek", "tongyi"], modes=["normal", "deep_think"]
-        )
+        config = _config(models=["doubao", "deepseek", "tongyi"], modes=["normal", "deep_think"])
         tasks = _task_matrix(config)
         pairs = {(task.model, task.mode) for task in tasks}
         assert ("deepseek", "deep_think") in pairs
         assert ("doubao", "deep_think") in pairs
-        assert ("tongyi", "deep_think") not in pairs  # 通义无 deep_think
+        assert ("tongyi", "deep_think") in pairs  # 20260810 思考研究解锁
         assert ("tongyi", "normal") in pairs
-        # doubao×2 + deepseek×2 + tongyi×1 = 5 组合 × 1 题 × 1 地域
-        assert len(tasks) == 5
+        # doubao×2 + deepseek×2 + tongyi×2 = 6 组合 × 1 题 × 1 地域
+        assert len(tasks) == 6
+        # 已知平台的不支持 mode 仍被过滤（deepseek 专家模式不测）
+        expert = _task_matrix(_config(models=["deepseek", "tongyi"], modes=["normal", "expert"]))
+        assert {(t.model, t.mode) for t in expert} == {
+            ("deepseek", "normal"),
+            ("tongyi", "normal"),
+        }
 
     def test_unknown_model_slug_passes_through(self) -> None:
         # 未知 slug 不在能力表 → 不过滤（运行期由 dispatcher 诚实失败）
@@ -62,12 +66,13 @@ class TestTaskMatrixModeCapabilities:
 
     def test_all_filtered_raises_matrix_empty(self) -> None:
         with pytest.raises(ValueError, match="collection_matrix_empty"):
-            _task_matrix(_config(models=["tongyi"], modes=["deep_think"]))
+            _task_matrix(_config(models=["tongyi"], modes=["expert"]))
 
     def test_business_key_stable_for_kept_pairs(self) -> None:
         # 过滤不改变保留对的 business_key（与未过滤同口径 sha256）
         filtered = _task_matrix(
-            _config(models=["deepseek", "yiyan"], modes=["normal", "deep_think"]))
+            _config(models=["deepseek", "yiyan"], modes=["normal", "deep_think"])
+        )
         baseline = _task_matrix(_config(models=["deepseek"], modes=["normal", "deep_think"]))
         filtered_keys = {task.business_key for task in filtered}
         assert all(task.business_key in filtered_keys for task in baseline)

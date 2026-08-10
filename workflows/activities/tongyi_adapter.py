@@ -14,7 +14,8 @@
 
 边界：
 
-- 仅 ``mode='normal'``；``mode='deep_think'`` 及其他 →
+- ``mode='normal'`` = 快速（composer 默认模式）；``mode='deep_think'`` =
+  思考研究（20260810 起解锁，口径见下文「问答模式口径」节）；其余 mode →
   ``ApplicationError(..., type="unsupported_mode", non_retryable=True)``。
 - 配置全走 env（秘密绝不进 task payload）：
   ``GEO_TONGYI_PROFILE_DIR``（必填，persistent profile 目录；缺失/不存在 →
@@ -79,6 +80,34 @@ run 级会话复用（2026-08-06 起，``collect_tongyi_batch``，治本反风�
   （launch/navigate/登录墙）异常=一题未发：wall 类成全题 wall 结果，
   临时故障（_IncompleteCapture）raise 走 batch 级重试。仅配置类错误
   （adapter_not_configured/unsupported_mode）允许 raise。
+
+问答模式口径（20260810 起，对照 deepseek/yuanbao 同日解锁；live 探针实证
+于 tongyi_bj 常驻浏览器，存档 /tmp/probe11-page.html）：
+
+- ``normal`` = 「快速」模式；``deep_think`` = 「思考研究」模式。开关 = composer
+  ``[data-chat-input-shell="true"]`` 内 radix 菜单 trigger
+  ``button[aria-haspopup="menu"]``（aria-label 即当前模式名「快速」/「思考研究」）。
+  **原生 click 被 composer 布局层拦截、dispatch_event 对 radix 无效（听
+  pointerdown）——唯一实证可靠路径是键盘**：trigger.focus() → ArrowDown 开菜单
+  → 按高亮差分 ArrowDown/ArrowUp 到目标项 → Enter 选中。选中后按钮 aria-label
+  变目标模式名（有 toast「已切换到思考研究」）。模式跨会话不粘滞（reload 回
+  快速）——每题发送前显式确保（已是目标模式零交互幂等），切换后读回 aria-label
+  确认 + 隔拍二次确认；确认不了 → ``mode_toggle_failed`` non_retryable（题级
+  wall + 后续题 aborted），绝不按错误口径采集（模式错态 = 答案口径错标）。
+- 思考研究答案 DOM：``div[data-chat-answers-wrap]`` 内 ``data-card_name=
+  "bar_workflow"`` 思考流程卡在前、答案卡（.answer-common-card）在后。思考卡
+  折叠容器（grid-rows-[0fr] opacity-0）textContent 零交互可读；逐步骤
+  ``div.flex.gap-1``：标题行（text-sm font-semibold）+ 思考正文
+  ``div[class*="thinking-content-"]``；搜索步骤的检索词 = 可见副本
+  ``div.mb-2.flex.flex-wrap.items-center`` 内带引号 span（strip 引号），结果 =
+  可见副本 ``div.flex.flex-wrap.gap-x-1.gap-y-2`` 内 ``span.truncate`` 标题
+  （``a[href]`` 存在时取真实 URL，无则 None 诚实缺省）；两容器各有
+  ``invisible absolute`` 隐藏副本，只取可见副本并按文本去重。思考链/检索词/
+  结果折叠进 trace 证据（``_build_tongyi_trace``），**绝不混入答案正文**——
+  ``_ANSWER_EXTRACT_JS`` 兜底分支已显式排除 bar_workflow/thinking-content
+  内的 .qk-markdown 节点。
+- deep_think 单题预算 600s（``_DEEP_THINK_CHAT_TIMEOUT_S``，对照
+  deepseek/yuanbao 同款口径；思考研究实测可以很快但给足预算）。
 
 选择器校准记录（全部 headed patchright + 北京租约代理 live 实测）：
 
@@ -153,6 +182,7 @@ from workflows.activities.human_like import (
     human_read_pause,
     human_type,
 )
+from workflows.activities.raw_capture import dump_raw_evidence_refs, maybe_raw_capture
 from workflows.activities.resident_browser import platform_browser, resident_cdp_url
 
 log = structlog.get_logger()
@@ -171,6 +201,9 @@ _NAV_TIMEOUT_MS = 25_000
 # 120s 预算会在生成中段被掐（导航离开还会杀死服务端流）——放宽到 300s，
 # 仍在 workflow 单题 15min 预算内。完成判定（saw_text+静默/complete 类）不变。
 _CHAT_TIMEOUT_S = 300.0  # normal 模式流式完成预算
+# deep_think（思考研究）单题预算 600s（对照 deepseek/yuanbao 20260810 同款口径；
+# 思考研究实测可以很快，但多段检索+长生成给足预算）。
+_DEEP_THINK_CHAT_TIMEOUT_S = 600.0
 # 2026-08-07 live 实证（215 字截断案）：CDP 判「流完成」时正文可能仍在增长
 # （多阶段流的生成段走 WebSocket / React 渲染滞后于流关闭）——流完成后必须再过
 # DOM 稳定门：complete 类或文本静默 2.5s 才算真完成；60s 仍不稳 → 诚实失败。
@@ -235,6 +268,50 @@ _CHAT_MESSAGE_COUNT_JS = r"""() => {
   let n = 0;
   for (const s of sels) n += document.querySelectorAll(s).length;
   return n;
+}"""
+
+# ---------------------------------------------------------------------------
+# 问答模式开关（20260810 live 探针实证，tongyi_bj 常驻浏览器）：composer
+# [data-chat-input-shell="true"] 内 radix 菜单 trigger button[aria-haspopup="menu"]，
+# aria-label 即当前模式名（「快速」/「思考研究」）。原生 click 被 composer 布局层
+# 拦截、dispatch_event("click") 对 radix 无效（听 pointerdown）——唯一实证可靠
+# 路径是键盘：focus → ArrowDown 开菜单 → 高亮导航 → Enter 选中。模式跨会话不
+# 粘滞（reload 回快速），每题发送前显式确保。
+# ---------------------------------------------------------------------------
+
+# 当前模式读取：trigger aria-label → mode slug（读不出 = None → 调用方诚实失败）
+_CHAT_MODE_STATE_JS = r"""() => {
+  const shell = document.querySelector('[data-chat-input-shell="true"]');
+  if (!shell) return null;
+  for (const b of shell.querySelectorAll('button[aria-haspopup="menu"]')) {
+    const label = (b.getAttribute('aria-label') || '').trim();
+    if (label.includes('思考研究')) return 'deep_think';
+    if (label.includes('快速')) return 'normal';
+  }
+  return null;
+}"""
+
+# trigger 定位（按当前模式名选 aria-label；模式确保只在两种已知态间切换）
+_MODE_TRIGGER_SELECTOR_TPL = (
+    '[data-chat-input-shell="true"] button[aria-haspopup="menu"][aria-label*="{label}"]'
+)
+_MODE_LABEL_BY_MODE = {"normal": "快速", "deep_think": "思考研究"}
+_MODE_MENU_LABELS = ("快速", "思考研究")  # 菜单项顺序（第一项=快速，实证）
+
+# 菜单项探针：开菜单后读 [role="menu"] 内条目的文本与高亮态（radix 高亮项带
+# data-highlighted 属性）——用于按高亮差分导航；菜单未开/结构漂移 → 空列表，
+# 调用方回退「当前模式项高亮」的固定键序（实证路径的对称推断）。
+_CHAT_MODE_MENU_ITEMS_JS = r"""() => {
+  const items = [];
+  for (const menu of document.querySelectorAll('[role="menu"]')) {
+    for (const it of menu.querySelectorAll('[role="menuitemradio"], [role="menuitem"]')) {
+      items.push({
+        text: (it.textContent || '').trim(),
+        highlighted: it.hasAttribute('data-highlighted'),
+      });
+    }
+  }
+  return items;
 }"""
 
 # 拟人化节奏区间（秒）——端详页面 / 发送前通读 / 新会话切换
@@ -525,6 +602,9 @@ class _WallError(RuntimeError):
         super().__init__(message)
         self.wall_type = wall_type
         self.evidence_path = evidence_path
+        # 失败题原始流量证据（2026-08-10 起）：_collect_one 题末挂 raw/HAR ref，
+        # 经 _failure_outcome → 失败 result.evidence 进 CAS。缺省空。
+        self.evidence_refs: list[CollectionEvidenceRef] = []
 
 
 class _IncompleteCapture(RuntimeError):
@@ -533,6 +613,17 @@ class _IncompleteCapture(RuntimeError):
     def __init__(self, message: str, evidence_path: Path | None = None) -> None:
         super().__init__(message)
         self.evidence_path = evidence_path
+        self.evidence_refs: list[CollectionEvidenceRef] = []
+
+
+class _ModeToggleFailed(RuntimeError):
+    """模式开关无法确认到位（快速/思考研究 radix 菜单；non_retryable；
+    绝不静默按错误口径采集）。"""
+
+    def __init__(self, message: str, evidence_path: Path | None = None) -> None:
+        super().__init__(message)
+        self.evidence_path = evidence_path
+        self.evidence_refs: list[CollectionEvidenceRef] = []
 
 
 @dataclass
@@ -543,12 +634,20 @@ class CollectedAnswer:
     meta: dict[str, Any] = field(default_factory=dict)
     # 结构化 trace 证据路径（kind="sse"，transport="dom"；无引用/写盘失败=None 诚实缺省）
     trace_path: Path | None = None
+    # 平台真实检索词（W1 词表 {"query","ordinal"}；20260810 起 deep_think 思考
+    # 流程卡的检索步骤抽取；normal/未抽到为空列表）
+    search_queries: list[dict[str, Any]] = field(default_factory=list)
+    # 原始流量证据 ref（2026-08-10 起：sse_raw/har；GEO_RAW_CAPTURE=0 或写盘
+    # 失败为空——诚实缺省）。_task_result_from_collected 并入 evidence。
+    raw_evidence: list[CollectionEvidenceRef] = field(default_factory=list)
 
 
 class _BrowserSession(Protocol):
     """Playwright 交互隔离面：测试注入 fake，绝不启动真浏览器。"""
 
-    def collect(self, query: str, on_stage: Callable[[str], None]) -> CollectedAnswer: ...
+    def collect(
+        self, query: str, on_stage: Callable[[str], None], *, mode: str = "normal"
+    ) -> CollectedAnswer: ...
 
     def collect_batch(
         self, items: list[TongyiBatchItemSpec], on_stage: Callable[[str], None]
@@ -580,6 +679,9 @@ class TongyiBatchItemOutcome:
     error_type: str | None = None
     error_message: str | None = None
     evidence_path: Path | None = None
+    # 失败题的原始流量证据 ref（2026-08-10 起，raw/HAR，由题末异常对象携带
+    # 而来）；aborted 题零浏览器交互，恒空。
+    evidence: list[CollectionEvidenceRef] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -636,9 +738,9 @@ async def run_tongyi_batch(
             del payload
 
     for item in batch.items:
-        if item.mode != "normal":
+        if item.mode not in ("normal", "deep_think"):
             raise ApplicationError(
-                f"unsupported mode: {item.mode!r} (expected 'normal')",
+                f"unsupported mode: {item.mode!r} (expected 'normal' or 'deep_think')",
                 type="unsupported_mode",
                 non_retryable=True,
             )
@@ -711,6 +813,24 @@ async def run_tongyi_batch(
                     error_type=wall.wall_type,
                     error_message=f"{wall}{evidence_suffix}",
                     evidence_path=wall.evidence_path,
+                    evidence=wall.evidence_refs,
+                )
+                for item in batch.items
+            ]
+        )
+    except _ModeToggleFailed as toggle:
+        # 防御：toggle 失败应在题内转 outcome；逃出即按 session 级 wall 诚实记录。
+        evidence_suffix = f"; evidence={toggle.evidence_path}" if toggle.evidence_path else ""
+        bound.info("tongyi_batch_session_toggle_failed", stage=progress["stage"])
+        return CollectionBatchResult(
+            results=[
+                _failure_batch_item(
+                    item,
+                    status="wall",
+                    error_type="mode_toggle_failed",
+                    error_message=f"{toggle}{evidence_suffix}",
+                    evidence_path=toggle.evidence_path,
+                    evidence=toggle.evidence_refs,
                 )
                 for item in batch.items
             ]
@@ -719,9 +839,7 @@ async def run_tongyi_batch(
         # session 级临时故障（浏览器启动失败等）：一题未发，raise 走 batch 重试。
         evidence_suffix = f"; evidence={inc.evidence_path}" if inc.evidence_path else ""
         bound.info("tongyi_batch_session_incomplete", reason=str(inc), stage=progress["stage"])
-        raise ApplicationError(
-            f"{inc}{evidence_suffix}", type="answer_capture_incomplete"
-        ) from inc
+        raise ApplicationError(f"{inc}{evidence_suffix}", type="answer_capture_incomplete") from inc
     if len(outcomes) != len(batch.items):
         # session 契约：结果列表必须与输入等长（失败/未执行题也占位）。缺斤短两
         # 说明实现有 bug——fail-closed raise（编程错误，重试无意义）。
@@ -750,8 +868,13 @@ def _failure_batch_item(
     error_type: str,
     error_message: str,
     evidence_path: Path | None,
+    evidence: list[CollectionEvidenceRef] | None = None,
 ) -> CollectionBatchItemResult:
-    """失败/未执行题 → CollectionBatchItemResult。DLP 由 persist 层统一脱敏。"""
+    """失败/未执行题 → CollectionBatchItemResult。DLP 由 persist 层统一脱敏。
+
+    ``evidence``（2026-08-10 起）：失败题原始流量证据 ref（raw/HAR）——
+    persist 层 `_persist_collection_failure` 会把它 persist 进 CAS（墙截图
+    维持现状不进 CAS）。"""
     screenshot_ref = f"file://{evidence_path}" if evidence_path is not None else None
     return CollectionBatchItemResult(
         business_key=item.business_key,
@@ -760,6 +883,7 @@ def _failure_batch_item(
         error_message=error_message,
         screenshot_ref=screenshot_ref,
         quality_state=error_type,
+        evidence=list(evidence or []),
     )
 
 
@@ -792,6 +916,7 @@ def _batch_item_result(
         error_type=outcome.error_type or "unknown_failure",
         error_message=outcome.error_message or "",
         evidence_path=outcome.evidence_path,
+        evidence=outcome.evidence,
     )
 
 
@@ -817,9 +942,9 @@ async def run_tongyi_collection(
     uses_default_session = session_factory is None
     factory: SessionFactory = session_factory or _PlaywrightTongyiSession
     hb = heartbeat if heartbeat is not None else (lambda payload: None)
-    if item.mode != "normal":
+    if item.mode not in ("normal", "deep_think"):
         raise ApplicationError(
-            "deep_think not enabled in adapter v1",
+            f"unsupported mode: {item.mode!r} (expected 'normal' or 'deep_think')",
             type="unsupported_mode",
             non_retryable=True,
         )
@@ -835,7 +960,9 @@ async def run_tongyi_collection(
 
     def _blocking() -> CollectedAnswer:
         session = factory(config, config.evidence_dir, file_stem)
-        return session.collect(item.query, on_stage=lambda s: progress.__setitem__("stage", s))
+        return session.collect(
+            item.query, on_stage=lambda s: progress.__setitem__("stage", s), mode=item.mode
+        )
 
     try:
         if uses_default_session:
@@ -855,6 +982,12 @@ async def run_tongyi_collection(
         raise ApplicationError(
             f"{wall}{evidence}", type=wall.wall_type, non_retryable=True
         ) from wall
+    except _ModeToggleFailed as toggle:
+        evidence = f"; evidence={toggle.evidence_path}" if toggle.evidence_path else ""
+        bound.info("tongyi_mode_toggle_failed", stage=progress["stage"])
+        raise ApplicationError(
+            f"{toggle}{evidence}", type="mode_toggle_failed", non_retryable=True
+        ) from toggle
     except _IncompleteCapture as inc:
         evidence = f"; evidence={inc.evidence_path}" if inc.evidence_path else ""
         bound.info("tongyi_capture_incomplete", reason=str(inc), stage=progress["stage"])
@@ -886,6 +1019,8 @@ def _task_result_from_collected(
                 source_url=_CHAT_URL,
             )
         )
+    # 原始流量证据（2026-08-10 起）：sse_raw/har，_collect_one 题末导出。
+    evidence.extend(collected.raw_evidence)
     # DLP 统一由 persist 层脱敏处理（单一权威边界，2026-08-06 起）。
     return CollectionTaskResult(
         business_key=item.business_key,
@@ -893,6 +1028,7 @@ def _task_result_from_collected(
         screenshot_ref=screenshot_ref,
         quality_state="live_valid",
         evidence=evidence,
+        search_queries=collected.search_queries,
     )
 
 
@@ -995,11 +1131,13 @@ class _PlaywrightTongyiSession:
         self._rng = random.Random()
         self._mouse_pos: tuple[float, float] | None = None
 
-    def collect(self, query: str, on_stage: Callable[[str], None]) -> CollectedAnswer:
+    def collect(
+        self, query: str, on_stage: Callable[[str], None], *, mode: str = "normal"
+    ) -> CollectedAnswer:
         spec = TongyiBatchItemSpec(
             business_key=self._file_stem,
             query=query,
-            mode="normal",
+            mode=mode,
             file_stem=self._file_stem,
         )
         with self._browser_session(on_stage) as (context, page, _pw_timeout, driver):
@@ -1018,6 +1156,15 @@ class _PlaywrightTongyiSession:
                     outcomes.append(self._failure_outcome(spec, "wall", wall.wall_type, wall))
                     outcomes.extend(
                         self._aborted_outcome(rest, spec, wall.wall_type)
+                        for rest in items[index + 1 :]
+                    )
+                    return outcomes
+                except _ModeToggleFailed as toggle:
+                    outcomes.append(
+                        self._failure_outcome(spec, "wall", "mode_toggle_failed", toggle)
+                    )
+                    outcomes.extend(
+                        self._aborted_outcome(rest, spec, "mode_toggle_failed")
                         for rest in items[index + 1 :]
                     )
                     return outcomes
@@ -1050,7 +1197,7 @@ class _PlaywrightTongyiSession:
         spec: TongyiBatchItemSpec,
         status: str,
         error_type: str,
-        exc: _WallError | _IncompleteCapture,
+        exc: _WallError | _IncompleteCapture | _ModeToggleFailed,
     ) -> TongyiBatchItemOutcome:
         return TongyiBatchItemOutcome(
             business_key=spec.business_key,
@@ -1058,6 +1205,7 @@ class _PlaywrightTongyiSession:
             error_type=error_type,
             error_message=str(exc),
             evidence_path=exc.evidence_path,
+            evidence=list(exc.evidence_refs),
         )
 
     @staticmethod
@@ -1182,6 +1330,17 @@ class _PlaywrightTongyiSession:
         """单题主体：await_input → fresh_chat → 拟人输入/发送 → CDP/DOM 捕获/
         证据落盘。per-task 单题与 batch 每题共用（墙识别/SSE 校准语义原样）。"""
         capture = _EventStreamCapture(context, page)
+        # 原始流量留痕（2026-08-10 起，用户拍板默认开）：独立 CDP session 自组
+        # HAR + 落 completion 原始响应体（通义第一次抓 body——接口路径以 live
+        # 校准为准，域级 hint + event-stream mime 双条件命中），与既有 capture
+        # 互不干扰。GEO_RAW_CAPTURE=0 → None（全关回退现状）。
+        raw = maybe_raw_capture(
+            context,
+            page,
+            body_url_hints=("tongyi.com",),
+            creator="geo-tongyi-adapter",
+        )
+        raw_evidence: list[CollectionEvidenceRef] = []
         try:
 
             def _pace(lo: float, hi: float) -> float:
@@ -1226,6 +1385,19 @@ class _PlaywrightTongyiSession:
                 pace=_pace,
                 shot=_shot,
             )
+
+            # 问答模式确保（20260810 起，对照 deepseek/yuanbao 同日口径）：
+            # normal=快速 / deep_think=思考研究——模式跨会话不粘滞，每题显式确保；
+            # 必须在打字/发送之前完成并经读回+隔拍二次确认；确认不了即诚实失败，
+            # 绝不静默按错误口径采集（模式错态 = 答案口径错标）。
+            on_stage("ensure_mode")
+            if not _ensure_collection_mode(page, spec.mode):
+                raise _ModeToggleFailed(
+                    f"mode toggle could not be confirmed for mode={spec.mode!r} "
+                    "(快速/思考研究 radix 菜单; selector drift or control unavailable)",
+                    _shot("mode_toggle"),
+                )
+            _pace(*_PACE_AFTER_NEW_CHAT_S)  # 切完（或确认完）模式回神再回到输入框
 
             on_stage("typing")
             # 页面就绪：真人先端详一眼再动手（零停顿直点输入框是机器人指纹）。
@@ -1283,9 +1455,11 @@ class _PlaywrightTongyiSession:
                 page.wait_for_timeout(500)
 
             on_stage("await_stream")
-            meta = capture.wait_finish(
-                page, appearance_timeout_s=20.0, timeout_s=_CHAT_TIMEOUT_S
+            # deep_think（思考研究）给 600s 预算（对照 deepseek/yuanbao 同款口径）。
+            chat_timeout_s = (
+                _DEEP_THINK_CHAT_TIMEOUT_S if spec.mode == "deep_think" else _CHAT_TIMEOUT_S
             )
+            meta = capture.wait_finish(page, appearance_timeout_s=20.0, timeout_s=chat_timeout_s)
             stream_finished = bool(meta.get("found") and meta.get("finished"))
             if meta.get("found") and not meta.get("finished"):
                 raise _IncompleteCapture(
@@ -1297,9 +1471,7 @@ class _PlaywrightTongyiSession:
             if not stream_finished:
                 # CDP 看不到流（WebSocket 通道等）→ DOM 静默兜底：停止按钮消失
                 # 且助手文本 quiet_s 内不再增长
-                meta["dom_quiet"] = _wait_dom_quiet(
-                    page, quiet_s=2.5, timeout_s=_CHAT_TIMEOUT_S
-                )
+                meta["dom_quiet"] = _wait_dom_quiet(page, quiet_s=2.5, timeout_s=chat_timeout_s)
                 if not meta["dom_quiet"].get("quiet"):
                     raise _IncompleteCapture(
                         "no-stream-and-dom-not-quiet: neither CDP event-stream nor "
@@ -1368,22 +1540,30 @@ class _PlaywrightTongyiSession:
                     _shot("login"),
                 )
 
+            # 思考研究模式：答案稳定后抽思考流程卡（bar_workflow：思考链步骤 +
+            # 检索词 + 检索结果；零交互 textContent 读取，无卡/探针异常 → 空，
+            # 诚实缺省绝不编造）。normal 模式不调（页面无此卡）。
+            thinking: dict[str, Any] | None = None
+            if spec.mode == "deep_think":
+                on_stage("thinking_extract")
+                thinking = _extract_tongyi_thinking(page)
+
             on_stage("screenshot")
             shot_path = self._evidence_dir / f"{spec.file_stem}.png"
             _capture_full_page(page, shot_path)
             if not shot_path.exists():
                 raise _IncompleteCapture("evidence-screenshot-failed: no file written")
             # 结构化 trace 落盘进证据链（kind="sse"，transport="dom"；词表对齐
-            # 其余四平台）：千问思考链与检索词不可得，诚实留空——引用卡片折叠为
-            # 唯一内容，无引用不出空证据。写盘失败不拖垮已成功的采集——如实
-            # warning 且不出该证据（绝不出残缺/编造证据）。
+            # 其余四平台）：deep_think 时思考链/检索词/检索结果折叠自思考流程卡，
+            # 引用卡片折叠照常保留；normal 无引用不出空证据（诚实缺省）。写盘失败
+            # 不拖垮已成功的采集——如实 warning 且不出该证据（绝不出残缺/编造证据）。
             trace_path: Path | None = None
-            if references:
+            if references or (thinking is not None and thinking.get("card_found")):
                 trace_candidate = self._evidence_dir / f"{spec.file_stem}-sse-trace.json"
                 try:
                     trace_candidate.write_text(
                         json.dumps(
-                            _build_tongyi_trace(references),
+                            _build_tongyi_trace(references, thinking=thinking),
                             ensure_ascii=False,
                             sort_keys=True,
                             separators=(",", ":"),
@@ -1397,16 +1577,50 @@ class _PlaywrightTongyiSession:
                         file_stem=spec.file_stem,
                         exc_info=True,
                     )
-            return CollectedAnswer(
+            # 平台真实检索词（W1 词表 {"query","ordinal"}）：思考流程卡检索步骤
+            # 的关键词按文档序编号；normal/未抽到为空列表。
+            search_queries: list[dict[str, Any]] = []
+            if thinking is not None:
+                search_queries = [
+                    {"query": query, "ordinal": index}
+                    for index, query in enumerate(thinking.get("queries") or [], 1)
+                ]
+            answer = CollectedAnswer(
                 answer_text=answer_text,
                 references=references,
                 screenshot_path=shot_path,
                 meta={"stream": meta, "driver": driver},
                 trace_path=trace_path,
+                search_queries=search_queries,
+                raw_evidence=raw_evidence,
             )
+        except (_WallError, _IncompleteCapture, _ModeToggleFailed) as exc:
+            # 失败题同样留 raw/HAR（题末先 dump 后 detach）：ref 挂异常对象，经
+            # _failure_outcome → 失败 result.evidence → persist 层进 CAS。
+            exc.evidence_refs = dump_raw_evidence_refs(
+                raw,
+                self._evidence_dir,
+                spec.file_stem,
+                source_url=_CHAT_URL,
+                warn_tag="tongyi",
+            )
+            raise
+        else:
+            raw_evidence.extend(
+                dump_raw_evidence_refs(
+                    raw,
+                    self._evidence_dir,
+                    spec.file_stem,
+                    source_url=_CHAT_URL,
+                    warn_tag="tongyi",
+                )
+            )
+            return answer
         finally:
             # batch 内每题一个 CDP session：题末 best-effort detach，避免旧
             # session 挂着监听累积（下一题新建 capture，绝不串题读到旧流）。
+            if raw is not None:
+                raw.detach()
             capture.detach()
 
     def _shot(self, page: Any, suffix: str, *, stem: str | None = None) -> Path | None:
@@ -1675,6 +1889,93 @@ def _ensure_fresh_chat(
     )
 
 
+def _current_collection_mode(page: Any) -> str | None:
+    """读 composer 模式 trigger 的 aria-label → mode slug。读不出（无 shell/
+    无 trigger/aria-label 漂移/探针异常）→ None（调用方诚实失败，绝不猜）。"""
+    try:
+        mode = page.evaluate(_CHAT_MODE_STATE_JS)
+    except Exception:
+        return None
+    return mode if mode in _MODE_LABEL_BY_MODE else None
+
+
+def _press(page: Any, key: str, times: int) -> None:
+    for _ in range(times):
+        page.keyboard.press(key)
+        page.wait_for_timeout(120)
+
+
+def _ensure_collection_mode(page: Any, mode: str) -> bool:
+    """发送前把 composer 模式确保到 ``mode``（normal=快速 / deep_think=思考研究）。
+
+    幂等：已是目标模式零交互 True。否则走唯一实证可靠的键盘路径（原生 click
+    被 composer 布局层拦截、dispatch_event 对 radix 无效——20260810 探针实证）：
+    trigger.focus() → ArrowDown 开菜单 → 按菜单探针的高亮差分（或「当前模式项
+    高亮」固定键序兜底）导航到目标项 → Enter 选中。切换后读回 aria-label 确认 +
+    隔拍二次确认（UI 可能乐观翻转后回退）；任何一步确认不了 → False（调用方
+    mode_toggle_failed，绝不按错误口径采集）。
+    """
+    target_label = _MODE_LABEL_BY_MODE.get(mode)
+    if target_label is None:
+        return False
+    current = _current_collection_mode(page)
+    if current is None:
+        return False
+    if current == mode:
+        return True  # 已在目标模式：零交互幂等
+    current_label = _MODE_LABEL_BY_MODE[current]
+    try:
+        trigger = page.locator(_MODE_TRIGGER_SELECTOR_TPL.format(label=current_label)).first
+        if trigger.count() == 0:
+            return False
+        trigger.focus()
+        page.wait_for_timeout(200)
+        page.keyboard.press("ArrowDown")  # 开菜单（radix 听键盘）
+        page.wait_for_timeout(300)
+    except Exception:
+        return False
+    # 菜单导航：优先按探针读到的高亮项差分；探针落空回退固定键序（开菜单时
+    # 当前模式项高亮——实证路径的对称推断，确认门兜底，错了如实失败）。
+    steps = 0
+    key = "ArrowDown"
+    try:
+        items = page.evaluate(_CHAT_MODE_MENU_ITEMS_JS)
+    except Exception:
+        items = None
+    if isinstance(items, list) and items:
+        entries = [it for it in items if isinstance(it, dict)]
+        texts = [str(it.get("text") or "") for it in entries]
+        highlighted = next(
+            (i for i, it in enumerate(entries) if it.get("highlighted")),
+            None,
+        )
+        target_idx = next((i for i, t in enumerate(texts) if target_label in t), None)
+        base_idx = highlighted
+        if base_idx is None:
+            base_idx = next((i for i, t in enumerate(texts) if current_label in t), None)
+        if target_idx is None or base_idx is None:
+            return False
+        delta = target_idx - base_idx
+        key = "ArrowDown" if delta >= 0 else "ArrowUp"
+        steps = abs(delta)
+    else:
+        # 固定键序：菜单两项（快速/思考研究），开菜单时当前模式项高亮。
+        steps = 1
+        key = "ArrowDown" if mode == "deep_think" else "ArrowUp"
+    try:
+        _press(page, key, steps)
+        page.keyboard.press("Enter")
+        page.wait_for_timeout(400)
+    except Exception:
+        return False
+    if _current_collection_mode(page) != mode:
+        # 隔拍二次确认（UI 可能乐观翻转后回退）。
+        page.wait_for_timeout(400)
+        if _current_collection_mode(page) != mode:
+            return False
+    return True
+
+
 def _click_send_button(
     page: Any,
     rng: random.Random,
@@ -1822,18 +2123,27 @@ def _wait_dom_quiet(page: Any, *, quiet_s: float, timeout_s: float) -> dict[str,
 # markdown 段（.qk-markdown，可能多段——多阶段流分段渲染）+ 非 markdown 的
 # 富文本卡片段（供应商卡片等挂件，2026-08-07 用户实测「正文完整、卡片损失」）。
 # 无容器时兜底为页面最后一个 .qk-markdown（旧行为）。只读真实渲染文本，零合成。
+# 20260810 deep_think 硬化：思考流程卡（bar_workflow / thinking-content-*）内
+# 也有 .qk-markdown 节点——容器路径天然隔离（思考卡不在 .answer-common-card
+# 内），兜底分支必须显式排除，否则思考链可能混进答案正文。
 _ANSWER_EXTRACT_JS = r"""() => {
-  const cards = document.querySelectorAll('.answer-common-card');
+  const inThinkingCard = (el) =>
+    !!(el.closest('[data-card_name="bar_workflow"]')
+       || el.closest('div[class*="thinking-content-"]'));
+  const cards = Array.from(document.querySelectorAll('.answer-common-card'))
+    .filter((el) => !inThinkingCard(el));
   const root = cards.length ? cards[cards.length - 1] : null;
   const segments = [];
   if (root) {
     for (const child of root.querySelectorAll(':scope > *')) {
+      if (inThinkingCard(child)) continue;
       if (child.matches('.qk-markdown')) {
         segments.push({kind: 'markdown', cls: 'qk-markdown',
                        text: (child.innerText || '').trim()});
         continue;
       }
-      const inner = Array.from(child.querySelectorAll('.qk-markdown'));
+      const inner = Array.from(child.querySelectorAll('.qk-markdown'))
+        .filter((el) => !inThinkingCard(el));
       if (inner.length) {
         for (const s of inner) {
           segments.push({kind: 'markdown', cls: 'qk-markdown',
@@ -1846,7 +2156,8 @@ _ANSWER_EXTRACT_JS = r"""() => {
                      text: (child.innerText || '').trim()});
     }
   } else {
-    const mds = document.querySelectorAll('.qk-markdown');
+    const mds = Array.from(document.querySelectorAll('.qk-markdown'))
+      .filter((el) => !inThinkingCard(el));
     if (!mds.length) return {segments: [], refs: []};
     const last = mds[mds.length - 1];
     segments.push({kind: 'markdown', cls: 'qk-markdown',
@@ -1941,15 +2252,203 @@ def _extract_response(page: Any) -> tuple[str, list[dict[str, Any]]]:
     return "", []
 
 
-def _build_tongyi_trace(references: list[dict[str, Any]]) -> dict[str, Any]:
-    """引用卡片 → trace record（kind="sse" 证据内容，词表对齐其余四平台：
-    collection router 的 build_task_trace_view 消费同一词表）。
+# 思考流程卡探针（20260810 live 实证结构，存档 /tmp/probe11-page.html）：
+# deep_think（思考研究）答案 wrap 内 data-card_name="bar_workflow" 卡在前、
+# 答案卡在后。折叠容器（grid-rows-[0fr] opacity-0）textContent 零交互可读。
+# 每步骤 = class 恰为 "flex gap-1" 的 div（标题行等复合类不入选）：标题 =
+# div.flex.items-center.gap-1.text-sm.font-semibold；思考正文 = div[class*=
+# "thinking-content-"]；检索词 = 可见副本 div.mb-2.flex.flex-wrap.items-center
+# 内带引号 span（strip 一层引号）；检索结果 = 可见副本 div.flex.flex-wrap.
+# gap-x-1.gap-y-2 内 a[href]>span.truncate（无锚点回退 span.truncate 文本，
+# url=None 诚实缺省）。检索词/结果两容器各有 invisible absolute 隐藏副本——
+# 只取可见副本并按文本去重。
+_THINKING_EXTRACT_JS = r"""() => {
+  const out = {card_found: false, steps: [], queries: []};
+  const stripQ = (s) => {
+    let t = (s || '').trim();
+    if (t.length >= 2) {
+      const a = t[0], b = t[t.length - 1];
+      if ((a === '"' && b === '"') || (a === '“' && b === '”')) {
+        t = t.slice(1, -1).trim();
+      }
+    }
+    return t;
+  };
+  const wraps = document.querySelectorAll('div[data-chat-answers-wrap]');
+  if (!wraps.length) return out;
+  const card = wraps[wraps.length - 1].querySelector('div[data-card_name="bar_workflow"]');
+  if (!card) return out;
+  out.card_found = true;
+  for (const stepEl of card.querySelectorAll('div.flex.gap-1')) {
+    const toks = (stepEl.className || '').trim().split(/\s+/).filter(Boolean).sort();
+    if (toks.join(' ') !== 'flex gap-1') continue;  // 步骤容器恰为 "flex gap-1"
+    const titleEl = stepEl.querySelector(
+      'div.flex.items-center.gap-1.text-sm.font-semibold');
+    const title = titleEl ? (titleEl.textContent || '').trim() : '';
+    const queries = [];
+    for (const box of stepEl.querySelectorAll('div.mb-2.flex.flex-wrap.items-center')) {
+      if ((box.className || '').includes('invisible')) continue;  // 隐藏副本跳过
+      for (const span of box.querySelectorAll(':scope > span')) {
+        const q = stripQ(span.textContent);
+        if (q && !queries.includes(q)) queries.push(q);
+      }
+    }
+    const results = [];
+    const seenResults = new Set();
+    for (const box of stepEl.querySelectorAll('div.flex.flex-wrap.gap-x-1.gap-y-2')) {
+      if ((box.className || '').includes('invisible')) continue;  // 隐藏副本跳过
+      const anchors = box.querySelectorAll('a[href^="http"]');
+      if (anchors.length) {
+        for (const a of anchors) {
+          const tEl = a.querySelector('span.truncate');
+          const title = ((tEl ? tEl.textContent : a.textContent) || '').trim();
+          const url = a.getAttribute('href') || null;
+          const k = title + '|' + (url || '');
+          if (!title || seenResults.has(k)) continue;
+          seenResults.add(k);
+          results.push({title, url});
+        }
+      } else {
+        for (const s of box.querySelectorAll('span.truncate')) {
+          const title = (s.textContent || '').trim();
+          if (!title || seenResults.has(title)) continue;
+          seenResults.add(title);
+          results.push({title, url: null});
+        }
+      }
+    }
+    if (queries.length || results.length) {
+      out.steps.push({kind: 'search', title, queries, results});
+      for (const q of queries) if (!out.queries.includes(q)) out.queries.push(q);
+      continue;
+    }
+    const thinkEl = stepEl.querySelector('div[class*="thinking-content-"]');
+    out.steps.push({
+      kind: 'reasoning',
+      title,
+      text: thinkEl ? (thinkEl.textContent || '').trim() : '',
+    });
+  }
+  return out;
+}"""
 
-    transport="dom" 如实标注：千问流只当完成信号（CDP 不读 body），引用卡片
-    来自 DOM 实渲染。思考链与检索词平台未暴露——thinking_chain/queries 诚实
-    留空（零合成，绝不编造）。references 折叠形态照 DeepSeek _build_sse_trace。
+_THINKING_TEXT_LIMIT = 5_000  # 单段思考正文截断上限（对齐豆包水位）
+
+
+def _empty_thinking() -> dict[str, Any]:
+    """思考流程卡缺货/探针失败的统一空形状（每次新建，绝不可共享可变列表）。"""
+    return {"card_found": False, "steps": [], "queries": [], "thinking_text": ""}
+
+
+def _extract_tongyi_thinking(page: Any) -> dict[str, Any]:
+    """deep_think（思考研究）思考流程卡抽取 → {card_found, steps, queries,
+    thinking_text}。steps 词表：{kind:"reasoning", title, text} /
+    {kind:"search", title, queries[], results[]}。
+
+    零合成：无 bar_workflow 卡 / 探针异常 / 结构漂移一律返回空（诚实缺省，
+    绝不编造思考链）。reasoning 正文单段截 _THINKING_TEXT_LIMIT 字符（对齐
+    豆包水位）；thinking_text 由截断后的 reasoning 步骤（标题+正文）聚合。
     """
+    try:
+        raw = page.evaluate(_THINKING_EXTRACT_JS)
+    except Exception:
+        return _empty_thinking()
+    if not isinstance(raw, dict) or not raw.get("card_found"):
+        return _empty_thinking()
+    steps: list[dict[str, Any]] = []
+    queries: list[str] = []
+    for entry in raw.get("steps") or []:
+        if not isinstance(entry, dict):
+            continue
+        title = str(entry.get("title") or "").strip()
+        if entry.get("kind") == "search":
+            step_queries = [
+                q for q in (str(x or "").strip() for x in entry.get("queries") or []) if q
+            ]
+            results: list[dict[str, Any]] = []
+            for r in entry.get("results") or []:
+                if not isinstance(r, dict):
+                    continue
+                r_title = str(r.get("title") or "").strip()
+                if not r_title:
+                    continue
+                r_url = str(r.get("url") or "").strip() or None
+                results.append({"title": r_title, "url": r_url})
+            steps.append(
+                {"kind": "search", "title": title, "queries": step_queries, "results": results}
+            )
+            for q in step_queries:
+                if q not in queries:
+                    queries.append(q)
+        elif entry.get("kind") == "reasoning":
+            text = str(entry.get("text") or "").strip()[:_THINKING_TEXT_LIMIT]
+            steps.append({"kind": "reasoning", "title": title, "text": text})
+    thinking_parts = [
+        f"{s['title']}\n{s['text']}".strip() if s["title"] else s["text"]
+        for s in steps
+        if s["kind"] == "reasoning" and s["text"]
+    ]
+    return {
+        "card_found": True,
+        "steps": steps,
+        "queries": queries,
+        "thinking_text": "\n".join(p for p in thinking_parts if p),
+    }
+
+
+def _build_tongyi_trace(
+    references: list[dict[str, Any]], *, thinking: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """引用卡片 + 思考流程卡 → trace record（kind="sse" 证据内容，词表对齐其余
+    四平台：collection router 的 build_task_trace_view 消费同一词表）。
+
+    transport="dom" 如实标注：千问流只当完成信号（CDP 不读 body），引用卡片与
+    思考流程卡均来自 DOM 实渲染。deep_think 时思考链/检索词/检索结果折叠自
+    ``_extract_tongyi_thinking``（reasoning 步骤 → {kind:"reasoning", text:
+    标题+正文}；搜索步骤 → {kind:"search", queries, summary: 标题}，其
+    results 折叠为独立 search_block）；``deep_think_active`` 以实际抽到思考卡
+    为准（卡片缺货 = False 诚实标注，绝不按请求模式硬标）。references 折叠
+    形态照 DeepSeek _build_sse_trace。normal（thinking=None）行为与旧版完全
+    一致：refs-only，无引用即全空。
+    """
+    thinking_chain: list[dict[str, Any]] = []
     search_blocks: list[dict[str, Any]] = []
+    queries: list[str] = []
+    deep_think_active = False
+    if thinking:
+        deep_think_active = bool(thinking.get("card_found"))
+        for step in thinking.get("steps") or []:
+            if step.get("kind") == "reasoning":
+                title = str(step.get("title") or "").strip()
+                text = str(step.get("text") or "").strip()
+                combined = f"{title}\n{text}".strip() if title else text
+                if combined:
+                    thinking_chain.append({"kind": "reasoning", "text": combined})
+            elif step.get("kind") == "search":
+                step_queries = [str(q) for q in step.get("queries") or []]
+                title = str(step.get("title") or "").strip()
+                thinking_chain.append({"kind": "search", "queries": step_queries, "summary": title})
+                results = [
+                    {
+                        "title": str(r.get("title") or "未命名来源"),
+                        "url": r.get("url"),
+                        "site": None,
+                        "rank": index,
+                        "summary": "",
+                    }
+                    for index, r in enumerate(step.get("results") or [], 1)
+                    if isinstance(r, dict)
+                ]
+                if step_queries or results:
+                    search_blocks.append(
+                        {
+                            "scene": None,
+                            "queries": step_queries,
+                            "summary": title,
+                            "results": results,
+                        }
+                    )
+        queries = [str(q) for q in thinking.get("queries") or []]
     if references:
         search_blocks.append(
             {
@@ -1971,10 +2470,10 @@ def _build_tongyi_trace(references: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "engine": "tongyi",
         "transport": "dom",
-        "deep_think_active": False,
-        "thinking_chain": [],
+        "deep_think_active": deep_think_active,
+        "thinking_chain": thinking_chain,
         "search_blocks": search_blocks,
-        "queries": [],
+        "queries": queries,
     }
 
 

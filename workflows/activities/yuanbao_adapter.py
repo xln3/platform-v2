@@ -122,6 +122,7 @@ from workflows.activities.human_like import (
     human_read_pause,
     human_type,
 )
+from workflows.activities.raw_capture import dump_raw_evidence_refs, maybe_raw_capture
 from workflows.activities.resident_browser import platform_browser, resident_cdp_url
 
 log = structlog.get_logger()
@@ -320,7 +321,40 @@ _THINK_BLOCK_CLASS_SUBSTR = "deepsearch-cot__think"
 # 思考文本单块截断上限（字符）：对齐豆包 _THINKING_TEXT_LIMIT 水位。
 _THINKING_TEXT_LIMIT = 5_000
 
-# 引用卡片（GUESS：login-gated 未实测；只收真实 http(s) href，绝不臆造，按 URL 去重）
+# 引用资料（20260810 live 校准，deep_think/normal 双模式实证）：
+# 元宝的检索资料**不是 a[href] 卡片**——答案页全页零 http 链接。真实载体 =
+# 思考折叠块内 ``__item-search`` 的 doc 列表（``__doc__num`` 序号 +
+# ``__doc__title__text``「标题 - 站点」纯文本；折叠态也在 DOM，textContent
+# 可读，零交互零点击）。**平台不在 DOM 暴露 URL**（条目跳转走 JS 状态，无
+# href/data-*），url 一律 None 诚实缺省；模板副本（__template）与重复行去重。
+# normal 模式实测**无任何资料列表组件**（来源只以纯文本写在答案正文里）→
+# 该模式 references=[] 是诚实结果，不是选择器缺口。
+_REFS_FROM_DOCS_JS = r"""() => {
+  const bubbles = document.querySelectorAll("div[class*='agent-chat__bubble--ai']");
+  if (!bubbles.length) return [];
+  const last = bubbles[bubbles.length - 1];
+  const out = [];
+  const seen = new Set();
+  for (const el of last.querySelectorAll("div[class*='__item__doc']")) {
+    if (!(el instanceof HTMLElement)) continue;
+    const cls = (el.className || "").toString();
+    if (cls.includes("doc-container")) continue;      // 容器，不是条目
+    if (cls.includes("__template")) continue;          // 模板副本
+    if (el.closest("[class*='__template']")) continue; // 模板祖先下的渲染副本
+    const numEl = el.querySelector("[class*='__doc__num']");
+    const titleEl = el.querySelector("[class*='__doc__title__text']");
+    const text = titleEl ? (titleEl.textContent || "").trim() : "";
+    if (!text) continue;
+    if (seen.has(text)) continue;  // 折叠/展开双份渲染序号各自重排——只能按文本去重
+    seen.add(text);
+    const num = numEl ? (numEl.textContent || "").trim().replace(/\.$/, "") : "";
+    out.push({num, text});
+  }
+  return out;
+}"""
+
+# 引用卡片 a[href] 旧 GUESS 组（当前 UI 实测零命中；留作未来链接卡片形态兜底，
+# 只收真实 http(s) href，绝不臆造，按 URL 去重）
 _REFERENCE_SELECTORS: tuple[str, ...] = (
     "div[class*='hyc-card-box'] a[href]",
     "div[class*='references'] a[href]",
@@ -461,6 +495,9 @@ class _WallError(RuntimeError):
         super().__init__(message)
         self.wall_type = wall_type
         self.evidence_path = evidence_path
+        # 失败题原始流量证据（2026-08-10 起）：_collect_one 题末挂 raw/HAR ref，
+        # 经 _failure_outcome → 失败 result.evidence 进 CAS。缺省空。
+        self.evidence_refs: list[CollectionEvidenceRef] = []
 
 
 class _IncompleteCapture(RuntimeError):
@@ -469,6 +506,7 @@ class _IncompleteCapture(RuntimeError):
     def __init__(self, message: str, evidence_path: Path | None = None) -> None:
         super().__init__(message)
         self.evidence_path = evidence_path
+        self.evidence_refs: list[CollectionEvidenceRef] = []
 
 
 class _ModeToggleFailed(RuntimeError):
@@ -478,6 +516,7 @@ class _ModeToggleFailed(RuntimeError):
     def __init__(self, message: str, evidence_path: Path | None = None) -> None:
         super().__init__(message)
         self.evidence_path = evidence_path
+        self.evidence_refs: list[CollectionEvidenceRef] = []
 
 
 @dataclass
@@ -488,6 +527,9 @@ class CollectedAnswer:
     meta: dict[str, Any] = field(default_factory=dict)
     # 结构化 trace 证据路径（kind="sse"，transport="dom"；无内容/写盘失败=None 诚实缺省）
     trace_path: Path | None = None
+    # 原始流量证据 ref（2026-08-10 起：sse_raw/har；GEO_RAW_CAPTURE=0 或写盘
+    # 失败为空——诚实缺省）。_task_result_from_collected 并入 evidence。
+    raw_evidence: list[CollectionEvidenceRef] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -512,6 +554,9 @@ class YuanbaoBatchItemOutcome:
     error_type: str | None = None
     error_message: str | None = None
     evidence_path: Path | None = None
+    # 失败题的原始流量证据 ref（2026-08-10 起，raw/HAR，由题末异常对象携带
+    # 而来）；aborted 题零浏览器交互，恒空。
+    evidence: list[CollectionEvidenceRef] = field(default_factory=list)
 
 
 class _BrowserSession(Protocol):
@@ -659,6 +704,7 @@ async def run_yuanbao_batch(
                     error_type=wall.wall_type,
                     error_message=f"{wall}{evidence_suffix}",
                     evidence_path=wall.evidence_path,
+                    evidence=wall.evidence_refs,
                 )
                 for item in batch.items
             ]
@@ -675,6 +721,7 @@ async def run_yuanbao_batch(
                     error_type="mode_toggle_failed",
                     error_message=f"{toggle}{evidence_suffix}",
                     evidence_path=toggle.evidence_path,
+                    evidence=toggle.evidence_refs,
                 )
                 for item in batch.items
             ]
@@ -683,9 +730,7 @@ async def run_yuanbao_batch(
         # session 级临时故障（浏览器启动失败等）：一题未发，raise 走 batch 重试。
         evidence_suffix = f"; evidence={inc.evidence_path}" if inc.evidence_path else ""
         bound.info("yuanbao_batch_session_incomplete", reason=str(inc), stage=progress["stage"])
-        raise ApplicationError(
-            f"{inc}{evidence_suffix}", type="answer_capture_incomplete"
-        ) from inc
+        raise ApplicationError(f"{inc}{evidence_suffix}", type="answer_capture_incomplete") from inc
     if len(outcomes) != len(batch.items):
         # session 契约：结果列表必须与输入等长（失败/未执行题也占位）。缺斤短两
         # 说明实现有 bug——fail-closed raise（编程错误，重试无意义）。
@@ -714,8 +759,13 @@ def _failure_batch_item(
     error_type: str,
     error_message: str,
     evidence_path: Path | None,
+    evidence: list[CollectionEvidenceRef] | None = None,
 ) -> CollectionBatchItemResult:
-    """失败/未执行题 → CollectionBatchItemResult。DLP 由 persist 层统一脱敏。"""
+    """失败/未执行题 → CollectionBatchItemResult。DLP 由 persist 层统一脱敏。
+
+    ``evidence``（2026-08-10 起）：失败题原始流量证据 ref（raw/HAR）——
+    persist 层 `_persist_collection_failure` 会把它 persist 进 CAS（墙截图
+    维持现状不进 CAS）。"""
     screenshot_ref = f"file://{evidence_path}" if evidence_path is not None else None
     return CollectionBatchItemResult(
         business_key=item.business_key,
@@ -724,6 +774,7 @@ def _failure_batch_item(
         error_message=error_message,
         screenshot_ref=screenshot_ref,
         quality_state=error_type,
+        evidence=list(evidence or []),
     )
 
 
@@ -756,6 +807,7 @@ def _batch_item_result(
         error_type=outcome.error_type or "unknown_failure",
         error_message=outcome.error_message or "",
         evidence_path=outcome.evidence_path,
+        evidence=outcome.evidence,
     )
 
 
@@ -852,6 +904,8 @@ def _task_result_from_collected(
                 source_url=_CHAT_URL,
             )
         )
+    # 原始流量证据（2026-08-10 起）：sse_raw/har，_collect_one 题末导出。
+    evidence.extend(collected.raw_evidence)
     # DLP 统一由 persist 层脱敏处理（单一权威边界，2026-08-06 起）。
     return CollectionTaskResult(
         business_key=item.business_key,
@@ -993,6 +1047,7 @@ class _PlaywrightYuanbaoSession:
             error_type=error_type,
             error_message=str(exc),
             evidence_path=exc.evidence_path,
+            evidence=list(exc.evidence_refs),
         )
 
     @staticmethod
@@ -1015,9 +1070,7 @@ class _PlaywrightYuanbaoSession:
         return human_read_pause(page, self._rng)
 
     @contextlib.contextmanager
-    def _browser_session(
-        self, on_stage: Callable[[str], None]
-    ) -> Iterator[tuple[Any, Any, str]]:
+    def _browser_session(self, on_stage: Callable[[str], None]) -> Iterator[tuple[Any, Any, str]]:
         """attach-or-launch + 导航 + 登录墙检查 → yield (context, page, driver)。
 
         经 resident_browser.platform_browser：``GEO_YUANBAO_CDP_URL`` 非空时
@@ -1054,9 +1107,7 @@ class _PlaywrightYuanbaoSession:
                         user_data_dir=str(self._config.profile_dir),
                         headless=self._config.headless,
                         proxy=(
-                            _parse_proxy(self._config.proxy_url)
-                            if self._config.proxy_url
-                            else None
+                            _parse_proxy(self._config.proxy_url) if self._config.proxy_url else None
                         ),
                         args=["--lang=zh-CN"],
                         locale="zh-CN",
@@ -1119,6 +1170,17 @@ class _PlaywrightYuanbaoSession:
         """单题主体：await_input → fresh_chat → 拟人输入/发送 → CDP 捕获/
         DOM 抽取/证据落盘。per-task 单题与 batch 每题共用。"""
         capture = _ChatStreamCapture(context, page)
+        # 原始流量留痕（2026-08-10 起，用户拍板默认开）：独立 CDP session 自组
+        # HAR + 落 completion 原始响应体（元宝第一次抓 body——loadingFinished
+        # 同步 getResponseBody，与既有 capture 同纪律），互不干扰。
+        # GEO_RAW_CAPTURE=0 → None（全关回退现状）。
+        raw = maybe_raw_capture(
+            context,
+            page,
+            body_url_hints=("/api/chat/",),
+            creator="geo-yuanbao-adapter",
+        )
+        raw_evidence: list[CollectionEvidenceRef] = []
         try:
 
             def _pace(lo: float, hi: float) -> float:
@@ -1241,9 +1303,7 @@ class _PlaywrightYuanbaoSession:
                 page,
                 appearance_timeout_s=20.0,
                 timeout_s=(
-                    _CHAT_TIMEOUT_DEEP_THINK_S
-                    if spec.mode == "deep_think"
-                    else _CHAT_TIMEOUT_S
+                    _CHAT_TIMEOUT_DEEP_THINK_S if spec.mode == "deep_think" else _CHAT_TIMEOUT_S
                 ),
             )
             # 元宝答案正文以渲染 DOM 为准（旧链 confirmed 路径）：等气泡文本静默
@@ -1296,9 +1356,7 @@ class _PlaywrightYuanbaoSession:
             # 写盘失败不拖垮已成功的采集——如实 warning 且不出该证据（绝不出残缺/
             # 编造证据）。deep_think_active 以实际抽到思考块为准（证据为正才标
             # true；toggle 已确保但块缺失时如实 false）。
-            thinking_text = (
-                _extract_thinking_text(page) if spec.mode == "deep_think" else ""
-            )
+            thinking_text = _extract_thinking_text(page) if spec.mode == "deep_think" else ""
             trace_path: Path | None = None
             if thinking_text or references:
                 trace_candidate = self._evidence_dir / f"{spec.file_stem}-sse-trace.json"
@@ -1323,7 +1381,7 @@ class _PlaywrightYuanbaoSession:
                         file_stem=spec.file_stem,
                         exc_info=True,
                     )
-            return CollectedAnswer(
+            answer = CollectedAnswer(
                 answer_text=answer_text,
                 references=references,
                 screenshot_path=shot_path,
@@ -1332,10 +1390,35 @@ class _PlaywrightYuanbaoSession:
                     "driver": driver,
                 },
                 trace_path=trace_path,
+                raw_evidence=raw_evidence,
             )
+        except (_WallError, _IncompleteCapture, _ModeToggleFailed) as exc:
+            # 失败题同样留 raw/HAR（题末先 dump 后 detach）：ref 挂异常对象，经
+            # _failure_outcome → 失败 result.evidence → persist 层进 CAS。
+            exc.evidence_refs = dump_raw_evidence_refs(
+                raw,
+                self._evidence_dir,
+                spec.file_stem,
+                source_url=_CHAT_URL,
+                warn_tag="yuanbao",
+            )
+            raise
+        else:
+            raw_evidence.extend(
+                dump_raw_evidence_refs(
+                    raw,
+                    self._evidence_dir,
+                    spec.file_stem,
+                    source_url=_CHAT_URL,
+                    warn_tag="yuanbao",
+                )
+            )
+            return answer
         finally:
             # batch 内每题一个 CDP session：题末 best-effort detach，避免旧
             # session 挂着监听累积（下一题新建 capture，绝不串题读到旧流）。
+            if raw is not None:
+                raw.detach()
             capture.detach()
 
     def _shot(self, page: Any, suffix: str, *, stem: str | None = None) -> Path | None:
@@ -1849,9 +1932,7 @@ def _build_yuanbao_trace(
     """
     thinking_chain: list[dict[str, Any]] = []
     if thinking_text:
-        thinking_chain.append(
-            {"kind": "reasoning", "text": thinking_text[:_THINKING_TEXT_LIMIT]}
-        )
+        thinking_chain.append({"kind": "reasoning", "text": thinking_text[:_THINKING_TEXT_LIMIT]})
     search_blocks: list[dict[str, Any]] = []
     if references:
         search_blocks.append(
@@ -1908,8 +1989,37 @@ def _trim_response(text: str) -> str:
 
 
 def _references_from_dom(page: Any) -> list[dict[str, Any]]:
-    """best-effort 抓引用卡片（GUESS 选择器）：只收真实 http(s) href，按 URL 去重。"""
-    refs: list[dict[str, Any]] = []
+    """抽取检索资料列表。优先校准路径（思考折叠块 doc 列表，零交互 textContent
+    读取；标题按最后一个「 - 」拆站点后缀，url 平台不暴露 → None 诚实缺省）；
+    空则走旧 a[href] GUESS 兜底组（当前 UI 零命中）。绝不编造条目/URL。"""
+    try:
+        rows = page.evaluate(_REFS_FROM_DOCS_JS)
+    except Exception:
+        rows = None
+    if isinstance(rows, list):
+        refs: list[dict[str, Any]] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            text = str(row.get("text") or "").strip()
+            if not text:
+                continue
+            title, sep, site = text.rpartition(" - ")
+            if not sep:
+                title, site = text, ""
+            refs.append(
+                {
+                    "url": None,
+                    "title": title.strip() or text,
+                    "sitename": site.strip() or None,
+                    "summary": None,
+                    "index": len(refs),
+                }
+            )
+        if refs:
+            return refs
+    # 旧 GUESS a[href] 兜底组（当前 UI 零命中；有真实链接卡片形态时收 href）
+    refs = []
     seen: set[str] = set()
     for sel in _REFERENCE_SELECTORS:
         try:

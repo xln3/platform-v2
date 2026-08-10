@@ -17,7 +17,7 @@ from temporalio.exceptions import ApplicationError
 
 from domain.evidence.dlp import assert_secret_free
 from workflows.activities import doubao_adapter
-from workflows.activities.collection import CollectionTaskInput
+from workflows.activities.collection import CollectionEvidenceRef, CollectionTaskInput
 from workflows.activities.doubao_adapter import (
     CollectedAnswer,
     DoubaoAdapterConfig,
@@ -175,9 +175,7 @@ async def test_deep_think_toggle_failure_is_non_retryable(adapter_env: Path) -> 
     """toggle 无法确认启用 → deep_think_toggle_failed，绝不静默回退 normal。"""
     evidence = adapter_env / "run-7-task-3-a1-deep_think.png"
     evidence.write_bytes(b"\x89PNG-fake")
-    session = _FakeSession(
-        error=_DeepThinkToggleFailed("picker still reads 快速", evidence)
-    )
+    session = _FakeSession(error=_DeepThinkToggleFailed("picker still reads 快速", evidence))
     with pytest.raises(ApplicationError) as exc_info:
         await run_doubao_collection(
             _item(mode="deep_think"),
@@ -337,6 +335,8 @@ def test_source_screenshot_prefers_citation_summary_over_cookie_banner(
     assert audit == {"requested": 1, "captured": 1, "failures": []}
     assert evidence[0].cited_text == summary
     assert overlays[0]["mention"] == summary
+
+
 # ---------------------------------------------------------------------------
 # fake browser 全事件序列测试（_PlaywrightDoubaoSession.collect 全程 mock 驱动，
 # 记录 page 事件序列，验证拟人化接线 / 新会话纪律 / 优雅关闭）
@@ -379,9 +379,12 @@ class _FakeClock:
 
 
 class _FakeCDP:
+    """共享总线 fake：同页多个 CDP session（既有 _CompletionCapture + 2026-08-10
+    起的 RawTrafficCapture）各自 on 注册——handlers 为名单，emit 广播给全部。"""
+
     def __init__(self, page: _FakePage) -> None:
         self._page = page
-        self.handlers: dict[str, Callable[[dict[str, Any]], None]] = {}
+        self.handlers: dict[str, list[Callable[[dict[str, Any]], None]]] = {}
         self.detached = 0
 
     def send(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -390,23 +393,27 @@ class _FakeCDP:
         return {}
 
     def on(self, name: str, fn: Callable[[dict[str, Any]], None]) -> None:
-        self.handlers[name] = fn
+        self.handlers.setdefault(name, []).append(fn)
 
     def detach(self) -> None:
         self.detached += 1
 
+    def _emit(self, name: str, payload: dict[str, Any]) -> None:
+        for fn in self.handlers.get(name, []):
+            fn(payload)
+
     def emit_completion(self) -> None:
         rid = "req-1"
-        self.handlers["Network.requestWillBeSent"](
-            {"requestId": rid, "request": {"url": "https://www.doubao.com/chat/completion"}}
+        self._emit(
+            "Network.requestWillBeSent",
+            {"requestId": rid, "request": {"url": "https://www.doubao.com/chat/completion"}},
         )
-        self.handlers["Network.responseReceived"](
-            {"requestId": rid, "response": {"mimeType": "text/event-stream"}}
+        self._emit(
+            "Network.responseReceived",
+            {"requestId": rid, "response": {"mimeType": "text/event-stream"}},
         )
-        self.handlers["Network.dataReceived"](
-            {"requestId": rid, "dataLength": len(_SSE_BODY)}
-        )
-        self.handlers["Network.loadingFinished"]({"requestId": rid, "encodedDataLength": 1})
+        self._emit("Network.dataReceived", {"requestId": rid, "dataLength": len(_SSE_BODY)})
+        self._emit("Network.loadingFinished", {"requestId": rid, "encodedDataLength": 1})
 
 
 class _FakeMouse:
@@ -672,9 +679,7 @@ def _install_fake_browser(monkeypatch: pytest.MonkeyPatch, page: _FakePage) -> N
         "load_sync_browser_driver",
         lambda: ("fake", _sync_playwright, TimeoutError),
     )
-    monkeypatch.setattr(
-        doubao_adapter, "time", SimpleNamespace(monotonic=page.clock.monotonic)
-    )
+    monkeypatch.setattr(doubao_adapter, "time", SimpleNamespace(monotonic=page.clock.monotonic))
     real_clean = doubao_adapter._clean_profile_crash_state
 
     def _clean_spy(profile_dir: Path) -> bool:
@@ -722,9 +727,7 @@ async def test_session_collect_full_humanized_flow(
     prefs_dir = tmp_path / "Default"
     prefs_dir.mkdir()
     (prefs_dir / "Preferences").write_text(
-        json.dumps(
-            {"profile": {"exit_type": "Crashed", "exited_cleanly": False}, "other_key": 1}
-        ),
+        json.dumps({"profile": {"exit_type": "Crashed", "exited_cleanly": False}, "other_key": 1}),
         encoding="utf-8",
     )
     page = _FakePage(messages=0)
@@ -841,9 +844,7 @@ def test_fresh_chat_clicks_new_conversation_button() -> None:
         shot=_recording_shot([]),
     )
     assert page.messages == 0  # 点了「新对话」
-    clicks = [
-        e for e in page.events if e[0] == "mouse_click" and _in_bb(_NEW_CHAT_BB, e[1], e[2])
-    ]
+    clicks = [e for e in page.events if e[0] == "mouse_click" and _in_bb(_NEW_CHAT_BB, e[1], e[2])]
     assert len(clicks) == 1
     assert not [e for e in page.events if e[0] == "goto"]  # 按钮优先，不动导航兜底
 
@@ -1024,8 +1025,9 @@ def test_collect_batch_shares_one_browser_session(
         assert (evidence / f"{spec.file_stem}.png").is_file()
         assert (evidence / f"{spec.file_stem}-sse-trace.json").is_file()
 
-    # 6) 每题 CDP capture 题末 detach（3 题 = 3 次）
-    assert page.cdp.detached == 3
+    # 6) 每题两个 CDP session（既有 completion capture + 2026-08-10 起的
+    #    RawTrafficCapture）题末各自 detach（3 题 = 6 次）
+    assert page.cdp.detached == 6
 
 
 def test_collect_batch_wall_aborts_remaining_items(
@@ -1061,6 +1063,118 @@ def test_collect_batch_wall_aborts_remaining_items(
     # 优雅关闭仍发生（撞墙后 finally close + 崩溃清理）
     assert len([e for e in events if e[0] == "context_close"]) == 1
     assert events[-1] == ("clean",)
+
+
+# ---------------------------------------------------------------------------
+# 原始流量证据（2026-08-10 起，用户拍板默认开）：ok/失败题均留 sse_raw+har
+# ---------------------------------------------------------------------------
+
+
+def test_collect_batch_ok_item_carries_raw_capture_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ok 题出两条新 ref：sse_raw（completion 原始响应体原文）+ har（本题 HAR）。
+    kind 绝不复用 "sse"（trace 端点硬过滤 kind='sse' AND relation='answer_sse_trace'）。"""
+    page = _FakePage(messages=0)
+    session = _make_session(tmp_path, monkeypatch, page)
+    specs = _batch_specs(2)
+
+    outcomes = session.collect_batch(specs, on_stage=lambda s: None)
+
+    assert [o.status for o in outcomes] == ["ok", "ok"]
+    evidence = tmp_path / "evidence"
+    for outcome, spec in zip(outcomes, specs, strict=True):
+        assert outcome.answer is not None
+        by_kind = {ref.kind: ref for ref in outcome.answer.evidence}
+        assert "sse" in by_kind  # 结构化 trace 照旧
+        assert by_kind["sse_raw"].relation_type == "answer_sse_raw"
+        assert by_kind["sse_raw"].mime_type == "text/event-stream"
+        assert by_kind["har"].relation_type == "answer_har"
+        assert by_kind["har"].mime_type == "application/har+json"
+        raw_path = evidence / f"{spec.file_stem}-sse-raw.txt"
+        har_path = evidence / f"{spec.file_stem}-har.json"
+        assert by_kind["sse_raw"].path == str(raw_path)
+        assert by_kind["har"].path == str(har_path)
+        assert raw_path.read_text(encoding="utf-8") == _SSE_BODY  # 原文零加工
+        har = json.loads(har_path.read_text(encoding="utf-8"))
+        assert har["log"]["creator"]["name"] == "geo-doubao-adapter"
+        urls = [entry["request"]["url"] for entry in har["log"]["entries"]]
+        assert any("/chat/completion" in url for url in urls)
+
+
+def test_collect_batch_wall_item_carries_raw_har_ref(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """失败题（wall_send，发送被吞→无 completion 流）：sse_raw 诚实缺省，HAR
+    仍落盘挂到失败 outcome；aborted 题零交互零证据。"""
+    page = _FakePage(messages=0, swallow_sends_from=2)
+    session = _make_session(tmp_path, monkeypatch, page)
+    specs = _batch_specs(3)
+
+    outcomes = session.collect_batch(specs, on_stage=lambda s: None)
+
+    assert [o.status for o in outcomes] == ["ok", "wall", "aborted"]
+    wall = outcomes[1]
+    assert [ref.kind for ref in wall.evidence] == ["har"]
+    assert wall.evidence[0].relation_type == "answer_har"
+    har_path = tmp_path / "evidence" / f"{specs[1].file_stem}-har.json"
+    assert wall.evidence[0].path == str(har_path) and har_path.is_file()
+    assert outcomes[2].evidence == []  # aborted：零浏览器交互，无证据可留
+
+
+def test_collect_batch_raw_capture_disabled_restores_prior_behavior(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GEO_RAW_CAPTURE=0 全关：不建第二个 CDP session、不落新文件、不出新 ref。"""
+    monkeypatch.setenv("GEO_RAW_CAPTURE", "0")
+    page = _FakePage(messages=0)
+    session = _make_session(tmp_path, monkeypatch, page)
+
+    outcomes = session.collect_batch(_batch_specs(1), on_stage=lambda s: None)
+
+    assert outcomes[0].status == "ok"
+    assert outcomes[0].answer is not None
+    kinds = [ref.kind for ref in outcomes[0].answer.evidence]
+    assert "sse_raw" not in kinds and "har" not in kinds
+    evidence = tmp_path / "evidence"
+    assert not list(evidence.glob("*-sse-raw.txt"))
+    assert not list(evidence.glob("*-har.json"))
+    assert page.cdp.detached == 1  # 只剩既有 completion capture
+
+
+def test_batch_item_result_maps_raw_evidence_refs() -> None:
+    """outcome→result 映射：ok 题 evidence 原样并入（截图前置逻辑不变）；失败题
+    outcome.evidence 原样透传（persist 层 `_persist_collection_failure` 的输入）。"""
+    ref = CollectionEvidenceRef(
+        kind="har",
+        path="/tmp/x-har.json",
+        relation_type="answer_har",
+        mime_type="application/har+json",
+        source_url=None,
+    )
+    ok_outcome = doubao_adapter.DoubaoBatchItemOutcome(
+        business_key="run-7-task-3",
+        status="ok",
+        answer=CollectedAnswer(
+            answer_text="答案",
+            references=[],
+            screenshot_path=Path("/tmp/x.png"),
+            evidence=[ref],
+        ),
+    )
+    ok_result = doubao_adapter._batch_item_result(_item(), ok_outcome)
+    assert [r.kind for r in ok_result.evidence] == ["answer_screenshot", "har"]
+
+    wall_outcome = doubao_adapter.DoubaoBatchItemOutcome(
+        business_key="run-7-task-3",
+        status="wall",
+        error_type="wall_send",
+        error_message="send-not-accepted",
+        evidence=[ref],
+    )
+    wall_result = doubao_adapter._batch_item_result(_item(), wall_outcome)
+    assert wall_result.status == "wall"
+    assert [r.kind for r in wall_result.evidence] == ["har"]
 
 
 async def test_run_doubao_batch_maps_outcomes(

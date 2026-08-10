@@ -1,6 +1,7 @@
 """通义千问采集适配器 v1 单元测试：浏览器层全部 mock（依赖注入 fake session），
-绝不启动真浏览器。覆盖：成功字段映射 / 登录墙 non_retryable / deep_think 拒绝 /
-profile 未配置 / 发送墙证据 / screenshot_ref+answer 过 DLP / 代理口令打码。
+绝不启动真浏览器。覆盖：成功字段映射 / 登录墙 non_retryable / 未知 mode 拒绝
+（normal/deep_think 放行且 mode 透传）/ profile 未配置 / 发送墙证据 /
+screenshot_ref+answer 过 DLP / 代理口令打码 / 思考链抽取与 trace 词表。
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from workflows.activities.tongyi_adapter import (
     TongyiAdapterConfig,
     _build_tongyi_trace,
     _composer_value_empty,
+    _extract_tongyi_thinking,
     _task_result_from_collected,
     _WallError,
     mask_proxy_url,
@@ -49,10 +51,14 @@ class _FakeSession:
         self._result = result
         self._error = error
         self.stages: list[str] = []
+        self.seen_mode: str | None = None
 
-    def collect(self, query: str, on_stage: Callable[[str], None]) -> CollectedAnswer:
+    def collect(
+        self, query: str, on_stage: Callable[[str], None], *, mode: str = "normal"
+    ) -> CollectedAnswer:
         on_stage("fake_stage")
         self.stages.append("fake_stage")
+        self.seen_mode = mode
         if self._error is not None:
             raise self._error
         assert self._result is not None
@@ -137,17 +143,39 @@ async def test_send_wall_is_non_retryable(adapter_env: Path) -> None:
     assert "evidence=" in str(exc_info.value)
 
 
-async def test_deep_think_rejected_as_unsupported_mode(adapter_env: Path) -> None:
+async def test_unknown_mode_rejected_as_unsupported(adapter_env: Path) -> None:
     session = _FakeSession(result=None)
     with pytest.raises(ApplicationError) as exc_info:
         await run_tongyi_collection(
-            _item(mode="deep_think"),
+            _item(mode="expert"),
             session_factory=_factory(session),
             heartbeat=lambda p: None,
         )
     assert exc_info.value.type == "unsupported_mode"
     assert exc_info.value.non_retryable is True
     assert session.stages == []  # mode 门在浏览器启动之前
+
+
+async def test_deep_think_accepted_and_mode_forwarded(adapter_env: Path) -> None:
+    """deep_think（思考研究）20260810 起放行：mode 原样透传 session 层。"""
+    shot = adapter_env / "run-9-task-2-a1.png"
+    shot.write_bytes(b"\x89PNG-fake")
+    session = _FakeSession(
+        result=CollectedAnswer(
+            answer_text="思考研究回答",
+            references=[],
+            screenshot_path=shot,
+            search_queries=[{"query": "通义千问 评测", "ordinal": 1}],
+        )
+    )
+    result = await run_tongyi_collection(
+        _item(mode="deep_think"),
+        session_factory=_factory(session),
+        heartbeat=lambda p: None,
+    )
+    assert session.seen_mode == "deep_think"
+    assert result.quality_state == "live_valid"
+    assert result.search_queries == [{"query": "通义千问 评测", "ordinal": 1}]
 
 
 async def test_missing_profile_dir_is_adapter_not_configured(
@@ -212,13 +240,14 @@ def test_composer_value_empty_recognizes_qianwen_placeholder() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 结构化 trace 证据（20260810，kind="sse"/transport="dom"；思考链/检索词平台
-# 未暴露，诚实留空——引用卡片折叠为唯一内容）
+# 结构化 trace 证据（20260810，kind="sse"/transport="dom"；deep_think 起思考链/
+# 检索词自思考流程卡抽取折叠，normal 维持 refs-only 行为）
 # ---------------------------------------------------------------------------
 
 
 def test_build_tongyi_trace_shape() -> None:
-    """refs → search_blocks 折叠（DeepSeek 形态）；thinking_chain/queries 诚实留空。"""
+    """normal 回归：refs → search_blocks 折叠（DeepSeek 形态）；thinking_chain/
+    queries 空（thinking=None 时与旧版行为完全一致）。"""
     refs = [
         {"url": "https://example.com/a", "title": "标题A", "sitename": "站点A"},
         {"url": "https://example.com/b", "title": None, "sitename": None},
@@ -243,6 +272,144 @@ def test_build_tongyi_trace_shape() -> None:
     assert block["results"][1]["summary"] == ""
     empty = _build_tongyi_trace([])
     assert empty["search_blocks"] == []
+
+
+def test_build_tongyi_trace_deep_think_full_shape() -> None:
+    """deep_think 全量：reasoning/search 步骤进 thinking_chain，搜索步骤 results
+    折叠为独立 search_block，references 折叠照常保留，queries 放平台真实检索词，
+    deep_think_active 以实际抽到思考卡为准。"""
+    thinking = {
+        "card_found": True,
+        "steps": [
+            {"kind": "reasoning", "title": "检索最新资产搜索评测", "text": "需搜索最新信息"},
+            {"kind": "reasoning", "title": "已完成思考", "text": ""},
+            {
+                "kind": "search",
+                "title": "搜索 2 个关键词，参考 3 篇资料",
+                "queries": ["资产搜索引擎对比", "测绘引擎排名"],
+                "results": [
+                    {"title": "结果一", "url": "https://example.com/r1"},
+                    {"title": "结果二", "url": None},
+                ],
+            },
+        ],
+        "queries": ["资产搜索引擎对比", "测绘引擎排名"],
+        "thinking_text": "检索最新资产搜索评测\n需搜索最新信息",
+    }
+    refs = [{"url": "https://example.com/a", "title": "标题A", "sitename": "站点A"}]
+    trace = _build_tongyi_trace(refs, thinking=thinking)
+    assert trace["engine"] == "tongyi"
+    assert trace["transport"] == "dom"
+    assert trace["deep_think_active"] is True
+    assert trace["queries"] == ["资产搜索引擎对比", "测绘引擎排名"]
+    chain = trace["thinking_chain"]
+    assert chain[0] == {
+        "kind": "reasoning",
+        "text": "检索最新资产搜索评测\n需搜索最新信息",
+    }
+    assert chain[1] == {"kind": "reasoning", "text": "已完成思考"}  # 标题即内容
+    assert chain[2] == {
+        "kind": "search",
+        "queries": ["资产搜索引擎对比", "测绘引擎排名"],
+        "summary": "搜索 2 个关键词，参考 3 篇资料",
+    }
+    blocks = trace["search_blocks"]
+    assert len(blocks) == 2  # 搜索步骤块 + references 折叠块
+    step_block = blocks[0]
+    assert step_block["queries"] == ["资产搜索引擎对比", "测绘引擎排名"]
+    assert step_block["summary"] == "搜索 2 个关键词，参考 3 篇资料"
+    assert step_block["results"][0] == {
+        "title": "结果一",
+        "url": "https://example.com/r1",
+        "site": None,
+        "rank": 1,
+        "summary": "",
+    }
+    assert step_block["results"][1]["url"] is None  # 无锚点诚实缺省
+    assert [r["url"] for r in blocks[1]["results"]] == ["https://example.com/a"]
+    # 无 references 时思考卡内容照样出 trace（写盘门由 card_found 决定）
+    no_refs = _build_tongyi_trace([], thinking=thinking)
+    assert len(no_refs["search_blocks"]) == 1
+    assert no_refs["deep_think_active"] is True
+    # 卡片缺货：deep_think_active 诚实标 False，不出思考链
+    missing = _build_tongyi_trace(refs, thinking={"card_found": False, "steps": [], "queries": []})
+    assert missing["deep_think_active"] is False
+    assert missing["thinking_chain"] == []
+
+
+# ---------------------------------------------------------------------------
+# 思考流程卡抽取（_extract_tongyi_thinking；fake evaluate 注入探针产出）
+# ---------------------------------------------------------------------------
+
+
+class _ThinkingProbePage:
+    """只实现 evaluate 的页面替身：按注入载荷/异常模拟探针结果。"""
+
+    def __init__(self, payload: Any = None, *, raises: bool = False) -> None:
+        self._payload = payload
+        self._raises = raises
+
+    def evaluate(self, _script: str) -> Any:
+        if self._raises:
+            raise RuntimeError("probe exploded")
+        return self._payload
+
+
+def _probe_payload() -> dict[str, Any]:
+    """JS 探针在真实 deep_think 页（probe11）上的产出形状（引号已 strip、
+    隐藏副本已去重——JS 侧行为由本地 chromium 对存档 DOM 一次性验证）。"""
+    return {
+        "card_found": True,
+        "steps": [
+            {
+                "kind": "reasoning",
+                "title": "检索最新资产搜索评测",
+                "text": "需搜索最新信息，而非仅依赖既有结果。",
+            },
+            {
+                "kind": "search",
+                "title": "搜索 2 个关键词，参考 3 篇资料",
+                "queries": ["资产搜索引擎对比", "测绘引擎排名"],
+                "results": [
+                    {"title": "结果一", "url": "https://example.com/r1"},
+                    {"title": "", "url": "https://example.com/skip"},  # 空标题丢弃
+                    "garbage",
+                ],
+            },
+            {"kind": "reasoning", "title": "已完成思考", "text": ""},
+        ],
+        "queries": ["资产搜索引擎对比", "测绘引擎排名"],
+    }
+
+
+def test_extract_tongyi_thinking_full_card() -> None:
+    thinking = _extract_tongyi_thinking(_ThinkingProbePage(_probe_payload()))
+    assert thinking["card_found"] is True
+    assert thinking["queries"] == ["资产搜索引擎对比", "测绘引擎排名"]
+    steps = thinking["steps"]
+    assert [s["kind"] for s in steps] == ["reasoning", "search", "reasoning"]
+    assert steps[0]["text"] == "需搜索最新信息，而非仅依赖既有结果。"
+    assert steps[1]["results"] == [{"title": "结果一", "url": "https://example.com/r1"}]
+    assert steps[2]["text"] == ""
+    assert thinking["thinking_text"] == (
+        "检索最新资产搜索评测\n需搜索最新信息，而非仅依赖既有结果。"
+    )
+
+
+def test_extract_tongyi_thinking_truncates_long_reasoning() -> None:
+    payload = _probe_payload()
+    payload["steps"][0]["text"] = "长" * 6_000
+    thinking = _extract_tongyi_thinking(_ThinkingProbePage(payload))
+    assert len(thinking["steps"][0]["text"]) == 5_000  # 对齐豆包水位
+
+
+def test_extract_tongyi_thinking_honest_empty() -> None:
+    """无卡 / 非 dict / 探针异常 → 统一空形状（零合成，绝不编造思考链）。"""
+    empty = {"card_found": False, "steps": [], "queries": [], "thinking_text": ""}
+    assert _extract_tongyi_thinking(_ThinkingProbePage(None)) == empty
+    assert _extract_tongyi_thinking(_ThinkingProbePage({"card_found": False})) == empty
+    assert _extract_tongyi_thinking(_ThinkingProbePage("junk")) == empty
+    assert _extract_tongyi_thinking(_ThinkingProbePage(raises=True)) == empty
 
 
 def test_task_result_maps_trace_evidence(tmp_path: Path) -> None:

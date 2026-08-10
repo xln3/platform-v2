@@ -103,9 +103,12 @@ class _FakeClock:
 
 
 class _FakeCDP:
+    """共享总线 fake：同页多个 CDP session（既有 _CompletionCapture + 2026-08-10
+    起的 RawTrafficCapture）各自 on 注册——handlers 为名单，emit 广播给全部。"""
+
     def __init__(self, page: _FakePage) -> None:
         self._page = page
-        self.handlers: dict[str, Callable[[dict[str, Any]], None]] = {}
+        self.handlers: dict[str, list[Callable[[dict[str, Any]], None]]] = {}
         self.detached = 0
 
     def send(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -114,24 +117,30 @@ class _FakeCDP:
         return {}
 
     def on(self, name: str, fn: Callable[[dict[str, Any]], None]) -> None:
-        self.handlers[name] = fn
+        self.handlers.setdefault(name, []).append(fn)
 
     def detach(self) -> None:
         self.detached += 1
 
+    def _emit(self, name: str, payload: dict[str, Any]) -> None:
+        for fn in self.handlers.get(name, []):
+            fn(payload)
+
     def emit_completion(self) -> None:
         rid = "req-1"
-        self.handlers["Network.requestWillBeSent"](
+        self._emit(
+            "Network.requestWillBeSent",
             {
                 "requestId": rid,
                 "request": {"url": "https://chat.deepseek.com/api/v0/chat/completion"},
-            }
+            },
         )
-        self.handlers["Network.responseReceived"](
-            {"requestId": rid, "response": {"mimeType": "text/event-stream"}}
+        self._emit(
+            "Network.responseReceived",
+            {"requestId": rid, "response": {"mimeType": "text/event-stream"}},
         )
-        self.handlers["Network.dataReceived"]({"requestId": rid, "dataLength": len(_SSE_BODY)})
-        self.handlers["Network.loadingFinished"]({"requestId": rid, "encodedDataLength": 1})
+        self._emit("Network.dataReceived", {"requestId": rid, "dataLength": len(_SSE_BODY)})
+        self._emit("Network.loadingFinished", {"requestId": rid, "encodedDataLength": 1})
 
 
 class _FakeMouse:
@@ -310,9 +319,7 @@ class _FakePage:
     def route_send(self) -> None:
         """发送副作用（Enter 主路径与发送按钮兜底共用）。"""
         self.send_attempts += 1
-        if self.swallow_sends_from is not None and self.send_attempts >= (
-            self.swallow_sends_from
-        ):
+        if self.swallow_sends_from is not None and self.send_attempts >= (self.swallow_sends_from):
             return  # 风控吞发送：composer 不清空、无 completion 流
         self.composer_value = ""  # 发送被受理：composer 清空
         self.messages = 2  # 一问一答出现在页面（下一题需点「新对话」）
@@ -414,9 +421,7 @@ def _install_fake_browser(monkeypatch: pytest.MonkeyPatch, page: _FakePage) -> N
         "load_sync_browser_driver",
         lambda: ("fake", _sync_playwright, TimeoutError),
     )
-    monkeypatch.setattr(
-        deepseek_adapter, "time", SimpleNamespace(monotonic=page.clock.monotonic)
-    )
+    monkeypatch.setattr(deepseek_adapter, "time", SimpleNamespace(monotonic=page.clock.monotonic))
     real_clean = deepseek_adapter._clean_profile_crash_state
 
     def _clean_spy(profile_dir: Path) -> bool:
@@ -463,9 +468,7 @@ async def test_session_collect_full_humanized_flow(
     prefs_dir = tmp_path / "Default"
     prefs_dir.mkdir()
     (prefs_dir / "Preferences").write_text(
-        json.dumps(
-            {"profile": {"exit_type": "Crashed", "exited_cleanly": False}, "other_key": 1}
-        ),
+        json.dumps({"profile": {"exit_type": "Crashed", "exited_cleanly": False}, "other_key": 1}),
         encoding="utf-8",
     )
     page = _FakePage(messages=0)
@@ -499,9 +502,7 @@ async def test_session_collect_full_humanized_flow(
     assert composer_clicks and enter_presses
     assert composer_clicks[0] < first_key < last_key < enter_presses[0]
     # Enter 主路径一次受理：全程不碰发送按钮（发送按钮只是兜底路径）
-    assert not [
-        e for e in events if e[0] == "mouse_click" and _in_bb(_SEND_BB, e[1], e[2])
-    ]
+    assert not [e for e in events if e[0] == "mouse_click" and _in_bb(_SEND_BB, e[1], e[2])]
 
     # 3) 发送前有 0.5-1.5s 通读停顿；页面就绪后有 0.6-1.8s 端详停顿
     pre_send_waits = [e[1] for e in events[last_key : enter_presses[0]] if e[0] == "wait"]
@@ -557,9 +558,7 @@ def test_fresh_chat_clicks_new_conversation_button() -> None:
         shot=_recording_shot([]),
     )
     assert page.messages == 0  # 点了「新对话」
-    clicks = [
-        e for e in page.events if e[0] == "mouse_click" and _in_bb(_NEW_CHAT_BB, e[1], e[2])
-    ]
+    clicks = [e for e in page.events if e[0] == "mouse_click" and _in_bb(_NEW_CHAT_BB, e[1], e[2])]
     assert len(clicks) == 1
     assert not [e for e in page.events if e[0] == "goto"]  # 按钮优先，不动导航兜底
 
@@ -646,9 +645,7 @@ def test_collect_batch_shares_one_browser_session(
     assert len([e for e in events if e == ("press", "Enter")]) == 3
 
     # 3) fresh_chat 消息计数探针每题都跑（>=3 次；第 2/3 题答案残留需点「新对话」）
-    count_probes = [
-        e for e in events if e == ("evaluate", deepseek_adapter._CHAT_MESSAGE_COUNT_JS)
-    ]
+    count_probes = [e for e in events if e == ("evaluate", deepseek_adapter._CHAT_MESSAGE_COUNT_JS)]
     assert len(count_probes) >= 3
     new_chat_clicks = [
         e for e in events if e[0] == "mouse_click" and _in_bb(_NEW_CHAT_BB, e[1], e[2])
@@ -668,8 +665,9 @@ def test_collect_batch_shares_one_browser_session(
     for spec in specs:
         assert (evidence / f"{spec.file_stem}.png").is_file()
 
-    # 6) 每题 CDP capture 题末 detach（3 题 = 3 次）
-    assert page.cdp.detached == 3
+    # 6) 每题两个 CDP session（既有 completion capture + 2026-08-10 起的
+    #    RawTrafficCapture）题末各自 detach（3 题 = 6 次）
+    assert page.cdp.detached == 6
 
 
 def test_collect_batch_wall_aborts_remaining_items(
@@ -978,18 +976,13 @@ async def test_collect_one_deep_think_enables_toggles_before_typing(
         i
         for i, e in enumerate(page.events)
         if e[0] == "mouse_click"
-        and (
-            _in_bb(_CHIP_BB["深度思考"], e[1], e[2])
-            or _in_bb(_FAST_TAB_BB, e[1], e[2])
-        )
+        and (_in_bb(_CHIP_BB["深度思考"], e[1], e[2]) or _in_bb(_FAST_TAB_BB, e[1], e[2]))
     ]
     # tab + 深度思考各点一次（智能搜索已开零点击），且全部先于打字
     assert len(toggle_clicks) == 2
     assert max(toggle_clicks) < first_key
     assert not [
-        e
-        for e in page.events
-        if e[0] == "mouse_click" and _in_bb(_CHIP_BB["智能搜索"], e[1], e[2])
+        e for e in page.events if e[0] == "mouse_click" and _in_bb(_CHIP_BB["智能搜索"], e[1], e[2])
     ]
 
 
@@ -1123,9 +1116,7 @@ async def test_collect_one_normal_turns_deep_think_off(
     assert len(think_clicks) == 1 and think_clicks[0] < first_key
     # 智能搜索已在目标态 → 零点击；tab 已是快速 → 零点击
     assert not [
-        e
-        for e in page.events
-        if e[0] == "mouse_click" and _in_bb(_CHIP_BB["智能搜索"], e[1], e[2])
+        e for e in page.events if e[0] == "mouse_click" and _in_bb(_CHIP_BB["智能搜索"], e[1], e[2])
     ]
     assert not [
         e for e in page.events if e[0] == "mouse_click" and _in_bb(_FAST_TAB_BB, e[1], e[2])
@@ -1153,8 +1144,100 @@ async def test_collect_one_normal_turns_search_on(
     assert result.quality_state == "live_valid"
     assert page.chips == {"深度思考": False, "智能搜索": True}
     search_clicks = [
-        e
-        for e in page.events
-        if e[0] == "mouse_click" and _in_bb(_CHIP_BB["智能搜索"], e[1], e[2])
+        e for e in page.events if e[0] == "mouse_click" and _in_bb(_CHIP_BB["智能搜索"], e[1], e[2])
     ]
     assert len(search_clicks) == 1
+
+
+# ---------------------------------------------------------------------------
+# 原始流量证据（2026-08-10 起，用户拍板默认开）：ok/失败题均留 sse_raw+har
+# ---------------------------------------------------------------------------
+
+
+def test_collect_batch_ok_item_carries_raw_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ok 题出 sse_raw+har 两条新 ref（kind 绝不复用 "sse"——trace 端点硬过滤
+    词表），文件逐题落盘。"""
+    page = _FakePage(messages=0)
+    session = _make_session(tmp_path, monkeypatch, page)
+    specs = _batch_specs(2)
+
+    outcomes = session.collect_batch(specs, on_stage=lambda s: None)
+
+    assert [o.status for o in outcomes] == ["ok", "ok"]
+    evidence = tmp_path / "evidence"
+    for outcome, spec in zip(outcomes, specs, strict=True):
+        assert outcome.answer is not None
+        by_kind = {ref.kind: ref for ref in outcome.answer.raw_evidence}
+        assert by_kind["sse_raw"].relation_type == "answer_sse_raw"
+        assert by_kind["sse_raw"].mime_type == "text/event-stream"
+        assert by_kind["har"].relation_type == "answer_har"
+        assert by_kind["har"].mime_type == "application/har+json"
+        raw_path = evidence / f"{spec.file_stem}-sse-raw.txt"
+        har_path = evidence / f"{spec.file_stem}-har.json"
+        assert by_kind["sse_raw"].path == str(raw_path)
+        assert by_kind["har"].path == str(har_path)
+        assert raw_path.read_text(encoding="utf-8") == _SSE_BODY  # 原文零加工
+        har = json.loads(har_path.read_text(encoding="utf-8"))
+        assert har["log"]["creator"]["name"] == "geo-deepseek-adapter"
+        urls = [entry["request"]["url"] for entry in har["log"]["entries"]]
+        assert any("/api/v0/chat/completion" in url for url in urls)
+
+
+def test_batch_item_result_maps_raw_evidence_refs() -> None:
+    """outcome→result 映射：ok 题 raw_evidence 并入 result.evidence；失败题
+    outcome.evidence 原样透传（persist 层 `_persist_collection_failure` 的输入）。"""
+    from workflows.activities.collection import CollectionEvidenceRef
+
+    ref = CollectionEvidenceRef(
+        kind="har",
+        path="/tmp/x-har.json",
+        relation_type="answer_har",
+        mime_type="application/har+json",
+        source_url=None,
+    )
+    ok_outcome = deepseek_adapter.DeepseekBatchItemOutcome(
+        business_key="run-9-task-5",
+        status="ok",
+        answer=CollectedAnswer(
+            answer_text="答案",
+            references=[],
+            screenshot_path=Path("/tmp/x.png"),
+            raw_evidence=[ref],
+        ),
+    )
+    ok_result = deepseek_adapter._batch_item_result(_item(), ok_outcome)
+    assert [r.kind for r in ok_result.evidence] == ["har"]
+
+    wall_outcome = deepseek_adapter.DeepseekBatchItemOutcome(
+        business_key="run-9-task-5",
+        status="wall",
+        error_type="wall_send",
+        error_message="send-not-accepted",
+        evidence=[ref],
+    )
+    wall_result = deepseek_adapter._batch_item_result(_item(), wall_outcome)
+    assert wall_result.status == "wall"
+    assert [r.kind for r in wall_result.evidence] == ["har"]
+
+
+def test_collect_batch_wall_item_carries_raw_har_ref(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """失败题（wall_send，发送被吞→无 completion 流）：sse_raw 诚实缺省，HAR
+    仍落盘挂到失败 outcome；aborted 题零交互零证据。"""
+    page = _FakePage(messages=0, swallow_sends_from=1)
+    session = _make_session(tmp_path, monkeypatch, page)
+    specs = _batch_specs(2)
+
+    outcomes = session.collect_batch(specs, on_stage=lambda s: None)
+
+    assert [o.status for o in outcomes] == ["wall", "aborted"]
+    wall = outcomes[0]
+    assert wall.error_type == "wall_send"
+    assert [ref.kind for ref in wall.evidence] == ["har"]
+    assert wall.evidence[0].relation_type == "answer_har"
+    har_path = tmp_path / "evidence" / f"{specs[0].file_stem}-har.json"
+    assert wall.evidence[0].path == str(har_path) and har_path.is_file()
+    assert outcomes[1].evidence == []  # aborted：零浏览器交互，无证据可留
