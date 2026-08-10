@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  evidenceDownloadLabel,
   formatByteSize,
   groupEvidenceByKind,
   isImageEvidence,
@@ -76,6 +77,24 @@ describe('mimeExtension', () => {
     expect(mimeExtension('application/json')).toBe('json');
     expect(mimeExtension('text/plain')).toBe('txt');
     expect(mimeExtension('application/octet-stream')).toBe('bin');
+  });
+
+  it('maps the raw-capture evidence mime types (2026-08-10)', () => {
+    expect(mimeExtension('application/har+json')).toBe('json');
+    expect(mimeExtension('text/event-stream')).toBe('txt');
+  });
+});
+
+describe('evidenceDownloadLabel', () => {
+  it('labels the raw-capture evidence kinds (2026-08-10)', () => {
+    expect(evidenceDownloadLabel('har')).toBe('下载 HAR 流量记录 JSON');
+    expect(evidenceDownloadLabel('sse_raw')).toBe('下载原始 SSE 响应');
+  });
+
+  it('keeps the existing kind labels and the fallback', () => {
+    expect(evidenceDownloadLabel('sse')).toBe('下载结构化 trace JSON');
+    expect(evidenceDownloadLabel('share_link')).toBe('下载 JSON');
+    expect(evidenceDownloadLabel('answer_screenshot')).toBe('下载');
   });
 });
 

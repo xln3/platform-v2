@@ -1,8 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import {
-  allowsFixtureIdentityHeaders,
-  type BrowserBuildIdentityEnv,
-} from '@geo/api-client';
+import { allowsFixtureIdentityHeaders, type BrowserBuildIdentityEnv } from '@geo/api-client';
 import {
   executionApi,
   type AnswerRelations,
@@ -65,9 +62,18 @@ export function mimeExtension(mimeType: string): string {
   if (mimeType === 'image/png') return 'png';
   if (mimeType === 'image/jpeg') return 'jpg';
   if (mimeType.startsWith('image/')) return mimeType.slice('image/'.length);
-  if (mimeType === 'application/json') return 'json';
+  if (mimeType === 'application/json' || mimeType === 'application/har+json') return 'json';
   if (mimeType.startsWith('text/')) return 'txt';
   return 'bin';
+}
+
+/** 证据资产下载按钮文案（kind 词表 = collection.py `_EVIDENCE_KINDS`）。 */
+export function evidenceDownloadLabel(kind: string): string {
+  if (kind === 'sse') return '下载结构化 trace JSON';
+  if (kind === 'sse_raw') return '下载原始 SSE 响应';
+  if (kind === 'har') return '下载 HAR 流量记录 JSON';
+  if (kind === 'share_link') return '下载 JSON';
+  return '下载';
 }
 
 export type AnswerEvidence = AnswerRelations['evidence'][number];
@@ -419,11 +425,7 @@ function AnswerDetail({
                           </a>
                         ) : null}
                         <button onClick={() => void downloadAsset(asset)}>
-                          {asset.kind === 'sse'
-                            ? '下载结构化 trace JSON'
-                            : asset.kind === 'share_link'
-                              ? '下载 JSON'
-                              : '下载'}
+                          {evidenceDownloadLabel(asset.kind)}
                         </button>
                         {assetError === asset.pub_id ? (
                           <span className="answer-detail-neutral">下载失败</span>
@@ -448,9 +450,8 @@ function TraceReplay({ trace }: { trace: TaskTrace }) {
     <div className="trace-replay">
       <p className="answer-detail-meta">
         深度思考：{trace.deep_think_active ? '开' : '关'}
-        {trace.thinking_title ? ` · ${trace.thinking_title}` : ''} · 检索{' '}
-        {trace.totals.queries} 词 / {trace.totals.results} 结果 · 思考段{' '}
-        {trace.totals.surfaced_reasoning_steps}
+        {trace.thinking_title ? ` · ${trace.thinking_title}` : ''} · 检索 {trace.totals.queries} 词
+        / {trace.totals.results} 结果 · 思考段 {trace.totals.surfaced_reasoning_steps}
       </p>
       {trace.reasoning.map((step, index) =>
         step.kind === 'surfaced_reasoning' ? (
@@ -460,7 +461,8 @@ function TraceReplay({ trace }: { trace: TaskTrace }) {
         ) : (
           <div key={index} className="trace-search-step">
             <p>
-              检索步骤：{(step.queries ?? []).map((query) => (
+              检索步骤：
+              {(step.queries ?? []).map((query) => (
                 <code key={query}>{query}</code>
               ))}
             </p>
@@ -471,7 +473,8 @@ function TraceReplay({ trace }: { trace: TaskTrace }) {
       {trace.search_blocks.map((block, index) => (
         <div key={index} className="trace-search-block">
           <p>
-            检索：{block.queries.map((query) => (
+            检索：
+            {block.queries.map((query) => (
               <code key={query}>{query}</code>
             ))}
             （{block.result_count} 条结果）

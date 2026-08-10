@@ -18,7 +18,9 @@ const session = {
 type RecordedCall = { url: string; method: string; body: unknown; idempotencyKey: string | null };
 
 function requestOf(input: string | URL | Request): Request {
-  return input instanceof Request ? input : new Request(typeof input === 'string' ? input : input.href);
+  return input instanceof Request
+    ? input
+    : new Request(typeof input === 'string' ? input : input.href);
 }
 
 describe('ConfigLauncher', () => {
@@ -94,7 +96,9 @@ describe('ConfigLauncher', () => {
     );
     // 缺省平台 doubao/deepseek/yiyan：deepseek/yiyan 双 mode（normal+deep_think），
     // 其余单 normal → 平台×模式数 = 1+2+2 = 5。
-    expect(screen.getByText(/0 题 × 5 平台×模式 × 2 地域 = 每轮 0 任务，采样 2 轮共 0 任务/)).toBeTruthy();
+    expect(
+      screen.getByText(/0 题 × 5 平台×模式 × 2 地域 = 每轮 0 任务，采样 2 轮共 0 任务/),
+    ).toBeTruthy();
     fillQuestions('问题一\n问题二\n\n问题三');
     expect(
       screen.getByText(/3 题 × 5 平台×模式 × 2 地域 = 每轮 30 任务，采样 2 轮共 60 任务/),
@@ -106,6 +110,22 @@ describe('ConfigLauncher', () => {
     fireEvent.change(screen.getByLabelText(/采样次数/), { target: { value: '4' } });
     expect(
       screen.getByText(/3 题 × 5 平台×模式 × 1 地域 = 每轮 15 任务，采样 4 轮共 60 任务/),
+    ).toBeTruthy();
+  });
+
+  it('counts tongyi as dual-mode (normal + deep_think) after the 20260810 unlock', () => {
+    render(
+      <ConfigLauncher
+        session={session}
+        projectPubId="prj_test"
+        groupName="品牌AI认知评测"
+        queryPlaceholder="国内网络空间资产搜索引擎哪家强"
+      />,
+    );
+    // 勾选通义千问（思考研究解锁后 normal+deep_think 两种）→ 平台×模式数 5 + 2 = 7
+    fireEvent.click(screen.getByLabelText('通义千问'));
+    expect(
+      screen.getByText(/0 题 × 7 平台×模式 × 2 地域 = 每轮 0 任务，采样 2 轮共 0 任务/),
     ).toBeTruthy();
   });
 
@@ -296,6 +316,8 @@ describe('ConfigLauncher', () => {
     );
     fillQuestions('问题一');
     fireEvent.click(screen.getByRole('button', { name: '冻结并启动采样' }));
-    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('permission_denied'));
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toContain('permission_denied'),
+    );
   });
 });

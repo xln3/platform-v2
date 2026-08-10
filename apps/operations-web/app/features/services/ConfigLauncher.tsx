@@ -33,12 +33,14 @@ function frequencyLabel(value: string): string {
 // 平台 mode 词表（20260810 用户拍板）：deepseek 专家模式不支持搜索——GEO 评测
 // 不测专家，测快速+搜索的「思考关/开」两种组合；元宝联网检索为平台自动行为
 // （无开关），测 Hy3 的「思考关/开」两种；文心测「深度思考」chip 关/开两种
+// （20260810 适配器解锁）；通义测 composer 菜单「快速/思考研究」两种
 // （20260810 适配器解锁）；其余平台仅 normal。与服务端
 // PLATFORM_MODE_CAPABILITIES（workflows/activities/collection.py）保持一致。
 const MODES_BY_MODEL: Record<string, string[]> = {
   deepseek: ['normal', 'deep_think'],
   yuanbao: ['normal', 'deep_think'],
   yiyan: ['normal', 'deep_think'],
+  tongyi: ['normal', 'deep_think'],
 };
 
 function modesForModel(slug: string): string[] {
