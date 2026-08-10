@@ -95,6 +95,12 @@
   align-items: center;
   gap: 6px;
   margin: 0;
+  white-space: nowrap;
+}
+/* 抵消 .config-launcher input{width:100%} 对 checkbox 的误伤（采集平台勾选框竖排换行） */
+.services-page .platform-checks input[type='checkbox'] {
+  width: auto;
+  padding: 0;
 }
 .services-page .inline-fields {
   display: grid;
@@ -340,4 +346,146 @@
   .services-page .section-title {
     display: block;
   }
+}
+
+/* ── 问答证据查看器（RunsPanel 问答展开 + AnswerExplorer 详情对话框）── */
+.services-page .answer-explorer {
+  padding: 6px 4px;
+}
+.services-page .answer-explorer-row td {
+  background: #fafcfb;
+}
+.services-page .answer-row {
+  cursor: pointer;
+}
+.services-page .answer-row:hover {
+  background: #f4f9f5;
+}
+.services-page .answer-explorer-more {
+  text-align: center;
+  margin: 12px 0 4px;
+}
+.services-page .answer-detail-overlay {
+  position: fixed;
+  inset: 0;
+  background: #17211b66;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 16px;
+  overflow: auto;
+  z-index: 60;
+}
+.services-page .answer-detail {
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 18px 60px #17211b33;
+  max-width: 880px;
+  width: 100%;
+  padding: 22px;
+}
+.services-page .answer-detail-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 16px;
+}
+.services-page .answer-detail-head h3 {
+  margin: 0;
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+.services-page .answer-detail-section {
+  border-top: 1px solid #edf0ee;
+  margin-top: 16px;
+  padding-top: 12px;
+}
+.services-page .answer-detail-section h4 {
+  margin: 0 0 8px;
+}
+.services-page .answer-detail-meta {
+  color: #637168;
+  font-size: 13px;
+}
+.services-page .answer-detail-meta code,
+.services-page .trace-replay code {
+  background: #f0f4f1;
+  border-radius: 6px;
+  padding: 1px 6px;
+  margin: 0 2px;
+  font-size: 12px;
+}
+.services-page .answer-detail-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: #f7faf8;
+  border: 1px solid #dde5df;
+  border-radius: 10px;
+  padding: 14px;
+  max-height: 320px;
+  overflow: auto;
+  font: inherit;
+}
+.services-page .answer-detail-neutral {
+  color: #637168;
+  background: #f4f6f5;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.services-page .trace-reasoning {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border-left: 3px solid #cbd9cf;
+  padding-left: 10px;
+  margin: 8px 0;
+}
+.services-page .trace-search-step,
+.services-page .trace-search-block {
+  background: #f7faf8;
+  border: 1px solid #e3eae5;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: 8px 0;
+}
+.services-page .trace-search-block ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+.services-page .trace-search-block li p {
+  margin: 2px 0 8px;
+  color: #637168;
+  font-size: 13px;
+}
+.services-page .trace-disclosure {
+  border-top: 1px dashed #d9e4dc;
+  padding-top: 8px;
+}
+.services-page .evidence-group h5 {
+  margin: 12px 0 4px;
+  font-family: monospace;
+  font-size: 13px;
+  color: #415047;
+}
+.services-page .evidence-asset {
+  border: 1px solid #edf0ee;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: 8px 0;
+}
+.services-page .evidence-asset-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin: 6px 0 0;
+}
+.services-page .evidence-asset-actions a {
+  color: #157347;
+  font-weight: 700;
+}
+.services-page .evidence-image {
+  display: block;
+  max-width: 100%;
+  max-height: 360px;
+  border: 1px solid #dde5df;
+  border-radius: 10px;
 }

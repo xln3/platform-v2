@@ -16,6 +16,10 @@ export type SessionContext = {
 };
 
 export type Pairing = Awaited<ReturnType<typeof executionApi.pairIntervention>>;
+export type AnswerPage = Awaited<ReturnType<typeof executionApi.answers>>;
+export type AnswerRow = AnswerPage['data'][number];
+export type AnswerRelations = Awaited<ReturnType<typeof executionApi.answerRelations>>;
+export type TaskTrace = Awaited<ReturnType<typeof executionApi.taskTrace>>;
 
 export type Account = {
   pub_id: string;
@@ -447,6 +451,37 @@ export const executionApi = {
           platform_result: 'verified',
           evidence_hash: evidenceHash,
         },
+      }),
+    ),
+  answers: async (
+    session: SessionContext,
+    input: { projectPubId: string; runPubId?: string; cursor?: string; limit?: number },
+  ) =>
+    requireData(
+      await client.GET('/api/v2/analytics/answers', {
+        params: {
+          header: session.headers,
+          query: {
+            project_pub_id: input.projectPubId,
+            ...(input.runPubId ? { run_pub_id: input.runPubId } : {}),
+            ...(input.cursor ? { cursor: input.cursor } : {}),
+            limit: input.limit ?? 50,
+          },
+        },
+      }),
+    ),
+  answerRelations: async (session: SessionContext, answerPubId: string) =>
+    requireData(
+      await client.GET('/api/v2/analytics/answers/{answer_pub_id}/relations', {
+        params: { path: { answer_pub_id: answerPubId }, header: session.headers },
+      }),
+    ),
+  // answer_pub_id 与 collection_task.pub_id 同值，可直接当 task id 调 trace 端点。
+  // 无思考链证据的平台（tongyi/yuanbao）返回 404，由调用方按 message 判定中性空态。
+  taskTrace: async (session: SessionContext, taskPubId: string) =>
+    requireData(
+      await client.GET('/api/v2/collection/tasks/{task_pub_id}/trace', {
+        params: { path: { task_pub_id: taskPubId }, header: session.headers },
       }),
     ),
 };
