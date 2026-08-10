@@ -21,6 +21,7 @@
    目标/竞品名本身也先过 normalize_brand（"中意人寿保险"→"中意人寿"）。
 4. 她的"未上榜"哨兵 ranking=999（compare L252 等）→ 本模块用 None（JSON 诚实空值）。
 """
+
 from __future__ import annotations
 
 import statistics
@@ -66,20 +67,16 @@ def calculate_brand_ranking(all_brand_lists: list[list[str]]) -> list[dict[str, 
         occurrences = len(rankings)
         score = occurrences / avg_rank if avg_rank > 0 else 0
         brand_scores[brand] = {
-            'score': round(score, 3),
-            'avg_rank': round(avg_rank, 2),
-            'occurrences': occurrences
+            "score": round(score, 3),
+            "avg_rank": round(avg_rank, 2),
+            "occurrences": occurrences,
         }
 
-    sorted_brands = sorted(brand_scores.items(), key=lambda x: x[1]['score'], reverse=True)
+    sorted_brands = sorted(brand_scores.items(), key=lambda x: x[1]["score"], reverse=True)
 
     result = []
     for rank, (brand, data) in enumerate(sorted_brands, start=1):
-        result.append({
-            'rank': rank,
-            'brand': brand,
-            **data
-        })
+        result.append({"rank": rank, "brand": brand, **data})
 
     return result
 
@@ -110,16 +107,22 @@ def calculate_top_rate(ranks: Sequence[int], top_n: int, total_count: int | None
 
 
 # ══ 组合层：排名表 + 双分母比率 + 专项 + 信源 ══
-def _top_rates(ranks: Sequence[int], top_ns: Iterable[int],
-               total_count: int) -> dict[str, dict[str, float]]:
+def _top_rates(
+    ranks: Sequence[int], top_ns: Iterable[int], total_count: int
+) -> dict[str, dict[str, float]]:
     """每个 N 同时给两个分母口径（of_mentions=占出现条数 / of_total=占总条数）。"""
-    return {str(n): {"of_mentions": round(calculate_top_rate(ranks, n), 2),
-                     "of_total": round(calculate_top_rate(ranks, n, total_count), 2)}
-            for n in top_ns}
+    return {
+        str(n): {
+            "of_mentions": round(calculate_top_rate(ranks, n), 2),
+            "of_total": round(calculate_top_rate(ranks, n, total_count), 2),
+        }
+        for n in top_ns
+    }
 
 
-def ranking_table(brand_lists: list[list[str]], *, total_count: int,
-                  top_ns: Iterable[int] = DEFAULT_TOP_NS) -> list[dict[str, Any]]:
+def ranking_table(
+    brand_lists: list[list[str]], *, total_count: int, top_ns: Iterable[int] = DEFAULT_TOP_NS
+) -> list[dict[str, Any]]:
     """calculate_brand_ranking 的扩展表：每行追加 appearance_rate（分母=真实总条数）与 top_rates。
 
     排名/score/avg_rank/occurrences 由逐行移植的 calculate_brand_ranking 产出，数值与她一致；
@@ -133,22 +136,33 @@ def ranking_table(brand_lists: list[list[str]], *, total_count: int,
     return rows
 
 
-def _scope_stats(brand_lists_raw: list[list[str]], brand_lists_merged: list[list[str]],
-                 *, total_count: int, top_ns: Iterable[int]) -> dict[str, Any]:
+def _scope_stats(
+    brand_lists_raw: list[list[str]],
+    brand_lists_merged: list[list[str]],
+    *,
+    total_count: int,
+    top_ns: Iterable[int],
+) -> dict[str, Any]:
     """一个范围（overall/某 mode/某 ip/某 type）的双口径排名表 + 分母披露。"""
     return {
         "raw": ranking_table(brand_lists_raw, total_count=total_count, top_ns=top_ns),
         "merged": ranking_table(brand_lists_merged, total_count=total_count, top_ns=top_ns),
         "denominators": {
-            "n_answers": total_count,                  # 本范围真实 eligible answer 条数（修正点①）
-            "n_with_brands": len(brand_lists_raw),     # 非空品牌列表条数（她的 if brands: 过滤）
+            "n_answers": total_count,  # 本范围真实 eligible answer 条数（修正点①）
+            "n_with_brands": len(brand_lists_raw),  # 非空品牌列表条数（她的 if brands: 过滤）
         },
     }
 
 
-def brand_special(records: list[dict[str, Any]], brand: str, *, rules: DomainRules,
-                  total_count: int, top_ns: Iterable[int] = DEFAULT_TOP_NS,
-                  overall_merged_table: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def brand_special(
+    records: list[dict[str, Any]],
+    brand: str,
+    *,
+    rules: DomainRules,
+    total_count: int,
+    top_ns: Iterable[int] = DEFAULT_TOP_NS,
+    overall_merged_table: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """目标品牌/竞品专项（同口径；修正点③：作用于合并后列表，品牌名先 normalize）。
 
     records: 她的 brand_list 记录（raw brands 在记录内，本函数自行 normalize）。
@@ -157,21 +171,25 @@ def brand_special(records: list[dict[str, Any]], brand: str, *, rules: DomainRul
     std = normalize_brand(brand, rules)
     mentions = 0
     ranks: list[int] = []
-    query_analysis: list[dict[str, Any]] = []           # compare L177-183 同形（每出现一行）
+    query_analysis: list[dict[str, Any]] = []  # compare L177-183 同形（每出现一行）
     by_query: dict[str, dict[str, Any]] = {}
 
     for rec in records:
         merged = normalize_brand_list(rec.get("brands") or [], rules)
         if std not in merged:
             continue
-        rank = merged.index(std) + 1                    # 排名从1开始（compare L174）
+        rank = merged.index(std) + 1  # 排名从1开始（compare L174）
         mentions += 1
         ranks.append(rank)
-        query_analysis.append({
-            "query": rec.get("query", ""), "ip": rec.get("ip", ""),
-            "mode": rec.get("thinking_mode", ""), "rec_type": rec.get("rec_type"),
-            "rank": rank,
-        })
+        query_analysis.append(
+            {
+                "query": rec.get("query", ""),
+                "ip": rec.get("ip", ""),
+                "mode": rec.get("thinking_mode", ""),
+                "rec_type": rec.get("rec_type"),
+                "rank": rank,
+            }
+        )
         q = rec.get("query", "")
         bucket = by_query.setdefault(q, {"query": q, "mentions": 0, "ranks": []})
         bucket["mentions"] += 1
@@ -180,25 +198,30 @@ def brand_special(records: list[dict[str, Any]], brand: str, *, rules: DomainRul
     per_query = []
     for q in sorted(by_query):
         b = by_query[q]
-        per_query.append({
-            "query": q, "mentions": b["mentions"], "ranks": b["ranks"],
-            "avg_rank": round(statistics.mean(b["ranks"]), 2),
-            "best_rank": min(b["ranks"]),
-        })
+        per_query.append(
+            {
+                "query": q,
+                "mentions": b["mentions"],
+                "ranks": b["ranks"],
+                "avg_rank": round(statistics.mean(b["ranks"]), 2),
+                "best_rank": min(b["ranks"]),
+            }
+        )
 
-    overall_rank = None                                 # 修正点④：她的 999 哨兵 → None
+    overall_rank = None  # 修正点④：她的 999 哨兵 → None
     if overall_merged_table:
         overall_rank = next((r["rank"] for r in overall_merged_table if r["brand"] == std), None)
 
     return {
-        "brand": std, "brand_input": brand,             # 入参原名留痕（normalize 前后）
+        "brand": std,
+        "brand_input": brand,  # 入参原名留痕（normalize 前后）
         "mentions": mentions,
         "appearance_rate": round(calculate_appearance_rate(ranks, total_count), 2),
         "avg_rank": round(statistics.mean(ranks), 2) if ranks else None,
         "best_rank": min(ranks) if ranks else None,
         "ranks": ranks,
         "top_rates": _top_rates(ranks, top_ns, total_count),
-        "overall_rank": overall_rank,                   # 在 overall 合并表的排名；未上榜=None
+        "overall_rank": overall_rank,  # 在 overall 合并表的排名；未上榜=None
         "query_analysis": query_analysis,
         "by_query": per_query,
         "denominators": {"n_answers": total_count},
@@ -212,8 +235,13 @@ def source_metrics(records: list[dict[str, Any]]) -> dict[str, Any]:
     权重=Σ(1/index)，Top3 集中度=top3 count/total×100（analyze_source L93-96）。"""
     total = len(records)
     if total == 0:
-        return {"total": 0, "unique_urls": 0, "sitename_counts": {},
-                "top3_concentration": 0.0, "sources": []}
+        return {
+            "total": 0,
+            "unique_urls": 0,
+            "sitename_counts": {},
+            "top3_concentration": 0.0,
+            "sources": [],
+        }
 
     sitename_counts = Counter([r["sitename"] for r in records])
     weights_all: dict[str, float] = defaultdict(float)
@@ -229,18 +257,27 @@ def source_metrics(records: list[dict[str, Any]]) -> dict[str, Any]:
         "sitename_counts": dict(sitename_counts),
         "top3_concentration": round((top3_count / total) * 100, 2),
         "sources": [
-            {"rank": i, "sitename": sitename, "count": sitename_counts[sitename],
-             "percent": round((sitename_counts[sitename] / total) * 100, 2),
-             "weight": round(weight, 4)}
+            {
+                "rank": i,
+                "sitename": sitename,
+                "count": sitename_counts[sitename],
+                "percent": round((sitename_counts[sitename] / total) * 100, 2),
+                "weight": round(weight, 4),
+            }
             for i, (sitename, weight) in enumerate(sorted_sitenames, start=1)
         ],
     }
 
 
-def analyze(records: list[dict[str, Any]], source_records: list[dict[str, Any]], *,
-            rules: DomainRules, target_brand: str | None = None,
-            competitors: Iterable[str] = (),
-            top_ns: Iterable[int] = DEFAULT_TOP_NS) -> dict[str, Any]:
+def analyze(
+    records: list[dict[str, Any]],
+    source_records: list[dict[str, Any]],
+    *,
+    rules: DomainRules,
+    target_brand: str | None = None,
+    competitors: Iterable[str] = (),
+    top_ns: Iterable[int] = DEFAULT_TOP_NS,
+) -> dict[str, Any]:
     """一次运行的完整指标快照：overall/by_mode/by_ip/by_type/by_engine 双口径排名表
     + 目标品牌/竞品专项 + 信源分析 + 全量分母披露。
 
@@ -259,7 +296,7 @@ def analyze(records: list[dict[str, Any]], source_records: list[dict[str, Any]],
     def lists_of(scope_records: list[dict[str, Any]]) -> tuple[list[list[str]], list[list[str]]]:
         raw = [r["brands"] for r in scope_records if r.get("brands")]
         merged = [normalize_brand_list(b, rules) for b in raw]
-        merged = [m for m in merged if m]               # 空列表对 ranks 无贡献（与她数值一致）
+        merged = [m for m in merged if m]  # 空列表对 ranks 无贡献（与她数值一致）
         return raw, merged
 
     def grouped(key_fn: Callable[[dict[str, Any]], str]) -> dict[str, Any]:
@@ -283,8 +320,8 @@ def analyze(records: list[dict[str, Any]], source_records: list[dict[str, Any]],
         "overall": overall,
         "by_mode": grouped(lambda r: r.get("thinking_mode") or ""),
         "by_ip": grouped(lambda r: r.get("ip") or ""),
-        "by_type": grouped(lambda r: r.get("rec_type") or "其他"),   # None→'其他' 桶（她的词）
-        "by_engine": grouped(lambda r: r.get("engine") or ""),      # V2 附加维（纯增量分组）
+        "by_type": grouped(lambda r: r.get("rec_type") or "其他"),  # None→'其他' 桶（她的词）
+        "by_engine": grouped(lambda r: r.get("engine") or ""),  # V2 附加维（纯增量分组）
         "target_brand": None,
         "competitors": [],
         "sources": {
@@ -296,18 +333,30 @@ def analyze(records: list[dict[str, Any]], source_records: list[dict[str, Any]],
             "n_answers": len(records),
             "n_with_brands": len(raw_all),
             "basis": "分母=本范围真实 eligible answer 条数（本窗实测）；"
-                     "修正同事版硬编码 12/query（compare L695-699）与总数 140 的两处不一致",
+            "修正同事版硬编码 12/query（compare L695-699）与总数 140 的两处不一致",
         },
     }
 
     if target_brand:
         result["target_brand"] = brand_special(
-            records, target_brand, rules=rules, total_count=len(records),
-            top_ns=top_ns, overall_merged_table=overall_merged_table)
+            records,
+            target_brand,
+            rules=rules,
+            total_count=len(records),
+            top_ns=top_ns,
+            overall_merged_table=overall_merged_table,
+        )
     for comp in competitors:
-        result["competitors"].append(brand_special(
-            records, comp, rules=rules, total_count=len(records),
-            top_ns=top_ns, overall_merged_table=overall_merged_table))
+        result["competitors"].append(
+            brand_special(
+                records,
+                comp,
+                rules=rules,
+                total_count=len(records),
+                top_ns=top_ns,
+                overall_merged_table=overall_merged_table,
+            )
+        )
     return result
 
 

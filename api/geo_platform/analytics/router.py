@@ -259,8 +259,9 @@ def _dsn() -> str:
     )
 
 
-def _error(request: Request, status_code: int, code: str,
-           details: dict[str, Any] | None = None) -> JSONResponse:
+def _error(
+    request: Request, status_code: int, code: str, details: dict[str, Any] | None = None
+) -> JSONResponse:
     """与 main.py 全局错误体同形的 JSONResponse（details 本层自定义填充——
     全局 HTTPException handler 丢弃 details，照 brandrank/fact_suggestions 路由先例）。"""
     request_id = getattr(request.state, "request_id", None)
@@ -753,14 +754,17 @@ def create_run_comparison(
     principal.require("schedule:manage")
     try:
         entity = comparisons.create_comparison(
-            _dsn(), principal.tenant_pub_id,
-            project_pub_id=body.project_pub_id, name=body.name,
+            _dsn(),
+            principal.tenant_pub_id,
+            project_pub_id=body.project_pub_id,
+            name=body.name,
             baseline_run_pub_ids=body.baseline_run_pub_ids,
             optimized_run_pub_ids=body.optimized_run_pub_ids,
-            note=body.note, created_by=principal.actor_pub_id)
+            note=body.note,
+            created_by=principal.actor_pub_id,
+        )
     except comparisons.UnknownRunPubId as exc:
-        return _error(request, 400, "unknown_run_pub_id",
-                      {"unknown_run_pub_ids": exc.unknown})
+        return _error(request, 400, "unknown_run_pub_id", {"unknown_run_pub_ids": exc.unknown})
     if idempotency_key is not None:
         response.headers["Idempotency-Key"] = idempotency_key
     return entity
@@ -774,8 +778,7 @@ def list_run_comparisons(
 ) -> dict[str, Any]:
     """项目下全部 run 组对比实体（created_at 倒序）。"""
     principal.require("project:read")
-    items = comparisons.list_comparisons(
-        _dsn(), principal.tenant_pub_id, project_pub_id, limit)
+    items = comparisons.list_comparisons(_dsn(), principal.tenant_pub_id, project_pub_id, limit)
     return {"items": items}
 
 
@@ -792,22 +795,26 @@ def get_run_comparison(
     （query_text 配对键），只在一臂出现（答案级）的进 unpaired。
     """
     principal.require("project:read")
-    entity = comparisons.fetch_comparison(
-        _dsn(), principal.tenant_pub_id, comparison_pub_id)
+    entity = comparisons.fetch_comparison(_dsn(), principal.tenant_pub_id, comparison_pub_id)
     if entity is None:
         raise HTTPException(status_code=404, detail={"code": "comparison_not_found"})
     try:
         result = brandrank_compare.compute_run_comparison(
-            dsn=_dsn(), tenant_pub_id=principal.tenant_pub_id, comparison=entity)
+            dsn=_dsn(), tenant_pub_id=principal.tenant_pub_id, comparison=entity
+        )
     except brandrank_service.ProjectNotFound as exc:
         raise HTTPException(status_code=404, detail={"code": "project_not_found"}) from exc
     except brandrank_compare.DomainUnset:
-        return _error(request, 400, "domain_unset",
-                      {"why": "项目未设置 brandrank_domain（规则包真源），"
-                              "请先在项目设置中选择分析域"})
+        return _error(
+            request,
+            400,
+            "domain_unset",
+            {"why": "项目未设置 brandrank_domain（规则包真源），请先在项目设置中选择分析域"},
+        )
     except brandrank_service.UnknownDomain as exc:
-        return _error(request, 400, "unknown_domain",
-                      {"available": available_domains(), "why": str(exc)})
+        return _error(
+            request, 400, "unknown_domain", {"available": available_domains(), "why": str(exc)}
+        )
     return {**entity, "result": result}
 
 
@@ -868,9 +875,7 @@ def disparagement_rate(
             judgments=row["judgments"],
             disparagement_count=row["disparagement_count"],
             disparagement_rate=(
-                float(row["disparagement_rate"])
-                if row["disparagement_rate"] is not None
-                else None
+                float(row["disparagement_rate"]) if row["disparagement_rate"] is not None else None
             ),
             negative_count=row["negative_count"],
             support_count=row["support_count"],

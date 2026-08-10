@@ -3,6 +3,7 @@ platform.project.brandrank_domain API 读写回环。
 
 只打 55433 开发库（S02_POSTGRES_DSN 缺省值），严禁对生产库跑。
 """
+
 from __future__ import annotations
 
 import os
@@ -28,17 +29,31 @@ ON CONFLICT (tenant_pub_id,answer_pub_id,domain) DO UPDATE SET
 """
 
 
-def _insert(tenant: str, answer: str, domain: str, brands: list[str],
-            status: str = "ok", model: str = "m-test", error: str | None = None) -> None:
+def _insert(
+    tenant: str,
+    answer: str,
+    domain: str,
+    brands: list[str],
+    status: str = "ok",
+    model: str = "m-test",
+    error: str | None = None,
+) -> None:
     import json
 
     with psycopg.connect(POSTGRES_DSN) as connection:
-        connection.execute(
-            "SELECT set_config('app.tenant_pub_id', %s, true)", (tenant,))
+        connection.execute("SELECT set_config('app.tenant_pub_id', %s, true)", (tenant,))
         connection.execute(
             _UPSERT,
-            (f"abx_{uuid4().hex[:26]}", tenant, answer, domain,
-             json.dumps(brands, ensure_ascii=False), status, model, error),
+            (
+                f"abx_{uuid4().hex[:26]}",
+                tenant,
+                answer,
+                domain,
+                json.dumps(brands, ensure_ascii=False),
+                status,
+                model,
+                error,
+            ),
         )
 
 
@@ -52,8 +67,7 @@ def test_table_idempotent_upsert_and_domain_unset_marker() -> None:
     _insert(tenant, answer, "", [], status="failed", model="", error="domain_unset")
     _insert(tenant, answer, "", [], status="failed", model="", error="domain_unset")
     with psycopg.connect(POSTGRES_DSN) as connection:
-        connection.execute(
-            "SELECT set_config('app.tenant_pub_id', %s, true)", (tenant,))
+        connection.execute("SELECT set_config('app.tenant_pub_id', %s, true)", (tenant,))
         rows = connection.execute(
             """
             SELECT domain, brands, status, model, error
@@ -63,11 +77,11 @@ def test_table_idempotent_upsert_and_domain_unset_marker() -> None:
             """,
             (tenant, answer),
         ).fetchall()
-    assert len(rows) == 2                                   # 重抽未重复落行
-    assert rows[0][0] == "" and rows[0][2] == "failed"      # domain_unset 占位行
+    assert len(rows) == 2  # 重抽未重复落行
+    assert rows[0][0] == "" and rows[0][2] == "failed"  # domain_unset 占位行
     assert rows[0][4] == "domain_unset"
     assert rows[1][0] == "insurance" and rows[1][2] == "ok"
-    assert rows[1][1] == ["中意人寿", "中国平安"]             # ON CONFLICT 覆盖生效
+    assert rows[1][1] == ["中意人寿", "中国平安"]  # ON CONFLICT 覆盖生效
     assert rows[1][3] == "m-v2"
 
 
@@ -75,8 +89,7 @@ def test_table_status_check_constraint() -> None:
     """status 词表外值被拒（CHECK 硬约束，诚实两态 ok/failed）。"""
     suffix = uuid4().hex
     with pytest.raises(psycopg.errors.CheckViolation):
-        _insert(f"tnt_abx_{suffix}", f"ans_abx_{suffix}", "insurance", [],
-                status="partial")
+        _insert(f"tnt_abx_{suffix}", f"ans_abx_{suffix}", "insurance", [], status="partial")
 
 
 def test_table_tenant_rls_isolation() -> None:
@@ -92,21 +105,20 @@ def test_table_tenant_rls_isolation() -> None:
                 cursor.execute(f'CREATE ROLE "{role}" NOLOGIN NOSUPERUSER NOBYPASSRLS')
                 cursor.execute(f'GRANT USAGE ON SCHEMA analytics TO "{role}"')
                 cursor.execute(
-                    f'GRANT SELECT, INSERT, UPDATE ON analytics.answer_brand_extract TO "{role}"')
+                    f'GRANT SELECT, INSERT, UPDATE ON analytics.answer_brand_extract TO "{role}"'
+                )
                 cursor.execute(
-                    f'GRANT USAGE, SELECT ON SEQUENCE '
-                    f'analytics.answer_brand_extract_id_seq TO "{role}"')
+                    f"GRANT USAGE, SELECT ON SEQUENCE "
+                    f'analytics.answer_brand_extract_id_seq TO "{role}"'
+                )
                 cursor.execute(f'SET LOCAL ROLE "{role}"')
                 # 未设租户上下文 → 零行
-                cursor.execute(
-                    "SELECT count(*) FROM analytics.answer_brand_extract")
+                cursor.execute("SELECT count(*) FROM analytics.answer_brand_extract")
                 assert cursor.fetchone() == (0,)
                 # 设为租户 B → 看不到租户 A 的行
+                cursor.execute("SELECT set_config('app.tenant_pub_id', %s, true)", (tenant_b,))
                 cursor.execute(
-                    "SELECT set_config('app.tenant_pub_id', %s, true)", (tenant_b,))
-                cursor.execute(
-                    "SELECT count(*) FROM analytics.answer_brand_extract "
-                    "WHERE tenant_pub_id=%s",
+                    "SELECT count(*) FROM analytics.answer_brand_extract WHERE tenant_pub_id=%s",
                     (tenant_a,),
                 )
                 assert cursor.fetchone() == (0,)
@@ -114,11 +126,21 @@ def test_table_tenant_rls_isolation() -> None:
                 with pytest.raises(psycopg.errors.InsufficientPrivilege) as excinfo:
                     cursor.execute(
                         _UPSERT,
-                        (f"abx_{uuid4().hex[:26]}", tenant_a, f"ans_x_{suffix}",
-                         "insurance", "[]", "ok", "m", None),
+                        (
+                            f"abx_{uuid4().hex[:26]}",
+                            tenant_a,
+                            f"ans_x_{suffix}",
+                            "insurance",
+                            "[]",
+                            "ok",
+                            "m",
+                            None,
+                        ),
                     )
-                assert "row-level security" in str(excinfo.value).lower(
-                ) or "row violates" in str(excinfo.value).lower()
+                assert (
+                    "row-level security" in str(excinfo.value).lower()
+                    or "row violates" in str(excinfo.value).lower()
+                )
 
 
 # ── platform.project.brandrank_domain：API 读写回环 ─────────────────────────
@@ -144,9 +166,13 @@ def test_project_brandrank_domain_create_patch_clear_and_400() -> None:
 
     # 创建即带真源
     created = client.post(
-        "/api/v2/projects", headers=headers | idem,
-        json={"name": "ABX Project", "customer_name": "ABX Customer",
-              "brandrank_domain": "insurance"},
+        "/api/v2/projects",
+        headers=headers | idem,
+        json={
+            "name": "ABX Project",
+            "customer_name": "ABX Customer",
+            "brandrank_domain": "insurance",
+        },
     )
     assert created.status_code == 201, created.text
     project = created.json()
@@ -160,7 +186,8 @@ def test_project_brandrank_domain_create_patch_clear_and_400() -> None:
 
     # patch 改真源（乐观锁 version=1）
     patched = client.patch(
-        f"/api/v2/projects/{project['pub_id']}", headers=headers,
+        f"/api/v2/projects/{project['pub_id']}",
+        headers=headers,
         json={"brandrank_domain": "legal", "expected_version": 1},
     )
     assert patched.status_code == 200, patched.text
@@ -168,7 +195,8 @@ def test_project_brandrank_domain_create_patch_clear_and_400() -> None:
 
     # patch 显式 null 清除（version=2）
     cleared = client.patch(
-        f"/api/v2/projects/{project['pub_id']}", headers=headers,
+        f"/api/v2/projects/{project['pub_id']}",
+        headers=headers,
         json={"brandrank_domain": None, "expected_version": 2},
     )
     assert cleared.status_code == 200, cleared.text
@@ -176,11 +204,13 @@ def test_project_brandrank_domain_create_patch_clear_and_400() -> None:
 
     # patch 不带该字段：不动真源列（先设回 insurance，再不传字段 patch name）
     client.patch(
-        f"/api/v2/projects/{project['pub_id']}", headers=headers,
+        f"/api/v2/projects/{project['pub_id']}",
+        headers=headers,
         json={"brandrank_domain": "insurance", "expected_version": 3},
     )
     renamed = client.patch(
-        f"/api/v2/projects/{project['pub_id']}", headers=headers,
+        f"/api/v2/projects/{project['pub_id']}",
+        headers=headers,
         json={"name": "ABX Renamed", "expected_version": 4},
     )
     assert renamed.status_code == 200, renamed.text
@@ -188,13 +218,15 @@ def test_project_brandrank_domain_create_patch_clear_and_400() -> None:
 
     # 非法词表值 400（create 与 patch 两侧）
     bad_create = client.post(
-        "/api/v2/projects", headers=headers | {"Idempotency-Key": "idem-" + secrets.token_hex(16)},
+        "/api/v2/projects",
+        headers=headers | {"Idempotency-Key": "idem-" + secrets.token_hex(16)},
         json={"name": "Bad", "customer_name": "Bad", "brandrank_domain": "不存在的领域"},
     )
     assert bad_create.status_code == 400
     assert bad_create.json()["error"]["code"] == "unknown_brandrank_domain"
     bad_patch = client.patch(
-        f"/api/v2/projects/{project['pub_id']}", headers=headers,
+        f"/api/v2/projects/{project['pub_id']}",
+        headers=headers,
         json={"brandrank_domain": "不存在的领域", "expected_version": 5},
     )
     assert bad_patch.status_code == 400

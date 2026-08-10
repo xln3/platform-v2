@@ -1063,9 +1063,7 @@ def test_s02_report_ai_draft_model_selection_and_output_capability(
                 json={"choices": [{"message": {"content": canned_text}}]},
             )
 
-        return httpx.Client(
-            transport=httpx.MockTransport(handler), base_url="http://llm.test/v1"
-        )
+        return httpx.Client(transport=httpx.MockTransport(handler), base_url="http://llm.test/v1")
 
     monkeypatch.setenv("GEO_RESEARCH_LLM_API_KEY", "test-key")
     monkeypatch.setattr(narrative, "_default_client_factory", fake_factory)

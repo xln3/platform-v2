@@ -28,9 +28,7 @@ with workflow.unsafe.imports_passed_through():
 @workflow.defn(name="OwnContentDisparagementWorkflow")
 class OwnContentDisparagementWorkflow:
     @workflow.run
-    async def run(
-        self, data: OwnContentDisparagementInput
-    ) -> OwnContentDisparagementResult:
+    async def run(self, data: OwnContentDisparagementInput) -> OwnContentDisparagementResult:
         return await workflow.execute_activity(
             judge_own_content_disparagement,
             data,

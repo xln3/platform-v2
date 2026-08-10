@@ -2,6 +2,7 @@
 
 移植自旧库 server/tests/test_brandrank_metrics.py（import 路径换 V2，断言零变化）。
 """
+
 import random
 
 import pytest
@@ -25,8 +26,10 @@ def _cases(seed=20260719, n=60):
     """确定性样例数据（含空列表/重复/单元素），覆盖她的公式的各分支。"""
     rng = random.Random(seed)
     pool = ["中意人寿", "中国平安", "中国人寿", "君龙人寿", "中国太保", "友邦人寿", "泰康人寿"]
-    return [[[rng.choice(pool) for _ in range(rng.randint(0, 6))]
-             for _ in range(rng.randint(0, 20))] for _ in range(n)]
+    return [
+        [[rng.choice(pool) for _ in range(rng.randint(0, 6))] for _ in range(rng.randint(0, 20))]
+        for _ in range(n)
+    ]
 
 
 # ── 与她的函数逐案对拍（源码不在场时 skip）─────────────────────────────
@@ -50,17 +53,19 @@ def test_rates_match_her_impl(her):
         ranks = [rng.randint(1, 12) for _ in range(rng.randint(0, 8))]
         total = rng.randint(0, 20)
         n = rng.choice([1, 3, 5, 10])
-        assert metrics.calculate_appearance_rate(ranks, total) == \
-            her["calculate_appearance_rate"](ranks, total)
+        assert metrics.calculate_appearance_rate(ranks, total) == her["calculate_appearance_rate"](
+            ranks, total
+        )
         assert metrics.calculate_top_rate(ranks, n) == her["calculate_top_rate"](ranks, n)
-        assert metrics.calculate_top_rate(ranks, n, total) == \
-            her["calculate_top_rate"](ranks, n, total)
+        assert metrics.calculate_top_rate(ranks, n, total) == her["calculate_top_rate"](
+            ranks, n, total
+        )
 
 
 # ── 双分母口径（她的 compare 版两处不一致的修正：分母=真实条数）─────────
 def test_top_rate_double_denominator():
-    ranks = [1, 2, 7]                                    # top3 命中 2 次
-    assert metrics.calculate_top_rate(ranks, 3) == pytest.approx(2 / 3 * 100)      # 占出现条数
+    ranks = [1, 2, 7]  # top3 命中 2 次
+    assert metrics.calculate_top_rate(ranks, 3) == pytest.approx(2 / 3 * 100)  # 占出现条数
     assert metrics.calculate_top_rate(ranks, 3, 10) == pytest.approx(2 / 10 * 100)  # 占总条数
     assert metrics.calculate_top_rate([], 3) == 0
     assert metrics.calculate_top_rate(ranks, 3, 0) == 0
@@ -74,7 +79,7 @@ def test_ranking_table_rates_and_real_denominator():
     # 中意人寿: ranks=[1,2,1] → occ=3, avg=4/3≈1.33, score=3/1.333=2.25
     zy = by_brand["中意人寿"]
     assert zy["occurrences"] == 3 and zy["avg_rank"] == 1.33 and zy["score"] == 2.25
-    assert zy["appearance_rate"] == round(3 / 4 * 100, 2)              # 分母=4（真实条数）
+    assert zy["appearance_rate"] == round(3 / 4 * 100, 2)  # 分母=4（真实条数）
     assert zy["top_rates"]["1"]["of_mentions"] == round(2 / 3 * 100, 2)
     assert zy["top_rates"]["1"]["of_total"] == round(2 / 4 * 100, 2)
     assert zy["top_rates"]["3"]["of_mentions"] == 100.0
@@ -82,35 +87,57 @@ def test_ranking_table_rates_and_real_denominator():
     assert table[0]["brand"] == "中意人寿" and table[0]["rank"] == 1
     # 换分母结果随之变化（证明分母真的参数化）
     table2 = metrics.ranking_table(lists, total_count=140, top_ns=(1,))
-    assert {r["brand"]: r["appearance_rate"] for r in table2} != \
-           {r["brand"]: r["appearance_rate"] for r in table}
+    assert {r["brand"]: r["appearance_rate"] for r in table2} != {
+        r["brand"]: r["appearance_rate"] for r in table
+    }
 
 
 # ── 目标品牌/竞品专项（同口径；normalize 后匹配）───────────────────────
 def _records():
     return [
-        {"brands": ["中意人寿保险", "中国平安"], "query": "保险公司推荐",
-         "thinking_mode": "快速", "ip": "北京", "rec_type": "公司"},
-        {"brands": ["中国平安", "超级玛丽15号"], "query": "保险产品推荐",
-         "thinking_mode": "思考", "ip": "上海", "rec_type": "产品"},
-        {"brands": ["擎天柱11号", "中国平安"], "query": "保险公司推荐",
-         "thinking_mode": "快速", "ip": "北京", "rec_type": "公司"},
-        {"brands": [], "query": "保险公司推荐", "thinking_mode": "快速",
-         "ip": "北京", "rec_type": "公司"},                        # 空 brands：入分母不入排名
+        {
+            "brands": ["中意人寿保险", "中国平安"],
+            "query": "保险公司推荐",
+            "thinking_mode": "快速",
+            "ip": "北京",
+            "rec_type": "公司",
+        },
+        {
+            "brands": ["中国平安", "超级玛丽15号"],
+            "query": "保险产品推荐",
+            "thinking_mode": "思考",
+            "ip": "上海",
+            "rec_type": "产品",
+        },
+        {
+            "brands": ["擎天柱11号", "中国平安"],
+            "query": "保险公司推荐",
+            "thinking_mode": "快速",
+            "ip": "北京",
+            "rec_type": "公司",
+        },
+        {
+            "brands": [],
+            "query": "保险公司推荐",
+            "thinking_mode": "快速",
+            "ip": "北京",
+            "rec_type": "公司",
+        },  # 空 brands：入分母不入排名
     ]
 
 
 def test_target_brand_special(rules):
     recs = _records()
-    res = metrics.analyze(recs, [], rules=rules, target_brand="中意人寿",
-                          competitors=["中国平安"], top_ns=(1, 3))
+    res = metrics.analyze(
+        recs, [], rules=rules, target_brand="中意人寿", competitors=["中国平安"], top_ns=(1, 3)
+    )
     t = res["target_brand"]
     # 合并后口径：'中意人寿保险'→中意人寿(rank1)、'擎天柱11号'→中意人寿(rank1) → mentions=2
     assert t["brand"] == "中意人寿" and t["mentions"] == 2
     assert t["ranks"] == [1, 1] and t["avg_rank"] == 1.0 and t["best_rank"] == 1
-    assert t["appearance_rate"] == round(2 / 4 * 100, 2)           # 分母=4（含空 brands 条）
+    assert t["appearance_rate"] == round(2 / 4 * 100, 2)  # 分母=4（含空 brands 条）
     assert t["top_rates"]["1"]["of_mentions"] == 100.0
-    assert t["overall_rank"] == 1                                   # 合并榜第一
+    assert t["overall_rank"] == 1  # 合并榜第一
     # 每 query 排名明细（她的 query_analysis 同形）
     qa = {(x["query"], x["rank"]) for x in t["query_analysis"]}
     assert qa == {("保险公司推荐", 1)}
@@ -125,18 +152,16 @@ def test_target_brand_special(rules):
 
 def test_target_brand_alias_input_normalized(rules):
     """入参是别名也命中（'擎天柱11号'→中意人寿）；未上榜 overall_rank=None（她的 999→None）。"""
-    t = metrics.analyze(_records(), [], rules=rules,
-                        target_brand="擎天柱11号")["target_brand"]
+    t = metrics.analyze(_records(), [], rules=rules, target_brand="擎天柱11号")["target_brand"]
     assert t["brand"] == "中意人寿" and t["brand_input"] == "擎天柱11号"
-    t2 = metrics.analyze(_records(), [], rules=rules,
-                         target_brand="不存在的品牌")["target_brand"]
+    t2 = metrics.analyze(_records(), [], rules=rules, target_brand="不存在的品牌")["target_brand"]
     assert t2["mentions"] == 0 and t2["avg_rank"] is None and t2["overall_rank"] is None
 
 
 def test_analyze_structure_and_denominators(rules):
     res = metrics.analyze(_records(), [], rules=rules, top_ns=(3,))
     assert res["denominators"]["n_answers"] == 4
-    assert res["denominators"]["n_with_brands"] == 3            # 空 brands 条不计（她 if brands:）
+    assert res["denominators"]["n_with_brands"] == 3  # 空 brands 条不计（她 if brands:）
     assert set(res["by_mode"]) == {"快速", "思考"}
     assert res["by_mode"]["快速"]["denominators"]["n_answers"] == 3  # 分模式真实条数
     assert res["by_ip"]["上海"]["denominators"]["n_answers"] == 1
@@ -155,7 +180,7 @@ def test_source_metrics_hand_computed():
         {"sitename": "知乎", "url": "u1", "index": 1},
         {"sitename": "知乎", "url": "u2", "index": 2},
         {"sitename": "百家号", "url": "u3", "index": 1},
-        {"sitename": "百家号", "url": "", "index": 4},              # 空 url 不计 unique_urls
+        {"sitename": "百家号", "url": "", "index": 4},  # 空 url 不计 unique_urls
     ]
     s = metrics.source_metrics(recs)
     assert s["total"] == 4 and s["unique_urls"] == 3
@@ -164,8 +189,8 @@ def test_source_metrics_hand_computed():
     assert s["sources"][0]["sitename"] == "知乎" and s["sources"][0]["weight"] == 1.5
     assert s["sources"][1]["weight"] == 1.25
     assert s["sources"][0]["percent"] == 50.0
-    assert s["top3_concentration"] == 100.0                        # top2 即全部
-    assert metrics.source_metrics([])["total"] == 0                # 空范围零形（她的 None→零 dict）
+    assert s["top3_concentration"] == 100.0  # top2 即全部
+    assert metrics.source_metrics([])["total"] == 0  # 空范围零形（她的 None→零 dict）
 
 
 def test_analyze_sources_grouped_by_dims(rules):
@@ -184,12 +209,13 @@ def test_by_engine_additive_grouping(rules):
     """engine 维分组（adapter 附加的 provenance 字段）；无 engine 的记录落 '' 桶
     （与 by_ip 的 '' 桶同口径）；overall/by_mode/by_ip/by_type 数值与键集合零变化。"""
     without_engine = metrics.analyze(_records(), [], rules=rules)
-    assert set(without_engine["by_engine"]) == {""}                    # 她的记录无 engine
+    assert set(without_engine["by_engine"]) == {""}  # 她的记录无 engine
     assert without_engine["by_engine"][""]["denominators"]["n_answers"] == 4
 
-    records = [dict(r, engine=engine)
-               for r, engine in zip(_records(),
-                                    ["doubao", "deepseek", "doubao", "doubao"], strict=True)]
+    records = [
+        dict(r, engine=engine)
+        for r, engine in zip(_records(), ["doubao", "deepseek", "doubao", "doubao"], strict=True)
+    ]
     res = metrics.analyze(records, [], rules=rules)
     assert set(res["by_engine"]) == {"doubao", "deepseek"}
     assert res["by_engine"]["doubao"]["denominators"]["n_answers"] == 3

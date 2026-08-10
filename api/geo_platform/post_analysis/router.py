@@ -219,9 +219,7 @@ def list_tasks(
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any]:
     principal.require("project:read")
-    rows = _service().list_tasks(
-        tenant_pub_id=principal.tenant_pub_id, cursor=cursor, limit=limit
-    )
+    rows = _service().list_tasks(tenant_pub_id=principal.tenant_pub_id, cursor=cursor, limit=limit)
     return _page(rows, limit=limit, validator=TaskView.model_validate)
 
 
@@ -232,9 +230,7 @@ def get_task(
 ) -> TaskDetailView:
     principal.require("project:read")
     with _service_errors():
-        row = _service().get_task(
-            tenant_pub_id=principal.tenant_pub_id, task_pub_id=task_pub_id
-        )
+        row = _service().get_task(tenant_pub_id=principal.tenant_pub_id, task_pub_id=task_pub_id)
     return TaskDetailView.model_validate(row)
 
 
@@ -263,18 +259,14 @@ def get_item(
 ) -> ItemDetailView:
     principal.require("project:read")
     with _service_errors():
-        row = _service().get_item(
-            tenant_pub_id=principal.tenant_pub_id, item_pub_id=item_pub_id
-        )
+        row = _service().get_item(tenant_pub_id=principal.tenant_pub_id, item_pub_id=item_pub_id)
     return ItemDetailView.model_validate(row)
 
 
 @router.get(
     "/items/{item_pub_id}/assets/{kind}",
     response_class=Response,
-    responses={
-        200: {"content": {"image/png": {"schema": {"type": "string", "format": "binary"}}}}
-    },
+    responses={200: {"content": {"image/png": {"schema": {"type": "string", "format": "binary"}}}}},
 )
 def get_item_asset(
     item_pub_id: str,

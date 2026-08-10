@@ -81,16 +81,12 @@ class _FakeLoader:
     def __init__(self, context: OwnContentContext | None) -> None:
         self._context = context
 
-    def load(
-        self, tenant_pub_id: str, article_version_pub_id: str
-    ) -> OwnContentContext | None:
+    def load(self, tenant_pub_id: str, article_version_pub_id: str) -> OwnContentContext | None:
         return self._context
 
 
 class _FakeJudge:
-    def __init__(
-        self, outcome: LlmJudgment | None = None, error: Exception | None = None
-    ) -> None:
+    def __init__(self, outcome: LlmJudgment | None = None, error: Exception | None = None) -> None:
         self._outcome = outcome or LlmJudgment("", "", "negative", True, "", 0.9)
         self._error = error
         self.calls: list[str] = []

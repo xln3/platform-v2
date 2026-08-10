@@ -64,9 +64,7 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("pub_id", name="uq_disparagement_factcheck_pub_id"),
-        sa.UniqueConstraint(
-            "judgment_pub_id", name="uq_disparagement_factcheck_judgment_pub_id"
-        ),
+        sa.UniqueConstraint("judgment_pub_id", name="uq_disparagement_factcheck_judgment_pub_id"),
         sa.CheckConstraint(
             "verdict IN ('supported','refuted','unverifiable')",
             name="ck_disparagement_factcheck_verdict",
@@ -148,9 +146,7 @@ def upgrade() -> None:
         schema="platform",
     )
     op.alter_column("disparagement_judgment", "run_id", nullable=True, schema="platform")
-    op.alter_column(
-        "disparagement_judgment", "project_id", nullable=True, schema="platform"
-    )
+    op.alter_column("disparagement_judgment", "project_id", nullable=True, schema="platform")
 
     # ── 授权（T1/T2 无 tenant 列 → 无 RLS；读路径经 project 归属隔离）────
     op.execute(
@@ -200,9 +196,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.alter_column(
-        "disparagement_judgment", "project_id", nullable=False, schema="platform"
-    )
+    op.alter_column("disparagement_judgment", "project_id", nullable=False, schema="platform")
     op.alter_column("disparagement_judgment", "run_id", nullable=False, schema="platform")
     op.drop_constraint(
         "ck_disparagement_judgment_content_origin",

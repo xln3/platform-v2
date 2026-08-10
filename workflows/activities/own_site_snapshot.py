@@ -90,13 +90,45 @@ _USER_AGENT = (
 
 _STATIC_EXTENSIONS = frozenset(
     {
-        ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico", ".bmp",
-        ".css", ".js", ".mjs", ".map",
-        ".pdf", ".zip", ".rar", ".7z", ".tar", ".gz",
-        ".mp4", ".mp3", ".wav", ".avi", ".mov", ".webm",
-        ".woff", ".woff2", ".ttf", ".otf", ".eot",
-        ".xml", ".json", ".txt", ".csv",
-        ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".svg",
+        ".webp",
+        ".ico",
+        ".bmp",
+        ".css",
+        ".js",
+        ".mjs",
+        ".map",
+        ".pdf",
+        ".zip",
+        ".rar",
+        ".7z",
+        ".tar",
+        ".gz",
+        ".mp4",
+        ".mp3",
+        ".wav",
+        ".avi",
+        ".mov",
+        ".webm",
+        ".woff",
+        ".woff2",
+        ".ttf",
+        ".otf",
+        ".eot",
+        ".xml",
+        ".json",
+        ".txt",
+        ".csv",
+        ".doc",
+        ".docx",
+        ".xls",
+        ".xlsx",
+        ".ppt",
+        ".pptx",
     }
 )
 
@@ -930,9 +962,7 @@ def execute_own_site_capture(
     progress("load_context", "")
     context = loader.load(item.tenant_pub_id, item.run_pub_id, item.project_pub_id)
     if context is None:
-        raise ApplicationError(
-            "collection run not found", type="run_not_found", non_retryable=True
-        )
+        raise ApplicationError("collection run not found", type="run_not_found", non_retryable=True)
     site_host = normalize_host(context.website or "")
     if not context.website or site_host is None:
         return OwnSiteSnapshotResult(skipped="no_website")
@@ -958,9 +988,7 @@ def execute_own_site_capture(
         try:
             return session.fetch(target.url)
         except Exception as exc:
-            failures.append(
-                OwnSiteFailure(url=target.url, error=f"{type(exc).__name__}: {exc}")
-            )
+            failures.append(OwnSiteFailure(url=target.url, error=f"{type(exc).__name__}: {exc}"))
             return None
 
     def _persist(target: SnapshotTarget, fetched: FetchedPage) -> None:

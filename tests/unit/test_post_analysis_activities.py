@@ -301,9 +301,7 @@ class _FakeAnnotator:
         self._error = error
         self.calls: list[list[AnnotationSpan]] = []
 
-    def annotate(
-        self, url: str, spans: list[AnnotationSpan]
-    ) -> tuple[bytes, list[AnnotationMark]]:
+    def annotate(self, url: str, spans: list[AnnotationSpan]) -> tuple[bytes, list[AnnotationMark]]:
         self.calls.append(spans)
         if self._error is not None:
             raise self._error
@@ -323,9 +321,7 @@ class _FakeAnnotator:
         pass
 
 
-_ITEM_INPUT = PostAnalysisItemInput(
-    tenant_pub_id=_TENANT, task_pub_id=_TASK, item_pub_id=_ITEM
-)
+_ITEM_INPUT = PostAnalysisItemInput(tenant_pub_id=_TENANT, task_pub_id=_TASK, item_pub_id=_ITEM)
 
 
 # ---------------------------------------------------------------------------
@@ -365,9 +361,7 @@ def test_fetch_skips_terminal_item() -> None:
 
 def test_fetch_item_not_found_raises() -> None:
     with pytest.raises(ApplicationError, match="item not found"):
-        execute_fetch_snapshot(
-            _ITEM_INPUT, store=_FakeStore(None), fetcher=_FakeFetcher()
-        )
+        execute_fetch_snapshot(_ITEM_INPUT, store=_FakeStore(None), fetcher=_FakeFetcher())
 
 
 # ---------------------------------------------------------------------------
@@ -558,8 +552,9 @@ def test_annotate_failure_keeps_analysis() -> None:
 
 
 def test_annotate_without_findings_persists_empty() -> None:
-    context = _ctx(status="annotating", analysis={"brand_mentions": [], "disparagement": [],
-                                                  "claims": []})
+    context = _ctx(
+        status="annotating", analysis={"brand_mentions": [], "disparagement": [], "claims": []}
+    )
     store = _FakeStore(context)
     annotator = _FakeAnnotator()
     result = execute_annotate_post(_ITEM_INPUT, store=store, annotator=annotator)
@@ -601,9 +596,7 @@ def _mock_factory(
 
         def handler(request: httpx.Request) -> httpx.Response:
             if isinstance(behavior, int):
-                return httpx.Response(
-                    behavior, json={"output": [], "status": "completed"}
-                )
+                return httpx.Response(behavior, json={"output": [], "status": "completed"})
             raise behavior("boom", request=request)
 
         return httpx.Client(transport=httpx.MockTransport(handler), base_url=base_url)

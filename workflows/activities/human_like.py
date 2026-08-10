@@ -350,8 +350,6 @@ def human_read_pause(
     total = 0.0
     for _ in range(rng.randint(_READ_SCROLL_MIN, _READ_SCROLL_MAX)):
         page.mouse.wheel(0.0, rng.uniform(_READ_SCROLL_MIN_PX, _READ_SCROLL_MAX_PX))
-        total += human_pause(
-            rng, _READ_SCROLL_PAUSE_MIN_S, _READ_SCROLL_PAUSE_MAX_S, sleep=sleep
-        )
+        total += human_pause(rng, _READ_SCROLL_PAUSE_MIN_S, _READ_SCROLL_PAUSE_MAX_S, sleep=sleep)
     total += human_pause(rng, _READ_PAUSE_MIN_S, _READ_PAUSE_MAX_S, sleep=sleep)
     return total

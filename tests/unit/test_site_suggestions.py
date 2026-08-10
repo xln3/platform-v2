@@ -106,9 +106,7 @@ class _FakeLoader:
 
 
 class _FakeTextStore:
-    def __init__(
-        self, text: str = "官网正文要点" * 100, fail_keys: set[str] | None = None
-    ) -> None:
+    def __init__(self, text: str = "官网正文要点" * 100, fail_keys: set[str] | None = None) -> None:
         self._text = text
         self._fail_keys = fail_keys or set()
 
@@ -119,16 +117,18 @@ class _FakeTextStore:
 
 
 class _FakeJudge:
-    def __init__(
-        self, items: list[dict] | None = None, error: Exception | None = None
-    ) -> None:
-        self._items = items if items is not None else [
-            _item(
-                title="产品页缺结构化要点",
-                detail="正文长段落无列表，AI 摘引困难，建议拆 FAQ。",
-                evidence_url=_OWN_URL,
-            )
-        ]
+    def __init__(self, items: list[dict] | None = None, error: Exception | None = None) -> None:
+        self._items = (
+            items
+            if items is not None
+            else [
+                _item(
+                    title="产品页缺结构化要点",
+                    detail="正文长段落无列表，AI 摘引困难，建议拆 FAQ。",
+                    evidence_url=_OWN_URL,
+                )
+            ]
+        )
         self._error = error
         self.calls = 0
 

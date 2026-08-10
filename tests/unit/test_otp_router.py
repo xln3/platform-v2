@@ -43,17 +43,27 @@ def _otp_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     yield
 
 
-def _push(body: object, *, token: str = "relay-secret",
-          content_type: str = "application/json", query: str = "") -> httpx.Response:
+def _push(
+    body: object,
+    *,
+    token: str = "relay-secret",
+    content_type: str = "application/json",
+    query: str = "",
+) -> httpx.Response:
     payload = json.dumps(body, ensure_ascii=False) if isinstance(body, dict) else str(body)
-    return client.post(f"/api/v2/otp/push{query}", content=payload,
-                       headers={"X-Relay-Token": token, "Content-Type": content_type})
+    return client.post(
+        f"/api/v2/otp/push{query}",
+        content=payload,
+        headers={"X-Relay-Token": token, "Content-Type": content_type},
+    )
 
 
-def _latest(phone: str = PHONE, *, token: str = "operator-secret",
-            within: str = "180") -> httpx.Response:
-    return client.get(f"/api/v2/otp/latest?phone={phone}&within={within}",
-                      headers={"X-Operator-Token": token})
+def _latest(
+    phone: str = PHONE, *, token: str = "operator-secret", within: str = "180"
+) -> httpx.Response:
+    return client.get(
+        f"/api/v2/otp/latest?phone={phone}&within={within}", headers={"X-Operator-Token": token}
+    )
 
 
 # ── push：token 门 ─────────────────────────────────────────────────────────────
@@ -83,8 +93,14 @@ def test_push_json_slot_template_routed_and_schema(tmp_path: Path) -> None:
     resp = _push({"slot": SLOT, "sms": SMS})
     assert resp.status_code == 200
     body = resp.json()
-    assert body == {"ok": True, "have_code": True, "code_len": 6,
-                    "phone": "131***2231", "routed": True, "platform": "豆包"}
+    assert body == {
+        "ok": True,
+        "have_code": True,
+        "code_len": 6,
+        "phone": "131***2231",
+        "routed": True,
+        "platform": "豆包",
+    }
     files = list(Path(tmp_path).glob("*.json"))
     assert [p.name for p in files] == [f"{PHONE}.json"]
     rec = json.loads(files[0].read_text(encoding="utf-8"))
@@ -99,8 +115,9 @@ def test_push_json_slot_template_routed_and_schema(tmp_path: Path) -> None:
     assert rec["meta"]["extract_method"] == "regex"
     assert before <= rec["ts"] <= time.time()  # ts = 服务端 epoch
     # append-only JSONL 台账
-    event = json.loads((Path(tmp_path) / "otp_events.jsonl")
-                       .read_text(encoding="utf-8").splitlines()[0])
+    event = json.loads(
+        (Path(tmp_path) / "otp_events.jsonl").read_text(encoding="utf-8").splitlines()[0]
+    )
     assert event["phone"] == PHONE and event["code"] == CODE
     assert event["platform"] == "豆包" and event["code_source"] == "extracted"
     assert "raw" not in event  # 台账不留原文（同旧链缺省口径）
@@ -244,11 +261,13 @@ def test_push_rate_limited(monkeypatch: pytest.MonkeyPatch) -> None:
 # ── latest：operator 门 / within 窗 / 不存在 ────────────────────────────────────
 
 
-def _write_inbox(tmp_path: Path, phone: str, *, ts: float, code: str = CODE,
-                 platform: str = "豆包") -> None:
+def _write_inbox(
+    tmp_path: Path, phone: str, *, ts: float, code: str = CODE, platform: str = "豆包"
+) -> None:
     rec = {"ts": ts, "phone": phone, "code": code, "raw": SMS, "from": "", "platform": platform}
     (Path(tmp_path) / f"{phone}.json").write_text(
-        json.dumps(rec, ensure_ascii=False), encoding="utf-8")
+        json.dumps(rec, ensure_ascii=False), encoding="utf-8"
+    )
 
 
 def test_latest_operator_token_not_configured_503(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -297,8 +316,10 @@ def test_latest_no_sms_for_phone() -> None:
 def test_latest_within_clamped(tmp_path: Path) -> None:
     _write_inbox(tmp_path, PHONE, ts=time.time())
     assert _latest(within="99999").json()["found"] is True  # 硬夹 900 内仍新鲜
-    body = client.get(f"/api/v2/otp/latest?phone={PHONE}&within=abc",
-                      headers={"X-Operator-Token": "operator-secret"}).json()
+    body = client.get(
+        f"/api/v2/otp/latest?phone={PHONE}&within=abc",
+        headers={"X-Operator-Token": "operator-secret"},
+    ).json()
     assert body["ok"] is True  # 畸形 within → 默认 180，绝不 422
 
 
@@ -312,8 +333,7 @@ def test_otp_wait_success_injected_fetcher() -> None:
         calls.append(1)
         return CODE if len(calls) >= 3 else None
 
-    code = otp_wait.wait_for_code(timeout_s=10, interval_s=2, fetch=fetch,
-                                  sleep=lambda s: None)
+    code = otp_wait.wait_for_code(timeout_s=10, interval_s=2, fetch=fetch, sleep=lambda s: None)
     assert code == CODE and len(calls) == 3
 
 
@@ -326,8 +346,9 @@ def test_otp_wait_timeout_fake_clock() -> None:
     def sleep(s: float) -> None:
         now[0] += s
 
-    result = otp_wait.wait_for_code(timeout_s=5, interval_s=2,
-                                    fetch=lambda: None, sleep=sleep, clock=clock)
+    result = otp_wait.wait_for_code(
+        timeout_s=5, interval_s=2, fetch=lambda: None, sleep=sleep, clock=clock
+    )
     assert result is None and now[0] >= 1005.0
 
 
@@ -374,8 +395,9 @@ class _FakeClient:
 def test_otp_wait_make_fetcher_found(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(otp_wait.httpx, "Client", _FakeClient)
     _FakeClient.queue = [_FakeResponse(200, {"ok": True, "found": True, "code": CODE})]
-    fetch = otp_wait.make_fetcher(base="https://127.0.0.1:8443", token="tok",
-                                  phone=PHONE, within=180)
+    fetch = otp_wait.make_fetcher(
+        base="https://127.0.0.1:8443", token="tok", phone=PHONE, within=180
+    )
     assert fetch() == CODE
     assert _FakeClient.last_params == {"phone": PHONE, "within": 180}
     assert _FakeClient.init_kwargs.get("trust_env") is False
@@ -394,17 +416,20 @@ def test_otp_wait_make_fetcher_network_error_is_retryable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(otp_wait.httpx, "Client", _FakeClient)
-    _FakeClient.queue = [httpx.ConnectError("boom"),
-                         _FakeResponse(200, {"ok": True, "found": False}),
-                         _FakeResponse(200, {"ok": True, "found": True, "code": CODE})]
+    _FakeClient.queue = [
+        httpx.ConnectError("boom"),
+        _FakeResponse(200, {"ok": True, "found": False}),
+        _FakeResponse(200, {"ok": True, "found": True, "code": CODE}),
+    ]
     fetch = otp_wait.make_fetcher(base="https://x", token="tok", phone=PHONE, within=180)
     assert fetch() is None  # 网络错误 → 当无码重试
     assert fetch() is None
     assert fetch() == CODE
 
 
-def test_otp_wait_main_end_to_end_exit0(monkeypatch: pytest.MonkeyPatch,
-                                        capsys: pytest.CaptureFixture[str]) -> None:
+def test_otp_wait_main_end_to_end_exit0(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     monkeypatch.setenv("GEO_OTP_OPERATOR_TOKEN", "tok")
     monkeypatch.setattr(otp_wait.httpx, "Client", _FakeClient)
     _FakeClient.queue = [_FakeResponse(200, {"ok": True, "found": True, "code": CODE})]
@@ -420,12 +445,20 @@ def test_otp_wait_main_401_exit3(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_otp_wait_strip_proxy_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for key in ("http_proxy", "https_proxy", "all_proxy",
-                "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):
+    for key in ("http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):
         monkeypatch.setenv(key, "http://127.0.0.1:7890")
     otp_wait.strip_proxy_env()
-    assert not any(k in os.environ for k in (
-        "http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"))
+    assert not any(
+        k in os.environ
+        for k in (
+            "http_proxy",
+            "https_proxy",
+            "all_proxy",
+            "HTTP_PROXY",
+            "HTTPS_PROXY",
+            "ALL_PROXY",
+        )
+    )
 
 
 # ── 装机配置页 / setup-info / status / apk ─────────────────────────────────────
@@ -446,10 +479,11 @@ def test_setup_info_gate(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("GEO_OTP_OPERATOR_TOKEN", raising=False)
     assert client.get("/api/v2/otp/setup-info").status_code == 503
     monkeypatch.setenv("GEO_OTP_OPERATOR_TOKEN", "operator-secret")
-    assert client.get("/api/v2/otp/setup-info",
-                      headers={"X-Operator-Token": "wrong"}).status_code == 401
-    resp = client.get("/api/v2/otp/setup-info",
-                      headers={"X-Operator-Token": "operator-secret"})
+    assert (
+        client.get("/api/v2/otp/setup-info", headers={"X-Operator-Token": "wrong"}).status_code
+        == 401
+    )
+    resp = client.get("/api/v2/otp/setup-info", headers={"X-Operator-Token": "operator-secret"})
     assert resp.status_code == 200
     data = resp.json()
     assert data["relay_token"] == "relay-secret"
@@ -461,12 +495,14 @@ def test_setup_info_gate(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_setup_info_slot_remarks_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
     """在册卡槽备注的静态真源是 env GEO_OTP_SLOT_REMARKS（换号改一处，页面刷新即得）。"""
-    monkeypatch.setenv("GEO_OTP_SLOT_REMARKS",
-                       "SIM1_中国移动_+8613900001111, SIM2_联通_+8613900002222")
+    monkeypatch.setenv(
+        "GEO_OTP_SLOT_REMARKS", "SIM1_中国移动_+8613900001111, SIM2_联通_+8613900002222"
+    )
     resp = client.get("/api/v2/otp/setup-info", headers={"X-Operator-Token": "operator-secret"})
     assert resp.status_code == 200
     assert resp.json()["slot_remarks"] == [
-        "SIM1_中国移动_+8613900001111", "SIM2_联通_+8613900002222",
+        "SIM1_中国移动_+8613900001111",
+        "SIM2_联通_+8613900002222",
     ]
 
 
@@ -477,9 +513,11 @@ NEW_PHONE = "13912345678"
 
 
 def _register(body: object, *, token: str = "operator-secret") -> httpx.Response:
-    return client.post("/api/v2/otp/register", content=json.dumps(body, ensure_ascii=False),
-                       headers={"X-Operator-Token": token,
-                                "Content-Type": "application/json"})
+    return client.post(
+        "/api/v2/otp/register",
+        content=json.dumps(body, ensure_ascii=False),
+        headers={"X-Operator-Token": token, "Content-Type": "application/json"},
+    )
 
 
 def test_register_operator_token_not_configured_503(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -491,8 +529,10 @@ def test_register_operator_token_not_configured_503(monkeypatch: pytest.MonkeyPa
 
 def test_register_operator_token_wrong_401() -> None:
     assert _register({"phone": NEW_PHONE}, token="wrong").status_code == 401
-    assert client.post("/api/v2/otp/register",
-                       content=json.dumps({"phone": NEW_PHONE})).status_code == 401
+    assert (
+        client.post("/api/v2/otp/register", content=json.dumps({"phone": NEW_PHONE})).status_code
+        == 401
+    )
 
 
 def test_register_bad_phone_400() -> None:
@@ -514,8 +554,9 @@ def test_register_persists_and_shows_in_setup_info(tmp_path: Path) -> None:
     assert entries[0]["remark"] == body["remark"]
     assert not any(p.name.endswith(".tmp") for p in (tmp_path / "reg").iterdir())
     # setup-info 合并下发（env 缺省两号 + 注册新号）
-    remarks = client.get("/api/v2/otp/setup-info",
-                         headers={"X-Operator-Token": "operator-secret"}).json()["slot_remarks"]
+    remarks = client.get(
+        "/api/v2/otp/setup-info", headers={"X-Operator-Token": "operator-secret"}
+    ).json()["slot_remarks"]
     assert remarks[-1] == body["remark"] and len(remarks) == 3
     # 注册备注可被卡槽反解回真号（路由契约不破）
     assert otp_router.phone_from_slot(body["remark"]) == NEW_PHONE
@@ -548,11 +589,13 @@ def test_register_upsert_same_phone(tmp_path: Path) -> None:
 
 def test_register_merges_with_env_dedupe_by_phone(monkeypatch: pytest.MonkeyPatch) -> None:
     """setup-info = env 备注 ∪ 注册表：按手机号去重，同号以注册表（更新的动作）为准。"""
-    monkeypatch.setenv("GEO_OTP_SLOT_REMARKS",
-                       f"SIM1_中国移动_+86{NEW_PHONE}, SIM2_联通_+8613900002222")
+    monkeypatch.setenv(
+        "GEO_OTP_SLOT_REMARKS", f"SIM1_中国移动_+86{NEW_PHONE}, SIM2_联通_+8613900002222"
+    )
     _register({"phone": NEW_PHONE, "slot": "eSIM", "carrier": "中国电信"})
-    remarks = client.get("/api/v2/otp/setup-info",
-                         headers={"X-Operator-Token": "operator-secret"}).json()["slot_remarks"]
+    remarks = client.get(
+        "/api/v2/otp/setup-info", headers={"X-Operator-Token": "operator-secret"}
+    ).json()["slot_remarks"]
     assert remarks == ["SIM2_联通_+8613900002222", f"eSIM_中国电信_+86{NEW_PHONE}"]
 
 
@@ -577,13 +620,32 @@ def test_setup_page_channel_rule_mirror_app_form() -> None:
     """第 3/4 步按 SmsForwarder v3.5.0 实际表单逐格给出（20260810 真机截图校准）。"""
     html = client.get("/api/v2/otp/setup").text
     # Webhook 通道表单字段逐格对应（文本框复制项 + 单选/留空指示）
-    for frag in ("通道名称/状态", "请求方式", "Webhook Server", "消息模板", "Secret",
-                 "成功应答关键字", "Headers 第 1 行 Key", "Headers 第 1 行 Value",
-                 "Headers 第 2 行", "代理设置"):
+    for frag in (
+        "通道名称/状态",
+        "请求方式",
+        "Webhook Server",
+        "消息模板",
+        "Secret",
+        "成功应答关键字",
+        "Headers 第 1 行 Key",
+        "Headers 第 1 行 Value",
+        "Headers 第 2 行",
+        "代理设置",
+    ):
         assert frag in html, frag
     # 转发规则表单字段逐格对应
-    for frag in ("规则别名", "发送通道", "匹配卡槽", "匹配字段", "匹配模式", "匹配的值",
-                 "不限卡槽", "启用自定义模版", "启用该条转发规则", "免打扰"):
+    for frag in (
+        "规则别名",
+        "发送通道",
+        "匹配卡槽",
+        "匹配字段",
+        "匹配模式",
+        "匹配的值",
+        "不限卡槽",
+        "启用自定义模版",
+        "启用该条转发规则",
+        "免打扰",
+    ):
         assert frag in html, frag
     # 第 0 步必查项：全局免打扰=00:00~00:00（20260810 实测 00:00~24:00 全天禁转发案例）
     assert "全天禁转发" in html

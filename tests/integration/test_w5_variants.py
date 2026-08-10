@@ -114,9 +114,7 @@ def _bootstrap(client: TestClient, subject: str) -> tuple[str, dict[str, str]]:
     }
 
 
-def _create_member(
-    client: TestClient, admin_headers: dict[str, str], role: str
-) -> dict[str, str]:
+def _create_member(client: TestClient, admin_headers: dict[str, str], role: str) -> dict[str, str]:
     subject = f"w5-{role}-" + secrets.token_hex(8)
     response = client.post(
         "/api/v2/identity/members",
@@ -162,9 +160,7 @@ def _tenant_scope(tenant_pub_id: str, project_pub_id: str) -> tuple[str, str, st
     """解析 (tenant_id, project_id, config_version_id)；RLS 下先声明租户上下文。"""
     with SessionLocal() as session:
         session.execute(
-            sql_text(
-                "SELECT set_config('app.tenant_pub_id', :pub, false)"
-            ),
+            sql_text("SELECT set_config('app.tenant_pub_id', :pub, false)"),
             {"pub": tenant_pub_id},
         )
         tenant_id = session.execute(
@@ -354,9 +350,7 @@ def test_generate_list_confirm_draft_and_coverage(w5_project: dict) -> None:
     assert conflict[0] == 409
 
     # 变体清单按意图簇分组；检索词种子落真实 source_type/source_ref。
-    listing = client.get(
-        f"/api/v2/projects/{project}/variants?status=pending", headers=headers
-    )
+    listing = client.get(f"/api/v2/projects/{project}/variants?status=pending", headers=headers)
     assert listing.status_code == 200
     groups = {group["intent"]: group["variants"] for group in listing.json()["groups"]}
     all_variants = [v for variants in groups.values() for v in variants]
@@ -431,9 +425,7 @@ def test_zero_mention_recycle_and_verified(w5_project: dict) -> None:
     listing = client.get(
         f"/api/v2/projects/{project}/variants?status=pending&limit=1000", headers=headers
     )
-    variants = [
-        v for group in listing.json()["groups"] for v in group["variants"]
-    ]
+    variants = [v for group in listing.json()["groups"] for v in group["variants"]]
     by_text = {v["text"]: v for v in variants}
     mentioned_variant = by_text["中意人寿重疾险怎么样"]
     zero_variant = by_text["哪家保险公司靠谱？"]
@@ -461,9 +453,7 @@ def test_zero_mention_recycle_and_verified(w5_project: dict) -> None:
         f"/api/v2/projects/{project}/variants?status=confirmed&limit=1000", headers=headers
     )
     confirmed_variants = {
-        v["text"]: v
-        for group in confirmed_listing.json()["groups"]
-        for v in group["variants"]
+        v["text"]: v for group in confirmed_listing.json()["groups"] for v in group["variants"]
     }
     assert confirmed_variants[mentioned_variant["text"]]["verified"] is True
     assert confirmed_variants[zero_variant["text"]]["verified"] is False

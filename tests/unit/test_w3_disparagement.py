@@ -378,10 +378,12 @@ def _context(
         project_pub_id=_PROJECT,
         brand=_BRAND,
         competitors=_COMPETITORS,
-        answers=answers if answers is not None else [
-            AnswerSubject(pub_id="ans_x", text=_ANSWER_TEXT, model="doubao")
-        ],
-        documents=documents if documents is not None else [
+        answers=answers
+        if answers is not None
+        else [AnswerSubject(pub_id="ans_x", text=_ANSWER_TEXT, model="doubao")],
+        documents=documents
+        if documents is not None
+        else [
             DocumentSubject(
                 pub_id="srd_x",
                 url="https://a.example.com/article",

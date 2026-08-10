@@ -53,9 +53,7 @@ def test_cluster_merges_normalized_identical_into_one_member() -> None:
 
 
 def test_cluster_merges_prefix_extension() -> None:
-    clusters = textutil.cluster_texts(
-        [("北京人寿保险怎么选择", 1), ("北京人寿保险怎么选", 1)]
-    )
+    clusters = textutil.cluster_texts([("北京人寿保险怎么选择", 1), ("北京人寿保险怎么选", 1)])
     assert len(clusters) == 1
     assert clusters[0].total_count == 2
 

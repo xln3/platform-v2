@@ -11,6 +11,7 @@
 
 REST 层在 api/geo_platform/brandrank/（service+router），挂载于 api/geo_platform/main.py。
 """
+
 from __future__ import annotations
 
 from .rules import DEFAULT_DOMAIN, DomainRules, available_domains, domain_for_industry, load_domain

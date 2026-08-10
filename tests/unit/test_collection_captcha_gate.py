@@ -31,8 +31,8 @@ def test_unpatched_history_replay_drops_pause() -> None:
 def test_malformed_pause_dropped() -> None:
     """adapter 契约违背（resume_index 越界 / 结果不等长）→ 不当 pause 处理，
     workflow 侧按旧语义全量落库。"""
-    assert gate_captcha_pause(True, _pause(3), items=3, results=3) is None   # 越界
+    assert gate_captcha_pause(True, _pause(3), items=3, results=3) is None  # 越界
     assert gate_captcha_pause(True, _pause(-1), items=3, results=3) is None  # 负下标
-    assert gate_captcha_pause(True, _pause(0), items=3, results=2) is None   # 不等长
-    assert gate_captcha_pause(True, _pause(0), items=0, results=0) is None   # 空段
-    assert gate_captcha_pause(True, None, items=3, results=3) is None        # 无标注
+    assert gate_captcha_pause(True, _pause(0), items=3, results=2) is None  # 不等长
+    assert gate_captcha_pause(True, _pause(0), items=0, results=0) is None  # 空段
+    assert gate_captcha_pause(True, None, items=3, results=3) is None  # 无标注

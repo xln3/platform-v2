@@ -147,9 +147,7 @@ class _FakeSink:
                 "fetched_at": fetched_at,
             }
         )
-        pub_id = derive_document_pub_id(
-            context.tenant_pub_id, context.run_pub_id, target.url_hash
-        )
+        pub_id = derive_document_pub_id(context.tenant_pub_id, context.run_pub_id, target.url_hash)
         return PersistedDocument(pub_id=pub_id, bytes=len(text.encode("utf-8")))
 
 
@@ -461,9 +459,7 @@ def test_execute_fetch_idempotent_reuse_existing() -> None:
     key = url_dedupe_key(url)
     assert key is not None
     url_hash = sha256(key.encode()).hexdigest()
-    existing = {
-        url_hash: ExistingDocument(pub_id="srd_existing", extract_status="ok", bytes=1234)
-    }
+    existing = {url_hash: ExistingDocument(pub_id="srd_existing", extract_status="ok", bytes=1234)}
     tasks = [("tsk_1", [_citation(url)])]
     fetcher = _FakeFetcher()  # 无任何映射：被调用即 KeyError
     sink = _FakeSink()

@@ -284,32 +284,55 @@ def seeded() -> Any:
             fetched_at=datetime(2026, 7, 1, 10, 0, tzinfo=UTC),
         )
         seeder.add_audit(
-            project_a, docs["d1"], dimension="transcript", verdict="accurate",
-            audit_status="ok", rationale="转述与正文一致。",
+            project_a,
+            docs["d1"],
+            dimension="transcript",
+            verdict="accurate",
+            audit_status="ok",
+            rationale="转述与正文一致。",
         )
         seeder.add_audit(
-            project_a, docs["d1"], dimension="factual", verdict="inaccurate",
-            audit_status="ok", rationale=_LONG_RATIONALE,
+            project_a,
+            docs["d1"],
+            dimension="factual",
+            verdict="inaccurate",
+            audit_status="ok",
+            rationale=_LONG_RATIONALE,
         )
         seeder.add_audit(
-            project_a, docs["d2"], dimension="transcript", verdict="accurate",
+            project_a,
+            docs["d2"],
+            dimension="transcript",
+            verdict="accurate",
             audit_status="ok",
         )
         seeder.add_audit(
-            project_a, docs["d3"], dimension="transcript", verdict="unsupported",
+            project_a,
+            docs["d3"],
+            dimension="transcript",
+            verdict="unsupported",
             audit_status="ok",
         )
         seeder.add_audit(
-            project_a, docs["d4"], dimension="factual", verdict="accurate",
+            project_a,
+            docs["d4"],
+            dimension="factual",
+            verdict="accurate",
             audit_status="ok",
         )
         seeder.add_audit(
-            project_a, docs["d5"], dimension="transcript", verdict="unverifiable",
+            project_a,
+            docs["d5"],
+            dimension="transcript",
+            verdict="unverifiable",
             audit_status="ok",
         )
         # llm_error 行：verdict NULL，只出现在 items.audits，绝不入 verdicts 分布
         seeder.add_audit(
-            project_a, docs["d5"], dimension="factual", verdict=None,
+            project_a,
+            docs["d5"],
+            dimension="factual",
+            verdict=None,
             audit_status="llm_error",
         )
         docs["d7"] = seeder.add_document(
@@ -320,13 +343,21 @@ def seeded() -> Any:
             fetched_at=_fetched(5),
         )
         seeder.add_audit(
-            project_b, docs["d7"], dimension="transcript", verdict="accurate",
+            project_b,
+            docs["d7"],
+            dimension="transcript",
+            verdict="accurate",
             audit_status="ok",
         )
         tenant_id = seeder.tenant_id
     yield SimpleNamespace(
-        client=client, headers=headers, tenant=tenant, tenant_id=tenant_id,
-        project_a=project_a, project_b=project_b, docs=docs,
+        client=client,
+        headers=headers,
+        tenant=tenant,
+        tenant_id=tenant_id,
+        project_a=project_a,
+        project_b=project_b,
+        docs=docs,
     )
     with psycopg.connect(POSTGRES_DSN) as connection:
         for table in (
@@ -384,10 +415,16 @@ def test_source_audit_aggregation_and_own_site_matching(seeded: Any) -> None:
 
     # verdicts：只统计 audit_status='ok' 且 verdict 非 NULL（d5 的 llm_error 行排除）
     assert body["verdicts"]["transcript"] == {
-        "accurate": 2, "inaccurate": 0, "unsupported": 1, "unverifiable": 1,
+        "accurate": 2,
+        "inaccurate": 0,
+        "unsupported": 1,
+        "unverifiable": 1,
     }
     assert body["verdicts"]["factual"] == {
-        "accurate": 1, "inaccurate": 1, "unsupported": 0, "unverifiable": 0,
+        "accurate": 1,
+        "inaccurate": 1,
+        "unsupported": 0,
+        "unverifiable": 0,
     }
 
     # hosts：documents 降序，www 主站 2 文档居首
@@ -395,8 +432,11 @@ def test_source_audit_aggregation_and_own_site_matching(seeded: Any) -> None:
     assert body["hosts"][0]["host"] == "www.cyberpeace.cn"
     assert len(hosts) == 4
     assert hosts["www.cyberpeace.cn"] == {
-        "host": "www.cyberpeace.cn", "is_own_site": True, "documents": 2,
-        "transcript_total": 2, "transcript_accurate": 2,
+        "host": "www.cyberpeace.cn",
+        "is_own_site": True,
+        "documents": 2,
+        "transcript_total": 2,
+        "transcript_accurate": 2,
     }
     assert hosts["cyberpeace.cn"]["is_own_site"] is True
     assert hosts["cyberpeace.cn"]["transcript_total"] == 1
@@ -478,7 +518,10 @@ def test_latest_prompt_version_wins_per_dimension(seeded: Any) -> None:
     assert factual["rationale"] == "新版判定"
     # 分布口径同步去重：d1 factual 的旧 inaccurate 不计入
     assert body["verdicts"]["factual"] == {
-        "accurate": 2, "inaccurate": 0, "unsupported": 0, "unverifiable": 0,
+        "accurate": 2,
+        "inaccurate": 0,
+        "unsupported": 0,
+        "unverifiable": 0,
     }
 
 

@@ -411,9 +411,7 @@ class GeoCollectionWorkflow:
         try:
             await workflow.execute_activity(
                 captcha_assist_stop,
-                CaptchaAssistStopInput(
-                    run_pub_id=data.run_pub_id, session_id=started.session_id
-                ),
+                CaptchaAssistStopInput(run_pub_id=data.run_pub_id, session_id=started.session_id),
                 start_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )

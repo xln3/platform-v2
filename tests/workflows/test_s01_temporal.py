@@ -442,7 +442,6 @@ async def test_platform_session_external_cancellation_releases_fenced_lease() ->
     assert lease_releases == [("ten_session_cancel", "sle_cleanup_fixture", 41)]
 
 
-
 # ---------------------------------------------------------------------------
 # doubao-batch-collect-v1：batch 路由（doubao 连续段 → 一个 batch activity）
 # ---------------------------------------------------------------------------
@@ -622,12 +621,13 @@ async def test_doubao_batch_wall_persists_failures_and_run_continues() -> None:
     assert batch_calls == [["w-1", "w-2", "w-3"]]
     # 逐题 persist：ok + wall + aborted + 后续 fixed ok 全部落库
     assert persisted_items == [
-        ("w-1", "ok"), ("w-2", "wall"), ("w-3", "aborted"), ("w-4", "ok"),
+        ("w-1", "ok"),
+        ("w-2", "wall"),
+        ("w-3", "aborted"),
+        ("w-4", "ok"),
     ]
     # 终态按 completed 标记（persist 侧 derive 落 completed_with_failures，mark 不降级）
-    assert terminal_run_states == [
-        ("tnt_batch_wall", "run_batch_wall", "completed", None)
-    ]
+    assert terminal_run_states == [("tnt_batch_wall", "run_batch_wall", "completed", None)]
 
 
 @activity.defn(name="collect_deepseek_batch")
@@ -709,13 +709,21 @@ async def test_all_adapters_routed_to_named_batch_activities() -> None:
     # 三段 batch 调用：doubao×1、deepseek×1（两题）、yuanbao×1
     assert batch_calls == [["d-1"], ["deepseek:s-1", "deepseek:s-2"], ["yuanbao:y-1"]]
     assert [item.business_key for item in result.completed] == [
-        "d-1", "s-1", "s-2", "f-1", "y-1",
+        "d-1",
+        "s-1",
+        "s-2",
+        "f-1",
+        "y-1",
     ]
     assert result.completed[0].answer_text == "[batch-fixture] query-d-1"
     assert result.completed[1].answer_text == "[ds-fixture] query-s-1"
     assert result.completed[4].answer_text == "[yb-fixture] query-y-1"
     assert persisted_items == [
-        ("d-1", "ok"), ("s-1", "ok"), ("s-2", "ok"), ("f-1", "ok"), ("y-1", "ok"),
+        ("d-1", "ok"),
+        ("s-1", "ok"),
+        ("s-2", "ok"),
+        ("f-1", "ok"),
+        ("y-1", "ok"),
     ]
 
 
@@ -1156,7 +1164,7 @@ async def test_malformed_captcha_pause_falls_back_to_full_persist() -> None:
     assert result.state == "completed"
     assert batch_calls == [["c-1", "c-2"]]
     assert persisted_items == [("c-1", "ok"), ("c-2", "wall")]
-    assert assist_events == []                     # 畸形 pause 绝不起接管会话
+    assert assist_events == []  # 畸形 pause 绝不起接管会话
 
 
 # ---------------------------------------------------------------------------
@@ -1297,6 +1305,6 @@ async def test_captcha_pause_carries_instance_key_to_assist() -> None:
             await handle.signal(GeoCollectionWorkflow.captcha_solved, "sess-inst")
             result = await handle.result()
     assert result.state == "completed"
-    assert assist_instance_keys == ["doubao_sh"]   # assist 拿到的就是撞码实例
-    assert batch_calls == [["i-1", "i-2"], ["i-2"]]   # 断点起重采（撞码题重发）
+    assert assist_instance_keys == ["doubao_sh"]  # assist 拿到的就是撞码实例
+    assert batch_calls == [["i-1", "i-2"], ["i-2"]]  # 断点起重采（撞码题重发）
     assert persisted_items == [("i-1", "ok"), ("i-2", "ok")]

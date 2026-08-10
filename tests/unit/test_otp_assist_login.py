@@ -63,8 +63,13 @@ class _FakeKeyboard:
 class _FakePage:
     """登录页 fake：url/title/goto + 可见选择器集合；close 置标记（绝不应被调）。"""
 
-    def __init__(self, *, url: str = "about:blank", title: str = "fake",
-                 visible_selectors: set[str] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        url: str = "about:blank",
+        title: str = "fake",
+        visible_selectors: set[str] | None = None,
+    ) -> None:
         self._url = url
         self._title = title
         self._visible_selectors = set(visible_selectors or set())
@@ -100,7 +105,7 @@ class _FakePage:
         pass
 
     def close(self) -> None:
-        self.closed = True      # attach 语义下绝不应被调（profile 归 supervisor）
+        self.closed = True  # attach 语义下绝不应被调（profile 归 supervisor）
 
 
 class _FakeContext:
@@ -111,7 +116,7 @@ class _FakeContext:
         self.closed = False
 
     def close(self) -> None:
-        self.closed = True      # attach 语义下绝不应被调
+        self.closed = True  # attach 语义下绝不应被调
 
 
 class _FakeBrowser:
@@ -120,7 +125,7 @@ class _FakeBrowser:
         self.closed = False
 
     def close(self) -> None:
-        self.closed = True     # 只断 CDP——fake 无进程可杀
+        self.closed = True  # 只断 CDP——fake 无进程可杀
 
 
 class _FakeChromium:
@@ -151,24 +156,30 @@ class _FakePwStarter:
 
 
 def _wire(
-    monkeypatch: pytest.MonkeyPatch, tmp_path, pages: list[_FakePage],
-    *, cdp_url: str | None = "http://127.0.0.1:19226", notify: bool = True,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+    pages: list[_FakePage],
+    *,
+    cdp_url: str | None = "http://127.0.0.1:19226",
+    notify: bool = True,
 ) -> tuple[_FakeBrowser, _FakePwHandle, list]:
     """注入 fake driver/CDP/注册表目录/推送记录器/local fencing，返回可断言句柄。"""
     browser = _FakeBrowser(_FakeContext(pages))
     handle = _FakePwHandle(browser)
     monkeypatch.setattr(
-        captcha_assist, "load_sync_browser_driver",
+        captcha_assist,
+        "load_sync_browser_driver",
         lambda: ("patchright", lambda: _FakePwStarter(handle), Exception),
     )
     monkeypatch.setattr(captcha_assist, "resident_cdp_url", lambda platform: cdp_url)
     monkeypatch.setattr(captcha_assist, "_REGISTRY_DIR", tmp_path)
-    monkeypatch.setenv("GEO_BROWSER_FENCING", "local")   # 纯进程内锁，绝不碰 DB
+    monkeypatch.setenv("GEO_BROWSER_FENCING", "local")  # 纯进程内锁，绝不碰 DB
     monkeypatch.setattr(otp_assist_login, "_POLL_INTERVAL_S", 0.05)
     monkeypatch.setattr(otp_assist_login, "_scrub_proxy_env", lambda: None)  # 不动测试进程 env
     pushes: list[dict] = []
     monkeypatch.setattr(
-        otp_assist_login, "push_captcha_assist",
+        otp_assist_login,
+        "push_captcha_assist",
         lambda **kw: pushes.append(kw) is None or True,
     )
     if notify:
@@ -183,6 +194,7 @@ def _wire(
 
 def _solve_when_active(tmp_path) -> threading.Thread:
     """后台线程：等注册表出现 active 记录后标 solved（模拟外部人工确认）。"""
+
     def _worker() -> None:
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline:
@@ -193,7 +205,8 @@ def _solve_when_active(tmp_path) -> threading.Thread:
                     continue
                 if rec.get("state") == "active":
                     captcha_assist._patch_registry(
-                        path.stem, state="solved", solved_at=int(time.time()))
+                        path.stem, state="solved", solved_at=int(time.time())
+                    )
                     return
             time.sleep(0.05)
 
@@ -222,7 +235,7 @@ def test_missing_cdp_url_exits_3(monkeypatch: pytest.MonkeyPatch, tmp_path, caps
     rc = otp_assist_login.main(["--platform", "yiyan"])
     assert rc == 3
     assert "GEO_YIYAN_CDP_URL" in capsys.readouterr().err
-    assert list(tmp_path.glob("*.json")) == []          # 不落注册表
+    assert list(tmp_path.glob("*.json")) == []  # 不落注册表
 
 
 def test_notify_unconfigured_without_no_notify_exits_3(
@@ -253,23 +266,34 @@ async def test_registry_schema_matches_workflow_product(
     """CLI 记录字段集与 workflow 撞码路径（captcha_assist_start）产物 live 对比。"""
     _wire(monkeypatch, tmp_path, [_FakePage()])
     monkeypatch.setattr(captcha_assist, "push_captcha_assist", lambda **kw: True)
-    started = await captcha_assist_start(CaptchaAssistInput(
-        tenant_pub_id="tenant_1", run_pub_id="run_schema", platform="doubao",
-        business_key="bk"))
+    started = await captcha_assist_start(
+        CaptchaAssistInput(
+            tenant_pub_id="tenant_1", run_pub_id="run_schema", platform="doubao", business_key="bk"
+        )
+    )
     try:
         workflow_rec = next(
-            json.loads(p.read_text(encoding="utf-8")) for p in tmp_path.glob("*.json")
-            if json.loads(p.read_text(encoding="utf-8")).get("run_pub_id") == "run_schema")
+            json.loads(p.read_text(encoding="utf-8"))
+            for p in tmp_path.glob("*.json")
+            if json.loads(p.read_text(encoding="utf-8")).get("run_pub_id") == "run_schema"
+        )
         cli_rec = otp_assist_login._build_registry_record(
-            platform="yiyan", instance_key="yiyan_sh", run_pub_id="otp-assist-yiyan-1",
+            platform="yiyan",
+            instance_key="yiyan_sh",
+            run_pub_id="otp-assist-yiyan-1",
             session_id="s" * 24,
-            ticket_hash="h" * 64, port=19226, note="155开户", ttl_s=600)
-        assert set(cli_rec) == set(workflow_rec)           # 字段集一字不差
+            ticket_hash="h" * 64,
+            port=19226,
+            note="155开户",
+            ttl_s=600,
+        )
+        assert set(cli_rec) == set(workflow_rec)  # 字段集一字不差
         assert cli_rec["version"] == workflow_rec["version"] == 1
         assert cli_rec["state"] == workflow_rec["state"] == "active"
     finally:
-        await captcha_assist_stop(CaptchaAssistStopInput(
-            run_pub_id="run_schema", session_id=started.session_id))
+        await captcha_assist_stop(
+            CaptchaAssistStopInput(run_pub_id="run_schema", session_id=started.session_id)
+        )
 
 
 def test_registry_record_recognized_by_assist_router(
@@ -279,20 +303,26 @@ def test_registry_record_recognized_by_assist_router(
     from api.geo_platform.collection import assist_router
 
     monkeypatch.setattr(assist_router, "ASSIST_DIR", tmp_path)
-    monkeypatch.setattr(captcha_assist, "_REGISTRY_DIR", tmp_path)   # _write_registry 也进 tmp
+    monkeypatch.setattr(captcha_assist, "_REGISTRY_DIR", tmp_path)  # _write_registry 也进 tmp
     ticket = secrets.token_urlsafe(32)
     th = captcha_assist._ticket_hash(ticket)
     rec = otp_assist_login._build_registry_record(
-        platform="yiyan", instance_key="yiyan_sh", run_pub_id="otp-assist-yiyan-1",
+        platform="yiyan",
+        instance_key="yiyan_sh",
+        run_pub_id="otp-assist-yiyan-1",
         session_id="s" * 24,
-        ticket_hash=th, port=19226, note="155开户", ttl_s=600)
+        ticket_hash=th,
+        port=19226,
+        note="155开户",
+        ttl_s=600,
+    )
     captcha_assist._write_registry(rec)
-    loaded = assist_router._load_registry(ticket)          # 任何校验失败都会 403
+    loaded = assist_router._load_registry(ticket)  # 任何校验失败都会 403
     assert loaded["platform"] == "yiyan" and loaded["state"] == "active"
     assert loaded["business_key"] == "155开户"
-    assert assist_router._bridge_port(loaded) == 19226     # 端口校验也通过
+    assert assist_router._bridge_port(loaded) == 19226  # 端口校验也通过
     raw = (tmp_path / f"{th}.json").read_text(encoding="utf-8")
-    assert ticket not in raw                               # ticket 只存 sha256
+    assert ticket not in raw  # ticket 只存 sha256
     assert th == hashlib.sha256(ticket.encode()).hexdigest()
 
 
@@ -305,8 +335,7 @@ def test_done_via_registry_solved_exit_0_and_cleanup(
     page = _FakePage(url="https://yiyan.baidu.com/", title="文心一言")
     browser, handle, pushes = _wire(monkeypatch, tmp_path, [page])
     _solve_when_active(tmp_path)
-    rc = otp_assist_login.main(
-        ["--platform", "yiyan", "--note", "155开户", "--ttl-min", "5"])
+    rc = otp_assist_login.main(["--platform", "yiyan", "--note", "155开户", "--ttl-min", "5"])
     out = capsys.readouterr().out
     assert rc == 0
     # 推送：文案标明登录/OTP 接管 + note
@@ -323,14 +352,14 @@ def test_done_via_registry_solved_exit_0_and_cleanup(
     assert rec["solved_at"] is not None
     assert rec["push_sent"] is True
     assert rec["platform"] == "yiyan" and rec["business_key"] == "155开户"
-    assert rec["expires_at"] - rec["created_at"] == 300    # --ttl-min 5
-    assert ticket not in json.dumps(rec)                   # 明文只进 stdout/推送
+    assert rec["expires_at"] - rec["created_at"] == 300  # --ttl-min 5
+    assert ticket not in json.dumps(rec)  # 明文只进 stdout/推送
     # 清理：只断 CDP，playwright 停，锁释放；浏览器 context/page 绝不被 close
     assert browser.closed is True
     assert handle.stopped is True
     assert browser.contexts[0].closed is False
     assert page.closed is False
-    assert page.goto_calls == []                           # 未给 --goto，不动页面
+    assert page.goto_calls == []  # 未给 --goto，不动页面
     _assert_lock_free("yiyan")
 
 
@@ -339,8 +368,7 @@ def test_done_via_stdin_enter_exit_0(monkeypatch: pytest.MonkeyPatch, tmp_path, 
     _wire(monkeypatch, tmp_path, [page])
 
     def _fake_watcher(done_evt: threading.Event) -> threading.Thread:
-        thread = threading.Thread(
-            target=lambda: (time.sleep(0.3), done_evt.set()), daemon=True)
+        thread = threading.Thread(target=lambda: (time.sleep(0.3), done_evt.set()), daemon=True)
         thread.start()
         return thread
 
@@ -350,7 +378,7 @@ def test_done_via_stdin_enter_exit_0(monkeypatch: pytest.MonkeyPatch, tmp_path, 
     assert "人工已确认完成" in capsys.readouterr().out
     rec = _only_record(tmp_path)
     assert rec["state"] == "closed"
-    assert rec["solved_at"] is not None                    # CLI 镜像 router 的 done 写
+    assert rec["solved_at"] is not None  # CLI 镜像 router 的 done 写
     _assert_lock_free("yiyan")
 
 
@@ -362,19 +390,17 @@ def test_no_notify_runs_and_prints_ticket(
     rc = otp_assist_login.main(["--platform", "yiyan", "--no-notify"])
     out = capsys.readouterr().out
     assert rc == 0
-    assert "GEO_ASSIST_PUBLIC_BASE 未配置" in out          # 如实报缺配置
-    assert "ticket: " in out                               # 明文照打，运维自行拼接
+    assert "GEO_ASSIST_PUBLIC_BASE 未配置" in out  # 如实报缺配置
+    assert "ticket: " in out  # 明文照打，运维自行拼接
     rec = _only_record(tmp_path)
-    assert rec["push_sent"] is False                       # 未推送
+    assert rec["push_sent"] is False  # 未推送
     _assert_lock_free("yiyan")
 
 
 # ── TTL / 异常路径 ─────────────────────────────────────────────────────────────
 
 
-def test_ttl_timeout_exit_2_and_cleanup(
-    monkeypatch: pytest.MonkeyPatch, tmp_path, capsys
-) -> None:
+def test_ttl_timeout_exit_2_and_cleanup(monkeypatch: pytest.MonkeyPatch, tmp_path, capsys) -> None:
     page = _FakePage()
     browser, handle, _pushes = _wire(monkeypatch, tmp_path, [page])
     rc = otp_assist_login.main(["--platform", "yiyan", "--ttl-min", "0.03"])  # ≈1s
@@ -384,32 +410,28 @@ def test_ttl_timeout_exit_2_and_cleanup(
     assert browser.closed is True
     assert handle.stopped is True
     rec = _only_record(tmp_path)
-    assert rec["state"] == "closed"                        # captcha_assist 词表（无 expired 态）
+    assert rec["state"] == "closed"  # captcha_assist 词表（无 expired 态）
     assert rec["solved_at"] is None
     _assert_lock_free("yiyan")
 
 
-def test_attach_failure_no_page_exit_1(
-    monkeypatch: pytest.MonkeyPatch, tmp_path, capsys
-) -> None:
-    browser, _handle, _pushes = _wire(monkeypatch, tmp_path, [])   # 常驻浏览器无页
+def test_attach_failure_no_page_exit_1(monkeypatch: pytest.MonkeyPatch, tmp_path, capsys) -> None:
+    browser, _handle, _pushes = _wire(monkeypatch, tmp_path, [])  # 常驻浏览器无页
     rc = otp_assist_login.main(["--platform", "yiyan"])
     assert rc == 1
     assert "接管失败" in capsys.readouterr().err
-    assert list(tmp_path.glob("*.json")) == []             # 未起成，不落注册表
-    assert browser.closed is True                          # CDP 仍被干净断开
+    assert list(tmp_path.glob("*.json")) == []  # 未起成，不落注册表
+    assert browser.closed is True  # CDP 仍被干净断开
     _assert_lock_free("yiyan")
 
 
-def test_push_failure_keeps_session(
-    monkeypatch: pytest.MonkeyPatch, tmp_path, capsys
-) -> None:
+def test_push_failure_keeps_session(monkeypatch: pytest.MonkeyPatch, tmp_path, capsys) -> None:
     _wire(monkeypatch, tmp_path, [_FakePage()])
     monkeypatch.setattr(otp_assist_login, "push_captcha_assist", lambda **kw: False)
     _solve_when_active(tmp_path)
     rc = otp_assist_login.main(["--platform", "yiyan"])
     out = capsys.readouterr().out
-    assert rc == 0                                         # 推送失败不废会话
+    assert rc == 0  # 推送失败不废会话
     assert "推送失败" in out
     assert "接管链接: https://assist.example/api/v2/assist/" in out
     assert _only_record(tmp_path)["push_sent"] is False
@@ -422,14 +444,21 @@ def test_push_failure_keeps_session(
 def test_goto_navigates_and_verification_pass(
     monkeypatch: pytest.MonkeyPatch, tmp_path, capsys
 ) -> None:
-    page = _FakePage(url="about:blank", title="文心一言",
-                     visible_selectors={".user-avatar"})
+    page = _FakePage(url="about:blank", title="文心一言", visible_selectors={".user-avatar"})
     _wire(monkeypatch, tmp_path, [page])
     _solve_when_active(tmp_path)
-    rc = otp_assist_login.main([
-        "--platform", "yiyan", "--goto", "https://yiyan.baidu.com/",
-        "--expect-url-regex", r"yiyan\.baidu\.com", "--expect-selector", ".user-avatar",
-    ])
+    rc = otp_assist_login.main(
+        [
+            "--platform",
+            "yiyan",
+            "--goto",
+            "https://yiyan.baidu.com/",
+            "--expect-url-regex",
+            r"yiyan\.baidu\.com",
+            "--expect-selector",
+            ".user-avatar",
+        ]
+    )
     out = capsys.readouterr().out
     assert rc == 0
     assert page.goto_calls == ["https://yiyan.baidu.com/"]
@@ -438,16 +467,13 @@ def test_goto_navigates_and_verification_pass(
     assert "登录态验证[selector" in out
 
 
-def test_verification_fail_still_exit_0(
-    monkeypatch: pytest.MonkeyPatch, tmp_path, capsys
-) -> None:
+def test_verification_fail_still_exit_0(monkeypatch: pytest.MonkeyPatch, tmp_path, capsys) -> None:
     page = _FakePage(url="https://yiyan.baidu.com/login", title="登录")
     _wire(monkeypatch, tmp_path, [page])
     _solve_when_active(tmp_path)
-    rc = otp_assist_login.main([
-        "--platform", "yiyan", "--expect-url-regex", r"example\.com"])
+    rc = otp_assist_login.main(["--platform", "yiyan", "--expect-url-regex", r"example\.com"])
     out = capsys.readouterr().out
-    assert rc == 0                                         # best-effort：只报告不改退出码
+    assert rc == 0  # best-effort：只报告不改退出码
     assert "FAIL" in out
 
 

@@ -128,8 +128,7 @@ def main() -> int:
         pred_attitude = predicted.attitude if predicted is not None else None
         pred_disparagement = predicted.disparagement if predicted is not None else None
         hit = (
-            pred_attitude == entry.gold_attitude
-            and pred_disparagement == entry.gold_disparagement
+            pred_attitude == entry.gold_attitude and pred_disparagement == entry.gold_disparagement
         )
         if hit:
             correct += 1

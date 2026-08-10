@@ -193,9 +193,7 @@ def test_unknown_expired_closed_mismatch_tickets_all_403_same_code(
         bad_version = client.get(f"/api/v2/assist/{bad_version_ticket}")
         assert bad_version.status_code == 403
 
-    codes = {
-        deny_code(item) for item in (unknown, expired, closed, mismatch, bad_version)
-    }
+    codes = {deny_code(item) for item in (unknown, expired, closed, mismatch, bad_version)}
     assert codes == {DENY_CODE}
 
 

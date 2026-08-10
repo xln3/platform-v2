@@ -23,6 +23,7 @@ V2 适配（仅传输层与配置族，抽取语义零变化）：
     GEO_BRANDRANK_LLM_MODEL             缺省 deep-deepseek-v4-flash（旧库缺省模型）
     GEO_BRANDRANK_LLM_MAX_WORKERS       批处理线程数，缺省取规则包 llm.max_workers_default
 """
+
 from __future__ import annotations
 
 import json
@@ -35,8 +36,8 @@ from .rules import DomainRules
 _DEFAULT_BASE_URL = "https://aihubmix.com"
 _DEFAULT_BASE_URL_FALLBACK = "https://api.inferera.com"
 _DEFAULT_MODEL = "deep-deepseek-v4-flash"
-_TIMEOUT_S = 60.0          # 品牌抽取输入是整篇回答（比 otp 短信长得多），超时给足
-_MAX_TEXT_CHARS = 12000    # 防御性截断（她的脚本无截断；超长回答只浪费 token，不影响口径）
+_TIMEOUT_S = 60.0  # 品牌抽取输入是整篇回答（比 otp 短信长得多），超时给足
+_MAX_TEXT_CHARS = 12000  # 防御性截断（她的脚本无截断；超长回答只浪费 token，不影响口径）
 
 
 class ExtractError(Exception):
@@ -52,8 +53,9 @@ def load_config() -> tuple[str, str, str, str] | None:
     if not key:
         return None
     base = (os.environ.get("GEO_BRANDRANK_LLM_BASE_URL") or _DEFAULT_BASE_URL).rstrip("/")
-    fallback = (os.environ.get("GEO_BRANDRANK_LLM_BASE_URL_FALLBACK")
-                or _DEFAULT_BASE_URL_FALLBACK).rstrip("/")
+    fallback = (
+        os.environ.get("GEO_BRANDRANK_LLM_BASE_URL_FALLBACK") or _DEFAULT_BASE_URL_FALLBACK
+    ).rstrip("/")
     model = (os.environ.get("GEO_BRANDRANK_LLM_MODEL") or _DEFAULT_MODEL).strip()
     return key, base, fallback, model
 
@@ -65,7 +67,7 @@ def max_workers(rules: DomainRules) -> int:
         try:
             return max(1, int(raw))
         except ValueError:
-            pass                      # 坏 env 值不致命，回落规则包默认
+            pass  # 坏 env 值不致命，回落规则包默认
     return max(1, int(rules.llm_defaults.get("max_workers_default") or 10))
 
 
@@ -73,12 +75,21 @@ def llm_status(rules: DomainRules | None = None) -> dict[str, Any]:
     """禁用态诚实回报（API 503 用）：enabled/model/base_url/why。绝不泄漏 key。"""
     cfg = load_config()
     if not cfg:
-        return {"enabled": False, "model": None, "base_url": None,
-                "why": "GEO_BRANDRANK_LLM_API_KEY 未配置"}
+        return {
+            "enabled": False,
+            "model": None,
+            "base_url": None,
+            "why": "GEO_BRANDRANK_LLM_API_KEY 未配置",
+        }
     _, base, fallback, model = cfg
-    return {"enabled": True, "model": model, "base_url": base,
-            "base_url_fallback": fallback, "why": None,
-            "max_workers": max_workers(rules) if rules else None}
+    return {
+        "enabled": True,
+        "model": model,
+        "base_url": base,
+        "base_url_fallback": fallback,
+        "why": None,
+        "max_workers": max_workers(rules) if rules else None,
+    }
 
 
 def _normalize_base_url(base_url: str) -> str:
@@ -97,22 +108,39 @@ class _HttpxChatCompletions:
 
     def __init__(self, *, api_key: str, base_url: str, base_url_fallback: str) -> None:
         self._api_key = api_key
-        self._base_urls = list(dict.fromkeys(
-            _normalize_base_url(u) for u in (base_url, base_url_fallback) if u.strip()))
+        self._base_urls = list(
+            dict.fromkeys(
+                _normalize_base_url(u) for u in (base_url, base_url_fallback) if u.strip()
+            )
+        )
 
-    def create(self, *, model: str, messages: list[dict[str, str]], temperature: float,
-               response_format: dict[str, str]) -> Any:
+    def create(
+        self,
+        *,
+        model: str,
+        messages: list[dict[str, str]],
+        temperature: float,
+        response_format: dict[str, str],
+    ) -> Any:
         import httpx  # 延迟 import：测试全 mock 路径零传输依赖
-        body = {"model": model, "messages": messages,
-                "temperature": temperature, "response_format": response_format}
+
+        body = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "response_format": response_format,
+        }
         last_error: Exception | None = None
         for i, base in enumerate(self._base_urls):
             is_last = i == len(self._base_urls) - 1
             try:
-                with httpx.Client(base_url=base, timeout=_TIMEOUT_S,
-                                  headers={"Authorization": f"Bearer {self._api_key}"}) as client:
+                with httpx.Client(
+                    base_url=base,
+                    timeout=_TIMEOUT_S,
+                    headers={"Authorization": f"Bearer {self._api_key}"},
+                ) as client:
                     response = client.post("/chat/completions", json=body)
-            except httpx.HTTPError as e:       # 网络/超时 → 换备通道
+            except httpx.HTTPError as e:  # 网络/超时 → 换备通道
                 last_error = e
                 if is_last:
                     break
@@ -125,7 +153,7 @@ class _HttpxChatCompletions:
                     raise ExtractError(f"bad_response_shape: {type(e).__name__}: {e}") from e
                 return _Completion(content)
             if response.status_code >= 500 and not is_last:
-                continue                       # 5xx → 换备通道
+                continue  # 5xx → 换备通道
             raise ExtractError(f"api_error: upstream_{response.status_code}")
         raise ExtractError(f"api_error: {type(last_error).__name__}: {last_error}")
 
@@ -135,14 +163,17 @@ class _Completion:
 
     def __init__(self, content: Any) -> None:
         from types import SimpleNamespace
+
         self.choices = [SimpleNamespace(message=SimpleNamespace(content=content))]
 
 
 class _HttpxClient:
     def __init__(self, *, api_key: str, base_url: str, base_url_fallback: str) -> None:
         from types import SimpleNamespace
+
         completions = _HttpxChatCompletions(
-            api_key=api_key, base_url=base_url, base_url_fallback=base_url_fallback)
+            api_key=api_key, base_url=base_url, base_url_fallback=base_url_fallback
+        )
         self.chat = SimpleNamespace(completions=completions)
 
 
@@ -169,12 +200,13 @@ def _parse_brands(content: str) -> list[str]:
     return [b.strip() for b in obj["brands"] if isinstance(b, str) and b.strip()]
 
 
-def extract_brands_with_llm(client: Any, reply_text: str, category: str,
-                            *, model: str, rules: DomainRules) -> list[str]:
+def extract_brands_with_llm(
+    client: Any, reply_text: str, category: str, *, model: str, rules: DomainRules
+) -> list[str]:
     """单条抽取（对齐 analyze_brand.py L875-906）。失败抛 ExtractError，绝不返回"伪空列表"。"""
     text = (reply_text or "").strip()
     if not text:
-        return []                   # 无输入文本=确实无可抽（非 LLM 失败），诚实空列表且不烧 API
+        return []  # 无输入文本=确实无可抽（非 LLM 失败），诚实空列表且不烧 API
     prompt = rules.render_prompt(text[:_MAX_TEXT_CHARS], category)
     try:
         response = client.chat.completions.create(
@@ -185,8 +217,11 @@ def extract_brands_with_llm(client: Any, reply_text: str, category: str,
             ],
             # moonshot-kimi-k3 的兼容网关只接受 temperature=1；其他模型继续严格
             # 遵循领域规则包的确定性抽取温度（保险/法律当前均为 0）。
-            temperature=(1.0 if str(model).strip().lower() == "moonshot-kimi-k3"
-                         else rules.llm_defaults.get("temperature", 0)),
+            temperature=(
+                1.0
+                if str(model).strip().lower() == "moonshot-kimi-k3"
+                else rules.llm_defaults.get("temperature", 0)
+            ),
             response_format={"type": rules.llm_defaults.get("response_format", "json_object")},
         )
         result = response.choices[0].message.content
@@ -197,10 +232,14 @@ def extract_brands_with_llm(client: Any, reply_text: str, category: str,
     return _parse_brands(result)
 
 
-def extract_brands_batch(client: Any, tasks: list[tuple[int, str, str]],
-                         *, model: str, rules: DomainRules,
-                         workers: int | None = None,
-                         ) -> list[tuple[int, list[str] | None, str | None]]:
+def extract_brands_batch(
+    client: Any,
+    tasks: list[tuple[int, str, str]],
+    *,
+    model: str,
+    rules: DomainRules,
+    workers: int | None = None,
+) -> list[tuple[int, list[str] | None, str | None]]:
     """批量抽取（对齐 analyze_brand.py L909-929：ThreadPoolExecutor + as_completed + 按 idx 排序）。
 
     tasks: [(idx, reply_text, category)]。返回与输入同序的 [(idx, brands|None, error|None)]——
@@ -208,12 +247,14 @@ def extract_brands_batch(client: Any, tasks: list[tuple[int, str, str]],
     if not tasks:
         return []
 
-    def process_single(
-            task: tuple[int, str, str]) -> tuple[int, list[str] | None, str | None]:
+    def process_single(task: tuple[int, str, str]) -> tuple[int, list[str] | None, str | None]:
         idx, reply_text, category = task
         try:
-            return idx, extract_brands_with_llm(client, reply_text, category,
-                                                model=model, rules=rules), None
+            return (
+                idx,
+                extract_brands_with_llm(client, reply_text, category, model=model, rules=rules),
+                None,
+            )
         except ExtractError as e:
             return idx, None, str(e)
         except Exception as e:  # noqa: BLE001 — 防御：线程内任何漏网异常都算该条失败

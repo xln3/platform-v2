@@ -128,8 +128,8 @@ class OwnContentContext:
     def known_brands(self) -> tuple[str, ...]:
         """判定/校验用品牌全集：己方品牌 + 别名 + 竞品（去重保序）。"""
         names: list[str] = []
-        for name in ([self.brand] if self.brand else []) + list(self.aliases) + list(
-            self.competitors
+        for name in (
+            ([self.brand] if self.brand else []) + list(self.aliases) + list(self.competitors)
         ):
             cleaned = (name or "").strip()
             if cleaned and cleaned not in names:
@@ -138,9 +138,7 @@ class OwnContentContext:
 
 
 class OwnContentLoader(Protocol):
-    def load(
-        self, tenant_pub_id: str, article_version_pub_id: str
-    ) -> OwnContentContext | None: ...
+    def load(self, tenant_pub_id: str, article_version_pub_id: str) -> OwnContentContext | None: ...
 
 
 class OwnContentSink(Protocol):
@@ -180,9 +178,7 @@ class _PostgresOwnContentLoader:
     def __init__(self, dsn: str) -> None:
         self._dsn = dsn
 
-    def load(
-        self, tenant_pub_id: str, article_version_pub_id: str
-    ) -> OwnContentContext | None:
+    def load(self, tenant_pub_id: str, article_version_pub_id: str) -> OwnContentContext | None:
         with psycopg.connect(self._dsn, row_factory=dict_row) as connection:
             tenant_row = connection.execute(
                 "SELECT id FROM platform.tenant WHERE pub_id=%s", (tenant_pub_id,)
@@ -605,9 +601,7 @@ async def run_own_content_disparagement(
     if uses_default_judge:
         thread = asyncio.ensure_future(asyncio.to_thread(_blocking))
         while True:
-            heartbeat(
-                {"article_version_pub_id": item.article_version_pub_id, **progress}
-            )
+            heartbeat({"article_version_pub_id": item.article_version_pub_id, **progress})
             done, _pending = await asyncio.wait({thread}, timeout=_HEARTBEAT_INTERVAL_S)
             if done:
                 break

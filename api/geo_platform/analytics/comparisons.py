@@ -9,6 +9,7 @@ tenant+project，否则 UnknownRunPubId（API 400 unknown_run_pub_id；跨项目
 对比计算不在本模块：GET 单体的 result 由 brandrank/compare.py
 compute_run_comparison 现场产出（与报告 before_after 扩展组同一份代码）。
 """
+
 from __future__ import annotations
 
 import json
@@ -21,8 +22,10 @@ from ..tenancy.psycopg import tenant_connection
 from . import service as analytics_service
 
 # 实体对外投影列（不含 tenant_pub_id——行已按租户 RLS 隔离，响应不重复携带）
-_ENTITY_COLUMNS = ("pub_id, project_pub_id, name, baseline_run_pub_ids, "
-                   "optimized_run_pub_ids, note, created_by, created_at")
+_ENTITY_COLUMNS = (
+    "pub_id, project_pub_id, name, baseline_run_pub_ids, "
+    "optimized_run_pub_ids, note, created_by, created_at"
+)
 
 
 class UnknownRunPubId(ValueError):
@@ -58,17 +61,23 @@ def validate_project_runs(
 
 
 def create_comparison(
-    dsn: str, tenant_pub_id: str, *, project_pub_id: str, name: str,
-    baseline_run_pub_ids: list[str], optimized_run_pub_ids: list[str],
-    note: str | None, created_by: str | None,
+    dsn: str,
+    tenant_pub_id: str,
+    *,
+    project_pub_id: str,
+    name: str,
+    baseline_run_pub_ids: list[str],
+    optimized_run_pub_ids: list[str],
+    note: str | None,
+    created_by: str | None,
 ) -> dict[str, Any]:
     """校验两臂 run 归属后落库（pub_id=new_pub_id("rcmp")），返回实体投影。
 
     run pub id 形状校验在 API 层（422）；本层只做归属校验（400 语义）。
     """
     validate_project_runs(
-        dsn, tenant_pub_id, project_pub_id,
-        baseline_run_pub_ids + optimized_run_pub_ids)
+        dsn, tenant_pub_id, project_pub_id, baseline_run_pub_ids + optimized_run_pub_ids
+    )
     with tenant_connection(dsn, tenant_pub_id, row_factory=dict_row) as connection:
         row = connection.execute(
             f"""
@@ -79,10 +88,14 @@ def create_comparison(
             RETURNING {_ENTITY_COLUMNS}
             """,
             (
-                new_pub_id("rcmp"), tenant_pub_id, project_pub_id, name,
+                new_pub_id("rcmp"),
+                tenant_pub_id,
+                project_pub_id,
+                name,
                 json.dumps(baseline_run_pub_ids),
                 json.dumps(optimized_run_pub_ids),
-                note, created_by,
+                note,
+                created_by,
             ),
         ).fetchone()
     if row is None:
@@ -108,9 +121,7 @@ def list_comparisons(
     return [dict(row) for row in rows]
 
 
-def fetch_comparison(
-    dsn: str, tenant_pub_id: str, comparison_pub_id: str
-) -> dict[str, Any] | None:
+def fetch_comparison(dsn: str, tenant_pub_id: str, comparison_pub_id: str) -> dict[str, Any] | None:
     """单体读取；不存在/跨租户 → None（API 404 comparison_not_found）。"""
     with tenant_connection(dsn, tenant_pub_id, row_factory=dict_row) as connection:
         row = connection.execute(

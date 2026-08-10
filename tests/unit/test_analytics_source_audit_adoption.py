@@ -186,9 +186,7 @@ def test_adoption_rate_none_when_own_site_host_unknown(
 
 
 def test_adoption_keys_zero_for_unknown_project(monkeypatch: pytest.MonkeyPatch) -> None:
-    overview = _overview(
-        monkeypatch, website=None, documents=[], audits=[], project_exists=False
-    )
+    overview = _overview(monkeypatch, website=None, documents=[], audits=[], project_exists=False)
     assert overview["own_site_transcript_total"] == 0
     assert overview["own_site_transcript_accurate"] == 0
     assert overview["own_site_adoption_rate"] is None

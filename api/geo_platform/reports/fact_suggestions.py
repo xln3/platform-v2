@@ -28,6 +28,7 @@ top_rates 双分母/竞品出现率）。
 - 组数超 _MAX_GROUPS 防御性截断 → groups_truncated=true 披露；
 - 目标品牌/竞品零提及 → 照常出 0 值行（分母真实），不是数据不足。
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -50,8 +51,8 @@ from ..brandrank.compare import _fact_row, fetch_answers_window
 # 调用点把 fetch_answers_window 显式注入 compare 的臂构建函数，解析走本模块全局命名空间。
 FACT_METHOD = brandrank_compare.FACT_METHOD
 FACT_SOURCE = brandrank_compare.FACT_SOURCE
-REPORT_TOP_NS = (1, 3, 5)               # 报价单口径：Top1/Top3/Top5 出现率
-_MAX_COMPETITORS = 20                   # 照 brandrank service 口径
+REPORT_TOP_NS = (1, 3, 5)  # 报价单口径：Top1/Top3/Top5 出现率
+_MAX_COMPETITORS = 20  # 照 brandrank service 口径
 # 防御性上限（真实窗 ~数十组），超出截断并 groups_truncated 披露；与 api-client
 # 投影上限 5000 行对齐：200 组 × (5 目标行 + 20 竞品行) = 5000。
 _MAX_GROUPS = 200
@@ -62,11 +63,11 @@ _MAX_GROUPS = 200
 # 整响应判 unavailable），独立键对旧前端零影响，新前端自行投影扩展组。
 W3_FACT_METHOD = "w3-disparagement-v1"
 W2_FACT_METHOD = "w2-site-audit-v1"
-_MAX_JUDGMENTS = 2000                   # W3 窗级判定防御性上限（超出截断并披露）
-_MAX_CASES = 20                         # 典型案例上限（照 analytics cases 端点缺省 limit=20）
-_MAX_SUGGESTIONS = 50                   # 官网优化建议上限（T2 最新批次，超出截断并披露）
+_MAX_JUDGMENTS = 2000  # W3 窗级判定防御性上限（超出截断并披露）
+_MAX_CASES = 20  # 典型案例上限（照 analytics cases 端点缺省 limit=20）
+_MAX_SUGGESTIONS = 50  # 官网优化建议上限（T2 最新批次，超出截断并披露）
 # W3 方向词表：target=被评对象 / subject=拉踩方（均先过 rules 归并再比对项目品牌/竞品）
-DIRECTION_SMEAR_ON_OWN = "smear_on_own"                 # 第三方/竞品 → 己方（抹黑己方）
+DIRECTION_SMEAR_ON_OWN = "smear_on_own"  # 第三方/竞品 → 己方（抹黑己方）
 DIRECTION_OWN_ON_COMPETITOR = "own_smear_on_competitor"  # 己方 → 竞品（己方拉踩竞品）
 
 
@@ -148,10 +149,10 @@ def compute_report_fact_suggestions(
     now = now or datetime.now(UTC)
     since = now - timedelta(days=window_days)
     window = {"start": since.isoformat(), "end": now.isoformat()}
-    answers, truncated = brandrank_service.fetch_answers(
-        dsn, tenant_pub_id, project_pub_id, since)
+    answers, truncated = brandrank_service.fetch_answers(dsn, tenant_pub_id, project_pub_id, since)
     table_rows = brandrank_service.fetch_brand_extracts(
-        dsn, tenant_pub_id, [a["pub_id"] for a in answers], rules.domain)
+        dsn, tenant_pub_id, [a["pub_id"] for a in answers], rules.domain
+    )
 
     target_brand = project["brand_names"][0] if project["brand_names"] else None
     competitors = project["competitor_names"][:_MAX_COMPETITORS]
@@ -164,7 +165,7 @@ def compute_report_fact_suggestions(
             continue
         brands = table_row.get("brands")
         if not (isinstance(brands, list) and all(isinstance(b, str) for b in brands)):
-            continue                                # ok 行但形状不符=未覆盖（诚实剔除）
+            continue  # ok 行但形状不符=未覆盖（诚实剔除）
         record = adapter.answer_to_brand_record(answer, list(brands))
         groups.setdefault(_group_key(answer), []).append(record)
 
@@ -187,41 +188,73 @@ def compute_report_fact_suggestions(
             groups_truncated = True
         for key in group_keys:
             records = groups[key]
-            n = len(records)                        # 组内分母=抽取覆盖条数
+            n = len(records)  # 组内分母=抽取覆盖条数
             dimensions = {"platform": key[0], "region": key[1], "query": key[2]}
             special = metrics.brand_special(
-                records, target_brand or "", rules=rules, total_count=n,
-                top_ns=REPORT_TOP_NS)
+                records, target_brand or "", rules=rules, total_count=n, top_ns=REPORT_TOP_NS
+            )
             ranks = special["ranks"]
             # ① 品牌提及率
-            fact_rows.append(_fact_row(
-                metric="brand_appearance_rate", value=special["appearance_rate"],
-                unit="percent", numerator=special["mentions"], denominator=n,
-                dimensions=dimensions, domain=rules.domain, window=window))
+            fact_rows.append(
+                _fact_row(
+                    metric="brand_appearance_rate",
+                    value=special["appearance_rate"],
+                    unit="percent",
+                    numerator=special["mentions"],
+                    denominator=n,
+                    dimensions=dimensions,
+                    domain=rules.domain,
+                    window=window,
+                )
+            )
             # ② 推荐排名分布（avg_rank 为汇总值，ranks 全量分布进 extra）
-            fact_rows.append(_fact_row(
-                metric="rank_distribution", value=special["avg_rank"], unit="rank",
-                numerator=special["mentions"], denominator=n, dimensions=dimensions,
-                domain=rules.domain, window=window,
-                extra={"best_rank": special["best_rank"], "ranks": ranks}))
+            fact_rows.append(
+                _fact_row(
+                    metric="rank_distribution",
+                    value=special["avg_rank"],
+                    unit="rank",
+                    numerator=special["mentions"],
+                    denominator=n,
+                    dimensions=dimensions,
+                    domain=rules.domain,
+                    window=window,
+                    extra={"best_rank": special["best_rank"], "ranks": ranks},
+                )
+            )
             # ③ Top1/Top3/Top5 出现率（双分母成对：value=of_total，of_mentions 进 extra）
             for top_n in REPORT_TOP_NS:
                 rates = special["top_rates"][str(top_n)]
-                fact_rows.append(_fact_row(
-                    metric=f"top{top_n}_appearance_rate", value=rates["of_total"],
-                    unit="percent", numerator=sum(1 for r in ranks if r <= top_n),
-                    denominator=n, dimensions=dimensions, domain=rules.domain,
-                    window=window, extra={"of_mentions": rates["of_mentions"]}))
+                fact_rows.append(
+                    _fact_row(
+                        metric=f"top{top_n}_appearance_rate",
+                        value=rates["of_total"],
+                        unit="percent",
+                        numerator=sum(1 for r in ranks if r <= top_n),
+                        denominator=n,
+                        dimensions=dimensions,
+                        domain=rules.domain,
+                        window=window,
+                        extra={"of_mentions": rates["of_mentions"]},
+                    )
+                )
             # ④ 竞品对比（每竞品一行；competitor=归并后品牌名）
             for competitor in competitors:
                 comp = metrics.brand_special(
-                    records, competitor, rules=rules, total_count=n,
-                    top_ns=REPORT_TOP_NS)
-                fact_rows.append(_fact_row(
-                    metric="competitor_appearance_rate", value=comp["appearance_rate"],
-                    unit="percent", numerator=comp["mentions"], denominator=n,
-                    dimensions=dimensions, domain=rules.domain, window=window,
-                    extra={"competitor": comp["brand"]}))
+                    records, competitor, rules=rules, total_count=n, top_ns=REPORT_TOP_NS
+                )
+                fact_rows.append(
+                    _fact_row(
+                        metric="competitor_appearance_rate",
+                        value=comp["appearance_rate"],
+                        unit="percent",
+                        numerator=comp["mentions"],
+                        denominator=n,
+                        dimensions=dimensions,
+                        domain=rules.domain,
+                        window=window,
+                        extra={"competitor": comp["brand"]},
+                    )
+                )
 
     return {
         "project_pub_id": project_pub_id,
@@ -245,25 +278,54 @@ def compute_report_fact_suggestions(
         "fact_rows": fact_rows,
         # 扩展组（独立键；主数组形状零变化，旧前端投影不受影响）。逐组 LookupError
         # 降级（见 _section_unavailable），不拖垮主草稿。
-        "w3_disparagement": _section_guard(lambda: _build_w3_section(
-            dsn=dsn, tenant_pub_id=tenant_pub_id, project_pub_id=project_pub_id,
-            rules=rules, project=project, domain=rules.domain, window=window,
-            since=since, now=now)),
-        "w2_site_audit": _section_guard(lambda: _build_w2_section(
-            dsn=dsn, tenant_pub_id=tenant_pub_id, project_pub_id=project_pub_id,
-            domain=rules.domain, window=window, since=since, now=now)),
-        "before_after": _section_guard(lambda: _build_before_after_section(
-            dsn=dsn, tenant_pub_id=tenant_pub_id, project_pub_id=project_pub_id,
-            rules=rules, target_brand=target_brand, domain=rules.domain,
-            before_start=before_start, before_end=before_end,
-            after_start=after_start, after_end=after_end)),
+        "w3_disparagement": _section_guard(
+            lambda: _build_w3_section(
+                dsn=dsn,
+                tenant_pub_id=tenant_pub_id,
+                project_pub_id=project_pub_id,
+                rules=rules,
+                project=project,
+                domain=rules.domain,
+                window=window,
+                since=since,
+                now=now,
+            )
+        ),
+        "w2_site_audit": _section_guard(
+            lambda: _build_w2_section(
+                dsn=dsn,
+                tenant_pub_id=tenant_pub_id,
+                project_pub_id=project_pub_id,
+                domain=rules.domain,
+                window=window,
+                since=since,
+                now=now,
+            )
+        ),
+        "before_after": _section_guard(
+            lambda: _build_before_after_section(
+                dsn=dsn,
+                tenant_pub_id=tenant_pub_id,
+                project_pub_id=project_pub_id,
+                rules=rules,
+                target_brand=target_brand,
+                domain=rules.domain,
+                before_start=before_start,
+                before_end=before_end,
+                after_start=after_start,
+                after_end=after_end,
+            )
+        ),
     }
 
 
 # ══ 扩展组：DB 读取接缝（单测 monkeypatch 点；生产走真 PG）══════════════════
 def fetch_disparagement_judgments(
-    dsn: str, tenant_pub_id: str, project_pub_id: str,
-    since: datetime, until: datetime,
+    dsn: str,
+    tenant_pub_id: str,
+    project_pub_id: str,
+    since: datetime,
+    until: datetime,
 ) -> tuple[list[dict[str, Any]], bool]:
     """W3 窗级判定（platform.disparagement_judgment，只取 judgment_status='ok'）。
 
@@ -336,7 +398,8 @@ def fetch_source_audit_overview(
     容错，缺键按 None 处理（降级为 adoption 行 value=null + note 披露）。
     """
     return analytics_service.AnalyticsService(dsn=dsn).source_audit_overview(
-        tenant_pub_id=tenant_pub_id, project_pub_id=project_pub_id, start=start, end=end)
+        tenant_pub_id=tenant_pub_id, project_pub_id=project_pub_id, start=start, end=end
+    )
 
 
 def fetch_site_audit_suggestions(
@@ -415,8 +478,9 @@ def _safe_source_url(value: object) -> str | None:
 
 
 # ── 扩展组：W3 拉踩/抹黑核查（报价单服务2）──────────────────────────────────
-def _direction_of(subject_std: str, target_std: str,
-                  own: set[str], competitors: set[str]) -> str | None:
+def _direction_of(
+    subject_std: str, target_std: str, own: set[str], competitors: set[str]
+) -> str | None:
     """判定方向（归并后品牌名比对）：→己方=抹黑己方；己方→竞品=己方拉踩竞品；
     两侧都沾不上项目品牌 → None（如实计入 n_undirected 披露，不硬塞方向）。"""
     if target_std and target_std in own:
@@ -427,9 +491,16 @@ def _direction_of(subject_std: str, target_std: str,
 
 
 def _build_w3_section(
-    *, dsn: str, tenant_pub_id: str, project_pub_id: str, rules: Any,
-    project: dict[str, Any], domain: str, window: dict[str, str],
-    since: datetime, now: datetime,
+    *,
+    dsn: str,
+    tenant_pub_id: str,
+    project_pub_id: str,
+    rules: Any,
+    project: dict[str, Any],
+    domain: str,
+    window: dict[str, str],
+    since: datetime,
+    now: datetime,
 ) -> dict[str, Any]:
     """W3 风险核查组：disparagement_rate（按方向分组）+ disparagement_case（逐条）。
 
@@ -438,7 +509,8 @@ def _build_w3_section(
     窗内 disparagement=true 判定总数（真实计数，披露于 section.n_disparagement）。
     """
     judgments, judgments_truncated = fetch_disparagement_judgments(
-        dsn, tenant_pub_id, project_pub_id, since, now)
+        dsn, tenant_pub_id, project_pub_id, since, now
+    )
     own = {normalize_brand(b, rules) for b in project["brand_names"] if b}
     competitor_set = {normalize_brand(c, rules) for c in project["competitor_names"] if c}
 
@@ -466,26 +538,37 @@ def _build_w3_section(
     for direction in (DIRECTION_SMEAR_ON_OWN, DIRECTION_OWN_ON_COMPETITOR):
         bucket = buckets[direction]
         if bucket["judgments"] == 0:
-            continue                                # 该方向零判定 → 不出行（不编造 0 分母）
-        rows.append(_fact_row(
-            metric="disparagement_rate",
-            value=round(bucket["disparagement"] / bucket["judgments"] * 100, 2),
-            unit="percent", numerator=bucket["disparagement"],
-            denominator=bucket["judgments"],
-            dimensions={"platform": "", "region": "", "query": ""},
-            domain=domain, window=window, method=W3_FACT_METHOD,
-            extra={"direction": direction}))
+            continue  # 该方向零判定 → 不出行（不编造 0 分母）
+        rows.append(
+            _fact_row(
+                metric="disparagement_rate",
+                value=round(bucket["disparagement"] / bucket["judgments"] * 100, 2),
+                unit="percent",
+                numerator=bucket["disparagement"],
+                denominator=bucket["judgments"],
+                dimensions={"platform": "", "region": "", "query": ""},
+                domain=domain,
+                window=window,
+                method=W3_FACT_METHOD,
+                extra={"direction": direction},
+            )
+        )
 
     # 典型案例：confidence 降序（None 垫底），输入已按 created_at DESC——稳定排序
     # 保同分时间序；逐条附 T1 事实核查（表未就绪 → fact_check=null 降级）。
     cases.sort(
         key=lambda j: float(j["confidence"]) if j.get("confidence") is not None else -1.0,
-        reverse=True)
+        reverse=True,
+    )
     selected = cases[:_MAX_CASES]
     cases_truncated = len(cases) > _MAX_CASES
-    factchecks = fetch_disparagement_factchecks(
-        dsn, tenant_pub_id, project_pub_id,
-        [str(c["judgment_pub_id"]) for c in selected]) if selected else {}
+    factchecks = (
+        fetch_disparagement_factchecks(
+            dsn, tenant_pub_id, project_pub_id, [str(c["judgment_pub_id"]) for c in selected]
+        )
+        if selected
+        else {}
+    )
     for case in selected:
         factcheck = (factchecks or {}).get(case["judgment_pub_id"])
         fact_check = None
@@ -495,27 +578,38 @@ def _build_w3_section(
                 "summary": _safe_optional_text(factcheck.get("summary"), 2000),
                 "source_url": _safe_source_url(factcheck.get("source_url")),
             }
-        rows.append(_fact_row(
-            metric="disparagement_case", value=None, unit="case",
-            numerator=1, denominator=n_disparagement,
-            dimensions={"platform": str(case.get("platform") or ""), "region": "",
-                        "query": ""},
-            domain=domain, window=window, method=W3_FACT_METHOD,
-            extra={
-                "judgment_pub_id": str(case["judgment_pub_id"]),
-                "direction": case["direction"],
-                "content_origin": _safe_optional_text(case.get("content_origin"), 20),
-                "subject_brand": _safe_optional_text(case.get("subject_brand"), 200),
-                "target_brand": _safe_optional_text(case.get("target_brand"), 200),
-                "evidence_quote": _safe_optional_text(case.get("evidence_quote"), 2000),
-                "confidence": (float(case["confidence"])
-                               if case.get("confidence") is not None else None),
-                "judge_method": _safe_optional_text(case.get("method"), 120),
-                "source_url": _safe_source_url(case.get("source_url")),
-                "answer_ref": (_safe_optional_text(case.get("subject_pub_id"), 120)
-                               if case.get("subject_type") == "answer" else None),
-                "fact_check": fact_check,
-            }))
+        rows.append(
+            _fact_row(
+                metric="disparagement_case",
+                value=None,
+                unit="case",
+                numerator=1,
+                denominator=n_disparagement,
+                dimensions={"platform": str(case.get("platform") or ""), "region": "", "query": ""},
+                domain=domain,
+                window=window,
+                method=W3_FACT_METHOD,
+                extra={
+                    "judgment_pub_id": str(case["judgment_pub_id"]),
+                    "direction": case["direction"],
+                    "content_origin": _safe_optional_text(case.get("content_origin"), 20),
+                    "subject_brand": _safe_optional_text(case.get("subject_brand"), 200),
+                    "target_brand": _safe_optional_text(case.get("target_brand"), 200),
+                    "evidence_quote": _safe_optional_text(case.get("evidence_quote"), 2000),
+                    "confidence": (
+                        float(case["confidence"]) if case.get("confidence") is not None else None
+                    ),
+                    "judge_method": _safe_optional_text(case.get("method"), 120),
+                    "source_url": _safe_source_url(case.get("source_url")),
+                    "answer_ref": (
+                        _safe_optional_text(case.get("subject_pub_id"), 120)
+                        if case.get("subject_type") == "answer"
+                        else None
+                    ),
+                    "fact_check": fact_check,
+                },
+            )
+        )
 
     return {
         "status": "ok" if judgments else "insufficient",
@@ -534,8 +628,14 @@ def _build_w3_section(
 
 # ── 扩展组：W2 官网引用能效（报价单服务3）──────────────────────────────────
 def _build_w2_section(
-    *, dsn: str, tenant_pub_id: str, project_pub_id: str, domain: str,
-    window: dict[str, str], since: datetime, now: datetime,
+    *,
+    dsn: str,
+    tenant_pub_id: str,
+    project_pub_id: str,
+    domain: str,
+    window: dict[str, str],
+    since: datetime,
+    now: datetime,
 ) -> dict[str, Any]:
     """W2 官网能效组：own_site_citation_share / own_site_adoption_rate /
     site_audit_suggestion（T2 最新批次逐条）。
@@ -545,7 +645,8 @@ def _build_w2_section(
     accurate/总判定（缺键/None → value=null + extra.insufficient 披露，不编造）。
     """
     overview = fetch_source_audit_overview(
-        dsn, tenant_pub_id, project_pub_id, since.date(), now.date())
+        dsn, tenant_pub_id, project_pub_id, since.date(), now.date()
+    )
     documents_total = int(overview.get("documents_total") or 0)
     own_site_documents = int(overview.get("own_site_documents") or 0)
     own_site_host = _safe_optional_text(overview.get("own_site_host"), 200)
@@ -554,13 +655,20 @@ def _build_w2_section(
     rows: list[dict[str, Any]] = []
     insufficient_reasons: list[str] = []
     if documents_total > 0 and own_site_share is not None:
-        rows.append(_fact_row(
-            metric="own_site_citation_share",
-            value=round(float(own_site_share) * 100, 2), unit="percent",
-            numerator=own_site_documents, denominator=documents_total,
-            dimensions={"platform": "", "region": "", "query": ""},
-            domain=domain, window=window, method=W2_FACT_METHOD,
-            extra={"own_site_host": own_site_host}))
+        rows.append(
+            _fact_row(
+                metric="own_site_citation_share",
+                value=round(float(own_site_share) * 100, 2),
+                unit="percent",
+                numerator=own_site_documents,
+                denominator=documents_total,
+                dimensions={"platform": "", "region": "", "query": ""},
+                domain=domain,
+                window=window,
+                method=W2_FACT_METHOD,
+                extra={"own_site_host": own_site_host},
+            )
+        )
     else:
         insufficient_reasons.append("no_source_documents")
 
@@ -569,43 +677,69 @@ def _build_w2_section(
     transcript_total = overview.get("own_site_transcript_total")
     transcript_accurate = overview.get("own_site_transcript_accurate")
     if adoption_rate is None:
-        note = ("adoption_metrics_unavailable"
-                if "own_site_adoption_rate" not in overview
-                else "no_own_site_transcript_audits")
-        rows.append(_fact_row(
-            metric="own_site_adoption_rate", value=None, unit="percent",
-            numerator=int(transcript_accurate or 0), denominator=int(transcript_total or 0),
-            dimensions={"platform": "", "region": "", "query": ""},
-            domain=domain, window=window, method=W2_FACT_METHOD,
-            extra={"insufficient": True, "note": note, "own_site_host": own_site_host}))
+        note = (
+            "adoption_metrics_unavailable"
+            if "own_site_adoption_rate" not in overview
+            else "no_own_site_transcript_audits"
+        )
+        rows.append(
+            _fact_row(
+                metric="own_site_adoption_rate",
+                value=None,
+                unit="percent",
+                numerator=int(transcript_accurate or 0),
+                denominator=int(transcript_total or 0),
+                dimensions={"platform": "", "region": "", "query": ""},
+                domain=domain,
+                window=window,
+                method=W2_FACT_METHOD,
+                extra={"insufficient": True, "note": note, "own_site_host": own_site_host},
+            )
+        )
     else:
-        rows.append(_fact_row(
-            metric="own_site_adoption_rate",
-            value=round(float(adoption_rate) * 100, 2), unit="percent",
-            numerator=int(transcript_accurate or 0), denominator=int(transcript_total or 0),
-            dimensions={"platform": "", "region": "", "query": ""},
-            domain=domain, window=window, method=W2_FACT_METHOD,
-            extra={"own_site_host": own_site_host}))
+        rows.append(
+            _fact_row(
+                metric="own_site_adoption_rate",
+                value=round(float(adoption_rate) * 100, 2),
+                unit="percent",
+                numerator=int(transcript_accurate or 0),
+                denominator=int(transcript_total or 0),
+                dimensions={"platform": "", "region": "", "query": ""},
+                domain=domain,
+                window=window,
+                method=W2_FACT_METHOD,
+                extra={"own_site_host": own_site_host},
+            )
+        )
 
     suggestions = fetch_site_audit_suggestions(dsn, tenant_pub_id, project_pub_id)
     suggestion_rows = suggestions["rows"] if suggestions else []
     suggestion_batch = suggestions["batch_pub_id"] if suggestions else None
     for suggestion in suggestion_rows:
-        rows.append(_fact_row(
-            metric="site_audit_suggestion", value=None, unit="suggestion",
-            numerator=1, denominator=len(suggestion_rows),
-            dimensions={"platform": "", "region": "", "query": ""},
-            domain=domain, window=window, method=W2_FACT_METHOD,
-            extra={
-                "category": _safe_optional_text(suggestion.get("category"), 40),
-                "severity": _safe_optional_text(suggestion.get("severity"), 20),
-                "title": _safe_optional_text(suggestion.get("title"), 200),
-                "detail": _safe_optional_text(suggestion.get("detail"), 2000),
-                "evidence_document_pub_id": _safe_optional_text(
-                    suggestion.get("evidence_document_pub_id"), 120),
-                "batch_pub_id": _safe_optional_text(suggestion_batch, 120),
-                "model": _safe_optional_text(suggestion.get("model"), 120),
-            }))
+        rows.append(
+            _fact_row(
+                metric="site_audit_suggestion",
+                value=None,
+                unit="suggestion",
+                numerator=1,
+                denominator=len(suggestion_rows),
+                dimensions={"platform": "", "region": "", "query": ""},
+                domain=domain,
+                window=window,
+                method=W2_FACT_METHOD,
+                extra={
+                    "category": _safe_optional_text(suggestion.get("category"), 40),
+                    "severity": _safe_optional_text(suggestion.get("severity"), 20),
+                    "title": _safe_optional_text(suggestion.get("title"), 200),
+                    "detail": _safe_optional_text(suggestion.get("detail"), 2000),
+                    "evidence_document_pub_id": _safe_optional_text(
+                        suggestion.get("evidence_document_pub_id"), 120
+                    ),
+                    "batch_pub_id": _safe_optional_text(suggestion_batch, 120),
+                    "model": _safe_optional_text(suggestion.get("model"), 120),
+                },
+            )
+        )
 
     return {
         "status": "ok" if rows else "insufficient",
@@ -633,10 +767,17 @@ def _parse_iso_date(value: str | None) -> date | None:
 
 
 def _build_before_after_section(
-    *, dsn: str, tenant_pub_id: str, project_pub_id: str, rules: Any,
-    target_brand: str | None, domain: str,
-    before_start: str | None, before_end: str | None,
-    after_start: str | None, after_end: str | None,
+    *,
+    dsn: str,
+    tenant_pub_id: str,
+    project_pub_id: str,
+    rules: Any,
+    target_brand: str | None,
+    domain: str,
+    before_start: str | None,
+    before_end: str | None,
+    after_start: str | None,
+    after_end: str | None,
 ) -> dict[str, Any] | None:
     """优化前后对比组：双臂各自跑 metrics.analyze（同一把规则、同一目标品牌），
     产出 before_after_metric 行（value=after−before 差值，before/after/分母进 extra）。
@@ -660,19 +801,38 @@ def _build_before_after_section(
     if b_start > b_end or a_start > a_end:
         return None
     compare_window = {"start": b_start.isoformat(), "end": a_end.isoformat()}
-    windows = {"before_start": b_start.isoformat(), "before_end": b_end.isoformat(),
-               "after_start": a_start.isoformat(), "after_end": a_end.isoformat()}
+    windows = {
+        "before_start": b_start.isoformat(),
+        "before_end": b_end.isoformat(),
+        "after_start": a_start.isoformat(),
+        "after_end": a_end.isoformat(),
+    }
 
     before_answers, before_records, before_truncated = brandrank_compare._arm_records(
-        dsn, tenant_pub_id, project_pub_id, domain, b_start, b_end,
-        fetch_answers=fetch_answers_window)
+        dsn,
+        tenant_pub_id,
+        project_pub_id,
+        domain,
+        b_start,
+        b_end,
+        fetch_answers=fetch_answers_window,
+    )
     after_answers, after_records, after_truncated = brandrank_compare._arm_records(
-        dsn, tenant_pub_id, project_pub_id, domain, a_start, a_end,
-        fetch_answers=fetch_answers_window)
+        dsn,
+        tenant_pub_id,
+        project_pub_id,
+        domain,
+        a_start,
+        a_end,
+        fetch_answers=fetch_answers_window,
+    )
     coverage = {
-        "before_answers": len(before_answers), "before_with_extract": len(before_records),
-        "after_answers": len(after_answers), "after_with_extract": len(after_records),
-        "before_truncated": before_truncated, "after_truncated": after_truncated,
+        "before_answers": len(before_answers),
+        "before_with_extract": len(before_records),
+        "after_answers": len(after_answers),
+        "after_with_extract": len(after_records),
+        "before_truncated": before_truncated,
+        "after_truncated": after_truncated,
     }
 
     insufficient_reasons: list[str] = []
@@ -687,13 +847,31 @@ def _build_before_after_section(
     if not target_brand:
         insufficient_reasons.append("target_brand_unset")
     if insufficient_reasons:
-        return {"status": "insufficient", "insufficient_reasons": insufficient_reasons,
-                "window": compare_window, "windows": windows, "coverage": coverage,
-                "fact_rows": []}
+        return {
+            "status": "insufficient",
+            "insufficient_reasons": insufficient_reasons,
+            "window": compare_window,
+            "windows": windows,
+            "coverage": coverage,
+            "fact_rows": [],
+        }
 
     rows = brandrank_compare.build_before_after_fact_rows(
-        before_records, after_records, rules=rules, target_brand=target_brand or "",
-        domain=domain, window=compare_window, windows=windows, top_ns=REPORT_TOP_NS)
+        before_records,
+        after_records,
+        rules=rules,
+        target_brand=target_brand or "",
+        domain=domain,
+        window=compare_window,
+        windows=windows,
+        top_ns=REPORT_TOP_NS,
+    )
 
-    return {"status": "ok", "insufficient_reasons": [], "window": compare_window,
-            "windows": windows, "coverage": coverage, "fact_rows": rows}
+    return {
+        "status": "ok",
+        "insufficient_reasons": [],
+        "window": compare_window,
+        "windows": windows,
+        "coverage": coverage,
+        "fact_rows": rows,
+    }

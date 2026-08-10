@@ -66,10 +66,9 @@ class Axes:
         )
 
 
-def build_axes(
-    audiences: list[str], regions: list[str], product_lines: list[str]
-) -> Axes:
+def build_axes(audiences: list[str], regions: list[str], product_lines: list[str]) -> Axes:
     """轴值去空白去重并保持原序；每轴至少含 "通用"。"""
+
     def _clean(values: list[str]) -> tuple[str, ...]:
         seen: list[str] = []
         for value in values:

@@ -25,6 +25,7 @@ domain 解析：显式 domain > 显式 industry > 项目真源 project.brandrank
 400/503 需要携带 details（why/available/llm 状态）而全局 handler 丢弃 details，
 故这两类错误在本层直接返回 JSONResponse（形状保持一致）。
 """
+
 from __future__ import annotations
 
 # ruff: noqa: B008
@@ -53,8 +54,9 @@ def _dsn() -> str:
     )
 
 
-def _error(request: Request, status_code: int, code: str,
-           details: dict[str, Any] | None = None) -> JSONResponse:
+def _error(
+    request: Request, status_code: int, code: str, details: dict[str, Any] | None = None
+) -> JSONResponse:
     """与 main.py 全局错误体同形的 JSONResponse（details 本层自定义填充）。"""
     request_id = getattr(request.state, "request_id", None)
     return JSONResponse(
@@ -135,10 +137,15 @@ def brand_visibility(
     except service.UnmappedIndustry as exc:
         return _error(request, 400, "unmapped_industry", {"why": str(exc)})
     except service.UnknownDomain as exc:
-        return _error(request, 400, "unknown_domain",
-                      {"available": available_domains(), "why": str(exc)})
+        return _error(
+            request, 400, "unknown_domain", {"available": available_domains(), "why": str(exc)}
+        )
     except service.DomainUnresolved as exc:
-        return _error(request, 400, "brandrank_domain_unresolved",
-                      {"available": available_domains(), "why": str(exc)})
+        return _error(
+            request,
+            400,
+            "brandrank_domain_unresolved",
+            {"available": available_domains(), "why": str(exc)},
+        )
     except service.LlmDisabled as exc:
         return _error(request, 503, "llm_disabled", {"llm": exc.status})

@@ -49,9 +49,7 @@ def _thinking_root(block_id: str = "think-root") -> dict[str, Any]:
         "block_id": block_id,
         "block_type": 10040,
         "parent_id": "",
-        "content": {
-            "thinking_block": {"finish_title": "已深度思考", "streaming_title": "思考中"}
-        },
+        "content": {"thinking_block": {"finish_title": "已深度思考", "streaming_title": "思考中"}},
     }
 
 
@@ -179,8 +177,10 @@ def test_trace_truncation_keeps_payload_within_budget() -> None:
                 f"search-{i}",
                 "think-root",
                 [f"检索词{i}"],
-                [_result(f"https://example.com/r{i}-{j}", f"标题{j}", "摘" * 800, j)
-                 for j in range(50)],
+                [
+                    _result(f"https://example.com/r{i}-{j}", f"标题{j}", "摘" * 800, j)
+                    for j in range(50)
+                ],
             )
         )
     body = _notify_event(blocks)

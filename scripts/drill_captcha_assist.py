@@ -10,6 +10,7 @@
 用法：sudo bash -c 'set -a; . /etc/geo-platform-v2/worker-adapters.env; set +a;
       .venv/bin/python scripts/drill_captcha_assist.py'
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -55,8 +56,10 @@ async def main() -> None:
             instance_key=DRILL_INSTANCE,
         )
     )
-    print(f"[drill] assist session started: pushed={started.pushed} "
-          f"url={started.assist_url}", flush=True)
+    print(
+        f"[drill] assist session started: pushed={started.pushed} url={started.assist_url}",
+        flush=True,
+    )
 
     deadline = time.monotonic() + TIMEOUT_S
     solved = False

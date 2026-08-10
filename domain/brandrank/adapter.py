@@ -29,6 +29,7 @@ canonical_url/original_url/title——**无 sitename 列**（旧库 references_j
 sitename 口径：host 归一化（小写、去 www. 前缀）→ url 解析主机名 → '（未知）'，
 绝不留空串污染 Counter。与旧库的差异仅「无 sitename 直接可用」，归一化规则逐行一致。
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -91,8 +92,11 @@ def citation_to_source_entry(row: dict[str, Any]) -> dict[str, Any]:
     ordinal 缺失/非正整数 → 该条仍进统计但 index 兜底为 1（权重最高，诚实可见：
     citation_fact.ordinal 由分析管线恒写 1-based，此分支纯防御）。"""
     url = (row.get("canonical_url") or row.get("original_url") or "").strip()
-    sitename = _normalize_host(row.get("host") or "") or _normalize_host(
-        urlparse(url).hostname or "") or UNKNOWN_SITENAME
+    sitename = (
+        _normalize_host(row.get("host") or "")
+        or _normalize_host(urlparse(url).hostname or "")
+        or UNKNOWN_SITENAME
+    )
     ordinal = row.get("ordinal")
     index = ordinal if isinstance(ordinal, int) and ordinal >= 1 else 1
     return {"sitename": sitename, "url": url, "index": index}

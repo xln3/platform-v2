@@ -245,12 +245,9 @@ def post_analysis_llm_config_from_settings(settings: Settings) -> PostAnalysisLl
     return PostAnalysisLlmConfig(
         api_key=(settings.post_analysis_llm_api_key or settings.research_llm_api_key).strip(),
         model=(settings.post_analysis_llm_model or settings.research_llm_model).strip(),
-        base_url=(
-            settings.post_analysis_llm_base_url or settings.research_llm_base_url
-        ).strip(),
+        base_url=(settings.post_analysis_llm_base_url or settings.research_llm_base_url).strip(),
         base_url_fallback=(
-            settings.post_analysis_llm_base_url_fallback
-            or settings.research_llm_base_url_fallback
+            settings.post_analysis_llm_base_url_fallback or settings.research_llm_base_url_fallback
         ).strip(),
     )
 
@@ -814,9 +811,7 @@ def parse_verification_payload(
     }
 
 
-def select_claims_for_verification(
-    claims: list[dict[str, Any]], max_claims: int
-) -> list[int]:
+def select_claims_for_verification(claims: list[dict[str, Any]], max_claims: int) -> list[int]:
     """待核验 claim 下标：about_target_brand 优先（稳定序），上限 max_claims。"""
     indexed = list(enumerate(claims))
     indexed.sort(key=lambda pair: (not pair[1]["about_target_brand"], pair[0]))
@@ -1127,9 +1122,7 @@ class PostAnalysisStore(Protocol):
         """begin（重）启动收敛：fetching/analyzing/annotating → pending，重跑可捡。"""
         ...
 
-    def load_task(
-        self, tenant_pub_id: str, task_pub_id: str
-    ) -> PostAnalysisTaskRow | None: ...
+    def load_task(self, tenant_pub_id: str, task_pub_id: str) -> PostAnalysisTaskRow | None: ...
 
     def fail_unfinished_items(self, task: PostAnalysisTaskRow, *, error: str) -> None:
         """finalize 兜底清扫：pending/fetching→fetch_failed、analyzing/annotating→
@@ -1396,9 +1389,7 @@ class _PostgresPostAnalysisStore:
             )
             connection.commit()
 
-    def load_task(
-        self, tenant_pub_id: str, task_pub_id: str
-    ) -> PostAnalysisTaskRow | None:
+    def load_task(self, tenant_pub_id: str, task_pub_id: str) -> PostAnalysisTaskRow | None:
         with self._connect(tenant_pub_id) as connection:
             task_row = connection.execute(
                 "SELECT * FROM platform.post_analysis_task WHERE pub_id=%s", (task_pub_id,)
@@ -1462,9 +1453,7 @@ class _PostgresPostAnalysisStore:
                 else None
             ),
             analysis=analysis if isinstance(analysis, dict) else None,
-            final_url=(
-                str(item_row["final_url"]) if item_row["final_url"] is not None else None
-            ),
+            final_url=(str(item_row["final_url"]) if item_row["final_url"] is not None else None),
         )
 
     def _update_item(
@@ -1679,9 +1668,7 @@ class _PostgresPostAnalysisStore:
                     ),
                     analysis=analysis if isinstance(analysis, dict) else None,
                     final_url=(
-                        str(item_row["final_url"])
-                        if item_row["final_url"] is not None
-                        else None
+                        str(item_row["final_url"]) if item_row["final_url"] is not None else None
                     ),
                 )
             )
@@ -2225,8 +2212,7 @@ def execute_analyze_post(
     prompt_text = post_text[:text_limit]
     if not llm.api_key or judge is None:
         error = (
-            "llm_unavailable: 未配置 GEO_POST_ANALYSIS_LLM_API_KEY"
-            "（含 GEO_RESEARCH_LLM_* 复用）"
+            "llm_unavailable: 未配置 GEO_POST_ANALYSIS_LLM_API_KEY（含 GEO_RESEARCH_LLM_* 复用）"
         )
         store.mark_analysis_failed(context, error)
         return AnalyzePostContentResult(

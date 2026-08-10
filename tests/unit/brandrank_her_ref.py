@@ -10,6 +10,7 @@ config_loader/openai/路径等副作用，直接 import 不可行。提取 Funct
 BRAND_MERGE_RULES 里 "中意人寿保险": TARGET_BRAND 是变量引用（analyze_brand L319-321），
 TARGET_BRAND 取自她同目录 config.yaml 首个 ``target_brand:``（同旧库 extract_brand_rules.py）。
 """
+
 from __future__ import annotations
 
 import ast
@@ -21,8 +22,9 @@ from collections import Counter, defaultdict
 import pytest
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-_HER_DIR = os.path.join(_HERE, "..", "..", "..", "GEO-auto-analysis",
-                        "data_analysis", "scripts", "tmp", "保险")
+_HER_DIR = os.path.join(
+    _HERE, "..", "..", "..", "GEO-auto-analysis", "data_analysis", "scripts", "tmp", "保险"
+)
 _ANALYZE_BRAND = os.path.join(_HER_DIR, "analyze_brand.py")
 _COMPARE = os.path.join(_HER_DIR, "compare_zhongyi_analysis.py")
 
@@ -36,13 +38,20 @@ def _target_brand(src_dir: str) -> str:
 
 def _literal(tree: ast.Module, name: str, *, names: dict):
     for node in tree.body:
-        if not (isinstance(node, ast.Assign) and any(
-                isinstance(t, ast.Name) and t.id == name for t in node.targets)):
+        if not (
+            isinstance(node, ast.Assign)
+            and any(isinstance(t, ast.Name) and t.id == name for t in node.targets)
+        ):
             continue
         if isinstance(node.value, ast.Dict):
-            return {ast.literal_eval(k): (names[v.id] if isinstance(v, ast.Name) and v.id in names
-                                          else ast.literal_eval(v))
-                    for k, v in zip(node.value.keys, node.value.values, strict=False)}
+            return {
+                ast.literal_eval(k): (
+                    names[v.id]
+                    if isinstance(v, ast.Name) and v.id in names
+                    else ast.literal_eval(v)
+                )
+                for k, v in zip(node.value.keys, node.value.values, strict=False)
+            }
         return ast.literal_eval(node.value)
     raise AssertionError(f"assign not found: {name}")
 
@@ -68,14 +77,26 @@ def load_her_impl() -> dict:
         src_a = f.read()
     tree_a = ast.parse(src_a)
     tb = _target_brand(_HER_DIR)
-    ns = {"defaultdict": defaultdict, "statistics": statistics, "Counter": Counter,
-          "BRAND_MERGE_RULES": _literal(tree_a, "BRAND_MERGE_RULES", names={"TARGET_BRAND": tb}),
-          "EXCLUDE_TERMS": _literal(tree_a, "EXCLUDE_TERMS", names={"TARGET_BRAND": tb})}
-    _exec_funcs(src_a, tree_a,
-                {"normalize_brand", "normalize_brand_list",
-                 "collect_brand_ranks", "merge_rank_maps", "calculate_brand_ranking"}, ns)
+    ns = {
+        "defaultdict": defaultdict,
+        "statistics": statistics,
+        "Counter": Counter,
+        "BRAND_MERGE_RULES": _literal(tree_a, "BRAND_MERGE_RULES", names={"TARGET_BRAND": tb}),
+        "EXCLUDE_TERMS": _literal(tree_a, "EXCLUDE_TERMS", names={"TARGET_BRAND": tb}),
+    }
+    _exec_funcs(
+        src_a,
+        tree_a,
+        {
+            "normalize_brand",
+            "normalize_brand_list",
+            "collect_brand_ranks",
+            "merge_rank_maps",
+            "calculate_brand_ranking",
+        },
+        ns,
+    )
     with open(_COMPARE, encoding="utf-8") as f:
         src_c = f.read()
-    _exec_funcs(src_c, ast.parse(src_c),
-                {"calculate_appearance_rate", "calculate_top_rate"}, ns)
+    _exec_funcs(src_c, ast.parse(src_c), {"calculate_appearance_rate", "calculate_top_rate"}, ns)
     return ns

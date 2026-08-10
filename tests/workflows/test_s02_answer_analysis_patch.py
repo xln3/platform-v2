@@ -12,6 +12,7 @@
 文件内，故用 UnsandboxedWorkflowRunner（避开 sandbox 对测试模块的重导入限制；
 patched/marker 语义与 sandbox 无关，不受影响）。
 """
+
 from __future__ import annotations
 
 import uuid
@@ -95,7 +96,11 @@ async def test_patched_path_runs_extract_sidecar() -> None:
             )
     assert result["metrics"]["mention_rate"]["value"] == "1"
     assert result["brand_extract"] == {
-        "state": "ok", "domain": "insurance", "model": "m-test", "brand_count": 2}
+        "state": "ok",
+        "domain": "insurance",
+        "model": "m-test",
+        "brand_count": 2,
+    }
     assert extract_calls == [_PAYLOAD]
 
 

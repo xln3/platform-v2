@@ -71,15 +71,10 @@ def test_outbox_alerts_are_wired_to_exporter_gauges() -> None:
     )
 
     rules_path = (
-        Path(__file__).resolve().parents[2]
-        / "deploy/production/observability/business-alerts.yaml"
+        Path(__file__).resolve().parents[2] / "deploy/production/observability/business-alerts.yaml"
     )
     document = yaml.safe_load(rules_path.read_text())
-    alerts = {
-        rule["alert"]: rule
-        for group in document["groups"]
-        for rule in group["rules"]
-    }
+    alerts = {rule["alert"]: rule for group in document["groups"] for rule in group["rules"]}
     backlog = alerts["GeoAnalyticsOutboxBacklog"]
     quarantined = alerts["GeoAnalyticsOutboxQuarantined"]
     assert ANALYTICS_OUTBOX_BACKLOG._name in backlog["expr"]

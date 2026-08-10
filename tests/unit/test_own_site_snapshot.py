@@ -208,10 +208,7 @@ def test_host_matches_domain(host: str, domain: str, expected: bool) -> None:
 
 
 def test_url_dedupe_key_normalizes() -> None:
-    assert (
-        url_dedupe_key("HTTPS://WWW.Example.COM:443/about/#team")
-        == "https://example.com/about"
-    )
+    assert url_dedupe_key("HTTPS://WWW.Example.COM:443/about/#team") == "https://example.com/about"
     assert url_dedupe_key("http://example.com:80/a") == "http://example.com/a"
     assert url_dedupe_key("http://example.com:8080/a") == "http://example.com:8080/a"
     assert url_dedupe_key("https://example.com") == "https://example.com/"
@@ -290,15 +287,19 @@ def test_select_site_targets_filters_and_limit() -> None:
     ]
     assert all(t.kind == "site_page" for t in targets)
     # exclude（主页自身）+ limit<=0
-    excluded = select_site_targets(links, "example.com", 5, exclude=frozenset({"https://example.com/products"}))
+    excluded = select_site_targets(
+        links, "example.com", 5, exclude=frozenset({"https://example.com/products"})
+    )
     assert "https://example.com/products" not in [t.url for t in excluded]
     assert select_site_targets(links, "example.com", 0) == []
 
 
 def test_merge_targets_citation_priority() -> None:
     citation = SnapshotTarget(
-        url="https://example.com/about", key="https://example.com/about",
-        kind="citation", task_pub_id="ans_aaa",
+        url="https://example.com/about",
+        key="https://example.com/about",
+        kind="citation",
+        task_pub_id="ans_aaa",
     )
     site_same = SnapshotTarget(
         url="https://example.com/about", key="https://example.com/about", kind="site_page"
@@ -312,8 +313,10 @@ def test_merge_targets_citation_priority() -> None:
 
 def test_relation_for_target() -> None:
     citation = SnapshotTarget(
-        url="https://example.com/a", key="https://example.com/a",
-        kind="citation", task_pub_id="ans_aaa",
+        url="https://example.com/a",
+        key="https://example.com/a",
+        kind="citation",
+        task_pub_id="ans_aaa",
     )
     assert relation_for_target(citation, _RUN) == ("ans_aaa", "own_site_snapshot")
     site = SnapshotTarget(url="https://example.com", key="https://example.com/", kind="site_page")

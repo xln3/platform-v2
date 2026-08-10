@@ -29,9 +29,7 @@ log = structlog.get_logger()
 def _error_marker(error: BaseException) -> str:
     """失败标记：异常类名+约束/表名（模式标识符），绝不落异常 message（可能含值）。"""
     diag = getattr(error, "diag", None)
-    detail = (
-        getattr(diag, "constraint_name", None) or getattr(diag, "table_name", None) or "-"
-    )
+    detail = getattr(diag, "constraint_name", None) or getattr(diag, "table_name", None) or "-"
     return f"{type(error).__name__}:{detail}"[:200]
 
 

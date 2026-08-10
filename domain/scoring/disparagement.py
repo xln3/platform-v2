@@ -159,9 +159,7 @@ def extract_windows(
 
     competitor_set = {name.strip() for name in competitors if name.strip()}
     brand_name = (brand or "").strip()
-    competitor_names = [
-        name for name in tracked if name in competitor_set and name != brand_name
-    ]
+    competitor_names = [name for name in tracked if name in competitor_set and name != brand_name]
     for index, first in enumerate(competitor_names):
         for second in competitor_names[index + 1 :]:
             best: tuple[int, int, int] | None = None  # (gap, span_start, span_end)
@@ -275,16 +273,52 @@ def validate_judgment(
 # 口径：server/proxyllm/geo_scoring.py _POS_LEX/_NEG_LEX 扩展，补拉踩高频比较词。
 SUPPORT_WORDS = frozenset(
     {
-        "推荐", "首选", "值得", "优质", "口碑", "好评", "出色", "优秀", "领先",
-        "靠谱", "不错", "信赖", "最佳", "顶级", "强烈推荐", "优于", "胜过",
-        "更强", "划算", "良心",
+        "推荐",
+        "首选",
+        "值得",
+        "优质",
+        "口碑",
+        "好评",
+        "出色",
+        "优秀",
+        "领先",
+        "靠谱",
+        "不错",
+        "信赖",
+        "最佳",
+        "顶级",
+        "强烈推荐",
+        "优于",
+        "胜过",
+        "更强",
+        "划算",
+        "良心",
     }
 )
 NEGATIVE_WORDS = frozenset(
     {
-        "不推荐", "不建议", "差评", "失望", "劣质", "投诉", "避雷", "不值",
-        "不如", "落后", "过时", "翻车", "踩雷", "坑", "缩水", "堪忧", "逊色",
-        "垫底", "质疑", "诟病", "偏贵", "繁琐",
+        "不推荐",
+        "不建议",
+        "差评",
+        "失望",
+        "劣质",
+        "投诉",
+        "避雷",
+        "不值",
+        "不如",
+        "落后",
+        "过时",
+        "翻车",
+        "踩雷",
+        "坑",
+        "缩水",
+        "堪忧",
+        "逊色",
+        "垫底",
+        "质疑",
+        "诟病",
+        "偏贵",
+        "繁琐",
     }
 )
 

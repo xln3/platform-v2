@@ -148,9 +148,7 @@ def test_reconciled_terminal_collection_run_excludes_full_terminal_vocab(
         trace_context={},
     )
     outbox.reconciled_terminal(command, "COMPLETED")
-    run_updates = [
-        sql for sql, _ in connection.queries if "UPDATE platform.collection_run" in sql
-    ]
+    run_updates = [sql for sql, _ in connection.queries if "UPDATE platform.collection_run" in sql]
     assert len(run_updates) == 1
     for terminal_state in (
         "completed",

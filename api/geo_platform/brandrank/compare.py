@@ -29,6 +29,7 @@
 - ``brandrank_service.fetch_project``/``fetch_brand_extracts``：经 service 模块属性
   调用（与 test_report_before_after.py / test_brandrank_api.py 同款）。
 """
+
 from __future__ import annotations
 
 import json
@@ -48,7 +49,7 @@ from . import service as brandrank_service
 # [迁入] 报告事实行信封常量（原 reports/fact_suggestions.py；行构造单点，见模块 docstring）
 FACT_METHOD = "brandrank-llm-v1"
 FACT_SOURCE = "system_computed"
-COMPARE_TOP_NS = (1, 3, 5)             # 报价单口径：Top1/Top3/Top5 出现率
+COMPARE_TOP_NS = (1, 3, 5)  # 报价单口径：Top1/Top3/Top5 出现率
 # [迁入] 优化前后对比指标词表（mention_rate=品牌提及率；topN=Top-N 出现率 of_total 口径，
 # of_mentions 成对进 extra——双分母纪律与主建议一致）
 BEFORE_AFTER_METRICS = ("mention_rate", "avg_rank", "top1", "top3", "top5")
@@ -65,10 +66,19 @@ class DomainUnset(ValueError):
 
 
 # [迁入] 报告事实行信封（原 fact_suggestions._fact_row，逐字段不变）
-def _fact_row(*, metric: str, value: float | None, unit: str, numerator: int,
-              denominator: int, dimensions: dict[str, str], domain: str,
-              window: dict[str, str], method: str = FACT_METHOD,
-              extra: dict[str, Any] | None = None) -> dict[str, Any]:
+def _fact_row(
+    *,
+    metric: str,
+    value: float | None,
+    unit: str,
+    numerator: int,
+    denominator: int,
+    dimensions: dict[str, str],
+    domain: str,
+    window: dict[str, str],
+    method: str = FACT_METHOD,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     row: dict[str, Any] = {
         "metric": metric,
         "value": value,
@@ -89,8 +99,11 @@ def _fact_row(*, metric: str, value: float | None, unit: str, numerator: int,
 # ══ 臂答案读取接缝 ══════════════════════════════════════════════════════════
 # [迁入]（原 fact_suggestions.fetch_answers_window，逐行不变）
 def fetch_answers_window(
-    dsn: str, tenant_pub_id: str, project_pub_id: str,
-    start: datetime, end: datetime,
+    dsn: str,
+    tenant_pub_id: str,
+    project_pub_id: str,
+    start: datetime,
+    end: datetime,
 ) -> tuple[list[dict[str, Any]], bool]:
     """[start, end) 窗内 eligible 答案（eligible AND NOT degraded，与
     brandrank.service.fetch_answers 同口径 + 上界；before/after 双臂各自调用）。
@@ -116,7 +129,9 @@ def fetch_answers_window(
 
 # [新增] run 组臂读取：与 fetch_answers_window 同谓词同投影，窗条件换成 run 集合
 def fetch_answers_for_runs(
-    conn: psycopg.Connection[Any], tenant_pub_id: str, project_pub_id: str,
+    conn: psycopg.Connection[Any],
+    tenant_pub_id: str,
+    project_pub_id: str,
     run_pub_ids: Sequence[str],
 ) -> tuple[list[dict[str, Any]], bool]:
     """指定 run 集合的 eligible 答案（eligible AND NOT degraded，与
@@ -150,7 +165,8 @@ def _records_from_answers(
     """答案集 → brandrank 记录：只收 fanout 表 ok 行（brands 形状校验与
     brandrank service 同口径），形状不符诚实剔除（INV-32 零合成）。"""
     table_rows = brandrank_service.fetch_brand_extracts(
-        dsn, tenant_pub_id, [a["pub_id"] for a in answers], domain)
+        dsn, tenant_pub_id, [a["pub_id"] for a in answers], domain
+    )
     records: list[dict[str, Any]] = []
     for answer in answers:
         table_row = table_rows.get(answer["pub_id"])
@@ -158,7 +174,7 @@ def _records_from_answers(
             continue
         brands = table_row.get("brands")
         if not (isinstance(brands, list) and all(isinstance(b, str) for b in brands)):
-            continue                                # ok 行但形状不符=未覆盖（诚实剔除）
+            continue  # ok 行但形状不符=未覆盖（诚实剔除）
         records.append(adapter.answer_to_brand_record(answer, list(brands)))
     return records
 
@@ -166,8 +182,13 @@ def _records_from_answers(
 # [迁入]（原 fact_suggestions._arm_records；fetch_answers 注入缝是唯一的刻意增量——
 # 缺省 None 时调用时解析本模块全局 fetch_answers_window，语义与原版逐行一致）
 def _arm_records(
-    dsn: str, tenant_pub_id: str, project_pub_id: str, domain: str,
-    start_date: date, end_date: date, *,
+    dsn: str,
+    tenant_pub_id: str,
+    project_pub_id: str,
+    domain: str,
+    start_date: date,
+    end_date: date,
+    *,
     fetch_answers: FetchAnswers | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], bool]:
     """单臂 [start_date, end_date]（含首尾日，UTC 日界）：eligible 答案 → fanout
@@ -182,8 +203,12 @@ def _arm_records(
 
 # [新增] run 组单臂构建：与 _arm_records 同口径，数据源换成 run 集合
 def arm_records_for_runs(
-    dsn: str, tenant_pub_id: str, project_pub_id: str, domain: str,
-    run_pub_ids: Sequence[str], *,
+    dsn: str,
+    tenant_pub_id: str,
+    project_pub_id: str,
+    domain: str,
+    run_pub_ids: Sequence[str],
+    *,
     fetch_answers: FetchAnswers | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], bool]:
     """单臂 run 集合：eligible 答案 → fanout 抽取 ok 行 → brandrank 记录
@@ -198,12 +223,18 @@ def arm_records_for_runs(
 # ══ 五指标快照与聚合行（口径单点）════════════════════════════════════════════
 def _metric_diff(before_value: float | None, after_value: float | None) -> float | None:
     """value=after−before（round 2）；任一臂 None（零提及 avg_rank）→ None（诚实空值）。"""
-    return (round(after_value - before_value, 2)
-            if before_value is not None and after_value is not None else None)
+    return (
+        round(after_value - before_value, 2)
+        if before_value is not None and after_value is not None
+        else None
+    )
 
 
 def _arm_metric_snapshot(
-    records: list[dict[str, Any]], *, rules: Any, target_brand: str,
+    records: list[dict[str, Any]],
+    *,
+    rules: Any,
+    target_brand: str,
     top_ns: tuple[int, ...],
 ) -> dict[str, dict[str, Any]]:
     """单臂五指标快照：analyze(...)["target_brand"] → mention_rate/avg_rank/topN
@@ -212,65 +243,92 @@ def _arm_metric_snapshot(
     调用方保证 target_brand 非空（否则 analyze 的 target_brand 为 None——与报告
     扩展组同一前置：target_brand_unset 先入 insufficient，不到这里）。
     """
-    special = metrics.analyze(
-        records, [], rules=rules, target_brand=target_brand, top_ns=top_ns)["target_brand"]
+    special = metrics.analyze(records, [], rules=rules, target_brand=target_brand, top_ns=top_ns)[
+        "target_brand"
+    ]
     snapshot: dict[str, dict[str, Any]] = {}
     for name in BEFORE_AFTER_METRICS:
         if name == "mention_rate":
-            snapshot[name] = {"value": special["appearance_rate"], "unit": "percent",
-                              "numerator": special["mentions"],
-                              "denominator": len(records)}
+            snapshot[name] = {
+                "value": special["appearance_rate"],
+                "unit": "percent",
+                "numerator": special["mentions"],
+                "denominator": len(records),
+            }
         elif name == "avg_rank":
-            snapshot[name] = {"value": special["avg_rank"],    # 零提及 → None（诚实空值）
-                              "unit": "rank", "numerator": special["mentions"],
-                              "denominator": len(records)}
+            snapshot[name] = {
+                "value": special["avg_rank"],  # 零提及 → None（诚实空值）
+                "unit": "rank",
+                "numerator": special["mentions"],
+                "denominator": len(records),
+            }
         else:
             top_n = int(name[3:])
             rates = special["top_rates"][str(top_n)]
-            snapshot[name] = {"value": rates["of_total"],      # 占总条数口径（与主建议一致）
-                              "unit": "percent",
-                              "numerator": sum(1 for r in special["ranks"] if r <= top_n),
-                              "denominator": len(records),
-                              "of_mentions": rates["of_mentions"]}
+            snapshot[name] = {
+                "value": rates["of_total"],  # 占总条数口径（与主建议一致）
+                "unit": "percent",
+                "numerator": sum(1 for r in special["ranks"] if r <= top_n),
+                "denominator": len(records),
+                "of_mentions": rates["of_mentions"],
+            }
     return snapshot
 
 
 # [迁入]（原 fact_suggestions._build_before_after_section 的聚合行构造段，逐字段不变：
 # 同一 loop 同一 extra 键序——报告扩展组与 comparisons 端点的 aggregate 由此同构）
 def build_before_after_fact_rows(
-    before_records: list[dict[str, Any]], after_records: list[dict[str, Any]], *,
-    rules: Any, target_brand: str, domain: str,
-    window: dict[str, Any], windows: dict[str, Any],
+    before_records: list[dict[str, Any]],
+    after_records: list[dict[str, Any]],
+    *,
+    rules: Any,
+    target_brand: str,
+    domain: str,
+    window: dict[str, Any],
+    windows: dict[str, Any],
     top_ns: tuple[int, ...] = COMPARE_TOP_NS,
 ) -> list[dict[str, Any]]:
     """双臂五指标 before_after_metric 聚合行（value=after−before 差值，
     before/after/分母进 extra；topN 双分母 of_total 为行值、of_mentions 成对进 extra）。"""
     before_snapshot = _arm_metric_snapshot(
-        before_records, rules=rules, target_brand=target_brand, top_ns=top_ns)
+        before_records, rules=rules, target_brand=target_brand, top_ns=top_ns
+    )
     after_snapshot = _arm_metric_snapshot(
-        after_records, rules=rules, target_brand=target_brand, top_ns=top_ns)
+        after_records, rules=rules, target_brand=target_brand, top_ns=top_ns
+    )
     denominators = {"before_n": len(before_records), "after_n": len(after_records)}
 
     rows: list[dict[str, Any]] = []
     for name in BEFORE_AFTER_METRICS:
         before_metric = before_snapshot[name]
         after_metric = after_snapshot[name]
-        extra: dict[str, Any] = {"metric_name": name, "denominators": denominators,
-                                 "windows": windows}
+        extra: dict[str, Any] = {
+            "metric_name": name,
+            "denominators": denominators,
+            "windows": windows,
+        }
         if "of_mentions" in before_metric:
             # 双分母成对披露（of_mentions=占提及条数），与主建议 topN 行同款
             extra["before_of_mentions"] = before_metric["of_mentions"]
             extra["after_of_mentions"] = after_metric["of_mentions"]
-        rows.append(_fact_row(
-            metric="before_after_metric",
-            value=_metric_diff(before_metric["value"], after_metric["value"]),
-            unit=after_metric["unit"],
-            numerator=after_metric["numerator"], denominator=len(after_records),
-            dimensions={"platform": "", "region": "", "query": ""},
-            domain=domain, window=window,
-            extra={**extra, "before": before_metric["value"],
-                   "after": after_metric["value"],
-                   "before_numerator": before_metric["numerator"]}))
+        rows.append(
+            _fact_row(
+                metric="before_after_metric",
+                value=_metric_diff(before_metric["value"], after_metric["value"]),
+                unit=after_metric["unit"],
+                numerator=after_metric["numerator"],
+                denominator=len(after_records),
+                dimensions={"platform": "", "region": "", "query": ""},
+                domain=domain,
+                window=window,
+                extra={
+                    **extra,
+                    "before": before_metric["value"],
+                    "after": after_metric["value"],
+                    "before_numerator": before_metric["numerator"],
+                },
+            )
+        )
     return rows
 
 
@@ -280,8 +338,11 @@ def _queries_of(answers_or_records: list[dict[str, Any]], key: str) -> set[str]:
 
 
 def pair_question_metrics(
-    baseline_records: list[dict[str, Any]], optimized_records: list[dict[str, Any]], *,
-    rules: Any, target_brand: str,
+    baseline_records: list[dict[str, Any]],
+    optimized_records: list[dict[str, Any]],
+    *,
+    rules: Any,
+    target_brand: str,
     top_ns: tuple[int, ...] = COMPARE_TOP_NS,
     baseline_answers: list[dict[str, Any]] | None = None,
     optimized_answers: list[dict[str, Any]] | None = None,
@@ -295,6 +356,7 @@ def pair_question_metrics(
     诚实占位（该臂 before/after 为 None、delta 全 None，绝不伪零）；缺省按记录级
     分组（记录即覆盖，配对题两臂必有记录，零记录分支为纯防御）。
     """
+
     def by_query(records: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
         grouped: dict[str, list[dict[str, Any]]] = {}
         for record in records:
@@ -320,26 +382,37 @@ def pair_question_metrics(
         if not after_subset:
             insufficient_reasons.append("after_no_extraction_coverage")
         before_snapshot = (
-            _arm_metric_snapshot(before_subset, rules=rules,
-                                 target_brand=target_brand, top_ns=top_ns)
-            if before_subset else None)
+            _arm_metric_snapshot(
+                before_subset, rules=rules, target_brand=target_brand, top_ns=top_ns
+            )
+            if before_subset
+            else None
+        )
         after_snapshot = (
-            _arm_metric_snapshot(after_subset, rules=rules,
-                                 target_brand=target_brand, top_ns=top_ns)
-            if after_subset else None)
+            _arm_metric_snapshot(
+                after_subset, rules=rules, target_brand=target_brand, top_ns=top_ns
+            )
+            if after_subset
+            else None
+        )
         delta = {
-            name: (_metric_diff(before_snapshot[name]["value"], after_snapshot[name]["value"])
-                   if before_snapshot is not None and after_snapshot is not None else None)
+            name: (
+                _metric_diff(before_snapshot[name]["value"], after_snapshot[name]["value"])
+                if before_snapshot is not None and after_snapshot is not None
+                else None
+            )
             for name in BEFORE_AFTER_METRICS
         }
-        questions.append({
-            "query_text": query_text,
-            "status": "insufficient" if insufficient_reasons else "ok",
-            "insufficient_reasons": insufficient_reasons,
-            "before": before_snapshot,
-            "after": after_snapshot,
-            "delta": delta,
-        })
+        questions.append(
+            {
+                "query_text": query_text,
+                "status": "insufficient" if insufficient_reasons else "ok",
+                "insufficient_reasons": insufficient_reasons,
+                "before": before_snapshot,
+                "after": after_snapshot,
+                "delta": delta,
+            }
+        )
 
     return {
         "questions": questions,
@@ -360,7 +433,10 @@ def _run_id_list(value: Any) -> list[str]:
 
 
 def compute_run_comparison(
-    *, dsn: str, tenant_pub_id: str, comparison: dict[str, Any],
+    *,
+    dsn: str,
+    tenant_pub_id: str,
+    comparison: dict[str, Any],
 ) -> dict[str, Any]:
     """run_comparison 实体行 → 现场计算结果（brandrank 层，与报告 before_after
     扩展组同一份管线：同臂过滤、同 analyze、同五指标行构造）。
@@ -386,13 +462,18 @@ def compute_run_comparison(
     baseline_run_ids = _run_id_list(comparison.get("baseline_run_pub_ids"))
     optimized_run_ids = _run_id_list(comparison.get("optimized_run_pub_ids"))
     before_answers, before_records, before_truncated = arm_records_for_runs(
-        dsn, tenant_pub_id, project_pub_id, rules.domain, baseline_run_ids)
+        dsn, tenant_pub_id, project_pub_id, rules.domain, baseline_run_ids
+    )
     after_answers, after_records, after_truncated = arm_records_for_runs(
-        dsn, tenant_pub_id, project_pub_id, rules.domain, optimized_run_ids)
+        dsn, tenant_pub_id, project_pub_id, rules.domain, optimized_run_ids
+    )
     coverage = {
-        "before_answers": len(before_answers), "before_with_extract": len(before_records),
-        "after_answers": len(after_answers), "after_with_extract": len(after_records),
-        "before_truncated": before_truncated, "after_truncated": after_truncated,
+        "before_answers": len(before_answers),
+        "before_with_extract": len(before_records),
+        "after_answers": len(after_answers),
+        "after_with_extract": len(after_records),
+        "before_truncated": before_truncated,
+        "after_truncated": after_truncated,
     }
 
     # 臂级 insufficient 判定与报告 before_after 扩展组同一词表同一顺序
@@ -408,29 +489,46 @@ def compute_run_comparison(
     if not target_brand:
         insufficient_reasons.append("target_brand_unset")
 
-    windows = {"baseline_run_pub_ids": baseline_run_ids,
-               "optimized_run_pub_ids": optimized_run_ids}
+    windows = {"baseline_run_pub_ids": baseline_run_ids, "optimized_run_pub_ids": optimized_run_ids}
     aggregate_metrics: list[dict[str, Any]] = []
     if not insufficient_reasons:
         aggregate_metrics = build_before_after_fact_rows(
-            before_records, after_records, rules=rules, target_brand=target_brand or "",
-            domain=rules.domain, window=windows, windows=windows)
+            before_records,
+            after_records,
+            rules=rules,
+            target_brand=target_brand or "",
+            domain=rules.domain,
+            window=windows,
+            windows=windows,
+        )
 
     # 逐题配对：答案级配对宇宙（某臂问过但零覆盖 → 单题 insufficient 诚实占位）；
     # 目标品牌未配置时品牌指标失去主体——questions 不落（绝不按空品牌名编造），
     # unpaired 仍按答案级如实列出。
     if target_brand:
         pairing = pair_question_metrics(
-            before_records, after_records, rules=rules, target_brand=target_brand,
+            before_records,
+            after_records,
+            rules=rules,
+            target_brand=target_brand,
             top_ns=COMPARE_TOP_NS,
-            baseline_answers=before_answers, optimized_answers=after_answers)
+            baseline_answers=before_answers,
+            optimized_answers=after_answers,
+        )
     else:
-        pairing = {"questions": [], "unpaired": {
-            "baseline_only": sorted(_queries_of(before_answers, "query_text")
-                                    - _queries_of(after_answers, "query_text")),
-            "optimized_only": sorted(_queries_of(after_answers, "query_text")
-                                     - _queries_of(before_answers, "query_text")),
-        }}
+        pairing = {
+            "questions": [],
+            "unpaired": {
+                "baseline_only": sorted(
+                    _queries_of(before_answers, "query_text")
+                    - _queries_of(after_answers, "query_text")
+                ),
+                "optimized_only": sorted(
+                    _queries_of(after_answers, "query_text")
+                    - _queries_of(before_answers, "query_text")
+                ),
+            },
+        }
 
     return {
         "status": "insufficient" if insufficient_reasons else "ok",

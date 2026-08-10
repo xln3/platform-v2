@@ -523,8 +523,7 @@ class TaskTraceView(StrictModel):
 
 
 _TRACE_DISCLOSURE = (
-    "仅展示平台明确传输到浏览器的检索与公开思考步骤；"
-    "未返回的内部推理、资料取舍原因不可据此推断。"
+    "仅展示平台明确传输到浏览器的检索与公开思考步骤；未返回的内部推理、资料取舍原因不可据此推断。"
 )
 _TRACE_TEXT_LIMIT = 5_000  # 单段公开思考/回答正文的响应截断上限（对齐旧链口径）
 
@@ -616,9 +615,7 @@ def build_task_trace_view(
         totals=TraceTotals(
             queries=sum(len(b.queries) for b in search_blocks),
             results=sum(b.result_count for b in search_blocks),
-            surfaced_reasoning_steps=len(
-                [s for s in reasoning if s.kind == "surfaced_reasoning"]
-            ),
+            surfaced_reasoning_steps=len([s for s in reasoning if s.kind == "surfaced_reasoning"]),
             response_text_truncated=response_truncated,
         ),
         disclosure=_TRACE_DISCLOSURE,

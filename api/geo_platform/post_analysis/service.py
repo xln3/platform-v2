@@ -200,9 +200,7 @@ class PostAnalysisService:
         return psycopg.connect(self.dsn, row_factory=dict_row)
 
     @contextmanager
-    def _tenant_conn(
-        self, tenant_pub_id: str
-    ) -> Iterator[tuple[psycopg.Connection[Any], str]]:
+    def _tenant_conn(self, tenant_pub_id: str) -> Iterator[tuple[psycopg.Connection[Any], str]]:
         """platform schema 连接：解析 tenant uuid + 置 app.tenant_id/app.tenant_pub_id。"""
         with self._new_connection() as connection:
             tenant_row = connection.execute(
@@ -391,9 +389,7 @@ class PostAnalysisService:
         return {
             **_public_task(row),
             "status_counts": counts,
-            "investigation_pub_id": (
-                str(investigation_pub_id) if investigation_pub_id else None
-            ),
+            "investigation_pub_id": (str(investigation_pub_id) if investigation_pub_id else None),
         }
 
     def list_items(
@@ -487,9 +483,7 @@ class PostAnalysisService:
             ).fetchone()
             if item_row is None or not item_row[column]:
                 raise PostAnalysisNotFound("post analysis asset not found")
-            asset_ref = self._resolve_asset_ref(
-                connection, tenant_pub_id, str(item_row[column])
-            )
+            asset_ref = self._resolve_asset_ref(connection, tenant_pub_id, str(item_row[column]))
             object_key = str(item_row[column])
         if asset_ref is None:
             raise PostAnalysisNotFound("post analysis asset not found")
@@ -497,4 +491,3 @@ class PostAnalysisService:
             raise PostAnalysisNotFound("object store unavailable")
         payload = self._object_store.get_verified(object_key, asset_ref["sha256"])
         return payload, asset_ref["mime_type"], asset_ref["sha256"]
-

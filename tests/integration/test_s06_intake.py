@@ -540,9 +540,7 @@ def test_ai_research_model_selection(
     get_settings.cache_clear()
     try:
         # 模型清单端点：缺省模型恒在首位 + 按 provider 级联分组
-        listed = client.get(
-            f"/api/v2/projects/{project}/intake/research-models", headers=customer
-        )
+        listed = client.get(f"/api/v2/projects/{project}/intake/research-models", headers=customer)
         assert listed.status_code == 200
         assert listed.json() == {
             "models": [

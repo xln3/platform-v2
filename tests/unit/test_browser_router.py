@@ -48,8 +48,12 @@ def _prod_topology(monkeypatch: pytest.MonkeyPatch):
 
 def _task(key: str, adapter: str, region: str) -> CollectionTaskInput:
     return CollectionTaskInput(
-        business_key=key, query=f"q-{key}", model="m",
-        region=region, mode="normal", adapter=adapter,
+        business_key=key,
+        query=f"q-{key}",
+        model="m",
+        region=region,
+        mode="normal",
+        adapter=adapter,
     )
 
 
@@ -57,15 +61,15 @@ def _task(key: str, adapter: str, region: str) -> CollectionTaskInput:
 
 
 def test_normalize_region_forms() -> None:
-    assert normalize_region_gb("CN-BJ") == "110000"       # ISO 省码
-    assert normalize_region_gb("cn-bj") == "110000"       # 大小写不敏感
-    assert normalize_region_gb(" CN-SH ") == "310000"     # 空白容忍
-    assert normalize_region_gb("310000") == "310000"      # 6 位 GB 原样透传
-    assert normalize_region_gb("上海") == "310000"         # 中文城市名
-    assert normalize_region_gb("深圳") == "440300"         # 市级码保持市粒度
+    assert normalize_region_gb("CN-BJ") == "110000"  # ISO 省码
+    assert normalize_region_gb("cn-bj") == "110000"  # 大小写不敏感
+    assert normalize_region_gb(" CN-SH ") == "310000"  # 空白容忍
+    assert normalize_region_gb("310000") == "310000"  # 6 位 GB 原样透传
+    assert normalize_region_gb("上海") == "310000"  # 中文城市名
+    assert normalize_region_gb("深圳") == "440300"  # 市级码保持市粒度
     assert normalize_region_gb("") == ""
-    assert normalize_region_gb("Atlantis") == ""          # 未识别 → 空（诚实）
-    assert normalize_region_gb("31000") == ""             # 非 6 位数字不归一
+    assert normalize_region_gb("Atlantis") == ""  # 未识别 → 空（诚实）
+    assert normalize_region_gb("31000") == ""  # 非 6 位数字不归一
 
 
 # ── resolve_browser_instance ──────────────────────────────────────────────────
@@ -121,8 +125,9 @@ def test_resolve_instances_list_unset_fails_closed(monkeypatch: pytest.MonkeyPat
     assert exc_info2.value.type == "browser_instances_not_configured"
 
 
-@pytest.mark.parametrize("bad_list", ["doubao-sh", "doubao_sh,,tongyi_bj",
-                                      "doubao_sh,doubao_sh", "_doubao_sh"])
+@pytest.mark.parametrize(
+    "bad_list", ["doubao-sh", "doubao_sh,,tongyi_bj", "doubao_sh,doubao_sh", "_doubao_sh"]
+)
 def test_resolve_malformed_instance_list_fails_closed(
     monkeypatch: pytest.MonkeyPatch, bad_list: str
 ) -> None:

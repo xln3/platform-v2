@@ -266,9 +266,7 @@ def test_create_task_inserts_items_and_outbox_command() -> None:
     # 两条 item：确定性 pub_id + 归一化 host
     assert len(fake.items) == 2
     for item in fake.items:
-        assert item["pub_id"] == derive_item_pub_id(
-            _TENANT, row["pub_id"], item["url_hash"]
-        )
+        assert item["pub_id"] == derive_item_pub_id(_TENANT, row["pub_id"], item["url_hash"])
         assert item["status"] == "pending"
     # 同事务 outbox 命令：workflow_type=post_analysis，payload 指回 task
     assert len(fake.commands) == 1
@@ -296,9 +294,7 @@ def test_create_task_same_key_different_body_conflicts() -> None:
     key = "k" * 16
     _service(fake).create_task(**_create_kwargs(idempotency_key=key))
     with pytest.raises(PostAnalysisConflict):
-        _service(fake).create_task(
-            **_create_kwargs(idempotency_key=key, target_brand="别的品牌")
-        )
+        _service(fake).create_task(**_create_kwargs(idempotency_key=key, target_brand="别的品牌"))
 
 
 def test_create_task_without_key_uses_body_fingerprint() -> None:
@@ -461,8 +457,9 @@ def test_get_task_detail_investigation_pub_id_defaults_null() -> None:
 def test_create_task_normalizes_open_investigation_option() -> None:
     fake = _FakeConnection()
     row, created = _service(fake).create_task(
-        **_create_kwargs(options={"verify_facts": True, "annotate": True,
-                                  "open_investigation": False})
+        **_create_kwargs(
+            options={"verify_facts": True, "annotate": True, "open_investigation": False}
+        )
     )
     assert created is True
     stored = fake.tasks[row["pub_id"]]

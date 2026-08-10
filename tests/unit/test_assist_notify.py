@@ -35,12 +35,14 @@ class _CaptureServer:
             def _record(self):
                 length = int(self.headers.get("Content-Length", 0) or 0)
                 body = self.rfile.read(length) if length else b""
-                outer.records.append({
-                    "method": self.command,
-                    "path": self.path,
-                    "headers": dict(self.headers),
-                    "body": body,
-                })
+                outer.records.append(
+                    {
+                        "method": self.command,
+                        "path": self.path,
+                        "headers": dict(self.headers),
+                        "body": body,
+                    }
+                )
                 payload = b"ok"
                 self.send_response(200)
                 self.send_header("Content-Type", "text/plain")
@@ -76,23 +78,23 @@ def server():
 
 
 def test_bark_get_path_and_click_url(server: _CaptureServer) -> None:
-    ok = push_captcha_assist(
-        flavor="bark", url=f"{server.base}/keyABC", title=_TITLE, body=_BODY)
+    ok = push_captcha_assist(flavor="bark", url=f"{server.base}/keyABC", title=_TITLE, body=_BODY)
     assert ok is True
     (rec,) = server.records
     assert rec["method"] == "GET"
     split = urllib.parse.urlsplit(rec["path"])
     segments = split.path.split("/")
-    assert segments[1] == "keyABC"                               # 含 key 的 base 原样拼接
+    assert segments[1] == "keyABC"  # 含 key 的 base 原样拼接
     assert urllib.parse.unquote(segments[2]) == _TITLE
     assert urllib.parse.unquote(segments[3]) == _BODY
     qs = urllib.parse.parse_qs(split.query)
-    assert qs["url"] == [_ASSIST_URL]                            # 点了直接打开接管页
+    assert qs["url"] == [_ASSIST_URL]  # 点了直接打开接管页
 
 
 def test_serverchan_query_params(server: _CaptureServer) -> None:
     ok = push_captcha_assist(
-        flavor="serverchan", url=f"{server.base}/SCT123.send", title=_TITLE, body=_BODY)
+        flavor="serverchan", url=f"{server.base}/SCT123.send", title=_TITLE, body=_BODY
+    )
     assert ok is True
     (rec,) = server.records
     assert rec["method"] == "GET"
@@ -104,37 +106,39 @@ def test_serverchan_query_params(server: _CaptureServer) -> None:
 
 
 def test_wecom_text_payload(server: _CaptureServer) -> None:
-    ok = push_captcha_assist(
-        flavor="wecom", url=server.base, title=_TITLE, body=_BODY)
+    ok = push_captcha_assist(flavor="wecom", url=server.base, title=_TITLE, body=_BODY)
     assert ok is True
     (rec,) = server.records
     assert rec["method"] == "POST"
     assert rec["headers"]["Content-Type"] == "application/json"
     payload = json.loads(rec["body"])
-    assert payload == {"msgtype": "text",
-                       "text": {"content": f"{_TITLE}\n{_BODY}"}}
+    assert payload == {"msgtype": "text", "text": {"content": f"{_TITLE}\n{_BODY}"}}
 
 
 def test_ntfy_title_header_and_plain_body(server: _CaptureServer) -> None:
     ok = push_captcha_assist(
-        flavor="ntfy", url=f"{server.base}/geo-alerts", title=_TITLE, body=_BODY)
+        flavor="ntfy", url=f"{server.base}/geo-alerts", title=_TITLE, body=_BODY
+    )
     assert ok is True
     (rec,) = server.records
     assert rec["method"] == "POST"
     # 中文标题走 RFC 2047 encoded-word（ntfy/urllib 头只收 latin-1）
     assert rec["headers"]["Title"].startswith("=?utf-8?")
-    assert rec["body"].decode("utf-8") == _BODY                  # 纯文本含 assist_url
+    assert rec["body"].decode("utf-8") == _BODY  # 纯文本含 assist_url
 
 
 def test_raw_json_payload(server: _CaptureServer) -> None:
-    ok = push_captcha_assist(
-        flavor="raw", url=server.base, title=_TITLE, body=_BODY)
+    ok = push_captcha_assist(flavor="raw", url=server.base, title=_TITLE, body=_BODY)
     assert ok is True
     (rec,) = server.records
     assert rec["method"] == "POST"
     payload = json.loads(rec["body"])
-    assert payload == {"event": "captcha_assist", "title": _TITLE,
-                       "body": _BODY, "url": _ASSIST_URL}
+    assert payload == {
+        "event": "captcha_assist",
+        "title": _TITLE,
+        "body": _BODY,
+        "url": _ASSIST_URL,
+    }
 
 
 def test_default_flavor_is_raw(server: _CaptureServer) -> None:
@@ -153,9 +157,10 @@ def test_missing_url_returns_false() -> None:
 
 
 def test_unknown_flavor_returns_false(server: _CaptureServer) -> None:
-    assert push_captcha_assist(
-        flavor="telegram", url=server.base, title=_TITLE, body=_BODY) is False
-    assert server.records == []                                  # 未知 flavor 不发出任何请求
+    assert (
+        push_captcha_assist(flavor="telegram", url=server.base, title=_TITLE, body=_BODY) is False
+    )
+    assert server.records == []  # 未知 flavor 不发出任何请求
 
 
 def test_peer_failure_returns_false_not_raise() -> None:
@@ -167,14 +172,20 @@ def test_peer_failure_returns_false_not_raise() -> None:
     dead_port = sock.getsockname()[1]
     sock.close()
     for flavor in ("bark", "serverchan", "wecom", "ntfy", "raw"):
-        assert push_captcha_assist(
-            flavor=flavor, url=f"http://127.0.0.1:{dead_port}/hook",
-            title=_TITLE, body=_BODY, timeout_s=0.5,
-        ) is False
+        assert (
+            push_captcha_assist(
+                flavor=flavor,
+                url=f"http://127.0.0.1:{dead_port}/hook",
+                title=_TITLE,
+                body=_BODY,
+                timeout_s=0.5,
+            )
+            is False
+        )
 
 
 def test_non_2xx_returns_false(server: _CaptureServer) -> None:
-    server.stop()                                                # 先关正常端点
+    server.stop()  # 先关正常端点
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
     class _500(BaseHTTPRequestHandler):
@@ -190,9 +201,15 @@ def test_non_2xx_returns_false(server: _CaptureServer) -> None:
     t = threading.Thread(target=srv.serve_forever, daemon=True)
     t.start()
     try:
-        assert push_captcha_assist(
-            flavor="raw", url=f"http://127.0.0.1:{srv.server_address[1]}",
-            title=_TITLE, body=_BODY, timeout_s=1.0,
-        ) is False
+        assert (
+            push_captcha_assist(
+                flavor="raw",
+                url=f"http://127.0.0.1:{srv.server_address[1]}",
+                title=_TITLE,
+                body=_BODY,
+                timeout_s=1.0,
+            )
+            is False
+        )
     finally:
         srv.shutdown()

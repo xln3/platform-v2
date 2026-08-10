@@ -63,9 +63,7 @@ def resolve_measurement_eligibility(
     # degraded_flag 先按 fail-closed 判读成 int，再喂 measurement_eligible——
     # 原谓词对非法值会 int() 抛错，落库路径必须判成 degraded/ineligible 而非炸调用方。
     degraded = _degraded_from_flag(dimensions.get("degraded_flag", 1))
-    eligible = measurement_eligible(
-        {**dimensions, "degraded_flag": 1 if degraded else 0}
-    )
+    eligible = measurement_eligible({**dimensions, "degraded_flag": 1 if degraded else 0})
     stamped = {str(key): str(value) for key, value in dimensions.items()}
     stamped["eligible"] = "true" if eligible else "false"
     return eligible, degraded, stamped

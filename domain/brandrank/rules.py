@@ -21,6 +21,7 @@ V2 与旧库的差异（仅装载路径，语义零变化）：
 - 行业映射 INDUSTRY_DOMAIN 照旧库（旧库 20260724 起 fail-loud：行业有值但未映射 →
   ValueError，调用方映射 400，绝不静默回退保险包——律所客户拿保险包静默跑的事故根因）。
 """
+
 from __future__ import annotations
 
 import json
@@ -47,26 +48,28 @@ def domain_for_industry(industry: str | None) -> str:
         return INDUSTRY_DOMAIN[ind]
     raise ValueError(
         f"未知行业 {ind!r}：无法确定品牌规则包（已映射: {sorted(INDUSTRY_DOMAIN)}）；"
-        "请先为该行业配置规则包或补充行业映射")
+        "请先为该行业配置规则包或补充行业映射"
+    )
 
 
 @dataclass(frozen=True)
 class DomainRules:
     """一个领域的品牌规则包（不可变；merge_rules 保持 JSON 文件序=源 dict 插入序）。"""
+
     domain: str
-    category: str                       # LLM prompt 的 {category}（保险="保险公司"，可配）
-    merge_rules: dict[str, str]         # 产品名/别名 -> 标准公司名（有序：模糊匹配按此序优先命中）
-    exclude_terms: frozenset[str]        # 合并后统计剔除的非主体噪声词
-    prompt_template: str = ""           # 含 {category}/{reply_text} 占位符（str.replace 填充）
+    category: str  # LLM prompt 的 {category}（保险="保险公司"，可配）
+    merge_rules: dict[str, str]  # 产品名/别名 -> 标准公司名（有序：模糊匹配按此序优先命中）
+    exclude_terms: frozenset[str]  # 合并后统计剔除的非主体噪声词
+    prompt_template: str = ""  # 含 {category}/{reply_text} 占位符（str.replace 填充）
     system_message: str = ""
     llm_defaults: dict[str, Any] = field(default_factory=dict)  # temperature/response_format 等
 
     def render_prompt(self, reply_text: str, category: str | None = None) -> str:
         """填充她的 prompt 模板（analyze_brand.py L877-890；replace 而非 format——
         模板内含 JSON 示例花括号，str.format 会把它当字段）。"""
-        return (self.prompt_template
-                .replace("{category}", category or self.category)
-                .replace("{reply_text}", reply_text))
+        return self.prompt_template.replace("{category}", category or self.category).replace(
+            "{reply_text}", reply_text
+        )
 
 
 @lru_cache(maxsize=8)
@@ -81,12 +84,13 @@ def load_domain(domain: str = DEFAULT_DOMAIN) -> DomainRules:
     return DomainRules(
         domain=doc["domain"],
         category=doc["category"],
-        merge_rules=dict(doc["merge_rules"]),          # json 保序 → dict 保序
+        merge_rules=dict(doc["merge_rules"]),  # json 保序 → dict 保序
         exclude_terms=frozenset(doc["exclude_terms"]),
         prompt_template=llm.get("prompt_template", ""),
         system_message=llm.get("system_message", ""),
-        llm_defaults={k: v for k, v in llm.items()
-                      if k not in ("prompt_template", "system_message")},
+        llm_defaults={
+            k: v for k, v in llm.items() if k not in ("prompt_template", "system_message")
+        },
     )
 
 
@@ -95,7 +99,7 @@ def available_domains() -> list[str]:
     out = []
     for fn in sorted(os.listdir(_DATA_DIR)):
         if fn.startswith("merge_rules_") and fn.endswith(".json"):
-            out.append(fn[len("merge_rules_"):-len(".json")])
+            out.append(fn[len("merge_rules_") : -len(".json")])
     return out
 
 
@@ -103,15 +107,15 @@ def normalize_brand(brand: str, rules: DomainRules) -> str:
     """标准化单个品牌名称（逐行对齐 analyze_brand.py L794-817）。"""
     brand = brand.strip()
     if not brand:
-        return brand                     # 偏差说明见模块 docstring（她的实现此处会除零）
+        return brand  # 偏差说明见模块 docstring（她的实现此处会除零）
 
     if brand in rules.merge_rules:
         return rules.merge_rules[brand]
 
     # 模糊匹配
     for pattern, standard in rules.merge_rules.items():
-        if '·' in pattern or '(' in pattern or '（' in pattern:
-            core = pattern.split('·')[0].split('(')[0].split('（')[0]
+        if "·" in pattern or "(" in pattern or "（" in pattern:
+            core = pattern.split("·")[0].split("(")[0].split("（")[0]
             if core and core in brand and len(core) >= 2:
                 ratio = len(core) / len(brand)
                 if ratio > 0.3:

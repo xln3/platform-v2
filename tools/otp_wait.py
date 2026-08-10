@@ -85,8 +85,9 @@ def make_fetcher(*, base: str, token: str, phone: str, within: int) -> Callable[
 
     def fetch() -> str | None:
         try:
-            resp = client.get(url, params={"phone": phone, "within": within},
-                              headers={"X-Operator-Token": token})
+            resp = client.get(
+                url, params={"phone": phone, "within": within}, headers={"X-Operator-Token": token}
+            )
         except httpx.HTTPError as e:
             print(f"[otp-wait] 网络错误（重试到超时）: {e!r}", file=sys.stderr, flush=True)
             return None
@@ -111,34 +112,53 @@ def make_fetcher(*, base: str, token: str, phone: str, within: int) -> Callable[
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
-        description="轮询 V2 OTP 取码口直到拿到新鲜验证码（开户自动化 glue）")
+        description="轮询 V2 OTP 取码口直到拿到新鲜验证码（开户自动化 glue）"
+    )
     ap.add_argument("--phone", required=True, help="11 位手机号（路由键，1XXXXXXXXXX）")
-    ap.add_argument("--timeout", type=float, default=180.0,
-                    help="总轮询预算秒数（缺省 180）；超时 exit 2")
+    ap.add_argument(
+        "--timeout", type=float, default=180.0, help="总轮询预算秒数（缺省 180）；超时 exit 2"
+    )
     ap.add_argument("--interval", type=float, default=2.0, help="轮询间隔秒（缺省 2）")
-    ap.add_argument("--within", type=int, default=0,
-                    help="服务端鲜度窗秒（缺省=--timeout，服务端硬夹 1..900）")
-    ap.add_argument("--base", default=os.environ.get("GEO_OTP_BASE_URL") or _DEFAULT_BASE,
-                    help=f"V2 API 基址（缺省 ${_DEFAULT_BASE} 或 GEO_OTP_BASE_URL）")
-    ap.add_argument("--token-env", default="GEO_OTP_OPERATOR_TOKEN",
-                    help="operator token 的 env 名（缺省 GEO_OTP_OPERATOR_TOKEN）")
+    ap.add_argument(
+        "--within", type=int, default=0, help="服务端鲜度窗秒（缺省=--timeout，服务端硬夹 1..900）"
+    )
+    ap.add_argument(
+        "--base",
+        default=os.environ.get("GEO_OTP_BASE_URL") or _DEFAULT_BASE,
+        help=f"V2 API 基址（缺省 ${_DEFAULT_BASE} 或 GEO_OTP_BASE_URL）",
+    )
+    ap.add_argument(
+        "--token-env",
+        default="GEO_OTP_OPERATOR_TOKEN",
+        help="operator token 的 env 名（缺省 GEO_OTP_OPERATOR_TOKEN）",
+    )
     args = ap.parse_args(argv)
 
     strip_proxy_env()
     token = os.environ.get(args.token_env, "") or ""
     if not token:
-        print(f"[otp-wait] 配置缺失：env {args.token_env} 未配（operator token）",
-              file=sys.stderr, flush=True)
+        print(
+            f"[otp-wait] 配置缺失：env {args.token_env} 未配（operator token）",
+            file=sys.stderr,
+            flush=True,
+        )
         return 3
     phone = (args.phone or "").strip()
     if not PHONE_RE.match(phone):
-        print(f"[otp-wait] 配置缺失：--phone 须为 11 位手机号（收到 {args.phone!r}）",
-              file=sys.stderr, flush=True)
+        print(
+            f"[otp-wait] 配置缺失：--phone 须为 11 位手机号（收到 {args.phone!r}）",
+            file=sys.stderr,
+            flush=True,
+        )
         return 3
     within = args.within if args.within > 0 else max(1, min(int(args.timeout), 900))
     fetch = make_fetcher(base=args.base, token=token, phone=phone, within=within)
-    print(f"[otp-wait] polling {args.base} phone={phone[:3]}***{phone[-4:]} "
-          f"timeout={args.timeout}s within={within}s", file=sys.stderr, flush=True)
+    print(
+        f"[otp-wait] polling {args.base} phone={phone[:3]}***{phone[-4:]} "
+        f"timeout={args.timeout}s within={within}s",
+        file=sys.stderr,
+        flush=True,
+    )
     try:
         code = wait_for_code(timeout_s=args.timeout, interval_s=args.interval, fetch=fetch)
     except OtpWaitConfigError as e:

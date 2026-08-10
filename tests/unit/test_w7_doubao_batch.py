@@ -161,9 +161,9 @@ def test_plan_instance_segments_splits_on_region_change() -> None:
     tasks = [
         _region_task("a", "doubao", "CN-SH"),
         _region_task("b", "doubao", "CN-SH"),
-        _region_task("c", "doubao", "CN-BJ"),   # 同平台换地域 → 新段
+        _region_task("c", "doubao", "CN-BJ"),  # 同平台换地域 → 新段
         _region_task("d", "deepseek", "CN-BJ"),  # 换平台 → 新段
-        _region_task("e", "doubao", "CN-BJ"),   # 回到 doubao 但不相邻 → 新段
+        _region_task("e", "doubao", "CN-BJ"),  # 回到 doubao 但不相邻 → 新段
     ]
     segments = plan_instance_segments(tasks)
     assert [(key, [t.business_key for t in items]) for key, items in segments] == [
@@ -183,9 +183,7 @@ def test_plan_batch_segments_gate_unpatched_keeps_v1_grouping() -> None:
         _region_task("a", "doubao", "CN-SH"),
         _region_task("b", "doubao", "CN-BJ"),
     ]
-    assert plan_batch_segments(False, tasks) == plan_adapter_segments(tasks) == [
-        ("doubao", tasks)
-    ]
+    assert plan_batch_segments(False, tasks) == plan_adapter_segments(tasks) == [("doubao", tasks)]
 
 
 def test_plan_batch_segments_gate_patched_uses_instance_grouping() -> None:

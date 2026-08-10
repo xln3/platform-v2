@@ -4,6 +4,7 @@
 故本文件零 DB：TestClient + dependency_overrides[get_principal]。
 字段读写回环（含真库）由 tests/integration/test_s01_project_catalog.py 覆盖。
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterator
@@ -20,7 +21,8 @@ client = TestClient(app)
 @pytest.fixture(autouse=True)
 def _principal() -> Iterator[None]:
     app.dependency_overrides[get_principal] = lambda: Principal(
-        subject="u-projects", role=Role.OPERATOR, tenant_pub_id="tnt_projects")
+        subject="u-projects", role=Role.OPERATOR, tenant_pub_id="tnt_projects"
+    )
     yield
     app.dependency_overrides.pop(get_principal, None)
 

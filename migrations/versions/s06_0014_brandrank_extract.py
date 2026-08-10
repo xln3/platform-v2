@@ -60,12 +60,12 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("pub_id", name="uq_answer_brand_extract_pub_id"),
         sa.UniqueConstraint(
-            "tenant_pub_id", "answer_pub_id", "domain",
+            "tenant_pub_id",
+            "answer_pub_id",
+            "domain",
             name="uq_answer_brand_extract_tenant_answer_domain",
         ),
-        sa.CheckConstraint(
-            "status IN ('ok','failed')", name="ck_answer_brand_extract_status"
-        ),
+        sa.CheckConstraint("status IN ('ok','failed')", name="ck_answer_brand_extract_status"),
         schema="analytics",
     )
     op.create_index(

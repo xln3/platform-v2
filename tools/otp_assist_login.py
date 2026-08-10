@@ -77,10 +77,16 @@ EXIT_TTL_EXPIRED = 2
 EXIT_CONFIG = 3
 EXIT_INTERRUPTED = 130
 
-_POLL_INTERVAL_S = 2.0          # 注册表/done 轮询间隔（测试 monkeypatch 加速）
-_SESSION_GRACE_S = 60           # 会话自杀比 CLI 等待晚 60s：CLI 先判 TTL，自杀只兜底
-_PROXY_ENV_VARS = ("http_proxy", "https_proxy", "all_proxy",
-                   "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY")
+_POLL_INTERVAL_S = 2.0  # 注册表/done 轮询间隔（测试 monkeypatch 加速）
+_SESSION_GRACE_S = 60  # 会话自杀比 CLI 等待晚 60s：CLI 先判 TTL，自杀只兜底
+_PROXY_ENV_VARS = (
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+)
 _PLATFORM_LABELS = {
     "doubao": "豆包",
     "deepseek": "DeepSeek",
@@ -98,28 +104,45 @@ _PLATFORM_LABELS = {
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="登录/OTP 人工接管会话：attach 常驻浏览器，中继画面/输入到手机，"
-                    "人工完成登录后干净退出（绝不杀浏览器）。",
+        "人工完成登录后干净退出（绝不杀浏览器）。",
         epilog="示例: set -a; . /etc/geo-platform-v2/worker-adapters.env; set +a && "
-               ".venv/bin/python tools/otp_assist_login.py --platform yiyan_sh "
-               "--goto https://yiyan.baidu.com/ --ttl-min 60 --note 155开户",
+        ".venv/bin/python tools/otp_assist_login.py --platform yiyan_sh "
+        "--goto https://yiyan.baidu.com/ --ttl-min 60 --note 155开户",
     )
-    parser.add_argument("--platform", required=True,
-                        help="常驻实例键（如 yiyan_sh；第一段恒为平台 slug，"
-                             "决定 GEO_BROWSER_<KEY>_CDP_URL 解析与特征/页面逻辑）。"
-                             "兼容旧用法：直接传平台 slug（如 yiyan）。")
-    parser.add_argument("--goto", default="",
-                        help="启动后把当前标签页导航到该 URL"
-                             "（缺省不动页面——运维可提前手动开好登录页）")
-    parser.add_argument("--ttl-min", type=float, default=60.0,
-                        help="接管会话寿命（分钟，缺省 60；支持小数值，测试/联调用）")
-    parser.add_argument("--no-notify", action="store_true",
-                        help="不推送（GEO_ASSIST_PUBLIC_BASE/NOTIFY_URL 未配齐时必须显式开启）")
+    parser.add_argument(
+        "--platform",
+        required=True,
+        help="常驻实例键（如 yiyan_sh；第一段恒为平台 slug，"
+        "决定 GEO_BROWSER_<KEY>_CDP_URL 解析与特征/页面逻辑）。"
+        "兼容旧用法：直接传平台 slug（如 yiyan）。",
+    )
+    parser.add_argument(
+        "--goto",
+        default="",
+        help="启动后把当前标签页导航到该 URL（缺省不动页面——运维可提前手动开好登录页）",
+    )
+    parser.add_argument(
+        "--ttl-min",
+        type=float,
+        default=60.0,
+        help="接管会话寿命（分钟，缺省 60；支持小数值，测试/联调用）",
+    )
+    parser.add_argument(
+        "--no-notify",
+        action="store_true",
+        help="不推送（GEO_ASSIST_PUBLIC_BASE/NOTIFY_URL 未配齐时必须显式开启）",
+    )
     parser.add_argument("--note", default="", help="事项备注（写进推送文案与注册表 business_key）")
-    parser.add_argument("--expect-selector", default="",
-                        help="done 后 best-effort 验证：该 CSS 选择器应可见（只报告，不改退出码）")
-    parser.add_argument("--expect-url-regex", default="",
-                        help="done 后 best-effort 验证：页面 URL 应匹配该正则"
-                             "（只报告，不改退出码）")
+    parser.add_argument(
+        "--expect-selector",
+        default="",
+        help="done 后 best-effort 验证：该 CSS 选择器应可见（只报告，不改退出码）",
+    )
+    parser.add_argument(
+        "--expect-url-regex",
+        default="",
+        help="done 后 best-effort 验证：页面 URL 应匹配该正则（只报告，不改退出码）",
+    )
     args = parser.parse_args(argv)
     if args.goto and not args.goto.startswith(("http://", "https://")):
         parser.error("--goto 必须是 http(s) URL")
@@ -143,8 +166,7 @@ def _resolve_instance(raw: str) -> tuple[str, str | None]:
         raise SystemExit(EXIT_CONFIG)
     platform = key.split("_", 1)[0]
     if platform not in _PLATFORM_LABELS:
-        print(f"[配置错误] 未知平台 slug: {platform!r}（实例键 {key!r} 的第一段）",
-              file=sys.stderr)
+        print(f"[配置错误] 未知平台 slug: {platform!r}（实例键 {key!r} 的第一段）", file=sys.stderr)
         raise SystemExit(EXIT_CONFIG)
     return platform, (key if key != platform else None)
 
@@ -173,7 +195,8 @@ def _configure_logging() -> None:
             structlog.dev.ConsoleRenderer(),
         ],
         logger_factory=structlog.PrintLoggerFactory(
-            cast("TextIO", _StderrRelay())),  # PrintLogger 只用 write/flush
+            cast("TextIO", _StderrRelay())
+        ),  # PrintLogger 只用 write/flush
     )
 
 
@@ -193,10 +216,18 @@ def _scrub_proxy_env() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _build_registry_record(*, platform: str, instance_key: str | None,
-                           run_pub_id: str, session_id: str,
-                           ticket_hash: str, port: int, note: str, ttl_s: int,
-                           now: int | None = None) -> dict[str, Any]:
+def _build_registry_record(
+    *,
+    platform: str,
+    instance_key: str | None,
+    run_pub_id: str,
+    session_id: str,
+    ticket_hash: str,
+    port: int,
+    note: str,
+    ttl_s: int,
+    now: int | None = None,
+) -> dict[str, Any]:
     """CLI 会话的注册表记录：字段集与 captcha_assist_start 完全一致。
 
     唯一语义差别是 ``run_pub_id`` 指向 CLI 会话标识而非 DB CollectionRun——
@@ -259,25 +290,31 @@ def _start_done_watcher(done_evt: threading.Event) -> threading.Thread | None:
     if not sys.stdin.isatty():
         return None
     thread = threading.Thread(
-        target=_stdin_watch, args=(done_evt,), daemon=True, name="otp-assist-stdin")
+        target=_stdin_watch, args=(done_evt,), daemon=True, name="otp-assist-stdin"
+    )
     thread.start()
     return thread
 
 
-def _wait_for_done(sess: captcha_assist.AssistSession, ticket_hash: str, *,
-                   done_evt: threading.Event, deadline: float) -> str:
+def _wait_for_done(
+    sess: captcha_assist.AssistSession,
+    ticket_hash: str,
+    *,
+    done_evt: threading.Event,
+    deadline: float,
+) -> str:
     """返回 done | ttl | registry_lost | session_lost。"""
     while True:
         if done_evt.is_set():
             return "done"
         rec = captcha_assist._read_registry(ticket_hash)
         if rec is None:
-            return "registry_lost"      # 自己写的文件没了 = 外部干预，如实上报
+            return "registry_lost"  # 自己写的文件没了 = 外部干预，如实上报
         state = rec.get("state")
         if state == "solved":
-            return "done"               # 外部标 solved（captcha_assist 词表）
+            return "done"  # 外部标 solved（captcha_assist 词表）
         if state == "closed" or not sess.alive:
-            return "session_lost"       # 会话线程死了（含崩溃/自杀抢跑）
+            return "session_lost"  # 会话线程死了（含崩溃/自杀抢跑）
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             return "ttl"
@@ -294,8 +331,9 @@ def _read_page_state(sess: captcha_assist.AssistSession) -> tuple[str, str] | No
     return url, title
 
 
-def _report_verification(sess: captcha_assist.AssistSession, *,
-                         expect_selector: str, expect_url_regex: str) -> None:
+def _report_verification(
+    sess: captcha_assist.AssistSession, *, expect_selector: str, expect_url_regex: str
+) -> None:
     """done 后 best-effort 登录态验证：只如实报告，不改变退出码（人工已判断）。"""
     state = _read_page_state(sess)
     if state is None:
@@ -305,16 +343,20 @@ def _report_verification(sess: captcha_assist.AssistSession, *,
     print(f"当前页面: {title!r} | {url}")
     if expect_url_regex:
         ok = re.search(expect_url_regex, url) is not None
-        print(f"登录态验证[url ~ /{expect_url_regex}/]: "
-              f"{'PASS' if ok else 'FAIL——请人工核对页面'}")
+        print(f"登录态验证[url ~ /{expect_url_regex}/]: {'PASS' if ok else 'FAIL——请人工核对页面'}")
     if expect_selector:
         try:
-            visible = bool(sess.run_on_page(
-                lambda page: page.locator(expect_selector).first.is_visible(timeout=3000)))
+            visible = bool(
+                sess.run_on_page(
+                    lambda page: page.locator(expect_selector).first.is_visible(timeout=3000)
+                )
+            )
         except Exception:  # noqa: BLE001 — 探测异常按不可见如实报 FAIL
             visible = False
-        print(f"登录态验证[selector {expect_selector!r}]: "
-              f"{'PASS' if visible else 'FAIL——请人工核对页面'}")
+        print(
+            f"登录态验证[selector {expect_selector!r}]: "
+            f"{'PASS' if visible else 'FAIL——请人工核对页面'}"
+        )
     if not expect_url_regex and not expect_selector:
         print("（未配置 --expect-*，跳过自动验证——请按上面的 URL/title 人工判断登录态）")
 
@@ -341,11 +383,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[配置错误] {exc}", file=sys.stderr)
         return EXIT_CONFIG
     if not cdp_url:
-        print(f"[配置错误] GEO_BROWSER_{lock_key.upper()}_CDP_URL / "
-              f"GEO_{lock_key.upper()}_CDP_URL 均未配置——"
-              f"工具独立运行，请先加载 worker env：\n"
-              f"  set -a; . /etc/geo-platform-v2/worker-adapters.env; set +a",
-              file=sys.stderr)
+        print(
+            f"[配置错误] GEO_BROWSER_{lock_key.upper()}_CDP_URL / "
+            f"GEO_{lock_key.upper()}_CDP_URL 均未配置——"
+            f"工具独立运行，请先加载 worker env：\n"
+            f"  set -a; . /etc/geo-platform-v2/worker-adapters.env; set +a",
+            file=sys.stderr,
+        )
         return EXIT_CONFIG
 
     # ── 配置门 2：推送（未配齐必须显式 --no-notify） ──
@@ -353,24 +397,30 @@ def main(argv: list[str] | None = None) -> int:
     notify_url = os.environ.get("GEO_ASSIST_NOTIFY_URL", "").strip()
     flavor = os.environ.get("GEO_ASSIST_NOTIFY_FLAVOR", "raw").strip() or "raw"
     if not args.no_notify and (not public_base or not notify_url):
-        print("[配置错误] GEO_ASSIST_PUBLIC_BASE / GEO_ASSIST_NOTIFY_URL 未配齐，"
-              "无法推送接管链接。配齐后重跑，或显式 --no-notify（仅本地打印链接）。",
-              file=sys.stderr)
+        print(
+            "[配置错误] GEO_ASSIST_PUBLIC_BASE / GEO_ASSIST_NOTIFY_URL 未配齐，"
+            "无法推送接管链接。配齐后重跑，或显式 --no-notify（仅本地打印链接）。",
+            file=sys.stderr,
+        )
         return EXIT_CONFIG
 
     ttl_s = max(1, int(args.ttl_min * 60))
     ticket = secrets.token_urlsafe(32)
     session_id = secrets.token_urlsafe(24)
     ticket_hash = captcha_assist._ticket_hash(ticket)
-    run_pub_id = f"otp-assist-{lock_key}-{int(time.time())}"   # CLI 会话，无 workflow run
+    run_pub_id = f"otp-assist-{lock_key}-{int(time.time())}"  # CLI 会话，无 workflow run
     assist_url = f"{public_base.rstrip('/')}/api/v2/assist/{ticket}" if public_base else ""
 
     # ── attach 常驻浏览器 + 起 bridge（全程持实例锁；绝不 launch/杀浏览器） ──
     sess = captcha_assist.AssistSession(
-        platform=platform, run_pub_id=run_pub_id, session_id=session_id,
-        ticket_hash=ticket_hash, max_lifetime_s=ttl_s + _SESSION_GRACE_S,
+        platform=platform,
+        run_pub_id=run_pub_id,
+        session_id=session_id,
+        ticket_hash=ticket_hash,
+        max_lifetime_s=ttl_s + _SESSION_GRACE_S,
         instance_key=instance_key,
-        page_picker=_first_page, cleared_check=None,
+        page_picker=_first_page,
+        cleared_check=None,
     )
     try:
         port = sess.start()
@@ -388,9 +438,15 @@ def main(argv: list[str] | None = None) -> int:
     try:
         # ── 注册表先于推送/打印：手机页能服务的前提 ──
         record = _build_registry_record(
-            platform=platform, instance_key=instance_key,
-            run_pub_id=run_pub_id, session_id=session_id,
-            ticket_hash=ticket_hash, port=int(port), note=args.note.strip(), ttl_s=ttl_s)
+            platform=platform,
+            instance_key=instance_key,
+            run_pub_id=run_pub_id,
+            session_id=session_id,
+            ticket_hash=ticket_hash,
+            port=int(port),
+            note=args.note.strip(),
+            ttl_s=ttl_s,
+        )
         captcha_assist._write_registry(record)
 
         state = _read_page_state(sess)
@@ -399,25 +455,29 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.goto:
             try:
-                sess.run_on_page(
-                    lambda page: page.goto(args.goto, wait_until="domcontentloaded"))
+                sess.run_on_page(lambda page: page.goto(args.goto, wait_until="domcontentloaded"))
                 print(f"已导航到: {args.goto}")
             except Exception as exc:  # noqa: BLE001 — headed 浏览器，运维可桌面手动导航
                 log.warning("otp_assist.goto_failed", error=str(exc))
-                print(f"[警告] 导航 {args.goto} 失败：{exc}"
-                      "（页面保持原状，可在桌面手动打开登录页）")
+                print(
+                    f"[警告] 导航 {args.goto} 失败：{exc}（页面保持原状，可在桌面手动打开登录页）"
+                )
 
         print("=" * 72)
         print(f"登录/OTP 人工接管会话已就绪（平台: {label}，{ttl_s // 60} 分钟内有效）")
         if assist_url:
             print(f"接管链接: {assist_url}")
         else:
-            print("GEO_ASSIST_PUBLIC_BASE 未配置——拼不出公网链接；"
-                  "请自行拼接 /api/v2/assist/<ticket>：")
-        print(f"ticket: {ticket}")          # 明文只进 stdout/推送，绝不进日志
+            print(
+                "GEO_ASSIST_PUBLIC_BASE 未配置——拼不出公网链接；"
+                "请自行拼接 /api/v2/assist/<ticket>："
+            )
+        print(f"ticket: {ticket}")  # 明文只进 stdout/推送，绝不进日志
         print("完成登录后回到本终端按 Enter 结束。")
-        print("注意：手机页「我已完成」按钮对 CLI 会话不可用（无 workflow run，"
-              "done 端点 404）——人工完成后须由运维在本终端确认。")
+        print(
+            "注意：手机页「我已完成」按钮对 CLI 会话不可用（无 workflow run，"
+            "done 端点 404）——人工完成后须由运维在本终端确认。"
+        )
         print("=" * 72)
 
         # ── 推送（失败不废会话：链接已在 stdout，运维可手动转发） ──
@@ -437,15 +497,20 @@ def main(argv: list[str] | None = None) -> int:
                 log.warning("otp_assist.push_failed", platform=platform, flavor=flavor)
                 print("[警告] 推送失败——请手动转发上面的接管链接")
 
-        log.info("otp_assist.session_started", platform=platform,
-                 session_id=session_id, port=port, pushed=not args.no_notify)
+        log.info(
+            "otp_assist.session_started",
+            platform=platform,
+            session_id=session_id,
+            port=port,
+            pushed=not args.no_notify,
+        )
 
         # ── 等待人工 ──
         done_evt = threading.Event()
         _start_done_watcher(done_evt)
         outcome = _wait_for_done(
-            sess, ticket_hash, done_evt=done_evt,
-            deadline=time.monotonic() + ttl_s)
+            sess, ticket_hash, done_evt=done_evt, deadline=time.monotonic() + ttl_s
+        )
 
         if outcome == "done":
             # 镜像 router 的 done 写（assist_router.py /done）：手机页轮询 status
@@ -453,23 +518,28 @@ def main(argv: list[str] | None = None) -> int:
             rec = captcha_assist._read_registry(ticket_hash)
             if rec is not None and rec.get("state") != "solved":
                 captcha_assist._patch_registry(
-                    ticket_hash, state="solved", solved_at=int(time.time()))
-            _report_verification(sess, expect_selector=args.expect_selector,
-                                 expect_url_regex=args.expect_url_regex)
+                    ticket_hash, state="solved", solved_at=int(time.time())
+                )
+            _report_verification(
+                sess, expect_selector=args.expect_selector, expect_url_regex=args.expect_url_regex
+            )
             print("人工已确认完成，会话清理中（常驻浏览器保持运行）。")
             log.info("otp_assist.done", platform=platform, session_id=session_id)
             return EXIT_OK
 
         if outcome == "ttl":
-            print(f"TTL {args.ttl_min:g} 分钟到期，人工未完成——会话已清理。",
-                  file=sys.stderr)
+            print(f"TTL {args.ttl_min:g} 分钟到期，人工未完成——会话已清理。", file=sys.stderr)
             log.warning("otp_assist.ttl_expired", platform=platform, session_id=session_id)
             return EXIT_TTL_EXPIRED
 
         print(f"会话异常终止（{outcome}）：{sess.error or '无详情'}", file=sys.stderr)
-        log.warning("otp_assist.session_lost", platform=platform,
-                    session_id=session_id, outcome=outcome,
-                    error=str(sess.error) if sess.error else None)
+        log.warning(
+            "otp_assist.session_lost",
+            platform=platform,
+            session_id=session_id,
+            outcome=outcome,
+            error=str(sess.error) if sess.error else None,
+        )
         return EXIT_ATTACH_FAILED
     except KeyboardInterrupt:
         print("\n已中断（Ctrl+C）——会话清理中。", file=sys.stderr)

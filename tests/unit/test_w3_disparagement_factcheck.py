@@ -74,7 +74,9 @@ class _FakeLoader:
 class _FakeVerifier:
     def __init__(self, outcome: FactcheckOutcome | None = None) -> None:
         self._outcome = outcome or FactcheckOutcome(
-            verdict="refuted", summary="公开信息与该负面陈述矛盾。", source_url="https://example.com/fact"
+            verdict="refuted",
+            summary="公开信息与该负面陈述矛盾。",
+            source_url="https://example.com/fact",
         )
         self.calls: list[str] = []
 
@@ -158,9 +160,7 @@ def _payload(text: str, *, citation_url: str | None = None) -> dict:
         "output": [
             {
                 "type": "message",
-                "content": [
-                    {"type": "output_text", "text": text, "annotations": annotations}
-                ],
+                "content": [{"type": "output_text", "text": text, "annotations": annotations}],
             }
         ]
     }

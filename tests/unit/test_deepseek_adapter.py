@@ -349,14 +349,8 @@ def test_chip_engaged_states() -> None:
 
 
 def test_fast_mode_engaged_states() -> None:
-    assert (
-        _fast_mode_engaged(_HelperFakePage({}, {"found": True, "selected": "快速模式"}))
-        is True
-    )
-    assert (
-        _fast_mode_engaged(_HelperFakePage({}, {"found": True, "selected": "专家模式"}))
-        is False
-    )
+    assert _fast_mode_engaged(_HelperFakePage({}, {"found": True, "selected": "快速模式"})) is True
+    assert _fast_mode_engaged(_HelperFakePage({}, {"found": True, "selected": "专家模式"})) is False
     # tab 条不在屏 / 结构差分失败 / 探针异常 → None（不可观测不阻断、不猜）
     assert _fast_mode_engaged(_HelperFakePage({}, {"found": False})) is None
     assert _fast_mode_engaged(_HelperFakePage({}, {"found": True, "selected": None})) is None

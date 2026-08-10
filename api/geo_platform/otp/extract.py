@@ -100,12 +100,18 @@ def parse_flat_push(body: str) -> dict[str, object] | None:
     if not m:
         return None
     phone = m.group(1)
-    rest = _LEAD_VERB_RE.sub("", text[m.end():].lstrip())
-    return {"phone": phone, "raw": rest,
-            "platform": platform_of(rest), "meta": _flat_meta(text), "from": ""}
+    rest = _LEAD_VERB_RE.sub("", text[m.end() :].lstrip())
+    return {
+        "phone": phone,
+        "raw": rest,
+        "platform": platform_of(rest),
+        "meta": _flat_meta(text),
+        "from": "",
+    }
 
 
 # ---- 三种推送形态归一 ------------------------------------------------------------
+
 
 def normalize_push(
     json_data: dict[str, object] | None,
@@ -115,6 +121,7 @@ def normalize_push(
     """把 SmsForwarder 三种形态（JSON ``{"slot","sms"}`` / 表单 / 纯文本期望格式）
     归一成一条记录。纯函数（无 I/O）。优先级：结构化字段（JSON/表单）胜；纯文本
     解析仅在没拿到结构化 11 位手机号时兜底。"""
+
     def field(*names: str) -> str:
         for n in names:
             for src in (json_data or {}, form or {}):
@@ -149,14 +156,23 @@ def normalize_push(
     # 「路由手机号 vs 实收 SIM 槽」是否一致——ROM 层 SIM 识别不准会把 A 卡短信标成
     # B 卡，这里把转发器自报的槽记下来，服务端就能发现并审计这种错标（而非盲信）。
     meta = dict(meta or {})
-    for _mk, _aliases in (("sim_slot", ("slot", "card_slot", "sim_slot", "simslot")),
-                          ("sim_info", ("siminfo", "sim_info")),
-                          ("sub_id", ("subid", "sub_id", "subscription", "subscription_id"))):
+    for _mk, _aliases in (
+        ("sim_slot", ("slot", "card_slot", "sim_slot", "simslot")),
+        ("sim_info", ("siminfo", "sim_info")),
+        ("sub_id", ("subid", "sub_id", "subscription", "subscription_id")),
+    ):
         _v = field(*_aliases)
         if _v:
             meta[_mk] = _v
-    return {"phone": phone, "raw": raw, "code_hint": code_hint,
-            "from": sender, "platform": platform, "meta": meta, "code_source": code_source}
+    return {
+        "phone": phone,
+        "raw": raw,
+        "code_hint": code_hint,
+        "from": sender,
+        "platform": platform,
+        "meta": meta,
+        "code_source": code_source,
+    }
 
 
 # ---- 抽码级联（移植自 proxyllm/webhook_otp_relay.extract_otp_code） --------------
@@ -171,12 +187,25 @@ _OTP_KEYWORDS = re.compile(
 # 关键词被这些「不要泄露/绝不会索要」词贴身包住时是反诈样板（"请勿泄露验证码"），
 # 不引入码，附近数字串是噪声。只在贴身窗内查，真码坐在关键词和句尾"请勿泄露"
 # 之间绝不误伤。
-_LEAK_BEFORE = ("索要", "泄露", "告知", "提供", "透露", "外泄",
-                "谨防", "不会", "不要", "切勿", "勿向")
+_LEAK_BEFORE = (
+    "索要",
+    "泄露",
+    "告知",
+    "提供",
+    "透露",
+    "外泄",
+    "谨防",
+    "不会",
+    "不要",
+    "切勿",
+    "勿向",
+)
 _LEAK_AFTER = ("请勿", "勿", "保护", "外泄", "谨防", "切勿")
 _EN_BOILERPLATE = re.compile(
     r"(never|don'?t|do\s+not|won'?t|will\s+not|not)\b[^.\n]{0,30}?"
-    r"\b(ask|share|give|email|text|request|disclose|provide)", re.IGNORECASE)
+    r"\b(ask|share|give|email|text|request|disclose|provide)",
+    re.IGNORECASE,
+)
 # 码在关键词之前时（"778811 是您的验证码"）必须跨这些合法连接词——否则
 # 「标签+数字」（"订单尾号480913，验证码…"）会被误当码。
 _BEFORE_CONNECTOR = re.compile(r"是|为|的|您的|：|:|\bis\b|\byour\b", re.IGNORECASE)
@@ -194,7 +223,8 @@ _MIN_LEN, _MAX_LEN = 4, 8
 
 # 被「打电话给咱」语境贴住的数字串是热线/电话不是码（"客服热线95511"）。
 _HOTLINE_RE = re.compile(
-    r"热线|致电|拨打|来电|专线|咨询电话|联系电话|hotline|\bcall\b", re.IGNORECASE)
+    r"热线|致电|拨打|来电|专线|咨询电话|联系电话|hotline|\bcall\b", re.IGNORECASE
+)
 
 # 转发器附带的 code hint（兜底，须被短信正文数字边界佐证）。
 HINT_RE = re.compile(r"^[0-9]{4,8}$")
@@ -209,27 +239,32 @@ def standalone(code: str, raw: str) -> bool:
 def _runs(text: str) -> list[tuple[int, int, str]]:
     """所有可信度长度的最大 ASCII 数字段，(start, end, digits)。最大段 → 14 位
     订单号里的 6 位子串不会被报出来。"""
-    return [(m.start(), m.end(), m.group())
-            for m in _DIGIT_RUN.finditer(text)
-            if _MIN_LEN <= len(m.group()) <= _MAX_LEN]
+    return [
+        (m.start(), m.end(), m.group())
+        for m in _DIGIT_RUN.finditer(text)
+        if _MIN_LEN <= len(m.group()) <= _MAX_LEN
+    ]
 
 
 def _is_boilerplate_kw(text: str, start: int, end: int) -> bool:
     """True = 这个关键词出现是「请勿泄露验证码」式反诈样板，不引入码。"""
-    if any(tok in text[max(0, start - 7):start] for tok in _LEAK_BEFORE):
+    if any(tok in text[max(0, start - 7) : start] for tok in _LEAK_BEFORE):
         return True
-    after = text[end:end + 6]
+    after = text[end : end + 6]
     if any(after.startswith(tok) for tok in _LEAK_AFTER):
         return True
-    if _EN_BOILERPLATE.search(text[max(0, start - 32):start]):
+    if _EN_BOILERPLATE.search(text[max(0, start - 32) : start]):
         return True
     return False
 
 
 def _intro_keywords(text: str) -> list[tuple[int, int]]:
     """所有**引入码**的关键词 (start, end)（样板已排除）。"""
-    return [(m.start(), m.end()) for m in _OTP_KEYWORDS.finditer(text)
-            if not _is_boilerplate_kw(text, m.start(), m.end())]
+    return [
+        (m.start(), m.end())
+        for m in _OTP_KEYWORDS.finditer(text)
+        if not _is_boilerplate_kw(text, m.start(), m.end())
+    ]
 
 
 def _candidates(text: str) -> list[tuple[int, int, str]]:
@@ -239,7 +274,7 @@ def _candidates(text: str) -> list[tuple[int, int, str]]:
     intro = _intro_keywords(text)
 
     def _hotline(rs: int) -> bool:
-        return bool(_HOTLINE_RE.search(text[max(0, rs - 8):rs]))
+        return bool(_HOTLINE_RE.search(text[max(0, rs - 8) : rs]))
 
     out: list[tuple[int, int, str]] = []
     for kstart, kend in intro:
@@ -253,10 +288,12 @@ def _candidates(text: str) -> list[tuple[int, int, str]]:
         # 子句内部、带引入连接词（是/为/的/is/your/:）的间隔。
         for rs, re_, dig in runs:
             gap = kstart - re_
-            if (0 <= gap <= _BEFORE_GAP
-                    and not any(ch.isdigit() for ch in text[re_:kstart])
-                    and _BEFORE_CONNECTOR.search(text[re_:kstart])
-                    and not _CLAUSE_BREAK.search(text[re_:kstart])):
+            if (
+                0 <= gap <= _BEFORE_GAP
+                and not any(ch.isdigit() for ch in text[re_:kstart])
+                and _BEFORE_CONNECTOR.search(text[re_:kstart])
+                and not _CLAUSE_BREAK.search(text[re_:kstart])
+            ):
                 out.append((gap, rs, dig))
     return out
 
@@ -265,12 +302,13 @@ def _grouped_candidate(text: str, length: int) -> str | None:
     """处理关键词后空格/短横分组码（"验证码 12 34 56" → 123456）。仅当短窗内真有
     数字-分隔-数字模式时才触发，绝不远扫无关短串（如句尾 客服热线95511）。"""
     for _kstart, kend in _intro_keywords(text):
-        window = text[kend:kend + 18]
+        window = text[kend : kend + 18]
         if not re.search(r"[0-9][ \t\-]+[0-9]", window):  # 真分组才触发
             continue
         collapsed = re.sub(r"(?<=[0-9])[ \t\-]+(?=[0-9])", "", window)
-        m = (re.search(rf"(?<![0-9])([0-9]{{{length},{_MAX_LEN}}})(?![0-9])", collapsed)
-             or re.search(rf"(?<![0-9])([0-9]{{{_MIN_LEN},{length}}})(?![0-9])", collapsed))
+        m = re.search(
+            rf"(?<![0-9])([0-9]{{{length},{_MAX_LEN}}})(?![0-9])", collapsed
+        ) or re.search(rf"(?<![0-9])([0-9]{{{_MIN_LEN},{length}}})(?![0-9])", collapsed)
         if m:
             return m.group(1)
     return None

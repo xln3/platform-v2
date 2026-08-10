@@ -141,8 +141,9 @@ def test_parse_analysis_payload_rejects_bad_category() -> None:
 
 
 def test_parse_analysis_payload_rejects_non_json() -> None:
-    payload = {"output": [{"type": "message", "content": [{"type": "output_text",
-                                                            "text": "not json"}]}]}
+    payload = {
+        "output": [{"type": "message", "content": [{"type": "output_text", "text": "not json"}]}]
+    }
     with pytest.raises(JudgeError):
         parse_analysis_payload(payload)
 
@@ -242,9 +243,7 @@ def test_parse_verification_payload_rejects_bad_verdict() -> None:
 
 
 def test_select_claims_prefers_target_brand_and_caps() -> None:
-    claims = [
-        {"claim": f"c{i}", "quote": "q", "about_target_brand": i % 2 == 0} for i in range(6)
-    ]
+    claims = [{"claim": f"c{i}", "quote": "q", "about_target_brand": i % 2 == 0} for i in range(6)]
     selected = select_claims_for_verification(claims, 2)
     assert selected == [0, 2]  # about_target_brand 优先（稳定序），上限 2
     assert select_claims_for_verification(claims, 0) == []
@@ -321,8 +320,11 @@ def test_build_annotate_js_plan_legend_only_present_types() -> None:
 def test_merge_annotation_results_marks_unmatched() -> None:
     spans = plan_annotations(_analysis_for_plan())
     marks = [
-        Mark(span_id=spans[0].span_id, matched=True, rects=[{"x": 1.0, "y": 2.0,
-                                                              "width": 3.0, "height": 4.0}]),
+        Mark(
+            span_id=spans[0].span_id,
+            matched=True,
+            rects=[{"x": 1.0, "y": 2.0, "width": 3.0, "height": 4.0}],
+        ),
     ]
     merged = merge_annotation_results(spans, marks)
     assert merged[0]["matched"] is True and merged[0]["rects"]

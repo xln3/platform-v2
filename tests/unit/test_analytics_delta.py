@@ -88,9 +88,7 @@ class _MetricDailyFakeConnection:
             if any(dimensions.get(key) != value for key, value in required.items()):
                 return False
             # NOT (dimensions @> '{"eligible":"false"}')：只排显式不合格。
-            return not all(
-                dimensions.get(key) == value for key, value in ineligible.items()
-            )
+            return not all(dimensions.get(key) == value for key, value in ineligible.items())
 
         groups: dict[str, dict[str, Any]] = {}
         for row in self._rows:

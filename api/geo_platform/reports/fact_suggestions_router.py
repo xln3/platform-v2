@@ -26,6 +26,7 @@ w2_site_audit（官网引用率/采纳率+T2 优化建议）、before_after（�
 details）；400 需要携带 details 而全局 handler 丢弃 details，故在本层直接返回
 JSONResponse（形状保持一致，照 brandrank/router.py 先例）。
 """
+
 from __future__ import annotations
 
 # ruff: noqa: B008
@@ -50,8 +51,9 @@ def _dsn() -> str:
     )
 
 
-def _error(request: Request, status_code: int, code: str,
-           details: dict[str, Any] | None = None) -> JSONResponse:
+def _error(
+    request: Request, status_code: int, code: str, details: dict[str, Any] | None = None
+) -> JSONResponse:
     """与 main.py 全局错误体同形的 JSONResponse（details 本层自定义填充）。"""
     request_id = getattr(request.state, "request_id", None)
     return JSONResponse(
@@ -97,9 +99,13 @@ def report_fact_suggestions(
     except fact_suggestions.ProjectNotFound as exc:
         raise HTTPException(status_code=404, detail={"code": "project_not_found"}) from exc
     except fact_suggestions.DomainUnset:
-        return _error(request, 400, "domain_unset",
-                      {"why": "项目未设置 brandrank_domain（规则包真源），"
-                              "请先在项目设置中选择分析域"})
+        return _error(
+            request,
+            400,
+            "domain_unset",
+            {"why": "项目未设置 brandrank_domain（规则包真源），请先在项目设置中选择分析域"},
+        )
     except fact_suggestions.UnknownDomain as exc:
-        return _error(request, 400, "unknown_domain",
-                      {"available": available_domains(), "why": str(exc)})
+        return _error(
+            request, 400, "unknown_domain", {"available": available_domains(), "why": str(exc)}
+        )

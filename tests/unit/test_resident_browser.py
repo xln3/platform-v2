@@ -160,8 +160,11 @@ def test_lock_timeout_raises_browser_busy(monkeypatch: pytest.MonkeyPatch) -> No
     assert lock.acquire()
     try:
         with pytest.raises(BrowserBusyError):
-            with platform_browser(_FakePw(_FakeBrowser(_FakeContext(_FakePage()))),
-                                  platform="doubao", launch=lambda: (None, None)):
+            with platform_browser(
+                _FakePw(_FakeBrowser(_FakeContext(_FakePage()))),
+                platform="doubao",
+                launch=lambda: (None, None),
+            ):
                 pass
     finally:
         lock.release()
@@ -178,13 +181,15 @@ def test_local_mode_zero_db_calls(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(resident_browser, "_db_fence_heartbeat", _forbid)
     monkeypatch.setenv("GEO_DOUBAO_CDP_URL", "http://127.0.0.1:19222")
     context = _FakeContext(_FakePage())
-    with platform_browser(_FakePw(_FakeBrowser(context)), platform="doubao",
-                          launch=lambda: (None, None)):
+    with platform_browser(
+        _FakePw(_FakeBrowser(context)), platform="doubao", launch=lambda: (None, None)
+    ):
         pass
     monkeypatch.delenv("GEO_DOUBAO_CDP_URL")
     ctx2 = _FakeContext(_FakePage())
-    with platform_browser(_FakePw(_FakeBrowser(ctx2)), platform="doubao",
-                          launch=lambda: (ctx2, ctx2.pages[0])):
+    with platform_browser(
+        _FakePw(_FakeBrowser(ctx2)), platform="doubao", launch=lambda: (ctx2, ctx2.pages[0])
+    ):
         pass
     lock = browser_lock("doubao")
     assert lock.acquire(timeout=0.1)
@@ -203,8 +208,9 @@ class _FenceSeams:
         self.heartbeat_calls: list[tuple] = []
         self.token = 0
 
-    def acquire(self, platform: str, holder: str, ttl_s: float,
-                timeout_s: float | None) -> int | None:
+    def acquire(
+        self, platform: str, holder: str, ttl_s: float, timeout_s: float | None
+    ) -> int | None:
         self.acquire_calls.append((platform, holder, ttl_s, timeout_s))
         self.token += 1
         return self.token
@@ -213,8 +219,7 @@ class _FenceSeams:
         self.release_calls.append((platform, holder, fencing_token))
         return True
 
-    def heartbeat(self, platform: str, holder: str, fencing_token: int,
-                  ttl_s: float) -> bool:
+    def heartbeat(self, platform: str, holder: str, fencing_token: int, ttl_s: float) -> bool:
         self.heartbeat_calls.append((platform, holder, fencing_token, ttl_s))
         return True
 
@@ -236,8 +241,11 @@ def test_db_mode_attach_acquires_and_releases_lease(
     context = _FakeContext(_FakePage())
     browser = _FakeBrowser(context)
 
-    with platform_browser(_FakePw(browser), platform="doubao",
-                          launch=lambda: (None, None)) as (_ctx, _page, resident):
+    with platform_browser(_FakePw(browser), platform="doubao", launch=lambda: (None, None)) as (
+        _ctx,
+        _page,
+        resident,
+    ):
         assert resident is True
         assert len(seams.acquire_calls) == 1
         assert seams.release_calls == []  # 持有期间不释放
@@ -256,8 +264,11 @@ def test_db_mode_launch_acquires_and_releases_lease(
     monkeypatch.delenv("GEO_DOUBAO_CDP_URL", raising=False)
     context = _FakeContext(_FakePage())
 
-    with platform_browser(_FakePw(_FakeBrowser(context)), platform="doubao",
-                          launch=lambda: (context, context.pages[0])):
+    with platform_browser(
+        _FakePw(_FakeBrowser(context)),
+        platform="doubao",
+        launch=lambda: (context, context.pages[0]),
+    ):
         assert len(seams.acquire_calls) == 1
     assert len(seams.release_calls) == 1
     assert context.closed is True
@@ -267,13 +278,17 @@ def test_db_mode_lease_busy_raises_browser_busy(monkeypatch: pytest.MonkeyPatch)
     """DB 里已有他人未过期 lease（seam 返回 None=timeout 内拿不到）→ BrowserBusyError。"""
     seams = _FenceSeams()
     _wire_db_fencing(monkeypatch, seams)
-    monkeypatch.setattr(resident_browser, "_db_fence_acquire",
-                        lambda *args: None)  # 他人持租，重试到超时仍 None
+    monkeypatch.setattr(
+        resident_browser, "_db_fence_acquire", lambda *args: None
+    )  # 他人持租，重试到超时仍 None
     monkeypatch.delenv("GEO_DOUBAO_CDP_URL", raising=False)
 
     with pytest.raises(BrowserBusyError, match="busy"):
-        with platform_browser(_FakePw(_FakeBrowser(_FakeContext(_FakePage()))),
-                              platform="doubao", launch=lambda: (None, None)):
+        with platform_browser(
+            _FakePw(_FakeBrowser(_FakeContext(_FakePage()))),
+            platform="doubao",
+            launch=lambda: (None, None),
+        ):
             pass
     # 本地锁已解开：换乘功 seam 后能立刻拿到
     monkeypatch.setattr(resident_browser, "_db_fence_acquire", seams.acquire)
@@ -293,8 +308,11 @@ def test_db_mode_db_failure_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None
 
     monkeypatch.setattr(tenancy_db, "WorkerSessionLocal", _unreachable)
     with pytest.raises(BrowserBusyError, match="unavailable"):
-        with platform_browser(_FakePw(_FakeBrowser(_FakeContext(_FakePage()))),
-                              platform="doubao", launch=lambda: (None, None)):
+        with platform_browser(
+            _FakePw(_FakeBrowser(_FakeContext(_FakePage()))),
+            platform="doubao",
+            launch=lambda: (None, None),
+        ):
             pass
     # 本地锁已解开：换成好 seam 后能立刻拿到
     seams = _FenceSeams()
@@ -406,16 +424,24 @@ def _fence_row(
 def test_lease_acquire_busy_on_live_foreign_row() -> None:
     session = _FakeDbSession(_fence_row())
     with pytest.raises(LeaseBusyError):
-        acquire_browser_fence(session, platform="doubao", holder="worker-new:2",  # type: ignore[arg-type]
-                              ttl=timedelta(hours=2))
+        acquire_browser_fence(
+            session,
+            platform="doubao",
+            holder="worker-new:2",  # type: ignore[arg-type]
+            ttl=timedelta(hours=2),
+        )
     assert session.executed  # advisory lock 串行化已发起
 
 
 def test_lease_acquire_preempts_expired_row_and_token_increments() -> None:
     row = _fence_row(expired=True)
     session = _FakeDbSession(row)
-    lease = acquire_browser_fence(session, platform="doubao", holder="worker-new:2",  # type: ignore[arg-type]
-                                  ttl=timedelta(hours=2))
+    lease = acquire_browser_fence(
+        session,
+        platform="doubao",
+        holder="worker-new:2",  # type: ignore[arg-type]
+        ttl=timedelta(hours=2),
+    )
     assert lease is row  # 单例行原地接管
     assert lease.fencing_token == 6  # 抢占也单调递增
     assert lease.holder == "worker-new:2"
@@ -426,8 +452,12 @@ def test_lease_acquire_preempts_expired_row_and_token_increments() -> None:
 
 def test_lease_acquire_creates_row_with_token_1() -> None:
     session = _FakeDbSession(None)
-    lease = acquire_browser_fence(session, platform="doubao", holder="worker-a:1",  # type: ignore[arg-type]
-                                  ttl=timedelta(hours=2))
+    lease = acquire_browser_fence(
+        session,
+        platform="doubao",
+        holder="worker-a:1",  # type: ignore[arg-type]
+        ttl=timedelta(hours=2),
+    )
     assert session.row is lease
     assert lease.fencing_token == 1
     assert lease.platform == "doubao" and lease.holder == "worker-a:1"
@@ -436,8 +466,12 @@ def test_lease_acquire_creates_row_with_token_1() -> None:
 def test_lease_release_stale_token_keeps_row() -> None:
     row = _fence_row()
     session = _FakeDbSession(row)
-    ok = release_browser_fence(session, platform="doubao", holder="worker-old:1",  # type: ignore[arg-type]
-                               fencing_token=99)
+    ok = release_browser_fence(
+        session,
+        platform="doubao",
+        holder="worker-old:1",  # type: ignore[arg-type]
+        fencing_token=99,
+    )
     assert ok is False
     assert row.released_at is None  # stale token 不误释放他人租约
 
@@ -445,25 +479,57 @@ def test_lease_release_stale_token_keeps_row() -> None:
 def test_lease_release_marks_released() -> None:
     row = _fence_row()
     session = _FakeDbSession(row)
-    ok = release_browser_fence(session, platform="doubao", holder="worker-old:1",  # type: ignore[arg-type]
-                               fencing_token=5)
+    ok = release_browser_fence(
+        session,
+        platform="doubao",
+        holder="worker-old:1",  # type: ignore[arg-type]
+        fencing_token=5,
+    )
     assert ok is True
     assert row.released_at is not None
     # 已释放行再次释放 → False（幂等，不炸）
-    assert release_browser_fence(session, platform="doubao", holder="worker-old:1",  # type: ignore[arg-type]
-                                 fencing_token=5) is False
+    assert (
+        release_browser_fence(
+            session,
+            platform="doubao",
+            holder="worker-old:1",  # type: ignore[arg-type]
+            fencing_token=5,
+        )
+        is False
+    )
 
 
 def test_lease_heartbeat_renews_and_rejects_stale() -> None:
     row = _fence_row()
     session = _FakeDbSession(row)
     before = row.expires_at
-    ok = heartbeat_browser_fence(session, platform="doubao", holder="worker-old:1",  # type: ignore[arg-type]
-                                 fencing_token=5, ttl=timedelta(hours=3))
+    ok = heartbeat_browser_fence(
+        session,
+        platform="doubao",
+        holder="worker-old:1",  # type: ignore[arg-type]
+        fencing_token=5,
+        ttl=timedelta(hours=3),
+    )
     assert ok is True
     assert row.expires_at > before
-    assert heartbeat_browser_fence(session, platform="doubao", holder="worker-old:1",  # type: ignore[arg-type]
-                                   fencing_token=4, ttl=timedelta(hours=3)) is False
+    assert (
+        heartbeat_browser_fence(
+            session,
+            platform="doubao",
+            holder="worker-old:1",  # type: ignore[arg-type]
+            fencing_token=4,
+            ttl=timedelta(hours=3),
+        )
+        is False
+    )
     expired = _FakeDbSession(_fence_row(expired=True))
-    assert heartbeat_browser_fence(expired, platform="doubao", holder="worker-old:1",  # type: ignore[arg-type]
-                                   fencing_token=5, ttl=timedelta(hours=3)) is False
+    assert (
+        heartbeat_browser_fence(
+            expired,
+            platform="doubao",
+            holder="worker-old:1",  # type: ignore[arg-type]
+            fencing_token=5,
+            ttl=timedelta(hours=3),
+        )
+        is False
+    )

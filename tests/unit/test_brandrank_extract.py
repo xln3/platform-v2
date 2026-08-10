@@ -4,6 +4,7 @@
 在 V2 由 httpx 适配器实现，接口形状不变）；配置族换 GEO_BRANDRANK_LLM_*（独立 env 族，
 无跨族回落）；新增 httpx 传输层（主备 failover/4xx/坏形状）用例。
 """
+
 import json
 from types import SimpleNamespace
 
@@ -24,14 +25,20 @@ class FakeClient:
 
     def __init__(self, behavior):
         self.calls = []
-        self._behavior = behavior            # fn(reply_text) -> list[str] | Exception
+        self._behavior = behavior  # fn(reply_text) -> list[str] | Exception
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
     def _create(self, *, model, messages, temperature, response_format):
         user_prompt = messages[1]["content"]
         reply_text = user_prompt.split("以下是AI回复文本：\n", 1)[1]
-        self.calls.append({"model": model, "messages": messages,
-                           "temperature": temperature, "response_format": response_format})
+        self.calls.append(
+            {
+                "model": model,
+                "messages": messages,
+                "temperature": temperature,
+                "response_format": response_format,
+            }
+        )
         outcome = self._behavior(reply_text)
         if isinstance(outcome, Exception):
             raise outcome
@@ -42,12 +49,13 @@ class FakeClient:
 # ── 单条抽取：prompt 用她的模板、temperature=0、json_object ─────────────
 def test_extract_success_uses_her_prompt_and_params(rules):
     client = FakeClient(lambda text: ["中意人寿", "中国平安"])
-    brands = extract.extract_brands_with_llm(client, "推荐中意人寿和平安", "保险公司",
-                                             model="m-test", rules=rules)
+    brands = extract.extract_brands_with_llm(
+        client, "推荐中意人寿和平安", "保险公司", model="m-test", rules=rules
+    )
     assert brands == ["中意人寿", "中国平安"]
     call = client.calls[0]
     assert call["model"] == "m-test"
-    assert call["temperature"] == 0                            # 她的 L899
+    assert call["temperature"] == 0  # 她的 L899
     assert call["response_format"] == {"type": "json_object"}  # 她的 L900
     assert call["messages"][0] == {"role": "system", "content": rules.system_message}
     assert '关于"保险公司"的AI回复文本' in call["messages"][1]["content"]
@@ -57,7 +65,8 @@ def test_extract_success_uses_her_prompt_and_params(rules):
 def test_extract_moonshot_kimi_k3_uses_required_temperature(rules):
     client = FakeClient(lambda text: ["中意人寿"])
     brands = extract.extract_brands_with_llm(
-        client, "推荐中意人寿", "保险公司", model="moonshot-kimi-k3", rules=rules)
+        client, "推荐中意人寿", "保险公司", model="moonshot-kimi-k3", rules=rules
+    )
     assert brands == ["中意人寿"]
     assert client.calls[0]["temperature"] == 1.0
 
@@ -72,16 +81,18 @@ def test_extract_category_parameterized(rules):
 def test_extract_empty_text_no_api_call(rules):
     client = FakeClient(lambda text: ["不应出现"])
     assert extract.extract_brands_with_llm(client, "   ", "保险公司", model="m", rules=rules) == []
-    assert client.calls == []                                  # 空输入诚实空列表，不烧 API
+    assert client.calls == []  # 空输入诚实空列表，不烧 API
 
 
 def test_extract_bad_json_and_bad_shape_raise(rules):
     with pytest.raises(extract.ExtractError):
-        extract.extract_brands_with_llm(FakeClient(lambda t: "不是json"), "正文", "c",
-                                        model="m", rules=rules)
+        extract.extract_brands_with_llm(
+            FakeClient(lambda t: "不是json"), "正文", "c", model="m", rules=rules
+        )
     with pytest.raises(extract.ExtractError):
-        extract.extract_brands_with_llm(FakeClient(lambda t: '{"no_brands": 1}'), "正文", "c",
-                                        model="m", rules=rules)
+        extract.extract_brands_with_llm(
+            FakeClient(lambda t: '{"no_brands": 1}'), "正文", "c", model="m", rules=rules
+        )
 
 
 def test_extract_api_error_raises_never_fabricates(rules):
@@ -93,7 +104,7 @@ def test_extract_api_error_raises_never_fabricates(rules):
 def test_extract_filters_non_string_items(rules):
     client = FakeClient(lambda t: '{"brands": ["中意人寿", 42, "", null, " 中国平安 "]}')
     brands = extract.extract_brands_with_llm(client, "正文", "c", model="m", rules=rules)
-    assert brands == ["中意人寿", "中国平安"]                  # 噪声项丢弃而非臆造转换
+    assert brands == ["中意人寿", "中国平安"]  # 噪声项丢弃而非臆造转换
 
 
 # ── 批处理：线程池、按 idx 排序、每条独立成败 ───────────────────────────
@@ -104,27 +115,31 @@ def test_batch_mixed_outcomes_preserve_order(rules):
         if "坏" in text:
             return "not json"
         return [text.strip()[:2]]
+
     client = FakeClient(behavior)
     tasks = [(0, "甲甲", "c"), (1, "炸", "c"), (2, "乙乙", "c"), (3, "坏", "c")]
     out = extract.extract_brands_batch(client, tasks, model="m", rules=rules, workers=4)
-    assert [r[0] for r in out] == [0, 1, 2, 3]                 # 与输入同序
+    assert [r[0] for r in out] == [0, 1, 2, 3]  # 与输入同序
     assert out[0] == (0, ["甲甲"], None)
-    assert out[1][1] is None and "api_error" in out[1][2]      # 失败诚实 error，绝不编造
+    assert out[1][1] is None and "api_error" in out[1][2]  # 失败诚实 error，绝不编造
     assert out[2] == (2, ["乙乙"], None)
     assert out[3][1] is None and "bad_json" in out[3][2]
 
 
 def test_batch_empty_tasks(rules):
-    assert extract.extract_brands_batch(FakeClient(lambda t: []), [], model="m",
-                                        rules=rules) == []
+    assert extract.extract_brands_batch(FakeClient(lambda t: []), [], model="m", rules=rules) == []
 
 
 # ── 配置：GEO_BRANDRANK_LLM_* 独立 env 族、无跨族回落、无 key→禁用 ────────
 @pytest.fixture
 def clean_env(monkeypatch):
-    for k in ("GEO_BRANDRANK_LLM_API_KEY", "GEO_BRANDRANK_LLM_BASE_URL",
-              "GEO_BRANDRANK_LLM_BASE_URL_FALLBACK", "GEO_BRANDRANK_LLM_MODEL",
-              "GEO_BRANDRANK_LLM_MAX_WORKERS"):
+    for k in (
+        "GEO_BRANDRANK_LLM_API_KEY",
+        "GEO_BRANDRANK_LLM_BASE_URL",
+        "GEO_BRANDRANK_LLM_BASE_URL_FALLBACK",
+        "GEO_BRANDRANK_LLM_MODEL",
+        "GEO_BRANDRANK_LLM_MAX_WORKERS",
+    ):
         monkeypatch.delenv(k, raising=False)
     return monkeypatch
 
@@ -142,8 +157,8 @@ def test_config_env_and_defaults(clean_env):
     clean_env.setenv("GEO_BRANDRANK_LLM_MODEL", "m-brand")
     key, base, fallback, model = extract.load_config()
     assert key == "k1" and model == "m-brand"
-    assert base == "https://aihubmix.com"                      # V2 主通道缺省
-    assert fallback == "https://api.inferera.com"              # 备通道缺省
+    assert base == "https://aihubmix.com"  # V2 主通道缺省
+    assert fallback == "https://api.inferera.com"  # 备通道缺省
 
 
 def test_config_explicit_base_urls(clean_env):
@@ -151,17 +166,17 @@ def test_config_explicit_base_urls(clean_env):
     clean_env.setenv("GEO_BRANDRANK_LLM_BASE_URL", "https://main.example/v1/")
     clean_env.setenv("GEO_BRANDRANK_LLM_BASE_URL_FALLBACK", "https://bak.example/v1/")
     key, base, fallback, model = extract.load_config()
-    assert base == "https://main.example/v1"                   # 尾斜杠剥掉
+    assert base == "https://main.example/v1"  # 尾斜杠剥掉
     assert fallback == "https://bak.example/v1"
-    assert model == "deep-deepseek-v4-flash"                   # 缺省模型（旧库缺省）
+    assert model == "deep-deepseek-v4-flash"  # 缺省模型（旧库缺省）
 
 
 def test_max_workers_config(clean_env, rules):
-    assert extract.max_workers(rules) == 10                    # 规则包默认（她的 MAX_WORKERS）
+    assert extract.max_workers(rules) == 10  # 规则包默认（她的 MAX_WORKERS）
     clean_env.setenv("GEO_BRANDRANK_LLM_MAX_WORKERS", "3")
     assert extract.max_workers(rules) == 3
     clean_env.setenv("GEO_BRANDRANK_LLM_MAX_WORKERS", "junk")
-    assert extract.max_workers(rules) == 10                    # 坏值回落默认
+    assert extract.max_workers(rules) == 10  # 坏值回落默认
 
 
 # ── httpx 传输层（生产 default_client 的真实形状；MockTransport 接缝）────────
@@ -193,10 +208,11 @@ def test_httpx_client_success_shape(monkeypatch, clean_env):
     clean_env.setenv("GEO_BRANDRANK_LLM_API_KEY", "k1")
     clean_env.setenv("GEO_BRANDRANK_LLM_BASE_URL", "https://main.example")
     client = extract.default_client()
-    brands = extract.extract_brands_with_llm(client, "推荐中意人寿", "保险公司",
-                                             model="m1", rules=load_domain("insurance"))
+    brands = extract.extract_brands_with_llm(
+        client, "推荐中意人寿", "保险公司", model="m1", rules=load_domain("insurance")
+    )
     assert brands == ["中意人寿"]
-    assert seen["url"] == "https://main.example/v1/chat/completions"   # /v1 自动补齐
+    assert seen["url"] == "https://main.example/v1/chat/completions"  # /v1 自动补齐
     assert seen["authorization"] == "Bearer k1"
     # 请求体与旧库 SDK 调用逐字段一致
     assert seen["body"]["model"] == "m1"
@@ -219,11 +235,17 @@ def test_httpx_client_5xx_fails_over_to_fallback(monkeypatch, clean_env):
     clean_env.setenv("GEO_BRANDRANK_LLM_BASE_URL", "https://main.example")
     clean_env.setenv("GEO_BRANDRANK_LLM_BASE_URL_FALLBACK", "https://bak.example")
     brands = extract.extract_brands_with_llm(
-        extract.default_client(), "推荐中国平安", "保险公司",
-        model="m1", rules=load_domain("insurance"))
+        extract.default_client(),
+        "推荐中国平安",
+        "保险公司",
+        model="m1",
+        rules=load_domain("insurance"),
+    )
     assert brands == ["中国平安"]
-    assert urls == ["https://main.example/v1/chat/completions",
-                    "https://bak.example/v1/chat/completions"]         # 主 5xx → 备成功
+    assert urls == [
+        "https://main.example/v1/chat/completions",
+        "https://bak.example/v1/chat/completions",
+    ]  # 主 5xx → 备成功
 
 
 def test_httpx_client_4xx_no_failover(monkeypatch, clean_env):
@@ -237,9 +259,9 @@ def test_httpx_client_4xx_no_failover(monkeypatch, clean_env):
     clean_env.setenv("GEO_BRANDRANK_LLM_API_KEY", "k1")
     with pytest.raises(extract.ExtractError, match="upstream_400"):
         extract.extract_brands_with_llm(
-            extract.default_client(), "正文", "保险公司",
-            model="m1", rules=load_domain("insurance"))
-    assert len(calls) == 1                                       # 4xx 不重试不 failover
+            extract.default_client(), "正文", "保险公司", model="m1", rules=load_domain("insurance")
+        )
+    assert len(calls) == 1  # 4xx 不重试不 failover
 
 
 def test_httpx_client_both_down_raises(monkeypatch, clean_env):
@@ -250,8 +272,8 @@ def test_httpx_client_both_down_raises(monkeypatch, clean_env):
     clean_env.setenv("GEO_BRANDRANK_LLM_API_KEY", "k1")
     with pytest.raises(extract.ExtractError, match="api_error"):
         extract.extract_brands_with_llm(
-            extract.default_client(), "正文", "保险公司",
-            model="m1", rules=load_domain("insurance"))
+            extract.default_client(), "正文", "保险公司", model="m1", rules=load_domain("insurance")
+        )
 
 
 def test_httpx_client_bad_response_shape(monkeypatch, clean_env):
@@ -262,5 +284,5 @@ def test_httpx_client_bad_response_shape(monkeypatch, clean_env):
     clean_env.setenv("GEO_BRANDRANK_LLM_API_KEY", "k1")
     with pytest.raises(extract.ExtractError, match="bad_response_shape|api_error"):
         extract.extract_brands_with_llm(
-            extract.default_client(), "正文", "保险公司",
-            model="m1", rules=load_domain("insurance"))
+            extract.default_client(), "正文", "保险公司", model="m1", rules=load_domain("insurance")
+        )

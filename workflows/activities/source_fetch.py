@@ -93,13 +93,44 @@ _USER_AGENT = (
 
 _STATIC_EXTENSIONS = frozenset(
     {
-        ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico", ".bmp",
-        ".css", ".js", ".mjs", ".map",
-        ".pdf", ".zip", ".rar", ".7z", ".tar", ".gz",
-        ".mp4", ".mp3", ".wav", ".avi", ".mov", ".webm",
-        ".woff", ".woff2", ".ttf", ".otf", ".eot",
-        ".xml", ".txt", ".csv",
-        ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".svg",
+        ".webp",
+        ".ico",
+        ".bmp",
+        ".css",
+        ".js",
+        ".mjs",
+        ".map",
+        ".pdf",
+        ".zip",
+        ".rar",
+        ".7z",
+        ".tar",
+        ".gz",
+        ".mp4",
+        ".mp3",
+        ".wav",
+        ".avi",
+        ".mov",
+        ".webm",
+        ".woff",
+        ".woff2",
+        ".ttf",
+        ".otf",
+        ".eot",
+        ".xml",
+        ".txt",
+        ".csv",
+        ".doc",
+        ".docx",
+        ".xls",
+        ".xlsx",
+        ".ppt",
+        ".pptx",
     }
 )
 
@@ -289,8 +320,26 @@ _SKIP_TAGS = frozenset(
 # 块级元素：结束标签处切断成块
 _BLOCK_TAGS = frozenset(
     {
-        "p", "div", "article", "section", "main", "li", "ul", "ol", "table", "tr",
-        "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "pre", "figure", "br",
+        "p",
+        "div",
+        "article",
+        "section",
+        "main",
+        "li",
+        "ul",
+        "ol",
+        "table",
+        "tr",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "blockquote",
+        "pre",
+        "figure",
+        "br",
     }
 )
 _HEADING_TAGS = frozenset({"h1", "h2", "h3", "h4", "h5", "h6"})
@@ -736,9 +785,7 @@ class _StoredAsset:
 
 
 @contextmanager
-def _platform_connection(
-    dsn: str, context: RunSourceContext
-) -> Iterator[psycopg.Connection[Any]]:
+def _platform_connection(dsn: str, context: RunSourceContext) -> Iterator[psycopg.Connection[Any]]:
     """platform schema 写连接：置 app.tenant_id + app.tenant_pub_id 双 selector。"""
     with psycopg.connect(dsn) as connection:
         connection.execute(
@@ -886,9 +933,7 @@ def execute_source_fetch(
     progress("load_context", "")
     context = loader.load(item.tenant_pub_id, item.run_pub_id, item.project_pub_id)
     if context is None:
-        raise ApplicationError(
-            "collection run not found", type="run_not_found", non_retryable=True
-        )
+        raise ApplicationError("collection run not found", type="run_not_found", non_retryable=True)
     targets = plan_source_targets(context.tasks, config.limit)
 
     fetched: list[FetchedSource] = []

@@ -15,6 +15,7 @@ _TestClient + dependency_overrides[get_principal]；DB 访问全部走 fake：
 （before/after/delta 与手工算一致）、unpaired 列出、臂空 → insufficient 诚实占位、
 同输入下 aggregate 与报告 before_after 扩展组同数（同一构造函数的接线证明）。
 """
+
 from __future__ import annotations
 
 import json
@@ -63,8 +64,8 @@ class _FakeStore:
 
     def __init__(self) -> None:
         self.comparisons: dict[str, dict[str, Any]] = {}
-        self.runs: dict[str, str] = {}              # run_pub_id → project_pub_id（本租户）
-        self.answers: list[dict[str, Any]] = []     # 含 tenant/project/eligible/degraded/run_pub_id
+        self.runs: dict[str, str] = {}  # run_pub_id → project_pub_id（本租户）
+        self.answers: list[dict[str, Any]] = []  # 含 tenant/project/eligible/degraded/run_pub_id
         self._tick = 0
 
     def next_created_at(self) -> datetime:
@@ -72,16 +73,34 @@ class _FakeStore:
         return NOW + timedelta(seconds=self._tick)
 
 
-def _answer(pub_id: str, run_pub_id: str, query: str, *,
-            eligible: bool = True, degraded: bool = False) -> dict[str, Any]:
-    return {"pub_id": pub_id, "tenant_pub_id": TENANT, "project_pub_id": PROJECT,
-            "run_pub_id": run_pub_id, "query_text": query, "response_text": "r",
-            "model": "doubao", "region": "北京", "mode": "normal",
-            "eligible": eligible, "degraded": degraded, "capture_time": NOW}
+def _answer(
+    pub_id: str, run_pub_id: str, query: str, *, eligible: bool = True, degraded: bool = False
+) -> dict[str, Any]:
+    return {
+        "pub_id": pub_id,
+        "tenant_pub_id": TENANT,
+        "project_pub_id": PROJECT,
+        "run_pub_id": run_pub_id,
+        "query_text": query,
+        "response_text": "r",
+        "model": "doubao",
+        "region": "北京",
+        "mode": "normal",
+        "eligible": eligible,
+        "degraded": degraded,
+        "capture_time": NOW,
+    }
 
 
-_ANSWER_PROJECTION = ("pub_id", "query_text", "response_text",
-                      "model", "region", "mode", "capture_time")
+_ANSWER_PROJECTION = (
+    "pub_id",
+    "query_text",
+    "response_text",
+    "model",
+    "region",
+    "mode",
+    "capture_time",
+)
 
 
 class _FakeConnection:
@@ -96,13 +115,18 @@ class _FakeConnection:
         params = params or ()
         normalized = " ".join(sql.split())
         if "INSERT INTO analytics.run_comparison" in normalized:
-            (pub_id, tenant, project, name, baseline_json, optimized_json,
-             note, created_by) = params
+            (pub_id, tenant, project, name, baseline_json, optimized_json, note, created_by) = (
+                params
+            )
             row = {
-                "pub_id": pub_id, "tenant_pub_id": tenant, "project_pub_id": project,
-                "name": name, "baseline_run_pub_ids": json.loads(baseline_json),
+                "pub_id": pub_id,
+                "tenant_pub_id": tenant,
+                "project_pub_id": project,
+                "name": name,
+                "baseline_run_pub_ids": json.loads(baseline_json),
                 "optimized_run_pub_ids": json.loads(optimized_json),
-                "note": note, "created_by": created_by,
+                "note": note,
+                "created_by": created_by,
                 "created_at": self._store.next_created_at(),
             }
             self._store.comparisons[pub_id] = row
@@ -110,8 +134,11 @@ class _FakeConnection:
         if "FROM analytics.run_comparison" in normalized:
             if "ORDER BY created_at DESC" in normalized:
                 tenant, project, limit = params
-                rows = [r for r in self._store.comparisons.values()
-                        if r["tenant_pub_id"] == tenant and r["project_pub_id"] == project]
+                rows = [
+                    r
+                    for r in self._store.comparisons.values()
+                    if r["tenant_pub_id"] == tenant and r["project_pub_id"] == project
+                ]
                 rows.sort(key=lambda r: (r["created_at"], r["pub_id"]), reverse=True)
                 return _Result([self._entity(r) for r in rows[:limit]])
             tenant, pub_id = params
@@ -121,8 +148,7 @@ class _FakeConnection:
             return _Result([self._entity(row)])
         if "FROM platform.collection_run" in normalized:
             project, requested = params
-            found = [pub_id for pub_id in requested
-                     if self._store.runs.get(pub_id) == project]
+            found = [pub_id for pub_id in requested if self._store.runs.get(pub_id) == project]
             return _Result([{"pub_id": pub_id} for pub_id in found])
         if "FROM analytics.answer" in normalized:
             tenant, project, run_pub_ids, limit = params
@@ -131,7 +157,8 @@ class _FakeConnection:
                 for answer in self._store.answers
                 if answer["tenant_pub_id"] == tenant
                 and answer["project_pub_id"] == project
-                and answer["eligible"] and not answer["degraded"]
+                and answer["eligible"]
+                and not answer["degraded"]
                 and answer["run_pub_id"] in run_pub_ids
             ]
             rows.sort(key=lambda r: (r["capture_time"], r["pub_id"]))
@@ -140,9 +167,19 @@ class _FakeConnection:
 
     @staticmethod
     def _entity(row: dict[str, Any]) -> dict[str, Any]:
-        return {key: row[key] for key in (
-            "pub_id", "project_pub_id", "name", "baseline_run_pub_ids",
-            "optimized_run_pub_ids", "note", "created_by", "created_at")}
+        return {
+            key: row[key]
+            for key in (
+                "pub_id",
+                "project_pub_id",
+                "name",
+                "baseline_run_pub_ids",
+                "optimized_run_pub_ids",
+                "note",
+                "created_by",
+                "created_at",
+            )
+        }
 
 
 class _FakeCM:
@@ -163,21 +200,27 @@ def _cleanup_overrides() -> Any:
     app.dependency_overrides.pop(get_principal, None)
 
 
-def _override_principal(role: Role = Role.OPERATOR, tenant: str = TENANT,
-                        user_pub_id: str | None = "usr_cmp") -> None:
+def _override_principal(
+    role: Role = Role.OPERATOR, tenant: str = TENANT, user_pub_id: str | None = "usr_cmp"
+) -> None:
     app.dependency_overrides[get_principal] = lambda: Principal(
-        subject="u-cmp", role=role, tenant_pub_id=tenant, user_pub_id=user_pub_id)
+        subject="u-cmp", role=role, tenant_pub_id=tenant, user_pub_id=user_pub_id
+    )
 
 
 def _patch_db(monkeypatch: pytest.MonkeyPatch, store: _FakeStore) -> None:
     """把三个连接接缝指到 fake 连接工厂（共享 store）。"""
+
     def fake_tenant_connection(dsn: str, tenant_pub_id: str, **kwargs: Any) -> _FakeCM:
         return _FakeCM(_FakeConnection(store, tenant_pub_id))
 
     monkeypatch.setattr(comparisons, "tenant_connection", fake_tenant_connection)
     monkeypatch.setattr(brandrank_compare, "tenant_connection", fake_tenant_connection)
-    monkeypatch.setattr(analytics_service, "_platform_tenant_connection",
-                        lambda dsn, tenant: _FakeCM(_FakeConnection(store, tenant)))
+    monkeypatch.setattr(
+        analytics_service,
+        "_platform_tenant_connection",
+        lambda dsn, tenant: _FakeCM(_FakeConnection(store, tenant)),
+    )
 
 
 def _patch_project_and_extracts(
@@ -185,12 +228,16 @@ def _patch_project_and_extracts(
     table: dict[str, dict[str, Any]],
     project: dict[str, Any] | None = _PROJECT,
 ) -> None:
-    monkeypatch.setattr(brandrank_service, "fetch_project",
-                        lambda dsn, tenant, project_pub_id: (
-                            dict(project) if project is not None else None))
-    monkeypatch.setattr(brandrank_service, "fetch_brand_extracts",
-                        lambda dsn, tenant, ids, domain: {
-                            i: table[i] for i in ids if i in table})
+    monkeypatch.setattr(
+        brandrank_service,
+        "fetch_project",
+        lambda dsn, tenant, project_pub_id: (dict(project) if project is not None else None),
+    )
+    monkeypatch.setattr(
+        brandrank_service,
+        "fetch_brand_extracts",
+        lambda dsn, tenant, ids, domain: {i: table[i] for i in ids if i in table},
+    )
 
 
 def _post(body: dict[str, Any], **kwargs: Any) -> Any:
@@ -217,8 +264,9 @@ def test_post_requires_authentication_401() -> None:
 def test_post_permission_denied_403(monkeypatch: pytest.MonkeyPatch) -> None:
     """customer 角色无 schedule:manage（operator/admin 级写权限）→ 403，门在 DB 之前。"""
     _override_principal(Role.CUSTOMER)
-    monkeypatch.setattr(comparisons, "validate_project_runs",
-                        lambda *a, **k: pytest.fail("越权访问不应触达 DB"))
+    monkeypatch.setattr(
+        comparisons, "validate_project_runs", lambda *a, **k: pytest.fail("越权访问不应触达 DB")
+    )
     resp = _post(_create_body())
     assert resp.status_code == 403
     assert resp.json()["error"]["code"] == "permission_denied"
@@ -226,24 +274,29 @@ def test_post_permission_denied_403(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_post_shape_validation_422(monkeypatch: pytest.MonkeyPatch) -> None:
     _override_principal()
-    monkeypatch.setattr(comparisons, "validate_project_runs",
-                        lambda *a, **k: pytest.fail("形状错误不应触达归属校验"))
+    monkeypatch.setattr(
+        comparisons,
+        "validate_project_runs",
+        lambda *a, **k: pytest.fail("形状错误不应触达归属校验"),
+    )
     assert _post(_create_body(baseline_run_pub_ids=[])).status_code == 422
     assert _post(_create_body(optimized_run_pub_ids=[])).status_code == 422
     assert _post(_create_body(baseline_run_pub_ids=["not-a-run"])).status_code == 422
     assert _post(_create_body(name="")).status_code == 422
-    assert _post(_create_body(unknown_field=1)).status_code == 422     # extra=forbid
+    assert _post(_create_body(unknown_field=1)).status_code == 422  # extra=forbid
 
 
 def test_post_unknown_run_400(monkeypatch: pytest.MonkeyPatch) -> None:
     """run 不存在 / 属于其他项目 → 400 unknown_run_pub_id（逐个列出，不泄露归属）。"""
     _override_principal()
     store = _FakeStore()
-    store.runs.update({"run_base1": PROJECT, "run_opt1": PROJECT,
-                       "run_other": "prj_other"})
+    store.runs.update({"run_base1": PROJECT, "run_opt1": PROJECT, "run_other": "prj_other"})
     _patch_db(monkeypatch, store)
-    resp = _post(_create_body(baseline_run_pub_ids=["run_base1", "run_ghost"],
-                              optimized_run_pub_ids=["run_other"]))
+    resp = _post(
+        _create_body(
+            baseline_run_pub_ids=["run_base1", "run_ghost"], optimized_run_pub_ids=["run_other"]
+        )
+    )
     assert resp.status_code == 400
     body = resp.json()
     assert body["error"]["code"] == "unknown_run_pub_id"
@@ -259,14 +312,14 @@ def test_post_create_and_list_201(monkeypatch: pytest.MonkeyPatch) -> None:
     headers = {"Idempotency-Key": "cmp-test-1234567890abcdef"}
     resp = _post(_create_body(), headers=headers)
     assert resp.status_code == 201
-    assert resp.headers["Idempotency-Key"] == headers["Idempotency-Key"]   # 回显
+    assert resp.headers["Idempotency-Key"] == headers["Idempotency-Key"]  # 回显
     entity = resp.json()
     assert entity["pub_id"].startswith("rcmp_")
     assert entity["project_pub_id"] == PROJECT
     assert entity["baseline_run_pub_ids"] == ["run_base1"]
     assert entity["optimized_run_pub_ids"] == ["run_opt1"]
     assert entity["note"] == "首轮" and entity["created_by"] == "usr_cmp"
-    assert store.comparisons[entity["pub_id"]]["tenant_pub_id"] == TENANT   # RLS 列落账
+    assert store.comparisons[entity["pub_id"]]["tenant_pub_id"] == TENANT  # RLS 列落账
 
     resp2 = _post(_create_body(name="第二轮"))
     assert resp2.status_code == 201
@@ -306,7 +359,7 @@ _EXTRACTS = {
     "ans_b1": {"status": "ok", "brands": ["奇安信"]},
     "ans_b2": {"status": "ok", "brands": ["奇安信", "盛邦安全"]},
     "ans_b3": {"status": "ok", "brands": ["盛邦安全"]},
-    "ans_b4": {"status": "failed", "brands": []},        # 该题基线臂零覆盖
+    "ans_b4": {"status": "failed", "brands": []},  # 该题基线臂零覆盖
     "ans_bx": {"status": "ok", "brands": ["盛邦安全"]},
     "ans_bo": {"status": "ok", "brands": ["盛邦安全"]},
     "ans_a1": {"status": "ok", "brands": ["盛邦安全", "奇安信"]},
@@ -319,8 +372,7 @@ _EXTRACTS = {
 def _seeded_comparison(monkeypatch: pytest.MonkeyPatch) -> str:
     _override_principal()
     store = _FakeStore()
-    store.runs.update({"run_base1": PROJECT, "run_opt1": PROJECT,
-                       "run_other": "prj_other"})
+    store.runs.update({"run_base1": PROJECT, "run_opt1": PROJECT, "run_other": "prj_other"})
     store.answers.extend(_BASELINE_ANSWERS + _OPTIMIZED_ANSWERS)
     _patch_db(monkeypatch, store)
     _patch_project_and_extracts(monkeypatch, _EXTRACTS)
@@ -343,7 +395,7 @@ def test_result_pairing_math_and_unpaired(monkeypatch: pytest.MonkeyPatch) -> No
     assert result["status"] == "ok" and result["insufficient_reasons"] == []
     assert result["domain"] == "cybersecurity"
     assert result["target_brand"] == "盛邦安全"
-    assert result["coverage"]["before_answers"] == 4       # ans_bx/ans_bo 被谓词剔除
+    assert result["coverage"]["before_answers"] == 4  # ans_bx/ans_bo 被谓词剔除
     assert result["coverage"]["before_with_extract"] == 3  # ans_b4 failed 不入记录
 
     questions = {q["query_text"]: q for q in result["questions"]}
@@ -353,7 +405,11 @@ def test_result_pairing_math_and_unpaired(monkeypatch: pytest.MonkeyPatch) -> No
     assert q1["status"] == "ok"
     # before：2 条记录，提及 1 次 rank2 → mention 50.0 / avg 2.0 / top1 0.0
     assert q1["before"]["mention_rate"] == {
-        "value": 50.0, "unit": "percent", "numerator": 1, "denominator": 2}
+        "value": 50.0,
+        "unit": "percent",
+        "numerator": 1,
+        "denominator": 2,
+    }
     assert q1["before"]["avg_rank"]["value"] == 2.0
     assert q1["before"]["top1"]["value"] == 0.0
     assert q1["before"]["top1"]["of_mentions"] == 0.0
@@ -361,34 +417,44 @@ def test_result_pairing_math_and_unpaired(monkeypatch: pytest.MonkeyPatch) -> No
     assert q1["after"]["mention_rate"]["value"] == 100.0
     assert q1["after"]["avg_rank"]["value"] == 1.0
     assert q1["after"]["top1"]["value"] == 100.0
-    assert q1["delta"] == {"mention_rate": 50.0, "avg_rank": -1.0,
-                           "top1": 100.0, "top3": 50.0, "top5": 50.0}
+    assert q1["delta"] == {
+        "mention_rate": 50.0,
+        "avg_rank": -1.0,
+        "top1": 100.0,
+        "top3": 50.0,
+        "top5": 50.0,
+    }
 
-    q4 = questions["覆盖缺失题"]                        # 基线臂问过但零覆盖 → 诚实占位
+    q4 = questions["覆盖缺失题"]  # 基线臂问过但零覆盖 → 诚实占位
     assert q4["status"] == "insufficient"
     assert q4["insufficient_reasons"] == ["before_no_extraction_coverage"]
     assert q4["before"] is None
-    assert q4["after"]["mention_rate"]["value"] == 100.0   # 有覆盖臂照实出数
-    assert q4["delta"] == {"mention_rate": None, "avg_rank": None,
-                           "top1": None, "top3": None, "top5": None}
+    assert q4["after"]["mention_rate"]["value"] == 100.0  # 有覆盖臂照实出数
+    assert q4["delta"] == {
+        "mention_rate": None,
+        "avg_rank": None,
+        "top1": None,
+        "top3": None,
+        "top5": None,
+    }
 
-    assert result["unpaired"] == {"baseline_only": ["仅基线题"],
-                                  "optimized_only": ["仅优化题"]}
+    assert result["unpaired"] == {"baseline_only": ["仅基线题"], "optimized_only": ["仅优化题"]}
 
 
 def test_result_aggregate_hand_math(monkeypatch: pytest.MonkeyPatch) -> None:
     """组级 aggregate 手工核算：before 3 条记录 / after 4 条记录
     （q4 基线 failed 剔除、ineligible/异 run 谓词剔除）。"""
     pub_id = _seeded_comparison(monkeypatch)
-    metrics_rows = {r["extra"]["metric_name"]: r
-                    for r in _result(pub_id)["result"]["aggregate"]["metrics"]}
+    metrics_rows = {
+        r["extra"]["metric_name"]: r for r in _result(pub_id)["result"]["aggregate"]["metrics"]
+    }
     assert set(metrics_rows) == {"mention_rate", "avg_rank", "top1", "top3", "top5"}
 
     mention = metrics_rows["mention_rate"]
     # before：b1 未提及 + b2 rank2 + b3 rank1 → 2/3；
     # after：a1 rank1 + a2 rank1 + a3 未提及 + a4 rank1 → 3/4
     assert mention["extra"]["before"] == 66.67 and mention["extra"]["after"] == 75.0
-    assert mention["value"] == 8.33                        # after − before
+    assert mention["value"] == 8.33  # after − before
     assert mention["extra"]["denominators"] == {"before_n": 3, "after_n": 4}
     assert mention["numerator"] == 3 and mention["denominator"] == 4
     assert mention["extra"]["before_numerator"] == 2
@@ -401,7 +467,7 @@ def test_result_aggregate_hand_math(monkeypatch: pytest.MonkeyPatch) -> None:
     top1 = metrics_rows["top1"]
     assert top1["extra"]["before"] == 33.33 and top1["extra"]["after"] == 75.0
     assert top1["value"] == 41.67
-    assert top1["extra"]["before_of_mentions"] == 50.0    # 1/2 提及 ≤1
+    assert top1["extra"]["before_of_mentions"] == 50.0  # 1/2 提及 ≤1
     assert top1["extra"]["after_of_mentions"] == 100.0
 
     top3 = metrics_rows["top3"]
@@ -415,40 +481,63 @@ def test_result_aggregate_hand_math(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_result_aggregate_matches_report_before_after_section(
-        monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """同输入下：端点 aggregate 与报告 before_after 扩展组逐指标同数（同一构造函数的
     接线证明——扩展组路径经 fetch_answers_window 接缝喂同一批臂数据）。"""
     pub_id = _seeded_comparison(monkeypatch)
-    endpoint_rows = {r["extra"]["metric_name"]: r
-                     for r in _result(pub_id)["result"]["aggregate"]["metrics"]}
+    endpoint_rows = {
+        r["extra"]["metric_name"]: r for r in _result(pub_id)["result"]["aggregate"]["metrics"]
+    }
 
     # 报告扩展组路径：主草稿/W2/W3 垫底为空，before/after 双臂按窗喂同一批答案
-    monkeypatch.setattr(brandrank_service, "fetch_answers",
-                        lambda dsn, tenant, project, since: ([], False))
-    monkeypatch.setattr(fact_suggestions, "fetch_disparagement_judgments",
-                        lambda dsn, tenant, project, since, until: ([], False))
-    monkeypatch.setattr(fact_suggestions, "fetch_source_audit_overview",
-                        lambda dsn, tenant, project, start, end: {
-                            "own_site_host": None, "documents_total": 0,
-                            "own_site_documents": 0, "own_site_share": None})
-    monkeypatch.setattr(fact_suggestions, "fetch_site_audit_suggestions",
-                        lambda dsn, tenant, project: {"rows": [], "batch_pub_id": None,
-                                                      "truncated": False})
+    monkeypatch.setattr(
+        brandrank_service, "fetch_answers", lambda dsn, tenant, project, since: ([], False)
+    )
+    monkeypatch.setattr(
+        fact_suggestions,
+        "fetch_disparagement_judgments",
+        lambda dsn, tenant, project, since, until: ([], False),
+    )
+    monkeypatch.setattr(
+        fact_suggestions,
+        "fetch_source_audit_overview",
+        lambda dsn, tenant, project, start, end: {
+            "own_site_host": None,
+            "documents_total": 0,
+            "own_site_documents": 0,
+            "own_site_share": None,
+        },
+    )
+    monkeypatch.setattr(
+        fact_suggestions,
+        "fetch_site_audit_suggestions",
+        lambda dsn, tenant, project: {"rows": [], "batch_pub_id": None, "truncated": False},
+    )
 
-    def fake_window(dsn: str, tenant: str, project: str,
-                    start: datetime, end: datetime) -> tuple[list[dict[str, Any]], bool]:
+    def fake_window(
+        dsn: str, tenant: str, project: str, start: datetime, end: datetime
+    ) -> tuple[list[dict[str, Any]], bool]:
         # 与 run 版 fake 同一臂集合（同 eligible/run 谓词），投影形状与真 SQL 一致
         run = "run_base1" if start.month == 7 else "run_opt1"
-        return [{key: a[key] for key in _ANSWER_PROJECTION}
-                for a in _BASELINE_ANSWERS + _OPTIMIZED_ANSWERS
-                if a["run_pub_id"] == run and a["eligible"] and not a["degraded"]], False
+        return [
+            {key: a[key] for key in _ANSWER_PROJECTION}
+            for a in _BASELINE_ANSWERS + _OPTIMIZED_ANSWERS
+            if a["run_pub_id"] == run and a["eligible"] and not a["degraded"]
+        ], False
 
     monkeypatch.setattr(fact_suggestions, "fetch_answers_window", fake_window)
     section = fact_suggestions.compute_report_fact_suggestions(
-        dsn="postgresql://fake", tenant_pub_id=TENANT, project_pub_id=PROJECT,
-        window_days=7, now=NOW,
-        before_start="2026-07-01", before_end="2026-07-07",
-        after_start="2026-08-01", after_end="2026-08-07")["before_after"]
+        dsn="postgresql://fake",
+        tenant_pub_id=TENANT,
+        project_pub_id=PROJECT,
+        window_days=7,
+        now=NOW,
+        before_start="2026-07-01",
+        before_end="2026-07-07",
+        after_start="2026-08-01",
+        after_end="2026-08-07",
+    )["before_after"]
     assert section["status"] == "ok"
     section_rows = {r["extra"]["metric_name"]: r for r in section["fact_rows"]}
 
@@ -462,10 +551,15 @@ def test_result_aggregate_matches_report_before_after_section(
         assert endpoint_row["denominator"] == row["denominator"]
         assert endpoint_row["method"] == row["method"]
         assert endpoint_row["domain"] == row["domain"]
-        for key in ("before", "after", "before_numerator", "denominators",
-                    "before_of_mentions", "after_of_mentions"):
-            assert endpoint_row["extra"].get(key) == row["extra"].get(key), (
-                f"{name}.{key}")
+        for key in (
+            "before",
+            "after",
+            "before_numerator",
+            "denominators",
+            "before_of_mentions",
+            "after_of_mentions",
+        ):
+            assert endpoint_row["extra"].get(key) == row["extra"].get(key), f"{name}.{key}"
 
 
 # ── 诚实边界 ─────────────────────────────────────────────────────────────────
@@ -474,7 +568,7 @@ def test_result_insufficient_when_arm_empty(monkeypatch: pytest.MonkeyPatch) -> 
     _override_principal()
     store = _FakeStore()
     store.runs.update({"run_base1": PROJECT, "run_opt1": PROJECT})
-    store.answers.extend(_OPTIMIZED_ANSWERS)               # 只有优化臂有数据
+    store.answers.extend(_OPTIMIZED_ANSWERS)  # 只有优化臂有数据
     _patch_db(monkeypatch, store)
     _patch_project_and_extracts(monkeypatch, _EXTRACTS)
     pub_id = _post(_create_body()).json()["pub_id"]
@@ -482,10 +576,12 @@ def test_result_insufficient_when_arm_empty(monkeypatch: pytest.MonkeyPatch) -> 
     result = _result(pub_id)["result"]
     assert result["status"] == "insufficient"
     assert result["insufficient_reasons"] == ["before_no_answers"]
-    assert result["aggregate"]["metrics"] == []            # INV-32 零合成
-    assert result["questions"] == []                       # 无答案级配对题
-    assert result["unpaired"] == {"baseline_only": [], "optimized_only": [
-        "仅优化题", "网络安全厂商推荐", "覆盖缺失题"]}   # sorted 按码位序
+    assert result["aggregate"]["metrics"] == []  # INV-32 零合成
+    assert result["questions"] == []  # 无答案级配对题
+    assert result["unpaired"] == {
+        "baseline_only": [],
+        "optimized_only": ["仅优化题", "网络安全厂商推荐", "覆盖缺失题"],
+    }  # sorted 按码位序
     assert result["coverage"]["before_answers"] == 0
 
 
@@ -495,8 +591,9 @@ def test_result_domain_unset_400(monkeypatch: pytest.MonkeyPatch) -> None:
     store = _FakeStore()
     store.runs.update({"run_base1": PROJECT, "run_opt1": PROJECT})
     _patch_db(monkeypatch, store)
-    _patch_project_and_extracts(monkeypatch, _EXTRACTS,
-                                project={**_PROJECT, "brandrank_domain": None})
+    _patch_project_and_extracts(
+        monkeypatch, _EXTRACTS, project={**_PROJECT, "brandrank_domain": None}
+    )
     pub_id = _post(_create_body()).json()["pub_id"]
     resp = client.get(f"/api/v2/analytics/comparisons/{pub_id}")
     assert resp.status_code == 400

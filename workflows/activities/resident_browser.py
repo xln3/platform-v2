@@ -197,7 +197,9 @@ class _BrowserFenceLock:
         remaining = None if deadline is None else max(deadline - time.monotonic(), 0.0)
         try:
             token = _db_fence_acquire(
-                self._platform, holder, _env_float("GEO_BROWSER_FENCE_TTL_S", _FENCE_TTL_S),
+                self._platform,
+                holder,
+                _env_float("GEO_BROWSER_FENCE_TTL_S", _FENCE_TTL_S),
                 remaining,
             )
         except Exception:
@@ -229,9 +231,7 @@ class _BrowserFenceLock:
                         fencing_token=token,
                     )
         except Exception as exc:  # 释放失败不炸：本地锁必须解开，DB 租约靠 TTL 回收
-            log.warning(
-                "browser_fence_release_failed", platform=self._platform, error=str(exc)
-            )
+            log.warning("browser_fence_release_failed", platform=self._platform, error=str(exc))
         finally:
             self._local.release()
 

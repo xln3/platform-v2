@@ -302,21 +302,36 @@ def render_pdf(title: str, sections: Sequence[Mapping[str, object]]) -> bytes:
             "GeoTitle", fontName=base_font, fontSize=20, leading=26, spaceAfter=10 * mm
         ),
         "heading": ParagraphStyle(
-            "GeoHeading", fontName=base_font, fontSize=14, leading=18, spaceBefore=6 * mm,
+            "GeoHeading",
+            fontName=base_font,
+            fontSize=14,
+            leading=18,
+            spaceBefore=6 * mm,
             spaceAfter=2 * mm,
         ),
         "body": ParagraphStyle(
             "GeoBody", fontName=base_font, fontSize=10.5, leading=15, spaceAfter=2 * mm
         ),
         "kpi_value": ParagraphStyle(
-            "GeoKpiValue", fontName=base_font, fontSize=24, leading=28, textColor=colors.HexColor("#102a43")
+            "GeoKpiValue",
+            fontName=base_font,
+            fontSize=24,
+            leading=28,
+            textColor=colors.HexColor("#102a43"),
         ),
         "trace": ParagraphStyle(
-            "GeoTrace", fontName=base_font, fontSize=7.5, leading=10,
-            textColor=colors.HexColor("#9aa5b1"), spaceAfter=4 * mm,
+            "GeoTrace",
+            fontName=base_font,
+            fontSize=7.5,
+            leading=10,
+            textColor=colors.HexColor("#9aa5b1"),
+            spaceAfter=4 * mm,
         ),
         "note": ParagraphStyle(
-            "GeoNote", fontName=base_font, fontSize=9, leading=12,
+            "GeoNote",
+            fontName=base_font,
+            fontSize=9,
+            leading=12,
             textColor=colors.HexColor("#9aa5b1"),
         ),
     }
@@ -385,11 +400,16 @@ def _pdf_chart_flowables(
         )
         return [
             table,
-            Paragraph(_para_text(f"{_NO_CHART_DATA_NOTE}，已按原始数据点列表呈现。"), styles["note"]),
+            Paragraph(
+                _para_text(f"{_NO_CHART_DATA_NOTE}，已按原始数据点列表呈现。"), styles["note"]
+            ),
             Spacer(1, 2 * mm),
         ]
     if not points:
-        return [Paragraph(_para_text(f"{_NO_CHART_DATA_NOTE}。"), styles["note"]), Spacer(1, 2 * mm)]
+        return [
+            Paragraph(_para_text(f"{_NO_CHART_DATA_NOTE}。"), styles["note"]),
+            Spacer(1, 2 * mm),
+        ]
     drawing = Drawing(170 * mm, 60 * mm)
     chart = VerticalBarChart()
     chart.x = 12 * mm

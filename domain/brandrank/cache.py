@@ -21,6 +21,7 @@ s06_0014 起抽取的权威落账在 ``analytics.answer_brand_extract`` 表（fa
 缓存目录默认 ``<platform-v2>/runtime/brandrank-extract``，env
 ``GEO_BRANDRANK_EXTRACT_CACHE_DIR`` 可覆盖（测试指 tmp_path）。
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -60,12 +61,20 @@ def load(key: str, *, base: Path | None = None) -> dict[str, Any] | None:
         return None
     brands = entry.get("brands")
     if not isinstance(brands, list) or not all(isinstance(b, str) for b in brands):
-        return None                                 # 形状不符 → 诚实重抽
+        return None  # 形状不符 → 诚实重抽
     return entry
 
 
-def store(key: str, *, brands: list[str], model: str, status: str,
-          error: str | None = None, domain: str, base: Path | None = None) -> None:
+def store(
+    key: str,
+    *,
+    brands: list[str],
+    model: str,
+    status: str,
+    error: str | None = None,
+    domain: str,
+    base: Path | None = None,
+) -> None:
     """写缓存（ok/failed 都落；failed 供审计，load 不命中它）。原子换名防半截文件。"""
     root = base or cache_dir()
     root.mkdir(parents=True, exist_ok=True)

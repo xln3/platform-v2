@@ -130,9 +130,7 @@ class _BridgeDown(Exception):
     pass
 
 
-def _bridge(
-    port: int, method: str, path: str, *, content: bytes | None = None
-) -> httpx.Response:
+def _bridge(port: int, method: str, path: str, *, content: bytes | None = None) -> httpx.Response:
     # trust_env=False：宿主机可能有系统代理 env，127.0.0.1 绝不能走代理。
     try:
         return httpx.request(

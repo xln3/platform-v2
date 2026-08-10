@@ -7,6 +7,7 @@ fetch_source_audit_overview/fetch_site_audit_suggestions）与 brandrank_service
 覆盖：W3 方向分组比率/典型案例排序与 T1 事实核查挂载/表未就绪降级；W2 官网引用率、
 契约 A1 采纳率三键（有值/显式 None/缺键）与 T2 建议最新批次/表未就绪降级。
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -30,56 +31,94 @@ _PROJECT = {
 }
 
 
-def _judgment(pub_id: str, subject: str, target: str, *, disparagement: bool,
-              confidence: float | None, platform: str = "doubao",
-              subject_type: str = "answer", subject_pub_id: str = "col_x",
-              source_url: str | None = None) -> dict[str, Any]:
+def _judgment(
+    pub_id: str,
+    subject: str,
+    target: str,
+    *,
+    disparagement: bool,
+    confidence: float | None,
+    platform: str = "doubao",
+    subject_type: str = "answer",
+    subject_pub_id: str = "col_x",
+    source_url: str | None = None,
+) -> dict[str, Any]:
     return {
-        "judgment_pub_id": pub_id, "subject_type": subject_type,
-        "subject_pub_id": subject_pub_id, "platform": platform,
-        "subject_brand": subject, "target_brand": target,
+        "judgment_pub_id": pub_id,
+        "subject_type": subject_type,
+        "subject_pub_id": subject_pub_id,
+        "platform": platform,
+        "subject_brand": subject,
+        "target_brand": target,
         "attitude": "negative" if disparagement else "neutral",
         "disparagement": disparagement,
         "evidence_quote": f"引文{pub_id}",
         "confidence": Decimal(str(confidence)) if confidence is not None else None,
-        "method": "llm_judge", "created_at": NOW, "source_url": source_url,
+        "method": "llm_judge",
+        "created_at": NOW,
+        "source_url": source_url,
     }
 
 
 @pytest.fixture(autouse=True)
 def _seams(monkeypatch: pytest.MonkeyPatch) -> None:
     """缺省接缝：项目存在、窗内零答案零判定零文档（各用例按需再 monkeypatch）。"""
-    monkeypatch.setattr(brandrank_service, "fetch_project",
-                        lambda dsn, tenant, project: dict(_PROJECT))
-    monkeypatch.setattr(brandrank_service, "fetch_answers",
-                        lambda dsn, tenant, project, since: ([], False))
-    monkeypatch.setattr(brandrank_service, "fetch_brand_extracts",
-                        lambda dsn, tenant, ids, domain: {})
-    monkeypatch.setattr(fact_suggestions, "fetch_disparagement_judgments",
-                        lambda dsn, tenant, project, since, until: ([], False))
-    monkeypatch.setattr(fact_suggestions, "fetch_disparagement_factchecks",
-                        lambda dsn, tenant, project, ids: {})
-    monkeypatch.setattr(fact_suggestions, "fetch_source_audit_overview",
-                        lambda dsn, tenant, project, start, end: {
-                            "own_site_host": None, "documents_total": 0,
-                            "own_site_documents": 0, "own_site_share": None})
-    monkeypatch.setattr(fact_suggestions, "fetch_site_audit_suggestions",
-                        lambda dsn, tenant, project: {"rows": [], "batch_pub_id": None,
-                                                      "truncated": False})
+    monkeypatch.setattr(
+        brandrank_service, "fetch_project", lambda dsn, tenant, project: dict(_PROJECT)
+    )
+    monkeypatch.setattr(
+        brandrank_service, "fetch_answers", lambda dsn, tenant, project, since: ([], False)
+    )
+    monkeypatch.setattr(
+        brandrank_service, "fetch_brand_extracts", lambda dsn, tenant, ids, domain: {}
+    )
+    monkeypatch.setattr(
+        fact_suggestions,
+        "fetch_disparagement_judgments",
+        lambda dsn, tenant, project, since, until: ([], False),
+    )
+    monkeypatch.setattr(
+        fact_suggestions, "fetch_disparagement_factchecks", lambda dsn, tenant, project, ids: {}
+    )
+    monkeypatch.setattr(
+        fact_suggestions,
+        "fetch_source_audit_overview",
+        lambda dsn, tenant, project, start, end: {
+            "own_site_host": None,
+            "documents_total": 0,
+            "own_site_documents": 0,
+            "own_site_share": None,
+        },
+    )
+    monkeypatch.setattr(
+        fact_suggestions,
+        "fetch_site_audit_suggestions",
+        lambda dsn, tenant, project: {"rows": [], "batch_pub_id": None, "truncated": False},
+    )
 
 
 def _compute() -> dict[str, Any]:
     return fact_suggestions.compute_report_fact_suggestions(
-        dsn="postgresql://fake", tenant_pub_id=TENANT, project_pub_id=PROJECT,
-        window_days=7, now=NOW)
+        dsn="postgresql://fake",
+        tenant_pub_id=TENANT,
+        project_pub_id=PROJECT,
+        window_days=7,
+        now=NOW,
+    )
 
 
 # ── W3 拉踩核查 ──────────────────────────────────────────────────────────────
 def test_w3_rate_by_direction_and_cases(monkeypatch: pytest.MonkeyPatch) -> None:
     judgments = [
         # 竞品 → 己方：抹黑己方（disparagement）
-        _judgment("jdg_1", "奇安信", "盛邦安全", disparagement=True, confidence=0.9,
-                  source_url="https://src.example.com/p?q=1"),
+        _judgment(
+            "jdg_1",
+            "奇安信",
+            "盛邦安全",
+            disparagement=True,
+            confidence=0.9,
+            source_url="https://src.example.com/p?q=1",
+        ),
         # 第三方 → 己方：非拉踩（进分母不进分子）
         _judgment("jdg_2", "某自媒体", "盛邦安全", disparagement=False, confidence=0.3),
         # 己方 → 竞品：己方拉踩竞品
@@ -87,20 +126,31 @@ def test_w3_rate_by_direction_and_cases(monkeypatch: pytest.MonkeyPatch) -> None
         # 两侧都非项目品牌：不计方向，但 disparagement=true 仍进案例（方向如实 null）
         _judgment("jdg_4", "甲厂商", "乙厂商", disparagement=True, confidence=0.7),
     ]
-    monkeypatch.setattr(fact_suggestions, "fetch_disparagement_judgments",
-                        lambda dsn, t, p, since, until: (judgments, False))
-    monkeypatch.setattr(fact_suggestions, "fetch_disparagement_factchecks",
-                        lambda dsn, t, p, ids: {
-                            "jdg_1": {"verdict": "supported", "summary": "官网公告可证实",
-                                      "source_url": "https://www.example.com/a?utm=1"}})
+    monkeypatch.setattr(
+        fact_suggestions,
+        "fetch_disparagement_judgments",
+        lambda dsn, t, p, since, until: (judgments, False),
+    )
+    monkeypatch.setattr(
+        fact_suggestions,
+        "fetch_disparagement_factchecks",
+        lambda dsn, t, p, ids: {
+            "jdg_1": {
+                "verdict": "supported",
+                "summary": "官网公告可证实",
+                "source_url": "https://www.example.com/a?utm=1",
+            }
+        },
+    )
 
     w3 = _compute()["w3_disparagement"]
     assert w3["status"] == "ok"
     assert w3["n_judgments"] == 4 and w3["n_disparagement"] == 3
     assert w3["n_undirected"] == 1 and w3["fact_check_available"] is True
 
-    rates = {r["extra"]["direction"]: r
-             for r in w3["fact_rows"] if r["metric"] == "disparagement_rate"}
+    rates = {
+        r["extra"]["direction"]: r for r in w3["fact_rows"] if r["metric"] == "disparagement_rate"
+    }
     own = rates["smear_on_own"]
     assert own["value"] == 50.0 and own["numerator"] == 1 and own["denominator"] == 2
     comp = rates["own_smear_on_competitor"]
@@ -122,24 +172,29 @@ def test_w3_rate_by_direction_and_cases(monkeypatch: pytest.MonkeyPatch) -> None
     assert first["extra"]["source_url"] == "https://src.example.com/p"
     # T1 事实核查挂载（报价单「逐条事实核查与证据链」）
     assert first["extra"]["fact_check"] == {
-        "verdict": "supported", "summary": "官网公告可证实",
-        "source_url": "https://www.example.com/a"}
-    assert cases[1]["extra"]["fact_check"] is None      # T1 无该行 → null（不编造）
-    assert cases[2]["extra"]["direction"] is None       # 无方向如实 null
+        "verdict": "supported",
+        "summary": "官网公告可证实",
+        "source_url": "https://www.example.com/a",
+    }
+    assert cases[1]["extra"]["fact_check"] is None  # T1 无该行 → null（不编造）
+    assert cases[2]["extra"]["direction"] is None  # 无方向如实 null
 
 
 def test_w3_degrades_when_factcheck_table_absent(monkeypatch: pytest.MonkeyPatch) -> None:
-    judgments = [_judgment("jdg_1", "奇安信", "盛邦安全",
-                           disparagement=True, confidence=0.9)]
-    monkeypatch.setattr(fact_suggestions, "fetch_disparagement_judgments",
-                        lambda dsn, t, p, since, until: (judgments, False))
+    judgments = [_judgment("jdg_1", "奇安信", "盛邦安全", disparagement=True, confidence=0.9)]
+    monkeypatch.setattr(
+        fact_suggestions,
+        "fetch_disparagement_judgments",
+        lambda dsn, t, p, since, until: (judgments, False),
+    )
     # 契约表 T1 未就绪
-    monkeypatch.setattr(fact_suggestions, "fetch_disparagement_factchecks",
-                        lambda dsn, t, p, ids: None)
+    monkeypatch.setattr(
+        fact_suggestions, "fetch_disparagement_factchecks", lambda dsn, t, p, ids: None
+    )
     w3 = _compute()["w3_disparagement"]
     assert w3["status"] == "ok" and w3["fact_check_available"] is False
     case = next(r for r in w3["fact_rows"] if r["metric"] == "disparagement_case")
-    assert case["extra"]["fact_check"] is None          # 优雅降级，不炸不编造
+    assert case["extra"]["fact_check"] is None  # 优雅降级，不炸不编造
 
 
 def test_w3_insufficient_when_no_judgments() -> None:
@@ -152,41 +207,58 @@ def test_w3_insufficient_when_no_judgments() -> None:
 # ── W2 官网能效 ──────────────────────────────────────────────────────────────
 def _overview(**overrides: Any) -> dict[str, Any]:
     base: dict[str, Any] = {
-        "own_site_host": "www.webray.com.cn", "documents_total": 40,
-        "own_site_documents": 1, "own_site_share": 0.025,
+        "own_site_host": "www.webray.com.cn",
+        "documents_total": 40,
+        "own_site_documents": 1,
+        "own_site_share": 0.025,
     }
     base.update(overrides)
     return base
 
 
-def test_w2_share_and_adoption_with_contract_keys(
-        monkeypatch: pytest.MonkeyPatch) -> None:
+def test_w2_share_and_adoption_with_contract_keys(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        fact_suggestions, "fetch_source_audit_overview",
+        fact_suggestions,
+        "fetch_source_audit_overview",
         lambda dsn, t, p, start, end: _overview(
-            own_site_transcript_total=10, own_site_transcript_accurate=8,
-            own_site_adoption_rate=0.8))
+            own_site_transcript_total=10, own_site_transcript_accurate=8, own_site_adoption_rate=0.8
+        ),
+    )
     monkeypatch.setattr(
-        fact_suggestions, "fetch_site_audit_suggestions",
+        fact_suggestions,
+        "fetch_site_audit_suggestions",
         lambda dsn, t, p: {
             "batch_pub_id": "sab_1",
             "rows": [
-                {"pub_id": "sas_1", "category": "citability", "severity": "high",
-                 "title": "缺少结构化数据", "detail": "产品页未提供 JSON-LD",
-                 "evidence_document_pub_id": "doc_1", "model": "m1"},
-                {"pub_id": "sas_2", "category": "content_coverage", "severity": "low",
-                 "title": "FAQ 覆盖不足", "detail": "竞品对比场景无官网内容",
-                 "evidence_document_pub_id": None, "model": "m1"},
+                {
+                    "pub_id": "sas_1",
+                    "category": "citability",
+                    "severity": "high",
+                    "title": "缺少结构化数据",
+                    "detail": "产品页未提供 JSON-LD",
+                    "evidence_document_pub_id": "doc_1",
+                    "model": "m1",
+                },
+                {
+                    "pub_id": "sas_2",
+                    "category": "content_coverage",
+                    "severity": "low",
+                    "title": "FAQ 覆盖不足",
+                    "detail": "竞品对比场景无官网内容",
+                    "evidence_document_pub_id": None,
+                    "model": "m1",
+                },
             ],
             "truncated": False,
-        })
+        },
+    )
     w2 = _compute()["w2_site_audit"]
     assert w2["status"] == "ok"
     assert w2["own_site_host"] == "www.webray.com.cn"
     assert w2["suggestions_available"] is True and w2["suggestion_batch_pub_id"] == "sab_1"
 
     share = next(r for r in w2["fact_rows"] if r["metric"] == "own_site_citation_share")
-    assert share["value"] == 2.5                        # 0.025 × 100
+    assert share["value"] == 2.5  # 0.025 × 100
     assert share["numerator"] == 1 and share["denominator"] == 40
     assert share["method"] == "w2-site-audit-v1"
 
@@ -205,11 +277,11 @@ def test_w2_share_and_adoption_with_contract_keys(
     assert suggestions[0]["extra"]["batch_pub_id"] == "sab_1"
 
 
-def test_w2_adoption_degrades_when_contract_keys_missing(
-        monkeypatch: pytest.MonkeyPatch) -> None:
+def test_w2_adoption_degrades_when_contract_keys_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     # Worker B 未加键
-    monkeypatch.setattr(fact_suggestions, "fetch_source_audit_overview",
-                        lambda dsn, t, p, start, end: _overview())
+    monkeypatch.setattr(
+        fact_suggestions, "fetch_source_audit_overview", lambda dsn, t, p, start, end: _overview()
+    )
     w2 = _compute()["w2_site_audit"]
     adoption = next(r for r in w2["fact_rows"] if r["metric"] == "own_site_adoption_rate")
     assert adoption["value"] is None
@@ -217,13 +289,15 @@ def test_w2_adoption_degrades_when_contract_keys_missing(
     assert adoption["extra"]["note"] == "adoption_metrics_unavailable"
 
 
-def test_w2_adoption_none_when_no_transcript_audits(
-        monkeypatch: pytest.MonkeyPatch) -> None:
+def test_w2_adoption_none_when_no_transcript_audits(monkeypatch: pytest.MonkeyPatch) -> None:
     # 键在、显式 None
-    monkeypatch.setattr(fact_suggestions, "fetch_source_audit_overview",
-                        lambda dsn, t, p, start, end: _overview(
-                            own_site_transcript_total=0, own_site_transcript_accurate=0,
-                            own_site_adoption_rate=None))
+    monkeypatch.setattr(
+        fact_suggestions,
+        "fetch_source_audit_overview",
+        lambda dsn, t, p, start, end: _overview(
+            own_site_transcript_total=0, own_site_transcript_accurate=0, own_site_adoption_rate=None
+        ),
+    )
     w2 = _compute()["w2_site_audit"]
     adoption = next(r for r in w2["fact_rows"] if r["metric"] == "own_site_adoption_rate")
     assert adoption["value"] is None
@@ -232,12 +306,11 @@ def test_w2_adoption_none_when_no_transcript_audits(
 
 def test_w2_no_documents_and_t2_absent(monkeypatch: pytest.MonkeyPatch) -> None:
     # 契约表 T2 未就绪
-    monkeypatch.setattr(fact_suggestions, "fetch_site_audit_suggestions",
-                        lambda dsn, t, p: None)
+    monkeypatch.setattr(fact_suggestions, "fetch_site_audit_suggestions", lambda dsn, t, p: None)
     w2 = _compute()["w2_site_audit"]
     assert w2["suggestions_available"] is False
     assert w2["suggestion_batch_pub_id"] is None
     assert "no_source_documents" in w2["insufficient_reasons"]
     metrics_present = {r["metric"] for r in w2["fact_rows"]}
-    assert "own_site_citation_share" not in metrics_present   # 零分母不出行
-    assert "site_audit_suggestion" not in metrics_present     # 表未就绪不编造
+    assert "own_site_citation_share" not in metrics_present  # 零分母不出行
+    assert "site_audit_suggestion" not in metrics_present  # 表未就绪不编造

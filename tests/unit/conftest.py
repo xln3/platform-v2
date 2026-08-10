@@ -26,9 +26,7 @@ for _key, _port, _exit_gb in (
     ("yiyan_sh", 19226, "310000"),
     ("yuanbao_tj", 19227, "120000"),
 ):
-    os.environ.setdefault(
-        f"GEO_BROWSER_{_key.upper()}_CDP_URL", f"http://127.0.0.1:{_port}"
-    )
+    os.environ.setdefault(f"GEO_BROWSER_{_key.upper()}_CDP_URL", f"http://127.0.0.1:{_port}")
     os.environ.setdefault(f"GEO_BROWSER_{_key.upper()}_EXIT_GB", _exit_gb)
 os.environ.setdefault(
     "GEO_BROWSER_INSTANCES", "doubao_sh,deepseek_tj,tongyi_bj,yiyan_sh,yuanbao_tj"

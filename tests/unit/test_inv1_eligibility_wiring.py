@@ -60,9 +60,7 @@ class TestResolveMeasurementEligibility:
             ("observed_gb_code", ""),
         ],
     )
-    def test_new_path_each_failing_limb_marks_ineligible(
-        self, key: str, bad_value: str
-    ) -> None:
+    def test_new_path_each_failing_limb_marks_ineligible(self, key: str, bad_value: str) -> None:
         eligible, _degraded, stamped = resolve_measurement_eligibility(
             {**_VALID_PROVENANCE, key: bad_value}
         )
@@ -114,9 +112,7 @@ class TestFanoutProvenanceStamping:
         assert dimensions["run_pub_id"] == "run_x"
         assert dimensions["config_version_pub_id"] == "mcv_y"
 
-    def test_undeclared_platform_exit_is_unverified(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_undeclared_platform_exit_is_unverified(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv(ENV_MEASUREMENT_EXIT_GB_MAP, "doubao:310000")
         assert _measurement_geo_provenance("tongyi") == {
             "geo_source": "unverified",
@@ -137,9 +133,7 @@ class TestFanoutProvenanceStamping:
 
     # ── 浏览器矩阵化（2026-08-09 起）：env 键升级为实例键，任务实测实例优先 ──
 
-    def test_instance_key_takes_priority_over_slug(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_instance_key_takes_priority_over_slug(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv(
             ENV_MEASUREMENT_EXIT_GB_MAP,
             "doubao_sh:310000,doubao_bj:110000,tongyi_bj:110000",
@@ -158,9 +152,7 @@ class TestFanoutProvenanceStamping:
         assert dimensions["geo_source"] == "observed_gb_code"
         assert dimensions["observed_gb_code"] == "110000"
 
-    def test_slug_fallback_when_no_instance_recorded(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_slug_fallback_when_no_instance_recorded(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """无实例记录（per-task 老路径/历史负载）→ 回退 adapter slug 查表（旧行为）。"""
         monkeypatch.setenv(ENV_MEASUREMENT_EXIT_GB_MAP, "doubao:310000")
         assert _measurement_geo_provenance("doubao")["observed_gb_code"] == "310000"
@@ -187,12 +179,13 @@ class TestTaskMatrix:
 
     def test_matrix_omits_browser_instance_when_absent(self) -> None:
         """无实例记录 → 整个键不写出（旧 payload 逐字节不变，replay drift 零漂移）。"""
-        matrix = _task_matrix(
-            CollectionTaskInput("bk", "q", "doubao", "CN-SH", "normal", "doubao")
-        )
+        matrix = _task_matrix(CollectionTaskInput("bk", "q", "doubao", "CN-SH", "normal", "doubao"))
         assert matrix == {
-            "query": "q", "model": "doubao", "region": "CN-SH",
-            "mode": "normal", "adapter": "doubao",
+            "query": "q",
+            "model": "doubao",
+            "region": "CN-SH",
+            "mode": "normal",
+            "adapter": "doubao",
         }
         assert _task_matrix(None) == {}
 
@@ -202,7 +195,7 @@ class TestTaskMatrix:
             "doubao_sh",
         )
         assert matrix["browser_instance"] == "doubao_sh"
-        assert matrix["adapter"] == "doubao"      # 既有键不丢
+        assert matrix["adapter"] == "doubao"  # 既有键不丢
 
 
 def test_metric_daily_lock_key_is_unique_constraint_concatenation() -> None:

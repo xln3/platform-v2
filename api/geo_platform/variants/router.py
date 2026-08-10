@@ -420,9 +420,7 @@ def confirmed_config_draft(
     principal.require("project:read")
     repository = TenantRepository(session, principal.tenant_pub_id)
     project = _project(session, repository.tenant.id, project_pub_id)
-    draft = service.confirmed_draft(
-        session, tenant_id=repository.tenant.id, project=project
-    )
+    draft = service.confirmed_draft(session, tenant_id=repository.tenant.id, project=project)
     return DraftResponse(
         name=str(draft["name"]),
         items=[DraftItem(**item) for item in draft["items"]],

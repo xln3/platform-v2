@@ -258,9 +258,7 @@ def aggregate_seeds(
                     summary.seeds_dropped_dlp += 1
         if not task.answer_text:
             continue
-        for question in textutil.extract_user_questions(task.answer_text)[
-            :_MAX_QUESTIONS_PER_TASK
-        ]:
+        for question in textutil.extract_user_questions(task.answer_text)[:_MAX_QUESTIONS_PER_TASK]:
             if new_seeds >= _MAX_NEW_SEEDS_PER_RUN:
                 break
             try:
@@ -682,9 +680,7 @@ def confirm_variants(
     }
 
 
-def confirmed_draft(
-    session: Session, *, tenant_id: uuid.UUID, project: Project
-) -> dict[str, Any]:
+def confirmed_draft(session: Session, *, tenant_id: uuid.UUID, project: Project) -> dict[str, Any]:
     """INV-25 出口：仅 confirmed 变体可组装为 config draft 的 QueryGroup 形状。
 
     优先级：零提及回炉（recycled_zero_mention）=10，其余=100；同优先级按确认时间。

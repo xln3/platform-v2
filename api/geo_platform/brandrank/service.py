@@ -21,6 +21,7 @@ failed 条不进品牌分析但进信源分析，失败计数在 extraction 账�
   （API 503 llm_disabled）；全部命中表/缓存或窗内零答案时无需 LLM，照常返回并如实披露。
 - 窗内零答案 → insufficient=true 的空分析（如实空，不假装有数据）。
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
@@ -39,9 +40,9 @@ from ..tenancy.psycopg import tenant_connection
 
 log = structlog.getLogger()
 
-_MAX_ANSWERS = 2000          # 单窗防御性上限（超出截断并披露 truncated）
-_MAX_COMPETITORS = 20        # 照旧库 api.py 口径
-MAX_TOP_NS = 8               # 照旧库 api.py 口径；top_n 取值 1..50
+_MAX_ANSWERS = 2000  # 单窗防御性上限（超出截断并披露 truncated）
+_MAX_COMPETITORS = 20  # 照旧库 api.py 口径
+MAX_TOP_NS = 8  # 照旧库 api.py 口径；top_n 取值 1..50
 
 
 class ProjectNotFound(LookupError):
@@ -71,9 +72,7 @@ class LlmDisabled(RuntimeError):
 
 # ── DB 读取接缝（单测 monkeypatch 点；生产走真 PG）──────────────────────────
 @contextmanager
-def _platform_tenant_connection(
-    dsn: str, tenant_pub_id: str
-) -> Iterator[psycopg.Connection[Any]]:
+def _platform_tenant_connection(dsn: str, tenant_pub_id: str) -> Iterator[psycopg.Connection[Any]]:
     """platform schema 读连接：解析 tenant uuid 并置 app.tenant_id + app.tenant_pub_id。
 
     照 analytics/service.py 同款双 selector 口径（platform.* 表 RLS 按 app.tenant_id）。
@@ -136,9 +135,7 @@ def fetch_project(dsn: str, tenant_pub_id: str, project_pub_id: str) -> dict[str
     }
 
 
-def fetch_project_brandrank_domain(
-    dsn: str, tenant_pub_id: str, project_pub_id: str
-) -> str | None:
+def fetch_project_brandrank_domain(dsn: str, tenant_pub_id: str, project_pub_id: str) -> str | None:
     """项目级 brandrank domain 真源（fanout extract_brands_activity 的取值缝）。
 
     租户/项目不存在或未设置 → None（调用方落 failed/domain_unset 标记，
@@ -157,7 +154,7 @@ def fetch_project_brandrank_domain(
                 (project_pub_id,),
             ).fetchone()
     except LookupError:
-        return None                                # tenant_not_found ≈ 未设置
+        return None  # tenant_not_found ≈ 未设置
     if row is None:
         return None
     value = (row["brandrank_domain"] or "").strip()
@@ -247,8 +244,11 @@ def fetch_brand_extracts(
 
 # ── 编排 ──────────────────────────────────────────────────────────────────
 def resolve_rules(
-    domain: str | None, industry: str | None, project_domain: str | None = None,
-    *, allow_default: bool = True,
+    domain: str | None,
+    industry: str | None,
+    project_domain: str | None = None,
+    *,
+    allow_default: bool = True,
 ) -> tuple[DomainRules, str]:
     """domain 解析优先级：显式 domain > 显式 industry（fail-loud 映射）> 项目真源
     （project.brandrank_domain，s06_0014）> 缺省包。
@@ -277,8 +277,8 @@ def resolve_rules(
             raise UnknownDomain(str(exc)) from exc
     if not allow_default:
         raise DomainUnresolved(
-            "未给出显式 domain/industry 且项目未设置 brandrank_domain"
-            "（规则包真源），无法确定分析域")
+            "未给出显式 domain/industry 且项目未设置 brandrank_domain（规则包真源），无法确定分析域"
+        )
     return load_domain(DEFAULT_DOMAIN), "default"
 
 
@@ -307,7 +307,8 @@ def compute_brand_visibility(
     if project is None:
         raise ProjectNotFound(project_pub_id)
     rules, domain_source = resolve_rules(
-        domain, industry, project.get("brandrank_domain"), allow_default=False)
+        domain, industry, project.get("brandrank_domain"), allow_default=False
+    )
     resolved_category = (category or "").strip() or rules.category
     resolved_top_ns = tuple(top_ns) if top_ns else metrics.DEFAULT_TOP_NS
     resolved_target = (target_brand or "").strip() or (
@@ -356,22 +357,33 @@ def compute_brand_visibility(
             raise LlmDisabled(extract.llm_status(rules))
         factory = client_factory or extract.default_client
         client = factory()
-        tasks = [(i, a.get("response_text") or "", resolved_category) for i, (a, _k) in
-                 enumerate(pending)]
+        tasks = [
+            (i, a.get("response_text") or "", resolved_category)
+            for i, (a, _k) in enumerate(pending)
+        ]
         for idx, brands, error in extract.extract_brands_batch(
-                client, tasks, model=model or "", rules=rules):
+            client, tasks, model=model or "", rules=rules
+        ):
             answer, key = pending[idx]
             if error is None:
-                cache.store(key, brands=brands or [], model=model or "", status="ok",
-                            domain=rules.domain)
+                cache.store(
+                    key, brands=brands or [], model=model or "", status="ok", domain=rules.domain
+                )
                 entries[answer["pub_id"]] = list(brands or [])
                 n_ok_new += 1
             else:
-                cache.store(key, brands=[], model=model or "", status="failed",
-                            error=error, domain=rules.domain)
+                cache.store(
+                    key,
+                    brands=[],
+                    model=model or "",
+                    status="failed",
+                    error=error,
+                    domain=rules.domain,
+                )
                 n_failed_new += 1
-                log.warning("brandrank_extract_failed", answer_pub_id=answer["pub_id"],
-                            error=error[:200])
+                log.warning(
+                    "brandrank_extract_failed", answer_pub_id=answer["pub_id"], error=error[:200]
+                )
 
     # ── 组装她的 brand_list 记录（仅抽取成功条）与信源记录（全部 eligible 条）──
     records: list[dict[str, Any]] = []
@@ -380,26 +392,32 @@ def compute_brand_visibility(
     for answer in answers:
         thinking_mode = adapter.mode_label(answer.get("mode") or "")
         for citation in citations.get(answer["pub_id"], []):
-            source_records.append({
-                **adapter.citation_to_source_entry(citation),
-                "thinking_mode": thinking_mode,
-                "ip": answer.get("region") or "",
-            })
+            source_records.append(
+                {
+                    **adapter.citation_to_source_entry(citation),
+                    "thinking_mode": thinking_mode,
+                    "ip": answer.get("region") or "",
+                }
+            )
         brands = entries.get(answer["pub_id"])
         if brands is None:
-            n_failed_total += 1                      # 无缓存=抽取失败，诚实剔除（INV-32）
+            n_failed_total += 1  # 无缓存=抽取失败，诚实剔除（INV-32）
             continue
         records.append(adapter.answer_to_brand_record(answer, brands))
 
     result = metrics.analyze(
-        records, source_records, rules=rules,
-        target_brand=resolved_target, competitors=resolved_competitors,
-        top_ns=resolved_top_ns)
-    result["insufficient"] = len(answers) == 0       # 0 条 eligible=数据不足（照报告 T1 语义）
-    result["extraction"] = {                         # 抽取账目披露（诚实边界）
+        records,
+        source_records,
+        rules=rules,
+        target_brand=resolved_target,
+        competitors=resolved_competitors,
+        top_ns=resolved_top_ns,
+    )
+    result["insufficient"] = len(answers) == 0  # 0 条 eligible=数据不足（照报告 T1 语义）
+    result["extraction"] = {  # 抽取账目披露（诚实边界）
         "n_answers": len(answers),
-        "table_ok": n_table_ok,                      # fanout 落账表命中（s06_0014）
-        "cached_ok": n_cache_ok,                     # 文件缓存命中（只读兜底）
+        "table_ok": n_table_ok,  # fanout 落账表命中（s06_0014）
+        "cached_ok": n_cache_ok,  # 文件缓存命中（只读兜底）
         "extracted_new": n_ok_new,
         "failed_new": n_failed_new,
         "failed_total": n_failed_total,

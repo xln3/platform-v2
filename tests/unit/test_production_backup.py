@@ -26,8 +26,15 @@ def test_runtime_state_copies_registry_verbatim(
     dest_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     reg = tmp_path / "reg.json"
-    payload = [{"phone": "13912345678", "carrier": "联通", "slot": "eSIM",
-                "remark": "eSIM_联通_+8613912345678", "ts": 1.0}]
+    payload = [
+        {
+            "phone": "13912345678",
+            "carrier": "联通",
+            "slot": "eSIM",
+            "remark": "eSIM_联通_+8613912345678",
+            "ts": 1.0,
+        }
+    ]
     reg.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     monkeypatch.setenv("GEO_OTP_REGISTRY_PATH", str(reg))
 
@@ -36,13 +43,15 @@ def test_runtime_state_copies_registry_verbatim(
 
     out = dest_dir / "runtime-reg.json"
     assert out.read_bytes() == reg.read_bytes()  # 逐字节一致
-    assert artifacts == [{
-        "file": "runtime-reg.json",
-        "component": "runtime_state",
-        "bytes": len(reg.read_bytes()),
-        "sha256": hashlib.sha256(reg.read_bytes()).hexdigest(),
-        "detail": f"verbatim copy of {reg} (durable operator state)",
-    }]
+    assert artifacts == [
+        {
+            "file": "runtime-reg.json",
+            "component": "runtime_state",
+            "bytes": len(reg.read_bytes()),
+            "sha256": hashlib.sha256(reg.read_bytes()).hexdigest(),
+            "detail": f"verbatim copy of {reg} (durable operator state)",
+        }
+    ]
 
 
 def test_runtime_state_missing_file_is_skip_not_failure(
