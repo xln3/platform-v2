@@ -5,10 +5,9 @@ import json
 import uuid
 from typing import Literal
 
+import structlog
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-
-import structlog
 
 from workflows.activities.collection import PLATFORM_MODE_CAPABILITIES, CollectionTaskInput
 
