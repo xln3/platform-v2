@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-07T17:49:15.791Z",
+  "generated_at": "2026-08-09T17:32:51.266Z",
   "production_url": "https://127.0.0.1:8443",
   "qualification": {
     "kind": "active_production_assets",
@@ -8,7 +8,7 @@
   "result": "passed",
   "identity": {
     "source": "legacy_http_only_session",
-    "legacy_role": "admin",
+    "legacy_role": "operator",
     "verified_v2_roles": [
       "admin"
     ],
