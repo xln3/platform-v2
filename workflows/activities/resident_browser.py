@@ -8,7 +8,11 @@ supervisor 管理生命周期），跨 run 复用同一会话。
 契约：
 - ``GEO_<PLATFORM>_CDP_URL``（如 ``http://127.0.0.1:19222``）非空 →
   ``connect_over_cdp`` attach；未配置 → 回退调用方自带的 launch（旧行为，
-  开发/测试与未接常驻的平台不受影响）。
+  开发/测试与未接常驻的平台不受影响）。2026-08-09 起 ``platform`` 实参可以是
+  **实例键**（``doubao_sh`` 等，浏览器矩阵化，见 browser_router.py）：实例键
+  优先读 ``GEO_BROWSER_<KEY>_CDP_URL``，未设置才回退 ``GEO_<PLATFORM>_CDP_URL``；
+  互斥锁/fence 同样以该 opaque 串为键（``platform.browser_fence`` 键列
+  String(80)，实例键直装无需迁移）。
 - attach 模式下浏览器**不归适配器关闭**：退出只断开 CDP 连接，不杀进程；
   profile/登录态归 supervisor 所有。
 - 平台互斥 = 进程内 ``threading.Lock`` 快速路径 + PG lease fencing
@@ -58,12 +62,24 @@ class BrowserBusyError(RuntimeError):
 
 
 def resident_cdp_url(platform: str) -> str | None:
-    """GEO_<PLATFORM>_CDP_URL（空串/未设置 → None，回退 launch）。"""
-    raw = os.environ.get(f"GEO_{platform.upper()}_CDP_URL", "").strip()
+    """CDP URL 解析（空串/未设置 → None，回退 launch）。
+
+    浏览器矩阵化（2026-08-09 起）：``platform`` 可以是实例键
+    （``doubao_sh`` 等，见 browser_router）——优先读
+    ``GEO_BROWSER_<KEY>_CDP_URL``；未设置时回退 ``GEO_<PLATFORM>_CDP_URL``
+    （旧平台 slug 直配，per-task 老路径/工具/历史部署行为逐字节不变）。
+    错误消息指明实际生效的变量名。
+    """
+    upper = platform.strip().upper()
+    name = f"GEO_BROWSER_{upper}_CDP_URL"
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        name = f"GEO_{upper}_CDP_URL"
+        raw = os.environ.get(name, "").strip()
     if not raw:
         return None
     if not raw.startswith(("http://", "https://")) or len(raw) > 200:
-        raise ValueError(f"GEO_{platform.upper()}_CDP_URL is not a valid http(s) URL")
+        raise ValueError(f"{name} is not a valid http(s) URL")
     return raw
 
 

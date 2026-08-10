@@ -39,9 +39,17 @@ with workflow.unsafe.imports_passed_through():
         DisparagementInput,
         judge_run_disparagement,
     )
+    from workflows.activities.disparagement_factcheck import (
+        FactcheckInput,
+        factcheck_disparagement_cases,
+    )
     from workflows.activities.own_site_snapshot import (
         OwnSiteSnapshotInput,
         capture_own_site_snapshots,
+    )
+    from workflows.activities.site_suggestions import (
+        SiteSuggestionsInput,
+        generate_site_audit_suggestions,
     )
     from workflows.activities.source_audit import (
         SourceAuditInput,
@@ -187,6 +195,49 @@ def plan_adapter_segments(
     return segments
 
 
+def plan_instance_segments(
+    tasks: list[CollectionTaskInput],
+) -> list[tuple[tuple[str, str], list[CollectionTaskInput]]]:
+    """adapter-batch-collect-v2 分组：按原顺序把 tasks 切成连续段，
+    ``((adapter_slug, region), items)``。
+
+    浏览器矩阵化（2026-08-09 起）：batch 段是「同平台同地域」的连续任务——
+    每段在 activity 侧经 browser_router 路由到对应该地域出口的常驻实例
+    （如 doubao+CN-SH → doubao_sh）；同平台不同地域 = 不同 batch，各用各的
+    实例。分组键用原始 region 串（workflow 侧不做 env 相关归一——归一在
+    activity 侧纯函数里）；``CN-SH`` 与 ``上海`` 会分两段但都路由到同一实例，
+    行为正确仅多一次分段。纯函数，workflow 重放确定。
+    """
+    segments: list[tuple[tuple[str, str], list[CollectionTaskInput]]] = []
+    for item in tasks:
+        key = ((item.adapter or "").strip().lower(), (item.region or "").strip())
+        if segments and segments[-1][0] == key:
+            segments[-1][1].append(item)
+        else:
+            segments.append((key, [item]))
+    return segments
+
+
+def plan_batch_segments(
+    patched_v2: bool,
+    tasks: list[CollectionTaskInput],
+) -> list[tuple[str, list[CollectionTaskInput]]]:
+    """adapter-batch-collect-v2 分组门控纯函数（可单测，与 gate_captcha_pause 同款）。
+
+    workflow 侧 ``workflow.patched("adapter-batch-collect-v2")`` 在段循环前恰好
+    调一次传入本函数（重放确定性）；分组判定本身与 sandbox 解耦：
+
+    - 未打补丁的历史重放 → ``plan_adapter_segments`` 旧分组（仅按 adapter），
+      旧 run 重放零变化；
+    - 已 patch → ``plan_instance_segments`` 新分组（(adapter, region) 切段）。
+
+    返回统一成 ``(adapter_slug, items)``，段循环体与 v1 完全一致。
+    """
+    if not patched_v2:
+        return plan_adapter_segments(tasks)
+    return [(key[0], items) for key, items in plan_instance_segments(tasks)]
+
+
 def task_result_from_batch_item(item_result: CollectionBatchItemResult) -> CollectionTaskResult:
     """batch ok 题 → GeoCollectionResult.completed 的 CollectionTaskResult 形状。"""
     return CollectionTaskResult(
@@ -329,6 +380,10 @@ class GeoCollectionWorkflow:
                     platform=slug,
                     business_key=pause.business_key,
                     evidence_ref=pause.evidence_ref,
+                    # 浏览器矩阵化：assist 必须 attach 撞码 batch 的同一台常驻
+                    # 实例（锁/CDP/fence 按实例键）；旧历史 pause 无此字段 →
+                    # None → assist 回退按平台 slug（启用前行为，replay 安全）。
+                    instance_key=pause.instance_key,
                 ),
                 start_to_close_timeout=timedelta(minutes=2),
                 retry_policy=RetryPolicy(
@@ -488,9 +543,17 @@ class GeoCollectionWorkflow:
         """adapter-batch-collect-v1 新路径（W8）：所有 live 平台的连续同 adapter
         段合成一个 batch activity（run 级常驻浏览器会话），经
         BATCH_ACTIVITY_BY_SLUG 具名 callable 分发；非 batch 词表 slug（如测试
-        "fixed"）保持 per-task 老调用。返回非 None 表示已提前终止（cancelled）。"""
+        "fixed"）保持 per-task 老调用。返回非 None 表示已提前终止（cancelled）。
+
+        adapter-batch-collect-v2（2026-08-09，浏览器矩阵化）：v1 路径内再开一道
+        门——已 patch 的 run 按 (adapter, region) 切段（同平台不同地域 = 不同
+        batch，activity 侧各路由到对应地域的常驻实例）；未 patch 的历史重放走
+        旧 (adapter) 分组零变化。patch 在段循环前恰好调一次（重放确定性），
+        判定走纯函数 plan_batch_segments。"""
         processed = 0
-        for slug, segment_items in plan_adapter_segments(data.tasks):
+        for slug, segment_items in plan_batch_segments(
+            workflow.patched("adapter-batch-collect-v2"), data.tasks
+        ):
             if slug in BATCH_CAPABLE_ADAPTERS:
                 await workflow.wait_condition(lambda: not self._paused or self._cancelled)
                 if self._cancelled:
@@ -800,6 +863,25 @@ class GeoCollectionWorkflow:
                     raise
                 except Exception as exc:
                     workflow.logger.warning("source audit sidecar failed: %r", exc)
+            # 官网诊断建议侧车：仅当本 run 有 own_site 文档时产建议（activity 内部门控），
+            # 紧跟 source-audit（建议输入=审计判定+官网正文要点）。fail-open 同其他侧车。
+            if workflow.patched("site-suggestions-v1"):
+                try:
+                    await workflow.execute_activity(
+                        generate_site_audit_suggestions,
+                        SiteSuggestionsInput(
+                            tenant_pub_id=data.tenant_pub_id,
+                            project_pub_id=data.project_pub_id,
+                            run_pub_id=data.run_pub_id,
+                        ),
+                        start_to_close_timeout=timedelta(minutes=15),
+                        heartbeat_timeout=timedelta(seconds=60),
+                        retry_policy=RetryPolicy(maximum_attempts=2),
+                    )
+                except (AsyncioCancelledError, CancelledError):
+                    raise
+                except Exception as exc:
+                    workflow.logger.warning("site suggestions sidecar failed: %r", exc)
             # W3 拉踩判定侧车：窗级 LLM 判定（LLM 不可用走词典兜底并标 experimental）。
             if workflow.patched("disparagement-v1"):
                 try:
@@ -818,6 +900,25 @@ class GeoCollectionWorkflow:
                     raise
                 except Exception as exc:
                     workflow.logger.warning("disparagement sidecar failed: %r", exc)
+            # W3 拉踩事实核查侧车：disparagement=true 判定逐条联网核查（T1），
+            # 紧跟 disparagement 判定（核查输入=判定引文）。fail-open 同上。
+            if workflow.patched("disparagement-factcheck-v1"):
+                try:
+                    await workflow.execute_activity(
+                        factcheck_disparagement_cases,
+                        FactcheckInput(
+                            tenant_pub_id=data.tenant_pub_id,
+                            project_pub_id=data.project_pub_id,
+                            run_pub_id=data.run_pub_id,
+                        ),
+                        start_to_close_timeout=timedelta(minutes=30),
+                        heartbeat_timeout=timedelta(seconds=60),
+                        retry_policy=RetryPolicy(maximum_attempts=2),
+                    )
+                except (AsyncioCancelledError, CancelledError):
+                    raise
+                except Exception as exc:
+                    workflow.logger.warning("disparagement factcheck sidecar failed: %r", exc)
             terminal_state = "completed"
             return GeoCollectionResult(
                 state="completed", completed=self._completed, downstream_event=downstream

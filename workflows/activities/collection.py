@@ -51,6 +51,19 @@ class CollectionTaskInput:
     fail_until_attempt: int = 0
 
 
+# 平台 × mode 能力表（20260810 起，run 矩阵过滤真源）：只列各适配器实际支持的
+# mode——deepseek 专家模式不支持搜索，GEO 评测不测专家（normal=快速+搜索开+
+# 思考关，deep_think=快速+搜索开+思考开，见 deepseek_adapter docstring）。
+# 未知平台 slug 不在表内 → 不过滤（dispatcher 会诚实报 unsupported adapter）。
+PLATFORM_MODE_CAPABILITIES: dict[str, frozenset[str]] = {
+    "doubao": frozenset({"normal", "deep_think"}),
+    "deepseek": frozenset({"normal", "deep_think"}),
+    "tongyi": frozenset({"normal"}),
+    "yiyan": frozenset({"normal"}),
+    "yuanbao": frozenset({"normal"}),
+}
+
+
 @dataclass
 class CollectionEvidenceRef:
     kind: str
@@ -91,6 +104,11 @@ class CollectionBatchItemResult:
     默认值：旧 per-task 路径 persist_collection_result 的历史 payload
     （CollectionTaskResult 形状、无 status 字段）反序列化后 status="ok"，
     行为与旧形状完全一致（replay 安全）。
+
+    ``browser_instance``（2026-08-09 起，浏览器矩阵化）：本 batch 实际使用的
+    常驻实例键（``doubao_sh`` 等，由 browser_router 解析）；persist 层把它记入
+    collection_task.matrix_json，fanout 的 INV-1 geo provenance 优先按它查
+    出口省码。旧 payload 无此字段 → None → matrix 不写该键（零漂移）。
     """
 
     business_key: str
@@ -103,6 +121,7 @@ class CollectionBatchItemResult:
     citations: list[dict[str, Any]] = field(default_factory=list)
     evidence: list[CollectionEvidenceRef] = field(default_factory=list)
     search_queries: list[dict[str, Any]] = field(default_factory=list)
+    browser_instance: str | None = None
 
 
 @dataclass
@@ -119,12 +138,18 @@ class CaptchaPause:
     """batch 内撞验证码的挂起请求。``resume_index`` = 撞码题在输入 items 里的
     下标（该题结果即 ``results[resume_index]``，error_type=="wall_captcha"）。
     evidence_ref 为存证截图 ref（file:// 形式，可空）。session_id 无关——
-    关联 id 由 assist activity 铸造后返回给 workflow。"""
+    关联 id 由 assist activity 铸造后返回给 workflow。
+
+    ``instance_key``（2026-08-09 起，浏览器矩阵化）：撞码 batch 实际使用的常驻
+    实例键——assist 接管必须 attach **同一台**常驻浏览器（锁/CDP/fence 都按
+    实例键）。旧历史 payload 无此字段 → None → assist 回退按平台 slug 取锁/CDP
+    （启用矩阵化前的行为，replay 安全）。"""
 
     resume_index: int
     business_key: str
     wall_type: str = "wall_captcha"
     evidence_ref: str | None = None
+    instance_key: str | None = None
 
 
 @dataclass
@@ -146,13 +171,22 @@ class CollectionBatchResult:
 
 def batch_result_with_captcha_pause(
     results: list[CollectionBatchItemResult],
+    *,
+    instance_key: str | None = None,
 ) -> CollectionBatchResult:
     """等长结果 → CollectionBatchResult；首个 wall_captcha 题标注 captcha_pause。
 
     captcha-assist-v1：撞码是可人工恢复的暂停点而非终局失败——workflow 见到
     pause 挂起等人工接管、从 resume_index 起重采；results 仍等长全占位（旧
     workflow 重放行为不变）。非撞码失败不产生 pause。五平台 batch 统一出口。
+
+    ``instance_key``（浏览器矩阵化）：batch 出口统一盖实例章——逐结果写
+    ``browser_instance``（persist 进 matrix_json 的 provenance 来源）且 pause
+    携带实例键（assist 接管 attach 同一台常驻浏览器）。None = 旧行为不变。
     """
+    if instance_key is not None:
+        for result in results:
+            result.browser_instance = instance_key
     for index, result in enumerate(results):
         if result.status == "wall" and result.error_type == "wall_captcha":
             return CollectionBatchResult(
@@ -162,6 +196,7 @@ def batch_result_with_captcha_pause(
                     business_key=result.business_key,
                     wall_type=result.error_type,
                     evidence_ref=result.screenshot_ref,
+                    instance_key=instance_key,
                 ),
             )
     return CollectionBatchResult(results=results)
@@ -552,6 +587,9 @@ async def collect_with_adapter(item: CollectionTaskInput) -> CollectionTaskResul
 # （``slug:6位GB,slug:6位GB``，与 GEO_REGION_GB_MAP 同格式）。中继上游租约在
 # 采集时已验出口省码（wukong validate/probe），fidelity 与旧系统 lease 期观测
 # 同级；换上游必须同步更新本映射（见 deploy/production/RESIDENT-BROWSERS.md）。
+# 2026-08-09 起（浏览器矩阵化）键从平台 slug 升级为**实例键**
+# （``doubao_sh:310000,tongyi_bj:110000`` 等，与 GEO_BROWSER_<KEY>_EXIT_GB
+# 同值同真源）；解析逻辑不变——键本来就是 opaque token。
 ENV_MEASUREMENT_EXIT_GB_MAP = "GEO_MEASUREMENT_EXIT_GB_MAP"
 
 
@@ -573,10 +611,22 @@ def _measurement_exit_gb_map() -> dict[str, str]:
     return result
 
 
-def _measurement_geo_provenance(adapter: str) -> dict[str, str]:
+def _measurement_geo_provenance(
+    adapter: str, instance_key: str | None = None
+) -> dict[str, str]:
     """geo_source/observed_gb_code 二元：有声明出口→observed_gb_code；无声明→
-    unverified（measurement_eligible 判不合格，宁缺不编造，INV-1 fail-loud）。"""
-    exit_gb = _measurement_exit_gb_map().get((adapter or "").strip().lower())
+    unverified（measurement_eligible 判不合格，宁缺不编造，INV-1 fail-loud）。
+
+    查表顺序（2026-08-09 起，浏览器矩阵化）：① 实例键（batch 落库 matrix_json
+    记录的实测常驻实例，最贴近真实出口）；② adapter slug（旧行为回退——
+    per-task 老路径/历史负载没有实例记录；env 键升级为实例键后该回退只在
+    仍保留 slug 键的旧部署命中）。两者都未命中 → unverified。"""
+    mapping = _measurement_exit_gb_map()
+    exit_gb: str | None = None
+    if instance_key:
+        exit_gb = mapping.get(instance_key.strip().lower())
+    if exit_gb is None:
+        exit_gb = mapping.get((adapter or "").strip().lower())
     if exit_gb is None:
         return {"geo_source": "unverified", "observed_gb_code": ""}
     return {"geo_source": "observed_gb_code", "observed_gb_code": exit_gb}
@@ -587,6 +637,7 @@ def _analysis_dimensions(
     *,
     run_pub_id: str,
     config_version_pub_id: str | None,
+    browser_instance: str | None = None,
 ) -> dict[str, str]:
     """answer_analysis fanout 的 dimensions（含 INV-1 五元 provenance 盖章）。
 
@@ -601,7 +652,9 @@ def _analysis_dimensions(
     - rate_policy=pool_burn：V2 现行唯一采集策略（单常驻浏览器+固定地域中继+
       真人节奏串行）满足 pool_burn 语义，系统内不存在 burst 路径；将来引入
       第二策略时本值必须改由采集记录供给。
-    - geo 二元见 _measurement_geo_provenance。
+    - geo 二元见 _measurement_geo_provenance；``browser_instance`` = batch 落库
+      matrix_json 记录的实测常驻实例键（2026-08-09 起），优先于 adapter slug
+      查出口省码。
     """
     return {
         "query_text": task_input.query,
@@ -615,7 +668,7 @@ def _analysis_dimensions(
         "degraded_flag": "0",
         "account_source": "self_pool",
         "rate_policy": "pool_burn",
-        **_measurement_geo_provenance(task_input.adapter),
+        **_measurement_geo_provenance(task_input.adapter, browser_instance),
     }
 
 
@@ -739,6 +792,13 @@ def publish_downstream_event(
                             config_version_pub_id=(
                                 config_version.pub_id if config_version is not None else None
                             ),
+                            # 实例键真源 = 落库 matrix_json（batch 采集时的实测
+                            # 常驻实例）；无记录（历史/per-task 老路径）→ None
+                            # → provenance 回退 slug 查表（旧行为）。
+                            browser_instance=(
+                                json.loads(task.matrix_json or "{}").get("browser_instance")
+                                or None
+                            ),
                         ),
                         "own_domains": [brand.website] if brand.website else [],
                         "adapter_version": task_input.adapter,
@@ -844,6 +904,30 @@ def mark_collection_run_terminal(
         session.commit()
 
 
+def _task_matrix(
+    task_input: CollectionTaskInput | None,
+    browser_instance: str | None = None,
+) -> dict[str, str]:
+    """collection_task.matrix_json 的 dict 真源（ok/失败两条 persist 路径共用）。
+
+    ``browser_instance``（2026-08-09 起，浏览器矩阵化）：batch 实际使用的常驻
+    实例键，fanout 的 INV-1 geo provenance 优先按它查出口省码。None 时整个键
+    **不写出**——旧 payload 逐字节不变（persist 的 replay drift 检查零漂移）。
+    """
+    if task_input is None:
+        return {}
+    matrix = {
+        "query": task_input.query,
+        "model": task_input.model,
+        "region": task_input.region,
+        "mode": task_input.mode,
+        "adapter": task_input.adapter,
+    }
+    if browser_instance:
+        matrix["browser_instance"] = browser_instance
+    return matrix
+
+
 @activity.defn
 def persist_collection_result(
     tenant_pub_id: str,
@@ -913,17 +997,7 @@ def persist_collection_result(
             )
         )
         matrix_json = json.dumps(
-            (
-                {
-                    "query": task_input.query,
-                    "model": task_input.model,
-                    "region": task_input.region,
-                    "mode": task_input.mode,
-                    "adapter": task_input.adapter,
-                }
-                if task_input is not None
-                else {}
-            ),
+            _task_matrix(task_input, getattr(result, "browser_instance", None)),
             sort_keys=True,
             separators=(",", ":"),
         )
@@ -1071,17 +1145,7 @@ def _persist_collection_failure(
             )
         )
         matrix_json = json.dumps(
-            (
-                {
-                    "query": task_input.query,
-                    "model": task_input.model,
-                    "region": task_input.region,
-                    "mode": task_input.mode,
-                    "adapter": task_input.adapter,
-                }
-                if task_input is not None
-                else {}
-            ),
+            _task_matrix(task_input, result.browser_instance),
             sort_keys=True,
             separators=(",", ":"),
         )

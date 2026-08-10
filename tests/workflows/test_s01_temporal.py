@@ -1157,3 +1157,146 @@ async def test_malformed_captcha_pause_falls_back_to_full_persist() -> None:
     assert batch_calls == [["c-1", "c-2"]]
     assert persisted_items == [("c-1", "ok"), ("c-2", "wall")]
     assert assist_events == []                     # 畸形 pause 绝不起接管会话
+
+
+# ---------------------------------------------------------------------------
+# adapter-batch-collect-v2（浏览器矩阵化）：(adapter, region) 切段 +
+# captcha pause 实例键转发到 assist
+# ---------------------------------------------------------------------------
+
+
+def _region_batch_task(key: str, adapter: str, region: str) -> CollectionTaskInput:
+    return CollectionTaskInput(
+        business_key=key,
+        query=f"query-{key}",
+        model="doubao" if adapter == "doubao" else "fixed",
+        region=region,
+        mode="fast",
+        adapter=adapter,
+    )
+
+
+async def test_v2_segments_split_same_adapter_by_region() -> None:
+    """v2 分组在 workflow 内生效：同平台不同 region 的连续任务切成两个 batch
+    （各段由 activity 侧 browser_router 路由到对应地域的常驻实例）；同 region
+    的相邻任务仍合一段。完成顺序与原任务顺序一致。"""
+    batch_calls.clear()
+    persisted_items.clear()
+    async with await WorkflowEnvironment.start_time_skipping() as environment:
+        async with Worker(
+            environment.client,
+            task_queue="s01-v2-instance-segments-test",
+            workflows=[GeoCollectionWorkflow],
+            activities=[
+                collect_doubao_batch_ok,
+                persist_collection_result_fixture,
+                publish_downstream_event,
+                mark_collection_run_terminal,
+            ],
+        ):
+            result = await environment.client.execute_workflow(
+                GeoCollectionWorkflow.run,
+                GeoCollectionInput(
+                    tenant_pub_id="tnt_v2seg",
+                    project_pub_id="prj_v2seg",
+                    run_pub_id="run_v2seg",
+                    config_version_pub_id="cfv_v2seg",
+                    tasks=[
+                        _region_batch_task("r-1", "doubao", "CN-SH"),
+                        _region_batch_task("r-2", "doubao", "CN-SH"),
+                        _region_batch_task("r-3", "doubao", "CN-BJ"),
+                        _region_batch_task("r-4", "doubao", "CN-SH"),
+                    ],
+                    persist_results=True,
+                    inter_task_delay_max_s=0.0,
+                ),
+                id="geo-collection/v2-instance-segments-test",
+                task_queue="s01-v2-instance-segments-test",
+            )
+    assert result.state == "completed"
+    # (doubao,CN-SH)×2 / (doubao,CN-BJ) / (doubao,CN-SH) 三段（非相邻同键不合段）
+    assert batch_calls == [["r-1", "r-2"], ["r-3"], ["r-4"]]
+    assert [item.business_key for item in result.completed] == ["r-1", "r-2", "r-3", "r-4"]
+
+
+assist_instance_keys: list[str | None] = []
+
+
+@activity.defn(name="captcha_assist_start")
+async def captcha_assist_start_recording_instance(
+    input: CaptchaAssistInput,
+) -> CaptchaAssistStarted:
+    """记录 instance_key 的 assist fixture（v2 实例键转发断言专用）。"""
+    assist_instance_keys.append(input.instance_key)
+    assist_events.append(("start", input.run_pub_id, f"{input.business_key}|sess-inst"))
+    return CaptchaAssistStarted(
+        session_id="sess-inst",
+        assist_url="https://fixture.local/api/v2/assist/ticket",
+        pushed=True,
+    )
+
+
+@activity.defn(name="collect_doubao_batch")
+async def collect_doubao_batch_captcha_with_instance(
+    batch: CollectionBatchInput,
+) -> CollectionBatchResult:
+    """首段第 2 题撞码，pause 携带实例键（浏览器矩阵化 batch 的生产形状）；
+    续跑段（i-2 开头）全题 ok。"""
+    batch_calls.append([item.business_key for item in batch.items])
+    if batch.items[0].business_key == "i-1":
+        result = _captcha_pause_batch_result(batch.items, 1)
+        result.captcha_pause = CaptchaPause(
+            resume_index=1,
+            business_key=batch.items[1].business_key,
+            evidence_ref="fixture://screenshots/wall.png",
+            instance_key="doubao_sh",
+        )
+        return result
+    return _ok_batch_result(batch.items)
+
+
+async def test_captcha_pause_carries_instance_key_to_assist() -> None:
+    """撞码 pause 的 instance_key 经 workflow 原样转发进 CaptchaAssistInput
+    （assist attach 同一台常驻实例）；人工解决后断点续跑照旧。"""
+    batch_calls.clear()
+    persisted_items.clear()
+    assist_events.clear()
+    assist_instance_keys.clear()
+    async with await WorkflowEnvironment.start_time_skipping() as environment:
+        async with Worker(
+            environment.client,
+            task_queue="s01-captcha-instance-key-test",
+            workflows=[GeoCollectionWorkflow],
+            activities=[
+                collect_doubao_batch_captcha_with_instance,
+                captcha_assist_start_recording_instance,
+                captcha_assist_stop_fixture,
+                persist_collection_result_fixture,
+                publish_downstream_event,
+                mark_collection_run_terminal,
+            ],
+        ):
+            handle = await environment.client.start_workflow(
+                GeoCollectionWorkflow.run,
+                GeoCollectionInput(
+                    tenant_pub_id="tnt_captcha_inst",
+                    project_pub_id="prj_captcha_inst",
+                    run_pub_id="run_captcha_inst",
+                    config_version_pub_id="cfv_captcha_inst",
+                    tasks=[
+                        _region_batch_task("i-1", "doubao", "CN-SH"),
+                        _region_batch_task("i-2", "doubao", "CN-SH"),
+                    ],
+                    persist_results=True,
+                    inter_task_delay_max_s=0.0,
+                ),
+                id="geo-collection/captcha-instance-key-test",
+                task_queue="s01-captcha-instance-key-test",
+            )
+            await _await_assist_starts(1)
+            await handle.signal(GeoCollectionWorkflow.captcha_solved, "sess-inst")
+            result = await handle.result()
+    assert result.state == "completed"
+    assert assist_instance_keys == ["doubao_sh"]   # assist 拿到的就是撞码实例
+    assert batch_calls == [["i-1", "i-2"], ["i-2"]]   # 断点起重采（撞码题重发）
+    assert persisted_items == [("i-1", "ok"), ("i-2", "ok")]

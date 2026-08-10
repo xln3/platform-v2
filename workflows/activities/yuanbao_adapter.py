@@ -83,7 +83,7 @@ import random
 import re
 import time
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -92,6 +92,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from workflows.activities.browser_driver import load_sync_browser_driver
+from workflows.activities.browser_router import resolve_batch_instance
 from workflows.activities.collection import (
     CollectionBatchInput,
     CollectionBatchItemResult,
@@ -346,12 +347,17 @@ _FLATTEN_FOR_SCREENSHOT_JS = r"""
 
 @dataclass(frozen=True)
 class YuanbaoAdapterConfig:
-    """env 配置。proxy_url 原文只在启动浏览器时使用，绝不落日志/payload。"""
+    """env 配置。proxy_url 原文只在启动浏览器时使用，绝不落日志/payload。
+
+    ``browser_key``（2026-08-09 起，浏览器矩阵化）：attach/互斥锁/fence 用的
+    opaque "platform"——batch 路径由 browser_router 解析为常驻实例键
+    （``yuanbao_tj`` 等）；缺省平台 slug（per-task 老路径/测试行为不变）。"""
 
     profile_dir: Path
     proxy_url: str | None
     evidence_dir: Path
     headless: bool
+    browser_key: str = "yuanbao"
 
     @classmethod
     def from_env(cls, *, proxy_url_override: str | None = None) -> YuanbaoAdapterConfig:
@@ -545,7 +551,14 @@ async def run_yuanbao_batch(
                 type="unsupported_mode",
                 non_retryable=True,
             )
+    # 浏览器矩阵化（2026-08-09 起）：batch 段（同平台同地域）路由到对应常驻
+    # 实例，实例键当 opaque platform 进 platform_browser/锁/fence/CDP 解析；
+    # 无实例/地域不符/清单畸形一律 fail-closed。空 batch 不解析（旧契约不变）。
+    route = resolve_batch_instance(batch.items)
+    instance_key = route.instance_key if route is not None else None
     config = YuanbaoAdapterConfig.from_env(proxy_url_override=proxy_url_override)
+    if route is not None:
+        config = replace(config, browser_key=route.instance_key)
     config.evidence_dir.mkdir(parents=True, exist_ok=True)
     batch_stem = f"batch-{_safe_stem(batch.run_pub_id)}-a{attempt}"
     specs = [
@@ -636,7 +649,7 @@ async def run_yuanbao_batch(
         failed=sum(1 for r in results if r.status != "ok"),
         stage=progress["stage"],
     )
-    return batch_result_with_captcha_pause(results)
+    return batch_result_with_captcha_pause(results, instance_key=instance_key)
 
 
 def _failure_batch_item(
@@ -934,7 +947,7 @@ class _PlaywrightYuanbaoSession:
         on_stage("browser_launch")
         with sync_playwright() as pw:
             try:
-                resident_url = resident_cdp_url("yuanbao")
+                resident_url = resident_cdp_url(self._config.browser_key)
             except ValueError as exc:
                 raise ApplicationError(
                     str(exc), type="adapter_not_configured", non_retryable=True
@@ -973,7 +986,7 @@ class _PlaywrightYuanbaoSession:
                 return context, page
 
             try:
-                with platform_browser(pw, platform="yuanbao", launch=_launch) as (
+                with platform_browser(pw, platform=self._config.browser_key, launch=_launch) as (
                     context,
                     page,
                     _resident,

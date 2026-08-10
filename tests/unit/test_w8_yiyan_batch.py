@@ -40,7 +40,7 @@ def _item(mode: str = "normal") -> CollectionTaskInput:
         business_key="run-7-task-3",
         query="中意人寿的重疾险有哪些",
         model="yiyan",
-        region="Beijing",
+        region="CN-SH",
         mode=mode,
         adapter="yiyan",
     )
@@ -55,7 +55,7 @@ def _batch(count: int) -> CollectionBatchInput:
                 business_key=f"run-7-task-{index}",
                 query=f"查询{index}",
                 model="yiyan",
-                region="Beijing",
+                region="CN-SH",
                 mode="normal",
                 adapter="yiyan",
             )

@@ -1,25 +1,31 @@
-# 常驻浏览器（W8 跨 run CDP 复用）——一平台一实例，实例参数 %i = 平台 slug（doubao/...）。
-# 采集侧（geo-platform-v2-worker）经 GEO_<PLATFORM>_CDP_URL attach 本浏览器；
-# 未配置 CDP_URL 时采集回退旧 launch 行为（本服务可以不开）。
+# 常驻浏览器（W8 跨 run CDP 复用）——2026-08-09 起浏览器矩阵化：实例 = 平台 ×
+# 地域 × 账号，实例参数 %i = 实例键（{platform}_{regiontag}，如 doubao_sh）。
+# 采集侧（geo-platform-v2-worker）batch 经 browser_router 路由到实例，按
+# GEO_BROWSER_<KEY>_CDP_URL attach 本浏览器；实例未在 GEO_BROWSER_INSTANCES
+# 清单里 = fail-closed（本服务可以不开，对应地域采集诚实报错）。
 #
-# 安装与启用（以 doubao 为例）：
+# 安装与启用（以 doubao_sh 为例）：
 #   sudo install -m 0644 deploy/production/geo-platform-v2-browser@.service \
 #       /etc/systemd/system/geo-platform-v2-browser@.service
-#   sudo install -m 0600 deploy/production/browser-doubao.env.example \
-#       /etc/geo-platform-v2/browser-doubao.env   # 安装后按注释编辑
+#   sudo install -m 0600 deploy/production/browser-doubao_sh.env.example \
+#       /etc/geo-platform-v2/browser-doubao_sh.env   # 安装后按注释编辑
 #   sudo systemctl daemon-reload
-#   sudo systemctl enable --now geo-platform-v2-browser@doubao
-#   journalctl -u geo-platform-v2-browser@doubao -f   # 看到 resident_browser_up + CDP URL 即就绪
-# worker 侧打开 attach：在 /etc/geo-platform-v2/worker-adapters.env 取消注释
-#   GEO_DOUBAO_CDP_URL=http://127.0.0.1:19222 （端口须与 browser-doubao.env 一致）
+#   sudo systemctl enable --now geo-platform-v2-browser@doubao_sh
+#   journalctl -u geo-platform-v2-browser@doubao_sh -f   # 看到 resident_browser_up + CDP URL 即就绪
+# worker 侧打开 attach：在 /etc/geo-platform-v2/worker-adapters.env 的
+#   GEO_BROWSER_INSTANCES 加入 doubao_sh 并配
+#   GEO_BROWSER_DOUBAO_SH_CDP_URL=http://127.0.0.1:19222（端口须与
+#   browser-doubao_sh.env 一致）+ GEO_BROWSER_DOUBAO_SH_EXIT_GB=310000
 #   sudo systemctl restart geo-platform-v2-worker
 #
 # 运维注意：
 # - 常驻浏览器持有 profile 目录锁与 CDP 端口；换代理/换 profile/换端口 = 改 env 后
-#   systemctl restart geo-platform-v2-browser@doubao（重启期间采集 attach 断连，
+#   systemctl restart geo-platform-v2-browser@doubao_sh（重启期间采集 attach 断连，
 #   按 browser-launch-failed 诚实重试，重启完自愈）。
-# - 停止常驻而 worker 仍配着 CDP_URL → 采集全部 browser-launch-failed 重试；
-#   下线请先把 worker 的 GEO_DOUBAO_CDP_URL 注掉再停本服务。
+# - 停止常驻而 worker 仍把该实例留在清单里 → 该地域采集全部 browser-launch-failed
+#   重试；下线请先把实例从 GEO_BROWSER_INSTANCES 摘掉再停本服务。
+# - 同 profile 目录/同 CDP 端口的两个实例绝不能同时 active（矩阵迁入时先停旧
+#   slug 实例再起新实例键实例，见 RESIDENT-BROWSERS.md 迁移一节）。
 [Unit]
 Description=GEO Platform V2 resident browser (%i) — CDP attach target for collectors
 After=network-online.target display-manager.service

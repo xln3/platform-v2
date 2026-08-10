@@ -11,13 +11,16 @@ best-effort 登录态验证并干净退出。
 用法（生产 yiyan 文心一言，15510162660 开户）::
 
     set -a; . /etc/geo-platform-v2/worker-adapters.env; set +a
-    .venv/bin/python tools/otp_assist_login.py --platform yiyan \
+    .venv/bin/python tools/otp_assist_login.py --platform yiyan_sh \
         --goto https://yiyan.baidu.com/ --ttl-min 60 --note "155开户"
 
 配置门（fail-fast，exit 3）：
 
-- ``GEO_<PLATFORM>_CDP_URL`` 必须在 env（工具独立运行，不经 worker env 文件；
-  运维按上行 source 加载）。指向 supervisor 常驻浏览器 CDP 端口。
+- ``--platform`` 收**常驻实例键**（2026-08-09 起，浏览器矩阵化：``yiyan_sh``
+  等；第一段恒为平台 slug，特征/页面逻辑按 slug 反解）。CDP 按实例键解析
+  ``GEO_BROWSER_<KEY>_CDP_URL``（未设置回退 ``GEO_<PLATFORM>_CDP_URL``——
+  传旧平台 slug 仍可用，行为与升级前一致）。指向 supervisor 常驻浏览器
+  CDP 端口。工具独立运行，不经 worker env 文件；运维按上行 source 加载。
 - 推送未配齐（``GEO_ASSIST_PUBLIC_BASE`` / ``GEO_ASSIST_NOTIFY_URL``）时必须显式
   ``--no-notify``：只本地打印 ticket/链接；``GEO_ASSIST_PUBLIC_BASE`` 也缺时会
   如实说明拼不出公网链接（ticket 明文照打，运维自行拼接
@@ -97,12 +100,13 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         description="登录/OTP 人工接管会话：attach 常驻浏览器，中继画面/输入到手机，"
                     "人工完成登录后干净退出（绝不杀浏览器）。",
         epilog="示例: set -a; . /etc/geo-platform-v2/worker-adapters.env; set +a && "
-               ".venv/bin/python tools/otp_assist_login.py --platform yiyan "
+               ".venv/bin/python tools/otp_assist_login.py --platform yiyan_sh "
                "--goto https://yiyan.baidu.com/ --ttl-min 60 --note 155开户",
     )
     parser.add_argument("--platform", required=True,
-                        choices=sorted(_PLATFORM_LABELS),
-                        help="目标平台（决定 GEO_<PLATFORM>_CDP_URL）")
+                        help="常驻实例键（如 yiyan_sh；第一段恒为平台 slug，"
+                             "决定 GEO_BROWSER_<KEY>_CDP_URL 解析与特征/页面逻辑）。"
+                             "兼容旧用法：直接传平台 slug（如 yiyan）。")
     parser.add_argument("--goto", default="",
                         help="启动后把当前标签页导航到该 URL"
                              "（缺省不动页面——运维可提前手动开好登录页）")
@@ -120,6 +124,29 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     if args.goto and not args.goto.startswith(("http://", "https://")):
         parser.error("--goto 必须是 http(s) URL")
     return args
+
+
+_INSTANCE_KEY_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
+
+
+def _resolve_instance(raw: str) -> tuple[str, str | None]:
+    """--platform 实参 → (平台 slug, 实例键|None)。
+
+    实例键 = ``{platform}_{regiontag}``（浏览器矩阵化）：锁/CDP 按实例键，
+    特征/页面逻辑按第一段反解的平台 slug。旧用法传纯 slug → instance_key=None
+    （锁/CDP 按 slug，行为与升级前一致）。键非法/平台表外 → SystemExit(3)
+    （配置门语义，与 argparse parser.error 的 exit 2 区分）。
+    """
+    key = raw.strip().lower()
+    if not _INSTANCE_KEY_RE.fullmatch(key):
+        print(f"[配置错误] --platform 不是合法的实例键/平台 slug: {raw!r}", file=sys.stderr)
+        raise SystemExit(EXIT_CONFIG)
+    platform = key.split("_", 1)[0]
+    if platform not in _PLATFORM_LABELS:
+        print(f"[配置错误] 未知平台 slug: {platform!r}（实例键 {key!r} 的第一段）",
+              file=sys.stderr)
+        raise SystemExit(EXIT_CONFIG)
+    return platform, (key if key != platform else None)
 
 
 class _StderrRelay:
@@ -166,14 +193,16 @@ def _scrub_proxy_env() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _build_registry_record(*, platform: str, run_pub_id: str, session_id: str,
+def _build_registry_record(*, platform: str, instance_key: str | None,
+                           run_pub_id: str, session_id: str,
                            ticket_hash: str, port: int, note: str, ttl_s: int,
                            now: int | None = None) -> dict[str, Any]:
     """CLI 会话的注册表记录：字段集与 captcha_assist_start 完全一致。
 
     唯一语义差别是 ``run_pub_id`` 指向 CLI 会话标识而非 DB CollectionRun——
     frame/status/input 端点纯注册表驱动不受影响；done 端点因此 404（见模块
-    docstring「done 感知的诚实现状」）。
+    docstring「done 感知的诚实现状」）。``platform``=平台 slug（特征语义），
+    ``instance_key``=实际 attach 的常驻实例键（锁/CDP 口径；None→平台 slug）。
     """
     label = _PLATFORM_LABELS.get(platform, platform)
     created = int(now if now is not None else time.time())
@@ -184,6 +213,7 @@ def _build_registry_record(*, platform: str, run_pub_id: str, session_id: str,
         "ticket_hash": ticket_hash,
         "port": port,
         "platform": platform,
+        "instance_key": instance_key or platform,
         "state": "active",
         "business_key": note or f"登录/OTP 人工接管（{label}）",
         "evidence_ref": None,
@@ -298,17 +328,21 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     _configure_logging()
     _scrub_proxy_env()
-    platform = args.platform
+    platform, instance_key = _resolve_instance(args.platform)
+    lock_key = instance_key or platform
     label = _PLATFORM_LABELS.get(platform, platform)
+    if instance_key:
+        label = f"{label}（{instance_key}）"
 
-    # ── 配置门 1：常驻浏览器 CDP ──
+    # ── 配置门 1：常驻浏览器 CDP（实例键优先 GEO_BROWSER_<KEY>_CDP_URL） ──
     try:
-        cdp_url = captcha_assist.resident_cdp_url(platform)
+        cdp_url = captcha_assist.resident_cdp_url(lock_key)
     except ValueError as exc:
         print(f"[配置错误] {exc}", file=sys.stderr)
         return EXIT_CONFIG
     if not cdp_url:
-        print(f"[配置错误] GEO_{platform.upper()}_CDP_URL 未配置——"
+        print(f"[配置错误] GEO_BROWSER_{lock_key.upper()}_CDP_URL / "
+              f"GEO_{lock_key.upper()}_CDP_URL 均未配置——"
               f"工具独立运行，请先加载 worker env：\n"
               f"  set -a; . /etc/geo-platform-v2/worker-adapters.env; set +a",
               file=sys.stderr)
@@ -328,13 +362,14 @@ def main(argv: list[str] | None = None) -> int:
     ticket = secrets.token_urlsafe(32)
     session_id = secrets.token_urlsafe(24)
     ticket_hash = captcha_assist._ticket_hash(ticket)
-    run_pub_id = f"otp-assist-{platform}-{int(time.time())}"   # CLI 会话，无 workflow run
+    run_pub_id = f"otp-assist-{lock_key}-{int(time.time())}"   # CLI 会话，无 workflow run
     assist_url = f"{public_base.rstrip('/')}/api/v2/assist/{ticket}" if public_base else ""
 
-    # ── attach 常驻浏览器 + 起 bridge（全程持平台锁；绝不 launch/杀浏览器） ──
+    # ── attach 常驻浏览器 + 起 bridge（全程持实例锁；绝不 launch/杀浏览器） ──
     sess = captcha_assist.AssistSession(
         platform=platform, run_pub_id=run_pub_id, session_id=session_id,
         ticket_hash=ticket_hash, max_lifetime_s=ttl_s + _SESSION_GRACE_S,
+        instance_key=instance_key,
         page_picker=_first_page, cleared_check=None,
     )
     try:
@@ -353,7 +388,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         # ── 注册表先于推送/打印：手机页能服务的前提 ──
         record = _build_registry_record(
-            platform=platform, run_pub_id=run_pub_id, session_id=session_id,
+            platform=platform, instance_key=instance_key,
+            run_pub_id=run_pub_id, session_id=session_id,
             ticket_hash=ticket_hash, port=int(port), note=args.note.strip(), ttl_s=ttl_s)
         captcha_assist._write_registry(record)
 

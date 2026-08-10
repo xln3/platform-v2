@@ -1,16 +1,18 @@
-# 悟空预认证 CONNECT 中继（2026-08-06 起）——实例参数 %i = 平台 slug（doubao/...）。
+# 悟空预认证 CONNECT 中继（2026-08-06 起）——实例参数 %i = 出口地域标签
+# （sh/tj/bj；2026-08-09 起 relay@doubao 改名 relay@sh——19323 实为上海出口的
+# 历史误命名；中继从来是地域资源不是平台资源，同地域多平台/多实例共用）。
 # 背景：悟空网关反爬只收 curl 式预认证（首 CONNECT 即带凭据），拒绝 Chromium 的
 # 407 质询-响应。本中继监听 127.0.0.1，对 Chromium 免认证、对上游预认证。
 #
-# 安装与启用（以 doubao 为例）：
+# 安装与启用（以 sh 为例）：
 #   sudo install -m 0644 deploy/production/geo-platform-v2-proxy-relay@.service \
 #       /etc/systemd/system/geo-platform-v2-proxy-relay@.service
-#   sudo install -m 0600 deploy/production/proxy-relay-doubao.env.example \
-#       /etc/geo-platform-v2/proxy-relay-doubao.env   # 按注释编辑（含上游凭据）
+#   sudo install -m 0600 deploy/production/proxy-relay-sh.env.example \
+#       /etc/geo-platform-v2/proxy-relay-sh.env   # 按注释编辑（含上游凭据）
 #   sudo systemctl daemon-reload
-#   sudo systemctl enable --now geo-platform-v2-proxy-relay@doubao
-#   journalctl -u geo-platform-v2-proxy-relay@doubao -f   # 见 relay_up 即就绪
-# 消费侧：常驻浏览器 RESIDENT_PROXY_URL 与 worker GEO_DOUBAO_PROXY_URL 指向
+#   sudo systemctl enable --now geo-platform-v2-proxy-relay@sh
+#   journalctl -u geo-platform-v2-proxy-relay@sh -f   # 见 relay_up 即就绪
+# 消费侧：常驻浏览器 RESIDENT_PROXY_URL 与 worker GEO_<P>_PROXY_URL 指向
 #   http://127.0.0.1:<RELAY_PORT>（无凭据，凭据只在本服务 env 里）。
 #
 # 运维注意：换上游（悟空换节点/轮换凭据）= 改 env 后 restart 本服务即可，

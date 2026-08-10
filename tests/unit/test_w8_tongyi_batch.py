@@ -42,7 +42,7 @@ def _item(mode: str = "normal") -> CollectionTaskInput:
         business_key="run-9-task-2",
         query="你好，请用一句话介绍你自己",
         model="tongyi",
-        region="Beijing",
+        region="CN-BJ",
         mode=mode,
         adapter="tongyi",
     )
@@ -599,7 +599,7 @@ async def test_run_tongyi_batch_maps_outcomes(
                 business_key=f"run-7-task-{index}",
                 query=f"查询{index}",
                 model="tongyi",
-                region="Beijing",
+                region="CN-BJ",
                 mode="normal",
                 adapter="tongyi",
             )

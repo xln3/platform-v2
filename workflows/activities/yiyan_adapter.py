@@ -45,10 +45,13 @@ v1 边界：
 - 成功判据（零合成）：提交被接受（输入框清空）且答案容器出现且「生成中」
   指示器消失、正文静默稳定且非空且不含墙特征——缺一都不得返回成功。
   流截断/空答案/无流 → ``answer_capture_incomplete``（可重试的诚实失败）。
-- 已知未了：登录开户未完成——开户短信百度侧已发出（countdown 实证），但 OTP
-  收件链路（末端 SmsForwarder 手机）自 20260725 16:28 起无推送（
-  ``server/results/otp_inbox/_rawpush.jsonl``），收件箱无新条目；未登录态首问
-  可采集（live 实证），登录后多轮/历史同步未验证。
+- 开户状态（20260810 已完成）：yiyan_sh(155) 与 yiyan_bj(188) 均经站内登录
+  弹层短信表单登录成功——155 为未注册号码，走「验证即登录，未注册将自动
+  创建百度账号」流程新建账号（弹层 tooltip「立即注册」确认后放开发送）；
+  OTP 收件链路 20260809 起已修复（``tools/otp_wait.py`` 直取）。双实例
+  batch live 各一题 ok（live_valid，登录态墙特征零误报）。
+  注意：百度侧短信推送可能丢失 SIM 槽位信息而落 ``otp_inbox/unrouted.json``
+  （188 的【百度】码实证）——otp_wait 按手机号查不到时查 unrouted 兜底。
 
 拟人化口径（2026-08-06 起，与豆包同构——背景：豆包侧 picker 连点+秒发被行为
 风控稳定识别出 wall_captcha，而人工同账号同代理发送无验证码——自动化交互序列
@@ -111,7 +114,7 @@ import random
 import re
 import time
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -120,6 +123,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from workflows.activities.browser_driver import load_sync_browser_driver
+from workflows.activities.browser_router import resolve_batch_instance
 from workflows.activities.collection import (
     CollectionBatchInput,
     CollectionBatchItemResult,
@@ -334,12 +338,17 @@ _INPUT_VALUE_JS = (
 
 @dataclass(frozen=True)
 class YiyanAdapterConfig:
-    """env 配置。proxy_url 原文只在启动浏览器时使用，绝不落日志/payload。"""
+    """env 配置。proxy_url 原文只在启动浏览器时使用，绝不落日志/payload。
+
+    ``browser_key``（2026-08-09 起，浏览器矩阵化）：attach/互斥锁/fence 用的
+    opaque "platform"——batch 路径由 browser_router 解析为常驻实例键
+    （``yiyan_sh`` 等）；缺省平台 slug（per-task 老路径/测试行为不变）。"""
 
     profile_dir: Path
     proxy_url: str | None
     evidence_dir: Path
     headless: bool
+    browser_key: str = "yiyan"
 
     @classmethod
     def from_env(cls, *, proxy_url_override: str | None = None) -> YiyanAdapterConfig:
@@ -531,7 +540,14 @@ async def run_yiyan_batch(
                 type="unsupported_mode",
                 non_retryable=True,
             )
+    # 浏览器矩阵化（2026-08-09 起）：batch 段（同平台同地域）路由到对应常驻
+    # 实例，实例键当 opaque platform 进 platform_browser/锁/fence/CDP 解析；
+    # 无实例/地域不符/清单畸形一律 fail-closed。空 batch 不解析（旧契约不变）。
+    route = resolve_batch_instance(batch.items)
+    instance_key = route.instance_key if route is not None else None
     config = YiyanAdapterConfig.from_env(proxy_url_override=proxy_url_override)
+    if route is not None:
+        config = replace(config, browser_key=route.instance_key)
     config.evidence_dir.mkdir(parents=True, exist_ok=True)
     batch_stem = f"batch-{_safe_stem(batch.run_pub_id)}-a{attempt}"
     specs = [
@@ -622,7 +638,7 @@ async def run_yiyan_batch(
         failed=sum(1 for r in results if r.status != "ok"),
         stage=progress["stage"],
     )
-    return batch_result_with_captcha_pause(results)
+    return batch_result_with_captcha_pause(results, instance_key=instance_key)
 
 
 def _failure_batch_item(
@@ -965,7 +981,7 @@ class _PlaywrightYiyanSession:
 
             resident = False
             try:
-                with platform_browser(pw, platform="yiyan", launch=_launch) as (
+                with platform_browser(pw, platform=self._config.browser_key, launch=_launch) as (
                     context,
                     page,
                     resident,

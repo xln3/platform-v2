@@ -5,11 +5,13 @@
 启动 headed Chromium，打 CDP URL 与健康日志后阻塞保活（定期 ``page.title``
 探活），SIGTERM/SIGINT 时 ``context.close()`` 优雅退出（写回 exit_type=Normal）。
 
-- 由 systemd 模板单元 ``geo-platform-v2-browser@.service`` 拉起（一平台一实例，
-  env 文件 ``/etc/geo-platform-v2/browser-<platform>.env``，示例在同目录
-  ``browser-doubao.env.example``）。
-- 采集侧（worker）配置 ``GEO_<PLATFORM>_CDP_URL=http://127.0.0.1:<port>`` 后
-  attach（契约层 ``workflows/activities/resident_browser.py``）；本进程独占
+- 由 systemd 模板单元 ``geo-platform-v2-browser@.service`` 拉起（2026-08-09 起
+  浏览器矩阵化：一实例一进程，实例 = 平台 × 地域 × 账号；env 文件
+  ``/etc/geo-platform-v2/browser-<实例键>.env``，示例在同目录
+  ``browser-doubao_sh.env.example``；RESIDENT_PLATFORM 填实例键）。
+- 采集侧（worker）batch 经 ``browser_router`` 按 (adapter, region) 路由到实例，
+  配置 ``GEO_BROWSER_<KEY>_CDP_URL=http://127.0.0.1:<port>`` 后 attach
+  （契约层 ``workflows/activities/resident_browser.py``）；本进程独占
   profile 目录与 CDP 端口，worker 侧绝不再 launch 同一 profile。
 - 失败即死（profile 锁占用/端口占用/浏览器崩溃/探活失败）→ 非零退出，
   systemd ``Restart=always`` 兜底重启。重启期间采集 attach 断连，按

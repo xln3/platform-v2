@@ -261,7 +261,8 @@ async def test_registry_schema_matches_workflow_product(
             json.loads(p.read_text(encoding="utf-8")) for p in tmp_path.glob("*.json")
             if json.loads(p.read_text(encoding="utf-8")).get("run_pub_id") == "run_schema")
         cli_rec = otp_assist_login._build_registry_record(
-            platform="yiyan", run_pub_id="otp-assist-yiyan-1", session_id="s" * 24,
+            platform="yiyan", instance_key="yiyan_sh", run_pub_id="otp-assist-yiyan-1",
+            session_id="s" * 24,
             ticket_hash="h" * 64, port=19226, note="155开户", ttl_s=600)
         assert set(cli_rec) == set(workflow_rec)           # 字段集一字不差
         assert cli_rec["version"] == workflow_rec["version"] == 1
@@ -282,7 +283,8 @@ def test_registry_record_recognized_by_assist_router(
     ticket = secrets.token_urlsafe(32)
     th = captcha_assist._ticket_hash(ticket)
     rec = otp_assist_login._build_registry_record(
-        platform="yiyan", run_pub_id="otp-assist-yiyan-1", session_id="s" * 24,
+        platform="yiyan", instance_key="yiyan_sh", run_pub_id="otp-assist-yiyan-1",
+        session_id="s" * 24,
         ticket_hash=th, port=19226, note="155开户", ttl_s=600)
     captcha_assist._write_registry(rec)
     loaded = assist_router._load_registry(ticket)          # 任何校验失败都会 403

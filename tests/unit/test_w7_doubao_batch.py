@@ -13,7 +13,9 @@ from workflows.definitions.collection import (
     DOUBAO_BATCH_MAX_TIMEOUT_MINUTES,
     doubao_batch_timeout_minutes,
     plan_adapter_segments,
+    plan_batch_segments,
     plan_collection_segments,
+    plan_instance_segments,
     task_result_from_batch_item,
 )
 
@@ -136,3 +138,74 @@ def test_plan_adapter_segments_edge_cases() -> None:
     # adapter 大小写/空白不敏感；空 adapter 归空 slug 段
     mixed = plan_adapter_segments([_task("a", " Doubao "), _task("b", "doubao"), _task("c", "")])
     assert [(slug, len(items)) for slug, items in mixed] == [("doubao", 2), ("", 1)]
+
+
+# ---------------------------------------------------------------------------
+# adapter-batch-collect-v2（浏览器矩阵化）：(adapter, region) 切段 + patch 门
+# ---------------------------------------------------------------------------
+
+
+def _region_task(key: str, adapter: str, region: str) -> CollectionTaskInput:
+    return CollectionTaskInput(
+        business_key=key,
+        query=f"q-{key}",
+        model="m",
+        region=region,
+        mode="normal",
+        adapter=adapter,
+    )
+
+
+def test_plan_instance_segments_splits_on_region_change() -> None:
+    """同平台双 region → 两段；同段序保持；region 空白/大小写按原串分组。"""
+    tasks = [
+        _region_task("a", "doubao", "CN-SH"),
+        _region_task("b", "doubao", "CN-SH"),
+        _region_task("c", "doubao", "CN-BJ"),   # 同平台换地域 → 新段
+        _region_task("d", "deepseek", "CN-BJ"),  # 换平台 → 新段
+        _region_task("e", "doubao", "CN-BJ"),   # 回到 doubao 但不相邻 → 新段
+    ]
+    segments = plan_instance_segments(tasks)
+    assert [(key, [t.business_key for t in items]) for key, items in segments] == [
+        (("doubao", "CN-SH"), ["a", "b"]),
+        (("doubao", "CN-BJ"), ["c"]),
+        (("deepseek", "CN-BJ"), ["d"]),
+        (("doubao", "CN-BJ"), ["e"]),
+    ]
+    assert [t.business_key for _, items in segments for t in items] == [
+        t.business_key for t in tasks
+    ]
+
+
+def test_plan_batch_segments_gate_unpatched_keeps_v1_grouping() -> None:
+    """未打 adapter-batch-collect-v2 补丁的历史重放：旧 (adapter) 分组零变化。"""
+    tasks = [
+        _region_task("a", "doubao", "CN-SH"),
+        _region_task("b", "doubao", "CN-BJ"),
+    ]
+    assert plan_batch_segments(False, tasks) == plan_adapter_segments(tasks) == [
+        ("doubao", tasks)
+    ]
+
+
+def test_plan_batch_segments_gate_patched_uses_instance_grouping() -> None:
+    tasks = [
+        _region_task("a", "doubao", "CN-SH"),
+        _region_task("b", "doubao", "CN-BJ"),
+        _region_task("c", "fixed", "CN-BJ"),
+    ]
+    segments = plan_batch_segments(True, tasks)
+    assert [(slug, [t.business_key for t in items]) for slug, items in segments] == [
+        ("doubao", ["a"]),
+        ("doubao", ["b"]),
+        ("fixed", ["c"]),
+    ]
+
+
+def test_plan_batch_segments_empty_and_blank_region() -> None:
+    assert plan_batch_segments(True, []) == []
+    assert plan_batch_segments(False, []) == []
+    # 缺 region 的任务按空串键分组（activity 侧归一失败 → region_exit_mismatch
+    # 诚实报错；分组层不吞不编）
+    segments = plan_batch_segments(True, [_region_task("a", "doubao", "")])
+    assert [(slug, len(items)) for slug, items in segments] == [("doubao", 1)]
