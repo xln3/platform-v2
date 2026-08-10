@@ -455,4 +455,93 @@ describe('Report Studio', () => {
       ),
     ).toBeNull();
   });
+
+  it('projects kpi/chart/evidence/recommendation components and drops only unknown types', () => {
+    const makeComponent = (
+      pubId: string,
+      ordinal: number,
+      componentType: string,
+      payload: Record<string, unknown>,
+    ) => ({
+      pub_id: pubId,
+      report_version_pub_id: 'rptv_unit_components',
+      component_type: componentType,
+      ordinal,
+      source: 'system',
+      payload,
+      created_at: new Date(Date.UTC(2026, 6, 25, 0, 0, ordinal)).toISOString(),
+    });
+    const projected = projectLiveReportTarget({
+      pub_id: 'rpt_unit_components',
+      state: 'review',
+      versions: [
+        {
+          pub_id: 'rptv_unit_components',
+          version_number: 1,
+          status: 'review',
+          components: [
+            makeComponent('rptc_unit_section', 0, 'section', {
+              title: '摘要',
+              body: '正文',
+            }),
+            makeComponent('rptc_unit_kpi', 1, 'kpi', {
+              title: '提及率',
+              body: '42.5%',
+              trace_token: 'trc_unit_kpi',
+            }),
+            makeComponent('rptc_unit_chart', 2, 'chart', {
+              title: '趋势图',
+              body: '近三日趋势。',
+              series: [
+                { date: '2026-07-23', value: '1' },
+                { date: '2026-07-24', value: 3 },
+                { date: '2026-07-25', value: '2' },
+                { value: '缺日期丢弃' },
+                'not-a-record',
+              ],
+            }),
+            makeComponent('rptc_unit_evidence', 3, 'evidence', {
+              title: '截图证据',
+              body: '回答截图与分析事实联动。',
+            }),
+            makeComponent('rptc_unit_recommendation', 4, 'recommendation', {
+              title: '行动建议',
+              body: '加大官网技术文档投入。',
+            }),
+            makeComponent('rptc_unit_unknown', 5, 'summary', {
+              title: '未知类型',
+              body: '不应投影',
+            }),
+          ],
+          artifacts: [],
+          evidence_bindings: [],
+          comments: [],
+          frozen_facts: [],
+        },
+      ],
+      optimization_actions: [],
+    } as never);
+
+    expect(projected?.sections.map((section) => section.componentType)).toEqual([
+      'section',
+      'kpi',
+      'chart',
+      'evidence',
+      'recommendation',
+    ]);
+    expect(projected?.sections[1]).toMatchObject({
+      title: '提及率',
+      body: '42.5%',
+      traceToken: 'trc_unit_kpi',
+    });
+    expect(projected?.sections[2]?.series).toEqual([
+      { date: '2026-07-23', value: '1' },
+      { date: '2026-07-24', value: '3' },
+      { date: '2026-07-25', value: '2' },
+    ]);
+    expect(JSON.stringify(projected?.sections)).not.toContain('缺日期丢弃');
+    expect(projected?.invalidProjection).toContain('sections');
+    expect(JSON.stringify(projected)).not.toContain('不应投影');
+    expect(projected?.versions[0]?.sections).toHaveLength(5);
+  });
 });

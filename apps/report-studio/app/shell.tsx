@@ -205,6 +205,19 @@ const splitReportEvidencePubIds = (value: string) =>
     .map((candidate) => candidate.trim())
     .filter(Boolean);
 
+// 报告组件类型全集 = DB CHECK（s02_0001_intelligence_plane）；未知类型才进 invalidProjection。
+const reportComponentTypes = ['section', 'kpi', 'chart', 'evidence', 'recommendation'] as const;
+type ReportComponentType = (typeof reportComponentTypes)[number];
+const reportComponentTypeLabels: Record<ReportComponentType, string> = {
+  section: '章节',
+  kpi: '指标',
+  chart: '图表',
+  evidence: '证据',
+  recommendation: '建议',
+};
+// chart payload 惯例 series=[{date, value}]；投影只保留有界、形状正确的数据点。
+const chartSeriesPointLimit = 100;
+
 const reportRevisionSchema = z.object({
   sections: z
     .array(
@@ -220,6 +233,12 @@ const reportRevisionSchema = z.object({
           ),
         body: reportSectionSchema.shape.body,
         source: z.enum(['system', 'ai', 'human']),
+        // 非 section 组件在编辑器内只读，保存版本时按原类型与负载透传，不改写为 section。
+        componentType: z.enum(reportComponentTypes),
+        traceToken: z.string().max(200),
+        series: z
+          .array(z.object({ date: z.string().max(40), value: z.string().max(80) }))
+          .max(chartSeriesPointLimit),
         evidenceText: z
           .string()
           .max(12_999, '组件证据 ID 列表过长')
@@ -256,13 +275,23 @@ type ReportProjectionNotices = Partial<
   Record<ReportProjectionCollection, { total: number; shown: number }>
 >;
 
+type ProjectedReportComponent = {
+  componentType: ReportComponentType;
+  title: string;
+  body: string;
+  source: string;
+  evidencePubIds: string[];
+  traceToken: string;
+  series: { date: string; value: string }[];
+};
+
 type LiveReportTarget = {
   reportPubId: string;
   versionPubId: string;
   versionNumber: number;
   status: string;
   facts: { label: string; value: string; hash: string }[];
-  sections: { title: string; body: string; source: string; evidencePubIds: string[] }[];
+  sections: ProjectedReportComponent[];
   artifacts: {
     format: ReportArtifactFormat;
     byteSize: number;
@@ -290,7 +319,7 @@ type LiveReportTarget = {
   }[];
   versions: {
     versionNumber: number;
-    sections: { title: string; body: string; source: string; evidencePubIds: string[] }[];
+    sections: ProjectedReportComponent[];
   }[];
   projectionNotices: ReportProjectionNotices;
   invalidProjection: ReportProjectionCollection[];
@@ -468,11 +497,16 @@ export function projectLiveReportTarget(
         component.ordinal >= 0
           ? component.ordinal
           : null;
+      const componentType =
+        typeof component.component_type === 'string' &&
+        (reportComponentTypes as readonly string[]).includes(component.component_type)
+          ? (component.component_type as ReportComponentType)
+          : null;
       if (
         !componentPubId ||
         seenComponentPubIds.has(componentPubId) ||
         component.report_version_pub_id !== expectedVersionPubId ||
-        component.component_type !== 'section' ||
+        componentType === null ||
         ordinal === null ||
         seenOrdinals.has(ordinal) ||
         ordinal <= previousOrdinal ||
@@ -520,7 +554,34 @@ export function projectLiveReportTarget(
       if (rawEvidencePubIds.length > reportProjectionLimits.sectionEvidenceIds) {
         addNotice('sectionEvidenceIds', rawEvidencePubIds.length, evidencePubIds.length);
       }
-      return [{ title, body, source, evidencePubIds }];
+      // kpi/chart 额外负载：形状异常的数据点直接丢弃（诚实降级），不进 invalidProjection。
+      const traceToken =
+        componentType === 'kpi' ? safeText(component.payload.trace_token, '', 200) : '';
+      const series =
+        componentType === 'chart'
+          ? (Array.isArray(component.payload.series) ? component.payload.series : [])
+              .slice(0, chartSeriesPointLimit)
+              .flatMap((point) => {
+                if (!isRecord(point)) return [];
+                const date =
+                  typeof point.date === 'string' &&
+                  point.date.length <= 40 &&
+                  !containsClientSecret(point.date)
+                    ? point.date
+                    : '';
+                const rawValue = point.value;
+                const value =
+                  typeof rawValue === 'string' &&
+                  rawValue.length <= 80 &&
+                  !containsClientSecret(rawValue)
+                    ? rawValue
+                    : typeof rawValue === 'number' && Number.isFinite(rawValue)
+                      ? String(rawValue)
+                      : '';
+                return date ? [{ date, value }] : [];
+              })
+          : [];
+      return [{ componentType, title, body, source, evidencePubIds, traceToken, series }];
     });
     if (values.length > reportProjectionLimits.sections)
       addNotice('sections', values.length, sections.length);
@@ -2214,9 +2275,57 @@ const createLiveRevisionDefaults = (target: LiveReportTarget): ReportRevisionFie
     body: section.body,
     source:
       section.source === 'ai' || section.source === 'human' ? section.source : ('system' as const),
+    componentType: section.componentType,
+    traceToken: section.traceToken,
+    series: section.series,
     evidenceText: section.evidencePubIds.join(', '),
   })),
 });
+
+// 非 section 组件（kpi/chart/evidence/recommendation）在编辑器内只读展示：
+// 正文由系统生成（冻结指标/图表数据），分析师只能修订 section 正文与证据绑定；
+// 保存版本时按原 component_type 与负载透传（见 saveRevision 的 components 映射）。
+function ReadOnlyReportComponent({
+  component,
+}: {
+  component: ReportRevisionFields['sections'][number];
+}) {
+  return (
+    <div className="panel-subtitle" role="note" aria-label="只读报告组件">
+      <p>
+        <Badge tone="neutral">{reportComponentTypeLabels[component.componentType]}</Badge>{' '}
+        该组件由系统生成，编辑器内只读；保存版本将原样保留其类型与负载。
+      </p>
+      {component.componentType === 'kpi' ? (
+        <>
+          <p>
+            <strong>{component.body}</strong>
+          </p>
+          {component.traceToken ? <p>trace: {component.traceToken}</p> : null}
+        </>
+      ) : null}
+      {component.componentType === 'chart' ? (
+        <>
+          {component.body ? <p>{component.body}</p> : null}
+          <p>共 {component.series.length} 个数据点</p>
+          {component.series.length ? (
+            <ul>
+              {component.series.slice(0, 8).map((point, index) => (
+                <li key={`${point.date}-${index}`}>
+                  {point.date}: {point.value}
+                </li>
+              ))}
+              {component.series.length > 8 ? <li>…</li> : null}
+            </ul>
+          ) : null}
+        </>
+      ) : null}
+      {component.componentType === 'evidence' || component.componentType === 'recommendation' ? (
+        <p>{component.body}</p>
+      ) : null}
+    </div>
+  );
+}
 
 function LiveEditorWorkspace({
   target,
@@ -2338,11 +2447,19 @@ function LiveEditorWorkspace({
       {
         components: submittedSections.map((section) => {
           const evidencePubIds = [...new Set(splitReportEvidencePubIds(section.evidenceText))];
+          // 非 section 组件编辑器内只读：保存版本按原 component_type 与负载透传，
+          // 不把 kpi/chart/evidence/recommendation 改写成 section（会丢 trace_token/series）。
           return {
-            component_type: 'section',
+            component_type: section.componentType,
             source: section.source,
             title: section.title,
             body: section.body,
+            ...(section.componentType === 'kpi' && section.traceToken
+              ? { trace_token: section.traceToken }
+              : {}),
+            ...(section.componentType === 'chart' && section.series.length
+              ? { series: section.series }
+              : {}),
             ...(evidencePubIds.length ? { evidence_pub_ids: evidencePubIds } : {}),
           };
         }),
@@ -2378,6 +2495,9 @@ function LiveEditorWorkspace({
             onClick={() => setSelectedIndex(index)}
           >
             <span>{section.title}</span>
+            {section.componentType !== 'section' ? (
+              <Badge tone="neutral">{reportComponentTypeLabels[section.componentType]}</Badge>
+            ) : null}
             <Badge tone={section.source === 'human' ? 'positive' : 'info'}>
               {section.source === 'human' ? '人工内容' : '待人工确认'}
             </Badge>
@@ -2391,22 +2511,26 @@ function LiveEditorWorkspace({
       >
         <span className="overline">Immutable revision</span>
         <h2>{selected.title}</h2>
-        <label>
-          章节正文
-          <textarea
-            aria-label="真实章节正文"
-            {...registerRevision(`sections.${selectedIndex}.body`, {
-              onChange: () =>
-                setRevisionValue(`sections.${selectedIndex}.source`, 'human', {
-                  shouldDirty: true,
-                  shouldValidate: true,
-                }),
-            })}
-            readOnly={!editable}
-            aria-invalid={Boolean(bodyError)}
-            aria-describedby={bodyError ? 'report-revision-body-error' : undefined}
-          />
-        </label>
+        {selected.componentType === 'section' ? (
+          <label>
+            章节正文
+            <textarea
+              aria-label="真实章节正文"
+              {...registerRevision(`sections.${selectedIndex}.body`, {
+                onChange: () =>
+                  setRevisionValue(`sections.${selectedIndex}.source`, 'human', {
+                    shouldDirty: true,
+                    shouldValidate: true,
+                  }),
+              })}
+              readOnly={!editable}
+              aria-invalid={Boolean(bodyError)}
+              aria-describedby={bodyError ? 'report-revision-body-error' : undefined}
+            />
+          </label>
+        ) : (
+          <ReadOnlyReportComponent component={selected} />
+        )}
         {bodyError ? (
           <span id="report-revision-body-error" className="field-error" role="alert">
             {bodyError}
@@ -2437,7 +2561,7 @@ function LiveEditorWorkspace({
         <p className="panel-subtitle">
           保存会复制服务端冻结事实并创建不可变新版本；证据 ID 绑定到当前组件，原版本不会被改写。
         </p>
-        {editable ? (
+        {editable && selected.componentType === 'section' ? (
           <div className="button-row">
             <button
               type="button"
