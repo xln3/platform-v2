@@ -86,9 +86,9 @@ _DIMENSIONS = (_DIMENSION_TRANSCRIPT, _DIMENSION_FACTUAL)
 def prompt_version_for(dimension: str) -> str:
     """口径各自的 prompt 版本（幂等键成分）：口径B 升 v2 后口径A 历史判定仍幂等命中。"""
     return (
-        PROMPT_VERSION_TRANSCRIPT if dimension == _DIMENSION_TRANSCRIPT
-        else PROMPT_VERSION_FACTUAL
+        PROMPT_VERSION_TRANSCRIPT if dimension == _DIMENSION_TRANSCRIPT else PROMPT_VERSION_FACTUAL
     )
+
 
 # audit_status 词表：ok / validation_failure / llm_error / llm_unavailable /
 # no_confirmed_facts / unverifiable
@@ -148,6 +148,9 @@ class AuditLlmConfig:
     api_key: str  # 空 = 未配置 → llm_unavailable（诚实降级）
     model: str
     base_url: str
+    # 主备 failover（post_analysis 同款口径）：空 = 单通道。20260810 实证
+    # aihubmix 本机直连不通、inferera 直连通——无 failover 时 audit 族全灭。
+    base_url_fallback: str = ""
 
 
 def audit_llm_config_from_settings(settings: Settings) -> AuditLlmConfig:
@@ -156,6 +159,9 @@ def audit_llm_config_from_settings(settings: Settings) -> AuditLlmConfig:
         api_key=(settings.audit_llm_api_key or settings.research_llm_api_key).strip(),
         model=(settings.audit_llm_model or settings.research_llm_model).strip(),
         base_url=(settings.audit_llm_base_url or settings.research_llm_base_url).strip(),
+        base_url_fallback=(
+            settings.audit_llm_base_url_fallback or settings.research_llm_base_url_fallback
+        ).strip(),
     )
 
 
@@ -187,9 +193,7 @@ def quote_is_verbatim(quote: str, blob: str) -> bool:
     return needle in normalize_verbatim(blob)
 
 
-def validate_judgment(
-    judgment: JudgeOutcome, *, source_text: str, answer_blob: str
-) -> str | None:
+def validate_judgment(judgment: JudgeOutcome, *, source_text: str, answer_blob: str) -> str | None:
     """判分程序校验 → None=通过；否则返回失败原因（判分必须丢弃）。
 
     - accurate/inaccurate：quote_source/quote_answer 都必须非空且逐字命中；
@@ -202,13 +206,9 @@ def validate_judgment(
             return "quote_source 为空（accurate/inaccurate 必须给正文证据）"
         if not normalize_verbatim(judgment.quote_answer):
             return "quote_answer 为空（accurate/inaccurate 必须给引述/事实证据）"
-    if judgment.quote_source.strip() and not quote_is_verbatim(
-        judgment.quote_source, source_text
-    ):
+    if judgment.quote_source.strip() and not quote_is_verbatim(judgment.quote_source, source_text):
         return "quote_source 非正文逐字子串"
-    if judgment.quote_answer.strip() and not quote_is_verbatim(
-        judgment.quote_answer, answer_blob
-    ):
+    if judgment.quote_answer.strip() and not quote_is_verbatim(judgment.quote_answer, answer_blob):
         return "quote_answer 非引述/事实逐字子串"
     return None
 
@@ -404,9 +404,7 @@ _FACTUAL_INSTRUCTIONS = (
 )
 
 
-def build_judge_user_prompt(
-    *, dimension: str, url: str, source_text: str, answer_blob: str
-) -> str:
+def build_judge_user_prompt(*, dimension: str, url: str, source_text: str, answer_blob: str) -> str:
     source_excerpt = source_text[:_MAX_PROMPT_TEXT_CHARS]
     if dimension == _DIMENSION_TRANSCRIPT:
         answer_label = "AI 助手引述"
@@ -549,7 +547,8 @@ class _ResponsesApiJudge:
         self, *, dimension: str, url: str, source_text: str, answer_blob: str
     ) -> JudgeOutcome:
         instructions = (
-            _TRANSCRIPT_INSTRUCTIONS if dimension == _DIMENSION_TRANSCRIPT
+            _TRANSCRIPT_INSTRUCTIONS
+            if dimension == _DIMENSION_TRANSCRIPT
             else _FACTUAL_INSTRUCTIONS
         )
         body: dict[str, Any] = {
@@ -573,12 +572,23 @@ class _ResponsesApiJudge:
     def _post(self, body: dict[str, Any]) -> dict[str, Any]:
         if self._client is not None:
             return self._post_with(self._client, body)
-        with httpx.Client(
-            base_url=_normalize_base_url(self._config.base_url),
-            headers={"Authorization": f"Bearer {self._config.api_key}"},
-            timeout=_LLM_TIMEOUT_S,
-        ) as client:
-            return self._post_with(client, body)
+        bases = [self._config.base_url]
+        if self._config.base_url_fallback.strip():
+            bases.append(self._config.base_url_fallback)
+        error: JudgeError | None = None
+        for base in bases:
+            try:
+                with httpx.Client(
+                    base_url=_normalize_base_url(base),
+                    headers={"Authorization": f"Bearer {self._config.api_key}"},
+                    timeout=_LLM_TIMEOUT_S,
+                ) as client:
+                    return self._post_with(client, body)
+            except JudgeError as exc:
+                # 主通道失败（网络/5xx/4xx 都含）→ 换备通道再试一次；POST 幂等无害。
+                error = exc
+        assert error is not None
+        raise error
 
     @staticmethod
     def _post_with(client: httpx.Client, body: dict[str, Any]) -> dict[str, Any]:
@@ -771,9 +781,7 @@ class _PostgresAuditLoader:
                 text_cas_key=(
                     str(row["text_cas_key"]) if row["text_cas_key"] is not None else None
                 ),
-                text_sha256=(
-                    str(row["text_sha256"]) if row["text_sha256"] is not None else None
-                ),
+                text_sha256=(str(row["text_sha256"]) if row["text_sha256"] is not None else None),
             )
             for row in document_rows
         ]
@@ -882,9 +890,7 @@ class _MinioSourceTextStore:
 
 
 @contextmanager
-def _platform_connection(
-    dsn: str, context: RunAuditContext
-) -> Iterator[psycopg.Connection[Any]]:
+def _platform_connection(dsn: str, context: RunAuditContext) -> Iterator[psycopg.Connection[Any]]:
     """platform schema 写连接：置 app.tenant_id + app.tenant_pub_id 双 selector。"""
     with psycopg.connect(dsn) as connection:
         connection.execute(
@@ -987,9 +993,7 @@ def _noop_progress(stage: str, url: str) -> None:
     del stage, url
 
 
-def _load_official_site_corpus(
-    context: RunAuditContext, text_store: SourceTextStore
-) -> str:
+def _load_official_site_corpus(context: RunAuditContext, text_store: SourceTextStore) -> str:
     """读本 run 官网快照正文（CAS JSON → text）装配官网语料；读失败的页记日志跳过。"""
     if not context.official_site_assets:
         return ""
@@ -1044,9 +1048,7 @@ def execute_source_audit(
     progress("load_context", "")
     context = loader.load(item.tenant_pub_id, item.run_pub_id, item.project_pub_id)
     if context is None:
-        raise ApplicationError(
-            "collection run not found", type="run_not_found", non_retryable=True
-        )
+        raise ApplicationError("collection run not found", type="run_not_found", non_retryable=True)
     model = llm.model or "unknown"
     llm_available = bool(llm.api_key) and judge is not None
 
@@ -1117,8 +1119,7 @@ def execute_source_audit(
                     quote_source=judgment.quote_source[:2_000],
                     quote_answer=judgment.quote_answer[:2_000],
                     rationale=(
-                        f"逐字校验未过（{failure}），判分已丢弃。"
-                        f"模型自述：{judgment.rationale}"
+                        f"逐字校验未过（{failure}），判分已丢弃。模型自述：{judgment.rationale}"
                     )[:_MAX_RATIONALE_CHARS],
                     audit_status="validation_failure",
                     model=model,
@@ -1245,9 +1246,7 @@ def execute_source_audit(
         except ApplicationError:
             raise
         except Exception as exc:
-            result.failures.append(
-                AuditFailure(url=doc.url, error=f"{type(exc).__name__}: {exc}")
-            )
+            result.failures.append(AuditFailure(url=doc.url, error=f"{type(exc).__name__}: {exc}"))
     log.info(
         "source_audit_done",
         run_pub_id=context.run_pub_id,

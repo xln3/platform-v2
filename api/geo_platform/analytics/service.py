@@ -12,7 +12,6 @@ from urllib.parse import urlsplit
 import psycopg
 from psycopg.rows import dict_row
 
-from domain.evidence.dlp import assert_secret_free
 from domain.evidence.provenance import RedactedProvenance
 from domain.metrics.core import MetricRegistry
 from domain.scoring.analyzer import CitationInput, analyze_answer
@@ -99,9 +98,7 @@ def _metric_daily_lock_key(
 
 
 @contextmanager
-def _platform_tenant_connection(
-    dsn: str, tenant_pub_id: str
-) -> Iterator[psycopg.Connection[Any]]:
+def _platform_tenant_connection(dsn: str, tenant_pub_id: str) -> Iterator[psycopg.Connection[Any]]:
     """platform schema 读连接：解析 tenant uuid 并置 app.tenant_id + app.tenant_pub_id。
 
     platform.* 表 RLS 按 app.tenant_id（uuid），tenant_connection 只置 pub_id
@@ -152,7 +149,9 @@ class AnalyticsService:
         metric_version: str,
         model_version: str,
     ) -> dict[str, Any]:
-        assert_secret_free(answer_text)
+        # 原始采集原则（2026-08-06 用户拍板）：answer_text 是公开平台输出=测量原料，
+        # 原文入分析、零 DLP——营销稿/回答里含 400 电话等数字串属正常（20260810 实证：
+        # 此处 assert_secret_free 曾把含手机号的真实答案挡在分析链外）。
         result = analyze_answer(
             answer_pub_id=answer_pub_id,
             text=answer_text,
@@ -1008,9 +1007,7 @@ class AnalyticsService:
                     else []
                 )
         documents_total = len(documents)
-        own_site_documents = sum(
-            1 for row in documents if _is_own_site(row["host"], own_site_host)
-        )
+        own_site_documents = sum(1 for row in documents if _is_own_site(row["host"], own_site_host))
         verdicts: dict[str, dict[str, int]] = {
             dimension: {key: 0 for key in _SOURCE_AUDIT_VERDICTS}
             for dimension in _SOURCE_AUDIT_DIMENSIONS
@@ -1053,9 +1050,7 @@ class AnalyticsService:
                 own_site_transcript_total += 1
                 if row["verdict"] == "accurate":
                     own_site_transcript_accurate += 1
-        host_list = sorted(
-            hosts.values(), key=lambda item: (-item["documents"], item["host"])
-        )[:20]
+        host_list = sorted(hosts.values(), key=lambda item: (-item["documents"], item["host"]))[:20]
         for entry in host_list:
             entry["is_own_site"] = _is_own_site(entry["host"], own_site_host)
         audits_by_document: dict[Any, list[dict[str, Any]]] = {}

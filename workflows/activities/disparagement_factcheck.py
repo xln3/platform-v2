@@ -283,9 +283,7 @@ class _ResponsesApiFactchecker:
     ``client`` 可注入（测试 mock 接缝，post_analysis._ResponsesApiVerifier 同模式）。
     """
 
-    def __init__(
-        self, config: PostAnalysisLlmConfig, *, client: Any | None = None
-    ) -> None:
+    def __init__(self, config: PostAnalysisLlmConfig, *, client: Any | None = None) -> None:
         self._config = config
         self._client = client
 
@@ -408,9 +406,7 @@ class _PostgresFactcheckSink:
         outcome: FactcheckOutcome,
         model: str,
     ) -> str:
-        factcheck_pub_id = derive_factcheck_pub_id(
-            context.tenant_pub_id, case.judgment_pub_id
-        )
+        factcheck_pub_id = derive_factcheck_pub_id(context.tenant_pub_id, case.judgment_pub_id)
         with psycopg.connect(self._dsn) as connection:
             connection.execute(
                 "SELECT set_config('app.tenant_id', %s, true), "
@@ -467,9 +463,7 @@ def execute_factcheck(
     progress("load_context", "")
     context = loader.load(item.tenant_pub_id, item.run_pub_id, item.project_pub_id)
     if context is None:
-        raise ApplicationError(
-            "collection run not found", type="run_not_found", non_retryable=True
-        )
+        raise ApplicationError("collection run not found", type="run_not_found", non_retryable=True)
     result = FactcheckResult(candidates=len(context.cases))
 
     # LLM key 缺失 → 整体诚实跳过：零 LLM 调用、零落库，绝不伪装 unverifiable
@@ -566,7 +560,7 @@ async def run_factcheck(
                 api_key=llm.api_key,
                 model=llm.model,
                 base_url=llm.base_url,
-                base_url_fallback="",
+                base_url_fallback=llm.base_url_fallback,
             )
         )
     if heartbeat is None:

@@ -98,6 +98,9 @@ class Settings(BaseSettings):
     audit_llm_api_key: str = ""
     audit_llm_base_url: str = ""
     audit_llm_model: str = ""
+    # 主备 failover：空则复用 research_llm_base_url_fallback；再空 = 不做 failover。
+    # （20260810 实证：aihubmix 本机直连不通、inferera 直连通——单通道必挂。）
+    audit_llm_base_url_fallback: str = ""
     # 信源帖子取证分析（post_analysis）LLM：三项留空则逐项复用 research_llm_*
     # （GEO_RESEARCH_LLM_*）的值；key 缺失 → 分析如实落 analysis_failed
     # （llm_unavailable），绝不编造标签。key 只走本 settings，严禁入库/日志。

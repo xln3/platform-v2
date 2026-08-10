@@ -415,12 +415,23 @@ class _ResponsesApiSuggestionsJudge:
     def _post(self, body: dict[str, Any]) -> dict[str, Any]:
         if self._client is not None:
             return self._post_with(self._client, body)
-        with httpx.Client(
-            base_url=_normalize_base_url(self._config.base_url),
-            headers={"Authorization": f"Bearer {self._config.api_key}"},
-            timeout=_LLM_TIMEOUT_S,
-        ) as client:
-            return self._post_with(client, body)
+        bases = [self._config.base_url]
+        if self._config.base_url_fallback.strip():
+            bases.append(self._config.base_url_fallback)
+        error: SuggestionsError | None = None
+        for base in bases:
+            try:
+                with httpx.Client(
+                    base_url=_normalize_base_url(base),
+                    headers={"Authorization": f"Bearer {self._config.api_key}"},
+                    timeout=_LLM_TIMEOUT_S,
+                ) as client:
+                    return self._post_with(client, body)
+            except SuggestionsError as exc:
+                # 主通道失败 → 换备通道再试一次；POST 幂等无害。
+                error = exc
+        assert error is not None
+        raise error
 
     @staticmethod
     def _post_with(client: httpx.Client, body: dict[str, Any]) -> dict[str, Any]:
@@ -642,9 +653,7 @@ def execute_site_suggestions(
     progress("load_context", "")
     context = loader.load(item.tenant_pub_id, item.run_pub_id, item.project_pub_id)
     if context is None:
-        raise ApplicationError(
-            "collection run not found", type="run_not_found", non_retryable=True
-        )
+        raise ApplicationError("collection run not found", type="run_not_found", non_retryable=True)
     result = SiteSuggestionsResult()
     if not context.own_site_host:
         result.skipped = "no_own_site_host"

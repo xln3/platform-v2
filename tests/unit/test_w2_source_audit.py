@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 
+import httpx
 import pytest
 from temporalio.exceptions import ApplicationError
 
@@ -31,6 +32,7 @@ from workflows.activities.source_audit import (
     SourceAuditInput,
     SourceAuditResult,
     SourceTextStore,
+    _ResponsesApiJudge,
     build_fact_base_blob,
     build_official_site_corpus,
     collect_confirmed_facts,
@@ -587,3 +589,66 @@ def test_execute_audit_missing_cas_ref_raises_non_retryable() -> None:
     )
     with pytest.raises(ApplicationError, match="缺 CAS 引用"):
         _execute(context=_context(documents=[doc]))
+
+
+class _FailoverFakeResponse:
+    status_code = 200
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self) -> dict:
+        return {"output": []}
+
+
+class _FailoverFakeClient:
+    """httpx.Client 替身：按 base_url 决定成败（主通道 ConnectError，备通道 200）。"""
+
+    instances: list[str] = []
+
+    def __init__(self, *, base_url: str, headers: dict, timeout: float) -> None:
+        self.base_url = base_url
+        _FailoverFakeClient.instances.append(base_url)
+
+    def __enter__(self) -> _FailoverFakeClient:
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+    def post(self, path: str, json: dict) -> _FailoverFakeResponse:
+        if "primary" in self.base_url:
+            raise httpx.ConnectError("connect failed")
+        return _FailoverFakeResponse()
+
+
+def test_audit_llm_client_fails_over_to_fallback_base_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    """主通道网络失败 → 自动换 base_url_fallback 重试一次（20260810 aihubmix 直连不通实证）。"""
+    _FailoverFakeClient.instances = []
+    monkeypatch.setattr("workflows.activities.source_audit.httpx.Client", _FailoverFakeClient)
+    client = _ResponsesApiJudge(
+        AuditLlmConfig(
+            api_key="k",
+            model="m",
+            base_url="https://primary.example.com",
+            base_url_fallback="https://fallback.example.com",
+        )
+    )
+    payload = client._post({"model": "m"})
+    assert payload == {"output": []}
+    assert _FailoverFakeClient.instances == [
+        "https://primary.example.com/v1",
+        "https://fallback.example.com/v1",
+    ]
+
+
+def test_audit_llm_client_single_channel_without_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """无 fallback 配置时保持单通道（旧行为）：主失败即抛 JudgeError。"""
+    _FailoverFakeClient.instances = []
+    monkeypatch.setattr("workflows.activities.source_audit.httpx.Client", _FailoverFakeClient)
+    client = _ResponsesApiJudge(
+        AuditLlmConfig(api_key="k", model="m", base_url="https://primary.example.com")
+    )
+    with pytest.raises(JudgeError):
+        client._post({"model": "m"})
+    assert _FailoverFakeClient.instances == ["https://primary.example.com/v1"]
