@@ -3842,14 +3842,27 @@ const readAiOperationModel = (opId: string): string => readAiDockStorage(aiOpera
 function AiOpsDock() {
   const experience = useOptionalExperienceContext();
   const live = experience?.source === 'live';
-  const [expanded, setExpanded] = useState(() => readAiDockStorage(aiDockExpandedKey) !== '0');
+  const [expanded, setExpanded] = useState(() => {
+    const stored = readAiDockStorage(aiDockExpandedKey);
+    if (stored) return stored !== '0';
+    // 窄屏（≤620px 底部固定导航布局）默认收起，避免悬浮面板遮挡底栏导航与内容；
+    // matchMedia 缺失的环境（如 jsdom）保持桌面语义：默认展开。
+    return !(
+      typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 620px)').matches
+    );
+  });
   const [models, setModels] = useState<readonly string[]>([]);
   const [pinned, setPinned] = useState(() => readAiOperationModel('report-draft'));
   useEffect(() => {
     if (!live) {
-      setModels([]);
+      // 幂等重置：models 初值为 []，重复 set 新数组会触发无限重渲染（React #185），
+      // 必须同值短路。
+      setModels((current) => (current.length === 0 ? current : []));
       return;
     }
+    // 面板收起时不拉模型清单：收起态不展示清单，且首访/窄屏默认收起，
+    // 挂载即拉取会给每个 live 会话增加一笔与当前操作无关的后台请求。
+    if (!expanded || models.length > 0) return;
     const headers = getValidatedIdentityHeaders();
     if (!headers) return;
     let cancelled = false;
@@ -3859,7 +3872,7 @@ function AiOpsDock() {
     return () => {
       cancelled = true;
     };
-  }, [experience, live]);
+  }, [experience, live, expanded, models]);
   const toggle = () => {
     setExpanded((current) => {
       writeAiDockStorage(aiDockExpandedKey, current ? '0' : '1');

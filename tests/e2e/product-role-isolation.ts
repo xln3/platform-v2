@@ -7,11 +7,15 @@ export function verifyWrongProductRole({
   path,
   wrongRole,
   protectedText,
+  forbiddenText = '无权查看',
 }: {
   product: string;
   path: string;
   wrongRole: BrowserRole;
   protectedText: string;
+  /** 错误角色落点文案：多数端是 StatePanel forbidden 的「无权查看」；
+      operations 端 20260810 重构后落点是统一登录页。 */
+  forbiddenText?: string;
 }) {
   test(`${product} rejects a valid identity with the wrong product role before business data loads`, async ({
     page,
@@ -61,7 +65,7 @@ export function verifyWrongProductRole({
     );
 
     await page.goto(path);
-    await expect(page.getByText('无权查看')).toBeVisible();
+    await expect(page.getByText(forbiddenText)).toBeVisible();
     await expect(page.getByText(protectedText, { exact: false })).toHaveCount(0);
     await expect(page.getByText('越权项目不可见')).toHaveCount(0);
     await expect(page.getByText('尾号 · 4821')).toHaveCount(0);

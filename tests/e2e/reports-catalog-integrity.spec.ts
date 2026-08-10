@@ -802,7 +802,8 @@ test('a cross-project-only catalog row is omitted before any report detail probe
   });
 
   await page.goto('/platform/reports/');
-  await expect(page.getByText('暂无数据')).toBeVisible();
+  // 空目录的当前形态是「创建首份报告」引导区（20260810 运营端重构后的空态），不再是 暂无数据 文案。
+  await expect(page.getByRole('heading', { name: '创建首份报告' })).toBeVisible();
   await expect(page.getByText(/报告目录包含跨项目、重复标识/)).toHaveCount(0);
   await expect(page.getByText('不应公开的跨项目报告')).toHaveCount(0);
   expect(detailRequests).toBe(0);

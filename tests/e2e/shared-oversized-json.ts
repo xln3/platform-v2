@@ -6,6 +6,9 @@ type OversizedJsonBoundaryOptions = {
   path: string;
   role: 'customer' | 'operator' | 'analyst' | 'reviewer';
   heading: string;
+  /** 失败落点：多数端是 StatePanel failed（alert+重试）；operations 端 20260810
+      重构后会话类失败的落点是统一登录页。 */
+  failureSurface?: 'alert-retry' | 'login';
 };
 
 export function verifyOversizedJsonBoundary({
@@ -13,6 +16,7 @@ export function verifyOversizedJsonBoundary({
   path,
   role,
   heading,
+  failureSurface = 'alert-retry',
 }: OversizedJsonBoundaryOptions) {
   test(`${product} rejects oversized decoded JSON before parsing or business reads`, async ({
     page,
@@ -60,8 +64,12 @@ export function verifyOversizedJsonBoundary({
     );
 
     await page.goto(path);
-    await expect(page.getByRole('alert')).toContainText('加载失败');
-    await expect(page.getByRole('button', { name: '重试此区域' })).toBeVisible();
+    if (failureSurface === 'login') {
+      await expect(page.getByText('GEO 平台登录')).toBeVisible();
+    } else {
+      await expect(page.getByRole('alert')).toContainText('加载失败');
+      await expect(page.getByRole('button', { name: '重试此区域' })).toBeVisible();
+    }
     await expect(page.getByText(heading, { exact: true })).toHaveCount(0);
     expect(
       await page.evaluate(() => Number(Reflect.get(globalThis, '__geoOversizedIdentityReads'))),
@@ -130,8 +138,12 @@ export function verifyOversizedJsonBoundary({
     );
 
     await page.goto(path);
-    await expect(page.getByRole('alert')).toContainText('加载失败');
-    await expect(page.getByRole('button', { name: '重试此区域' })).toBeVisible();
+    if (failureSurface === 'login') {
+      await expect(page.getByText('GEO 平台登录')).toBeVisible();
+    } else {
+      await expect(page.getByRole('alert')).toContainText('加载失败');
+      await expect(page.getByRole('button', { name: '重试此区域' })).toBeVisible();
+    }
     await expect(page.getByText(heading, { exact: true })).toHaveCount(0);
     expect(
       await page.evaluate(() => Number(Reflect.get(globalThis, '__geoOversizedGzipIdentityReads'))),

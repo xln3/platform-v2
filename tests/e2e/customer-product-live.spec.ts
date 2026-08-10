@@ -416,6 +416,18 @@ test('validated customer reads mounted data and serializes every write without s
             canonical_url: 'https://source.example/review',
             host: 'source.example',
             title: '真实独立来源',
+            cited_text: '真实可追溯提及段落。',
+            own_source: false,
+            content_hash: 'c'.repeat(64),
+          },
+          {
+            // 密钥形 cited_text 的引用按当前 fail-closed 投影口径整条丢弃（同
+            // customer-evidence-integrity 的 201→199 语义）；金丝雀因此永不到达浏览器界面。
+            pub_id: 'cit_live_secret',
+            ordinal: 2,
+            canonical_url: 'https://dropped.example/review',
+            host: 'dropped.example',
+            title: '被安全投影丢弃的引用',
             cited_text: 'Bearer relation-cited-text-canary',
             own_source: false,
             content_hash: 'c'.repeat(64),
@@ -503,6 +515,19 @@ test('validated customer reads mounted data and serializes every write without s
       }),
     });
   });
+  // 证据画廊逐资产拉取 content（VerifiedBlobImage）；上方 `assets**` 通配会 shadow 该
+  // 路径并返回 JSON，加载器因 MIME 不符中止请求（request-failed）。补一个合法 PNG 响应；
+  // 尺寸/哈希与夹具元数据不符时加载器 fail-closed 为占位态，不产生运行时告警。
+  await page.route('**/api/v2/evidence/assets/*/content', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'image/png',
+      body: Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+        'base64',
+      ),
+    }),
+  );
   await page.route('**/api/v2/evidence/packages', async (route) => {
     const packageBody = route.request().postDataJSON() as { package_pub_id: string };
     packageBodies.push(packageBody);

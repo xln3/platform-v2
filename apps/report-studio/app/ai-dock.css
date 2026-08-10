@@ -53,6 +53,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  /* 可访问性：交互目标不得低于 24×24 CSS px（e2e expectAccessible 硬闸）。 */
+  min-height: 24px;
   cursor: pointer;
   list-style: none;
   font-weight: 600;
@@ -109,5 +111,12 @@
   }
   .ai-dock-open {
     width: min(300px, calc(100vw - 32px));
+  }
+}
+/* ≤620px 时 .sidebar 变为 66px 底部固定导航（z-index 10）；dock 抬到其上方，
+   否则展开态与收起态都会压住底栏尾部导航按钮。 */
+@media (max-width: 620px) {
+  .ai-dock {
+    bottom: calc(66px + 12px);
   }
 }

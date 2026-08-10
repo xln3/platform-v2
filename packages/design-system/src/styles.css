@@ -380,6 +380,15 @@ main {
   border-bottom: 1px solid #edf0ee;
   padding: 13px 10px;
 }
+/* 表格内的行内链接本身只有行高大小（<24px），且 CJK 操作链接在挤压列中会逐字
+   换行缩到 24px 宽以下，达不到交互目标尺寸硬闸；撑开最小目标尺寸，视觉位置不变
+   （单元格已有 13px 纵向 padding）。 */
+.data-table td a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  min-width: 24px;
+}
 .table-scroll,
 .geo-chart {
   width: 100%;

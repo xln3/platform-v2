@@ -276,6 +276,8 @@ button.geo-badge.active {
 }
 .media-prices-table input[type='checkbox'],
 .posting-confirmation input[type='checkbox'] {
+  /* flex 容器内默认 flex-shrink:1，窄视口长文案会把复选框挤到 24px 以下（交互目标硬闸）。 */
+  flex: 0 0 24px;
   width: 24px;
   height: 24px;
   margin: 0;

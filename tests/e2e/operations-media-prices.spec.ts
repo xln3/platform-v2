@@ -342,8 +342,10 @@ test('a delayed initial refresh status cannot overwrite a newer completed refres
   await expect(page.getByText('正在读取刷新状态…')).toBeVisible();
   await page.getByRole('button', { name: '刷新数据' }).click();
   await expect(page.getByText('本轮刷新进行中', { exact: true })).toBeVisible();
-  await expect(page.getByText('刷新完成：新刷新已完成')).toBeVisible();
-  await expect(page.getByText('上次刷新：新刷新已完成')).toBeVisible();
+  // 生产轮询节拍 REFRESH_POLL_INTERVAL_MS=10s：完成态最早在下一次 tick 才出现，
+  // 默认 5s 断言窗口必然超时（该用例自入版起从未真正跑过，此前未发现）。
+  await expect(page.getByText('刷新完成：新刷新已完成')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText('上次刷新：新刷新已完成')).toBeVisible({ timeout: 15_000 });
 
   const staleResponse = page.waitForResponse(
     (response) => response.headers()['x-test-stale-initial'] === '1',
@@ -500,8 +502,9 @@ test('an unchanged pre-refresh terminal record cannot complete a newly accepted 
   await expect(page.getByText('刷新完成：上一轮刷新完成')).toHaveCount(0);
   expect(datasetReads).toBe(1);
 
-  await expect(page.getByText('刷新完成：新一轮刷新完成')).toBeVisible();
-  await expect(page.getByText('上次刷新：新一轮刷新完成')).toBeVisible();
+  // 生产轮询节拍 REFRESH_POLL_INTERVAL_MS=10s：完成态最早在下一次 tick 才出现。
+  await expect(page.getByText('刷新完成：新一轮刷新完成')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText('上次刷新：新一轮刷新完成')).toBeVisible({ timeout: 15_000 });
   expect(statusReads).toBe(3);
   expect(datasetReads).toBe(2);
   await expectAccessible(page);

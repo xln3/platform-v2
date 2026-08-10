@@ -13,6 +13,10 @@ test('customer shell is keyboard reachable and WCAG AA clean', async ({ page }) 
   await page.keyboard.press('Enter');
   await expect(page.locator('main')).toBeFocused();
   await expectSharedInteractionAccessibility(page);
+  // fixture 缺省为「已收起」回访态；展开 AI 操作面板也过一次可访问性闸（覆盖抽屉 summary 等控件）。
+  await page.getByRole('button', { name: '展开 AI 面板' }).click();
+  await expectAccessible(page);
+  await page.getByRole('button', { name: '收起 AI 面板' }).click();
   for (const workspace of ['资料', '品牌产品', '问题目标', '报告', '成员']) {
     await page.getByRole('button', { name: workspace, exact: true }).click();
     if (workspace === '报告') {

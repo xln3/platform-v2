@@ -73,7 +73,8 @@ test('report catalog retries locally after a transient read failure', async ({ p
 
   await retry.click();
 
-  await expect(page.getByText('暂无数据')).toBeVisible();
+  // 空目录的当前形态是「创建首份报告」引导区（20260810 运营端重构后的空态），不再是 暂无数据 文案。
+  await expect(page.getByRole('heading', { name: '创建首份报告' })).toBeVisible();
   expect(await syntheticHttpResponseCount(page, 'report-catalog-transient')).toBe(1);
   expect(successfulReportRequests).toBe(1);
   expect(await page.evaluate(() => Reflect.get(window, '__geoLocalRetrySentinel'))).toBe(

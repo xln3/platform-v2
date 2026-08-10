@@ -9800,14 +9800,26 @@ export const readAiOperationModel = (opId: string): string =>
 function AiOpsDock() {
   const experience = useOptionalExperienceContext();
   const live = experience?.source === 'live' && Boolean(experience?.projectPubId);
-  const [expanded, setExpanded] = useState(() => readAiDockStorage(aiDockExpandedKey) !== '0');
+  const [expanded, setExpanded] = useState(() => {
+    const stored = readAiDockStorage(aiDockExpandedKey);
+    if (stored) return stored !== '0';
+    // 窄屏（≤620px 底部固定导航布局）默认收起，避免悬浮面板遮挡底栏导航与内容；
+    // matchMedia 缺失的环境（如 jsdom）保持桌面语义：默认展开。
+    return !(
+      typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 620px)').matches
+    );
+  });
   const [catalog, setCatalog] = useState<ResearchModelCatalog | null>(null);
   const [pinned, setPinned] = useState(() => readAiOperationModel('intake-research'));
   useEffect(() => {
     if (!live || !experience?.projectPubId) {
-      setCatalog(null);
+      // 幂等重置：catalog 初值为 null，重复 set 同值时 React 短路、不触发重渲染。
+      setCatalog((current) => (current === null ? current : null));
       return;
     }
+    // 面板收起时不拉模型清单：收起态不展示清单，且首访/窄屏默认收起，
+    // 挂载即拉取会给每个 live 会话增加一笔与当前操作无关的后台请求。
+    if (!expanded || catalog) return;
     const headers = getValidatedIdentityHeaders();
     if (!headers) return;
     const projectPubId = experience.projectPubId;
@@ -9818,7 +9830,7 @@ function AiOpsDock() {
     return () => {
       cancelled = true;
     };
-  }, [experience, live]);
+  }, [experience, live, expanded, catalog]);
   const models = catalog?.models ?? [];
   const groups = catalog?.groups ?? [];
   const toggle = () => {

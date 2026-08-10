@@ -194,6 +194,19 @@ export const test = base.extend<{ browserRuntimeGuard: void }>({
     async ({ page }, use, testInfo) => {
       const collector = collectBrowserRuntimeIssues(page);
       try {
+        // AI 操作面板（AiOpsDock）缺省展开是有意的首访发现性设计，且会记忆用户选择；
+        // e2e 每次都是全新上下文，若保持缺省展开，悬浮面板会遮挡内容区右上角的动作按钮
+        // （真实用户收起一次后即持久化）。这里把每个用例统一置为「已收起」的回访用户态，
+        // 需要审计展开态的用例（如可访问性 spec）自行展开。
+        await page.addInitScript(() => {
+          try {
+            if (localStorage.getItem('geo.ai.dock.expanded') === null) {
+              localStorage.setItem('geo.ai.dock.expanded', '0');
+            }
+          } catch {
+            // localStorage 不可用时保持应用缺省行为
+          }
+        });
         await page.route('**/api/v2/health', (route) =>
           route.fulfill({
             status: 200,
@@ -203,6 +216,25 @@ export const test = base.extend<{ browserRuntimeGuard: void }>({
               service: 'geo-platform-v2',
               version: 'contract-v2',
             }),
+          }),
+        );
+        // AiOpsDock 在 live 会话下会拉取模型清单；与上方 health 一样属于全局端点，
+        // 在此统一兜底，避免未 mock 的用例打到不存在的上游（45200）而产生 request-failed。
+        await page.route('**/api/v2/projects/*/intake/research-models', (route) =>
+          route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              models: ['fixture-research-model'],
+              groups: [{ provider: 'fixture', models: ['fixture-research-model'] }],
+            }),
+          }),
+        );
+        await page.route('**/api/v2/reports/ai-draft-models', (route) =>
+          route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ models: ['fixture-draft-model'] }),
           }),
         );
         if (testInfo.project.name.startsWith('operations-')) {

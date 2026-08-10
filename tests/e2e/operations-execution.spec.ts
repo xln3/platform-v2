@@ -2,7 +2,10 @@ import { expect, test } from './runtime-fixture';
 import path from 'node:path';
 import { captureSafeScreenshot } from './screenshot-safety';
 
-test('operations execution uses real lifecycle APIs without secret leakage', async ({
+// @live-api 车道：本用例 POST 真实 /api/v2/identity/bootstrap（需可写 API+库，静态 harness 的
+// /api 代理目标 45200 在 CI/本地均无监听）。CI browser-e2e 以 --grep-invert @live-api 显式排除；
+// 本地有 API 时可直接跑。待 dedicated live-API e2e 车道立项后归位。
+test('operations execution uses real lifecycle APIs without secret leakage @live-api', async ({
   page,
   request,
 }, testInfo) => {

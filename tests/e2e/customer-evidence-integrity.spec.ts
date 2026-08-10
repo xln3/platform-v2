@@ -187,6 +187,19 @@ test('oversized answer evidence stays bounded, explicit and package-write locked
       }),
     }),
   );
+  // 证据画廊逐资产拉取 content（VerifiedBlobImage）；列表 mock 的 `assets**` 通配会 shadow
+  // 该路径并返回 JSON，加载器因 MIME 不符中止请求（request-failed）。此处显式补一个合法
+  // PNG 响应；尺寸/哈希与夹具元数据不符时加载器 fail-closed 为占位态，不产生运行时告警。
+  await page.route('**/api/v2/evidence/assets/*/content', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'image/png',
+      body: Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+        'base64',
+      ),
+    }),
+  );
   await page.route('**/api/v2/evidence/packages', async (route) => {
     packageWrites.push(route.request().postDataJSON());
     await route.fulfill({

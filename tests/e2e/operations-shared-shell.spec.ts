@@ -26,4 +26,5 @@ verifyOversizedJsonBoundary({
   path: '/platform/operations/',
   role: 'operator',
   heading: '运行总览',
+  failureSurface: 'login',
 });
