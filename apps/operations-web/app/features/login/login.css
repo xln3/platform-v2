@@ -119,6 +119,8 @@
   margin-top: 22px;
   color: #4f6256;
   text-align: center;
+  /* 行高随字体度量漂移（其它 CJK 字体下实测 21px），显式兜住 24px 交互目标下限。 */
+  min-height: 24px;
 }
 
 @media (max-width: 560px) {

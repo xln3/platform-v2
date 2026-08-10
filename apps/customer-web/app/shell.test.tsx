@@ -1020,62 +1020,68 @@ describe('Customer platform account lifecycle', () => {
     expect(JSON.stringify({ competitors, questions })).not.toMatch(/Bearer|Cookie|canary/i);
   });
 
-  it('completes pairing and revocation without asking for or persisting secrets', async () => {
-    const user = userEvent.setup();
-    const { container } = render(<Shell />);
+  // 20+ 步真实 userEvent 交互在共享 CI runner 上会越过 vitest 默认 5s（首跑实测 5118ms），
+  // 给足 20s 窗口；断言内容不变。
+  it(
+    'completes pairing and revocation without asking for or persisting secrets',
+    { timeout: 20000 },
+    async () => {
+      const user = userEvent.setup();
+      const { container } = render(<Shell />);
 
-    await user.click(screen.getByRole('button', { name: /平台账号/ }));
-    expect(screen.getByRole('heading', { name: '客户终端安全配对' })).toBeTruthy();
-    expect(container.querySelector('input[type="password"]')).toBeNull();
+      await user.click(screen.getByRole('button', { name: /平台账号/ }));
+      expect(screen.getByRole('heading', { name: '客户终端安全配对' })).toBeTruthy();
+      expect(container.querySelector('input[type="password"]')).toBeNull();
 
-    await user.clear(screen.getByLabelText('账号掩码'));
-    await user.type(screen.getByLabelText('账号掩码'), 'customer@example.test');
-    await user.click(screen.getByRole('button', { name: '登记授权' }));
-    expect(screen.getByText('只填写带 *、尾号或其他明确隐藏标记的账号掩码')).toBeTruthy();
-    await user.clear(screen.getByLabelText('账号掩码'));
-    await user.type(screen.getByLabelText('账号掩码'), 'customer-***21');
-    await user.clear(screen.getByLabelText('运营责任人'));
-    await user.type(screen.getByLabelText('运营责任人'), '周岚');
-    await user.selectOptions(screen.getByLabelText('托管模式'), 'customer-device');
-    await user.click(screen.getByRole('button', { name: '登记授权' }));
-    expect(await screen.findByText(/授权登记已更新/)).toBeTruthy();
+      await user.clear(screen.getByLabelText('账号掩码'));
+      await user.type(screen.getByLabelText('账号掩码'), 'customer@example.test');
+      await user.click(screen.getByRole('button', { name: '登记授权' }));
+      expect(screen.getByText('只填写带 *、尾号或其他明确隐藏标记的账号掩码')).toBeTruthy();
+      await user.clear(screen.getByLabelText('账号掩码'));
+      await user.type(screen.getByLabelText('账号掩码'), 'customer-***21');
+      await user.clear(screen.getByLabelText('运营责任人'));
+      await user.type(screen.getByLabelText('运营责任人'), '周岚');
+      await user.selectOptions(screen.getByLabelText('托管模式'), 'customer-device');
+      await user.click(screen.getByRole('button', { name: '登记授权' }));
+      expect(await screen.findByText(/授权登记已更新/)).toBeTruthy();
 
-    await user.click(screen.getByRole('button', { name: '创建一次性配对' }));
-    expect(screen.getByText('请二次确认本次任务')).toBeTruthy();
-    expect(screen.getByText(/请勿在聊天或普通表单粘贴验证码/)).toBeTruthy();
+      await user.click(screen.getByRole('button', { name: '创建一次性配对' }));
+      expect(screen.getByText('请二次确认本次任务')).toBeTruthy();
+      expect(screen.getByText(/请勿在聊天或普通表单粘贴验证码/)).toBeTruthy();
 
-    await user.click(screen.getByRole('button', { name: '确认并进入配对演示' }));
-    const pairingVisual = screen.getByRole('img', { name: /一次性安全配对二维码占位/ });
-    expect(pairingVisual.getAttribute('data-visual-evidence')).toBe('payload-free');
-    expect(pairingVisual.querySelector('img,canvas,svg,picture,video,object,embed')).toBeNull();
-    expect(pairingVisual.getAttribute('style')).toBeNull();
-    await user.click(screen.getByRole('button', { name: '终端已连接' }));
-    expect(screen.getByText('请在豆包原生页面完成验证')).toBeTruthy();
-    expect(container.querySelector('input[type="password"]')).toBeNull();
+      await user.click(screen.getByRole('button', { name: '确认并进入配对演示' }));
+      const pairingVisual = screen.getByRole('img', { name: /一次性安全配对二维码占位/ });
+      expect(pairingVisual.getAttribute('data-visual-evidence')).toBe('payload-free');
+      expect(pairingVisual.querySelector('img,canvas,svg,picture,video,object,embed')).toBeNull();
+      expect(pairingVisual.getAttribute('style')).toBeNull();
+      await user.click(screen.getByRole('button', { name: '终端已连接' }));
+      expect(screen.getByText('请在豆包原生页面完成验证')).toBeTruthy();
+      expect(container.querySelector('input[type="password"]')).toBeNull();
 
-    await user.click(screen.getByRole('button', { name: '模拟平台确认完成' }));
-    expect(screen.getByText('配对与验证已完成')).toBeTruthy();
-    expect(screen.getByText(/准入保持 read_verified/)).toBeTruthy();
-    await user.click(screen.getByRole('button', { name: '撤销授权' }));
-    expect(screen.getByRole('heading', { name: '撤销已执行' })).toBeTruthy();
-    expect(screen.getByText('删除托管秘密副本')).toBeTruthy();
+      await user.click(screen.getByRole('button', { name: '模拟平台确认完成' }));
+      expect(screen.getByText('配对与验证已完成')).toBeTruthy();
+      expect(screen.getByText(/准入保持 read_verified/)).toBeTruthy();
+      await user.click(screen.getByRole('button', { name: '撤销授权' }));
+      expect(screen.getByRole('heading', { name: '撤销已执行' })).toBeTruthy();
+      expect(screen.getByText('删除托管秘密副本')).toBeTruthy();
 
-    const forbidden = [
-      'SESSION=',
-      'Bearer ',
-      'dlp-canary',
-      '/secret/browser/profile',
-      '13800138000',
-    ];
-    const surfaces = [
-      container.textContent ?? '',
-      location.href,
-      JSON.stringify(localStorage),
-      JSON.stringify(sessionStorage),
-    ];
-    for (const surface of surfaces)
-      for (const secret of forbidden) expect(surface).not.toContain(secret);
-  });
+      const forbidden = [
+        'SESSION=',
+        'Bearer ',
+        'dlp-canary',
+        '/secret/browser/profile',
+        '13800138000',
+      ];
+      const surfaces = [
+        container.textContent ?? '',
+        location.href,
+        JSON.stringify(localStorage),
+        JSON.stringify(sessionStorage),
+      ];
+      for (const surface of surfaces)
+        for (const secret of forbidden) expect(surface).not.toContain(secret);
+    },
+  );
 
   it.each([
     ['拒绝', '本次配对已拒绝'],
