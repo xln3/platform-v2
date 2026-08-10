@@ -38,6 +38,7 @@ from .projects.confirmation_router import router as confirmation_router
 from .projects.customer_router import router as customer_router
 from .projects.onboarding_router import router as onboarding_router
 from .projects.router import router as projects_router
+from .quotations.router import router as quotations_router
 from .s02_routers import router as s02_router
 from .variants.router import router as variants_router
 
@@ -161,6 +162,7 @@ async def internal_error(request: Request, exc: Exception) -> JSONResponse:
 
 app.include_router(identity_router)
 app.include_router(projects_router)
+app.include_router(quotations_router)
 app.include_router(project_catalog_router)
 app.include_router(confirmation_router)
 app.include_router(customer_router)

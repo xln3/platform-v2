@@ -5,7 +5,7 @@
   },
   "v2_include": {
     "path": "deploy/production/nginx-v2-locations.conf",
-    "sha256": "082b678b2fc09ef5a2a65157bf520b91860ec3a44161b80975e51aca89c482a5"
+    "sha256": "d2955d29c259779e9c17a3a2d490844a2ade39f2adbcc4e2363796ff3fa156db"
   },
   "required_routes": [
     "/api/v2/",
@@ -15,9 +15,5 @@
     "/platform/reports/",
     "/platform/intake-form/"
   ],
-  "forbidden_markers": [
-    "127.0.0.1:8010",
-    "/api/otp/",
-    "/novnc/"
-  ]
+  "forbidden_markers": ["127.0.0.1:8010", "/api/otp/", "/novnc/"]
 }
