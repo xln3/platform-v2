@@ -413,7 +413,7 @@ export interface paths {
         };
         /**
          * Collection Task Trace
-         * @description 回放采集任务的豆包 SSE 结构化 trace（W1；对齐旧链 research-trace 语义）。
+         * @description 回放采集任务的结构化 trace（W1；对齐旧链 research-trace 语义）。
          */
         get: operations["collection_task_trace_api_v2_collection_tasks__task_pub_id__trace_get"];
         put?: never;
