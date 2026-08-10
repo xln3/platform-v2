@@ -12,19 +12,34 @@ import {
 export const operationsNav = [
   { id: 'overview', label: '总览' },
   {
+    id: 'service-visibility',
+    label: '品牌GEO评测',
+    href: '/platform/operations/service-visibility',
+  },
+  {
+    id: 'service-risk',
+    label: '内容风险核查',
+    href: '/platform/operations/service-risk',
+  },
+  {
+    id: 'service-site-audit',
+    label: '官网引用能效',
+    href: '/platform/operations/service-site-audit',
+  },
+  {
+    id: 'service-pilot',
+    label: '试点效果验证',
+    href: '/platform/operations/service-pilot',
+  },
+  {
     id: 'execution',
-    label: '执行任务',
+    label: '执行与账号',
     href: '/platform/operations/execution',
   },
   {
-    id: 'media-prices',
-    label: '媒体比价台',
-    href: '/platform/operations/media-prices',
-  },
-  {
-    id: 'sop',
-    label: '信源 SOP',
-    href: '/platform/operations/sop',
+    id: 'onboarding',
+    label: '开户向导',
+    href: '/platform/operations/onboarding',
   },
   {
     id: 'post-analysis',
@@ -32,9 +47,14 @@ export const operationsNav = [
     href: '/platform/operations/post-analysis',
   },
   {
-    id: 'onboarding',
-    label: '开户向导',
-    href: '/platform/operations/onboarding',
+    id: 'sop',
+    label: '信源 SOP',
+    href: '/platform/operations/sop',
+  },
+  {
+    id: 'media-prices',
+    label: '媒体比价台',
+    href: '/platform/operations/media-prices',
   },
   { id: 'sessions', label: '会话健康', badge: '3' },
   { id: 'interventions', label: '待人工', badge: '2' },

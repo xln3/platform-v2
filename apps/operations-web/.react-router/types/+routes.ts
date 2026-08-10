@@ -26,6 +26,18 @@ type Pages = {
   "/onboarding": {
     params: {};
   };
+  "/service-visibility": {
+    params: {};
+  };
+  "/service-risk": {
+    params: {};
+  };
+  "/service-site-audit": {
+    params: {};
+  };
+  "/service-pilot": {
+    params: {};
+  };
   "/sop": {
     params: {};
   };
@@ -47,7 +59,7 @@ type Pages = {
 type RouteFiles = {
   "root.tsx": {
     id: "root";
-    page: "/" | "/login" | "/execution" | "/media-prices" | "/onboarding" | "/sop" | "/sop/projects/:projectPubId" | "/post-analysis" | "/post-analysis/tasks/:taskPubId";
+    page: "/" | "/login" | "/execution" | "/media-prices" | "/onboarding" | "/service-visibility" | "/service-risk" | "/service-site-audit" | "/service-pilot" | "/sop" | "/sop/projects/:projectPubId" | "/post-analysis" | "/post-analysis/tasks/:taskPubId";
   };
   "shell.tsx": {
     id: "shell";
@@ -68,6 +80,22 @@ type RouteFiles = {
   "features/onboarding/route.tsx": {
     id: "features/onboarding/route";
     page: "/onboarding";
+  };
+  "features/services/service-visibility/route.tsx": {
+    id: "features/services/service-visibility/route";
+    page: "/service-visibility";
+  };
+  "features/services/service-risk/route.tsx": {
+    id: "features/services/service-risk/route";
+    page: "/service-risk";
+  };
+  "features/services/service-site-audit/route.tsx": {
+    id: "features/services/service-site-audit/route";
+    page: "/service-site-audit";
+  };
+  "features/services/service-pilot/route.tsx": {
+    id: "features/services/service-pilot/route";
+    page: "/service-pilot";
   };
   "features/sop/route.tsx": {
     id: "features/sop/route";
@@ -94,6 +122,10 @@ type RouteModules = {
   "features/execution/route": typeof import("./app/features/execution/route.tsx");
   "features/media-prices/route": typeof import("./app/features/media-prices/route.tsx");
   "features/onboarding/route": typeof import("./app/features/onboarding/route.tsx");
+  "features/services/service-visibility/route": typeof import("./app/features/services/service-visibility/route.tsx");
+  "features/services/service-risk/route": typeof import("./app/features/services/service-risk/route.tsx");
+  "features/services/service-site-audit/route": typeof import("./app/features/services/service-site-audit/route.tsx");
+  "features/services/service-pilot/route": typeof import("./app/features/services/service-pilot/route.tsx");
   "features/sop/route": typeof import("./app/features/sop/route.tsx");
   "features/sop/project-route": typeof import("./app/features/sop/project-route.tsx");
   "features/post-analysis/route": typeof import("./app/features/post-analysis/route.tsx");

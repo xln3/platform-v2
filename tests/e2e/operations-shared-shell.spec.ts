@@ -8,7 +8,7 @@ verifySharedShellActions({
   role: 'operator',
   liveNavLabelsWithoutBadges: ['会话健康', '待人工'],
   internalLink: {
-    label: '执行任务',
+    label: '执行与账号',
     href: '/platform/operations/execution',
   },
 });

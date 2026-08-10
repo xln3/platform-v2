@@ -14,7 +14,7 @@ export default function ExecutionRoute() {
   return (
     <ProductShell
       product="Operations Web"
-      title="执行任务"
+      title="执行与账号"
       description="所有控制经 FastAPI 与工作流 Signal；页面只展示掩码和无秘密摘要。"
       nav={experience?.source === 'live' ? liveOperationsRouteNav : operationsRouteNav}
       currentNavId="execution"

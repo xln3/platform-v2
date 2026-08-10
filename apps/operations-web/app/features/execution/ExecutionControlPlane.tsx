@@ -12,7 +12,6 @@ import {
   type SessionContext,
   type SessionEvent,
 } from './api';
-import { PlatformSlaPanel, RunSetupPanel, SchedulePanel } from './RunSetupPanel';
 import './execution.css';
 
 const CHALLENGES: Record<string, string> = {
@@ -205,13 +204,6 @@ export function ExecutionControlPlane({ session }: Props) {
         </article>
       </section>
 
-      <RunSetupPanel
-        session={session}
-        projects={projects}
-        onChanged={refresh}
-        onReceipt={setReceipt}
-      />
-
       <section className="execution-card">
         <div className="section-title">
           <h2>项目与冻结计划</h2>
@@ -245,7 +237,7 @@ export function ExecutionControlPlane({ session }: Props) {
           <span>实时进度 · 失败 · 延迟 · 数据新鲜度</span>
         </div>
         {runs.length === 0 ? (
-          <p className="empty">暂无运行。冻结配置并启动采集后会出现在这里。</p>
+          <p className="empty">暂无运行。在各服务工作区冻结配置并启动采集后会出现在这里。</p>
         ) : (
           <div className="table-scroll">
             <table>
@@ -586,10 +578,138 @@ export function ExecutionControlPlane({ session }: Props) {
   );
 }
 
+function SchedulePanel({
+  session,
+  schedules,
+  onChanged,
+  onReceipt,
+}: {
+  session: SessionContext;
+  schedules: Schedule[];
+  onChanged: () => Promise<void>;
+  onReceipt: (message: string) => void;
+}) {
+  const canManage = session.role === 'operator' || session.role === 'admin';
+
+  async function changeState(item: Schedule) {
+    const next = item.state === 'active' ? 'paused' : 'active';
+    const updated = await executionApi.updateSchedule(session, item, next);
+    onReceipt(`周期任务 ${updated.pub_id} 已${next === 'active' ? '恢复' : '暂停'}`);
+    await onChanged();
+  }
+
+  async function runNow(item: Schedule) {
+    const result = (await executionApi.runScheduleNow(session, item.pub_id)) as {
+      workflow_id?: string;
+    };
+    onReceipt(`周期任务已立即执行：${result.workflow_id ?? item.pub_id}`);
+    await onChanged();
+  }
+
+  return (
+    <section className="execution-card">
+      <div className="section-title">
+        <h2>周期监测</h2>
+        <span>幂等触发 · 暂停/恢复 · 责任人 · 下一次执行</span>
+      </div>
+      {schedules.length === 0 ? (
+        <p className="empty">暂无周期任务。</p>
+      ) : (
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>任务</th>
+                <th>状态</th>
+                <th>周期</th>
+                <th>下一次</th>
+                <th>责任人</th>
+                <th>控制</th>
+              </tr>
+            </thead>
+            <tbody>
+              {schedules.map((item) => (
+                <tr key={item.pub_id}>
+                  <td>{item.pub_id}</td>
+                  <td>
+                    <Status value={item.state} />
+                  </td>
+                  <td>{item.interval_minutes} 分钟</td>
+                  <td>{new Date(item.next_run_at).toLocaleString('zh-CN')}</td>
+                  <td>{item.responsible_pub_id}</td>
+                  <td className="actions">
+                    {canManage && item.state !== 'archived' && (
+                      <>
+                        <button type="button" onClick={() => void changeState(item)}>
+                          {item.state === 'active' ? '暂停' : '恢复'}
+                        </button>
+                        <button type="button" onClick={() => void runNow(item)}>
+                          立即执行
+                        </button>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function PlatformSlaPanel({ items }: { items: PlatformSla[] }) {
+  return (
+    <section className="execution-card">
+      <div className="section-title">
+        <h2>五平台会话与 SLA</h2>
+        <span>会话 TTL · 成功率 · 人工接管率 · 超时待办</span>
+      </div>
+      <div className="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>平台</th>
+              <th>健康</th>
+              <th>成功率</th>
+              <th>接管率</th>
+              <th>会话 TTL</th>
+              <th>超时待办</th>
+              <th>责任人</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item) => (
+              <tr key={item.platform}>
+                <td>{item.display_name}</td>
+                <td>
+                  <Status value={item.state} />
+                </td>
+                <td>
+                  {item.success_rate === null ? '待采样' : `${item.success_rate.toFixed(1)}%`}
+                </td>
+                <td>
+                  {item.manual_takeover_rate === null
+                    ? '待采样'
+                    : `${item.manual_takeover_rate.toFixed(1)}%`}
+                </td>
+                <td>{item.session_ttl_minutes} 分钟</td>
+                <td>{item.overdue_interventions}</td>
+                <td>{item.owner_pub_id}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 function Status({ value }: { value: string }) {
-  const tone = /active|completed|verified|adapter_ready/.test(value)
+  const tone = /active|completed|verified|adapter_ready|healthy/.test(value)
     ? 'ok'
-    : /failed|revoked|quarantined|cancel/.test(value)
+    : /failed|revoked|quarantined|cancel|breached|archived/.test(value)
       ? 'bad'
       : 'warn';
   return <span className={`status ${tone}`}>{value}</span>;

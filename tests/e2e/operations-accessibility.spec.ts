@@ -14,7 +14,7 @@ test('operations shell and account lifecycle view are WCAG AA clean', async ({ p
   await expect(page.locator('main')).toBeFocused();
   await expectSharedInteractionAccessibility(page);
   await expectAccessible(page);
-  await expect(page.getByRole('link', { name: '执行任务' })).toHaveAttribute(
+  await expect(page.getByRole('link', { name: '执行与账号' })).toHaveAttribute(
     'href',
     '/platform/operations/execution',
   );

@@ -116,6 +116,63 @@ class DisparagementCaseView(StrictModel):
     created_at: datetime
 
 
+class SourceAuditVerdictBucketView(StrictModel):
+    accurate: int
+    inaccurate: int
+    unsupported: int
+    unverifiable: int
+
+
+class SourceAuditVerdictsView(StrictModel):
+    transcript: SourceAuditVerdictBucketView
+    factual: SourceAuditVerdictBucketView
+
+
+class SourceAuditHostView(StrictModel):
+    host: str
+    is_own_site: bool
+    documents: int
+    transcript_total: int
+    transcript_accurate: int
+
+
+class SourceAuditItemAuditView(StrictModel):
+    dimension: str
+    verdict: str | None
+    audit_status: str
+    rationale: str | None
+
+
+class SourceAuditItemView(StrictModel):
+    pub_id: str
+    url: str
+    host: str
+    final_url: str | None
+    http_status: int | None
+    extract_status: str
+    fetched_at: datetime
+    is_own_site: bool
+    audits: list[SourceAuditItemAuditView]
+
+
+class SourceAuditOverviewView(StrictModel):
+    project_pub_id: str
+    start: date
+    end: date
+    own_site_host: str | None
+    documents_total: int
+    own_site_documents: int
+    own_site_share: float | None
+    own_site_transcript_total: int
+    own_site_transcript_accurate: int
+    own_site_adoption_rate: float | None
+    verdicts: SourceAuditVerdictsView
+    hosts: list[SourceAuditHostView]
+    items: list[SourceAuditItemView]
+
+
+
+
 class EvidenceAnchorView(StrictModel):
     pub_id: str
     text_start: int | None
@@ -679,6 +736,65 @@ def disparagement_cases(
         )
         for row in rows
     ]
+
+
+@router.get("/source-audit", response_model=SourceAuditOverviewView)
+def source_audit_overview(
+    project_pub_id: str,
+    start: date,
+    end: date,
+    principal: Principal = Depends(get_principal),
+) -> SourceAuditOverviewView:
+    """W2 信源审计聚合（官网引用能效）：窗口内信源文档、官网命中占比与判定分布。"""
+    principal.require("project:read")
+    if start > end or (end - start).days > 366:
+        raise HTTPException(status_code=422, detail={"code": "invalid_analytics_window"})
+    overview = AnalyticsService(dsn=_dsn()).source_audit_overview(
+        tenant_pub_id=principal.tenant_pub_id,
+        project_pub_id=project_pub_id,
+        start=start,
+        end=end,
+    )
+    return SourceAuditOverviewView(
+        project_pub_id=project_pub_id,
+        start=start,
+        end=end,
+        own_site_host=overview["own_site_host"],
+        documents_total=overview["documents_total"],
+        own_site_documents=overview["own_site_documents"],
+        own_site_share=overview["own_site_share"],
+        own_site_transcript_total=overview["own_site_transcript_total"],
+        own_site_transcript_accurate=overview["own_site_transcript_accurate"],
+        own_site_adoption_rate=overview["own_site_adoption_rate"],
+        verdicts=SourceAuditVerdictsView(
+            transcript=SourceAuditVerdictBucketView(**overview["verdicts"]["transcript"]),
+            factual=SourceAuditVerdictBucketView(**overview["verdicts"]["factual"]),
+        ),
+        hosts=[SourceAuditHostView(**row) for row in overview["hosts"]],
+        items=[
+            SourceAuditItemView(
+                **{
+                    key: value
+                    for key, value in item.items()
+                    if key not in {"url", "final_url", "audits"}
+                },
+                url=_safe_source_url(item["url"]) or "",
+                final_url=_safe_source_url(item["final_url"]),
+                audits=[
+                    SourceAuditItemAuditView(
+                        dimension=audit["dimension"],
+                        verdict=audit["verdict"],
+                        audit_status=audit["audit_status"],
+                        rationale=_safe_optional_text(
+                            (audit["rationale"] or "")[:500] or None, 500
+                        ),
+                    )
+                    for audit in item["audits"]
+                ],
+            )
+            for item in overview["items"]
+        ],
+    )
 
 
 @router.get("/trace/{trace_token}")

@@ -7,6 +7,7 @@ from datetime import UTC, date, timedelta
 from decimal import Decimal
 from hashlib import sha256
 from typing import Any
+from urllib.parse import urlsplit
 
 import psycopg
 from psycopg.rows import dict_row
@@ -25,6 +26,43 @@ _DISPARAGEMENT_DIMENSIONS = {
     "subject_brand": "subject_brand",
     "platform": "platform",
 }
+
+# W2 信源审计聚合词表（platform.source_audit.dimension / verdict 的既定取值）
+_SOURCE_AUDIT_DIMENSIONS = ("transcript", "factual")
+_SOURCE_AUDIT_VERDICTS = ("accurate", "inaccurate", "unsupported", "unverifiable")
+
+
+def _host_from_website(value: object) -> str | None:
+    """官网 URL → host（小写、去 scheme/路径/端口）；缺 scheme 裸串按 https 解析。
+
+    urlsplit 的 hostname 已小写且不含端口；无法解析（非串/超长/非法）→ None。
+    """
+    if not isinstance(value, str) or not value or len(value) > 2048:
+        return None
+    candidate = value if "://" in value else f"https://{value}"
+    try:
+        hostname = urlsplit(candidate).hostname
+    except ValueError:
+        return None
+    return hostname or None
+
+
+def _is_own_site(host: object, own_site_host: str | None) -> bool:
+    """own_site 判定（大小写不敏感）：与官网 host 相同、互为 www./裸域变体、
+    或为官网裸域的子域；官网 host 未知（None）时一律 False。"""
+    if not isinstance(host, str) or not host or not own_site_host:
+        return False
+    candidate = host.lower()
+    apex = own_site_host[4:] if own_site_host.startswith("www.") else own_site_host
+    if not apex:
+        return candidate == own_site_host
+    return (
+        candidate == own_site_host
+        or candidate == apex
+        or candidate == f"www.{apex}"
+        or candidate.endswith(f".{apex}")
+    )
+
 
 # overview/competitors 读路径的 eligible 口径（与 breakdown 的 ``a.eligible`` 过滤一致）：
 # 只排除显式标记 ineligible 的 rollup；无标记的历史行（2026-08-08 前写入，
@@ -769,3 +807,171 @@ class AnalyticsService:
                 (project_pub_id, start, end, limit),
             ).fetchall()
         return [dict(row) for row in rows]
+    def source_audit_overview(
+        self,
+        *,
+        tenant_pub_id: str,
+        project_pub_id: str,
+        start: date,
+        end: date,
+    ) -> dict[str, Any]:
+        """W2 信源审计只读聚合（官网引用能效评估的数据面）。
+
+        窗口=source_document.fetched_at::date ∈ [start,end] 且 run 属于该项目
+        （join platform.collection_run）。own_site_host=该项目最新确认版本
+        （asset_confirmation_version 最大 revision）官网的 host；判定分布只统计
+        audit_status='ok' 且 verdict 非 NULL 的行（判分丢弃/未产生的行绝不入
+        分布）；未知项目按全零 + own_site_host=None 如实返回（不 404，与
+        overview/disparagement 读路径同口径）。文本字段在此不清洗，输出清洗
+        （URL/rationale）在 router 层与既有端点同款。
+        """
+        with _platform_tenant_connection(self.dsn, tenant_pub_id) as connection:
+            project = connection.execute(
+                "SELECT id FROM platform.project WHERE pub_id=%s",
+                (project_pub_id,),
+            ).fetchone()
+            documents: list[dict[str, Any]] = []
+            audits: list[dict[str, Any]] = []
+            own_site_host: str | None = None
+            if project is not None:
+                website = connection.execute(
+                    """
+                    SELECT website FROM platform.asset_confirmation_version
+                    WHERE project_id=%s
+                    ORDER BY revision DESC, created_at DESC, pub_id DESC
+                    LIMIT %s
+                    """,
+                    (project["id"], 1),
+                ).fetchone()
+                if website is not None:
+                    own_site_host = _host_from_website(website["website"])
+                documents = [
+                    dict(row)
+                    for row in connection.execute(
+                        """
+                        SELECT d.id, d.pub_id, d.url, d.host, d.final_url, d.http_status,
+                               d.extract_status, d.fetched_at
+                        FROM platform.source_document d
+                        JOIN platform.collection_run r ON r.id = d.run_id
+                        WHERE d.tenant_id
+                              = NULLIF(current_setting('app.tenant_id', true), '')::uuid
+                          AND r.project_id = %s
+                          AND d.fetched_at::date BETWEEN %s AND %s
+                        ORDER BY d.fetched_at DESC, d.pub_id
+                        """,
+                        (project["id"], start, end),
+                    ).fetchall()
+                ]
+                audits = (
+                    [
+                        dict(row)
+                        for row in connection.execute(
+                            """
+                            SELECT a.source_document_id, a.dimension, a.verdict,
+                                   a.audit_status, a.rationale
+                            FROM platform.source_audit a
+                            WHERE a.tenant_id
+                                  = NULLIF(current_setting('app.tenant_id', true), '')::uuid
+                              AND a.source_document_id = ANY(%s::uuid[])
+                            ORDER BY a.dimension, a.pub_id
+                            """,
+                            ([row["id"] for row in documents],),
+                        ).fetchall()
+                    ]
+                    if documents
+                    else []
+                )
+        documents_total = len(documents)
+        own_site_documents = sum(
+            1 for row in documents if _is_own_site(row["host"], own_site_host)
+        )
+        verdicts: dict[str, dict[str, int]] = {
+            dimension: {key: 0 for key in _SOURCE_AUDIT_VERDICTS}
+            for dimension in _SOURCE_AUDIT_DIMENSIONS
+        }
+        for row in audits:
+            if row["audit_status"] != "ok" or row["verdict"] is None:
+                continue
+            bucket = verdicts.get(row["dimension"])
+            if bucket is not None and row["verdict"] in bucket:
+                bucket[row["verdict"]] += 1
+        host_by_document = {row["id"]: row["host"] for row in documents}
+        hosts: dict[str, dict[str, Any]] = {}
+        for row in documents:
+            entry = hosts.setdefault(
+                row["host"],
+                {
+                    "host": row["host"],
+                    "documents": 0,
+                    "transcript_total": 0,
+                    "transcript_accurate": 0,
+                },
+            )
+            entry["documents"] += 1
+        # 官网内容采纳率（报价单口径）：只统计 own_site 文档的 transcript 判定
+        # （audit_status='ok'），第三方 host 绝不混入分子分母；分母为零时比率
+        # 为 None（数据不足），与 own_site_share 的诚实语义一致。own_site 判定
+        # 与 host 榜单/文档明细共用同一 _is_own_site（www/裸域/子域互配）。
+        own_site_transcript_total = 0
+        own_site_transcript_accurate = 0
+        for row in audits:
+            if row["audit_status"] != "ok" or row["dimension"] != "transcript":
+                continue
+            host = host_by_document.get(row["source_document_id"])
+            if host is None:
+                continue
+            hosts[host]["transcript_total"] += 1
+            if row["verdict"] == "accurate":
+                hosts[host]["transcript_accurate"] += 1
+            if _is_own_site(host, own_site_host):
+                own_site_transcript_total += 1
+                if row["verdict"] == "accurate":
+                    own_site_transcript_accurate += 1
+        host_list = sorted(
+            hosts.values(), key=lambda item: (-item["documents"], item["host"])
+        )[:20]
+        for entry in host_list:
+            entry["is_own_site"] = _is_own_site(entry["host"], own_site_host)
+        audits_by_document: dict[Any, list[dict[str, Any]]] = {}
+        for row in audits:
+            audits_by_document.setdefault(row["source_document_id"], []).append(row)
+        items = [
+            {
+                "pub_id": row["pub_id"],
+                "url": row["url"],
+                "host": row["host"],
+                "final_url": row["final_url"],
+                "http_status": row["http_status"],
+                "extract_status": row["extract_status"],
+                "fetched_at": row["fetched_at"],
+                "is_own_site": _is_own_site(row["host"], own_site_host),
+                "audits": [
+                    {
+                        "dimension": audit["dimension"],
+                        "verdict": audit["verdict"],
+                        "audit_status": audit["audit_status"],
+                        "rationale": audit["rationale"],
+                    }
+                    for audit in audits_by_document.get(row["id"], [])
+                ],
+            }
+            for row in documents[:100]
+        ]
+        return {
+            "own_site_host": own_site_host,
+            "documents_total": documents_total,
+            "own_site_documents": own_site_documents,
+            "own_site_share": (
+                round(own_site_documents / documents_total, 4) if documents_total else None
+            ),
+            "own_site_transcript_total": own_site_transcript_total,
+            "own_site_transcript_accurate": own_site_transcript_accurate,
+            "own_site_adoption_rate": (
+                round(own_site_transcript_accurate / own_site_transcript_total, 4)
+                if own_site_transcript_total
+                else None
+            ),
+            "verdicts": verdicts,
+            "hosts": host_list,
+            "items": items,
+        }
