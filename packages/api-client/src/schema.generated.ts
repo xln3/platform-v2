@@ -1483,8 +1483,65 @@ export interface paths {
          * Delta
          * @description 前后等长窗口四指标 delta；config_version（冻结配置 pub_id）传入时两窗口
          *     只统计该配置产出的答案（报价单前后对比口径），不传时行为与旧版一致。
+         *
+         *     口径标注：本端点为 metric_daily **启发式层**（casefold 子串判提及、正则排名、
+         *     top1/3/10 单分母、0..1 比率）。品牌前后对比（报价单服务④口径：brandrank 层
+         *     LLM 抽取 + 规则归并 + 双分母，与报告 before_after 扩展组同一份代码）请用
+         *     POST/GET /api/v2/analytics/comparisons。
          */
         get: operations["delta_api_v2_analytics_delta_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/analytics/comparisons": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Run Comparisons
+         * @description 项目下全部 run 组对比实体（created_at 倒序）。
+         */
+        get: operations["list_run_comparisons_api_v2_analytics_comparisons_get"];
+        put?: never;
+        /**
+         * Create Run Comparison
+         * @description 创建「基线 run 组 vs 优化后 run 组」对比实体（报价单服务④，brandrank 层口径）。
+         *
+         *     两臂数组非空且元素须为合法 run pub id 形状（否则 422）；所有 run 必须存在
+         *     且属于本 tenant+project，否则 400 unknown_run_pub_id（跨项目/跨租户同码，
+         *     不泄露存在性）。幂等头照 sop 轻量口径：接受 + 校验 + 响应头回显，不去重。
+         */
+        post: operations["create_run_comparison_api_v2_analytics_comparisons_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/analytics/comparisons/{comparison_pub_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Run Comparison
+         * @description 对比实体 + 现场计算的 result（brandrank 层 compare.py，与报告 before_after
+         *     扩展组同一份代码：同臂谓词、同 analyze 管线、同五指标行结构、同 insufficient 语义）。
+         *
+         *     result.aggregate.metrics = 扩展组同构五行；result.questions = 逐题配对
+         *     （query_text 配对键），只在一臂出现（答案级）的进 unpaired。
+         */
+        get: operations["get_run_comparison_api_v2_analytics_comparisons__comparison_pub_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4883,39 +4940,6 @@ export interface components {
             body: string;
             /** Parent Pub Id */
             parent_pub_id?: string | null;
-        };
-        /** ComparisonCreate */
-        ComparisonCreate: {
-            /** Query Item Pub Id */
-            query_item_pub_id: string;
-            /** Baseline Answer Pub Id */
-            baseline_answer_pub_id?: string | null;
-            /** Retest Answer Pub Id */
-            retest_answer_pub_id?: string | null;
-            /** Metrics */
-            metrics?: {
-                [key: string]: unknown;
-            };
-            /**
-             * New Info Location
-             * @default
-             */
-            new_info_location: string;
-            /**
-             * From Article Confidence
-             * @default none
-             * @enum {string}
-             */
-            from_article_confidence: "high" | "medium" | "low" | "none";
-            /** Attribution Correct */
-            attribution_correct?: boolean | null;
-            /**
-             * Conclusion
-             * @default
-             */
-            conclusion: string;
-            /** Next Actions */
-            next_actions?: unknown[];
         };
         /** ComparisonQueryView */
         ComparisonQueryView: {
@@ -9047,6 +9071,19 @@ export interface components {
              */
             accepted_at?: string;
         };
+        /** ComparisonCreate */
+        geo_platform__analytics__router__ComparisonCreate: {
+            /** Project Pub Id */
+            project_pub_id: string;
+            /** Name */
+            name: string;
+            /** Baseline Run Pub Ids */
+            baseline_run_pub_ids: string[];
+            /** Optimized Run Pub Ids */
+            optimized_run_pub_ids: string[];
+            /** Note */
+            note?: string | null;
+        };
         /** ResourceView */
         geo_platform__collection__governance_router__ResourceView: {
             /** Pub Id */
@@ -9215,6 +9252,39 @@ export interface components {
             customer_name: string;
             /** Brandrank Domain */
             brandrank_domain?: string | null;
+        };
+        /** ComparisonCreate */
+        geo_platform__sop__router__ComparisonCreate: {
+            /** Query Item Pub Id */
+            query_item_pub_id: string;
+            /** Baseline Answer Pub Id */
+            baseline_answer_pub_id?: string | null;
+            /** Retest Answer Pub Id */
+            retest_answer_pub_id?: string | null;
+            /** Metrics */
+            metrics?: {
+                [key: string]: unknown;
+            };
+            /**
+             * New Info Location
+             * @default
+             */
+            new_info_location: string;
+            /**
+             * From Article Confidence
+             * @default none
+             * @enum {string}
+             */
+            from_article_confidence: "high" | "medium" | "low" | "none";
+            /** Attribution Correct */
+            attribution_correct?: boolean | null;
+            /**
+             * Conclusion
+             * @default
+             */
+            conclusion: string;
+            /** Next Actions */
+            next_actions?: unknown[];
         };
         /** ProjectCreate */
         geo_platform__sop__router__ProjectCreate: {
@@ -15432,6 +15502,7 @@ export interface operations {
                 model?: string | null;
                 region?: string | null;
                 mode?: string | null;
+                run_pub_id?: string | null;
             };
             header?: {
                 "X-Tenant-Id"?: string | null;
@@ -15744,6 +15815,216 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_run_comparisons_api_v2_analytics_comparisons_get: {
+        parameters: {
+            query: {
+                project_pub_id: string;
+                limit?: number;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_run_comparison_api_v2_analytics_comparisons_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "Idempotency-Key"?: string | null;
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["geo_platform__analytics__router__ComparisonCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_run_comparison_api_v2_analytics_comparisons__comparison_pub_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                comparison_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Bad Request */
@@ -22089,7 +22370,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ComparisonCreate"];
+                "application/json": components["schemas"]["geo_platform__sop__router__ComparisonCreate"];
             };
         };
         responses: {

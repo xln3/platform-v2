@@ -16911,6 +16911,22 @@
             }
           },
           {
+            "name": "run_pub_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Run Pub Id"
+            }
+          },
+          {
             "name": "X-Tenant-Id",
             "in": "header",
             "required": false,
@@ -17858,7 +17874,7 @@
           "analytics"
         ],
         "summary": "Delta",
-        "description": "前后等长窗口四指标 delta；config_version（冻结配置 pub_id）传入时两窗口\n只统计该配置产出的答案（报价单前后对比口径），不传时行为与旧版一致。",
+        "description": "前后等长窗口四指标 delta；config_version（冻结配置 pub_id）传入时两窗口\n只统计该配置产出的答案（报价单前后对比口径），不传时行为与旧版一致。\n\n口径标注：本端点为 metric_daily **启发式层**（casefold 子串判提及、正则排名、\ntop1/3/10 单分母、0..1 比率）。品牌前后对比（报价单服务④口径：brandrank 层\nLLM 抽取 + 规则归并 + 双分母，与报告 before_after 扩展组同一份代码）请用\nPOST/GET /api/v2/analytics/comparisons。",
         "operationId": "delta_api_v2_analytics_delta_get",
         "parameters": [
           {
@@ -17898,7 +17914,7 @@
               "anyOf": [
                 {
                   "type": "string",
-                  "pattern": "^cfg_[A-Za-z0-9_-]{1,116}$"
+                  "pattern": "^cfv_[A-Za-z0-9_-]{1,116}$"
                 },
                 {
                   "type": "null"
@@ -18046,6 +18062,637 @@
                   "additionalProperties": true,
                   "title": "Response Delta Api V2 Analytics Delta Get"
                 }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/analytics/comparisons": {
+      "post": {
+        "tags": [
+          "analytics"
+        ],
+        "summary": "Create Run Comparison",
+        "description": "创建「基线 run 组 vs 优化后 run 组」对比实体（报价单服务④，brandrank 层口径）。\n\n两臂数组非空且元素须为合法 run pub id 形状（否则 422）；所有 run 必须存在\n且属于本 tenant+project，否则 400 unknown_run_pub_id（跨项目/跨租户同码，\n不泄露存在性）。幂等头照 sop 轻量口径：接受 + 校验 + 响应头回显，不去重。",
+        "operationId": "create_run_comparison_api_v2_analytics_comparisons_post",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 16,
+                  "maxLength": 128,
+                  "pattern": "^[\\x20-\\x7e]+$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/geo_platform__analytics__router__ComparisonCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "analytics"
+        ],
+        "summary": "List Run Comparisons",
+        "description": "项目下全部 run 组对比实体（created_at 倒序）。",
+        "operationId": "list_run_comparisons_api_v2_analytics_comparisons_get",
+        "parameters": [
+          {
+            "name": "project_pub_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Pub Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response List Run Comparisons Api V2 Analytics Comparisons Get"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/analytics/comparisons/{comparison_pub_id}": {
+      "get": {
+        "tags": [
+          "analytics"
+        ],
+        "summary": "Get Run Comparison",
+        "description": "对比实体 + 现场计算的 result（brandrank 层 compare.py，与报告 before_after\n扩展组同一份代码：同臂谓词、同 analyze 管线、同五指标行结构、同 insufficient 语义）。\n\nresult.aggregate.metrics = 扩展组同构五行；result.questions = 逐题配对\n（query_text 配对键），只在一臂出现（答案级）的进 unpaired。",
+        "operationId": "get_run_comparison_api_v2_analytics_comparisons__comparison_pub_id__get",
+        "parameters": [
+          {
+            "name": "comparison_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Comparison Pub Id"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
               }
             }
           },
@@ -37248,7 +37895,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ComparisonCreate"
+                "$ref": "#/components/schemas/geo_platform__sop__router__ComparisonCreate"
               }
             }
           }
@@ -53439,84 +54086,6 @@
         ],
         "title": "CommentCreate"
       },
-      "ComparisonCreate": {
-        "properties": {
-          "query_item_pub_id": {
-            "type": "string",
-            "title": "Query Item Pub Id"
-          },
-          "baseline_answer_pub_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Baseline Answer Pub Id"
-          },
-          "retest_answer_pub_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Retest Answer Pub Id"
-          },
-          "metrics": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Metrics"
-          },
-          "new_info_location": {
-            "type": "string",
-            "title": "New Info Location",
-            "default": ""
-          },
-          "from_article_confidence": {
-            "type": "string",
-            "enum": [
-              "high",
-              "medium",
-              "low",
-              "none"
-            ],
-            "title": "From Article Confidence",
-            "default": "none"
-          },
-          "attribution_correct": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Attribution Correct"
-          },
-          "conclusion": {
-            "type": "string",
-            "title": "Conclusion",
-            "default": ""
-          },
-          "next_actions": {
-            "items": {},
-            "type": "array",
-            "title": "Next Actions"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "query_item_pub_id"
-        ],
-        "title": "ComparisonCreate"
-      },
       "ComparisonQueryView": {
         "properties": {
           "query_item_pub_id": {
@@ -65169,6 +65738,61 @@
         ],
         "title": "WorkflowAccepted"
       },
+      "geo_platform__analytics__router__ComparisonCreate": {
+        "properties": {
+          "project_pub_id": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 5,
+            "title": "Project Pub Id"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "baseline_run_pub_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Baseline Run Pub Ids"
+          },
+          "optimized_run_pub_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Optimized Run Pub Ids"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "project_pub_id",
+          "name",
+          "baseline_run_pub_ids",
+          "optimized_run_pub_ids"
+        ],
+        "title": "ComparisonCreate"
+      },
       "geo_platform__collection__governance_router__ResourceView": {
         "properties": {
           "pub_id": {
@@ -65762,6 +66386,84 @@
           "customer_name"
         ],
         "title": "ProjectCreate"
+      },
+      "geo_platform__sop__router__ComparisonCreate": {
+        "properties": {
+          "query_item_pub_id": {
+            "type": "string",
+            "title": "Query Item Pub Id"
+          },
+          "baseline_answer_pub_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Answer Pub Id"
+          },
+          "retest_answer_pub_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retest Answer Pub Id"
+          },
+          "metrics": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metrics"
+          },
+          "new_info_location": {
+            "type": "string",
+            "title": "New Info Location",
+            "default": ""
+          },
+          "from_article_confidence": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low",
+              "none"
+            ],
+            "title": "From Article Confidence",
+            "default": "none"
+          },
+          "attribution_correct": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attribution Correct"
+          },
+          "conclusion": {
+            "type": "string",
+            "title": "Conclusion",
+            "default": ""
+          },
+          "next_actions": {
+            "items": {},
+            "type": "array",
+            "title": "Next Actions"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "query_item_pub_id"
+        ],
+        "title": "ComparisonCreate"
       },
       "geo_platform__sop__router__ProjectCreate": {
         "properties": {
