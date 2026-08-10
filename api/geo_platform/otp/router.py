@@ -77,7 +77,8 @@ _TZ_CN = ZoneInfo("Asia/Shanghai")  # status 时间戳显示口径（运维/手�
 _DEFAULT_WITHIN_S = 180  # 默认取「3 分钟内」的验证码（旧系统用户设计）
 _MAX_WITHIN_S = 900      # 上限 15 分钟（防把远古旧码当新码返回）
 
-# 简易频控：每 phone 滑窗（进程内状态即可，单 API 进程部署；同 assist_router 惯例）。
+# 简易频控：每 phone 滑窗（进程内状态；生产 uvicorn --workers 2，故实际限额≈
+# 配置值×worker 数——push/latest 的真实流量远低于此，放宽无感；同 assist_router 惯例）。
 # push：真实短信推送每号每分钟寥寥几条；latest：otp_wait 2s 轮询=30 次/分/号，
 # 120 给足多 poller 余量。
 _RATE_LIMITS: dict[str, tuple[int, float]] = {"push": (20, 60.0), "latest": (120, 60.0)}
@@ -372,6 +373,15 @@ def otp_latest(request: Request) -> JSONResponse:
 # 装机配置页（2026-08-07 起）：公开静态页（零秘密内嵌）+ operator 门后的
 # setup-info（含 relay token）。旧 SmsForwarder 文档铁规「token 绝不写回网页」
 # 不变——页面本身只是说明+表单，key 只在输管理密码后由受门端点下发。
+#
+# 在册号码注册（2026-08-09 起）：``POST /api/v2/otp/register``（operator 门内）
+# 把测量号登记进服务端注册表（``GEO_OTP_REGISTRY_PATH``，缺省
+# ``platform-v2/runtime/otp_registered_numbers.json``，原子写）。注册只需手机号，
+# 卡槽/运营商是**选填自由文本**（不限 SIM1/2，留空亦可）——卡槽槽位只是给人看的
+# 物理提示，服务端反解真号靠的是备注串里嵌的 11 位号码（phone_from_slot 正则）。
+# setup-info 的 slot_remarks = env 备注 ∪ 注册表（按手机号去重，同号以注册表为准）。
+# 并发口径：读-改-写无跨进程锁，多 worker 下同瞬间双注册会丢一条——运维人工
+# 单操作者低频动作，实际无感；真出现并发需求再补文件锁。
 # ---------------------------------------------------------------------------
 
 _APK_ENV = "GEO_OTP_APK_PATH"
@@ -384,27 +394,110 @@ _WHITELIST_REGEX = (
     r"|博客园|搜狐|百家号|今日头条|头条号).*"
 )
 # 现役测量号的卡槽备注（双卡防错标=SIM 硬件级真值）；只经 operator 门下发出页面。
-# 真源 = env ``GEO_OTP_SLOT_REMARKS``（逗号分隔；换号/换卡运维改这一处即可），
-# 缺省回退到下列现役两号——页面不内嵌，解锁后由 setup-info 实时下发。
+# 真源 = env ``GEO_OTP_SLOT_REMARKS``（逗号分隔；换号/换卡运维改这一处即可）∪
+# 注册表（``POST /otp/register`` 落盘，见下）——缺省回退到下列现役两号；
+# 页面不内嵌，解锁后由 setup-info 实时下发。
 _DEFAULT_SLOT_REMARKS = (
     "SIM1_中国联通_+8613121622231",
     "SIM2_中国移动_+8615510162660",
 )
 
+_REGISTRY_ENV = "GEO_OTP_REGISTRY_PATH"
+_DEFAULT_REGISTRY_PATH = (
+    Path(__file__).resolve().parents[3] / "runtime" / "otp_registered_numbers.json"
+)
+
+
+def _registry_path() -> Path:
+    """在册注册表落盘路径。``GEO_OTP_REGISTRY_PATH`` 覆盖默认（测试指向 tmp）。"""
+    return Path(os.environ.get(_REGISTRY_ENV, "") or _DEFAULT_REGISTRY_PATH)
+
+
+def _read_registry() -> list[dict[str, Any]]:
+    """读在册注册表（best-effort：缺失/损坏 → 空表 + warning，绝不让 setup-info 挂）。
+    记录格式 ``[{"phone","carrier","slot","remark","ts"}, ...]``（按 phone 唯一）。"""
+    path = _registry_path()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return []
+    except (OSError, ValueError):
+        log.warning("otp_registry_unreadable", path=str(path))
+        return []
+    if not isinstance(data, list):
+        return []
+    return [e for e in data if isinstance(e, dict) and PHONE_RE.match(str(e.get("phone") or ""))]
+
+
+def _clean_label(value: object, *, max_len: int) -> str:
+    """卡槽/运营商标签清洗：去换行与多余空白、限长（备注串给人看 + 给正则反解真号，
+    绝不带控制字符）。自由文本——卡槽**不限 SIM1/2**，留空合法。"""
+    return re.sub(r"\s+", " ", str(value or "")).strip()[:max_len]
+
+
+def _build_remark(phone: str, carrier: str, slot: str) -> str:
+    """拼卡槽备注 ``[<槽位>_][<运营商>_]+86<手机号>``（与现役 env 备注同格式；
+    槽位/运营商可空——反解真号只依赖串内 11 位号码，phone_from_slot 正则兜底）。"""
+    parts = [p for p in (slot, carrier) if p]
+    parts.append(f"+86{phone}")
+    return "_".join(parts)
+
 
 def _slot_remarks() -> list[str]:
     raw = os.environ.get("GEO_OTP_SLOT_REMARKS", "").strip()
-    if not raw:
-        return list(_DEFAULT_SLOT_REMARKS)
-    return [item.strip() for item in raw.split(",") if item.strip()]
+    env_items = ([item.strip() for item in raw.split(",") if item.strip()]
+                 if raw else list(_DEFAULT_SLOT_REMARKS))
+    # 合并注册表：按手机号去重，同号以注册表为准（注册动作更新、更近）。
+    registered = _read_registry()
+    reg_phones = {str(e["phone"]) for e in registered}
+    merged = [r for r in env_items if phone_from_slot(r) not in reg_phones]
+    merged.extend(str(e["remark"]) for e in registered)
+    return merged
 
 _RATE_LIMITS["setup"] = (30, 60.0)
+
+
+@router.post("/otp/register")
+async def otp_register(request: Request) -> JSONResponse:
+    """在册号码注册（operator 门内）：``{"phone","carrier"?,"slot"?}`` → 登记进
+    服务端注册表（原子写），setup-info 即刻下发。幂等：同号再注册=更新备注。
+    响应带完整 remark（operator 自填自拿，装机页一键复制进手机卡槽备注）。"""
+    _require_operator_token(request)
+    if _rate_limited("setup", request.client.host if request.client else "?"):
+        return JSONResponse(status_code=429, content={"error": "rate_limited"})
+    body_text = (await request.body()).decode("utf-8", "replace")
+    if len(body_text.encode("utf-8")) > 4096:  # 注册体极小，公网面兜底防滥
+        return JSONResponse(status_code=413, content={"error": "payload_too_large"})
+    try:
+        data: Any = json.loads(body_text)
+    except ValueError:
+        data = None
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail={"code": "bad_body"})
+    phone = re.sub(r"^\+?86", "", str(data.get("phone") or "").strip())
+    if not PHONE_RE.match(phone):
+        raise HTTPException(status_code=400, detail={"code": "bad_phone"})
+    carrier = _clean_label(data.get("carrier"), max_len=24)
+    slot = _clean_label(data.get("slot"), max_len=16)
+    remark = _build_remark(phone, carrier, slot)
+
+    existing = _read_registry()
+    created = all(str(e.get("phone")) != phone for e in existing)
+    entries = [e for e in existing if str(e.get("phone")) != phone]
+    entries.append({"phone": phone, "carrier": carrier, "slot": slot,
+                    "remark": remark, "ts": time.time()})
+    _atomic_write_json(_registry_path(), entries)
+    log.info("otp_number_registered", phone=mask_phone(phone), created=created,
+             slot=slot or "-")
+    return JSONResponse(content={"ok": True, "created": created,
+                                 "phone": mask_phone(phone), "remark": remark})
 
 
 @router.get("/otp/setup-info")
 def otp_setup_info(request: Request) -> JSONResponse:
     """装机配置（operator 门内）：推送地址/relay token/Body 模板/白名单正则/卡槽备注。
-    URL 从请求 origin 派生（公网访问即公网地址），零额外配置。"""
+    URL 从请求 origin 派生（供工具消费；**装机页展示不用它**——页面以浏览器
+    location.origin 拼地址，反代 Host $host 丢端口时页面依然正确）。"""
     _require_operator_token(request)
     if _rate_limited("setup", request.client.host if request.client else "?"):
         return JSONResponse(status_code=429, content={"error": "rate_limited"})
@@ -477,7 +570,7 @@ def otp_setup_page() -> Any:
     return HTMLResponse(_SETUP_PAGE_HTML)
 
 
-_SETUP_PAGE_HTML = """<!DOCTYPE html>
+_SETUP_PAGE_HTML = r"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8">
@@ -503,6 +596,9 @@ _SETUP_PAGE_HTML = """<!DOCTYPE html>
   button { font: inherit; cursor: pointer; border: 0; border-radius: 8px; }
   .cp { flex: 0 0 auto; background: #4f46e5; color: #fff; padding: 0 14px; font-size: 13px; }
   .cp.ok { background: #16a34a; }
+  .cp.off { background: #cbd5e1; cursor: default; }
+  .opt { font-size: 14px; padding: 2px 0; }
+  .val.locked { color: #94a3b8; }
   .big { display: block; width: 100%; padding: 13px; font-size: 15px; font-weight: 600;
          background: #4f46e5; color: #fff; text-align: center; text-decoration: none; }
   .ghost { background: #e2e8f0; color: #1a2233; }
@@ -530,6 +626,8 @@ _SETUP_PAGE_HTML = """<!DOCTYPE html>
       <li>同页打开 <b>自启动</b>；最近任务卡片下拉 <b>锁定后台</b></li>
       <li>权限：确认 <b>短信、通知</b> 均已授予</li>
       <li>HyperOS/国产 ROM：另关「夜间休眠断网」「定时清理后台」类开关</li>
+      <li>通用设置 → <b>免打扰(禁用转发)时间段 = 00:00 ~ 00:00</b>（起止相等=该功能停用；
+        20260810 实测被设成 00:00 ~ 24:00 = <b>全天禁转发</b>，一条都发不出）</li>
     </ul>
   </div>
 
@@ -541,25 +639,30 @@ _SETUP_PAGE_HTML = """<!DOCTYPE html>
 
   <h2>第 2 步 · 卡槽备注（双卡防错标）</h2>
   <div class="card">
-    <div class="sub">手机系统 SIM 卡设置里，把每张卡的「卡槽备注」改成
-      含<b>本机该卡真实号码</b>的文本。</div>
+    <div class="sub">SmsForwarder → 通用设置 → 个性设置 →「SIM1主键/备注」「SIM2主键/备注」
+      的备注框，填入含<b>该卡真实号码</b>的文本（<span class="mono">{{CARD_SLOT}}</span>
+      发的就是它；App 提示格式：运营商_手机号）。</div>
     <div class="warn">网页读不到本机号码（浏览器安全限制）——点「刷新」拉取服务器
-      <b>当前在册</b>的测量号备注；配的手机不在册时，用下方输入框现场生成。</div>
+      <b>当前在册</b>的测量号备注；配的手机不在册时，在下方<b>注册</b>（入册后任何
+      装机页刷新都能拉到，卡槽不限 SIM1/2）。</div>
     <button class="big ghost" id="btnSlots" style="margin-top:10px">🔄 刷新获取在册号码备注</button>
     <div id="slots"></div>
-    <div class="field" style="margin-top:14px"><label>不在册？输入本机真实号码现场生成</label>
+    <div class="field" style="margin-top:14px">
+      <label>注册新号码（需先解锁；同号再注册=更新备注）</label>
       <div class="row">
-        <select id="simSel"
-                style="font:inherit;padding:9px;border-radius:8px;border:1px solid #cbd5e1">
-          <option>SIM1</option><option>SIM2</option>
-        </select>
-        <input id="carrierIn" placeholder="运营商（如 中国联通）"
+        <input id="slotIn" list="slotOpts" placeholder="卡槽（选填，如 SIM1）"
+               style="width:190px;font:inherit;padding:9px;border-radius:8px;
+                      border:1px solid #cbd5e1">
+        <datalist id="slotOpts">
+          <option value="SIM1"></option><option value="SIM2"></option>
+        </datalist>
+        <input id="carrierIn" placeholder="运营商（选填，如 中国联通）"
                style="flex:1;font:inherit;padding:9px;border-radius:8px;border:1px solid #cbd5e1">
       </div>
       <div class="row" style="margin-top:8px">
-        <input id="phoneIn" inputmode="numeric" maxlength="13" placeholder="11 位手机号"
+        <input id="phoneIn" inputmode="numeric" maxlength="13" placeholder="11 位手机号（必填）"
                style="flex:1;font:inherit;padding:9px;border-radius:8px;border:1px solid #cbd5e1">
-        <button class="cp" id="btnGen">生成并复制</button>
+        <button class="cp" id="btnReg">注册并复制备注</button>
       </div>
       <div id="genOut" class="sub"></div>
     </div>
@@ -567,34 +670,70 @@ _SETUP_PAGE_HTML = """<!DOCTYPE html>
 
   <h2>第 3 步 · 发送通道（Webhook）</h2>
   <div class="card">
-    <div class="sub">SmsForwarder → 发送通道 → 新增 → Webhook：</div>
-    <div class="field"><label>名称</label>
+    <div class="sub">SmsForwarder → 发送通道 → 新增 → Webhook。下列条目按 App 表单
+      自上而下逐格对应：文本框给「复制」值，单选/开关给操作指示。</div>
+    <div class="field"><label>通道名称/状态（文本框；右侧开关保持开）</label>
       <div class="row"><div class="val">geosys-otp</div>
         <button class="cp" data-t="geosys-otp">复制</button></div></div>
-    <div class="field"><label>请求方式</label>
-      <div class="row"><div class="val">POST</div>
-        <button class="cp" data-t="POST">复制</button></div></div>
-    <div class="field"><label>Content-Type</label>
-      <div class="row"><div class="val">application/json</div>
+    <div class="field"><label>请求方式（单选）</label>
+      <div class="opt">选 <b>POST</b></div></div>
+    <div class="field"><label>Webhook Server（文本框）</label>
+      <div class="row"><div class="val locked" id="vUrl">🔒 解锁后显示</div>
+        <button class="cp off" id="cpUrl" disabled>复制</button></div></div>
+    <div class="field"><label>消息模板（多行文本框）</label>
+      <div class="row"><div class="val locked" id="vTpl">🔒 解锁后显示</div>
+        <button class="cp off" id="cpTpl" disabled>复制</button></div></div>
+    <div class="warn">⚠️ 消息模板必须与复制值<b>逐字符一致</b>——20260810 实测多一个
+      <span class="mono">"</span> 即破坏 JSON，服务端只能按 unrouted 软收（码不丢但不归号）。</div>
+    <div class="field"><label>Secret（文本框）</label>
+      <div class="opt">留空（置空则不计算 sign）</div></div>
+    <div class="field"><label>成功应答关键字（文本框）</label>
+      <div class="opt">留空（HTTP 200 即为成功）</div></div>
+    <div class="field"><label>Headers 第 1 行 Key（点表单 + 号添加行）</label>
+      <div class="row"><div class="val">X-Relay-Token</div>
+        <button class="cp" data-t="X-Relay-Token">复制</button></div></div>
+    <div class="field"><label>Headers 第 1 行 Value</label>
+      <div class="row"><div class="val locked" id="vTok">🔒 解锁后显示</div>
+        <button class="cp off" id="cpTok" disabled>复制</button></div></div>
+    <div class="field"><label>Headers 第 2 行 Key / Value</label>
+      <div class="row"><div class="val">Content-Type</div>
+        <button class="cp" data-t="Content-Type">复制</button></div>
+      <div class="row" style="margin-top:6px"><div class="val">application/json</div>
         <button class="cp" data-t="application/json">复制</button></div></div>
-    <div id="secretLocked" class="warn">🔒 推送地址 / 密钥 / 消息模板需解锁后显示。</div>
-    <div id="secrets"></div>
-    <div class="field" style="margin-top:10px"><label>其他开关</label>
-      <ul><li><b>「忽略 SSL 证书」必须勾选</b>（自签证书，无域名）</li></ul>
-    </div>
+    <div class="field"><label>代理设置（单选）</label>
+      <div class="opt">选 <b>无代理</b></div></div>
+    <div class="sub" style="margin-top:6px">填完点【保存】，再点通道页【测试】；然后走第 5 步验证。
+      （v3.5.0 表单没有「忽略 SSL 证书」开关，无需找；旧文档那条已废止。）</div>
   </div>
 
   <h2>第 4 步 · 转发规则（平台白名单）</h2>
   <div class="card">
-    <div class="sub">转发规则 → 新增：匹配字段「短信内容」、正则匹配、通道选 geosys-otp。</div>
+    <div class="sub">SmsForwarder → 转发规则 → 新增（短信转发规则）。逐格对应：</div>
     <div class="warn" style="margin-bottom:8px">🔒 本规则是<b>白名单制</b>：只有命中下列
       <b>测评平台（豆包/DeepSeek/文心一言/通义千问/元宝）和媒体号平台（博客园/搜狐/百家号/头条号）</b>
       的短信才会被转发。<b>银行、支付、社交等一切金融与隐私短信不匹配、不转发、不离开本机</b>——
       切勿把规则泛化成「所有验证码」。</div>
-    <div id="ruleLocked" class="warn">🔒 白名单正则需解锁后显示。</div>
+    <div class="field"><label>规则别名（文本框）</label>
+      <div class="row"><div class="val">geosys</div>
+        <button class="cp" data-t="geosys">复制</button></div></div>
+    <div class="field"><label>发送通道（下拉选择）</label>
+      <div class="opt">选 <b>geosys-otp</b>（第 3 步建的通道）</div></div>
+    <div class="field"><label>匹配卡槽（单选）</label>
+      <div class="opt">选 <b>不限卡槽</b>（真号由卡槽备注反解，与匹配哪张卡无关）</div></div>
+    <div class="field"><label>匹配字段（单选）</label>
+      <div class="opt">选 <b>短信内容</b></div></div>
+    <div class="field"><label>匹配模式（单选）</label>
+      <div class="opt">选 <b>正则匹配</b></div></div>
+    <div id="ruleLocked" class="warn">🔒 「匹配的值」白名单正则需解锁后显示。</div>
     <div id="rule"></div>
     <div class="warn" style="margin-top:8px">⚠️ full-match 语义：关键词两头的
       <span class="mono">.*</span> 必须保留，删掉=永不匹配。</div>
+    <div class="field"><label>三个开关</label>
+      <div class="opt">启用自定义模版=<b>关</b>；启用正则替换内容=<b>关</b>；
+        启用该条转发规则=<b>开</b></div></div>
+    <div class="field"><label>免打扰(禁用转发)时间段</label>
+      <div class="opt">保持 <b>00:00 ~ 00:00</b>（起止相等=该功能停用，即全天可转发）</div></div>
+    <div class="sub" style="margin-top:6px">填完点【保存】。</div>
   </div>
 
   <h2>第 5 步 · 验证</h2>
@@ -627,9 +766,16 @@ function copyText(txt, btn) {
   if (btn) { const o = btn.textContent; btn.textContent = "已复制"; btn.classList.add("ok");
     setTimeout(() => { btn.textContent = o; btn.classList.remove("ok"); }, 1200); }
 }
-document.querySelectorAll(".cp").forEach(b => {
+document.querySelectorAll(".cp[data-t]").forEach(b => {
   b.addEventListener("click", () => copyText(b.getAttribute("data-t"), b));
 });
+function bindGate(valId, btnId, value) {
+  const v = document.getElementById(valId);
+  v.textContent = value; v.classList.remove("locked");
+  const b = document.getElementById(btnId);
+  b.disabled = false; b.classList.remove("off");
+  b.addEventListener("click", (ev) => copyText(value, ev.target));
+}
 function field(label, value) {
   const d = document.createElement("div"); d.className = "field";
   d.innerHTML = '<label>' + label + '</label>' +
@@ -649,15 +795,15 @@ document.getElementById("btnLoad").addEventListener("click", async () => {
     if (!r.ok) { st.textContent = "加载失败：" + r.status; return; }
     const d = await r.json();
     st.textContent = "✅ 已解锁";
-    document.getElementById("secretLocked").classList.add("hidden");
     document.getElementById("ruleLocked").classList.add("hidden");
     fillSlots(d.slot_remarks || []);
-    const sec = document.getElementById("secrets"); sec.innerHTML = "";
-    sec.appendChild(field("WebHook 地址", d.push_url));
-    sec.appendChild(field("请求头 X-Relay-Token", d.relay_token));
-    sec.appendChild(field("消息模板（Body）", d.body_template));
+    // 推送地址以浏览器地址栏 origin 为准：反代 Host 头是 $host（丢 8443 端口），
+    // 操作者正在访问的地址才是手机该推的公网地址（20260810 漏端口教训）。
+    bindGate("vUrl", "cpUrl", location.origin + "/api/v2/otp/push");
+    bindGate("vTpl", "cpTpl", d.body_template);
+    bindGate("vTok", "cpTok", d.relay_token);
     const rule = document.getElementById("rule"); rule.innerHTML = "";
-    rule.appendChild(field("白名单正则", d.whitelist_regex));
+    rule.appendChild(field("匹配的值（多行文本框）", d.whitelist_regex));
   } catch (e) { st.textContent = "网络错误：" + e; }
 });
 function fillSlots(list) {
@@ -675,15 +821,30 @@ document.getElementById("btnSlots").addEventListener("click", async () => {
     fillSlots(d.slot_remarks || []);
   } catch (e) { out.innerHTML = '<div class="warn">网络错误：' + e + "</div>"; }
 });
-document.getElementById("btnGen").addEventListener("click", (ev) => {
-  const sim = document.getElementById("simSel").value;
-  const carrier = document.getElementById("carrierIn").value.trim() || "未知运营商";
-  const phone = document.getElementById("phoneIn").value.trim().replace(/^\+?86/, "");
+document.getElementById("btnReg").addEventListener("click", async (ev) => {
   const out = document.getElementById("genOut");
+  if (!TOKEN) { out.textContent = "先在下方输入管理密码并加载配置。"; return; }
+  const slot = document.getElementById("slotIn").value.trim();
+  const carrier = document.getElementById("carrierIn").value.trim();
+  const phone = document.getElementById("phoneIn").value.trim().replace(/^\+?86/, "");
   if (!/^1[0-9]{10}$/.test(phone)) { out.textContent = "号码格式不对（需 11 位）"; return; }
-  const remark = sim + "_" + carrier + "_+86" + phone;
-  copyText(remark, ev.target);
-  out.textContent = "已生成并复制：" + remark;
+  out.textContent = "注册中…";
+  try {
+    const r = await fetch("/api/v2/otp/register", {
+      method: "POST",
+      headers: { "X-Operator-Token": TOKEN, "Content-Type": "application/json" },
+      body: JSON.stringify({ phone: phone, carrier: carrier, slot: slot }),
+    });
+    if (r.status === 401) { out.textContent = "密码错误（401）"; return; }
+    if (!r.ok) { out.textContent = "注册失败：" + r.status; return; }
+    const d = await r.json();
+    copyText(d.remark, ev.target);
+    out.textContent = (d.created ? "✅ 已注册入册" : "✅ 已更新在册备注") +
+      "并复制：" + d.remark + " ——粘贴到通用设置里该卡的「主键/备注」框。";
+    const rr = await fetch("/api/v2/otp/setup-info",
+                           { headers: { "X-Operator-Token": TOKEN } });
+    if (rr.ok) { const dd = await rr.json(); fillSlots(dd.slot_remarks || []); }
+  } catch (e) { out.textContent = "网络错误：" + e; }
 });
 document.getElementById("btnStatus").addEventListener("click", async () => {
   const out = document.getElementById("statusOut");

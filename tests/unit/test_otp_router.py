@@ -33,8 +33,9 @@ client = TestClient(app)
 
 @pytest.fixture(autouse=True)
 def _otp_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """每用例隔离：收件箱指 tmp、双 token 配好、频控桶清空。"""
+    """每用例隔离：收件箱指 tmp、注册表指 tmp、双 token 配好、频控桶清空。"""
     monkeypatch.setenv("GEO_OTP_INBOX_DIR", str(tmp_path))
+    monkeypatch.setenv("GEO_OTP_REGISTRY_PATH", str(tmp_path / "reg" / "registered.json"))
     monkeypatch.setenv("GEO_OTP_RELAY_TOKEN", "relay-secret")
     monkeypatch.setenv("GEO_OTP_OPERATOR_TOKEN", "operator-secret")
     with otp_router._rate_lock:
@@ -459,7 +460,7 @@ def test_setup_info_gate(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_setup_info_slot_remarks_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
-    """在册卡槽备注的真源是 env GEO_OTP_SLOT_REMARKS（换号改一处，页面刷新即得）。"""
+    """在册卡槽备注的静态真源是 env GEO_OTP_SLOT_REMARKS（换号改一处，页面刷新即得）。"""
     monkeypatch.setenv("GEO_OTP_SLOT_REMARKS",
                        "SIM1_中国移动_+8613900001111, SIM2_联通_+8613900002222")
     resp = client.get("/api/v2/otp/setup-info", headers={"X-Operator-Token": "operator-secret"})
@@ -467,6 +468,134 @@ def test_setup_info_slot_remarks_env_override(monkeypatch: pytest.MonkeyPatch) -
     assert resp.json()["slot_remarks"] == [
         "SIM1_中国移动_+8613900001111", "SIM2_联通_+8613900002222",
     ]
+
+
+# ── register：在册号码注册入口（卡槽自由文本，不限 SIM1/2） ──────────────────────
+
+
+NEW_PHONE = "13912345678"
+
+
+def _register(body: object, *, token: str = "operator-secret") -> httpx.Response:
+    return client.post("/api/v2/otp/register", content=json.dumps(body, ensure_ascii=False),
+                       headers={"X-Operator-Token": token,
+                                "Content-Type": "application/json"})
+
+
+def test_register_operator_token_not_configured_503(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("GEO_OTP_OPERATOR_TOKEN", raising=False)
+    resp = _register({"phone": NEW_PHONE})
+    assert resp.status_code == 503
+    assert resp.json()["error"]["code"] == "otp_operator_disabled"
+
+
+def test_register_operator_token_wrong_401() -> None:
+    assert _register({"phone": NEW_PHONE}, token="wrong").status_code == 401
+    assert client.post("/api/v2/otp/register",
+                       content=json.dumps({"phone": NEW_PHONE})).status_code == 401
+
+
+def test_register_bad_phone_400() -> None:
+    assert _register({"phone": "123"}).status_code == 400
+    assert _register({"phone": ""}).status_code == 400
+    assert _register("not-json").status_code == 400
+
+
+def test_register_persists_and_shows_in_setup_info(tmp_path: Path) -> None:
+    resp = _register({"phone": NEW_PHONE, "carrier": "中国联通", "slot": "SIM1"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is True and body["created"] is True
+    assert body["remark"] == f"SIM1_中国联通_+86{NEW_PHONE}"
+    assert body["phone"] == "139***5678"  # phone 字段掩码（remark 是 operator 自填自拿）
+    # 注册表落盘（原子写，无 .tmp 残留）
+    entries = json.loads((tmp_path / "reg" / "registered.json").read_text(encoding="utf-8"))
+    assert [e["phone"] for e in entries] == [NEW_PHONE]
+    assert entries[0]["remark"] == body["remark"]
+    assert not any(p.name.endswith(".tmp") for p in (tmp_path / "reg").iterdir())
+    # setup-info 合并下发（env 缺省两号 + 注册新号）
+    remarks = client.get("/api/v2/otp/setup-info",
+                         headers={"X-Operator-Token": "operator-secret"}).json()["slot_remarks"]
+    assert remarks[-1] == body["remark"] and len(remarks) == 3
+    # 注册备注可被卡槽反解回真号（路由契约不破）
+    assert otp_router.phone_from_slot(body["remark"]) == NEW_PHONE
+
+
+def test_register_slot_freeform_not_limited_to_sim12() -> None:
+    """卡槽是选填自由文本：eSIM/自定义标签/留空全合法（注册绝不限制 SIM1/2）。"""
+    resp = _register({"phone": NEW_PHONE, "carrier": "中国电信", "slot": "eSIM"})
+    assert resp.status_code == 200
+    assert resp.json()["remark"] == f"eSIM_中国电信_+86{NEW_PHONE}"
+    resp = _register({"phone": "13800001111"})
+    assert resp.status_code == 200
+    assert resp.json()["remark"] == "+8613800001111"  # 槽位/运营商全空也合法
+    assert otp_router.phone_from_slot(resp.json()["remark"]) == "13800001111"
+    # 带 +86 前缀的输入被归一
+    resp = _register({"phone": "+8613800002222", "slot": "卡2"})
+    assert resp.status_code == 200
+    assert resp.json()["remark"] == "卡2_+8613800002222"
+
+
+def test_register_upsert_same_phone(tmp_path: Path) -> None:
+    """同号再注册=更新备注（注册表按 phone 唯一，绝不出重复号）。"""
+    assert _register({"phone": NEW_PHONE, "slot": "SIM1"}).json()["created"] is True
+    resp = _register({"phone": NEW_PHONE, "slot": "SIM2", "carrier": "中国移动"})
+    assert resp.status_code == 200 and resp.json()["created"] is False
+    entries = json.loads((tmp_path / "reg" / "registered.json").read_text(encoding="utf-8"))
+    assert len(entries) == 1
+    assert entries[0]["remark"] == f"SIM2_中国移动_+86{NEW_PHONE}"
+
+
+def test_register_merges_with_env_dedupe_by_phone(monkeypatch: pytest.MonkeyPatch) -> None:
+    """setup-info = env 备注 ∪ 注册表：按手机号去重，同号以注册表（更新的动作）为准。"""
+    monkeypatch.setenv("GEO_OTP_SLOT_REMARKS",
+                       f"SIM1_中国移动_+86{NEW_PHONE}, SIM2_联通_+8613900002222")
+    _register({"phone": NEW_PHONE, "slot": "eSIM", "carrier": "中国电信"})
+    remarks = client.get("/api/v2/otp/setup-info",
+                         headers={"X-Operator-Token": "operator-secret"}).json()["slot_remarks"]
+    assert remarks == ["SIM2_联通_+8613900002222", f"eSIM_中国电信_+86{NEW_PHONE}"]
+
+
+def test_setup_info_registry_corrupt_best_effort(tmp_path: Path) -> None:
+    """注册表损坏 → setup-info 不挂（best-effort 空表回落，env 备注照常下发）。"""
+    reg = tmp_path / "reg" / "registered.json"
+    reg.parent.mkdir(parents=True)
+    reg.write_text("{broken", encoding="utf-8")
+    resp = client.get("/api/v2/otp/setup-info", headers={"X-Operator-Token": "operator-secret"})
+    assert resp.status_code == 200
+    assert any("13121622231" in s for s in resp.json()["slot_remarks"])  # env 缺省仍在
+
+
+def test_setup_page_register_form_no_sim_restriction() -> None:
+    """装机页第 2 步：注册入口走受门端点，卡槽是自由文本（页面不再内嵌 SIM 二选一）。"""
+    html = client.get("/api/v2/otp/setup").text
+    assert "/api/v2/otp/register" in html
+    assert 'id="simSel"' not in html  # 旧 SIM1/SIM2 下拉已移除
+
+
+def test_setup_page_channel_rule_mirror_app_form() -> None:
+    """第 3/4 步按 SmsForwarder v3.5.0 实际表单逐格给出（20260810 真机截图校准）。"""
+    html = client.get("/api/v2/otp/setup").text
+    # Webhook 通道表单字段逐格对应（文本框复制项 + 单选/留空指示）
+    for frag in ("通道名称/状态", "请求方式", "Webhook Server", "消息模板", "Secret",
+                 "成功应答关键字", "Headers 第 1 行 Key", "Headers 第 1 行 Value",
+                 "Headers 第 2 行", "代理设置"):
+        assert frag in html, frag
+    # 转发规则表单字段逐格对应
+    for frag in ("规则别名", "发送通道", "匹配卡槽", "匹配字段", "匹配模式", "匹配的值",
+                 "不限卡槽", "启用自定义模版", "启用该条转发规则", "免打扰"):
+        assert frag in html, frag
+    # 第 0 步必查项：全局免打扰=00:00~00:00（20260810 实测 00:00~24:00 全天禁转发案例）
+    assert "全天禁转发" in html
+    # 推送地址由浏览器 location.origin 拼出（反代 Host $host 丢 8443 端口的实测教训）
+    assert 'location.origin + "/api/v2/otp/push"' in html
+    # v3.5.0 无「忽略 SSL 证书」开关（自托管 APK strings 实证），旧指令不得再出现
+    # （页面保留一句「该开关不存在」的废止说明是有意的——旧 SmsForwarder 文档仍写着要勾）
+    assert "必须勾选" not in html
+    # 受门复制按钮初始 disabled 且无 data-t，静态绑定器按 .cp[data-t] 选择——
+    # 解锁前点击绝不可能把 "null" 复制进剪贴板
+    assert 'id="vUrl"' in html and 'id="cpTok"' in html
+    assert 'querySelectorAll(".cp[data-t]")' in html
 
 
 def test_status_masked_and_gated(tmp_path: Path) -> None:
