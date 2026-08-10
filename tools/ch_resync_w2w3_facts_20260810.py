@@ -1,13 +1,14 @@
-"""CH 事实表与 PG 权威行一次性对齐（20260810，W2/W3 重判收尾）。
+"""CH 事实表与 PG 权威行一次性对齐（20260810-20260811，W2/W3 重判收尾）。
 
-背景：0805/0806 历史 run 的 W2/W3 重判只改了 PG（platform.source_audit /
-platform.disparagement_judgment），CH 投影（geo_analytics.*_fact）残留：
-- disparagement_fact：214 行 method='dictionary_experimental'（词典兜底时代，PG 已无对应行）；
+背景：重判只改 PG（platform.source_audit / platform.disparagement_judgment），
+CH 投影（geo_analytics.*_fact）残留旧版行。两轮实况：
+- disparagement_fact：214 行 method='dictionary_experimental'（词典兜底时代）；
+  后 disparage-v1→v2 重判再留 228 行 v1 幽灵（method='llm'，PG 已删）；
 - source_audit_fact：30 行陈旧（CH 停留 llm_error，PG 已重判 ok/validation_failure）
   + 5 个 pub_id 双份（重投影的新行与未清理的旧 llm_error 行并存）。
 
-本脚本：按 PG 反连接删除幽灵/陈旧/重复行，再从 PG 回插当前值
-（event_id='ch-resync-20260810-<pub_id>'，event_time=PG updated_at，诚实标记）。
+本脚本：按 PG 反连接删除幽灵/陈旧/重复行（唯一删除判据 = pub_id 在 PG 无对应行），
+再从 PG 回插当前值（event_id='ch-resync-<pub_id>'，event_time=PG updated_at，诚实标记）。
 PG 为权威读路径，本脚本只动 CH。
 
 用法（secret 只走环境变量，不入文件）：
@@ -27,7 +28,7 @@ CH_URL = os.environ.get("GEO_CH_URL", "http://127.0.0.1:18124")
 CH_USER = os.environ.get("GEO_CH_USER", "geo")
 CH_PASSWORD = os.environ["GEO_CH_PASSWORD"]
 PG_DSN = os.environ["GEO_PG_DSN"].replace("postgresql+psycopg://", "postgresql://", 1)
-RESYNC_MARK = "ch-resync-20260810"
+RESYNC_MARK = "ch-resync"
 
 
 def ch_query(sql: str) -> str:
@@ -69,24 +70,16 @@ def main() -> None:
         )
         pg_sa = {r[0]: r for r in cur.fetchall()}
 
-    # ---- disparagement_fact：词典兜底幽灵
-    # （PG 无对应行的全部 = dictionary_experimental，已核验 214=214）
+    # ---- disparagement_fact：PG 无对应行的幽灵（唯一删除判据 = 反连接）
     ch_disp = set(ch_ids("SELECT judgment_pub_id FROM geo_analytics.disparagement_fact"))
     disp_ghosts = sorted(ch_disp - pg_disp)
-    bad = (
-        ch_ids(
-            "SELECT judgment_pub_id FROM geo_analytics.disparagement_fact "
-            f"WHERE judgment_pub_id IN ({sql_quote(disp_ghosts)})"
-            " AND method != 'dictionary_experimental'"
-        )
-        if disp_ghosts
-        else []
-    )
-    if bad:
-        raise SystemExit(
-            f"拒绝删除：{len(bad)} 个幽灵行非 dictionary_experimental（{bad[:3]}…）——人工复核"
-        )
-    print(f"disparagement: {len(ch_disp)} CH 行, 幽灵 {len(disp_ghosts)}（全为词典兜底，PG 已核)")
+    if disp_ghosts:
+        breakdown = ch_query(
+            "SELECT method, prompt_version, count() FROM geo_analytics.disparagement_fact "
+            f"WHERE judgment_pub_id IN ({sql_quote(disp_ghosts)}) GROUP BY 1,2 ORDER BY 3 DESC"
+        ).strip()
+        print(f"disparagement 幽灵构成（删前留痕）:\n{breakdown}")
+    print(f"disparagement: {len(ch_disp)} CH 行, 幽灵 {len(disp_ghosts)}（PG 反连接)")
 
     # ---- source_audit_fact：陈旧（同 pub_id 属性漂移）+ 重复（同 pub_id 多行）
     ch_sa_rows = (
@@ -118,9 +111,11 @@ def main() -> None:
     )
 
     # ---- 执行删除（ALTER TABLE mutation），等落盘后回插
-    ch_query(
-        "ALTER TABLE geo_analytics.disparagement_fact DELETE WHERE method='dictionary_experimental'"
-    )
+    if disp_ghosts:
+        ch_query(
+            "ALTER TABLE geo_analytics.disparagement_fact DELETE WHERE judgment_pub_id "
+            f"IN ({sql_quote(disp_ghosts)})"
+        )
     if fix_ids:
         ch_query(
             "ALTER TABLE geo_analytics.source_audit_fact DELETE WHERE source_audit_pub_id "
@@ -168,11 +163,13 @@ def main() -> None:
 
     # ---- 校验：CH == PG
     after_disp = int(ch_query("SELECT count() FROM geo_analytics.disparagement_fact").strip())
-    after_disp_dict = int(
-        ch_query(
-            "SELECT count() FROM geo_analytics.disparagement_fact"
-            " WHERE method='dictionary_experimental'"
-        ).strip()
+    ghosts_left = (
+        ch_ids(
+            "SELECT judgment_pub_id FROM geo_analytics.disparagement_fact "
+            f"WHERE judgment_pub_id NOT IN ({sql_quote(sorted(pg_disp))})"
+        )
+        if pg_disp
+        else []
     )
     after_sa = ch_query(
         "SELECT prompt_version, audit_status, count() FROM geo_analytics.source_audit_fact "
@@ -182,10 +179,10 @@ def main() -> None:
         "SELECT count() FROM (SELECT source_audit_pub_id FROM geo_analytics.source_audit_fact "
         "GROUP BY 1 HAVING count()>1)"
     ).strip()
-    print(f"校验 disparagement: {after_disp} 行（PG {len(pg_disp)}），词典残留 {after_disp_dict}")
+    print(f"校验 disparagement: {after_disp} 行（PG {len(pg_disp)}），幽灵残留 {len(ghosts_left)}")
     print(f"校验 source_audit 重复 pub_id 剩余: {dup_left}")
     print("校验 source_audit 分布:\n" + after_sa)
-    if after_disp != len(pg_disp) or after_disp_dict != 0 or dup_left != "0":
+    if after_disp != len(pg_disp) or ghosts_left or dup_left != "0":
         raise SystemExit("校验未过——人工复核")
     print("OK：CH 已与 PG 对齐")
 
