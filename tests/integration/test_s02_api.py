@@ -1026,14 +1026,16 @@ def test_s02_report_ai_draft_model_selection_and_output_capability(
         )
         connection.execute(
             """
-            INSERT INTO platform.app_user (id,pub_id,subject,display_name,is_service_account,created_at)
+            INSERT INTO platform.app_user (id,pub_id,subject,display_name,
+                is_service_account,created_at)
             VALUES (%s,%s,%s,'AI draft analyst',false,%s)
             """,
             (user_id, user_pub_id, subject, captured),
         )
         connection.execute(
             """
-            INSERT INTO platform.membership (id,pub_id,tenant_id,user_id,role,state,revoked_at,created_at)
+            INSERT INTO platform.membership (id,pub_id,tenant_id,user_id,role,state,
+                revoked_at,created_at)
             VALUES (%s,%s,%s,%s,'analyst','active',NULL,%s)
             """,
             (uuid4(), f"mbr_{suffix[:12]}", tenant_id, user_id, captured),
@@ -1080,7 +1082,9 @@ def test_s02_report_ai_draft_model_selection_and_output_capability(
                 "metric_version": "metrics-v2",
                 "scorer_version": "scorer-v2",
                 "fact_rows": [{"metric": "mention_count", "value": 1}],
-                "components": [{"component_type": "section", "title": "执行摘要", "body": "占位。"}],
+                "components": [
+                    {"component_type": "section", "title": "执行摘要", "body": "占位。"}
+                ],
             },
         )
         assert report.status_code == 201, report.text

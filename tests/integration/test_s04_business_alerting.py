@@ -169,7 +169,7 @@ def test_business_alert_snapshot_is_fixed_aggregate_and_worker_only() -> None:
     assert public_execute is False
     assert role_privileges.get("geo_worker", True) is True
     assert role_privileges.get("geo_api", False) is False
-    assert len(rows) == 12
+    assert len(rows) == 13
     assert {row[0] for row in rows} == {
         "tenant_count",
         "workflow_start_stale",
@@ -179,5 +179,6 @@ def test_business_alert_snapshot_is_fixed_aggregate_and_worker_only() -> None:
         "expired_session_leases",
         "report_delivery_overdue",
         "analysis_admission_backlog",
+        "analytics_outbox_quarantined",
     }
     assert all(isinstance(row[1], str) and isinstance(row[2], int) for row in rows)
