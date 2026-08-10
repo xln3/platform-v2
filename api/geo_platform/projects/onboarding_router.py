@@ -262,7 +262,7 @@ def create_onboarding(
         ],
         "regions": body.regions,
         "models": body.models,
-        "modes": ["web"],
+        "modes": ["normal"],
         "frequency": body.frequency,
         "effective_at": effective_at.isoformat(),
     }

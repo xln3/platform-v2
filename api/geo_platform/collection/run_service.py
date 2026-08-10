@@ -8,13 +8,17 @@ from typing import Literal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from workflows.activities.collection import CollectionTaskInput
+import structlog
+
+from workflows.activities.collection import PLATFORM_MODE_CAPABILITIES, CollectionTaskInput
 
 from ..config import get_settings
 from ..projects.models import MonitoringConfig, MonitoringConfigVersion, Project
 from ..tenancy.ids import new_pub_id
 from .models import CollectionRun
 from .workflow_outbox import enqueue_workflow_start
+
+log = structlog.get_logger()
 
 RunSource = Literal["manual", "schedule", "retry", "training"]
 
@@ -28,10 +32,17 @@ def _task_matrix(config: MonitoringConfigVersion) -> list[CollectionTaskInput]:
         for item in group.get("items", [])
         if isinstance(item, dict) and isinstance(item.get("text"), str) and item["text"].strip()
     ]
+    dropped: set[tuple[str, str]] = set()
     for query in queries:
         for model in snapshot.get("models", []):
+            capabilities = PLATFORM_MODE_CAPABILITIES.get(model)
             for region in snapshot.get("regions", []):
                 for mode in snapshot.get("modes", []):
+                    if capabilities is not None and mode not in capabilities:
+                        # 平台不支持该 mode（如 yiyan×deep_think）→ 矩阵剔除，
+                        # 不产出必败任务；剔除对全量记录在案（非静默）。
+                        dropped.add((model, mode))
+                        continue
                     business_key = hashlib.sha256(
                         f"{config.snapshot_hash}|{query}|{model}|{region}|{mode}".encode()
                     ).hexdigest()
@@ -45,6 +56,12 @@ def _task_matrix(config: MonitoringConfigVersion) -> list[CollectionTaskInput]:
                             adapter=model,
                         )
                     )
+    if dropped:
+        log.warning(
+            "collection_matrix_mode_filtered",
+            dropped=sorted(f"{model}:{mode}" for model, mode in dropped),
+            config_version_pub_id=config.pub_id,
+        )
     if not tasks:
         raise ValueError("collection_matrix_empty")
     if len(tasks) > 10_000:

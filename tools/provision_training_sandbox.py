@@ -153,7 +153,7 @@ def provision(session: Session) -> dict[str, object]:
             ],
             "regions": ["CN"],
             "models": list(PLATFORMS),
-            "modes": ["web"],
+            "modes": ["normal"],
             "frequency": "training-only",
             "effective_at": datetime.now(UTC).isoformat(),
         }
