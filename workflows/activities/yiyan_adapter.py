@@ -198,10 +198,36 @@ _THINKING_BLOCK_SELECTOR = "div.ai-thinking-steps"
 # 正文抽取剔除思考块与信源卡片：clone 后 remove，原 DOM 不动（截图证据仍含
 # 原样）。div.cosd-note-list = deep_think 信源卡片列表（20260810 live 校准：
 # 卡片 a[href] 已结构化进 citations，正文尾部不再重复其文本碎片）。
+# 20260812 表格保结构（W3 表格碎片证据根治）：innerText 把 <table> 压成
+# 制表符/换行序列、丢失行列对应（文心对比表「弱」案根因）；clone 内逐表改写为
+# markdown 管道行（首行视作表头补分隔行），单元格内换行压空格、| 转义。
+# live 实证：文心答案容器用真 <table>（wenxin 会话页 6×36 测绘平台对比表探针）。
 _STRIP_THINKING_JS = r"""(el) => {
   const c = el.cloneNode(true);
   for (const t of c.querySelectorAll('div.ai-thinking-steps')) t.remove();
   for (const t of c.querySelectorAll('div.cosd-note-list')) t.remove();
+  for (const t of c.querySelectorAll('table')) {
+    const rows = [];
+    let cols = 0;
+    for (const tr of t.querySelectorAll('tr')) {
+      const cells = Array.from(tr.querySelectorAll('th,td')).map((td) =>
+        (td.innerText || '').trim().replace(/\s+/g, ' ').replaceAll('|', '\\|')
+      );
+      if (!cells.length) continue;
+      cols = Math.max(cols, cells.length);
+      rows.push(cells);
+    }
+    if (!rows.length) { t.remove(); continue; }
+    const lines = rows.map((r) =>
+      '| ' + r.concat(Array(cols - r.length).fill('')).join(' | ') + ' |'
+    );
+    lines.splice(1, 0, '| ' + Array(cols).fill('---').join(' | ') + ' |');
+    const pre = document.createElement('pre');
+    // 首尾补换行：detached clone 的 innerText 不会在 <pre> 前自动断行，
+    // 否则表头行与前序文本（如「表格」标签）粘连失去 | 前缀（20260812 live 实证）。
+    pre.textContent = '\n' + lines.join('\n') + '\n';
+    t.replaceWith(pre);
+  }
   return c.innerText;
 }"""
 

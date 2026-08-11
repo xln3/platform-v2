@@ -15,6 +15,7 @@ from temporalio.exceptions import ApplicationError
 from domain.evidence.dlp import assert_secret_free
 from workflows.activities.collection import CollectionTaskInput
 from workflows.activities.yiyan_adapter import (
+    _STRIP_THINKING_JS,
     CollectedAnswer,
     YiyanAdapterConfig,
     _build_yiyan_trace,
@@ -351,3 +352,14 @@ def test_task_result_maps_trace_evidence(tmp_path: Path) -> None:
     assert len(result.evidence) == 1
     assert result.evidence[0].kind == "sse"
     assert result.evidence[0].relation_type == "answer_sse_trace"
+
+
+def test_strip_thinking_js_serializes_tables_as_markdown() -> None:
+    # 20260812 锚定（W3 表格碎片证据根治）：正文抽取必须把 <table> 序列化为
+    # markdown 管道行（首行表头补分隔行、<pre> 首尾补换行防表头与前序文本粘连），
+    # 防回退成 innerText 直出压平表格、丢行列对应。live 实证见 yiyan_adapter 注释。
+    assert "querySelectorAll('table')" in _STRIP_THINKING_JS
+    assert "querySelectorAll('th,td')" in _STRIP_THINKING_JS
+    assert "'---'" in _STRIP_THINKING_JS
+    assert "replaceWith" in _STRIP_THINKING_JS
+    assert "'\\n' + lines.join" in _STRIP_THINKING_JS
