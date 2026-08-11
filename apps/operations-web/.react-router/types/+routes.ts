@@ -23,6 +23,9 @@ type Pages = {
   "/media-prices": {
     params: {};
   };
+  "/quotations": {
+    params: {};
+  };
   "/onboarding": {
     params: {};
   };
@@ -59,7 +62,7 @@ type Pages = {
 type RouteFiles = {
   "root.tsx": {
     id: "root";
-    page: "/" | "/login" | "/execution" | "/media-prices" | "/onboarding" | "/service-visibility" | "/service-risk" | "/service-site-audit" | "/service-pilot" | "/sop" | "/sop/projects/:projectPubId" | "/post-analysis" | "/post-analysis/tasks/:taskPubId";
+    page: "/" | "/login" | "/execution" | "/media-prices" | "/quotations" | "/onboarding" | "/service-visibility" | "/service-risk" | "/service-site-audit" | "/service-pilot" | "/sop" | "/sop/projects/:projectPubId" | "/post-analysis" | "/post-analysis/tasks/:taskPubId";
   };
   "shell.tsx": {
     id: "shell";
@@ -76,6 +79,10 @@ type RouteFiles = {
   "features/media-prices/route.tsx": {
     id: "features/media-prices/route";
     page: "/media-prices";
+  };
+  "features/quotations/route.tsx": {
+    id: "features/quotations/route";
+    page: "/quotations";
   };
   "features/onboarding/route.tsx": {
     id: "features/onboarding/route";
@@ -121,6 +128,7 @@ type RouteModules = {
   "features/login/route": typeof import("./app/features/login/route.tsx");
   "features/execution/route": typeof import("./app/features/execution/route.tsx");
   "features/media-prices/route": typeof import("./app/features/media-prices/route.tsx");
+  "features/quotations/route": typeof import("./app/features/quotations/route.tsx");
   "features/onboarding/route": typeof import("./app/features/onboarding/route.tsx");
   "features/services/service-visibility/route": typeof import("./app/features/services/service-visibility/route.tsx");
   "features/services/service-risk/route": typeof import("./app/features/services/service-risk/route.tsx");

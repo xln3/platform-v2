@@ -1,0 +1,252 @@
+.quotation-page {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 36px 32px 56px;
+  color: #17211b;
+}
+
+.quotation-hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 28px;
+  margin-bottom: 22px;
+}
+
+.quotation-eyebrow,
+.quotation-section-title > div > span {
+  color: #167149;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.quotation-hero h1 {
+  margin: 8px 0;
+  font-size: clamp(30px, 4vw, 48px);
+  line-height: 1.08;
+}
+
+.quotation-hero p {
+  max-width: 660px;
+  margin: 0;
+  color: #637168;
+  line-height: 1.7;
+}
+
+.quotation-scope {
+  display: grid;
+  flex: 0 0 320px;
+  gap: 7px;
+  padding: 18px 20px;
+  border: 1px solid #d8e6dc;
+  border-radius: 14px;
+  background: #f4faf6;
+}
+
+.quotation-scope span {
+  color: #637168;
+  font-size: 13px;
+}
+
+.quotation-card {
+  padding: 26px;
+  border: 1px solid #dce5df;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 18px 50px rgb(31 60 42 / 7%);
+}
+
+.quotation-section-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 20px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid #edf1ee;
+}
+
+.quotation-section-title h2 {
+  margin: 5px 0 0;
+  font-size: 24px;
+}
+
+.quotation-security {
+  padding: 6px 10px;
+  border-radius: 999px;
+  color: #42634f;
+  background: #eef6f1;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.quotation-form-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(210px, 0.42fr);
+  gap: 18px;
+  margin-top: 22px;
+}
+
+.quotation-form-grid label {
+  display: grid;
+  gap: 8px;
+  color: #35443b;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.quotation-form-grid input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid #c8d5cc;
+  border-radius: 10px;
+  color: #17211b;
+  background: #fff;
+  font: inherit;
+}
+
+.quotation-form-grid input:focus-visible {
+  border-color: #167149;
+  outline: 3px solid rgb(22 113 73 / 15%);
+}
+
+.quotation-file-field {
+  grid-column: 1 / -1;
+  padding: 18px;
+  border: 1px dashed #b7cbbd;
+  border-radius: 12px;
+  background: #fafcfb;
+}
+
+.quotation-file-field input[type='file'] {
+  padding: 8px;
+  background: #fff;
+}
+
+.quotation-file-field small {
+  color: #6a776f;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.quotation-validation {
+  margin: 14px 0 0;
+  color: #a22b2b;
+  font-size: 13px;
+}
+
+.quotation-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.quotation-actions button {
+  min-height: 42px;
+}
+
+.quotation-notice {
+  margin-top: 18px;
+  padding: 12px 14px;
+  border-left: 4px solid;
+  border-radius: 0 9px 9px 0;
+  line-height: 1.55;
+}
+
+.quotation-notice.info {
+  border-color: #2f5aa8;
+  color: #274264;
+  background: #eef4ff;
+}
+
+.quotation-notice.success {
+  border-color: #24834f;
+  color: #185d39;
+  background: #e9f7ee;
+}
+
+.quotation-notice.error {
+  border-color: #a22323;
+  color: #8e2222;
+  background: #fdeaea;
+}
+
+.quotation-receipt {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 18px 0 0;
+}
+
+.quotation-receipt div {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid #e1e8e3;
+  border-radius: 11px;
+  background: #f8faf9;
+}
+
+.quotation-receipt dt {
+  color: #69766e;
+  font-size: 12px;
+}
+
+.quotation-receipt dd {
+  margin: 7px 0 0;
+  overflow-wrap: anywhere;
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.quotation-honesty {
+  display: flex;
+  gap: 16px;
+  margin-top: 18px;
+  padding: 16px 18px;
+  border-radius: 12px;
+  color: #564c2c;
+  background: #fff8df;
+}
+
+.quotation-honesty strong {
+  flex: 0 0 auto;
+}
+
+.quotation-honesty p {
+  margin: 0;
+  line-height: 1.6;
+}
+
+@media (max-width: 760px) {
+  .quotation-page {
+    padding: 24px 16px 40px;
+  }
+
+  .quotation-hero,
+  .quotation-section-title,
+  .quotation-honesty {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .quotation-scope {
+    flex-basis: auto;
+  }
+
+  .quotation-form-grid,
+  .quotation-receipt {
+    grid-template-columns: 1fr;
+  }
+
+  .quotation-file-field {
+    grid-column: auto;
+  }
+
+  .quotation-security {
+    align-self: flex-start;
+  }
+}

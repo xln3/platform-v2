@@ -46,6 +46,7 @@ import {
   getPostAnalysisTask,
   getReport,
   getReportArtifact,
+  generateQuotation,
   listAnalyticsAnswers,
   listCustomerAccountEvents,
   listCustomerAccounts,
@@ -5715,6 +5716,117 @@ describe('posting batch browser boundary', () => {
       },
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('quotation generation browser boundary', () => {
+  const quotationHeaders = {
+    'X-Tenant-Id': 'tnt_test',
+    'X-Actor-Id': 'usr_test',
+    'X-Actor-Role': 'operator',
+  } as const;
+  const docxMime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+  it('uploads XLSX multipart and verifies the returned DOCX digest and metadata', async () => {
+    const bytes = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x06, 0x00]);
+    const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);
+    const sha256 = [...new Uint8Array(digest)]
+      .map((value) => value.toString(16).padStart(2, '0'))
+      .join('');
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const request = input as Request;
+      expect(new URL(request.url).pathname).toBe('/api/v2/quotations/generate');
+      expect(request.headers.get('accept')).toBe(docxMime);
+      expect(request.headers.get('content-type')).toContain('multipart/form-data');
+      const form = await request.clone().formData();
+      expect(form.get('brand_name')).toBe('盛邦安全');
+      expect(form.get('quote_date')).toBe('2026-08-12');
+      expect((form.get('target_words') as File).name).toBe('盛邦目标词.xlsx');
+      return new Response(bytes, {
+        status: 200,
+        headers: {
+          'content-type': docxMime,
+          'content-disposition':
+            "attachment; filename*=UTF-8''%E6%8A%A5%E4%BB%B7%E5%8D%95-%E7%9B%9B%E9%82%A6%E5%AE%89%E5%85%A8-20260812.docx",
+          'x-quotation-sha256': sha256,
+          'x-quotation-target-query-count': '64',
+          'x-quotation-selected-query-count': '18',
+          'x-quotation-opportunity-count': '16',
+        },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const result = await generateQuotation(
+      {
+        brandName: ' 盛邦安全 ',
+        quoteDate: '2026-08-12',
+        targetWords: new File(['xlsx'], '盛邦目标词.xlsx', {
+          type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        }),
+      },
+      quotationHeaders,
+      createGeoApiClient('https://geo.example'),
+    );
+    expect(result).toMatchObject({
+      kind: 'ready',
+      data: {
+        fileName: '报价单-盛邦安全-20260812.docx',
+        sha256,
+        targetQueryCount: 64,
+        selectedQueryCount: 18,
+        opportunityCount: 16,
+      },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a digest mismatch and classifies an unavailable model configuration', async () => {
+    const file = new File(['xlsx'], '目标词.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(new Uint8Array([0x50, 0x4b, 0x03, 0x04]), {
+            status: 200,
+            headers: {
+              'content-type': docxMime,
+              'content-disposition':
+                "attachment; filename*=UTF-8''%E6%8A%A5%E4%BB%B7%E5%8D%95-%E6%B5%8B%E8%AF%95%E5%93%81%E7%89%8C-20260812.docx",
+              'x-quotation-sha256': 'a'.repeat(64),
+              'x-quotation-target-query-count': '10',
+              'x-quotation-selected-query-count': '10',
+              'x-quotation-opportunity-count': '16',
+            },
+          }),
+      ),
+    );
+    expect(
+      await generateQuotation(
+        { brandName: '测试品牌', quoteDate: '2026-08-12', targetWords: file },
+        quotationHeaders,
+        createGeoApiClient('https://geo.example'),
+      ),
+    ).toEqual({ kind: 'unavailable' });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ detail: { code: 'llm_disabled' } }), {
+            status: 503,
+            headers: { 'content-type': 'application/json' },
+          }),
+      ),
+    );
+    expect(
+      await generateQuotation(
+        { brandName: '测试品牌', quoteDate: '2026-08-12', targetWords: file },
+        quotationHeaders,
+        createGeoApiClient('https://geo.example'),
+      ),
+    ).toEqual({ kind: 'disabled' });
   });
 });
 

@@ -779,6 +779,9 @@ const reportArtifactMediaTypes: Readonly<Record<ReportArtifactFormat, string>> =
   pdf: 'application/pdf',
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 };
+const quotationGeneratePath = '/api/v2/quotations/generate';
+const quotationDocxMimeType =
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
 /**
  * 帖子分析截图/标注图字节流路径（evidence 内容下载同级的 image/png 边界；kind 词表收窄，
@@ -802,12 +805,15 @@ function expectedApiMediaType(request: Request, response: Response): string | nu
   const evidenceImageMatch = /^\/api\/v2\/evidence\/assets\/[^/]+\/content$/.test(
     new URL(request.url).pathname,
   );
+  const quotationMatch = new URL(request.url).pathname === quotationGeneratePath;
   const postAnalysisImageMatch = postAnalysisImageAssetPath.test(new URL(request.url).pathname);
   return artifactMatch
     ? (reportArtifactMediaTypes[artifactMatch[1] as ReportArtifactFormat] ?? 'application/json')
-    : evidenceImageMatch || postAnalysisImageMatch
-      ? 'image/png'
-      : 'application/json';
+    : quotationMatch
+      ? quotationDocxMimeType
+      : evidenceImageMatch || postAnalysisImageMatch
+        ? 'image/png'
+        : 'application/json';
 }
 
 async function boundGeoApiJsonResponse(
@@ -887,14 +893,17 @@ async function secureGeoApiFetch(input: RequestInfo | URL, init?: RequestInit): 
   const evidenceImageMatch = /^\/api\/v2\/evidence\/assets\/[^/]+\/content$/.test(
     new URL(source.url).pathname,
   );
+  const quotationMatch = new URL(source.url).pathname === quotationGeneratePath;
   const postAnalysisImageMatch = postAnalysisImageAssetPath.test(new URL(source.url).pathname);
   headers.set(
     'Accept',
     artifactMatch
       ? (reportArtifactMediaTypes[artifactMatch[1] as ReportArtifactFormat] ?? 'application/json')
-      : evidenceImageMatch || postAnalysisImageMatch
-        ? 'image/png'
-        : 'application/json',
+      : quotationMatch
+        ? quotationDocxMimeType
+        : evidenceImageMatch || postAnalysisImageMatch
+          ? 'image/png'
+          : 'application/json',
   );
   const request = new Request(source, {
     headers,
@@ -10691,6 +10700,165 @@ export async function getIntakeProfileDocx(
     return {
       kind: 'ready',
       data: { blob: result.data, byteSize: result.data.size, mimeType: result.data.type },
+    };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+export type QuotationGenerationInput = {
+  brandName: string;
+  targetWords: File;
+  quoteDate?: string;
+  model?: string;
+};
+
+export type GeneratedQuotationDocument = {
+  blob: Blob;
+  fileName: string;
+  sha256: string;
+  targetQueryCount: number;
+  selectedQueryCount: number;
+  opportunityCount: number;
+};
+
+export type QuotationGenerationResult =
+  | { kind: 'ready'; data: GeneratedQuotationDocument }
+  | { kind: 'forbidden' }
+  | { kind: 'invalid' }
+  | { kind: 'disabled' }
+  | { kind: 'failed' }
+  | { kind: 'unavailable' };
+
+const quotationXlsxMimeTypes = new Set([
+  '',
+  'application/octet-stream',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+]);
+const quotationMaxWorkbookBytes = 10 * 1024 * 1024;
+const quotationMaxDocumentBytes = 20 * 1024 * 1024;
+
+const quotationHeaderCount = (value: string | null, maximum: number): number | null => {
+  if (!value || !/^(?:0|[1-9]\d*)$/u.test(value)) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= maximum ? parsed : null;
+};
+
+const quotationFileName = (contentDisposition: string | null): string | null => {
+  const encoded = /(?:^|;)\s*filename\*=UTF-8''([^;]+)/iu.exec(contentDisposition ?? '')?.[1];
+  if (!encoded) return null;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(encoded).normalize('NFC');
+  } catch {
+    return null;
+  }
+  const projected = safeBrowserString(decoded, 180);
+  return projected && projected.endsWith('.docx') && !/[\\/\x00-\x1f\x7f]/u.test(projected)
+    ? projected
+    : null;
+};
+
+const classifyQuotationFailure = (status: number): QuotationGenerationResult => {
+  if (status === 401 || status === 403) return { kind: 'forbidden' };
+  if (status === 400 || status === 415 || status === 422) return { kind: 'invalid' };
+  if (status === 503) return { kind: 'disabled' };
+  if (status === 502) return { kind: 'failed' };
+  return { kind: 'unavailable' };
+};
+
+/**
+ * 运营端报价单生成：multipart 上传 XLSX，DOCX 只经受控 Blob 通道返回；同时校验
+ * MIME、ZIP 签名、体积、服务端 SHA-256 与计数元数据，失败时不把响应交给下载层。
+ */
+export async function generateQuotation(
+  input: QuotationGenerationInput,
+  headers: IdentitySessionHeaders,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<QuotationGenerationResult> {
+  const brandName = input.brandName.normalize('NFC').replace(/\s+/gu, ' ').trim();
+  const quoteDate = input.quoteDate?.trim() ?? '';
+  const model = input.model?.trim() ?? '';
+  if (
+    !safeBrowserString(brandName, 80) ||
+    brandName.length < 2 ||
+    !(input.targetWords instanceof File) ||
+    !input.targetWords.name.toLowerCase().endsWith('.xlsx') ||
+    input.targetWords.size <= 0 ||
+    input.targetWords.size > quotationMaxWorkbookBytes ||
+    !quotationXlsxMimeTypes.has(input.targetWords.type.toLowerCase()) ||
+    (quoteDate !== '' && !/^20\d{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/u.test(quoteDate)) ||
+    (model !== '' && !safeBrowserString(model, 120))
+  ) {
+    return { kind: 'invalid' };
+  }
+
+  const form = new FormData();
+  form.set('brand_name', brandName);
+  form.set('target_words', input.targetWords);
+  if (quoteDate) form.set('quote_date', quoteDate);
+  if (model) form.set('model', model);
+  try {
+    const result = await projectedApiClient(client).POST('/api/v2/quotations/generate', {
+      params: { header: headers },
+      body: form as never,
+      bodySerializer: () => form,
+      parseAs: 'blob',
+    });
+    if (!(result.data instanceof Blob)) return classifyQuotationFailure(result.response.status);
+
+    const sha256 = safeHash(result.response.headers.get('x-quotation-sha256'));
+    const fileName = quotationFileName(result.response.headers.get('content-disposition'));
+    const targetQueryCount = quotationHeaderCount(
+      result.response.headers.get('x-quotation-target-query-count'),
+      300,
+    );
+    const selectedQueryCount = quotationHeaderCount(
+      result.response.headers.get('x-quotation-selected-query-count'),
+      18,
+    );
+    const opportunityCount = quotationHeaderCount(
+      result.response.headers.get('x-quotation-opportunity-count'),
+      16,
+    );
+    if (
+      result.data.type !== quotationDocxMimeType ||
+      result.data.size <= 0 ||
+      result.data.size > quotationMaxDocumentBytes ||
+      !sha256 ||
+      !fileName ||
+      targetQueryCount === null ||
+      selectedQueryCount === null ||
+      opportunityCount === null
+    ) {
+      return { kind: 'unavailable' };
+    }
+    const bytes = await result.data.arrayBuffer();
+    const signature = new Uint8Array(bytes, 0, Math.min(4, bytes.byteLength));
+    if (
+      signature.length < 4 ||
+      signature[0] !== 0x50 ||
+      signature[1] !== 0x4b ||
+      signature[2] !== 0x03 ||
+      signature[3] !== 0x04
+    ) {
+      return { kind: 'unavailable' };
+    }
+    const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);
+    const actualSha256 = [...new Uint8Array(digest)]
+      .map((value) => value.toString(16).padStart(2, '0'))
+      .join('');
+    if (actualSha256 !== sha256) return { kind: 'unavailable' };
+    return {
+      kind: 'ready',
+      data: {
+        blob: result.data,
+        fileName,
+        sha256,
+        targetQueryCount,
+        selectedQueryCount,
+        opportunityCount,
+      },
     };
   } catch {
     return { kind: 'unavailable' };

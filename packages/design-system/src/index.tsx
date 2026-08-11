@@ -1544,7 +1544,11 @@ export function SafeHtmlDocument({
 const isSafeClientDownloadFileName = (fileName: string): boolean =>
   fileName.length > 0 &&
   fileName.length <= 240 &&
-  /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(fileName) &&
+  fileName.normalize('NFC') === fileName &&
+  fileName.trim() === fileName &&
+  !fileName.startsWith('.') &&
+  !/[<>:"/\\|?*\x00-\x1f\x7f]/u.test(fileName) &&
+  !containsUnsafeClientControlCharacter(fileName) &&
   !fileName.includes('..') &&
   !containsClientSecret(fileName);
 
