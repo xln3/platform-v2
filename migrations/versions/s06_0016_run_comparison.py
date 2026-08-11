@@ -54,11 +54,11 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("pub_id", name="pk_run_comparison"),
         sa.CheckConstraint(
             "jsonb_typeof(baseline_run_pub_ids) = 'array'",
-            name="ck_run_comparison_baseline_runs_array",
+            name="baseline_runs_array",  # 词缀名，落库 ck_run_comparison_baseline_runs_array
         ),
         sa.CheckConstraint(
             "jsonb_typeof(optimized_run_pub_ids) = 'array'",
-            name="ck_run_comparison_optimized_runs_array",
+            name="optimized_runs_array",  # 同上（约定二次包装修复 20260812）
         ),
         schema="analytics",
     )

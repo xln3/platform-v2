@@ -41,11 +41,11 @@ def upgrade() -> None:
         sa.Column("environment", sa.String(20), nullable=False, server_default="production"),
         schema="platform",
     )
-    op.create_check_constraint(
-        "tenant_environment_ck",
-        "tenant",
-        "environment IN ('production','training')",
-        schema="platform",
+    # ck 命名约定（ck_%(table_name)s_%(constraint_name)s）会把显式名再包一层
+    # （20260812 实证：create 包装、drop 逐字），终形名只能用裸 SQL 落库。
+    op.execute(
+        "ALTER TABLE platform.tenant ADD CONSTRAINT tenant_environment_ck "
+        "CHECK (environment IN ('production','training'))"
     )
     # Native V2 browser identity. These tables intentionally do not use tenant RLS: the
     # authentication boundary must resolve the tenant before it can set the RLS selector.
@@ -196,11 +196,10 @@ def upgrade() -> None:
         sa.Column("initiated_by_pub_id", sa.String(30), nullable=True),
         schema="platform",
     )
-    op.create_check_constraint(
-        "collection_run_source_ck",
-        "collection_run",
-        "source IN ('manual','schedule','retry','training')",
-        schema="platform",
+    # 同上：裸 SQL 落终形名，绕开 ck 命名约定的二次包装。
+    op.execute(
+        "ALTER TABLE platform.collection_run ADD CONSTRAINT collection_run_source_ck "
+        "CHECK (source IN ('manual','schedule','retry','training'))"
     )
     op.create_index(
         "collection_run_schedule_idx",
@@ -260,11 +259,10 @@ def upgrade() -> None:
         sa.Column("approved_at", sa.DateTime(timezone=True), nullable=True),
         schema="posting",
     )
-    op.create_check_constraint(
-        "posting_batch_approval_state_ck",
-        "batch",
-        "approval_state IN ('draft','pending','approved','rejected')",
-        schema="posting",
+    # 同上：裸 SQL 落终形名，绕开 ck 命名约定的二次包装。
+    op.execute(
+        "ALTER TABLE posting.batch ADD CONSTRAINT posting_batch_approval_state_ck "
+        "CHECK (approval_state IN ('draft','pending','approved','rejected'))"
     )
     op.execute(
         """
@@ -309,7 +307,10 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.execute("DROP TABLE posting.attribution")
-    op.drop_constraint("posting_batch_approval_state_ck", "batch", schema="posting", type_="check")
+    # 三个 drop 不传 type_="check"：ck 模板含 %(constraint_name)s，带类型时给定名会被
+    # 再包一层 ck_<表>_ 前缀（20260812 实证）；不传 type_ 则逐字使用给定名（PG 的
+    # DROP CONSTRAINT 本就不需要类型，type_ 是 MySQL 遗留参数）。
+    op.drop_constraint("posting_batch_approval_state_ck", "batch", schema="posting")
     for column in (
         "approved_at",
         "approved_by_pub_id",
@@ -325,9 +326,7 @@ def downgrade() -> None:
     for column in ("resolution_note", "due_at", "assigned_to_pub_id"):
         op.drop_column("intervention_request", column, schema="platform")
     op.drop_index("collection_run_schedule_idx", table_name="collection_run", schema="platform")
-    op.drop_constraint(
-        "collection_run_source_ck", "collection_run", schema="platform", type_="check"
-    )
+    op.drop_constraint("collection_run_source_ck", "collection_run", schema="platform")
     for column in (
         "initiated_by_pub_id",
         "retry_of_run_pub_id",
@@ -344,5 +343,5 @@ def downgrade() -> None:
         "user_password_credential",
     ):
         op.execute(f'DROP TABLE platform."{table}"')
-    op.drop_constraint("tenant_environment_ck", "tenant", schema="platform", type_="check")
+    op.drop_constraint("tenant_environment_ck", "tenant", schema="platform")
     op.drop_column("tenant", "environment", schema="platform")

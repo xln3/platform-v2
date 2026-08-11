@@ -65,9 +65,11 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("pub_id", name="uq_disparagement_factcheck_pub_id"),
         sa.UniqueConstraint("judgment_pub_id", name="uq_disparagement_factcheck_judgment_pub_id"),
+        # ck 命名约定会把显式名再包一层；给词缀名「verdict」，
+        # 落库即终形 ck_disparagement_factcheck_verdict（20260812 二次包装修复）。
         sa.CheckConstraint(
             "verdict IN ('supported','refuted','unverifiable')",
-            name="ck_disparagement_factcheck_verdict",
+            name="verdict",
         ),
         sa.ForeignKeyConstraint(
             ["judgment_pub_id"],
@@ -107,11 +109,11 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "category IN ('content_coverage','citability','fact_consistency',"
             "'crawlability','other')",
-            name="ck_site_audit_suggestion_category",
+            name="category",  # 词缀名，落库 ck_site_audit_suggestion_category（约定二次包装修复）
         ),
         sa.CheckConstraint(
             "severity IN ('high','medium','low')",
-            name="ck_site_audit_suggestion_severity",
+            name="severity",  # 同上，落库 ck_site_audit_suggestion_severity
         ),
         schema="platform",
     )
@@ -139,8 +141,10 @@ def upgrade() -> None:
         ),
         schema="platform",
     )
+    # 词缀名「content_origin」，落库即终形 ck_disparagement_judgment_content_origin
+    # （约定二次包装修复；此前落库为带哈希的截断重包名，s06_0017 负责矫正存量库）。
     op.create_check_constraint(
-        "ck_disparagement_judgment_content_origin",
+        "content_origin",
         "disparagement_judgment",
         "content_origin IN ('collection','own_content')",
         schema="platform",

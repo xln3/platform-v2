@@ -65,7 +65,9 @@ def upgrade() -> None:
             "domain",
             name="uq_answer_brand_extract_tenant_answer_domain",
         ),
-        sa.CheckConstraint("status IN ('ok','failed')", name="ck_answer_brand_extract_status"),
+        # ck 命名约定会把显式名再包一层（ck_表_名_给定名）；给词缀名「status」，
+        # 落库即为作者终形 ck_answer_brand_extract_status（20260812 二次包装修复）。
+        sa.CheckConstraint("status IN ('ok','failed')", name="status"),
         schema="analytics",
     )
     op.create_index(
