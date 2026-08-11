@@ -15,6 +15,7 @@ from temporalio.exceptions import ApplicationError
 from domain.evidence.dlp import assert_secret_free
 from workflows.activities.collection import CollectionTaskInput
 from workflows.activities.yuanbao_adapter import (
+    _BODY_TEXT_JS,
     CollectedAnswer,
     YuanbaoAdapterConfig,
     YuanbaoBatchItemOutcome,
@@ -324,3 +325,13 @@ def test_batch_item_ok_passes_trace_evidence(tmp_path: Path) -> None:
     assert result.evidence[0].kind == "sse"
     assert result.evidence[0].relation_type == "answer_sse_trace"
     assert result.evidence[0].path == str(trace)
+
+
+def test_body_text_js_serializes_tables_as_markdown() -> None:
+    # 20260812 锚定（W3 表格碎片证据根治，yiyan 同款）：正文抽取必须把 <table>
+    # 序列化为 markdown 管道行（存量答案曾混入 tab 压平表格行）；生产路径
+    # .all()+reversed+evaluate 已在常驻浏览器 fixture 实证出整行语义。
+    assert "querySelectorAll('table')" in _BODY_TEXT_JS
+    assert "querySelectorAll('th,td')" in _BODY_TEXT_JS
+    assert "'---'" in _BODY_TEXT_JS
+    assert "replaceWith" in _BODY_TEXT_JS

@@ -1856,6 +1856,34 @@ def _submit_and_confirm(
     return {"submitted": False, "attempts": used}
 
 
+# 正文文本抽取（20260812 起表格保结构，W3 表格碎片证据根治，yiyan 同款）：
+# inner_text 直出会把 <table> 压成 tab/换行序列丢行列对应（存量答案实测混入
+# tab 压平的表格行）；clone 内逐表改写为 markdown 管道行（首行表头补分隔行、
+# 单元格换行压空格、| 转义、<pre> 首尾补换行防表头粘连），原 DOM 不动。
+_BODY_TEXT_JS = r"""(el) => {
+  const c = el.cloneNode(true);
+  for (const t of c.querySelectorAll('table')) {
+    const rows = [];
+    let cols = 0;
+    for (const tr of t.querySelectorAll('tr')) {
+      const cells = Array.from(tr.querySelectorAll('th,td')).map((td) =>
+        (td.innerText || '').trim().replace(/\s+/g, ' ').replaceAll('|', '\\|'));
+      if (!cells.length) continue;
+      cols = Math.max(cols, cells.length);
+      rows.push(cells);
+    }
+    if (!rows.length) { t.remove(); continue; }
+    const lines = rows.map((r) =>
+      '| ' + r.concat(Array(cols - r.length).fill('')).join(' | ') + ' |');
+    lines.splice(1, 0, '| ' + Array(cols).fill('---').join(' | ') + ' |');
+    const pre = document.createElement('pre');
+    pre.textContent = '\n' + lines.join('\n') + '\n';
+    t.replaceWith(pre);
+  }
+  return c.innerText;
+}"""
+
+
 def _extract_answer_text(page: Any) -> str:
     """DOM 抽取助手回答文本（最后一个可见 markdown 正文容器/气泡为准；
     思考链子树一律跳过——深度思考模式的链正文绝不混入答案）。"""
@@ -1872,7 +1900,7 @@ def _extract_answer_text(page: Any) -> str:
                 if _THINK_BLOCK_CLASS_SUBSTR in cls:
                     continue
                 try:
-                    text = el.inner_text(timeout=1_500)
+                    text = el.evaluate(_BODY_TEXT_JS, timeout=1_500) or ""
                 except Exception:
                     continue
                 if text and text.strip():

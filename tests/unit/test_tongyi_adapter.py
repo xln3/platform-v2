@@ -16,6 +16,8 @@ from temporalio.exceptions import ApplicationError
 from domain.evidence.dlp import assert_secret_free
 from workflows.activities.collection import CollectionTaskInput
 from workflows.activities.tongyi_adapter import (
+    _ANSWER_EXTRACT_JS,
+    _ELEMENT_TEXT_JS,
     CollectedAnswer,
     TongyiAdapterConfig,
     _build_tongyi_trace,
@@ -436,3 +438,14 @@ def test_task_result_without_trace_has_no_evidence(tmp_path: Path) -> None:
     collected = CollectedAnswer(answer_text="正文", references=[], screenshot_path=shot)
     result = _task_result_from_collected(_item(), collected)
     assert result.evidence == []
+
+
+def test_extract_js_serializes_tables_as_markdown() -> None:
+    # 20260812 锚定（W3 表格碎片证据根治，yiyan 同款）：容器级走查与旧选择器链
+    # 兜底两路都必须把 <table> 序列化为 markdown 管道行，防回退 innerText 直出。
+    # live 实证：tongyi_bj 当前页 7×42 测绘平台对比表出完整管道表。
+    for js in (_ANSWER_EXTRACT_JS, _ELEMENT_TEXT_JS):
+        assert "querySelectorAll('table')" in js
+        assert "querySelectorAll('th,td')" in js
+        assert "'---'" in js
+        assert "replaceWith" in js

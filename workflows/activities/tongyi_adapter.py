@@ -2130,6 +2130,35 @@ _ANSWER_EXTRACT_JS = r"""() => {
   const inThinkingCard = (el) =>
     !!(el.closest('[data-card_name="bar_workflow"]')
        || el.closest('div[class*="thinking-content-"]'));
+  // 20260812 表格保结构（W3 表格碎片证据根治，yiyan 同款）：innerText 会把
+  // <table> 压成 \n\t 序列丢行列对应（tongyi_bj 当前页 7×42 测绘对比表实证）；
+  // clone 内逐表改写为 markdown 管道行（首行表头补分隔行、| 转义、<pre> 首尾
+  // 补换行防表头粘连——两坑均 yiyan live 实证），原 DOM 不动。
+  const tableMd = (rootEl) => {
+    for (const t of rootEl.querySelectorAll('table')) {
+      const rows = [];
+      let cols = 0;
+      for (const tr of t.querySelectorAll('tr')) {
+        const cells = Array.from(tr.querySelectorAll('th,td')).map((td) =>
+          (td.innerText || '').trim().replace(/\s+/g, ' ').replaceAll('|', '\\|'));
+        if (!cells.length) continue;
+        cols = Math.max(cols, cells.length);
+        rows.push(cells);
+      }
+      if (!rows.length) { t.remove(); continue; }
+      const lines = rows.map((r) =>
+        '| ' + r.concat(Array(cols - r.length).fill('')).join(' | ') + ' |');
+      lines.splice(1, 0, '| ' + Array(cols).fill('---').join(' | ') + ' |');
+      const pre = document.createElement('pre');
+      pre.textContent = '\n' + lines.join('\n') + '\n';
+      t.replaceWith(pre);
+    }
+  };
+  const textOf = (el) => {
+    const c = el.cloneNode(true);
+    tableMd(c);
+    return (c.innerText || '').trim();
+  };
   const cards = Array.from(document.querySelectorAll('.answer-common-card'))
     .filter((el) => !inThinkingCard(el));
   const root = cards.length ? cards[cards.length - 1] : null;
@@ -2139,7 +2168,7 @@ _ANSWER_EXTRACT_JS = r"""() => {
       if (inThinkingCard(child)) continue;
       if (child.matches('.qk-markdown')) {
         segments.push({kind: 'markdown', cls: 'qk-markdown',
-                       text: (child.innerText || '').trim()});
+                       text: textOf(child)});
         continue;
       }
       const inner = Array.from(child.querySelectorAll('.qk-markdown'))
@@ -2147,13 +2176,13 @@ _ANSWER_EXTRACT_JS = r"""() => {
       if (inner.length) {
         for (const s of inner) {
           segments.push({kind: 'markdown', cls: 'qk-markdown',
-                         text: (s.innerText || '').trim()});
+                         text: textOf(s)});
         }
         continue;
       }
       segments.push({kind: 'widget',
                      cls: (child.className || '').toString().slice(0, 120),
-                     text: (child.innerText || '').trim()});
+                     text: textOf(child)});
     }
   } else {
     const mds = Array.from(document.querySelectorAll('.qk-markdown'))
@@ -2161,7 +2190,7 @@ _ANSWER_EXTRACT_JS = r"""() => {
     if (!mds.length) return {segments: [], refs: []};
     const last = mds[mds.length - 1];
     segments.push({kind: 'markdown', cls: 'qk-markdown',
-                   text: (last.innerText || '').trim()});
+                   text: textOf(last)});
   }
   const refRoot = root || document;
   const refs = [];
@@ -2173,6 +2202,31 @@ _ANSWER_EXTRACT_JS = r"""() => {
     refs.push({url: href, title: (a.innerText || '').trim() || null, sitename: null});
   }
   return {segments, refs};
+}"""
+
+# 元素级正文文本（旧选择器链兜底通道用；与 _ANSWER_EXTRACT_JS 内联副本同逻辑——
+# 20260812 表格保结构：clone 内 <table>→markdown 管道行再取 innerText，原 DOM 不动）。
+_ELEMENT_TEXT_JS = r"""(el) => {
+  const c = el.cloneNode(true);
+  for (const t of c.querySelectorAll('table')) {
+    const rows = [];
+    let cols = 0;
+    for (const tr of t.querySelectorAll('tr')) {
+      const cells = Array.from(tr.querySelectorAll('th,td')).map((td) =>
+        (td.innerText || '').trim().replace(/\s+/g, ' ').replaceAll('|', '\\|'));
+      if (!cells.length) continue;
+      cols = Math.max(cols, cells.length);
+      rows.push(cells);
+    }
+    if (!rows.length) { t.remove(); continue; }
+    const lines = rows.map((r) =>
+      '| ' + r.concat(Array(cols - r.length).fill('')).join(' | ') + ' |');
+    lines.splice(1, 0, '| ' + Array(cols).fill('---').join(' | ') + ' |');
+    const pre = document.createElement('pre');
+    pre.textContent = '\n' + lines.join('\n') + '\n';
+    t.replaceWith(pre);
+  }
+  return c.innerText;
 }"""
 
 # 卡片段噪声过滤（Python 侧，可单测）：工具栏/操作条类名与纯按钮短文本丢弃；
@@ -2226,7 +2280,7 @@ def _extract_response(page: Any) -> tuple[str, list[dict[str, Any]]]:
             if not elements:
                 continue
             last = elements[-1]
-            text = last.inner_text(timeout=2000)
+            text = last.evaluate(_ELEMENT_TEXT_JS, timeout=2000) or ""
             if text and text.strip():
                 refs = []
                 seen: set[str] = set()

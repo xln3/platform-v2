@@ -160,12 +160,16 @@ class _FakeKeyboard:
 
 
 class _FakeElement:
-    """all() 命中的助手气泡元素（inner_text 即答案正文）。"""
+    """all() 命中的助手气泡元素（正文抽取走 evaluate(_BODY_TEXT_JS)，fake 不跑
+    JS，直接回 canned 文本——20260812 表格序列化改造后签名保持 inner_text 兼容）。"""
 
     def __init__(self, text: str) -> None:
         self._text = text
 
     def inner_text(self, timeout: int | None = None) -> str:
+        return self._text
+
+    def evaluate(self, script: str, *_args: Any, **_kw: Any) -> str:
         return self._text
 
     def get_attribute(self, name: str) -> None:
@@ -1242,6 +1246,9 @@ def test_extract_answer_text_skips_think_blocks() -> None:
         def inner_text(self, timeout: int | None = None) -> str:
             return self._text
 
+        def evaluate(self, script: str, *_args: Any, **_kw: Any) -> str:
+            return self._text
+
     class _Loc:
         def __init__(self, els: list[_El]) -> None:
             self._els = els
@@ -1278,6 +1285,9 @@ def test_extract_answer_text_falls_back_to_last_visible_bubble() -> None:
             return self._cls if name == "class" else None
 
         def inner_text(self, timeout: int | None = None) -> str:
+            return self._text
+
+        def evaluate(self, script: str, *_args: Any, **_kw: Any) -> str:
             return self._text
 
     class _Loc:
@@ -1535,6 +1545,9 @@ def test_references_empty_docs_fall_back_to_href_groups() -> None:
             return self._href if name == "href" else None
 
         def inner_text(self, timeout: int | None = None) -> str:
+            return self._text
+
+        def evaluate(self, script: str, *_args: Any, **_kw: Any) -> str:
             return self._text
 
     class _Loc:
