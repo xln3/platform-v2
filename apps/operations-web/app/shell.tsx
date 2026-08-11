@@ -62,6 +62,11 @@ export const operationsNav = [
     label: '媒体比价台',
     href: '/platform/operations/media-prices',
   },
+  {
+    id: 'quotation-generator',
+    label: '报价单生成',
+    href: '/platform/operations/quotations',
+  },
   { id: 'sessions', label: '会话健康', badge: '3' },
   { id: 'interventions', label: '待人工', badge: '2' },
   { id: 'events', label: '事件审计' },

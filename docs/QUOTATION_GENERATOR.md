@@ -43,6 +43,19 @@
 5. 校验数量、来源 ID、分组配额、文本长度、变体去重和未经验证的效果数字。
 6. 由确定性 renderer 生成 DOCX，并返回文件 SHA-256 与各类 Query 数量响应头。
 
+## 运营端一键生成
+
+运营或管理员登录后访问：
+
+```text
+/platform/operations/quotations
+```
+
+填写品牌名称、报价日期并选择目标词 XLSX，点击“生成并下载 DOCX”即可。浏览器不会接触
+模型 Key；请求仍由后端读取受保护的 `GEO_RESEARCH_LLM_*` 生产配置。下载前，前端会再次
+校验响应 MIME、DOCX ZIP 签名、文件体积、响应计数和 `X-Quotation-SHA256`，校验失败时
+不下载文档。审核员账号只读，不具备生成权限。
+
 ## HTTP API
 
 内部运营接口（需要 `project:write` 权限）：

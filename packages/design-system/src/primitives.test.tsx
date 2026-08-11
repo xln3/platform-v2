@@ -464,7 +464,9 @@ describe('shared experience primitives', () => {
       blob: new Blob(['verified'], { type: 'application/pdf' }),
     }));
 
-    render(<VerifiedBlobDownload load={load} fileName="rpt_safe-rptv_safe.pdf" label="下载 PDF" />);
+    render(
+      <VerifiedBlobDownload load={load} fileName="报价单-盛邦安全-20260812.pdf" label="下载 PDF" />,
+    );
     fireEvent.click(screen.getByRole('button', { name: '下载 PDF' }));
 
     expect((await screen.findByRole('status')).textContent).toBe('制品完整性校验通过并已下载');

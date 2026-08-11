@@ -14,5 +14,5 @@ make dev
 
 See `contracts/CONVENTIONS.md`, `contracts/adr/`, `docs/OWNERSHIP.md`, and `docs/session-status/S00.md` before parallel development.
 
-品牌名称 + 目标词 XLSX 一键生成 GEO 报价单的接口与命令行用法见
+品牌名称 + 目标词 XLSX 一键生成 GEO 报价单的运营页面、接口与命令行用法见
 [`docs/QUOTATION_GENERATOR.md`](docs/QUOTATION_GENERATOR.md)。
