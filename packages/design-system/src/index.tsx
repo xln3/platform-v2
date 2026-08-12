@@ -1655,6 +1655,7 @@ export function downloadSafeGeneratedFile(input: SafeGeneratedFileDownload): boo
   const blob = new Blob([content], { type: mimeType });
   if (blob.size <= 0 || blob.size > safeGeneratedFileMaxBytes) return false;
   const objectUrl = URL.createObjectURL(blob);
+  const revokeObjectUrl = URL.revokeObjectURL.bind(URL);
   const anchor = document.createElement('a');
   anchor.href = objectUrl;
   anchor.download = input.fileName;
@@ -1662,7 +1663,7 @@ export function downloadSafeGeneratedFile(input: SafeGeneratedFileDownload): boo
   document.body.append(anchor);
   anchor.click();
   anchor.remove();
-  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000);
+  window.setTimeout(() => revokeObjectUrl(objectUrl), 1_000);
   return true;
 }
 
@@ -1802,6 +1803,7 @@ export function VerifiedBlobDownload({
         return;
       }
       const objectUrl = URL.createObjectURL(result.blob);
+      const revokeObjectUrl = URL.revokeObjectURL.bind(URL);
       const anchor = document.createElement('a');
       anchor.href = objectUrl;
       anchor.download = safeFileName;
@@ -1809,7 +1811,7 @@ export function VerifiedBlobDownload({
       document.body.append(anchor);
       anchor.click();
       anchor.remove();
-      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000);
+      window.setTimeout(() => revokeObjectUrl(objectUrl), 1_000);
       setState('ready');
     } catch {
       if (generation.current === requestGeneration) setState('failed');
