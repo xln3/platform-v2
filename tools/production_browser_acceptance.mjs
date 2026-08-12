@@ -128,6 +128,11 @@ const applications = [
     expectedHeading: '执行与账号控制面',
     sharedShell: false,
   },
+  {
+    name: 'operations-formal-reports',
+    path: 'operations/formal-reports',
+    expectedHeading: '启动正式报告生产',
+  },
   { name: 'reports', path: 'reports' },
   { name: 'intelligence', path: 'intelligence' },
   {
@@ -343,7 +348,9 @@ const evidence = {
         },
   result: passed === results.length ? 'passed' : 'failed',
   identity: {
-    source: 'legacy_http_only_session',
+    source: process.env.S04_NATIVE_SESSION_TOKEN
+      ? 'native_http_only_session'
+      : 'legacy_http_only_session',
     legacy_role: identity.legacyRole,
     verified_v2_roles: [...new Set(results.map((result) => result.role).filter(Boolean))],
     browser_actor_headers_used: results.some(

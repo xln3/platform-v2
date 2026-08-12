@@ -49,6 +49,7 @@ def make_release_fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tup
         "schema_version": 1,
         "release_id": release_id,
         "created_at": "2026-07-28T00:00:00+00:00",
+        "prepared_at": "2026-07-28T00:00:01+00:00",
         "status": "prepared",
         "source": source,
         "apps": manifest_apps,
@@ -63,6 +64,43 @@ def make_release_fixture(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tup
 
 def bundle_marker(root: Path) -> str:
     return (root / "client" / "index.html").read_text(encoding="utf-8")
+
+
+def make_browser_report(
+    total: int,
+    generated_at: str,
+    qualification: str,
+    *,
+    release_id: str | None = None,
+    source_sha256: str | None = None,
+) -> dict[str, object]:
+    qualification_record: dict[str, object] = {
+        "kind": qualification,
+        "production_assets_mutated": False,
+    }
+    if release_id is not None:
+        qualification_record["release_id"] = release_id
+    if source_sha256 is not None:
+        qualification_record["source_sha256"] = source_sha256
+    return {
+        "generated_at": generated_at,
+        "qualification": qualification_record,
+        "result": "passed",
+        "summary": {"total": total, "passed": total},
+        "identity": {
+            "source": "native_http_only_session",
+            "browser_actor_headers_used": False,
+            "secret_emitted": False,
+        },
+        "checks": [
+            {
+                "runtime_issue_counts": {},
+                "secret_material_absent": True,
+                "forbidden_fixture_markers": [],
+            }
+            for _ in range(total)
+        ],
+    }
 
 
 def test_build_environment_drops_all_secret_and_vite_values() -> None:
@@ -209,3 +247,125 @@ def test_verified_activation_and_manual_rollback_exchange_whole_trees(
     for app in frontend_release.APPS:
         assert f"old-{app}" in bundle_marker(root / "apps" / app / "build")
         assert f"new-{app}" in bundle_marker(releases / release_id / "candidates" / app)
+
+
+def test_browser_report_requires_native_identity_and_matching_source() -> None:
+    report = make_browser_report(
+        48,
+        "2026-08-12T00:01:00Z",
+        "isolated_frontend_candidate",
+        release_id="s03-test-release",
+        source_sha256="source-safe",
+    )
+    frontend_release._assert_browser_report(
+        report,
+        expected_total=48,
+        expected_qualification="isolated_frontend_candidate",
+        release_id="s03-test-release",
+        source_sha256="source-safe",
+        identity_source="native_http_only_session",
+    )
+
+    report["qualification"]["source_sha256"] = "stale-source"  # type: ignore[index]
+    with pytest.raises(frontend_release.ReleaseError, match="qualification_mismatch"):
+        frontend_release._assert_browser_report(
+            report,
+            expected_total=48,
+            expected_qualification="isolated_frontend_candidate",
+            release_id="s03-test-release",
+            source_sha256="source-safe",
+            identity_source="native_http_only_session",
+        )
+
+    report["qualification"]["source_sha256"] = "source-safe"  # type: ignore[index]
+    report["identity"]["source"] = "legacy_http_only_session"  # type: ignore[index]
+    with pytest.raises(frontend_release.ReleaseError, match="identity_mismatch"):
+        frontend_release._assert_browser_report(
+            report,
+            expected_total=48,
+            expected_qualification="isolated_frontend_candidate",
+            release_id="s03-test-release",
+            source_sha256="source-safe",
+            identity_source="native_http_only_session",
+        )
+
+
+def test_active_release_certifier_rejects_stale_mock_scan(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, nginx_config, release_id = make_release_fixture(tmp_path, monkeypatch)
+    releases = root / ".frontend-releases"
+    frontend_release.activate_release(
+        release_id,
+        [sys.executable, "-c", "raise SystemExit(0)"],
+        root=root,
+        releases_root=releases,
+        nginx_config=nginx_config,
+    )
+    manifest_path = releases / release_id / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    evidence = root / "tests/s04-evidence"
+    evidence.mkdir(parents=True)
+    frontend_release.atomic_json_write(
+        evidence / "frontend-candidate-browser-acceptance.json",
+        make_browser_report(
+            48,
+            manifest["prepared_at"],
+            "isolated_frontend_candidate",
+            release_id=release_id,
+            source_sha256=manifest["source"]["sha256"],
+        ),
+    )
+    frontend_release.atomic_json_write(
+        evidence / "production-browser-acceptance.json",
+        make_browser_report(
+            48,
+            manifest["swapped_at"],
+            "active_production_assets",
+        ),
+    )
+    mock_report_path = evidence / "production-mock-scan.json"
+    frontend_release.atomic_json_write(
+        mock_report_path,
+        make_browser_report(
+            29,
+            manifest["prepared_at"],
+            "active_production_mock_scan",
+        ),
+    )
+
+    backups = root / ".production-backups"
+    backups.mkdir()
+    backup = backups / "pre-release.tar"
+    backup.write_bytes(b"restricted backup")
+    backup.chmod(0o600)
+    certificate = evidence / "frontend-production-release.json"
+
+    with pytest.raises(frontend_release.ReleaseError, match="browser_report_stale"):
+        frontend_release.certify_active_release(
+            release_id,
+            backup,
+            certificate,
+            root=root,
+            releases_root=releases,
+        )
+    assert not certificate.exists()
+
+    frontend_release.atomic_json_write(
+        mock_report_path,
+        make_browser_report(
+            29,
+            manifest["verified_at"],
+            "active_production_mock_scan",
+        ),
+    )
+    result = frontend_release.certify_active_release(
+        release_id,
+        backup,
+        certificate,
+        root=root,
+        releases_root=releases,
+    )
+    assert result["assertions"]["candidate_real_session_48_of_48"] is True
+    assert result["assertions"]["production_mock_scan_current_29_of_29"] is True

@@ -628,6 +628,8 @@ def _assert_browser_report(
     expected_total: int,
     expected_qualification: str | None = None,
     release_id: str | None = None,
+    source_sha256: str | None = None,
+    identity_source: str | None = None,
 ) -> None:
     if (
         report.get("result") != "passed"
@@ -642,8 +644,17 @@ def _assert_browser_report(
         or qualification.get("kind") != expected_qualification
         or qualification.get("production_assets_mutated") is not False
         or (release_id is not None and qualification.get("release_id") != release_id)
+        or (source_sha256 is not None and qualification.get("source_sha256") != source_sha256)
     ):
         raise ReleaseError("frontend_release_browser_qualification_mismatch")
+    identity = report.get("identity")
+    if identity_source is not None and (
+        not isinstance(identity, dict)
+        or identity.get("source") != identity_source
+        or identity.get("browser_actor_headers_used") is not False
+        or identity.get("secret_emitted") is not False
+    ):
+        raise ReleaseError("frontend_release_browser_identity_mismatch")
     for check in report["checks"]:
         if not isinstance(check, dict):
             raise ReleaseError("frontend_release_browser_check_invalid")
@@ -657,6 +668,42 @@ def _assert_browser_report(
             raise ReleaseError("frontend_release_browser_secret_boundary_failed")
         if check.get("forbidden_fixture_markers", []) != []:
             raise ReleaseError("frontend_release_browser_fixture_marker")
+
+
+def _parse_utc_timestamp(value: object, *, error: str) -> datetime:
+    if not isinstance(value, str):
+        raise ReleaseError(error)
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ReleaseError(error) from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ReleaseError(error)
+    return parsed.astimezone(UTC)
+
+
+def _assert_report_generated_between(
+    report: Mapping[str, Any],
+    *,
+    not_before: object,
+    not_after: object,
+) -> None:
+    generated_at = _parse_utc_timestamp(
+        report.get("generated_at"),
+        error="frontend_release_browser_generated_at_invalid",
+    )
+    lower_bound = _parse_utc_timestamp(
+        not_before,
+        error="frontend_release_manifest_timestamp_invalid",
+    )
+    upper_bound = _parse_utc_timestamp(
+        not_after,
+        error="frontend_release_manifest_timestamp_invalid",
+    )
+    if lower_bound > upper_bound:
+        raise ReleaseError("frontend_release_evidence_window_invalid")
+    if generated_at < lower_bound or generated_at > upper_bound:
+        raise ReleaseError("frontend_release_browser_report_stale")
 
 
 def certify_active_release(
@@ -703,22 +750,49 @@ def certify_active_release(
             if not isinstance(previous[app], dict):
                 raise ReleaseError("frontend_release_previous_bundle_invalid")
             assert_bundle_matches(directory / "candidates" / app, previous[app])
+        source = manifest.get("source")
+        if not isinstance(source, dict) or not isinstance(source.get("sha256"), str):
+            raise ReleaseError("frontend_release_source_fingerprint_invalid")
 
         candidate_report = load_manifest(candidate_report_path)
         production_report = load_manifest(production_report_path)
         mock_report = load_manifest(mock_report_path)
+        certification_started_at = utc_now()
         _assert_browser_report(
             candidate_report,
-            expected_total=45,
+            expected_total=48,
             expected_qualification="isolated_frontend_candidate",
             release_id=release_id,
+            source_sha256=source["sha256"],
+            identity_source="native_http_only_session",
         )
         _assert_browser_report(
             production_report,
-            expected_total=45,
+            expected_total=48,
             expected_qualification="active_production_assets",
+            identity_source="native_http_only_session",
         )
-        _assert_browser_report(mock_report, expected_total=29)
+        _assert_browser_report(
+            mock_report,
+            expected_total=29,
+            expected_qualification="active_production_mock_scan",
+            identity_source="native_http_only_session",
+        )
+        _assert_report_generated_between(
+            candidate_report,
+            not_before=manifest.get("prepared_at"),
+            not_after=manifest.get("activation_started_at"),
+        )
+        _assert_report_generated_between(
+            production_report,
+            not_before=manifest.get("swapped_at"),
+            not_after=manifest.get("verified_at"),
+        )
+        _assert_report_generated_between(
+            mock_report,
+            not_before=manifest.get("verified_at"),
+            not_after=certification_started_at,
+        )
 
         certificate = {
             "schema_version": 1,
@@ -745,26 +819,29 @@ def certify_active_release(
                     "report": str(candidate_report_path.relative_to(root)),
                     "sha256": sha256_file(candidate_report_path),
                     "summary": candidate_report["summary"],
+                    "generated_at": candidate_report["generated_at"],
                     "production_assets_mutated": False,
                 },
                 "active_production": {
                     "report": str(production_report_path.relative_to(root)),
                     "sha256": sha256_file(production_report_path),
                     "summary": production_report["summary"],
+                    "generated_at": production_report["generated_at"],
                 },
                 "mock_scan": {
                     "report": str(mock_report_path.relative_to(root)),
                     "sha256": sha256_file(mock_report_path),
                     "summary": mock_report["summary"],
+                    "generated_at": mock_report["generated_at"],
                 },
             },
             "assertions": {
                 "active_trees_match_prepared_release": True,
                 "rollback_trees_match_previous_release": True,
                 "backup_is_restricted": True,
-                "candidate_real_session_45_of_45": True,
-                "active_production_real_session_45_of_45": True,
-                "production_mock_scan_29_of_29": True,
+                "candidate_real_session_48_of_48": True,
+                "active_production_real_session_48_of_48": True,
+                "production_mock_scan_current_29_of_29": True,
                 "runtime_issue_counts_zero": True,
                 "secret_material_absent": True,
             },

@@ -53,6 +53,8 @@ ROUTE_EXPECTATIONS = {
     "/api/health": 200,
     "/geo": 401,
 }
+PRODUCTION_BROWSER_TOTAL = 48
+PRODUCTION_MOCK_SCAN_TOTAL = 29
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -60,6 +62,13 @@ def load_json(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError(f"{path.name} must contain an object")
     return value
+
+
+def acceptance_summary_passed(report: dict[str, Any], *, expected_total: int) -> bool:
+    return report.get("summary") == {
+        "total": expected_total,
+        "passed": expected_total,
+    }
 
 
 def sha256(path: Path) -> str:
@@ -188,8 +197,12 @@ def main() -> None:
             == sha256(ROOT / "packages/api-client/src/schema.generated.ts")
         ),
         "quality_passed": quality["result"] == "passed",
-        "production_browser_45_of_45": browser["summary"] == {"total": 45, "passed": 45},
-        "production_mock_scan_29_of_29": mock_scan["summary"] == {"total": 29, "passed": 29},
+        "production_browser_48_of_48": acceptance_summary_passed(
+            browser, expected_total=PRODUCTION_BROWSER_TOTAL
+        ),
+        "production_mock_scan_29_of_29": acceptance_summary_passed(
+            mock_scan, expected_total=PRODUCTION_MOCK_SCAN_TOTAL
+        ),
         "unified_gate_truth_preserved": (
             unified["section_18"]["satisfied"] == 7
             and unified["section_18"]["total"] == 10

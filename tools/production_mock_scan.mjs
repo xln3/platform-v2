@@ -4,10 +4,16 @@ import {
   collectBrowserRuntimeEvidence,
   isBrowserRuntimeEvidenceClean,
 } from './browser_runtime_evidence.mjs';
-import { loadLegacySessionCookie } from './production_identity.mjs';
+import { loadLegacySessionCookie, loadNativeSessionCookie } from './production_identity.mjs';
 
 const baseURL = process.env.S04_PRODUCTION_URL ?? 'https://127.0.0.1:8443';
-const identity = loadLegacySessionCookie(process.env.S04_LEGACY_SESSION_DB, baseURL);
+const identity = process.env.S04_NATIVE_SESSION_TOKEN
+  ? loadNativeSessionCookie(
+      process.env.S04_NATIVE_SESSION_TOKEN,
+      baseURL,
+      process.env.S04_NATIVE_SESSION_ROLE ?? 'operator',
+    )
+  : loadLegacySessionCookie(process.env.S04_LEGACY_SESSION_DB, baseURL);
 const matrix = {
   customer: {
     sections: [
@@ -93,10 +99,16 @@ const passed = checks.filter(
 const evidence = {
   generated_at: new Date().toISOString(),
   production_url: baseURL,
+  qualification: {
+    kind: 'active_production_mock_scan',
+    production_assets_mutated: false,
+  },
   result: passed === checks.length ? 'passed' : 'failed',
   summary: { total: checks.length, passed },
   identity: {
-    source: 'legacy_http_only_session',
+    source: process.env.S04_NATIVE_SESSION_TOKEN
+      ? 'native_http_only_session'
+      : 'legacy_http_only_session',
     legacy_role: identity.legacyRole,
     browser_actor_headers_used: false,
     secret_emitted: false,
