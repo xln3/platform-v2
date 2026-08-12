@@ -57,7 +57,26 @@ def _share_export_module() -> ModuleType:
 
 
 def capture_share_image(page: Any, out_path: Path) -> dict[str, Any]:
-    return dict(_share_export_module().capture_share_image(page, out_path, timeout_s=45.0))
+    module = _share_export_module()
+    first = dict(module.capture_share_image(page, out_path, timeout_s=45.0))
+    if first.get("ok"):
+        first.setdefault("attempts", 1)
+        return first
+
+    # The first official-card render can outlive the UI's optimistic loading
+    # state.  In that case the legacy exporter closes the preview with
+    # ``no_share_image_captured`` even though Doubao finishes and caches the card
+    # moments later.  Reopen once and retry with a fresh download listener.  This
+    # is bounded, uses the same completed turn, and never substitutes a runtime
+    # screenshot for the platform-rendered share image.
+    second = dict(module.capture_share_image(page, out_path, timeout_s=60.0))
+    second["attempts"] = 2
+    second["first_attempt"] = {
+        "error": first.get("error"),
+        "channel": first.get("channel"),
+        "timings_ms": first.get("timings_ms"),
+    }
+    return second
 
 
 def capture_share_link(page: Any) -> dict[str, Any]:
