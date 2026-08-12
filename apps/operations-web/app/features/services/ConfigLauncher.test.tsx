@@ -101,15 +101,21 @@ describe('ConfigLauncher', () => {
     ).toBeTruthy();
     fillQuestions('问题一\n问题二\n\n问题三');
     expect(
-      screen.getByText(/3 题 × 5 平台×模式 × 2 地域 = 每轮 30 任务，采样 2 轮共 60 任务/),
+      screen.getByText(
+        /3 题（2 个候选组） × 5 平台×模式 × 2 地域 = 每轮 30 任务，采样 2 轮共 60 任务/,
+      ),
     ).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '上海' }));
     expect(
-      screen.getByText(/3 题 × 5 平台×模式 × 1 地域 = 每轮 15 任务，采样 2 轮共 30 任务/),
+      screen.getByText(
+        /3 题（2 个候选组） × 5 平台×模式 × 1 地域 = 每轮 15 任务，采样 2 轮共 30 任务/,
+      ),
     ).toBeTruthy();
     fireEvent.change(screen.getByLabelText(/采样次数/), { target: { value: '4' } });
     expect(
-      screen.getByText(/3 题 × 5 平台×模式 × 1 地域 = 每轮 15 任务，采样 4 轮共 60 任务/),
+      screen.getByText(
+        /3 题（2 个候选组） × 5 平台×模式 × 1 地域 = 每轮 15 任务，采样 4 轮共 60 任务/,
+      ),
     ).toBeTruthy();
   });
 

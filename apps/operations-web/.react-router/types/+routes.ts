@@ -41,6 +41,9 @@ type Pages = {
   "/service-pilot": {
     params: {};
   };
+  "/formal-reports": {
+    params: {};
+  };
   "/sop": {
     params: {};
   };
@@ -62,7 +65,7 @@ type Pages = {
 type RouteFiles = {
   "root.tsx": {
     id: "root";
-    page: "/" | "/login" | "/execution" | "/media-prices" | "/quotations" | "/onboarding" | "/service-visibility" | "/service-risk" | "/service-site-audit" | "/service-pilot" | "/sop" | "/sop/projects/:projectPubId" | "/post-analysis" | "/post-analysis/tasks/:taskPubId";
+    page: "/" | "/login" | "/execution" | "/media-prices" | "/quotations" | "/onboarding" | "/service-visibility" | "/service-risk" | "/service-site-audit" | "/service-pilot" | "/formal-reports" | "/sop" | "/sop/projects/:projectPubId" | "/post-analysis" | "/post-analysis/tasks/:taskPubId";
   };
   "shell.tsx": {
     id: "shell";
@@ -104,6 +107,10 @@ type RouteFiles = {
     id: "features/services/service-pilot/route";
     page: "/service-pilot";
   };
+  "features/services/formal-reports/route.tsx": {
+    id: "features/services/formal-reports/route";
+    page: "/formal-reports";
+  };
   "features/sop/route.tsx": {
     id: "features/sop/route";
     page: "/sop";
@@ -134,6 +141,7 @@ type RouteModules = {
   "features/services/service-risk/route": typeof import("./app/features/services/service-risk/route.tsx");
   "features/services/service-site-audit/route": typeof import("./app/features/services/service-site-audit/route.tsx");
   "features/services/service-pilot/route": typeof import("./app/features/services/service-pilot/route.tsx");
+  "features/services/formal-reports/route": typeof import("./app/features/services/formal-reports/route.tsx");
   "features/sop/route": typeof import("./app/features/sop/route.tsx");
   "features/sop/project-route": typeof import("./app/features/sop/project-route.tsx");
   "features/post-analysis/route": typeof import("./app/features/post-analysis/route.tsx");

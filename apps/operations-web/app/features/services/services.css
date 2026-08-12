@@ -44,7 +44,9 @@
 .window-picker input,
 .config-launcher textarea,
 .config-launcher select,
-.config-launcher input {
+.config-launcher input,
+.formal-report-launcher select,
+.formal-report-launcher input[type='date'] {
   box-sizing: border-box;
   width: 100%;
   padding: 10px 12px;
@@ -101,6 +103,116 @@
 .services-page .platform-checks input[type='checkbox'] {
   width: auto;
   padding: 0;
+}
+.formal-service-picker,
+.formal-pilot-windows {
+  min-width: 0;
+  margin: 18px 0;
+  padding: 16px;
+  border: 1px solid #d9e4dc;
+  border-radius: 14px;
+}
+.formal-service-picker legend,
+.formal-pilot-windows legend {
+  padding: 0 8px;
+  color: #415047;
+  font-weight: 750;
+}
+.formal-service-picker {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.formal-service-picker > label {
+  display: flex;
+  align-items: start;
+  gap: 10px;
+  border: 1px solid #e1e9e3;
+  border-radius: 12px;
+  padding: 13px;
+  background: #f8faf9;
+}
+.formal-service-picker input[type='checkbox'] {
+  width: auto;
+  margin-top: 3px;
+}
+.formal-service-picker span,
+.formal-production-list td > small,
+.formal-production-list .status + small,
+.formal-artifacts small {
+  display: block;
+}
+.formal-service-picker small,
+.formal-production-list small,
+.formal-artifacts small {
+  margin-top: 4px;
+  color: #637168;
+  font-size: 11px;
+  font-weight: 400;
+}
+.formal-window-grid,
+.formal-pilot-windows {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.formal-window-grid label,
+.formal-pilot-windows label {
+  display: grid;
+  gap: 6px;
+  color: #415047;
+  font-size: 13px;
+}
+.formal-pilot-windows {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.formal-pilot-windows p {
+  grid-column: 1 / -1;
+  margin: 2px 0 0;
+  color: #637168;
+  font-size: 13px;
+}
+.formal-report-launcher .actions {
+  margin-top: 16px;
+  align-items: center;
+}
+.formal-report-launcher .actions a {
+  color: #157347;
+  font-weight: 700;
+}
+.formal-production-list th:first-child {
+  min-width: 150px;
+}
+.formal-production-list th:nth-child(3) {
+  min-width: 190px;
+}
+.formal-production-list th:nth-child(5) {
+  min-width: 210px;
+}
+.formal-artifacts {
+  display: grid;
+  gap: 7px;
+}
+.formal-artifacts a {
+  color: #157347;
+  font-weight: 700;
+}
+.formal-review-actions {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+  min-width: 190px;
+}
+.formal-review-actions label {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+}
+.formal-review-actions input {
+  min-width: 0;
+}
+.formal-review-actions button {
+  width: 100%;
 }
 .services-page .inline-fields {
   display: grid;
@@ -593,6 +705,14 @@
 }
 
 @media (max-width: 720px) {
+  .formal-service-picker,
+  .formal-window-grid,
+  .formal-pilot-windows {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .formal-pilot-windows p {
+    grid-column: 1;
+  }
   .services-page .answer-detail-overlay {
     padding: 12px 8px;
   }

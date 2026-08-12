@@ -11,7 +11,7 @@ const API_BASE =
 export type SessionContext = {
   tenantId: string;
   actorId: string;
-  role: 'operator' | 'reviewer' | 'admin';
+  role: 'operator' | 'analyst' | 'reviewer' | 'admin';
   headers: IdentitySessionHeaders;
 };
 

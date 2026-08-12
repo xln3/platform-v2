@@ -83,14 +83,21 @@ export function ConfigLauncher({
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [result, setResult] = useState<LaunchResult | null>(null);
 
-  const questionItems = useMemo(
+  const queryGroups = useMemo(
     () =>
       questions
-        .split('\n')
-        .map((item) => item.trim())
-        .filter(Boolean),
+        .trim()
+        .split(/\n\s*\n+/)
+        .map((block) =>
+          block
+            .split('\n')
+            .map((item) => item.trim())
+            .filter(Boolean),
+        )
+        .filter((items) => items.length > 0),
     [questions],
   );
+  const questionItems = useMemo(() => queryGroups.flat(), [queryGroups]);
   const modes = useMemo(() => [...new Set(models.flatMap(modesForModel))], [models]);
   const platformModeCount = models.reduce((sum, slug) => sum + modesForModel(slug).length, 0);
   const perRound = questionItems.length * platformModeCount * regions.length;
@@ -100,12 +107,10 @@ export function ConfigLauncher({
 
   async function freeze() {
     const frozen = await executionApi.freezeConfig(session, projectPubId, {
-      queryGroups: [
-        {
-          name: groupName,
-          items: questionItems.map((text, index) => ({ text, priority: index + 1 })),
-        },
-      ],
+      queryGroups: queryGroups.map((items, groupIndex) => ({
+        name: queryGroups.length === 1 ? groupName : `${groupName} · 候选组 ${groupIndex + 1}`,
+        items: items.map((text, index) => ({ text, priority: index + 1 })),
+      })),
       regions,
       models,
       modes,
@@ -230,8 +235,13 @@ export function ConfigLauncher({
         </div>
       </div>
       <p className="setup-summary" aria-live="polite">
-        {questionItems.length} 题 × {platformModeCount} 平台×模式 × {regions.length} 地域 = 每轮{' '}
-        {perRound} 任务，采样 {boundedSamples} 轮共 {total} 任务
+        {questionItems.length} 题
+        {queryGroups.length > 1 ? `（${queryGroups.length} 个候选组）` : ''} × {platformModeCount}{' '}
+        平台×模式 × {regions.length} 地域 = 每轮 {perRound} 任务，采样 {boundedSamples} 轮共 {total}{' '}
+        任务
+      </p>
+      <p className="setup-summary">
+        用空行分隔不同候选问题组；正式报告按证据完整度和样本覆盖选取 3 组，全部候选组保留在附录。
       </p>
       <div className="actions">
         <button type="button" disabled={!canAct} onClick={() => void run('freeze')}>

@@ -91,6 +91,29 @@ async function servicesPost<T>(
   return (await response.json()) as T;
 }
 
+async function servicesPostIdempotent<T>(
+  session: SessionContext,
+  path: string,
+  body: Record<string, unknown>,
+  idempotencyKey: string,
+): Promise<T> {
+  const response = await fetch(new URL(`${API_BASE}${path}`), {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      'Idempotency-Key': idempotencyKey,
+      ...fixtureIdentityHeaders(session),
+    },
+    body: JSON.stringify(body),
+    cache: 'no-store',
+    redirect: 'error',
+    referrerPolicy: 'no-referrer',
+  });
+  if (!response.ok) throw await readApiError(response);
+  return (await response.json()) as T;
+}
+
 export function defaultWindow(days = 30): { start: string; end: string } {
   const end = new Date();
   const start = new Date(end.getTime() - (days - 1) * 86_400_000);
@@ -270,6 +293,65 @@ export type PilotDeltaResult =
   | { kind: 'ready'; data: PilotDelta }
   | { kind: 'forbidden' }
   | { kind: 'unavailable' };
+
+// ── 正式报告生产（服务 1–4，共享冻结事实与 Temporal 生产链）──
+export type FormalReportService = 1 | 2 | 3 | 4;
+export type FormalReportDocumentStatus = 'pre_formal' | 'formal';
+export type FormalReportProductionStatus =
+  | 'queued'
+  | 'running'
+  | 'failed'
+  | 'awaiting_review'
+  | 'signed';
+
+export type FormalReportWindow = { start: string; end: string };
+
+export type FormalReportArtifact = {
+  format: string;
+  sha256: string;
+  byte_size: number;
+  mime_type: string;
+  download_url: string;
+};
+
+export type FormalReportOutput = {
+  service_number: FormalReportService;
+  report_pub_id: string;
+  report_version_pub_id: string;
+  fact_snapshot_hash: string;
+  artifacts: FormalReportArtifact[];
+};
+
+export type FormalReportProduction = {
+  pub_id: string;
+  project_pub_id: string;
+  services: FormalReportService[];
+  status: FormalReportProductionStatus;
+  document_status: FormalReportDocumentStatus;
+  window_start: string;
+  window_end: string;
+  before_window: FormalReportWindow | null;
+  after_window: FormalReportWindow | null;
+  candidate_group_strategy: 'evidence_completeness_v1';
+  workflow_id: string;
+  fact_snapshot_hash: string | null;
+  outputs: FormalReportOutput[];
+  error_code: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type FormalReportProductionCreate = {
+  projectPubId: string;
+  services: FormalReportService[];
+  window: FormalReportWindow;
+  documentStatus: FormalReportDocumentStatus;
+  beforeWindow?: FormalReportWindow;
+  afterWindow?: FormalReportWindow;
+  idempotencyKey: string;
+};
+
+export type FormalReportReviewDecision = 'approved' | 'changes_requested';
 
 // ── 前后对比（逐题；报价单服务④，brandrank 层口径，端点 /api/v2/analytics/comparisons）──
 export type RunComparison = {
@@ -639,6 +721,64 @@ export const servicesApi = {
       return { kind: 'unavailable' };
     }
   },
+  formalReportProductions: async (
+    session: SessionContext,
+    input: { projectPubId: string; limit?: number },
+  ): Promise<FormalReportProduction[]> => {
+    const raw = await servicesGet<FormalReportProduction[] | { items?: FormalReportProduction[] }>(
+      session,
+      '/api/v2/reports/formal-productions',
+      {
+        project_pub_id: input.projectPubId,
+        limit: input.limit ?? 50,
+      },
+    );
+    if (Array.isArray(raw)) return raw;
+    return Array.isArray(raw.items) ? raw.items : [];
+  },
+  formalReportProduction: (
+    session: SessionContext,
+    productionPubId: string,
+  ): Promise<FormalReportProduction> =>
+    servicesGet(
+      session,
+      `/api/v2/reports/formal-productions/${encodeURIComponent(productionPubId)}`,
+      {},
+    ),
+  createFormalReportProduction: (
+    session: SessionContext,
+    input: FormalReportProductionCreate,
+  ): Promise<FormalReportProduction> =>
+    servicesPostIdempotent(
+      session,
+      '/api/v2/reports/formal-productions',
+      {
+        project_pub_id: input.projectPubId,
+        services: input.services,
+        window_start: input.window.start,
+        window_end: input.window.end,
+        document_status: input.documentStatus,
+        candidate_group_strategy: 'evidence_completeness_v1',
+        ...(input.beforeWindow ? { before_window: input.beforeWindow } : {}),
+        ...(input.afterWindow ? { after_window: input.afterWindow } : {}),
+      },
+      input.idempotencyKey,
+    ),
+  reviewFormalReportProduction: (
+    session: SessionContext,
+    input: {
+      productionPubId: string;
+      decision: FormalReportReviewDecision;
+      rationale: string;
+      idempotencyKey: string;
+    },
+  ): Promise<FormalReportProduction> =>
+    servicesPostIdempotent(
+      session,
+      `/api/v2/reports/formal-productions/${encodeURIComponent(input.productionPubId)}/review`,
+      { decision: input.decision, rationale: input.rationale },
+      input.idempotencyKey,
+    ),
 };
 
 export type { Project, SessionContext };

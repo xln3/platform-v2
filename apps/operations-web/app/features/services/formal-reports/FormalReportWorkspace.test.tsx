@@ -1,0 +1,254 @@
+// @vitest-environment jsdom
+
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { FormalReportWorkspace } from './FormalReportWorkspace';
+
+const session = {
+  tenantId: 'tnt_test',
+  actorId: 'usr_test',
+  role: 'operator' as const,
+  headers: {
+    'X-Tenant-Id': 'tnt_test',
+    'X-Actor-Id': 'subject_test',
+    'X-Actor-Role': 'operator',
+  },
+};
+
+const project = {
+  pub_id: 'prj_test',
+  tenant_pub_id: 'tnt_test',
+  name: '盛邦安全 GEO',
+  customer_name: '盛邦安全',
+  state: 'active',
+  updated_at: '2026-08-12T00:00:00Z',
+};
+
+function production(overrides: Record<string, unknown> = {}) {
+  return {
+    pub_id: 'frp_test_001',
+    project_pub_id: 'prj_test',
+    services: [1, 2, 3],
+    status: 'queued',
+    document_status: 'pre_formal',
+    window_start: '2026-08-01',
+    window_end: '2026-08-12',
+    before_window: null,
+    after_window: null,
+    candidate_group_strategy: 'evidence_completeness_v1',
+    workflow_id: 'formal-report/frp_test_001',
+    fact_snapshot_hash: null,
+    outputs: [],
+    error_code: null,
+    created_at: '2026-08-12T12:00:00Z',
+    updated_at: '2026-08-12T12:00:00Z',
+    ...overrides,
+  };
+}
+
+type RecordedCall = {
+  method: string;
+  url: string;
+  body: unknown;
+  idempotencyKey: string | null;
+};
+
+describe('FormalReportWorkspace', () => {
+  const calls: RecordedCall[] = [];
+  let listItems: unknown[] = [];
+
+  beforeEach(() => {
+    calls.length = 0;
+    listItems = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const request =
+          input instanceof Request
+            ? input
+            : new Request(input instanceof URL ? input.href : input, init);
+        const body = request.method === 'POST' ? await request.clone().json() : null;
+        calls.push({
+          method: request.method,
+          url: request.url,
+          body,
+          idempotencyKey: request.headers.get('Idempotency-Key'),
+        });
+        if (request.method === 'POST') {
+          const created = production();
+          listItems = [created];
+          return new Response(JSON.stringify(created), {
+            status: 201,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        return new Response(JSON.stringify({ items: listItems }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }),
+    );
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it('starts an idempotent production with selected services and a frozen window', async () => {
+    render(<FormalReportWorkspace session={session} project={project} />);
+    await screen.findByText('当前项目还没有正式报告生产记录。');
+
+    fireEvent.click(screen.getByLabelText(/服务 4 · GEO 试点与效果验证/));
+    fireEvent.change(screen.getByLabelText('2. 事实窗口开始'), {
+      target: { value: '2026-08-01' },
+    });
+    fireEvent.change(screen.getByLabelText('事实窗口结束'), {
+      target: { value: '2026-08-12' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '冻结事实并启动生成' }));
+
+    await screen.findByText(/生产请求 frp_test_001 已进入排队中状态/);
+    const create = calls.find((call) => call.method === 'POST');
+    expect(create?.url).toContain('/api/v2/reports/formal-productions');
+    expect(create?.idempotencyKey?.length).toBeGreaterThanOrEqual(16);
+    expect(create?.body).toEqual({
+      project_pub_id: 'prj_test',
+      services: [1, 2, 3],
+      window_start: '2026-08-01',
+      window_end: '2026-08-12',
+      document_status: 'pre_formal',
+      candidate_group_strategy: 'evidence_completeness_v1',
+    });
+  });
+
+  it('requires separated service-4 arms and submits both windows', async () => {
+    render(<FormalReportWorkspace session={session} project={project} />);
+    await screen.findByText('当前项目还没有正式报告生产记录。');
+
+    fireEvent.change(screen.getByLabelText('优化前开始'), {
+      target: { value: '2026-06-01' },
+    });
+    fireEvent.change(screen.getByLabelText('优化前结束'), {
+      target: { value: '2026-06-30' },
+    });
+    fireEvent.change(screen.getByLabelText('优化后开始'), {
+      target: { value: '2026-07-01' },
+    });
+    fireEvent.change(screen.getByLabelText('优化后结束'), {
+      target: { value: '2026-07-31' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '冻结事实并启动生成' }));
+    await screen.findByText(/生产请求 frp_test_001/);
+
+    const body = calls.find((call) => call.method === 'POST')?.body as Record<string, unknown>;
+    expect(body.services).toEqual([1, 2, 3, 4]);
+    expect(body.before_window).toEqual({ start: '2026-06-01', end: '2026-06-30' });
+    expect(body.after_window).toEqual({ start: '2026-07-01', end: '2026-07-31' });
+
+    fireEvent.change(screen.getByLabelText('优化后开始'), {
+      target: { value: '2026-06-30' },
+    });
+    expect(screen.getByRole('alert').textContent).toContain('必须按时间分离');
+    expect(
+      (screen.getByRole('button', { name: '冻结事实并启动生成' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  it('shows auditable artifacts and rejects an unsafe server-provided download URL', async () => {
+    listItems = [
+      production({
+        status: 'awaiting_review',
+        fact_snapshot_hash: 'a'.repeat(64),
+        outputs: [
+          {
+            service_number: 1,
+            report_pub_id: 'rpt_1',
+            report_version_pub_id: 'rptv_1',
+            fact_snapshot_hash: 'd'.repeat(64),
+            artifacts: [
+              {
+                format: 'docx',
+                sha256: 'b'.repeat(64),
+                byte_size: 2048,
+                mime_type:
+                  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                download_url: '/api/v2/reports/formal-productions/frp_test_001/artifacts/1/docx',
+              },
+            ],
+          },
+          {
+            service_number: 2,
+            report_pub_id: 'rpt_2',
+            report_version_pub_id: 'rptv_2',
+            fact_snapshot_hash: 'e'.repeat(64),
+            artifacts: [
+              {
+                format: 'pdf',
+                sha256: 'c'.repeat(64),
+                byte_size: 4096,
+                mime_type: 'application/pdf',
+                download_url: 'https://evil.invalid/report.pdf',
+              },
+            ],
+          },
+        ],
+      }),
+    ];
+    render(<FormalReportWorkspace session={session} project={project} />);
+
+    await screen.findByText('待审阅');
+    const link = screen.getByRole('link', { name: /服务 1 DOCX/ });
+    expect(link.getAttribute('href')).toContain(
+      '/formal-productions/frp_test_001/artifacts/1/docx',
+    );
+    expect(screen.getByText(/服务 2 PDF（下载地址无效）/)).toBeTruthy();
+    expect(screen.getByText('2.0 KB · bbbbbbbbbbbb…')).toBeTruthy();
+    expect(screen.getByText('aaaaaaaaaaaaaaaa…')).toBeTruthy();
+  });
+
+  it('surfaces list failures and offers an explicit retry', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: { code: 'reporting_unavailable' } }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    );
+    render(<FormalReportWorkspace session={session} project={project} />);
+    await waitFor(() => expect(screen.getByText(/生产记录加载失败/)).toBeTruthy());
+    expect(screen.getByRole('button', { name: '重试' })).toBeTruthy();
+  });
+
+  it('lets a reviewer submit an idempotent decision with a rationale', async () => {
+    listItems = [production({ status: 'awaiting_review', document_status: 'formal' })];
+    render(<FormalReportWorkspace session={{ ...session, role: 'reviewer' }} project={project} />);
+
+    await screen.findByText('待审阅');
+    expect(
+      (screen.getByRole('button', { name: '当前角色仅可查看/审阅' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    fireEvent.change(screen.getByLabelText(/^审阅意见 /), {
+      target: { value: '已核对冻结事实、证据与产物哈希。' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '批准签发' }));
+
+    await screen.findByText(/Temporal 正在执行签发/);
+    const review = calls.find(
+      (call) => call.method === 'POST' && call.url.includes('/frp_test_001/review'),
+    );
+    expect(review?.idempotencyKey?.length).toBeGreaterThanOrEqual(16);
+    expect(review?.body).toEqual({
+      decision: 'approved',
+      rationale: '已核对冻结事实、证据与产物哈希。',
+    });
+  });
+
+  it('does not offer signing for a pre-formal review artifact', async () => {
+    listItems = [production({ status: 'awaiting_review', document_status: 'pre_formal' })];
+    render(<FormalReportWorkspace session={{ ...session, role: 'reviewer' }} project={project} />);
+
+    await screen.findByText('预正式稿仅供内部审阅，不可签发。');
+    expect(screen.queryByRole('button', { name: '批准签发' })).toBeNull();
+    expect(screen.getByRole('button', { name: '退回修改' })).toBeTruthy();
+  });
+});
