@@ -1,6 +1,7 @@
 # ruff: noqa: B008
 from __future__ import annotations
 
+import math
 import re
 from datetime import date, datetime
 from typing import Annotated, Any, Literal
@@ -164,6 +165,13 @@ class SourceAuditHostView(StrictModel):
     transcript_accurate: int
 
 
+class SourceCitationHostView(StrictModel):
+    host: str
+    answers: int
+    references: int
+    is_own_site: bool
+
+
 class SourceAuditItemAuditView(StrictModel):
     dimension: str
     verdict: str | None
@@ -188,13 +196,28 @@ class SourceAuditOverviewView(StrictModel):
     start: date
     end: date
     own_site_host: str | None
+    answers_total: int
+    answers_with_citation: int
+    citation_coverage_rate: float | None
+    answers_with_own_site_citation: int
+    own_site_answer_citation_rate: float | None
+    own_site_share_of_cited_answers: float | None
+    citation_references_total: int
+    own_site_citation_references: int
+    own_site_reference_share: float | None
+    own_site_cited_text_answers: int
+    own_site_cited_text_evidence_rate: float | None
     documents_total: int
     own_site_documents: int
     own_site_share: float | None
     own_site_transcript_total: int
     own_site_transcript_accurate: int
+    own_site_transcript_accuracy_rate: float | None
+    own_site_adoption_evaluated_answers: int
+    own_site_adoption_verified_answers: int
     own_site_adoption_rate: float | None
     verdicts: SourceAuditVerdictsView
+    answer_hosts: list[SourceCitationHostView]
     hosts: list[SourceAuditHostView]
     items: list[SourceAuditItemView]
 
@@ -247,6 +270,12 @@ class EvidenceHistoryView(StrictModel):
 
 class AnswerRelationsView(StrictModel):
     answer_pub_id: str
+    # Explicit semantic collections. ``citations``/``evidence`` remain for
+    # compatibility, but consumers no longer need to guess whether a reference
+    # organized the answer or actually contains the target brand.
+    answer_citations: list[CitationRelationView]
+    brand_mention_evidence: list[AnswerEvidenceView]
+    opened_source_previews: list[AnswerEvidenceView]
     citations: list[CitationRelationView]
     evidence: list[AnswerEvidenceView]
     history: list[EvidenceHistoryView]
@@ -326,12 +355,70 @@ def _safe_source_url(value: object) -> str | None:
 def _safe_bbox(value: object) -> dict[str, Any] | None:
     if not isinstance(value, dict):
         return None
-    projected = {
-        key: value[key]
-        for key in ("x", "y", "width", "height", "confidence")
-        if isinstance(value.get(key), int | float)
-    }
+    projected: dict[str, float] = {}
+    for key in (
+        "x",
+        "y",
+        "width",
+        "height",
+        "confidence",
+        "image_width",
+        "image_height",
+    ):
+        candidate = value.get(key)
+        if (
+            isinstance(candidate, int | float)
+            and not isinstance(candidate, bool)
+            and math.isfinite(candidate)
+            and abs(float(candidate)) <= 1_000_000
+        ):
+            projected[key] = float(candidate)
     return projected or None
+
+
+def _has_valid_brand_bbox(anchor: EvidenceAnchorView) -> bool:
+    """Require a complete box proven to fit inside the decoded source PNG."""
+
+    bbox = anchor.bbox
+    if not isinstance(bbox, dict):
+        return False
+    for key in ("x", "y", "width", "height", "image_width", "image_height"):
+        value = bbox.get(key)
+        if (
+            not isinstance(value, int | float)
+            or isinstance(value, bool)
+            or not math.isfinite(value)
+            or abs(float(value)) > 1_000_000
+        ):
+            return False
+    if (
+        bbox["x"] < 0
+        or bbox["y"] < 0
+        or bbox["width"] <= 0
+        or bbox["height"] <= 0
+        or bbox["image_width"] <= 0
+        or bbox["image_height"] <= 0
+        or bbox["x"] + bbox["width"] > bbox["image_width"]
+        or bbox["y"] + bbox["height"] > bbox["image_height"]
+    ):
+        return False
+    confidence = bbox.get("confidence")
+    return confidence is None or (
+        isinstance(confidence, int | float)
+        and not isinstance(confidence, bool)
+        and math.isfinite(confidence)
+        and 0 <= confidence <= 1
+    )
+
+
+def _is_brand_mention_evidence(item: AnswerEvidenceView) -> bool:
+    return (
+        item.relation_type == "brand_mention_source_snapshot"
+        and item.kind == "source_screenshot"
+        and item.mime_type == "image/png"
+        and item.byte_size >= 128
+        and any(_has_valid_brand_bbox(anchor) for anchor in item.anchors)
+    )
 
 
 def _project_fact_check(value: object) -> DisparagementFactCheckView | None:
@@ -502,29 +589,40 @@ def answer_relations(
                 bbox=_safe_bbox(row["bbox"]),
             )
         )
+    citation_views = [
+        CitationRelationView(
+            **{
+                key: value
+                for key, value in dict(row).items()
+                if key not in {"canonical_url", "title", "cited_text"}
+            },
+            canonical_url=_safe_source_url(row["canonical_url"]) or "",
+            title=_safe_optional_text(row["title"], 300),
+            cited_text=_safe_optional_text(row["cited_text"], 2000),
+        )
+        for row in citations
+    ]
+    evidence_views = [
+        AnswerEvidenceView(
+            **{key: value for key, value in dict(row).items() if key != "source_url"},
+            source_url=_safe_source_url(row["source_url"]),
+            anchors=anchors_by_evidence.get(row["pub_id"], []),
+        )
+        for row in evidence_rows
+    ]
+    brand_mention_evidence = [item for item in evidence_views if _is_brand_mention_evidence(item)]
+    opened_source_previews = [
+        item
+        for item in evidence_views
+        if item.relation_type == "ai_opened_source_preview" and item.kind == "source_screenshot"
+    ]
     return AnswerRelationsView(
         answer_pub_id=answer_pub_id,
-        citations=[
-            CitationRelationView(
-                **{
-                    key: value
-                    for key, value in dict(row).items()
-                    if key not in {"canonical_url", "title", "cited_text"}
-                },
-                canonical_url=_safe_source_url(row["canonical_url"]) or "",
-                title=_safe_optional_text(row["title"], 300),
-                cited_text=_safe_optional_text(row["cited_text"], 2000),
-            )
-            for row in citations
-        ],
-        evidence=[
-            AnswerEvidenceView(
-                **{key: value for key, value in dict(row).items() if key != "source_url"},
-                source_url=_safe_source_url(row["source_url"]),
-                anchors=anchors_by_evidence.get(row["pub_id"], []),
-            )
-            for row in evidence_rows
-        ],
+        answer_citations=citation_views,
+        brand_mention_evidence=brand_mention_evidence,
+        opened_source_previews=opened_source_previews,
+        citations=citation_views,
+        evidence=evidence_views,
         history=[
             EvidenceHistoryView(
                 **dict(row),
@@ -935,7 +1033,7 @@ def source_audit_overview(
     end: date,
     principal: Principal = Depends(get_principal),
 ) -> SourceAuditOverviewView:
-    """W2 信源审计聚合（官网引用能效）：窗口内信源文档、官网命中占比与判定分布。"""
+    """W2 官网引用能效：回答引用口径 + 抓取/审计口径分层返回。"""
     principal.require("project:read")
     if start > end or (end - start).days > 366:
         raise HTTPException(status_code=422, detail={"code": "invalid_analytics_window"})
@@ -950,16 +1048,31 @@ def source_audit_overview(
         start=start,
         end=end,
         own_site_host=overview["own_site_host"],
+        answers_total=overview["answers_total"],
+        answers_with_citation=overview["answers_with_citation"],
+        citation_coverage_rate=overview["citation_coverage_rate"],
+        answers_with_own_site_citation=overview["answers_with_own_site_citation"],
+        own_site_answer_citation_rate=overview["own_site_answer_citation_rate"],
+        own_site_share_of_cited_answers=overview["own_site_share_of_cited_answers"],
+        citation_references_total=overview["citation_references_total"],
+        own_site_citation_references=overview["own_site_citation_references"],
+        own_site_reference_share=overview["own_site_reference_share"],
+        own_site_cited_text_answers=overview["own_site_cited_text_answers"],
+        own_site_cited_text_evidence_rate=overview["own_site_cited_text_evidence_rate"],
         documents_total=overview["documents_total"],
         own_site_documents=overview["own_site_documents"],
         own_site_share=overview["own_site_share"],
         own_site_transcript_total=overview["own_site_transcript_total"],
         own_site_transcript_accurate=overview["own_site_transcript_accurate"],
+        own_site_transcript_accuracy_rate=overview["own_site_transcript_accuracy_rate"],
+        own_site_adoption_evaluated_answers=overview["own_site_adoption_evaluated_answers"],
+        own_site_adoption_verified_answers=overview["own_site_adoption_verified_answers"],
         own_site_adoption_rate=overview["own_site_adoption_rate"],
         verdicts=SourceAuditVerdictsView(
             transcript=SourceAuditVerdictBucketView(**overview["verdicts"]["transcript"]),
             factual=SourceAuditVerdictBucketView(**overview["verdicts"]["factual"]),
         ),
+        answer_hosts=[SourceCitationHostView(**row) for row in overview["answer_hosts"]],
         hosts=[SourceAuditHostView(**row) for row in overview["hosts"]],
         items=[
             SourceAuditItemView(

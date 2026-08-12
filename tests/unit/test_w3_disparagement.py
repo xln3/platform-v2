@@ -58,7 +58,7 @@ _ANSWER_TEXT = (
     "平安的理赔流程也被部分用户吐槽繁琐。"
 )
 _DOC_TEXT = (
-    "行业观察：平安代理人渠道投诉量居高不下，服务口碑明显不如友邦等外资公司。"
+    "行业观察：中意人寿的服务口碑明显不如友邦，平安代理人渠道投诉量也居高不下。"
     "友邦以高品质代理人团队著称，长期口碑不错。"
 )
 
@@ -622,7 +622,7 @@ def test_execute_idempotent_skip_existing() -> None:
         subject_pub_id="srd_x",
         text=_DOC_TEXT,
         brand=_BRAND,
-        competitors=_COMPETITORS,
+        competitors=(),
         platform="a.example.com",
         source_url="https://a.example.com/article",
     )

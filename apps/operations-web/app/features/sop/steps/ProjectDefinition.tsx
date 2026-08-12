@@ -13,7 +13,7 @@ export const ProjectDefinition = createConfiguredStep({
       name: 'competitors',
       label: '竞品清单（逗号分隔）',
       type: 'text',
-      hint: '用于己方稿件拉踩检测（定稿自动判定是否抹黑/拉踩这些竞品）与竞品对比。',
+      hint: '用于 AI 回答中的竞品对比、推荐格局和风险表述判定。',
     },
     { name: 'targetPlatform', label: '目标 AI / 模式', type: 'text', required: true },
     { name: 'successMetric', label: '本轮成功定义', type: 'textarea', required: true },

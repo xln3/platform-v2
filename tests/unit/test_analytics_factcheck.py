@@ -129,6 +129,11 @@ def test_cases_carry_fact_check_when_present(monkeypatch: pytest.MonkeyPatch) ->
         "checked_at": checked_at,
     }
     assert rows[1]["fact_check"] is None
+    main_query = next(
+        sql for sql in connection.statements if "FROM platform.disparagement_judgment j" in sql
+    )
+    assert "j.content_origin = 'collection'" in main_query
+    assert "OR j.content_origin = 'own_content'" not in main_query
 
 
 def test_cases_degrade_when_factcheck_table_missing(

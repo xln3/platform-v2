@@ -62,7 +62,7 @@ _MAX_GROUPS = 200
 # 不进 fact_rows 主数组——api-client 投影对主数组词表 fail-closed（未知 metric
 # 整响应判 unavailable），独立键对旧前端零影响，新前端自行投影扩展组。
 W3_FACT_METHOD = "w3-disparagement-v1"
-W2_FACT_METHOD = "w2-site-audit-v1"
+W2_FACT_METHOD = "w2-site-audit-v2"
 _MAX_JUDGMENTS = 2000  # W3 窗级判定防御性上限（超出截断并披露）
 _MAX_CASES = 20  # 典型案例上限（照 analytics cases 端点缺省 limit=20）
 _MAX_SUGGESTIONS = 50  # 官网优化建议上限（T2 最新批次，超出截断并披露）
@@ -332,9 +332,8 @@ def fetch_disparagement_judgments(
     窗=created_at ∈ [since, until]（与主建议的答案窗同一对起止）。出处链接：
     subject_type=source_document 时左联 source_document.url（照 analytics service
     .disparagement_cases 同款）；answer 判定的出处是答案本身（subject_pub_id）。
-    己方稿件判定（content_origin='own_content'，project_id NULL）按租户边界并入
-    ——报价单服务2"己方GEO内容拉踩竞品"的取证来源（多项目租户下对本租户各项目
-    均可见，当前生产一租户一项目）。
+    服务 2 只统计本项目采集到的 AI 回答及其公开信源；不要求或混入不存在的
+    客户“己方 GEO 稿件”。
     返回 (rows, truncated)：超 _MAX_JUDGMENTS 截断并置标记（诚实披露）。
     """
     with analytics_service._platform_tenant_connection(dsn, tenant_pub_id) as connection:
@@ -345,12 +344,13 @@ def fetch_disparagement_judgments(
                    j.disparagement, j.evidence_quote, j.confidence, j.method,
                    j.created_at, j.content_origin, d.url AS source_url
             FROM platform.disparagement_judgment j
-            LEFT JOIN platform.project p ON p.id = j.project_id
+            JOIN platform.project p ON p.id = j.project_id
             LEFT JOIN platform.source_document d
               ON d.tenant_id = j.tenant_id AND d.pub_id = j.subject_pub_id
              AND j.subject_type = 'source_document'
             WHERE j.tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid
-              AND (p.pub_id = %s OR j.content_origin = 'own_content')
+              AND p.pub_id = %s
+              AND j.content_origin = 'collection'
               AND j.judgment_status = 'ok'
               AND j.created_at >= %s AND j.created_at <= %s
             ORDER BY j.created_at DESC, j.pub_id
@@ -637,12 +637,13 @@ def _build_w2_section(
     since: datetime,
     now: datetime,
 ) -> dict[str, Any]:
-    """W2 官网能效组：own_site_citation_share / own_site_adoption_rate /
-    site_audit_suggestion（T2 最新批次逐条）。
+    """W2 官网能效组：报价指标 + 可观测辅助指标 + 优化建议。
 
-    分母口径：引用率=窗内抓取引用文档总数中指向官网的占比（analytics 侧
-    own_site_share 同一数值，×100 转百分）；采纳率=契约 A1 官网文档转述
-    accurate/总判定（缺键/None → value=null + extra.insufficient 披露，不编造）。
+    报价口径：
+    - 官网引用率=至少引用一条官网 URL 的 AI 回答 / 全部合格 AI 回答；
+    - 内容采纳率=经回答级判定确认已用于生成的回答 / 已评估回答。
+      现有 transcript 只衡量引用转述与源文的一致性，必须单独披露，
+      不得冒充采纳率。
     """
     overview = fetch_source_audit_overview(
         dsn, tenant_pub_id, project_pub_id, since.date(), now.date()
@@ -650,45 +651,108 @@ def _build_w2_section(
     documents_total = int(overview.get("documents_total") or 0)
     own_site_documents = int(overview.get("own_site_documents") or 0)
     own_site_host = _safe_optional_text(overview.get("own_site_host"), 200)
-    own_site_share = overview.get("own_site_share")
+    answers_total = int(overview.get("answers_total") or 0)
+    own_site_cited_answers = int(overview.get("answers_with_own_site_citation") or 0)
+    own_site_answer_citation_rate = overview.get("own_site_answer_citation_rate")
 
     rows: list[dict[str, Any]] = []
     insufficient_reasons: list[str] = []
-    if documents_total > 0 and own_site_share is not None:
+    if answers_total > 0 and own_site_answer_citation_rate is not None:
         rows.append(
             _fact_row(
                 metric="own_site_citation_share",
-                value=round(float(own_site_share) * 100, 2),
+                value=round(float(own_site_answer_citation_rate) * 100, 2),
                 unit="percent",
-                numerator=own_site_documents,
-                denominator=documents_total,
+                numerator=own_site_cited_answers,
+                denominator=answers_total,
                 dimensions={"platform": "", "region": "", "query": ""},
                 domain=domain,
                 window=window,
                 method=W2_FACT_METHOD,
-                extra={"own_site_host": own_site_host},
+                extra={
+                    "own_site_host": own_site_host,
+                    "definition": "answers_with_own_site_url / eligible_non_degraded_answers",
+                },
             )
         )
     else:
-        insufficient_reasons.append("no_source_documents")
+        insufficient_reasons.append("no_eligible_answers")
 
-    # 契约 A1 三键（Worker B 加键中）：缺键与显式 None 分两种 note 如实披露
+    supplementary_specs = (
+        (
+            "answer_citation_coverage_rate",
+            "citation_coverage_rate",
+            "answers_with_citation",
+            "answers_total",
+        ),
+        (
+            "own_site_share_of_cited_answers",
+            "own_site_share_of_cited_answers",
+            "answers_with_own_site_citation",
+            "answers_with_citation",
+        ),
+        (
+            "own_site_reference_share",
+            "own_site_reference_share",
+            "own_site_citation_references",
+            "citation_references_total",
+        ),
+        (
+            "own_site_cited_text_evidence_rate",
+            "own_site_cited_text_evidence_rate",
+            "own_site_cited_text_answers",
+            "answers_with_own_site_citation",
+        ),
+        (
+            "own_site_fetched_document_share",
+            "own_site_share",
+            "own_site_documents",
+            "documents_total",
+        ),
+        (
+            "own_site_transcript_accuracy_rate",
+            "own_site_transcript_accuracy_rate",
+            "own_site_transcript_accurate",
+            "own_site_transcript_total",
+        ),
+    )
+    for metric, rate_key, numerator_key, denominator_key in supplementary_specs:
+        rate = overview.get(rate_key)
+        denominator = int(overview.get(denominator_key) or 0)
+        if rate is None or denominator == 0:
+            continue
+        rows.append(
+            _fact_row(
+                metric=metric,
+                value=round(float(rate) * 100, 2),
+                unit="percent",
+                numerator=int(overview.get(numerator_key) or 0),
+                denominator=denominator,
+                dimensions={"platform": "", "region": "", "query": ""},
+                domain=domain,
+                window=window,
+                method=W2_FACT_METHOD,
+                extra={"own_site_host": own_site_host, "supplementary": True},
+            )
+        )
+
+    # 报价采纳率：只用回答级采纳判定的分子/分母。
     adoption_rate = overview.get("own_site_adoption_rate")
-    transcript_total = overview.get("own_site_transcript_total")
-    transcript_accurate = overview.get("own_site_transcript_accurate")
+    adoption_evaluated = int(overview.get("own_site_adoption_evaluated_answers") or 0)
+    adoption_verified = int(overview.get("own_site_adoption_verified_answers") or 0)
     if adoption_rate is None:
         note = (
             "adoption_metrics_unavailable"
             if "own_site_adoption_rate" not in overview
-            else "no_own_site_transcript_audits"
+            else "no_answer_level_adoption_evaluations"
         )
         rows.append(
             _fact_row(
                 metric="own_site_adoption_rate",
                 value=None,
                 unit="percent",
-                numerator=int(transcript_accurate or 0),
-                denominator=int(transcript_total or 0),
+                numerator=adoption_verified,
+                denominator=adoption_evaluated,
                 dimensions={"platform": "", "region": "", "query": ""},
                 domain=domain,
                 window=window,
@@ -702,8 +766,8 @@ def _build_w2_section(
                 metric="own_site_adoption_rate",
                 value=round(float(adoption_rate) * 100, 2),
                 unit="percent",
-                numerator=int(transcript_accurate or 0),
-                denominator=int(transcript_total or 0),
+                numerator=adoption_verified,
+                denominator=adoption_evaluated,
                 dimensions={"platform": "", "region": "", "query": ""},
                 domain=domain,
                 window=window,
@@ -746,6 +810,8 @@ def _build_w2_section(
         "insufficient_reasons": insufficient_reasons,
         "window": window,
         "own_site_host": own_site_host,
+        "answers_total": answers_total,
+        "answers_with_own_site_citation": own_site_cited_answers,
         "documents_total": documents_total,
         "own_site_documents": own_site_documents,
         "suggestions_available": suggestions is not None,

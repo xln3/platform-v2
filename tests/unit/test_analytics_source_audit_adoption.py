@@ -1,7 +1,7 @@
-"""W2 官网内容采纳率三键 + 官网优化建议端点（契约表 T2）单元测试。
+"""W2 官网引用/转述审计口径 + 官网优化建议端点单元测试。
 
 fake psycopg 连接按 SQL 片段派发脚本化结果，绝不打真 DB。覆盖：
-- own_site_transcript_total/accurate/adoption_rate 只统计 own_site 文档
+- own_site_transcript_total/accurate/accuracy_rate 只统计 own_site 文档
   （www/裸域/子域互配），第三方 host 绝不混入分子分母；
 - audit_status != 'ok' 的判定不计入；分母为零时比率为 None（数据不足）；
 - 官网 host 未知（无 asset_confirmation_version）时三键全零/None；
@@ -79,11 +79,13 @@ class _OverviewFakeConnection:
         website: str | None,
         documents: list[dict[str, Any]],
         audits: list[dict[str, Any]],
+        answer_citations: list[dict[str, Any]] | None = None,
         project_exists: bool = True,
     ) -> None:
         self._website = website
         self._documents = documents
         self._audits = audits
+        self._answer_citations = answer_citations or []
         self._project_exists = project_exists
         self.statements: list[str] = []
 
@@ -93,6 +95,8 @@ class _OverviewFakeConnection:
             return _Result([{"id": "project-uuid"}] if self._project_exists else [])
         if "FROM platform.asset_confirmation_version" in sql:
             return _Result([{"website": self._website}] if self._website is not None else [])
+        if "WITH eligible_answers AS" in sql:
+            return _Result(list(self._answer_citations))
         if "FROM platform.source_document d" in sql:
             return _Result(list(self._documents))
         if "FROM platform.source_audit a" in sql:
@@ -106,10 +110,15 @@ def _overview(
     website: str | None,
     documents: list[dict[str, Any]],
     audits: list[dict[str, Any]],
+    answer_citations: list[dict[str, Any]] | None = None,
     project_exists: bool = True,
 ) -> dict[str, Any]:
     connection = _OverviewFakeConnection(
-        website=website, documents=documents, audits=audits, project_exists=project_exists
+        website=website,
+        documents=documents,
+        audits=audits,
+        answer_citations=answer_citations,
+        project_exists=project_exists,
     )
 
     @contextmanager
@@ -125,7 +134,7 @@ def _overview(
     )
 
 
-def test_adoption_rate_counts_only_own_site_documents(
+def test_transcript_accuracy_counts_only_own_site_documents(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     documents = [
@@ -147,10 +156,12 @@ def test_adoption_rate_counts_only_own_site_documents(
     )
     assert overview["own_site_transcript_total"] == 2
     assert overview["own_site_transcript_accurate"] == 1
-    assert overview["own_site_adoption_rate"] == 0.5
+    assert overview["own_site_transcript_accuracy_rate"] == 0.5
+    assert overview["own_site_adoption_rate"] is None
+    assert overview["own_site_adoption_evaluated_answers"] == 0
 
 
-def test_adoption_rate_ignores_non_ok_audits(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_transcript_accuracy_ignores_non_ok_audits(monkeypatch: pytest.MonkeyPatch) -> None:
     documents = [_doc("own1", "webray.com.cn")]
     audits = [
         _audit("own1", verdict="accurate", audit_status="validation_failure"),
@@ -166,6 +177,7 @@ def test_adoption_rate_ignores_non_ok_audits(monkeypatch: pytest.MonkeyPatch) ->
     )
     assert overview["own_site_transcript_total"] == 0
     assert overview["own_site_transcript_accurate"] == 0
+    assert overview["own_site_transcript_accuracy_rate"] is None
     assert overview["own_site_adoption_rate"] is None
 
 
@@ -182,6 +194,7 @@ def test_adoption_rate_none_when_own_site_host_unknown(
     )
     assert overview["own_site_host"] is None
     assert overview["own_site_transcript_total"] == 0
+    assert overview["own_site_transcript_accuracy_rate"] is None
     assert overview["own_site_adoption_rate"] is None
 
 
@@ -190,6 +203,37 @@ def test_adoption_keys_zero_for_unknown_project(monkeypatch: pytest.MonkeyPatch)
     assert overview["own_site_transcript_total"] == 0
     assert overview["own_site_transcript_accurate"] == 0
     assert overview["own_site_adoption_rate"] is None
+
+
+def test_answer_level_website_citation_metrics(monkeypatch: pytest.MonkeyPatch) -> None:
+    overview = _overview(
+        monkeypatch,
+        website="https://www.webray.com.cn/",
+        documents=[],
+        audits=[],
+        answer_citations=[
+            {"answer_pub_id": "ans_1", "host": "www.webray.com.cn", "cited_text": "官网引文"},
+            {"answer_pub_id": "ans_1", "host": "news.example.com", "cited_text": None},
+            {"answer_pub_id": "ans_2", "host": "docs.webray.com.cn", "cited_text": None},
+            {"answer_pub_id": "ans_3", "host": "news.example.com", "cited_text": None},
+            {"answer_pub_id": "ans_4", "host": None, "cited_text": None},
+        ],
+    )
+    assert overview["answers_total"] == 4
+    assert overview["answers_with_citation"] == 3
+    assert overview["citation_coverage_rate"] == 0.75
+    assert overview["answers_with_own_site_citation"] == 2
+    assert overview["own_site_answer_citation_rate"] == 0.5
+    assert overview["own_site_share_of_cited_answers"] == 0.6667
+    assert overview["own_site_citation_references"] == 2
+    assert overview["citation_references_total"] == 4
+    assert overview["own_site_cited_text_answers"] == 1
+    assert overview["own_site_cited_text_evidence_rate"] == 0.5
+    assert overview["answer_hosts"] == [
+        {"host": "news.example.com", "answers": 2, "references": 2, "is_own_site": False},
+        {"host": "docs.webray.com.cn", "answers": 1, "references": 1, "is_own_site": True},
+        {"host": "www.webray.com.cn", "answers": 1, "references": 1, "is_own_site": True},
+    ]
 
 
 # ---------------------------------------------------------------------------

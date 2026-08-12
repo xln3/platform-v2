@@ -74,17 +74,35 @@ const fullReport = {
   start: '2026-07-11',
   end: '2026-08-09',
   own_site_host: 'www.example.com',
+  answers_total: 20,
+  answers_with_citation: 12,
+  citation_coverage_rate: 0.6,
+  answers_with_own_site_citation: 5,
+  own_site_answer_citation_rate: 0.25,
+  own_site_share_of_cited_answers: 5 / 12,
+  citation_references_total: 40,
+  own_site_citation_references: 6,
+  own_site_reference_share: 0.15,
+  own_site_cited_text_answers: 4,
+  own_site_cited_text_evidence_rate: 0.8,
   documents_total: 4,
   own_site_documents: 1,
   own_site_share: 0.25,
   // 报价单口径：只统计 own_site 文档的 transcript 判定（1/1），不混算第三方 host。
   own_site_transcript_total: 1,
   own_site_transcript_accurate: 1,
+  own_site_transcript_accuracy_rate: 1.0,
+  own_site_adoption_evaluated_answers: 1,
+  own_site_adoption_verified_answers: 1,
   own_site_adoption_rate: 1.0,
   verdicts: {
     transcript: { accurate: 3, inaccurate: 1, unsupported: 0, unverifiable: 0 },
     factual: { accurate: 2, inaccurate: 1, unsupported: 1, unverifiable: 0 },
   },
+  answer_hosts: [
+    { host: 'www.example.com', is_own_site: true, answers: 5, references: 6 },
+    { host: 'news.thirdparty.com', is_own_site: false, answers: 8, references: 10 },
+  ],
   hosts: [
     {
       host: 'www.example.com',
@@ -132,15 +150,17 @@ describe('SiteAuditWorkspace', () => {
   it('renders metric cards, verdict distribution, hosts and item details', async () => {
     stubSourceAudit(fullReport);
     render(<SiteAuditWorkspace session={session} project={project} />);
-    await screen.findByText('25.0%');
+    await screen.findAllByText('25.0%');
     expect(screen.getByText('官网引用率')).toBeTruthy();
-    expect(screen.getByText('1/4')).toBeTruthy();
+    expect(screen.getByText('引用官网的 AI 回答 5/20')).toBeTruthy();
     expect(screen.getByText('官网内容采纳率')).toBeTruthy();
-    // 采纳率=后端 own_site 口径（1/1），不再前端混算全部 host 的 3/4。
-    expect(screen.getByText('100.0%')).toBeTruthy();
-    expect(screen.getByText('官网转述准确 1/1')).toBeTruthy();
+    expect(screen.getAllByText('100.0%')).toHaveLength(2);
+    expect(screen.getByText(/已验证采纳 1/)).toBeTruthy();
+    expect(screen.getByText('转述准确 1/1')).toBeTruthy();
     expect(screen.getByText('www.example.com（官网）')).toBeTruthy();
     expect(screen.getByText('news.thirdparty.com')).toBeTruthy();
+    expect(screen.getByText('AI 回答引用的网站来源')).toBeTruthy();
+    expect(screen.getByText(/这里展示回答引用事实/)).toBeTruthy();
     expect(screen.getByText('转述:准确')).toBeTruthy();
     expect(screen.getByText('转述与原文一致')).toBeTruthy();
   });
@@ -150,11 +170,14 @@ describe('SiteAuditWorkspace', () => {
       ...fullReport,
       own_site_transcript_total: 0,
       own_site_transcript_accurate: 0,
+      own_site_transcript_accuracy_rate: null,
+      own_site_adoption_evaluated_answers: 0,
+      own_site_adoption_verified_answers: 0,
       own_site_adoption_rate: null,
     });
     render(<SiteAuditWorkspace session={session} project={project} />);
-    await screen.findByText('数据不足');
-    expect(screen.getByText('官网转述准确 0/0')).toBeTruthy();
+    expect(await screen.findAllByText('数据不足')).toHaveLength(2);
+    expect(screen.getByText(/已验证采纳 0/)).toBeTruthy();
   });
 
   it('renders site suggestions with labels, severity badges and evidence link', async () => {
@@ -215,6 +238,7 @@ describe('SiteAuditWorkspace', () => {
         transcript: { accurate: 0, inaccurate: 0, unsupported: 0, unverifiable: 0 },
         factual: { accurate: 0, inaccurate: 0, unsupported: 0, unverifiable: 0 },
       },
+      answer_hosts: [],
       hosts: [],
       items: [],
     });

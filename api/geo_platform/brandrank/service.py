@@ -205,7 +205,8 @@ def fetch_citations(
               WHERE tenant_pub_id=%s AND answer_pub_id=ANY(%s::text[])
               ORDER BY answer_pub_id, id DESC
             )
-            SELECT c.answer_pub_id, c.ordinal, c.host, c.canonical_url, c.original_url
+            SELECT c.answer_pub_id, c.ordinal, c.host, c.canonical_url, c.original_url,
+                   c.title, c.cited_text, c.own_source, c.content_hash
             FROM analytics.citation_fact c
             JOIN latest_run lr ON lr.answer_pub_id=c.answer_pub_id
                               AND lr.analysis_run_pub_id=c.analysis_run_pub_id

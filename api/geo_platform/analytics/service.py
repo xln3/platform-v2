@@ -817,10 +817,8 @@ class AnalyticsService:
         factcheck）最新一行；该表未迁移上线时优雅降级——全部案例 fact_check=None，
         绝不 500。T1 无 tenant 列：只查本页已确认归属本租户/项目的 judgment
         pub_id，租户边界由主查询保证。
-        己方稿件判定（content_origin='own_content'，project_id 为 NULL 不依附
-        采集 run）按租户边界并入案例清单——报价单服务2"己方GEO内容拉踩竞品"
-        的取证出口；多项目租户下该通道案例对本租户各项目均可见（已知边界，
-        当前生产一租户一项目）。
+        服务 2 只返回本项目采集产生的 AI 回答与公开信源判定，不混入与项目无关的
+        内部内容工作流结果。
         """
         with _platform_tenant_connection(self.dsn, tenant_pub_id) as connection:
             rows = connection.execute(
@@ -831,12 +829,13 @@ class AnalyticsService:
                        j.prompt_version, j.created_at, j.content_origin,
                        d.url AS source_url
                 FROM platform.disparagement_judgment j
-                LEFT JOIN platform.project p ON p.id = j.project_id
+                JOIN platform.project p ON p.id = j.project_id
                 LEFT JOIN platform.source_document d
                   ON d.tenant_id = j.tenant_id AND d.pub_id = j.subject_pub_id
                  AND j.subject_type = 'source_document'
                 WHERE j.tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid
-                  AND (p.pub_id = %s OR j.content_origin = 'own_content')
+                  AND p.pub_id = %s
+                  AND j.content_origin = 'collection'
                   AND j.judgment_status = 'ok'
                   AND j.disparagement
                   AND j.created_at::date BETWEEN %s AND %s
@@ -947,6 +946,15 @@ class AnalyticsService:
         own_site_host=None 如实返回（不 404，与 overview/disparagement 读路径
         同口径）。文本字段在此不清洗，输出清洗（URL/rationale）在 router 层与
         既有端点同款。
+
+        口径分层：
+        - 报价单“官网引用率”的分母是窗口内 eligible 且非 degraded
+          的 AI 回答，分子是最新分析批次中至少引用一条官网 URL 的回答。
+        - source_document 是为正文审计抓取的文档子集，其官网占比只能称为
+          “抓取文档官网占比”，不得代替回答口径的引用率。
+        - transcript 判定衡量引用转述与源文的一致性，不是“内容采纳率”。
+          当系统没有回答级“已理解并用于生成”判定时，采纳率必须为
+          None（0/0），不得用 transcript 准确率冒充。
         """
         with _platform_tenant_connection(self.dsn, tenant_pub_id) as connection:
             project = connection.execute(
@@ -955,6 +963,7 @@ class AnalyticsService:
             ).fetchone()
             documents: list[dict[str, Any]] = []
             audits: list[dict[str, Any]] = []
+            answer_citations: list[dict[str, Any]] = []
             own_site_host: str | None = None
             if project is not None:
                 website = connection.execute(
@@ -968,6 +977,44 @@ class AnalyticsService:
                 ).fetchone()
                 if website is not None:
                     own_site_host = _host_from_website(website["website"])
+                answer_citations = [
+                    dict(row)
+                    for row in connection.execute(
+                        """
+                        WITH eligible_answers AS (
+                          SELECT a.pub_id
+                          FROM analytics.answer a
+                          WHERE a.tenant_pub_id = %s
+                            AND a.project_pub_id = %s
+                            AND a.capture_time::date BETWEEN %s AND %s
+                            AND a.eligible AND NOT a.degraded
+                        ), latest_run AS (
+                          SELECT DISTINCT ON (c.answer_pub_id)
+                                 c.answer_pub_id, c.analysis_run_pub_id
+                          FROM analytics.citation_fact c
+                          JOIN eligible_answers a ON a.pub_id = c.answer_pub_id
+                          WHERE c.tenant_pub_id = %s
+                          ORDER BY c.answer_pub_id, c.id DESC
+                        )
+                        SELECT a.pub_id AS answer_pub_id, c.host, c.cited_text
+                        FROM eligible_answers a
+                        LEFT JOIN latest_run lr ON lr.answer_pub_id = a.pub_id
+                        LEFT JOIN analytics.citation_fact c
+                          ON c.tenant_pub_id = %s
+                         AND c.answer_pub_id = lr.answer_pub_id
+                         AND c.analysis_run_pub_id = lr.analysis_run_pub_id
+                        ORDER BY a.pub_id, c.ordinal
+                        """,
+                        (
+                            tenant_pub_id,
+                            project_pub_id,
+                            start,
+                            end,
+                            tenant_pub_id,
+                            tenant_pub_id,
+                        ),
+                    ).fetchall()
+                ]
                 documents = [
                     dict(row)
                     for row in connection.execute(
@@ -1006,6 +1053,46 @@ class AnalyticsService:
                     if documents
                     else []
                 )
+        answer_ids = {row["answer_pub_id"] for row in answer_citations}
+        cited_answer_ids = {row["answer_pub_id"] for row in answer_citations if row.get("host")}
+        own_site_citation_rows = [
+            row for row in answer_citations if _is_own_site(row.get("host"), own_site_host)
+        ]
+        own_site_answer_ids = {row["answer_pub_id"] for row in own_site_citation_rows}
+        own_site_cited_text_answer_ids = {
+            row["answer_pub_id"]
+            for row in own_site_citation_rows
+            if isinstance(row.get("cited_text"), str) and row["cited_text"].strip()
+        }
+        citation_references_total = sum(1 for row in answer_citations if row.get("host"))
+        own_site_citation_references = len(own_site_citation_rows)
+        answer_host_accumulator: dict[str, dict[str, Any]] = {}
+        for row in answer_citations:
+            host = str(row.get("host") or "").strip().lower()
+            if not host:
+                continue
+            entry = answer_host_accumulator.setdefault(
+                host,
+                {"host": host, "answer_pub_ids": set(), "references": 0},
+            )
+            entry["answer_pub_ids"].add(str(row["answer_pub_id"]))
+            entry["references"] += 1
+        answer_hosts = sorted(
+            (
+                {
+                    "host": entry["host"],
+                    "answers": len(entry["answer_pub_ids"]),
+                    "references": entry["references"],
+                    "is_own_site": _is_own_site(entry["host"], own_site_host),
+                }
+                for entry in answer_host_accumulator.values()
+            ),
+            key=lambda entry: (-entry["answers"], -entry["references"], entry["host"]),
+        )[:20]
+        answers_total = len(answer_ids)
+        answers_with_citation = len(cited_answer_ids)
+        answers_with_own_site_citation = len(own_site_answer_ids)
+
         documents_total = len(documents)
         own_site_documents = sum(1 for row in documents if _is_own_site(row["host"], own_site_host))
         verdicts: dict[str, dict[str, int]] = {
@@ -1031,22 +1118,22 @@ class AnalyticsService:
                 },
             )
             entry["documents"] += 1
-        # 官网内容采纳率（报价单口径）：只统计 own_site 文档的 transcript 判定
-        # （audit_status='ok'），第三方 host 绝不混入分子分母；分母为零时比率
-        # 为 None（数据不足），与 own_site_share 的诚实语义一致。own_site 判定
+        # 官网 transcript 准确率：只统计 own_site 文档的 transcript 判定
+        # （audit_status='ok'），第三方 host 绝不混入分子分母。这是转述审计，
+        # 不是报价单“内容采纳率”。own_site 判定
         # 与 host 榜单/文档明细共用同一 _is_own_site（www/裸域/子域互配）。
         own_site_transcript_total = 0
         own_site_transcript_accurate = 0
         for row in audits:
             if row["audit_status"] != "ok" or row["dimension"] != "transcript":
                 continue
-            host = host_by_document.get(row["source_document_id"])
-            if host is None:
+            audit_host = host_by_document.get(row["source_document_id"])
+            if audit_host is None:
                 continue
-            hosts[host]["transcript_total"] += 1
+            hosts[audit_host]["transcript_total"] += 1
             if row["verdict"] == "accurate":
-                hosts[host]["transcript_accurate"] += 1
-            if _is_own_site(host, own_site_host):
+                hosts[audit_host]["transcript_accurate"] += 1
+            if _is_own_site(audit_host, own_site_host):
                 own_site_transcript_total += 1
                 if row["verdict"] == "accurate":
                     own_site_transcript_accurate += 1
@@ -1080,6 +1167,33 @@ class AnalyticsService:
         ]
         return {
             "own_site_host": own_site_host,
+            "answers_total": answers_total,
+            "answers_with_citation": answers_with_citation,
+            "citation_coverage_rate": (
+                round(answers_with_citation / answers_total, 4) if answers_total else None
+            ),
+            "answers_with_own_site_citation": answers_with_own_site_citation,
+            "own_site_answer_citation_rate": (
+                round(answers_with_own_site_citation / answers_total, 4) if answers_total else None
+            ),
+            "own_site_share_of_cited_answers": (
+                round(answers_with_own_site_citation / answers_with_citation, 4)
+                if answers_with_citation
+                else None
+            ),
+            "citation_references_total": citation_references_total,
+            "own_site_citation_references": own_site_citation_references,
+            "own_site_reference_share": (
+                round(own_site_citation_references / citation_references_total, 4)
+                if citation_references_total
+                else None
+            ),
+            "own_site_cited_text_answers": len(own_site_cited_text_answer_ids),
+            "own_site_cited_text_evidence_rate": (
+                round(len(own_site_cited_text_answer_ids) / answers_with_own_site_citation, 4)
+                if answers_with_own_site_citation
+                else None
+            ),
             "documents_total": documents_total,
             "own_site_documents": own_site_documents,
             "own_site_share": (
@@ -1087,12 +1201,19 @@ class AnalyticsService:
             ),
             "own_site_transcript_total": own_site_transcript_total,
             "own_site_transcript_accurate": own_site_transcript_accurate,
-            "own_site_adoption_rate": (
+            "own_site_transcript_accuracy_rate": (
                 round(own_site_transcript_accurate / own_site_transcript_total, 4)
                 if own_site_transcript_total
                 else None
             ),
+            # 现有 source_audit 没有回答级采纳判定；明确 0/0 + None。
+            "own_site_adoption_evaluated_answers": 0,
+            "own_site_adoption_verified_answers": 0,
+            "own_site_adoption_rate": None,
             "verdicts": verdicts,
+            # AI 回答最新分析批次中实际出现的引用网站。与 hosts
+            # （下游抓取文档域名）分开，防止前端把抓取子集冒充引用分布。
+            "answer_hosts": answer_hosts,
             "hosts": host_list,
             "items": items,
         }

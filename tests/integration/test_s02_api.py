@@ -331,10 +331,13 @@ def test_s02_router_bundle_exposes_tenant_scoped_safe_analytics_and_evidence() -
     relations = client.get(f"/api/v2/analytics/answers/ans_{suffix}/relations")
     assert relations.status_code == 200
     assert relations.json()["citations"][0]["canonical_url"] == "https://example.com/source"
+    assert relations.json()["answer_citations"] == relations.json()["citations"]
     assert relations.json()["citations"][0]["content_hash"]
     assert relations.json()["evidence"][0]["pub_id"] == f"evd_{suffix}"
     assert relations.json()["evidence"][0]["relation_type"] == "visualizes"
     assert relations.json()["evidence"][0]["anchors"] == []
+    assert relations.json()["brand_mention_evidence"] == []
+    assert relations.json()["opened_source_previews"] == []
     assert relations.json()["history"] == []
     for group_by in ("day", "model", "region_mode", "question"):
         breakdown = client.get(

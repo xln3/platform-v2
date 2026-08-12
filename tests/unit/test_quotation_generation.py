@@ -227,6 +227,9 @@ def test_renderer_keeps_reference_layout_and_honest_measurement_wording() -> Non
     )
     assert "待实测" in table_text
     assert "厂商推荐15次" not in body_text
+    document_text = f"{body_text}\n{table_text}"
+    assert "己方GEO内容" not in document_text
+    assert "AI回答所列第三方信源页面" in document_text
     with ZipFile(BytesIO(payload)) as archive:
         header = archive.read("word/header1.xml").decode()
         footer = archive.read("word/footer1.xml").decode()

@@ -184,6 +184,13 @@ export type SourceAuditHost = {
   transcript_accurate: number;
 };
 
+export type SourceCitationHost = {
+  host: string;
+  is_own_site: boolean;
+  answers: number;
+  references: number;
+};
+
 export type SourceAuditItem = {
   pub_id: string;
   url: string;
@@ -206,13 +213,28 @@ export type SourceAuditReport = {
   start: string;
   end: string;
   own_site_host: string | null;
+  answers_total: number;
+  answers_with_citation: number;
+  citation_coverage_rate: number | null;
+  answers_with_own_site_citation: number;
+  own_site_answer_citation_rate: number | null;
+  own_site_share_of_cited_answers: number | null;
+  citation_references_total: number;
+  own_site_citation_references: number;
+  own_site_reference_share: number | null;
+  own_site_cited_text_answers: number;
+  own_site_cited_text_evidence_rate: number | null;
   documents_total: number;
   own_site_documents: number;
   own_site_share: number | null;
   own_site_transcript_total: number;
   own_site_transcript_accurate: number;
+  own_site_transcript_accuracy_rate: number | null;
+  own_site_adoption_evaluated_answers: number;
+  own_site_adoption_verified_answers: number;
   own_site_adoption_rate: number | null;
   verdicts: { transcript: SourceAuditVerdicts; factual: SourceAuditVerdicts };
+  answer_hosts: SourceCitationHost[];
   hosts: SourceAuditHost[];
   items: SourceAuditItem[];
 };
@@ -345,6 +367,7 @@ function projectVerdicts(value: unknown): SourceAuditVerdicts {
 function projectSourceAudit(raw: unknown): SourceAuditReport {
   const value = (raw ?? {}) as Record<string, unknown>;
   const verdicts = (value.verdicts ?? {}) as Record<string, unknown>;
+  const answerHosts = Array.isArray(value.answer_hosts) ? value.answer_hosts : [];
   const hosts = Array.isArray(value.hosts) ? value.hosts : [];
   const items = Array.isArray(value.items) ? value.items : [];
   return {
@@ -352,6 +375,37 @@ function projectSourceAudit(raw: unknown): SourceAuditReport {
     start: asString(value.start),
     end: asString(value.end),
     own_site_host: typeof value.own_site_host === 'string' ? value.own_site_host : null,
+    answers_total: asNumber(value.answers_total),
+    answers_with_citation: asNumber(value.answers_with_citation),
+    citation_coverage_rate:
+      typeof value.citation_coverage_rate === 'number' &&
+      Number.isFinite(value.citation_coverage_rate)
+        ? value.citation_coverage_rate
+        : null,
+    answers_with_own_site_citation: asNumber(value.answers_with_own_site_citation),
+    own_site_answer_citation_rate:
+      typeof value.own_site_answer_citation_rate === 'number' &&
+      Number.isFinite(value.own_site_answer_citation_rate)
+        ? value.own_site_answer_citation_rate
+        : null,
+    own_site_share_of_cited_answers:
+      typeof value.own_site_share_of_cited_answers === 'number' &&
+      Number.isFinite(value.own_site_share_of_cited_answers)
+        ? value.own_site_share_of_cited_answers
+        : null,
+    citation_references_total: asNumber(value.citation_references_total),
+    own_site_citation_references: asNumber(value.own_site_citation_references),
+    own_site_reference_share:
+      typeof value.own_site_reference_share === 'number' &&
+      Number.isFinite(value.own_site_reference_share)
+        ? value.own_site_reference_share
+        : null,
+    own_site_cited_text_answers: asNumber(value.own_site_cited_text_answers),
+    own_site_cited_text_evidence_rate:
+      typeof value.own_site_cited_text_evidence_rate === 'number' &&
+      Number.isFinite(value.own_site_cited_text_evidence_rate)
+        ? value.own_site_cited_text_evidence_rate
+        : null,
     documents_total: asNumber(value.documents_total),
     own_site_documents: asNumber(value.own_site_documents),
     own_site_share:
@@ -360,6 +414,13 @@ function projectSourceAudit(raw: unknown): SourceAuditReport {
         : null,
     own_site_transcript_total: asNumber(value.own_site_transcript_total),
     own_site_transcript_accurate: asNumber(value.own_site_transcript_accurate),
+    own_site_transcript_accuracy_rate:
+      typeof value.own_site_transcript_accuracy_rate === 'number' &&
+      Number.isFinite(value.own_site_transcript_accuracy_rate)
+        ? value.own_site_transcript_accuracy_rate
+        : null,
+    own_site_adoption_evaluated_answers: asNumber(value.own_site_adoption_evaluated_answers),
+    own_site_adoption_verified_answers: asNumber(value.own_site_adoption_verified_answers),
     own_site_adoption_rate:
       typeof value.own_site_adoption_rate === 'number' &&
       Number.isFinite(value.own_site_adoption_rate)
@@ -369,6 +430,15 @@ function projectSourceAudit(raw: unknown): SourceAuditReport {
       transcript: projectVerdicts(verdicts.transcript),
       factual: projectVerdicts(verdicts.factual),
     },
+    answer_hosts: answerHosts.map((host) => {
+      const row = (host ?? {}) as Record<string, unknown>;
+      return {
+        host: asString(row.host),
+        is_own_site: row.is_own_site === true,
+        answers: asNumber(row.answers),
+        references: asNumber(row.references),
+      };
+    }),
     hosts: hosts.map((host) => {
       const row = (host ?? {}) as Record<string, unknown>;
       return {

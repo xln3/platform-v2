@@ -111,9 +111,12 @@ export function SiteAuditWorkspace({
   const data = report.kind === 'ready' ? report.data : null;
   const isEmpty =
     data !== null &&
+    data.answers_total === 0 &&
     data.documents_total === 0 &&
     data.hosts.length === 0 &&
     data.items.length === 0;
+  // 兼容 API 滚动升级期间未带 answer_hosts 的旧响应/测试夹具。
+  const answerHosts = data?.answer_hosts ?? [];
   const itemUrlByPubId = new Map(data?.items.map((item) => [item.pub_id, item.url]) ?? []);
 
   const mainSection = (
@@ -138,14 +141,24 @@ export function SiteAuditWorkspace({
             <article>
               <span>官网引用率</span>
               <strong>
-                {data.own_site_share === null ? '—' : `${(data.own_site_share * 100).toFixed(1)}%`}
+                {data.own_site_answer_citation_rate === null
+                  ? '—'
+                  : `${(data.own_site_answer_citation_rate * 100).toFixed(1)}%`}
               </strong>
+              <span>
+                引用官网的 AI 回答 {data.answers_with_own_site_citation}/{data.answers_total}
+              </span>
             </article>
             <article>
-              <span>官网信源文档</span>
+              <span>回答信源覆盖率</span>
               <strong>
-                {data.own_site_documents}/{data.documents_total}
+                {data.citation_coverage_rate === null
+                  ? '—'
+                  : `${(data.citation_coverage_rate * 100).toFixed(1)}%`}
               </strong>
+              <span>
+                带任意引用的 AI 回答 {data.answers_with_citation}/{data.answers_total}
+              </span>
             </article>
             <article>
               <span>官网内容采纳率</span>
@@ -155,10 +168,48 @@ export function SiteAuditWorkspace({
                   : `${(data.own_site_adoption_rate * 100).toFixed(1)}%`}
               </strong>
               <span>
-                官网转述准确 {data.own_site_transcript_accurate}/{data.own_site_transcript_total}
+                已验证采纳 {data.own_site_adoption_verified_answers}/
+                {data.own_site_adoption_evaluated_answers}
+              </span>
+            </article>
+            <article>
+              <span>官网引文证据可见率</span>
+              <strong>
+                {data.own_site_cited_text_evidence_rate === null
+                  ? '—'
+                  : `${(data.own_site_cited_text_evidence_rate * 100).toFixed(1)}%`}
+              </strong>
+              <span>
+                可见官网引文的回答 {data.own_site_cited_text_answers}/
+                {data.answers_with_own_site_citation}
+              </span>
+            </article>
+            <article>
+              <span>抓取文档官网占比</span>
+              <strong>
+                {data.own_site_share === null ? '—' : `${(data.own_site_share * 100).toFixed(1)}%`}
+              </strong>
+              <span>
+                官网文档 {data.own_site_documents}/{data.documents_total}
+              </span>
+            </article>
+            <article>
+              <span>官网引用转述准确率</span>
+              <strong>
+                {data.own_site_transcript_accuracy_rate === null
+                  ? '数据不足'
+                  : `${(data.own_site_transcript_accuracy_rate * 100).toFixed(1)}%`}
+              </strong>
+              <span>
+                转述准确 {data.own_site_transcript_accurate}/{data.own_site_transcript_total}
               </span>
             </article>
           </div>
+
+          <p className="setup-summary">
+            口径说明：官网引用率按 AI 回答计算；内容采纳率需要回答级“已理解并用于生成”证据。
+            抓取文档占比和转述准确率是辅助审计指标，不替代前两项。
+          </p>
 
           <h3>判定分布</h3>
           <div className="table-scroll">
@@ -190,29 +241,31 @@ export function SiteAuditWorkspace({
             </table>
           </div>
 
-          <h3>信源宿主</h3>
-          {data.hosts.length === 0 ? (
-            <p className="empty">该时间窗内无信源宿主记录。</p>
+          <h3>AI 回答引用的网站来源</h3>
+          <p className="setup-summary">
+            “网站来源”指 AI 回答所列 URL 的域名；“覆盖回答”指至少引用该网站一次的回答数，
+            “URL 引用条目”指全部引用条目数。这里展示回答引用事实，不是下游抽样抓取的文档分布。
+          </p>
+          {answerHosts.length === 0 ? (
+            <p className="empty">该时间窗内 AI 回答未返回可解析的引用 URL。</p>
           ) : (
             <div className="table-scroll">
               <table>
                 <thead>
                   <tr>
-                    <th>Host</th>
+                    <th>网站域名</th>
                     <th>是否官网</th>
-                    <th>文档数</th>
-                    <th>转述准确/总数</th>
+                    <th>覆盖回答</th>
+                    <th>URL 引用条目</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {data.hosts.map((host) => (
+                  {answerHosts.map((host) => (
                     <tr key={host.host}>
                       <td>{host.host}</td>
                       <td>{host.is_own_site ? '官网' : '第三方'}</td>
-                      <td>{host.documents}</td>
-                      <td>
-                        {host.transcript_accurate}/{host.transcript_total}
-                      </td>
+                      <td>{host.answers}</td>
+                      <td>{host.references}</td>
                     </tr>
                   ))}
                 </tbody>

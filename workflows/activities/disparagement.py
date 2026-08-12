@@ -688,13 +688,18 @@ def execute_disparagement(
         text = document_texts.get(document.pub_id)
         if text is None:
             continue  # CAS 读失败已如实记 failures，绝不判定残缺正文
+        # Source-page audit is scoped to the customer's target brand.  First require
+        # that the page mentions that brand, then judge the surrounding paragraph for
+        # either direction of disparagement.  Competitor-only paragraphs from a media
+        # page are not customer risk evidence and must not consume the source window
+        # budget.
         candidates.extend(
             extract_windows(
                 subject_type="source_document",
                 subject_pub_id=document.pub_id,
                 text=text,
                 brand=context.brand,
-                competitors=context.competitors,
+                competitors=(),
                 platform=document.host,
                 source_url=document.url,
             )

@@ -5,7 +5,7 @@ fetch_source_audit_overview/fetch_site_audit_suggestions）与 brandrank_service
 （主草稿组必须一并垫底，口径照 tests/unit/test_brandrank_api.py）。
 
 覆盖：W3 方向分组比率/典型案例排序与 T1 事实核查挂载/表未就绪降级；W2 官网引用率、
-契约 A1 采纳率三键（有值/显式 None/缺键）与 T2 建议最新批次/表未就绪降级。
+回答级引用率、回答级采纳率（有值/显式 None/缺键）与 T2 建议降级。
 """
 
 from __future__ import annotations
@@ -85,6 +85,9 @@ def _seams(monkeypatch: pytest.MonkeyPatch) -> None:
         "fetch_source_audit_overview",
         lambda dsn, tenant, project, start, end: {
             "own_site_host": None,
+            "answers_total": 0,
+            "answers_with_own_site_citation": 0,
+            "own_site_answer_citation_rate": None,
             "documents_total": 0,
             "own_site_documents": 0,
             "own_site_share": None,
@@ -208,6 +211,17 @@ def test_w3_insufficient_when_no_judgments() -> None:
 def _overview(**overrides: Any) -> dict[str, Any]:
     base: dict[str, Any] = {
         "own_site_host": "www.webray.com.cn",
+        "answers_total": 100,
+        "answers_with_citation": 60,
+        "citation_coverage_rate": 0.6,
+        "answers_with_own_site_citation": 10,
+        "own_site_answer_citation_rate": 0.1,
+        "own_site_share_of_cited_answers": 1 / 6,
+        "citation_references_total": 200,
+        "own_site_citation_references": 12,
+        "own_site_reference_share": 0.06,
+        "own_site_cited_text_answers": 5,
+        "own_site_cited_text_evidence_rate": 0.5,
         "documents_total": 40,
         "own_site_documents": 1,
         "own_site_share": 0.025,
@@ -221,7 +235,12 @@ def test_w2_share_and_adoption_with_contract_keys(monkeypatch: pytest.MonkeyPatc
         fact_suggestions,
         "fetch_source_audit_overview",
         lambda dsn, t, p, start, end: _overview(
-            own_site_transcript_total=10, own_site_transcript_accurate=8, own_site_adoption_rate=0.8
+            own_site_transcript_total=10,
+            own_site_transcript_accurate=8,
+            own_site_transcript_accuracy_rate=0.8,
+            own_site_adoption_evaluated_answers=10,
+            own_site_adoption_verified_answers=8,
+            own_site_adoption_rate=0.8,
         ),
     )
     monkeypatch.setattr(
@@ -258,9 +277,9 @@ def test_w2_share_and_adoption_with_contract_keys(monkeypatch: pytest.MonkeyPatc
     assert w2["suggestions_available"] is True and w2["suggestion_batch_pub_id"] == "sab_1"
 
     share = next(r for r in w2["fact_rows"] if r["metric"] == "own_site_citation_share")
-    assert share["value"] == 2.5  # 0.025 × 100
-    assert share["numerator"] == 1 and share["denominator"] == 40
-    assert share["method"] == "w2-site-audit-v1"
+    assert share["value"] == 10.0
+    assert share["numerator"] == 10 and share["denominator"] == 100
+    assert share["method"] == "w2-site-audit-v2"
 
     adoption = next(r for r in w2["fact_rows"] if r["metric"] == "own_site_adoption_rate")
     assert adoption["value"] == 80.0
@@ -295,13 +314,17 @@ def test_w2_adoption_none_when_no_transcript_audits(monkeypatch: pytest.MonkeyPa
         fact_suggestions,
         "fetch_source_audit_overview",
         lambda dsn, t, p, start, end: _overview(
-            own_site_transcript_total=0, own_site_transcript_accurate=0, own_site_adoption_rate=None
+            own_site_transcript_total=0,
+            own_site_transcript_accurate=0,
+            own_site_adoption_evaluated_answers=0,
+            own_site_adoption_verified_answers=0,
+            own_site_adoption_rate=None,
         ),
     )
     w2 = _compute()["w2_site_audit"]
     adoption = next(r for r in w2["fact_rows"] if r["metric"] == "own_site_adoption_rate")
     assert adoption["value"] is None
-    assert adoption["extra"]["note"] == "no_own_site_transcript_audits"
+    assert adoption["extra"]["note"] == "no_answer_level_adoption_evaluations"
 
 
 def test_w2_no_documents_and_t2_absent(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -310,7 +333,7 @@ def test_w2_no_documents_and_t2_absent(monkeypatch: pytest.MonkeyPatch) -> None:
     w2 = _compute()["w2_site_audit"]
     assert w2["suggestions_available"] is False
     assert w2["suggestion_batch_pub_id"] is None
-    assert "no_source_documents" in w2["insufficient_reasons"]
+    assert "no_eligible_answers" in w2["insufficient_reasons"]
     metrics_present = {r["metric"] for r in w2["fact_rows"]}
     assert "own_site_citation_share" not in metrics_present  # 零分母不出行
     assert "site_audit_suggestion" not in metrics_present  # 表未就绪不编造
