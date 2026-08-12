@@ -495,8 +495,24 @@ _DOUBAO_CAPTURE_STATE_JS = r"""async (request) => {
   const clipRight = Math.max(blocks[0].right, blocks[1].right);
   const clipWidth = clipRight - clipX;
   const viewportHeight = scroller.clientHeight;
+  const toBottomButton = document.querySelector('#to-bottom-button');
+  if (!toBottomButton) return fail('to_bottom_button_missing');
+  const toBottomRect = toBottomButton.getBoundingClientRect();
+  const overlapsScroller =
+    toBottomRect.right > scrollerRect.left &&
+    toBottomRect.left < scrollerRect.right &&
+    toBottomRect.bottom > scrollerRect.top &&
+    toBottomRect.top < scrollerRect.bottom;
+  if (!overlapsScroller) return fail('to_bottom_button_outside_scroller');
+  // The bottom arrow and its gradient are viewport chrome.  Capturing the full
+  // scroller copied them into every stitched tile and also hid the text beneath
+  // the gradient.  Reserve the band above that control; the answer content ends
+  // before the scroller's trailing action/suggestion rows, so it remains reachable.
+  const captureBottom = Math.min(scrollerRect.bottom, toBottomRect.top - 8);
+  const captureHeight = captureBottom - scrollerRect.top;
   const maxScroll = Math.max(0, scroller.scrollHeight - viewportHeight);
-  if (clipWidth <= 0 || viewportHeight <= 0 || scroller.scrollHeight <= 0) {
+  if (clipWidth <= 0 || viewportHeight <= 0 || captureHeight < 200
+      || scroller.scrollHeight <= 0) {
     return fail('chat_scroller_bounds_invalid');
   }
   if (clipX < scrollerRect.left - 1
@@ -520,6 +536,7 @@ _DOUBAO_CAPTURE_STATE_JS = r"""async (request) => {
     clip_x: clipX,
     clip_y: scrollerRect.top,
     clip_width: clipWidth,
+    capture_height: captureHeight,
     blocks,
   };
 }"""
@@ -2552,6 +2569,7 @@ def _read_doubao_capture_state(
         "clip_x": _capture_number(raw.get("clip_x"), "clip_x"),
         "clip_y": _capture_number(raw.get("clip_y"), "clip_y"),
         "clip_width": _capture_number(raw.get("clip_width"), "clip_width"),
+        "capture_height": _capture_number(raw.get("capture_height"), "capture_height"),
         "blocks": blocks,
     }
     if state["clip_width"] > _DOUBAO_CAPTURE_MAX_WIDTH_CSS_PX:
@@ -2577,6 +2595,7 @@ def _assert_doubao_capture_stable(
         "clip_x",
         "clip_y",
         "clip_width",
+        "capture_height",
     ):
         if abs(actual[key] - expected[key]) > 1:
             raise _DoubaoScopedCaptureError(f"Doubao chat layout changed during capture ({key})")
@@ -2622,7 +2641,7 @@ def _capture_doubao_message_block(
     positions = _doubao_tile_positions(
         top=block["top"],
         bottom=block["bottom"],
-        viewport_height=expected["viewport_height"],
+        viewport_height=expected["capture_height"],
         max_scroll=expected["max_scroll"],
     )
     canvas: Image.Image | None = None
@@ -2650,7 +2669,7 @@ def _capture_doubao_message_block(
                 "x": expected["clip_x"],
                 "y": expected["clip_y"],
                 "width": expected["clip_width"],
-                "height": expected["viewport_height"],
+                "height": expected["capture_height"],
             }
             raw_png = page.screenshot(clip=clip, timeout=15_000)
             if not isinstance(raw_png, bytes | bytearray):
@@ -2665,7 +2684,7 @@ def _capture_doubao_message_block(
                 ) from exc
 
             current_scale_x = tile.width / expected["clip_width"]
-            current_scale_y = tile.height / expected["viewport_height"]
+            current_scale_y = tile.height / expected["capture_height"]
             if current_scale_x <= 0 or current_scale_y <= 0:
                 tile.close()
                 raise _DoubaoScopedCaptureError("Doubao screenshot tile scale was invalid")
@@ -2697,7 +2716,7 @@ def _capture_doubao_message_block(
                 )
 
             visible_start = max(state["scroll_top"], block["top"])
-            visible_end = min(state["scroll_top"] + expected["viewport_height"], block["bottom"])
+            visible_end = min(state["scroll_top"] + expected["capture_height"], block["bottom"])
             segment_start = max(visible_start, painted_until)
             if segment_start > painted_until + 1:
                 tile.close()

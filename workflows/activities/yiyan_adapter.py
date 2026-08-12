@@ -158,10 +158,7 @@ from workflows.activities.official_share import (
     capture_yiyan_official_share,
     write_share_link_manifest,
 )
-from workflows.activities.page_capture import (
-    FLATTEN_CHAT_SCROLLER_JS,
-    capture_full_page_safely,
-)
+from workflows.activities.page_capture import capture_scoped_chat_tiles
 from workflows.activities.raw_capture import dump_raw_evidence_refs, maybe_raw_capture
 from workflows.activities.resident_browser import platform_browser
 
@@ -420,9 +417,159 @@ _INPUT_VALUE_JS = (
     "? el.value : (el.textContent || '')"
 )
 
-# Adapter-level alias retained for diagnostics/tests; the shared implementation
-# brackets every temporary style mutation with a finally-based restore.
-_FLATTEN_FOR_SCREENSHOT_JS = FLATTEN_CHAT_SCROLLER_JS
+# Runtime evidence is scoped to the one current Q&A.  Whole-page flattening used
+# to pull the history rail and bottom composer into the long image and changed
+# virtual/sticky layout.  This probe scrolls only #conversation-flow-container,
+# captures the exact question plus generated answer blocks, and excludes answer
+# suggestions/toolbars by selecting chat-search-answer-generate directly.
+_YIYAN_CAPTURE_STATE_JS = r"""async (request) => {
+  const fail = (error) => ({ok: false, error});
+  const visible = (el) => {
+    const rect = el.getBoundingClientRect();
+    const cs = getComputedStyle(el);
+    return rect.width > 0 && rect.height > 0
+      && cs.display !== 'none' && cs.visibility !== 'hidden';
+  };
+  const normalizeText = (value) => String(value || '')
+    .replace(/\s+/g, ' ')
+    .replace(/\s*([“”‘’「」『』])\s*/g, '$1')
+    .trim();
+  const scrollers = Array.from(document.querySelectorAll('#conversation-flow-container'))
+    .filter((el) => {
+      const cs = getComputedStyle(el);
+      return visible(el) && (cs.overflowY === 'auto' || cs.overflowY === 'scroll')
+        && el.scrollHeight > el.clientHeight + 50;
+    });
+  if (scrollers.length !== 1) return fail(`chat_scroller_count:${scrollers.length}`);
+  const scroller = scrollers[0];
+  if (request && Number.isFinite(request.scrollTop)) {
+    scroller.scrollTop = Number(request.scrollTop);
+    await new Promise((resolve) => requestAnimationFrame(
+      () => requestAnimationFrame(resolve)
+    ));
+  }
+  const qaRows = Array.from(scroller.querySelectorAll('.chat-qa-container'));
+  if (qaRows.length !== 1) return fail(`qa_count:${qaRows.length}`);
+  const qa = qaRows[0];
+  const questions = qa.querySelectorAll('.conversation-flow-question-container');
+  const answers = qa.querySelectorAll('div.chat-search-answer-generate');
+  if (questions.length !== 1) return fail(`question_count:${questions.length}`);
+  if (answers.length !== 1) return fail(`answer_count:${answers.length}`);
+  const question = questions[0];
+  const answer = answers[0];
+  const expectedQuestion = normalizeText(request && request.expectedQuestion);
+  if (!expectedQuestion) return fail('expected_question_missing');
+  if (normalizeText(question.innerText) !== expectedQuestion) {
+    return fail('question_text_mismatch');
+  }
+  if (!normalizeText(answer.innerText)) return fail('answer_text_empty');
+  if ([question, answer].some((node) => node.querySelector(
+    'textarea, input, [contenteditable="true"], .answer-ask-container, .answer-tips-wrapper'
+  ))) return fail('excluded_ui_inside_message');
+  const stickyTargets = Array.from(answer.querySelectorAll('*')).filter((el) => {
+    const rect = el.getBoundingClientRect();
+    return getComputedStyle(el).position === 'sticky' && rect.height > 1;
+  });
+  if (stickyTargets.length) return fail(`sticky_answer_node_count:${stickyTargets.length}`);
+
+  const fingerprint = (node) => {
+    const stableClone = node.cloneNode(true);
+    // Wenxin mounts a viewport-only copy of the thinking header while scrolling.
+    // It is absolute UI chrome (not answer content) and appears/disappears as the
+    // pane crosses a threshold, so exclude it from the semantic text fingerprint.
+    stableClone.querySelectorAll('.fixed-header-container').forEach((el) => el.remove());
+    const text = normalizeText(stableClone.textContent);
+    let hash = 2166136261;
+    for (let i = 0; i < text.length; i += 1) {
+      hash ^= text.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return `${text.length}:${(hash >>> 0).toString(16)}`;
+  };
+  const scrollerRect = scroller.getBoundingClientRect();
+  const scrollTop = scroller.scrollTop;
+  const blocks = [question, answer].map((node, index) => {
+    const rect = node.getBoundingClientRect();
+    return {
+      role: index === 0 ? 'question' : 'answer',
+      top: rect.top - scrollerRect.top + scrollTop,
+      bottom: rect.bottom - scrollerRect.top + scrollTop,
+      left: rect.left,
+      right: rect.right,
+      fingerprint: fingerprint(node),
+    };
+  });
+  const captureX = Math.min(...blocks.map((block) => block.left));
+  const captureRight = Math.max(...blocks.map((block) => block.right));
+  const captureWidth = captureRight - captureX;
+  const topBars = Array.from(document.querySelectorAll('[class*="chat-top-bar-new"]'))
+    .filter(visible);
+  if (topBars.length !== 1) return fail(`top_bar_count:${topBars.length}`);
+  const bottomButtons = Array.from(document.querySelectorAll('.cs-scroll-to-bottom-btn'));
+  if (bottomButtons.length > 1) {
+    return fail(`scroll_to_bottom_count:${bottomButtons.length}`);
+  }
+  // The top navigation and the circular scroll-to-bottom control are overlaid on
+  // the inner scroller.  Screenshot only the unobscured band between them; both
+  // controls otherwise get copied into every stitched tile and cover answer text.
+  const topBarRect = topBars[0].getBoundingClientRect();
+  const bottomButtonRect = bottomButtons[0]?.getBoundingClientRect();
+  const captureTopInset = Math.max(0, topBarRect.bottom - scrollerRect.top);
+  // The control is intentionally display:none when already at the bottom, so its
+  // bounding box cannot define a stable band on every tile.  Its live layout is a
+  // 38px circle in the bottom 58px. Wenxin also paints a scroll-edge fade above
+  // it; reserve the bottom 116px so seams never contain that fade or the control.
+  const captureHeight = scrollerRect.height - 116;
+  if (bottomButtonRect && bottomButtonRect.width > 0 && bottomButtonRect.height > 0
+      && bottomButtonRect.top < scrollerRect.top + captureHeight) {
+    return fail('scroll_to_bottom_inside_capture_band');
+  }
+  const floatingThinkingHeaders = Array.from(
+    answer.querySelectorAll('.fixed-header-container')
+  ).filter(visible);
+  if (floatingThinkingHeaders.some((el) => (
+    el.getBoundingClientRect().bottom > scrollerRect.top + captureTopInset
+  ))) return fail('floating_thinking_header_inside_capture_band');
+  const maxScroll = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+  if (captureX < 0 || captureRight > window.innerWidth + 1 || captureWidth <= 0
+      || captureTopInset < 0 || captureHeight - captureTopInset < 200) {
+    return fail('capture_band_invalid');
+  }
+  if (blocks.some((block) => block.top < -1
+      || block.bottom > scroller.scrollHeight + 1
+      || block.bottom <= block.top)) {
+    return fail('message_outside_scroll_extent');
+  }
+  return {
+    ok: true,
+    scroll_top: scrollTop,
+    scroll_height: scroller.scrollHeight,
+    max_scroll: maxScroll,
+    capture_x: captureX,
+    capture_y: scrollerRect.top,
+    capture_width: captureWidth,
+    capture_top_inset: captureTopInset,
+    capture_height: captureHeight,
+    blocks,
+  };
+}"""
+
+
+_YIYAN_CAPTURE_RESTORE_JS = r"""async (scrollTop) => {
+  const scrollers = Array.from(document.querySelectorAll('#conversation-flow-container'));
+  if (scrollers.length !== 1) {
+    return {ok: false, error: `restore_scroller_count:${scrollers.length}`};
+  }
+  const scroller = scrollers[0];
+  scroller.scrollTop = Number(scrollTop);
+  await new Promise((resolve) => requestAnimationFrame(
+    () => requestAnimationFrame(resolve)
+  ));
+  return {
+    ok: Math.abs(scroller.scrollTop - Number(scrollTop)) <= 1,
+    actual_scroll_top: scroller.scrollTop,
+  };
+}"""
 
 
 # ---------------------------------------------------------------------------
@@ -1544,10 +1691,13 @@ class _PlaywrightYiyanSession:
         on_stage("screenshot")
         shot_path = self._evidence_dir / f"{spec.file_stem}.png"
         try:
-            capture_full_page_safely(
+            capture_scoped_chat_tiles(
                 page,
                 shot_path,
-                flatten_script=_FLATTEN_FOR_SCREENSHOT_JS,
+                probe_script=_YIYAN_CAPTURE_STATE_JS,
+                restore_script=_YIYAN_CAPTURE_RESTORE_JS,
+                expected_question=spec.query,
+                method="yiyan_scoped_message_tiles",
             )
         except Exception as exc:
             raise _IncompleteCapture(

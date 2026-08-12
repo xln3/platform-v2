@@ -88,6 +88,7 @@ class _ScopedCapturePage:
             "scroll_height": 1864,
             "max_scroll": 1314,
             "viewport_height": 550,
+            "capture_height": 454,
             "clip_x": 296,
             "clip_y": 56,
             "clip_width": 943,
@@ -134,14 +135,14 @@ class _ScopedCapturePage:
 
     def screenshot(self, *, clip: dict[str, float], timeout: int) -> bytes:
         self.screenshot_calls += 1
-        assert clip == {"x": 296.0, "y": 56.0, "width": 943.0, "height": 550.0}
+        assert clip == {"x": 296.0, "y": 56.0, "width": 943.0, "height": 454.0}
         assert timeout == 15_000
         if self.fail_screenshot_at == self.screenshot_calls:
             raise TimeoutError("fake screenshot timeout")
         # Encode the current scroll position into the pixels; this also proves the
         # final artifact came from scoped tiles rather than a whole-page fallback.
         color = (int(self.scroll_top) % 255, 40, 80)
-        return _png_bytes(943, 550, color)
+        return _png_bytes(943, 454, color)
 
 
 def test_scoped_capture_tiles_only_question_and_answer_content(tmp_path: Path) -> None:
@@ -152,12 +153,12 @@ def test_scoped_capture_tiles_only_question_and_answer_content(tmp_path: Path) -
 
     assert audit == {
         "method": "doubao_scoped_message_tiles",
-        "tile_count": 4,
+        "tile_count": 5,
         "block_count": 2,
         "restored_scroll_top": 178.0,
     }
     assert page.scroll_top == 178.0
-    assert page.screenshot_calls == 4
+    assert page.screenshot_calls == 5
     assert not any(
         script == getattr(doubao_adapter, "_FLATTEN_FOR_SCREENSHOT_JS", object())
         for script, _argument in page.evaluations
@@ -179,6 +180,8 @@ def test_scoped_capture_probe_is_semantic_and_does_not_mutate_styles() -> None:
     assert 'data-foundation-type="send-message-action-bar"' in script
     assert 'data-foundation-type="receive-message-action-bar"' in script
     assert 'data-foundation-type="receive-message-suggest-foundation"' in script
+    assert "#to-bottom-button" in script
+    assert "capture_height" in script
     assert "question_text_mismatch" in script
     assert "([“”‘’「」『』])" in script
     assert ".style" not in script
