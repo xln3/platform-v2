@@ -2529,27 +2529,17 @@ def _read_doubao_capture_state(
             raise _DoubaoScopedCaptureError("Doubao message block was malformed")
         expected_role = "question" if index == 0 else "answer"
         if raw_block.get("role") != expected_role:
-            raise _DoubaoScopedCaptureError(
-                f"Doubao message order changed at {expected_role}"
-            )
+            raise _DoubaoScopedCaptureError(f"Doubao message order changed at {expected_role}")
         fingerprint = raw_block.get("fingerprint")
         if not isinstance(fingerprint, str) or not fingerprint:
-            raise _DoubaoScopedCaptureError(
-                f"Doubao {expected_role} text fingerprint was missing"
-            )
+            raise _DoubaoScopedCaptureError(f"Doubao {expected_role} text fingerprint was missing")
         blocks.append(
             {
                 "role": expected_role,
                 "top": _capture_number(raw_block.get("top"), f"{expected_role}.top"),
-                "bottom": _capture_number(
-                    raw_block.get("bottom"), f"{expected_role}.bottom"
-                ),
-                "left": _capture_number(
-                    raw_block.get("left"), f"{expected_role}.left"
-                ),
-                "right": _capture_number(
-                    raw_block.get("right"), f"{expected_role}.right"
-                ),
+                "bottom": _capture_number(raw_block.get("bottom"), f"{expected_role}.bottom"),
+                "left": _capture_number(raw_block.get("left"), f"{expected_role}.left"),
+                "right": _capture_number(raw_block.get("right"), f"{expected_role}.right"),
                 "fingerprint": fingerprint,
             }
         )
@@ -2558,9 +2548,7 @@ def _read_doubao_capture_state(
         "scroll_top": _capture_number(raw.get("scroll_top"), "scroll_top"),
         "scroll_height": _capture_number(raw.get("scroll_height"), "scroll_height"),
         "max_scroll": _capture_number(raw.get("max_scroll"), "max_scroll"),
-        "viewport_height": _capture_number(
-            raw.get("viewport_height"), "viewport_height"
-        ),
+        "viewport_height": _capture_number(raw.get("viewport_height"), "viewport_height"),
         "clip_x": _capture_number(raw.get("clip_x"), "clip_x"),
         "clip_y": _capture_number(raw.get("clip_y"), "clip_y"),
         "clip_width": _capture_number(raw.get("clip_width"), "clip_width"),
@@ -2581,9 +2569,7 @@ def _assert_doubao_capture_stable(
     requested_scroll_top: float,
 ) -> None:
     if abs(actual["scroll_top"] - requested_scroll_top) > 1:
-        raise _DoubaoScopedCaptureError(
-            "Doubao chat scroller did not settle at the requested tile"
-        )
+        raise _DoubaoScopedCaptureError("Doubao chat scroller did not settle at the requested tile")
     for key in (
         "scroll_height",
         "max_scroll",
@@ -2593,17 +2579,11 @@ def _assert_doubao_capture_stable(
         "clip_width",
     ):
         if abs(actual[key] - expected[key]) > 1:
-            raise _DoubaoScopedCaptureError(
-                f"Doubao chat layout changed during capture ({key})"
-            )
-    for expected_block, actual_block in zip(
-        expected["blocks"], actual["blocks"], strict=True
-    ):
+            raise _DoubaoScopedCaptureError(f"Doubao chat layout changed during capture ({key})")
+    for expected_block, actual_block in zip(expected["blocks"], actual["blocks"], strict=True):
         role = expected_block["role"]
         if actual_block["fingerprint"] != expected_block["fingerprint"]:
-            raise _DoubaoScopedCaptureError(
-                f"Doubao {role} text changed during screenshot capture"
-            )
+            raise _DoubaoScopedCaptureError(f"Doubao {role} text changed during screenshot capture")
         for key in ("top", "bottom", "left", "right"):
             if abs(actual_block[key] - expected_block[key]) > 1:
                 raise _DoubaoScopedCaptureError(
@@ -2656,15 +2636,11 @@ def _capture_doubao_message_block(
                 expected_question=expected_question,
                 scroll_top=position,
             )
-            _assert_doubao_capture_stable(
-                expected, state, requested_scroll_top=position
-            )
+            _assert_doubao_capture_stable(expected, state, requested_scroll_top=position)
             # Two rAFs ran in the probe; one short paint window then a second
             # read proves neither virtual row nor its text was recycled meanwhile.
             page.wait_for_timeout(75)
-            stable_state = _read_doubao_capture_state(
-                page, expected_question=expected_question
-            )
+            stable_state = _read_doubao_capture_state(page, expected_question=expected_question)
             _assert_doubao_capture_stable(
                 expected,
                 stable_state,
@@ -2678,9 +2654,7 @@ def _capture_doubao_message_block(
             }
             raw_png = page.screenshot(clip=clip, timeout=15_000)
             if not isinstance(raw_png, bytes | bytearray):
-                raise _DoubaoScopedCaptureError(
-                    "Doubao screenshot API returned no PNG bytes"
-                )
+                raise _DoubaoScopedCaptureError("Doubao screenshot API returned no PNG bytes")
             try:
                 with Image.open(io.BytesIO(bytes(raw_png))) as opened:
                     opened.load()
@@ -2723,9 +2697,7 @@ def _capture_doubao_message_block(
                 )
 
             visible_start = max(state["scroll_top"], block["top"])
-            visible_end = min(
-                state["scroll_top"] + expected["viewport_height"], block["bottom"]
-            )
+            visible_end = min(state["scroll_top"] + expected["viewport_height"], block["bottom"])
             segment_start = max(visible_start, painted_until)
             if segment_start > painted_until + 1:
                 tile.close()
@@ -2758,9 +2730,7 @@ def _capture_doubao_message_block(
         raise
 
 
-def _capture_full_page(
-    page: Any, out_path: Path, *, expected_question: str
-) -> dict[str, Any]:
+def _capture_full_page(page: Any, out_path: Path, *, expected_question: str) -> dict[str, Any]:
     """Capture only the current question and answer content from Doubao.
 
     The two unique ``[data-message-id]`` nodes exclude both message action bars,
@@ -2771,9 +2741,7 @@ def _capture_full_page(
     whole-page/flatten fallback because that would create misleading evidence.
     """
 
-    initial = _read_doubao_capture_state(
-        page, expected_question=expected_question
-    )
+    initial = _read_doubao_capture_state(page, expected_question=expected_question)
     original_scroll_top = initial["scroll_top"]
     block_images: list[Image.Image] = []
     final_image: Image.Image | None = None
@@ -2792,9 +2760,7 @@ def _capture_full_page(
             tile_count += count
         widths = {image.width for image in block_images}
         if len(widths) != 1:
-            raise _DoubaoScopedCaptureError(
-                "Doubao question and answer screenshot widths differed"
-            )
+            raise _DoubaoScopedCaptureError("Doubao question and answer screenshot widths differed")
         final_image = Image.new(
             "RGB",
             (block_images[0].width, sum(image.height for image in block_images)),
@@ -2828,8 +2794,7 @@ def _capture_full_page(
             final_image.close()
         if restore_error is not None:
             raise _DoubaoScopedCaptureError(
-                f"Doubao scoped screenshot failed and scroll restore also failed: "
-                f"{restore_error}"
+                f"Doubao scoped screenshot failed and scroll restore also failed: {restore_error}"
             ) from capture_error
         raise capture_error
     if restore_error is not None:

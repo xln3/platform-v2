@@ -1277,14 +1277,16 @@ class _HttpxBrowserFetcher:
             payload = locator.screenshot(type="png", timeout=15_000, animations="disabled")
             if not isinstance(payload, bytes) or not payload:
                 return None
-            return validate_brand_mention_capture(BrandMentionCapture(
-                png_bytes=payload,
-                matched_text=matched_text,
-                paragraph_text=paragraph_text,
-                text_start=text_start,
-                text_end=text_end,
-                bbox=safe_bbox,
-            ))
+            return validate_brand_mention_capture(
+                BrandMentionCapture(
+                    png_bytes=payload,
+                    matched_text=matched_text,
+                    paragraph_text=paragraph_text,
+                    text_start=text_start,
+                    text_end=text_end,
+                    bbox=safe_bbox,
+                )
+            )
         finally:
             try:
                 page.close()

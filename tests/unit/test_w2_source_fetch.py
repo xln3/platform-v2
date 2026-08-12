@@ -51,6 +51,7 @@ def _png_bytes(width: int, height: int) -> bytes:
     Image.new("RGB", (width, height), "white").save(output, format="PNG")
     return output.getvalue()
 
+
 _ITEM = SourceFetchInput(tenant_pub_id=_TENANT, project_pub_id=_PROJECT, run_pub_id=_RUN)
 
 
@@ -556,9 +557,7 @@ def test_execute_fetch_rejects_bbox_outside_decoded_png() -> None:
 
     assert result.fetched[0].brand_mention_captured is False
     assert sink.persisted[0]["brand_mention"] is None
-    assert [failure.error for failure in result.failures] == [
-        "brand_capture: invalid_png_or_bbox"
-    ]
+    assert [failure.error for failure in result.failures] == ["brand_capture: invalid_png_or_bbox"]
 
 
 def test_execute_fetch_rejects_screenshot_when_live_dom_does_not_match_brand() -> None:

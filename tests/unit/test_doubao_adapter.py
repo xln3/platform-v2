@@ -190,9 +190,7 @@ def test_scoped_capture_restores_scroll_after_screenshot_failure(tmp_path: Path)
     page = _ScopedCapturePage(fail_screenshot_at=3)
 
     with pytest.raises(TimeoutError, match="fake screenshot timeout"):
-        _capture_full_page(
-            page, tmp_path / "broken.png", expected_question="本次问题"
-        )
+        _capture_full_page(page, tmp_path / "broken.png", expected_question="本次问题")
 
     assert page.scroll_top == page.initial_scroll_top
     assert not (tmp_path / "broken.png").exists()
@@ -205,9 +203,7 @@ def test_scoped_capture_fails_closed_when_virtual_message_changes(tmp_path: Path
         doubao_adapter._DoubaoScopedCaptureError,
         match="answer text changed",
     ):
-        _capture_full_page(
-            page, tmp_path / "changed.png", expected_question="本次问题"
-        )
+        _capture_full_page(page, tmp_path / "changed.png", expected_question="本次问题")
 
     assert page.scroll_top == page.initial_scroll_top
     assert not (tmp_path / "changed.png").exists()
@@ -220,9 +216,7 @@ def test_scoped_capture_fails_closed_on_ambiguous_message_nodes(tmp_path: Path) 
         doubao_adapter._DoubaoScopedCaptureError,
         match="message_content_count",
     ):
-        _capture_full_page(
-            page, tmp_path / "ambiguous.png", expected_question="本次问题"
-        )
+        _capture_full_page(page, tmp_path / "ambiguous.png", expected_question="本次问题")
 
     assert page.screenshot_calls == 0
     assert page.scroll_top == page.initial_scroll_top
@@ -236,9 +230,7 @@ def test_scoped_capture_restore_failure_is_fatal(tmp_path: Path) -> None:
         doubao_adapter._DoubaoScopedCaptureError,
         match="scroll position could not be restored",
     ):
-        _capture_full_page(
-            page, tmp_path / "unrestored.png", expected_question="本次问题"
-        )
+        _capture_full_page(page, tmp_path / "unrestored.png", expected_question="本次问题")
 
     assert not (tmp_path / "unrestored.png").exists()
 

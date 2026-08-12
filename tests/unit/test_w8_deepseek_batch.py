@@ -430,13 +430,8 @@ def _install_fake_browser(monkeypatch: pytest.MonkeyPatch, page: _FakePage) -> N
 
     monkeypatch.setattr(deepseek_adapter, "_clean_profile_crash_state", _clean_spy)
 
-    def _fake_official_share(
-        _page: Any, out_path: Path, **_kwargs: Any
-    ) -> SimpleNamespace:
-        out_path.write_bytes(
-            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
-            b"\x00\x00\x00\x01\x00\x00\x00\x01"
-        )
+    def _fake_official_share(_page: Any, out_path: Path, **_kwargs: Any) -> SimpleNamespace:
+        out_path.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01")
         return SimpleNamespace(
             image_path=out_path,
             share_url="https://chat.deepseek.com/share/fakeOfficialShare",
@@ -531,7 +526,6 @@ async def test_session_collect_full_humanized_flow(
 
     # 4) 新会话验证被调用（composer 空探针 + 消息节点计数探针）
     assert ("evaluate", deepseek_adapter._CHAT_MESSAGE_COUNT_JS) in events
-
 
     # 5) 全程无裸 locator.click（聚焦/发送/弹层全走鼠标事件链或真实键盘）
     assert not [e for e in events if e[0] == "locator_click"]

@@ -445,18 +445,14 @@ def test_sse_taxonomy_keeps_48_search_hits_separate_from_6_opened_pages() -> Non
                         "id": 200,
                         "type": "RESPONSE",
                         "content": "最终答案",
-                        "references": [
-                            {"id": item["id"], "type": "TOOL_OPEN"} for item in opened
-                        ],
+                        "references": [{"id": item["id"], "type": "TOOL_OPEN"} for item in opened],
                     },
                 ]
             }
         }
     }
 
-    rich = _rich_record_from_sse(
-        "data: " + json.dumps(event, ensure_ascii=False) + "\n\n"
-    )
+    rich = _rich_record_from_sse("data: " + json.dumps(event, ensure_ascii=False) + "\n\n")
 
     assert rich is not None
     assert len(rich["search_results"]) == 48

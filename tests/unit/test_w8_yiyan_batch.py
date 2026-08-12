@@ -393,13 +393,8 @@ def _install_fake_browser(monkeypatch: pytest.MonkeyPatch, page: _FakePage) -> N
 
     monkeypatch.setattr(yiyan_adapter, "_clean_profile_crash_state", _clean_spy)
 
-    def _fake_official_share(
-        _page: Any, out_path: Path, **_kwargs: Any
-    ) -> SimpleNamespace:
-        out_path.write_bytes(
-            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
-            b"\x00\x00\x00\x01\x00\x00\x00\x01"
-        )
+    def _fake_official_share(_page: Any, out_path: Path, **_kwargs: Any) -> SimpleNamespace:
+        out_path.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01")
         return SimpleNamespace(
             image_path=out_path,
             share_url="https://mr.baidu.com/r/fakeOfficialShare",
@@ -523,7 +518,6 @@ async def test_session_collect_full_humanized_flow(
     close_idx = events.index(("context_close",))
     launch_idx = events.index(("launch", str(tmp_path)))
     assert 0 < launch_idx < close_idx < len(events) - 1
-
 
     # 7) 崩溃标记被写回 Normal（其余键保留）
     prefs = json.loads((prefs_dir / "Preferences").read_text(encoding="utf-8"))

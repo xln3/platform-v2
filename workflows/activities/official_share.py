@@ -154,9 +154,7 @@ def _grant_clipboard(page: Any) -> None:
         pass
     try:
         origin = f"{urlsplit(str(page.url)).scheme}://{urlsplit(str(page.url)).netloc}"
-        page.context.grant_permissions(
-            ["clipboard-read", "clipboard-write"], origin=origin
-        )
+        page.context.grant_permissions(["clipboard-read", "clipboard-write"], origin=origin)
     except Exception:
         pass
     try:
@@ -304,10 +302,7 @@ def _find_deepseek_share_button(page: Any, *, timeout_ms: int = 15_000) -> Any:
             try:
                 if not isinstance(raw_box, dict):
                     continue
-                box = {
-                    key: float(raw_box[key])
-                    for key in ("x", "y", "width", "height")
-                }
+                box = {key: float(raw_box[key]) for key in ("x", "y", "width", "height")}
                 if box["width"] <= 0 or box["height"] <= 0:
                     continue
                 page.mouse.move(
@@ -318,10 +313,7 @@ def _find_deepseek_share_button(page: Any, *, timeout_ms: int = 15_000) -> Any:
                 tooltips = page.locator(".ds-tooltip")
                 for tooltip_index in range(tooltips.count()):
                     tooltip = tooltips.nth(tooltip_index)
-                    if (
-                        tooltip.is_visible(timeout=200)
-                        and tooltip.inner_text().strip() == "分享"
-                    ):
+                    if tooltip.is_visible(timeout=200) and tooltip.inner_text().strip() == "分享":
                         return _CoordinateControl(page, box)
             except Exception:
                 continue
@@ -350,9 +342,7 @@ def _resolve_deepseek_share_url(
             if isinstance(biz_data, dict):
                 share_id = biz_data.get("share_id")
     if isinstance(share_id, str) and re.fullmatch(r"[A-Za-z0-9_-]{6,128}", share_id):
-        candidate = validated_deepseek_share_url(
-            f"https://chat.deepseek.com/share/{share_id}"
-        )
+        candidate = validated_deepseek_share_url(f"https://chat.deepseek.com/share/{share_id}")
         if candidate:
             return candidate
     for source in (dom_text, clipboard_text):
@@ -644,10 +634,7 @@ def _capture_yiyan_share_card_tiled(page: Any, out_path: Path) -> dict[str, Any]
             if not isinstance(raw_tile, dict) or float(raw_tile.get("height") or 0) <= 0:
                 continue
             page.wait_for_timeout(100)
-            clip = {
-                key: float(raw_tile[key])
-                for key in ("x", "y", "width", "height")
-            }
+            clip = {key: float(raw_tile[key]) for key in ("x", "y", "width", "height")}
             tile_bytes = page.screenshot(clip=clip, animations="disabled")
             with Image.open(io.BytesIO(tile_bytes)) as tile_image:
                 tile_image.load()

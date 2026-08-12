@@ -54,7 +54,13 @@ jobs:
       # format:check 内含 .venv/bin/ruff format --check，而本 job 无 python 环境（.venv 不存在）；
       # ruff format 门由 python job 以相同 scope 显式执行，此处只跑 prettier 半边。
       - run: pnpm exec prettier --check .
-      - run: pnpm turbo run lint typecheck test build
+      # React Router 的 build/lint/typecheck 都会改写同一个 .react-router/types 目录；
+      # 放进一次并发 turbo 调用会互删临时类型文件并随机触发 TS6053。分阶段执行，
+      # 各阶段内部仍保持跨 workspace 并行。
+      - run: pnpm turbo run build
+      - run: pnpm turbo run lint
+      - run: pnpm turbo run typecheck
+      - run: pnpm turbo run test
 
   contract-and-release-guards:
     runs-on: ubuntu-latest
