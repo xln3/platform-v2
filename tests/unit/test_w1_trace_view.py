@@ -187,6 +187,52 @@ def test_build_task_trace_view_separates_search_open_and_answer_reference_pages(
     assert view.totals.answer_reference_pages == 1
 
 
+def test_build_task_trace_view_defensively_deduplicates_persisted_search_copies() -> None:
+    """Already-stored traces receive the same truthful projection without backfill."""
+    duplicate_block = {
+        "scene": 1,
+        "queries": ["盛邦安全 RayGate 能力", "盛邦安全 RaySpace 能力"],
+        "summary": "搜索 2 个关键词，参考 2 篇资料",
+        "results": [
+            {"title": "标题A", "url": "https://example.com/a", "rank": 1},
+            {"title": "标题B", "url": "https://example.com/b", "rank": 2},
+            {"title": "标题A重复", "url": "https://example.com/a", "rank": 3},
+        ],
+    }
+    record = {
+        "engine": "doubao",
+        "deep_think_active": True,
+        "thinking_chain": [],
+        "search_blocks": [duplicate_block, dict(duplicate_block, scene=2)],
+    }
+    view = build_task_trace_view(
+        **dict(
+            _KWARGS,
+            stored_search_queries=[
+                {"query": "盛邦安全 RayGate 能力", "ordinal": 1},
+                {"query": "盛邦安全 RaySpace 能力", "ordinal": 2},
+                {"query": "盛邦安全 RayGate 能力", "ordinal": 3},
+                {"query": "盛邦安全 RaySpace 能力", "ordinal": 4},
+            ],
+        ),
+        trace_record=record,
+    )
+
+    assert len(view.search_blocks) == 1
+    assert view.search_blocks[0].result_count == 2
+    assert [row.url for row in view.search_blocks[0].results] == [
+        "https://example.com/a",
+        "https://example.com/b",
+    ]
+    assert view.totals.results == 2
+    assert view.totals.queries == 2
+    assert [row.query for row in view.search_queries] == [
+        "盛邦安全 RayGate 能力",
+        "盛邦安全 RaySpace 能力",
+    ]
+    assert [row.ordinal for row in view.search_queries] == [1, 2]
+
+
 def test_build_task_trace_view_marks_legacy_deepseek_sources_unclassified() -> None:
     record = dict(_TRACE_RECORD, engine="deepseek")
     view = build_task_trace_view(**dict(_KWARGS), trace_record=record)

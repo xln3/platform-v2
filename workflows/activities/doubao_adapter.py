@@ -3191,6 +3191,10 @@ def _assemble_sse_trace(
     thinking_chain: list[dict[str, Any]] = []
     search_blocks: list[dict[str, Any]] = []
     queries: list[dict[str, Any]] = []
+    seen_queries: set[str] = set()
+    seen_search_blocks: set[tuple[tuple[str, ...], tuple[str, ...]]] = set()
+    seen_thinking_searches: set[tuple[tuple[str, ...], tuple[str, ...]]] = set()
+    duplicate_search_blocks = 0
     scene_counter = 0
 
     for b in blocks:
@@ -3214,17 +3218,24 @@ def _assemble_sse_trace(
                 }
             )
         elif bt == 10025:
-            scene_counter += 1
             inner = b.get("content") or {}
             sqr = (inner.get("search_query_result_block") or {}) if isinstance(inner, dict) else {}
-            block_queries = [
-                str(q).strip() for q in sqr.get("queries") or [] if isinstance(q, str) and q.strip()
-            ]
-            for q in block_queries:
-                queries.append({"query": q, "ordinal": len(queries) + 1})
+            block_queries: list[str] = []
+            block_query_keys: set[str] = set()
+            for raw_query in sqr.get("queries") or []:
+                if not isinstance(raw_query, str):
+                    continue
+                query = " ".join(raw_query.split())
+                query_key = query.casefold()
+                if not query or query_key in block_query_keys:
+                    continue
+                block_query_keys.add(query_key)
+                block_queries.append(query)
             block_summary = str(sqr.get("summary") or "")[:_BLOCK_SUMMARY_LIMIT]
             results: list[dict[str, Any]] = []
-            for res in (sqr.get("results") or [])[:results_per_block]:
+            result_keys: list[str] = []
+            seen_block_results: set[str] = set()
+            for res in sqr.get("results") or []:
                 if not isinstance(res, dict):
                     continue
                 tc = res.get("text_card") or {}
@@ -3233,24 +3244,29 @@ def _assemble_sse_trace(
                 url = tc.get("url")
                 if not _is_real_url(url):
                     continue
-                results.append(
-                    {
-                        "title": tc.get("title"),
-                        "url": url,
-                        "site": tc.get("sitename"),
-                        "rank": tc.get("index", res.get("index")),
-                        "summary": str(tc.get("summary") or "")[:_RESULT_SUMMARY_LIMIT],
-                    }
-                )
-            search_blocks.append(
-                {
-                    "scene": scene_counter,
-                    "queries": block_queries,
-                    "summary": block_summary,
-                    "results": results,
-                }
+                result_key = str(url).strip().split("#", 1)[0]
+                if result_key in seen_block_results:
+                    continue
+                seen_block_results.add(result_key)
+                result_keys.append(result_key)
+                if len(results) < results_per_block:
+                    results.append(
+                        {
+                            "title": tc.get("title"),
+                            "url": url,
+                            "site": tc.get("sitename"),
+                            "rank": tc.get("index", res.get("index")),
+                            "summary": str(tc.get("summary") or "")[
+                                :_RESULT_SUMMARY_LIMIT
+                            ],
+                        }
+                    )
+            block_identity = (
+                tuple(query.casefold() for query in block_queries),
+                tuple(sorted(result_keys)),
             )
-            if thinking_id and pid == thinking_id:
+            if thinking_id and pid == thinking_id and block_identity not in seen_thinking_searches:
+                seen_thinking_searches.add(block_identity)
                 thinking_chain.append(
                     {
                         "kind": "search",
@@ -3260,6 +3276,25 @@ def _assemble_sse_trace(
                         "n_results": len(results),
                     }
                 )
+            if block_identity in seen_search_blocks:
+                duplicate_search_blocks += 1
+                continue
+            seen_search_blocks.add(block_identity)
+            scene_counter += 1
+            for query in block_queries:
+                query_key = query.casefold()
+                if query_key in seen_queries:
+                    continue
+                seen_queries.add(query_key)
+                queries.append({"query": query, "ordinal": len(queries) + 1})
+            search_blocks.append(
+                {
+                    "scene": scene_counter,
+                    "queries": block_queries,
+                    "summary": block_summary,
+                    "results": results,
+                }
+            )
 
     events_by_type: dict[str, int] = {}
     for ev in events:
@@ -3277,6 +3312,7 @@ def _assemble_sse_trace(
             "event_count": len(events),
             "events_by_type": events_by_type,
             "sse_body_bytes": sse_body_bytes,
+            "search_block_duplicates_dropped": duplicate_search_blocks,
             "truncated": False,
         },
         "conversation_id": assembled.get("conversation_id"),

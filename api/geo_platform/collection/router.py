@@ -571,27 +571,62 @@ def build_task_trace_view(
     taxonomy_version = trace_record.get("source_taxonomy_version")
     legacy_deepseek = engine == "deepseek" and taxonomy_version != 2
     search_blocks: list[TraceSearchBlock] = []
+    seen_search_blocks: set[tuple[tuple[str, ...], tuple[str, ...]]] = set()
+    unique_candidate_keys: set[str] = set()
+    unique_query_keys: set[str] = set()
     for block in trace_record.get("search_blocks") or []:
         if not isinstance(block, Mapping):
             continue
-        results = [
-            TraceSearchResult(
-                title=str(x.get("title") or "未命名来源")
-                if isinstance(x, Mapping)
-                else "未命名来源",
-                url=str(x.get("url")) if isinstance(x, Mapping) and x.get("url") else None,
-                site=(str(x.get("site")) if isinstance(x, Mapping) and x.get("site") else None),
-                rank=x.get("rank") if isinstance(x, Mapping) else None,
-                summary=(str(x.get("summary") or "")[:800] if isinstance(x, Mapping) else ""),
-                status="legacy_unclassified" if legacy_deepseek else "search_hit",
+        block_queries: list[str] = []
+        block_query_keys: set[str] = set()
+        for raw_query in block.get("queries") or []:
+            query = " ".join(str(raw_query).split())
+            query_key = query.casefold()
+            if not query or query_key in block_query_keys:
+                continue
+            block_query_keys.add(query_key)
+            unique_query_keys.add(query_key)
+            block_queries.append(query)
+        results: list[TraceSearchResult] = []
+        result_keys: list[str] = []
+        seen_block_results: set[str] = set()
+        for value in block.get("results") or []:
+            if not isinstance(value, Mapping):
+                continue
+            url = str(value.get("url") or "").strip()
+            if url:
+                result_key = f"url:{url.split('#', 1)[0]}"
+            else:
+                result_key = "text:" + "\x1f".join(
+                    (
+                        " ".join(str(value.get("title") or "").split()).casefold(),
+                        " ".join(str(value.get("site") or "").split()).casefold(),
+                    )
+                )
+            if result_key in seen_block_results:
+                continue
+            seen_block_results.add(result_key)
+            result_keys.append(result_key)
+            results.append(
+                TraceSearchResult(
+                    title=str(value.get("title") or "未命名来源"),
+                    url=url or None,
+                    site=(str(value.get("site")) if value.get("site") else None),
+                    rank=value.get("rank"),
+                    summary=str(value.get("summary") or "")[:800],
+                    status="legacy_unclassified" if legacy_deepseek else "search_hit",
+                )
             )
-            for x in block.get("results") or []
-        ]
+        block_identity = (tuple(sorted(block_query_keys)), tuple(sorted(result_keys)))
+        if block_identity in seen_search_blocks:
+            continue
+        seen_search_blocks.add(block_identity)
+        unique_candidate_keys.update(result_keys)
         scene = block.get("scene")
         search_blocks.append(
             TraceSearchBlock(
                 scene=int(scene) if isinstance(scene, int) else None,
-                queries=[str(q) for q in block.get("queries") or []],
+                queries=block_queries,
                 summary=str(block.get("summary") or ""),
                 result_count=len(results),
                 results=results,
@@ -620,6 +655,18 @@ def build_task_trace_view(
     )
     opened_pages = _source_pages("opened_pages", "opened_page")
     answer_reference_pages = _source_pages("answer_reference_pages", "answer_reference")
+    search_queries: list[TraceSearchQuery] = []
+    seen_stored_queries: set[str] = set()
+    for item in stored_search_queries:
+        if not isinstance(item, Mapping):
+            continue
+        query = " ".join(str(item.get("query") or "").split())
+        query_key = query.casefold()
+        if not query or query_key in seen_stored_queries:
+            continue
+        seen_stored_queries.add(query_key)
+        unique_query_keys.add(query_key)
+        search_queries.append(TraceSearchQuery(query=query, ordinal=len(search_queries) + 1))
     response_text = answer_text or ""
     response_truncated = len(response_text) > _TRACE_TEXT_LIMIT
     return TaskTraceView(
@@ -641,16 +688,10 @@ def build_task_trace_view(
         opened_pages_observed=opened_pages_observed,
         opened_pages=opened_pages,
         answer_reference_pages=answer_reference_pages,
-        search_queries=[
-            TraceSearchQuery(
-                query=str(item.get("query") or ""), ordinal=int(item.get("ordinal") or 0)
-            )
-            for item in stored_search_queries
-            if isinstance(item, Mapping)
-        ],
+        search_queries=search_queries,
         totals=TraceTotals(
-            queries=sum(len(b.queries) for b in search_blocks),
-            results=sum(b.result_count for b in search_blocks),
+            queries=len(unique_query_keys),
+            results=len(unique_candidate_keys),
             opened_pages=len(opened_pages) if opened_pages_observed else None,
             answer_reference_pages=len(answer_reference_pages),
             surfaced_reasoning_steps=len([s for s in reasoning if s.kind == "surfaced_reasoning"]),

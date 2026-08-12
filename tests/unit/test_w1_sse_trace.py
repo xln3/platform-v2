@@ -168,6 +168,50 @@ def test_trace_without_thinking_block_marks_deep_think_inactive() -> None:
     assert trace["queries"] == []
 
 
+def test_trace_deduplicates_thinking_and_top_level_copies_of_same_search() -> None:
+    """Live Doubao emits one search payload twice with different block IDs.
+
+    The child copy belongs to the surfaced thinking chain and the top-level copy
+    renders the same ten cards in the answer.  They are one candidate set, not two
+    search scenes, so content identity—not block_id—must drive deduplication.
+    """
+    results = [
+        _result("https://example.com/a", "标题A", "摘要A", 0),
+        _result("https://example.com/b", "标题B", "摘要B", 1),
+    ]
+    body = _notify_event(
+        [
+            _thinking_root(),
+            _search_block(
+                "thinking-search-copy",
+                "think-root",
+                ["盛邦安全 RayGate 能力", "盛邦安全 RaySpace 能力"],
+                results,
+                summary="搜索 2 个关键词，参考 2 篇资料",
+            ),
+            _search_block(
+                "top-level-search-copy",
+                "",
+                ["盛邦安全 RayGate 能力", "盛邦安全 RaySpace 能力"],
+                results,
+                summary="搜索 2 个关键词，参考 2 篇资料",
+            ),
+        ]
+    )
+
+    trace = _sse_trace_from_body(body)
+
+    assert trace is not None
+    assert len(trace["search_blocks"]) == 1
+    assert len(trace["search_blocks"][0]["results"]) == 2
+    assert trace["queries"] == [
+        {"query": "盛邦安全 RayGate 能力", "ordinal": 1},
+        {"query": "盛邦安全 RaySpace 能力", "ordinal": 2},
+    ]
+    assert len([step for step in trace["thinking_chain"] if step["kind"] == "search"]) == 1
+    assert trace["stats"]["search_block_duplicates_dropped"] == 1
+
+
 def test_trace_truncation_keeps_payload_within_budget() -> None:
     """超限先截 results 再截 thinking 文本，stats.truncated 如实标注。"""
     blocks: list[dict[str, Any]] = [_thinking_root()]
