@@ -46,7 +46,9 @@ mode 支持（20260810 起，用户拍板测量口径。deepseek 特殊性：专
   发送墙/限流 → ``wall_send`` non_retryable（重试只是再撞）。
 - 成功判据（零合成）：提交被接受（输入框清空）且 completion 流真正 loadingFinished
   且解析出非空正文且不含墙特征——缺一都不得返回成功。流截断/空答案/无流 →
-  ``answer_capture_incomplete``（可重试的诚实失败）。
+  ``answer_capture_incomplete``（可重试的诚实失败）。官方公开分享 URL 与分享页
+  图像也同属成功门：DeepSeek 当前无原生“下载分享图”，故图像取自新建的官方
+  ``/share/...`` 公共页面；绝不以登录态运行窗口截图替代，任一缺失即 incomplete。
 
 拟人化口径（2026-08-06 起，与豆包同构。背景：自动化交互序列本身即行为指纹——
 零停顿直点、insert_text 注入、秒发都会被风控稳定识别）：
@@ -97,15 +99,18 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import ipaddress
 import json
 import os
 import random
 import re
+import socket
 import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Protocol
+from urllib.parse import urlsplit
 
 import structlog
 from temporalio import activity
@@ -129,6 +134,12 @@ from workflows.activities.human_like import (
     human_read_pause,
     human_type,
 )
+from workflows.activities.official_share import (
+    OfficialShareExportError,
+    capture_deepseek_official_share,
+    write_share_link_manifest,
+)
+from workflows.activities.page_capture import capture_full_page_safely
 from workflows.activities.raw_capture import dump_raw_evidence_refs, maybe_raw_capture
 from workflows.activities.resident_browser import platform_browser
 
@@ -139,6 +150,7 @@ ENV_PROXY_URL = "GEO_DEEPSEEK_PROXY_URL"
 ENV_EVIDENCE_DIR = "GEO_ADAPTER_EVIDENCE_DIR"  # 五平台共享 env；缺省落 deepseek 子目录
 ENV_HEADLESS = "GEO_DEEPSEEK_HEADLESS"
 ENV_CDP_URL = "GEO_DEEPSEEK_CDP_URL"  # 常驻浏览器 CDP attach（空=回退 launch；契约层读取）
+ENV_OPENED_SOURCE_PREVIEW_LIMIT = "GEO_DEEPSEEK_OPENED_SOURCE_PREVIEW_LIMIT"
 
 _DEFAULT_EVIDENCE_DIR = (
     Path(__file__).resolve().parents[2] / "runtime" / "adapter-evidence" / "deepseek"
@@ -149,6 +161,8 @@ _CHAT_TIMEOUT_S = 120.0  # normal 模式流式完成预算（workflow 总预算 
 # deep_think（深度思考+智能搜索）流远长于 normal——对齐豆包 600s；workflow
 # 缺省总预算 15min（activity_timeout_minutes）放得下。
 _CHAT_TIMEOUT_DEEP_THINK_S = 600.0
+_DEFAULT_OPENED_SOURCE_PREVIEW_LIMIT = 10
+_MAX_OPENED_SOURCE_PREVIEW_LIMIT = 20
 
 _CHAT_URL = "https://chat.deepseek.com/"
 _SIGN_IN_PATH = "/sign_in"  # 未登录访问 / 自动跳 /sign_in（旧链 CONFIRMED 信号）
@@ -522,6 +536,13 @@ class CollectedAnswer:
     # 原始流量证据 ref（2026-08-10 起：sse_raw/har；GEO_RAW_CAPTURE=0 或写盘
     # 失败为空——诚实缺省）。_task_result_from_collected 并入 evidence。
     raw_evidence: list[CollectionEvidenceRef] = field(default_factory=list)
+    # DeepSeek TOOL_OPEN 事件驱动的事后重开页面概览。它只证明平台流明确报告
+    # “打开了该 URL”，以及采集时该 URL 可被复现；不冒充 AI 会话内像素证据，
+    # 也绝不作为品牌提及证据。
+    opened_source_previews: list[CollectionEvidenceRef] = field(default_factory=list)
+    # Runtime answer screenshot + official public-share page image/link. The
+    # official share image is selected as screenshot_ref for product display.
+    evidence: list[CollectionEvidenceRef] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -904,7 +925,6 @@ def _task_result_from_collected(
     """CollectedAnswer → CollectionTaskResult 映射（answer 组装/出界 DLP 自检）。
     run_deepseek_collection 与 batch per-item ok 映射共用。"""
     answer_text = _compose_answer_text(collected.answer_text, collected.references)
-    screenshot_ref = f"file://{collected.screenshot_path}"
     # 结构化信源（W2 source_fetch 的唯一输入）：references 判形时已保证真实 http(s)
     # URL；cited_text 无逐句引述可填 → None，transcript 口径诚实落 unverifiable。
     citations = [
@@ -916,7 +936,7 @@ def _task_result_from_collected(
         for ref in collected.references
         if isinstance(ref, dict) and _is_real_url(ref.get("url"))
     ]
-    evidence: list[CollectionEvidenceRef] = []
+    evidence: list[CollectionEvidenceRef] = list(collected.evidence)
     if collected.trace_path is not None:
         evidence.append(
             CollectionEvidenceRef(
@@ -927,8 +947,18 @@ def _task_result_from_collected(
                 source_url=_CHAT_URL,
             )
         )
+    evidence.extend(collected.opened_source_previews)
     # 原始流量证据（2026-08-10 起）：sse_raw/har，_collect_one 题末导出。
     evidence.extend(collected.raw_evidence)
+    official_share_image = next(
+        (
+            ref.path
+            for ref in evidence
+            if ref.kind == "share_image" and ref.relation_type == "official_share_image"
+        ),
+        None,
+    )
+    screenshot_ref = f"file://{official_share_image or collected.screenshot_path}"
     # DLP 统一由 persist 层脱敏处理（单一权威边界，2026-08-06 起）。
     return CollectionTaskResult(
         business_key=item.business_key,
@@ -1198,7 +1228,6 @@ class _PlaywrightDeepseekSession:
     ) -> CollectedAnswer:
         """单题主体：await_input → fresh_chat → 拟人输入/发送 → SSE 捕获/组装/
         证据落盘。per-task 单题与 batch 每题共用。"""
-        del pw_timeout  # 形参与 doubao._collect_one 对齐；deepseek v1 无信源截图等用途
         capture = _CompletionCapture(context, page)
         # 原始流量留痕（2026-08-10 起，用户拍板默认开）：独立 CDP session 自组
         # HAR + 落 completion 原始响应体，与既有 capture 互不干扰。
@@ -1323,6 +1352,7 @@ class _PlaywrightDeepseekSession:
             references: list[dict[str, Any]] = []
             trace_path: Path | None = None
             search_queries: list[dict[str, Any]] = []
+            opened_source_previews: list[CollectionEvidenceRef] = []
             sse_body = capture.latest_body()
             if sse_body:
                 rich = _rich_record_from_sse(sse_body)
@@ -1351,6 +1381,19 @@ class _PlaywrightDeepseekSession:
                             file_stem=spec.file_stem,
                             exc_info=True,
                         )
+                    on_stage("opened_source_previews")
+                    opened_source_previews, opened_preview_audit = _capture_opened_source_previews(
+                        context,
+                        list(rich.get("opened_pages") or []),
+                        evidence_dir=self._evidence_dir,
+                        file_stem=spec.file_stem,
+                        timeout_error=pw_timeout,
+                    )
+                    log.info(
+                        "deepseek_opened_source_previews",
+                        business_key=spec.business_key,
+                        **opened_preview_audit,
+                    )
             if not answer_text and meta.get("found"):
                 # SSE 捕获/解析失败时的 DOM 兜底（推理链剥离后取正文）
                 answer_text = _extract_response_text(page)
@@ -1393,9 +1436,77 @@ class _PlaywrightDeepseekSession:
 
             on_stage("screenshot")
             shot_path = self._evidence_dir / f"{spec.file_stem}.png"
-            _capture_full_page(page, shot_path)
+            try:
+                _capture_full_page(page, shot_path)
+            except Exception as exc:
+                raise _IncompleteCapture(
+                    f"evidence-screenshot-failed: {type(exc).__name__}: {exc}",
+                    _shot("screenshot"),
+                ) from exc
             if not shot_path.exists():
                 raise _IncompleteCapture("evidence-screenshot-failed: no file written")
+            evidence = [
+                CollectionEvidenceRef(
+                    kind="answer_screenshot",
+                    path=str(shot_path),
+                    relation_type="answer_page",
+                    mime_type="image/png",
+                    source_url=_CHAT_URL,
+                )
+            ]
+
+            on_stage("share_export")
+            share_image_path = self._evidence_dir / f"{spec.file_stem}-share.png"
+
+            def _share_click(locator: Any) -> None:
+                clicked_at = human_click(locator, page, self._rng, start=self._mouse_pos)
+                if clicked_at is not None:
+                    self._mouse_pos = clicked_at
+
+            try:
+                share = capture_deepseek_official_share(
+                    page,
+                    share_image_path,
+                    click=_share_click,
+                )
+                share_link_path = self._evidence_dir / f"{spec.file_stem}-share-link.json"
+                write_share_link_manifest(
+                    share_link_path,
+                    share_url=share.share_url,
+                    platform="deepseek",
+                    channel="create-and-copy",
+                )
+            except (OfficialShareExportError, OSError) as exc:
+                raise _IncompleteCapture(
+                    "official-share-export-incomplete: DeepSeek must provide its "
+                    "public share URL and a clean image of that official share page "
+                    f"({type(exc).__name__}: {exc})",
+                    _shot("share_export"),
+                ) from exc
+            except Exception as exc:
+                raise _IncompleteCapture(
+                    "official-share-export-incomplete: unexpected DeepSeek share UI "
+                    f"failure ({type(exc).__name__}: {exc})",
+                    _shot("share_export"),
+                ) from exc
+            evidence.extend(
+                [
+                    CollectionEvidenceRef(
+                        kind="share_image",
+                        path=str(share.image_path),
+                        relation_type="official_share_image",
+                        mime_type="image/png",
+                        source_url=share.share_url,
+                    ),
+                    CollectionEvidenceRef(
+                        kind="share_link",
+                        path=str(share_link_path),
+                        relation_type="official_share_link",
+                        mime_type="application/json",
+                        source_url=share.share_url,
+                    ),
+                ]
+            )
             answer = CollectedAnswer(
                 answer_text=answer_text,
                 references=references,
@@ -1408,6 +1519,8 @@ class _PlaywrightDeepseekSession:
                 trace_path=trace_path,
                 search_queries=search_queries,
                 raw_evidence=raw_evidence,
+                opened_source_previews=opened_source_previews,
+                evidence=evidence,
             )
         except (_WallError, _IncompleteCapture, _ModeToggleFailed) as exc:
             # 失败题同样留 raw/HAR（题末先 dump 后 detach）：ref 挂异常对象，经
@@ -1998,44 +2111,173 @@ def _scan_dom_notices(page: Any) -> dict[str, list[str]]:
 
 
 def _capture_full_page(page: Any, out_path: Path) -> None:
-    """flatten 内部滚动容器后整页截图：CDP captureBeyondViewport 优先，full_page 兜底。"""
-    metrics: dict[str, Any] = {}
+    """完整截图；临时 flatten 的每一处 inline style 都在 finally 中恢复。"""
+    capture_full_page_safely(page, out_path, flatten_script=_FLATTEN_FOR_SCREENSHOT_JS)
+
+
+def _opened_source_preview_limit() -> int:
+    raw = os.environ.get(ENV_OPENED_SOURCE_PREVIEW_LIMIT, "").strip()
+    if not raw:
+        return _DEFAULT_OPENED_SOURCE_PREVIEW_LIMIT
     try:
-        raw = page.evaluate(_FLATTEN_FOR_SCREENSHOT_JS)
-        page.wait_for_timeout(300)
-        if isinstance(raw, dict):
-            metrics = raw
-    except Exception:
-        metrics = {}
-    target_height = max(
-        int(metrics.get("body_scroll_height_after") or 0),
-        int(metrics.get("doc_scroll_height_after") or 0),
-        int(metrics.get("scroller_full_height") or 0),
-    )
-    viewport_h = int(metrics.get("viewport_height") or 0)
-    if target_height and target_height > viewport_h + 50:
+        value = int(raw)
+    except ValueError:
+        return _DEFAULT_OPENED_SOURCE_PREVIEW_LIMIT
+    return max(0, min(value, _MAX_OPENED_SOURCE_PREVIEW_LIMIT))
+
+
+_BLOCKED_PREVIEW_HOSTS = frozenset(
+    {
+        "localhost",
+        "metadata",
+        "metadata.google.internal",
+        "metadata.google",
+        "instance-data",
+        "instance-data.ec2.internal",
+        "169.254.169.254",
+    }
+)
+
+
+def _host_resolves_globally(
+    host: str, *, resolver: Callable[..., list[tuple[Any, ...]]] = socket.getaddrinfo
+) -> bool:
+    """Fail closed unless every resolved IPv4/IPv6 address is globally routable."""
+
+    lowered = host.casefold().rstrip(".")
+    if (
+        lowered in _BLOCKED_PREVIEW_HOSTS
+        or lowered.endswith(".localhost")
+        or lowered.endswith(".local")
+        or lowered.endswith(".internal")
+    ):
+        return False
+    try:
+        infos = resolver(lowered, None, type=socket.SOCK_STREAM)
+    except OSError:
+        return False
+    addresses: set[str] = set()
+    for info in infos:
         try:
-            cdp = page.context.new_cdp_session(page)
-            layout = cdp.send("Page.getLayoutMetrics")
-            css_size = layout.get("cssContentSize") or layout.get("contentSize") or {}
-            width = int(css_size.get("width") or 0) or 1280
-            height = max(target_height, int(css_size.get("height") or 0))
-            result = cdp.send(
-                "Page.captureScreenshot",
-                {
-                    "format": "png",
-                    "captureBeyondViewport": True,
-                    "fromSurface": True,
-                    "clip": {"x": 0, "y": 0, "width": width, "height": height, "scale": 1},
-                },
-            )
-            png_b64 = result.get("data")
-            if png_b64:
-                out_path.write_bytes(base64.b64decode(png_b64))
-                return
-        except Exception:
+            address = str(info[4][0]).split("%", 1)[0]
+            parsed_address = ipaddress.ip_address(address)
+        except (IndexError, TypeError, ValueError):
+            return False
+        if not parsed_address.is_global:
+            return False
+        addresses.add(str(parsed_address))
+    return bool(addresses)
+
+
+def _external_http_url(
+    value: object,
+    *,
+    host_guard: Callable[[str], bool] = _host_resolves_globally,
+) -> str | None:
+    """Reject credentials and non-public destinations before browser navigation."""
+
+    if not isinstance(value, str) or not value or len(value) > 2_048:
+        return None
+    try:
+        parsed = urlsplit(value)
+        host = parsed.hostname
+        if parsed.scheme not in {"http", "https"} or not host:
+            return None
+        if parsed.username or parsed.password:
+            return None
+        try:
+            address = ipaddress.ip_address(host)
+        except ValueError:
             pass
-    page.screenshot(path=str(out_path), full_page=True)
+        else:
+            if not address.is_global:
+                return None
+        if not host_guard(host):
+            return None
+    except ValueError:
+        return None
+    return value
+
+
+def _capture_opened_source_previews(
+    context: Any,
+    opened_pages: list[dict[str, Any]],
+    *,
+    evidence_dir: Path,
+    file_stem: str,
+    timeout_error: type[Exception],
+) -> tuple[list[CollectionEvidenceRef], dict[str, Any]]:
+    """Re-open TOOL_OPEN URLs and capture an unmodified visible-page overview.
+
+    A preview is deliberately not called an original browsing screenshot: DeepSeek's
+    SSE proves the URL-level TOOL_OPEN event, while this image is a later reproducible
+    rendering in the collector browser. No title, summary, badge, or synthetic text is
+    injected into the page.
+    """
+
+    limit = _opened_source_preview_limit()
+    output: list[CollectionEvidenceRef] = []
+    failures: list[dict[str, str | int]] = []
+    seen: set[str] = set()
+    candidates: list[tuple[int, dict[str, Any], str]] = []
+    for ordinal, source in enumerate(opened_pages, 1):
+        if not isinstance(source, dict):
+            continue
+        url = _external_http_url(source.get("url"))
+        if url is None:
+            failures.append({"ordinal": ordinal, "error": "unsafe_or_invalid_url"})
+            continue
+        dedupe_key = url.split("#", 1)[0]
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        candidates.append((ordinal, source, url))
+        if len(candidates) >= limit:
+            break
+
+    for ordinal, source, url in candidates:
+        source_page = context.new_page()
+        try:
+            try:
+                source_page.goto(url, wait_until="domcontentloaded", timeout=15_000)
+            except timeout_error:
+                # A visible DOM can still be a faithful preview when trackers keep the
+                # navigation open. Any other navigation failure is recorded below.
+                pass
+            source_page.wait_for_timeout(1_500)
+            path = evidence_dir / f"{file_stem}-opened-source-{ordinal:02d}.png"
+            source_page.screenshot(path=str(path), full_page=False)
+            if not path.is_file() or path.stat().st_size <= 0:
+                raise RuntimeError("preview_screenshot_missing")
+            try:
+                rendered_title = str(source_page.title() or "").strip()
+            except Exception:
+                rendered_title = ""
+            output.append(
+                CollectionEvidenceRef(
+                    kind="source_screenshot",
+                    path=str(path),
+                    relation_type="ai_opened_source_preview",
+                    mime_type="image/png",
+                    source_url=url,
+                    title=rendered_title or str(source.get("title") or "").strip() or None,
+                    ordinal=ordinal,
+                )
+            )
+        except Exception as exc:
+            failures.append({"ordinal": ordinal, "error": f"{type(exc).__name__}: {exc}"[:300]})
+        finally:
+            try:
+                source_page.close()
+            except Exception:
+                pass
+    return output, {
+        "tool_open_count": len(opened_pages),
+        "requested": len(candidates),
+        "captured": len(output),
+        "failures": failures,
+        "semantics": "tool_open_url_reproduction_preview",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -2222,16 +2464,66 @@ def _assemble_deepseek_record(events: list[dict[str, Any]]) -> dict[str, Any] | 
     thinking_parts: list[str] = []
     search_queries: list[dict[str, Any]] = []
     deep_think_active = False
-    references: list[dict[str, Any]] = []
-    seen_urls: set[str] = set()
+    # DeepSeek 的检索流有三个不能混为一谈的来源集合：
+    #
+    # - TOOL_SEARCH.results：搜索引擎返回的候选命中；
+    # - TOOL_OPEN.result：模型随后实际打开/读取的页面；
+    # - RESPONSE.references：最终回答显式挂载的引用指针（只在指向一个
+    #   URL 可解析的 TOOL_OPEN，或自身就是 URL 卡片时才能落 citation）。
+    #
+    # 旧实现对每个 SSE data 做无上下文递归，导致 48 个搜索命中与 6 个
+    # TOOL_OPEN 页面全部进入 ``references``。这既把“检索到”冒充“浏览过”，
+    # 又让 analytics.citation_fact 的语义失真。
+    search_results: list[dict[str, Any]] = []
+    opened_pages: list[dict[str, Any]] = []
+    direct_answer_references: list[dict[str, Any]] = []
+    seen_search_urls: set[str] = set()
+    seen_opened_urls: set[str] = set()
+    seen_answer_urls: set[str] = set()
+    opened_by_fragment_id: dict[str, dict[str, Any]] = {}
+    answer_reference_ids: list[str] = []
+    source_activity_observed = False
+    frag_ids: list[str | None] = []
+
+    def _card(value: Any) -> dict[str, Any] | None:
+        cards: list[dict[str, Any]] = []
+        _append_reference_card(value, cards, set())
+        return cards[0] if cards else None
+
+    def _record_answer_references(value: Any) -> None:
+        if not isinstance(value, list):
+            return
+        for reference in value:
+            card = _card(reference)
+            if card is not None:
+                _append_reference_card(card, direct_answer_references, seen_answer_urls)
+                continue
+            if not isinstance(reference, dict) or reference.get("id") is None:
+                continue
+            fragment_id = str(reference["id"])
+            if fragment_id not in answer_reference_ids:
+                answer_reference_ids.append(fragment_id)
+
+    def _record_opened(value: Any, fragment_id: str | None = None) -> None:
+        nonlocal source_activity_observed
+        source_activity_observed = True
+        card = _card(value)
+        if card is None:
+            return
+        _append_reference_card(card, opened_pages, seen_opened_urls)
+        if fragment_id is not None:
+            opened_by_fragment_id[fragment_id] = card
 
     def _register(frags: Any) -> None:
+        nonlocal source_activity_observed
         if not isinstance(frags, list):
             return
         for frag in frags:
             if not isinstance(frag, dict):
                 continue
             frag_types.append(str(frag.get("type") or ""))
+            fragment_id = str(frag["id"]) if frag.get("id") is not None else None
+            frag_ids.append(fragment_id)
             # 快照/新增碎片自带的起始 content（正文只收 RESPONSE；思考链收 THINK）
             content = frag.get("content")
             if frag_types[-1] == "RESPONSE" and isinstance(content, str) and content:
@@ -2239,6 +2531,7 @@ def _assemble_deepseek_record(events: list[dict[str, Any]]) -> dict[str, Any] | 
             elif frag_types[-1] == "THINK" and isinstance(content, str) and content:
                 thinking_parts.append(content)
             elif frag_types[-1] == "TOOL_SEARCH":
+                source_activity_observed = True
                 for query in frag.get("queries") or []:
                     if not isinstance(query, dict):
                         continue
@@ -2247,6 +2540,11 @@ def _assemble_deepseek_record(events: list[dict[str, Any]]) -> dict[str, Any] | 
                         search_queries.append(
                             {"query": text.strip(), "ordinal": len(search_queries) + 1}
                         )
+                _walk_references(frag.get("results"), search_results, seen_search_urls)
+            elif frag_types[-1] == "TOOL_OPEN":
+                _record_opened(frag.get("result"), fragment_id)
+            if frag_types[-1] == "RESPONSE":
+                _record_answer_references(frag.get("references"))
 
     def _target_index(path: str) -> int | None:
         m = re.search(r"fragments/(-?\d+)(?:/|$)", path)
@@ -2279,15 +2577,27 @@ def _assemble_deepseek_record(events: list[dict[str, Any]]) -> dict[str, Any] | 
                 _accept(base_idx, sv)
             elif so == "APPEND" and sp.endswith("/content"):
                 _accept(_target_index(sp), sv)
+            elif sp == "references" or sp.endswith("/references"):
+                if base_idx is None or frag_types[base_idx] == "RESPONSE":
+                    _record_answer_references(sv)
 
     for ev in events:
         data = ev.get("data")
         if not isinstance(data, dict):
             continue
-        _walk_references(data, references, seen_urls)
         v = data.get("v")
         o = data.get("o")
         p = data.get("p") or ""
+        target_idx = _target_index(p) if "fragments/" in p else None
+        if p.rstrip("/").endswith("/results"):
+            source_activity_observed = True
+            _walk_references(v, search_results, seen_search_urls)
+        elif p.rstrip("/").endswith("/result"):
+            fragment_id = frag_ids[target_idx] if target_idx is not None else None
+            _record_opened(v, fragment_id)
+        elif p.rstrip("/").endswith("/references"):
+            if target_idx is None or frag_types[target_idx] == "RESPONSE":
+                _record_answer_references(v)
         if isinstance(v, dict):
             resp = v.get("response")
             if isinstance(resp, dict):
@@ -2314,9 +2624,19 @@ def _assemble_deepseek_record(events: list[dict[str, Any]]) -> dict[str, Any] | 
     answer_text = _REFERENCE_ANCHOR_RE.sub("", _recover_mojibake("".join(parts))).strip()
     if not answer_text:
         return None
+    references = list(direct_answer_references)
+    for fragment_id in answer_reference_ids:
+        opened = opened_by_fragment_id.get(fragment_id)
+        if opened is not None:
+            _append_reference_card(opened, references, seen_answer_urls)
     return {
         "answer_text": answer_text,
         "references": references,
+        "search_results": search_results,
+        "opened_pages": opened_pages,
+        # taxonomy v2 parsed the complete captured stream, therefore an empty list
+        # means “zero TOOL_OPEN events”, not “legacy classification unavailable”.
+        "opened_pages_observed": True,
         "thinking_text": _recover_mojibake("".join(thinking_parts)).strip(),
         "search_queries": search_queries,
         "deep_think_active": deep_think_active,
@@ -2333,6 +2653,8 @@ def _build_sse_trace(record: dict[str, Any]) -> dict[str, Any]:
     thinking_text = str(record.get("thinking_text") or "")
     search_queries = list(record.get("search_queries") or [])
     references = list(record.get("references") or [])
+    search_results = list(record.get("search_results") or [])
+    opened_pages = list(record.get("opened_pages") or [])
     thinking_chain: list[dict[str, Any]] = []
     if thinking_text:
         thinking_chain.append({"kind": "reasoning", "text": thinking_text})
@@ -2345,7 +2667,7 @@ def _build_sse_trace(record: dict[str, Any]) -> dict[str, Any]:
             }
         )
     search_blocks: list[dict[str, Any]] = []
-    if search_queries or references:
+    if search_queries or search_results:
         search_blocks.append(
             {
                 "scene": None,
@@ -2359,13 +2681,35 @@ def _build_sse_trace(record: dict[str, Any]) -> dict[str, Any]:
                         "rank": index,
                         "summary": str(ref.get("summary") or ""),
                     }
-                    for index, ref in enumerate(references, 1)
+                    for index, ref in enumerate(search_results, 1)
                 ],
             }
         )
     return {
         "engine": "deepseek",
+        "source_taxonomy_version": 2,
         "deep_think_active": bool(record.get("deep_think_active")),
         "thinking_chain": thinking_chain,
         "search_blocks": search_blocks,
+        "opened_pages_observed": bool(record.get("opened_pages_observed")),
+        "opened_pages": [
+            {
+                "title": str(ref.get("title") or "未命名来源"),
+                "url": ref.get("url"),
+                "site": ref.get("sitename"),
+                "rank": index,
+                "summary": str(ref.get("summary") or ""),
+            }
+            for index, ref in enumerate(opened_pages, 1)
+        ],
+        "answer_reference_pages": [
+            {
+                "title": str(ref.get("title") or "未命名来源"),
+                "url": ref.get("url"),
+                "site": ref.get("sitename"),
+                "rank": index,
+                "summary": str(ref.get("summary") or ""),
+            }
+            for index, ref in enumerate(references, 1)
+        ],
     }

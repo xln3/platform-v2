@@ -6,6 +6,7 @@ deep_think 开关 helper（chip aria-pressed + tab 结构差分）。
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -14,13 +15,20 @@ import pytest
 from temporalio.exceptions import ApplicationError
 
 from domain.evidence.dlp import assert_secret_free
-from workflows.activities.collection import CollectionTaskInput
+from workflows.activities.collection import (
+    CollectionEvidenceRef,
+    CollectionTaskInput,
+    _normalize_evidence_list,
+)
 from workflows.activities.deepseek_adapter import (
     CollectedAnswer,
     DeepseekAdapterConfig,
     _build_sse_trace,
+    _capture_opened_source_previews,
     _chip_engaged,
+    _external_http_url,
     _fast_mode_engaged,
+    _host_resolves_globally,
     _ModeToggleFailed,
     _rich_record_from_sse,
     _task_result_from_collected,
@@ -359,8 +367,8 @@ def test_fast_mode_engaged_states() -> None:
 
 def test_sse_assembly_deep_think_stream_excludes_think_and_tools() -> None:
     """回归（20260810 live 实测 deep_think+智能搜索流）：THINK/TOOL_SEARCH/
-    TOOL_OPEN 碎片与 [reference:N] 锚点不进正文；引用卡片从 results/result
-    载体抽出并按 URL 去重。
+    TOOL_OPEN 碎片与 [reference:N] 锚点不进正文；TOOL_SEARCH 命中、
+    TOOL_OPEN 打开与 RESPONSE 引用分类抽取，不得再把检索候选全部写入引用。
 
     旧版状态无关组装器把思考链当正文（裸增量无路径归属，THINK 碎片流式期间
     的 {"v":...} 全被收进答案）——本流固定实测结构：快照(THINK) → 路径/裸
@@ -378,26 +386,89 @@ def test_sse_assembly_deep_think_stream_excludes_think_and_tools() -> None:
         'data: {"p":"response/fragments/-1/results","o":"SET","v":'
         '[{"url":"https://example.com/a","title":"标题A","site_name":"站点A","snippet":"摘要A"},'
         '{"url":"https://example.com/b","title":"标题B","site_name":"站点B"}]}\n\n'
-        # TOOL_OPEN 的 result 单卡（与 results 卡同 URL → 去重）
-        'data: {"p":"response/fragments/4/result","o":"SET","v":'
-        '{"url":"https://example.com/b","title":"标题B","site_name":"站点B"}}\n\n'
+        # TOOL_OPEN 的 result 单卡（显式建档 id=4）
+        'data: {"p":"response/fragments","o":"APPEND","v":'
+        '[{"id":4,"type":"TOOL_OPEN","result":'
+        '{"url":"https://example.com/b","title":"标题B","site_name":"站点B"}}]}\n\n'
         'data: {"p":"response/fragments","o":"APPEND","v":'
         '[{"id":18,"type":"RESPONSE","content":"过去","references":[],"stage_id":3}]}\n\n'
         'data: {"v":"一周"}\n\n'
         'data: {"v":"，科技新闻如下"}\n\n'
         'data: {"p":"response/fragments/-1","o":"BATCH","v":'
         '[{"p":"content","o":"APPEND","v":"[reference:1]"},'
-        '{"p":"references","v":[{"id":3,"type":"TOOL_SEARCH"}]}]}\n\n'
+        '{"p":"references","v":[{"id":4,"type":"TOOL_OPEN"}]}]}\n\n'
         'data: {"v":"。"}\n\n'
         'data: {"p":"response/status","o":"SET","v":"FINISHED"}\n\n'
     )
     rich = _rich_record_from_sse(body)
     assert rich is not None
     assert rich["answer_text"] == "过去一周，科技新闻如下。"
-    assert [r["url"] for r in rich["references"]] == [
+    assert [r["url"] for r in rich["search_results"]] == [
         "https://example.com/a",
         "https://example.com/b",
     ]
+    assert [r["url"] for r in rich["opened_pages"]] == ["https://example.com/b"]
+    assert rich["opened_pages_observed"] is True
+    assert [r["url"] for r in rich["references"]] == ["https://example.com/b"]
+
+
+def test_sse_taxonomy_keeps_48_search_hits_separate_from_6_opened_pages() -> None:
+    search_results = [
+        {
+            "url": f"https://search.example/{index}",
+            "title": f"搜索候选 {index}",
+            "site_name": "search.example",
+            "snippet": f"摘要 {index}",
+        }
+        for index in range(1, 49)
+    ]
+    opened = [
+        {
+            "id": 100 + index,
+            "type": "TOOL_OPEN",
+            "result": search_results[index * 7],
+        }
+        for index in range(6)
+    ]
+    event = {
+        "v": {
+            "response": {
+                "fragments": [
+                    {
+                        "id": 1,
+                        "type": "TOOL_SEARCH",
+                        "queries": [{"query": "盛邦安全"}],
+                        "results": search_results,
+                    },
+                    *opened,
+                    {
+                        "id": 200,
+                        "type": "RESPONSE",
+                        "content": "最终答案",
+                        "references": [
+                            {"id": item["id"], "type": "TOOL_OPEN"} for item in opened
+                        ],
+                    },
+                ]
+            }
+        }
+    }
+
+    rich = _rich_record_from_sse(
+        "data: " + json.dumps(event, ensure_ascii=False) + "\n\n"
+    )
+
+    assert rich is not None
+    assert len(rich["search_results"]) == 48
+    assert len(rich["opened_pages"]) == 6
+    assert len(rich["references"]) == 6
+    assert {row["url"] for row in rich["opened_pages"]}.issubset(
+        {row["url"] for row in rich["search_results"]}
+    )
+    trace = _build_sse_trace(rich)
+    assert len(trace["search_blocks"][0]["results"]) == 48
+    assert len(trace["opened_pages"]) == 6
+    assert trace["opened_pages_observed"] is True
 
 
 # ---------------------------------------------------------------------------
@@ -471,6 +542,146 @@ def test_build_sse_trace_shape() -> None:
         "https://example.com/a",
         "https://example.com/b",
     ]
+    assert trace["source_taxonomy_version"] == 2
+    assert trace["opened_pages_observed"] is True
+    assert trace["opened_pages"] == []
+    # RESPONSE 只返回 TOOL_SEARCH id，不能把两个检索候选倒推为答案引用。
+    assert trace["answer_reference_pages"] == []
+
+
+def test_tool_open_preview_reopens_real_page_without_synthetic_overlay(tmp_path: Path) -> None:
+    events: list[tuple[str, object]] = []
+
+    class FakePage:
+        def goto(self, url: str, **kwargs: Any) -> None:
+            events.append(("goto", url))
+            assert kwargs == {"wait_until": "domcontentloaded", "timeout": 15_000}
+
+        def wait_for_timeout(self, timeout: int) -> None:
+            assert timeout == 1_500
+
+        def screenshot(self, *, path: str, full_page: bool) -> None:
+            events.append(("screenshot_full_page", full_page))
+            Path(path).write_bytes(b"\x89PNG-real-page")
+
+        def title(self) -> str:
+            return "真实网页标题"
+
+        def close(self) -> None:
+            events.append(("close", True))
+
+    class FakeContext:
+        def new_page(self) -> FakePage:
+            return FakePage()
+
+    evidence, audit = _capture_opened_source_previews(
+        FakeContext(),
+        [
+            {"url": "https://example.com/a", "title": "流中标题"},
+            {"url": "http://127.0.0.1/private", "title": "不安全地址"},
+        ],
+        evidence_dir=tmp_path,
+        file_stem="answer-1",
+        timeout_error=TimeoutError,
+    )
+
+    assert len(evidence) == 1
+    assert evidence[0].relation_type == "ai_opened_source_preview"
+    assert evidence[0].kind == "source_screenshot"
+    assert evidence[0].source_url == "https://example.com/a"
+    assert evidence[0].title == "真实网页标题"
+    assert evidence[0].cited_text is None
+    assert ("screenshot_full_page", False) in events
+    assert audit["tool_open_count"] == 2
+    assert audit["captured"] == 1
+    assert audit["failures"] == [{"ordinal": 2, "error": "unsafe_or_invalid_url"}]
+
+
+def test_opened_preview_url_guard_rejects_private_and_dns_rebinding_targets() -> None:
+    def public_resolver(*args: Any, **kwargs: Any) -> list[tuple[Any, ...]]:
+        del args, kwargs
+        return [(2, 1, 6, "", ("93.184.216.34", 0))]
+
+    def mixed_resolver(*args: Any, **kwargs: Any) -> list[tuple[Any, ...]]:
+        del args, kwargs
+        return [
+            (2, 1, 6, "", ("93.184.216.34", 0)),
+            (2, 1, 6, "", ("10.0.0.8", 0)),
+        ]
+
+    assert _host_resolves_globally("example.com", resolver=public_resolver) is True
+    assert _host_resolves_globally("example.com", resolver=mixed_resolver) is False
+    assert _host_resolves_globally("localhost", resolver=public_resolver) is False
+    assert _host_resolves_globally("anything.local", resolver=public_resolver) is False
+    assert _host_resolves_globally("metadata.google.internal", resolver=public_resolver) is False
+    assert (
+        _external_http_url(
+            "https://example.com/page", host_guard=lambda host: host == "example.com"
+        )
+        == "https://example.com/page"
+    )
+    for unsafe in (
+        "http://127.0.0.1/a",
+        "http://[::1]/a",
+        "http://10.0.0.1/a",
+        "http://localhost/a",
+        "http://metadata.google.internal/computeMetadata/v1/",
+    ):
+        assert _external_http_url(unsafe, host_guard=lambda _host: False) is None
+
+
+def test_task_result_keeps_opened_preview_out_of_answer_citations(tmp_path: Path) -> None:
+    shot = tmp_path / "answer.png"
+    shot.write_bytes(b"\x89PNG-answer")
+    preview = tmp_path / "opened.png"
+    preview.write_bytes(b"\x89PNG-opened")
+    collected = CollectedAnswer(
+        answer_text="正文",
+        references=[],
+        screenshot_path=shot,
+        opened_source_previews=[
+            CollectionEvidenceRef(
+                kind="source_screenshot",
+                path=str(preview),
+                relation_type="ai_opened_source_preview",
+                mime_type="image/png",
+                source_url="https://example.com/opened",
+            )
+        ],
+    )
+
+    result = _task_result_from_collected(_item(), collected)
+
+    assert result.citations == []
+    assert [item.relation_type for item in result.evidence] == ["ai_opened_source_preview"]
+    assert _normalize_evidence_list(result.evidence)[0].relation_type == (
+        "ai_opened_source_preview"
+    )
+
+
+def test_task_result_prefers_official_share_image_as_screenshot_ref(tmp_path: Path) -> None:
+    runtime = tmp_path / "runtime.png"
+    runtime.write_bytes(b"runtime")
+    official = tmp_path / "official-share.png"
+    official.write_bytes(b"official")
+    collected = CollectedAnswer(
+        answer_text="正文",
+        references=[],
+        screenshot_path=runtime,
+        evidence=[
+            CollectionEvidenceRef(
+                kind="share_image",
+                path=str(official),
+                relation_type="official_share_image",
+                mime_type="image/png",
+                source_url="https://chat.deepseek.com/share/example",
+            )
+        ],
+    )
+
+    result = _task_result_from_collected(_item(), collected)
+
+    assert result.screenshot_ref == f"file://{official}"
 
 
 def test_task_result_maps_citations_trace_and_queries(tmp_path: Path) -> None:

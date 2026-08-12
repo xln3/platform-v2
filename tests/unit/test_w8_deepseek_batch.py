@@ -430,6 +430,25 @@ def _install_fake_browser(monkeypatch: pytest.MonkeyPatch, page: _FakePage) -> N
 
     monkeypatch.setattr(deepseek_adapter, "_clean_profile_crash_state", _clean_spy)
 
+    def _fake_official_share(
+        _page: Any, out_path: Path, **_kwargs: Any
+    ) -> SimpleNamespace:
+        out_path.write_bytes(
+            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
+            b"\x00\x00\x00\x01\x00\x00\x00\x01"
+        )
+        return SimpleNamespace(
+            image_path=out_path,
+            share_url="https://chat.deepseek.com/share/fakeOfficialShare",
+            audit={"fake": True},
+        )
+
+    monkeypatch.setattr(
+        deepseek_adapter,
+        "capture_deepseek_official_share",
+        _fake_official_share,
+    )
+
 
 def _adapter_env(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, page: _FakePage | None = None
@@ -513,6 +532,7 @@ async def test_session_collect_full_humanized_flow(
     # 4) 新会话验证被调用（composer 空探针 + 消息节点计数探针）
     assert ("evaluate", deepseek_adapter._CHAT_MESSAGE_COUNT_JS) in events
 
+
     # 5) 全程无裸 locator.click（聚焦/发送/弹层全走鼠标事件链或真实键盘）
     assert not [e for e in events if e[0] == "locator_click"]
 
@@ -529,6 +549,29 @@ async def test_session_collect_full_humanized_flow(
     assert prefs["profile"]["exited_cleanly"] is True
     assert prefs["other_key"] == 1
     assert (evidence / "run-9-task-5-a1.png").is_file()
+
+
+async def test_session_fails_when_official_share_page_image_is_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _adapter_env(tmp_path, monkeypatch)
+    page = _FakePage(messages=0)
+    _install_fake_browser(monkeypatch, page)
+
+    def _missing_share(*_args: Any, **_kwargs: Any) -> Any:
+        raise deepseek_adapter.OfficialShareExportError("share page unavailable")
+
+    monkeypatch.setattr(deepseek_adapter, "capture_deepseek_official_share", _missing_share)
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await run_deepseek_collection(
+            _item(),
+            session_factory=_PlaywrightDeepseekSession,
+            heartbeat=lambda _payload: None,
+        )
+
+    assert exc_info.value.type == "answer_capture_incomplete"
+    assert "official-share-export-incomplete" in str(exc_info.value)
 
 
 def test_fresh_chat_fast_path_when_already_fresh() -> None:

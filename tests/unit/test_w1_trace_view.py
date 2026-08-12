@@ -134,7 +134,11 @@ def test_resolve_task_trace_shapes_response_like_legacy() -> None:
     assert block.results[0].site == "example.com"
     assert block.results[0].rank == 0
     assert block.results[0].summary == "摘要A"
-    assert block.results[0].status == "returned_reference"
+    assert block.results[0].status == "search_hit"
+
+    assert view.opened_pages_observed is False
+    assert view.opened_pages == []
+    assert view.answer_reference_pages == []
 
     assert len(view.search_queries) == 1
     assert view.search_queries[0].query == "中意人寿 重疾险"
@@ -142,9 +146,54 @@ def test_resolve_task_trace_shapes_response_like_legacy() -> None:
 
     assert view.totals.queries == 1
     assert view.totals.results == 1
+    assert view.totals.opened_pages is None
+    assert view.totals.answer_reference_pages == 0
     assert view.totals.surfaced_reasoning_steps == 1
     assert view.totals.response_text_truncated is False
     assert "仅展示平台明确传输到浏览器" in view.disclosure
+
+
+def test_build_task_trace_view_separates_search_open_and_answer_reference_pages() -> None:
+    record = {
+        "engine": "deepseek",
+        "source_taxonomy_version": 2,
+        "opened_pages_observed": True,
+        "deep_think_active": True,
+        "thinking_chain": [],
+        "search_blocks": [
+            {
+                "scene": None,
+                "queries": ["攻击面管理"],
+                "summary": "",
+                "results": [
+                    {"title": "候选 A", "url": "https://example.com/a", "rank": 1},
+                    {"title": "候选 B", "url": "https://example.com/b", "rank": 2},
+                ],
+            }
+        ],
+        "opened_pages": [{"title": "已打开 B", "url": "https://example.com/b", "rank": 1}],
+        "answer_reference_pages": [
+            {"title": "答案引用 B", "url": "https://example.com/b", "rank": 1}
+        ],
+    }
+    view = build_task_trace_view(**dict(_KWARGS), trace_record=record)
+
+    assert [row.status for row in view.search_blocks[0].results] == ["search_hit", "search_hit"]
+    assert [row.status for row in view.opened_pages] == ["opened_page"]
+    assert [row.status for row in view.answer_reference_pages] == ["answer_reference"]
+    assert view.opened_pages_observed is True
+    assert view.totals.results == 2
+    assert view.totals.opened_pages == 1
+    assert view.totals.answer_reference_pages == 1
+
+
+def test_build_task_trace_view_marks_legacy_deepseek_sources_unclassified() -> None:
+    record = dict(_TRACE_RECORD, engine="deepseek")
+    view = build_task_trace_view(**dict(_KWARGS), trace_record=record)
+
+    assert view.search_blocks[0].results[0].status == "legacy_unclassified"
+    assert view.opened_pages_observed is False
+    assert view.totals.opened_pages is None
 
 
 def test_build_task_trace_view_truncates_long_response_text() -> None:

@@ -284,6 +284,7 @@ _EVIDENCE_RELATIONS = {
     "official_share_image",
     "official_share_link",
     "cited_source_snapshot",
+    "ai_opened_source_preview",
     "answer_sse_trace",
     "answer_sse_raw",
     "answer_har",

@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import random
 from collections.abc import Callable
@@ -13,6 +14,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from PIL import Image
 from temporalio.exceptions import ApplicationError
 
 from domain.evidence.dlp import assert_secret_free
@@ -21,6 +23,7 @@ from workflows.activities.collection import CollectionEvidenceRef, CollectionTas
 from workflows.activities.doubao_adapter import (
     CollectedAnswer,
     DoubaoAdapterConfig,
+    _capture_full_page,
     _capture_source_screenshots,
     _clean_profile_crash_state,
     _DeepThinkToggleFailed,
@@ -46,6 +49,198 @@ def _item(mode: str = "normal") -> CollectionTaskInput:
         mode=mode,
         adapter="doubao",
     )
+
+
+def _png_bytes(width: int, height: int, color: tuple[int, int, int]) -> bytes:
+    image = Image.new("RGB", (width, height), color)
+    stream = io.BytesIO()
+    image.save(stream, format="PNG")
+    image.close()
+    return stream.getvalue()
+
+
+class _ScopedCapturePage:
+    """Minimal deterministic model of Doubao's one-turn virtual chat scroller."""
+
+    def __init__(
+        self,
+        *,
+        fail_screenshot_at: int | None = None,
+        mutate_fingerprint_at: int | None = None,
+        state_error_at: int | None = None,
+        restore_ok: bool = True,
+    ) -> None:
+        self.scroll_top = 178.0
+        self.initial_scroll_top = self.scroll_top
+        self.fail_screenshot_at = fail_screenshot_at
+        self.mutate_fingerprint_at = mutate_fingerprint_at
+        self.state_error_at = state_error_at
+        self.restore_ok = restore_ok
+        self.screenshot_calls = 0
+        self.probe_calls = 0
+        self.evaluations: list[tuple[str, Any]] = []
+
+    @staticmethod
+    def _state(scroll_top: float, *, answer_fingerprint: str = "1265:answer") -> dict[str, Any]:
+        return {
+            "ok": True,
+            "scroll_top": scroll_top,
+            "scroll_height": 1864,
+            "max_scroll": 1314,
+            "viewport_height": 550,
+            "clip_x": 296,
+            "clip_y": 56,
+            "clip_width": 943,
+            "blocks": [
+                {
+                    "role": "question",
+                    "top": 12,
+                    "bottom": 114,
+                    "left": 296,
+                    "right": 1239,
+                    "fingerprint": "115:question",
+                },
+                {
+                    "role": "answer",
+                    "top": 166,
+                    "bottom": 1616,
+                    "left": 296,
+                    "right": 1239,
+                    "fingerprint": answer_fingerprint,
+                },
+            ],
+        }
+
+    def evaluate(self, script: str, argument: Any = None) -> dict[str, Any]:
+        self.evaluations.append((script, argument))
+        if script == doubao_adapter._DOUBAO_CAPTURE_RESTORE_JS:
+            if self.restore_ok:
+                self.scroll_top = float(argument)
+                return {"ok": True, "actual_scroll_top": self.scroll_top}
+            return {"ok": False, "error": "fake_restore_failed"}
+        assert script == doubao_adapter._DOUBAO_CAPTURE_STATE_JS
+        self.probe_calls += 1
+        if self.state_error_at == self.probe_calls:
+            return {"ok": False, "error": "message_content_count:1,0"}
+        if isinstance(argument, dict) and argument.get("scrollTop") is not None:
+            self.scroll_top = float(argument["scrollTop"])
+        fingerprint = "1265:answer"
+        if self.mutate_fingerprint_at == self.probe_calls:
+            fingerprint = "1266:changed"
+        return self._state(self.scroll_top, answer_fingerprint=fingerprint)
+
+    def wait_for_timeout(self, timeout: int) -> None:
+        assert timeout == 75
+
+    def screenshot(self, *, clip: dict[str, float], timeout: int) -> bytes:
+        self.screenshot_calls += 1
+        assert clip == {"x": 296.0, "y": 56.0, "width": 943.0, "height": 550.0}
+        assert timeout == 15_000
+        if self.fail_screenshot_at == self.screenshot_calls:
+            raise TimeoutError("fake screenshot timeout")
+        # Encode the current scroll position into the pixels; this also proves the
+        # final artifact came from scoped tiles rather than a whole-page fallback.
+        color = (int(self.scroll_top) % 255, 40, 80)
+        return _png_bytes(943, 550, color)
+
+
+def test_scoped_capture_tiles_only_question_and_answer_content(tmp_path: Path) -> None:
+    page = _ScopedCapturePage()
+    out_path = tmp_path / "answer.png"
+
+    audit = _capture_full_page(page, out_path, expected_question="本次问题")
+
+    assert audit == {
+        "method": "doubao_scoped_message_tiles",
+        "tile_count": 4,
+        "block_count": 2,
+        "restored_scroll_top": 178.0,
+    }
+    assert page.scroll_top == 178.0
+    assert page.screenshot_calls == 4
+    assert not any(
+        script == getattr(doubao_adapter, "_FLATTEN_FOR_SCREENSHOT_JS", object())
+        for script, _argument in page.evaluations
+    )
+    with Image.open(out_path) as captured:
+        assert captured.size == (943, 1552)
+        # 102px question + 1450px answer; action bars and suggestions are absent.
+        assert captured.getpixel((10, 101)) != (255, 255, 255)
+        assert captured.getpixel((10, 102)) != (255, 255, 255)
+        assert captured.getpixel((10, 1551)) != (255, 255, 255)
+
+
+def test_scoped_capture_probe_is_semantic_and_does_not_mutate_styles() -> None:
+    script = doubao_adapter._DOUBAO_CAPTURE_STATE_JS
+
+    assert 'div.scroller[class*="v_list_scroller"]' in script
+    assert 'data-target-id="message-box-target-id"' in script
+    assert "[data-message-id]" in script
+    assert 'data-foundation-type="send-message-action-bar"' in script
+    assert 'data-foundation-type="receive-message-action-bar"' in script
+    assert 'data-foundation-type="receive-message-suggest-foundation"' in script
+    assert "question_text_mismatch" in script
+    assert "([“”‘’「」『』])" in script
+    assert ".style" not in script
+    assert "setAttribute('style'" not in script
+    assert "removeAttribute('style'" not in script
+
+
+def test_scoped_capture_restores_scroll_after_screenshot_failure(tmp_path: Path) -> None:
+    page = _ScopedCapturePage(fail_screenshot_at=3)
+
+    with pytest.raises(TimeoutError, match="fake screenshot timeout"):
+        _capture_full_page(
+            page, tmp_path / "broken.png", expected_question="本次问题"
+        )
+
+    assert page.scroll_top == page.initial_scroll_top
+    assert not (tmp_path / "broken.png").exists()
+
+
+def test_scoped_capture_fails_closed_when_virtual_message_changes(tmp_path: Path) -> None:
+    page = _ScopedCapturePage(mutate_fingerprint_at=4)
+
+    with pytest.raises(
+        doubao_adapter._DoubaoScopedCaptureError,
+        match="answer text changed",
+    ):
+        _capture_full_page(
+            page, tmp_path / "changed.png", expected_question="本次问题"
+        )
+
+    assert page.scroll_top == page.initial_scroll_top
+    assert not (tmp_path / "changed.png").exists()
+
+
+def test_scoped_capture_fails_closed_on_ambiguous_message_nodes(tmp_path: Path) -> None:
+    page = _ScopedCapturePage(state_error_at=1)
+
+    with pytest.raises(
+        doubao_adapter._DoubaoScopedCaptureError,
+        match="message_content_count",
+    ):
+        _capture_full_page(
+            page, tmp_path / "ambiguous.png", expected_question="本次问题"
+        )
+
+    assert page.screenshot_calls == 0
+    assert page.scroll_top == page.initial_scroll_top
+    assert not (tmp_path / "ambiguous.png").exists()
+
+
+def test_scoped_capture_restore_failure_is_fatal(tmp_path: Path) -> None:
+    page = _ScopedCapturePage(restore_ok=False)
+
+    with pytest.raises(
+        doubao_adapter._DoubaoScopedCaptureError,
+        match="scroll position could not be restored",
+    ):
+        _capture_full_page(
+            page, tmp_path / "unrestored.png", expected_question="本次问题"
+        )
+
+    assert not (tmp_path / "unrestored.png").exists()
 
 
 class _FakeSession:
@@ -293,48 +488,34 @@ def test_overlay_cleanup_handles_late_download_modal() -> None:
     assert ('button:has-text("下次提醒")',) in [(e[1],) for e in probes]
 
 
-def test_source_screenshot_prefers_citation_summary_over_cookie_banner(
+def test_source_screenshot_fails_closed_without_authoritative_brand_context(
     adapter_env: Path,
 ) -> None:
-    overlays: list[dict[str, Any]] = []
-
-    class FakeSourcePage:
-        def goto(self, *args: Any, **kwargs: Any) -> None:
-            return None
-
-        def wait_for_timeout(self, timeout: int) -> None:
-            assert timeout == 1_500
-
-        def evaluate(self, script: str, argument: Any) -> dict[str, str] | None:
-            if isinstance(argument, str):
-                return {"title": "友邦产品查询", "mentioned": "本网站使用 Cookie 改善体验"}
-            overlays.append(argument)
-            return None
-
-        def screenshot(self, *, path: str, full_page: bool, timeout: int) -> None:
-            assert full_page is False
-            assert timeout == 15_000
-            Path(path).write_bytes(b"\x89PNG-source")
-
-        def close(self) -> None:
-            return None
-
     class FakeContext:
-        def new_page(self) -> FakeSourcePage:
-            return FakeSourcePage()
+        def new_page(self) -> None:
+            raise AssertionError("citation summaries must not trigger browser evidence capture")
 
-    summary = "友邦友如意顺心佳是一款成人重疾险产品。"
     evidence, audit = _capture_source_screenshots(
         FakeContext(),
-        [{"url": "https://www.aia.com.cn/product", "title": "产品页", "summary": summary}],
+        [
+            {
+                "url": "https://www.aia.com.cn/product",
+                "title": "产品页",
+                "summary": "友邦友如意顺心佳是一款成人重疾险产品。",
+            }
+        ],
         evidence_dir=adapter_env,
         file_stem="source-proof",
         timeout_error=TimeoutError,
     )
 
-    assert audit == {"requested": 1, "captured": 1, "failures": []}
-    assert evidence[0].cited_text == summary
-    assert overlays[0]["mention"] == summary
+    assert evidence == []
+    assert audit == {
+        "requested": 1,
+        "captured": 0,
+        "failures": [],
+        "skipped": "brand_context_required_for_evidence",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -520,6 +701,7 @@ class _FakePage:
         self,
         *,
         messages: int = 0,
+        data_empty_conversation: bool | None = None,
         composer_value: str = "",
         new_chat_button: bool = True,
         goto_clears: bool = False,
@@ -536,6 +718,7 @@ class _FakePage:
         self.context: _FakeContext | None = None
         self.url = doubao_adapter._CHAT_URL
         self.messages = messages
+        self.data_empty_conversation = data_empty_conversation
         self.composer_value = composer_value
         self.new_chat_button = new_chat_button
         self.goto_clears = goto_clears
@@ -579,6 +762,7 @@ class _FakePage:
             self.cdp.emit_completion()
         elif _in_bb(_NEW_CHAT_BB, x, y):
             self.messages = 0  # 「新对话」切到全新会话
+            self.data_empty_conversation = True
         elif _in_bb(_OPTION_BB, x, y):
             self.deep_think_engaged = True
 
@@ -599,17 +783,18 @@ class _FakePage:
         if script == doubao_adapter._TAG_JS:
             return True
         if script == doubao_adapter._CHAT_MESSAGE_COUNT_JS:
+            if self.data_empty_conversation is False:
+                return 1
             return self.messages
         if script == doubao_adapter._PICKER_STATE_JS:
             return ["专家"] if self.deep_think_engaged else ["快速"]
-        if script == doubao_adapter._FLATTEN_FOR_SCREENSHOT_JS:
-            return {}
         return None
 
     def goto(self, url: str, **_kw: Any) -> None:
         self.events.append(("goto", url))
         if self.goto_clears:
             self.messages = 0  # 导航兜底成功：全新聊天页
+            self.data_empty_conversation = True
 
     def wait_for_timeout(self, timeout: float) -> None:
         self.events.append(("wait", timeout))
@@ -688,14 +873,28 @@ def _install_fake_browser(monkeypatch: pytest.MonkeyPatch, page: _FakePage) -> N
 
     monkeypatch.setattr(doubao_adapter, "_clean_profile_crash_state", _clean_spy)
 
-    def _fake_share_image(pg: Any, _out_path: Path) -> dict[str, Any]:
+    def _fake_answer_capture(
+        _page: Any, out_path: Path, *, expected_question: str
+    ) -> dict[str, Any]:
+        assert expected_question.strip()
+        out_path.write_bytes(b"\x89PNG-fake")
+        return {"method": "fake-scoped-capture"}
+
+    monkeypatch.setattr(doubao_adapter, "_capture_full_page", _fake_answer_capture)
+
+    def _fake_share_image(pg: Any, out_path: Path) -> dict[str, Any]:
         pg.mouse.click(300.0, 300.0)  # 经 facade：应变成贝塞尔移动+悬停+点击
         pg.locator('button:has-text("下载图片")').first.click(timeout=4_000)
-        return {"ok": False, "error": "fake-skip"}
+        out_path.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01")
+        return {"ok": True, "channel": "fake-official-preview"}
 
     def _fake_share_link(pg: Any) -> dict[str, Any]:
         pg.mouse.click(500.0, 500.0)  # 无业务区坐标（避开「新对话」等业务按钮）
-        return {"ok": False, "error": "fake-skip"}
+        return {
+            "ok": True,
+            "channel": "fake-share-token-response",
+            "url": "https://www.doubao.com/thread/fakeTestShare123",
+        }
 
     monkeypatch.setattr(doubao_adapter, "capture_share_image", _fake_share_image)
     monkeypatch.setattr(doubao_adapter, "capture_share_link", _fake_share_link)
@@ -791,6 +990,33 @@ async def test_session_collect_full_humanized_flow(
     assert len([e for e in events if e[0] == "mouse_move"]) >= 5
 
 
+async def test_session_fails_when_official_share_link_is_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
+    monkeypatch.setenv("GEO_DOUBAO_PROFILE_DIR", str(tmp_path))
+    monkeypatch.setenv("GEO_DOUBAO_EVIDENCE_DIR", str(evidence))
+    monkeypatch.setenv("GEO_DOUBAO_HEADLESS", "1")
+    page = _FakePage(messages=0)
+    _install_fake_browser(monkeypatch, page)
+    monkeypatch.setattr(
+        doubao_adapter,
+        "capture_share_link",
+        lambda _page: {"ok": False, "error": "share link unavailable"},
+    )
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await run_doubao_collection(
+            _item(),
+            session_factory=_PlaywrightDoubaoSession,
+            heartbeat=lambda _payload: None,
+        )
+
+    assert exc_info.value.type == "answer_capture_incomplete"
+    assert "official-share-export-incomplete" in str(exc_info.value)
+
+
 def test_deep_think_toggle_uses_human_pacing() -> None:
     """picker 悬停 300-900ms → 点击 → 候选 wait_for 水合等待 → 读菜单 400-1000ms → 点选项。"""
     page = _FakePage(deep_think=True)
@@ -831,6 +1057,62 @@ def test_fresh_chat_fast_path_when_already_fresh() -> None:
     assert not [e for e in page.events if e[0] == "mouse_click"]
     assert not [e for e in page.events if e[0] == "goto"]
     assert ("evaluate", doubao_adapter._CHAT_MESSAGE_COUNT_JS) in page.events
+
+
+def test_fresh_chat_probe_contains_current_doubao_dom_signals() -> None:
+    """Selector regression: virtualised live chats still expose explicit non-empty state."""
+    script = doubao_adapter._CHAT_MESSAGE_COUNT_JS
+    assert "data-empty-conversation" in script
+    assert "includes('false')" in script
+    assert 'data-foundation-type="send-message-action-bar"' in script
+    assert 'data-foundation-type="receive-message-action-bar"' in script
+    assert 'data-target-id="message-box-target-id"' in script
+
+
+def test_fresh_chat_explicit_nonempty_state_wins_when_messages_are_virtualized() -> None:
+    """data-empty-conversation=false prevents the old false-fresh classification."""
+    page = _FakePage(messages=0, data_empty_conversation=False)
+    rng = random.Random(6)
+
+    _ensure_fresh_chat(
+        page,
+        page.locator(doubao_adapter._INPUT_SELECTORS[0]),
+        rng,
+        pace=_make_pace(page, rng),
+        shot=_recording_shot([]),
+    )
+
+    clicks = [
+        event
+        for event in page.events
+        if event[0] == "mouse_click" and _in_bb(_NEW_CHAT_BB, event[1], event[2])
+    ]
+    assert len(clicks) == 1
+
+
+def test_task_result_prefers_official_share_image_as_screenshot_ref(tmp_path: Path) -> None:
+    runtime = tmp_path / "runtime.png"
+    runtime.write_bytes(b"runtime")
+    official = tmp_path / "official-share.png"
+    official.write_bytes(b"official")
+    collected = CollectedAnswer(
+        answer_text="正文",
+        references=[],
+        screenshot_path=runtime,
+        evidence=[
+            CollectionEvidenceRef(
+                kind="share_image",
+                path=str(official),
+                relation_type="official_share_image",
+                mime_type="image/png",
+                source_url="https://www.doubao.com/thread/example",
+            )
+        ],
+    )
+
+    result = doubao_adapter._task_result_from_collected(_item(), collected)
+
+    assert result.screenshot_ref == f"file://{official}"
 
 
 def test_fresh_chat_clicks_new_conversation_button() -> None:

@@ -55,7 +55,8 @@ v1 边界（20260810 deep_think 解锁）：
   non_retryable；发送墙/限流 → ``wall_send`` non_retryable。
 - 成功判据（零合成）：提交被接受（输入框清空）且答案容器出现且「生成中」
   指示器消失、正文静默稳定且非空且不含墙特征——缺一都不得返回成功。
-  流截断/空答案/无流 → ``answer_capture_incomplete``（可重试的诚实失败）。
+  流截断/空答案/无流，或文心官方分享卡片 PNG/公开链接任一缺失 →
+  ``answer_capture_incomplete``（可重试的诚实失败）；运行时截图绝不冒充分享图。
 - 开户状态（20260810 已完成）：yiyan_sh(155) 与 yiyan_bj(188) 均经站内登录
   弹层短信表单登录成功——155 为未注册号码，走「验证即登录，未注册将自动
   创建百度账号」流程新建账号（弹层 tooltip「立即注册」确认后放开发送）；
@@ -152,6 +153,15 @@ from workflows.activities.human_like import (
     human_read_pause,
     human_type,
 )
+from workflows.activities.official_share import (
+    OfficialShareExportError,
+    capture_yiyan_official_share,
+    write_share_link_manifest,
+)
+from workflows.activities.page_capture import (
+    FLATTEN_CHAT_SCROLLER_JS,
+    capture_full_page_safely,
+)
 from workflows.activities.raw_capture import dump_raw_evidence_refs, maybe_raw_capture
 from workflows.activities.resident_browser import platform_browser
 
@@ -204,8 +214,12 @@ _THINKING_BLOCK_SELECTOR = "div.ai-thinking-steps"
 # live 实证：文心答案容器用真 <table>（wenxin 会话页 6×36 测绘平台对比表探针）。
 _STRIP_THINKING_JS = r"""(el) => {
   const c = el.cloneNode(true);
-  for (const t of c.querySelectorAll('div.ai-thinking-steps')) t.remove();
-  for (const t of c.querySelectorAll('div.cosd-note-list')) t.remove();
+  // Current Wenxin builds hash the thinking class suffix. data-no-share-select
+  // is also attached to non-answer thinking/source UI in the rendered answer.
+  for (const t of c.querySelectorAll(
+    'div.ai-thinking-steps, [class*="thinking-steps"], [data-no-share-select]'
+  )) t.remove();
+  for (const t of c.querySelectorAll('div.cosd-note-list, [class*="note-list"]')) t.remove();
   for (const t of c.querySelectorAll('table')) {
     const rows = [];
     let cols = 0;
@@ -406,6 +420,10 @@ _INPUT_VALUE_JS = (
     "? el.value : (el.textContent || '')"
 )
 
+# Adapter-level alias retained for diagnostics/tests; the shared implementation
+# brackets every temporary style mutation with a finally-based restore.
+_FLATTEN_FOR_SCREENSHOT_JS = FLATTEN_CHAT_SCROLLER_JS
+
 
 # ---------------------------------------------------------------------------
 # 配置 / 错误类型
@@ -589,7 +607,8 @@ def _extract_thinking_text(page: Any) -> str:
               const containers = document.querySelectorAll(sel);
               if (!containers.length) return '';
               const last = containers[containers.length - 1];
-              const think = last.querySelector('div.ai-thinking-steps');
+              const think = last.querySelector(
+                'div.ai-thinking-steps, [class*="thinking-steps"]');
               if (!think) return '';
               const mains = Array.from(think.querySelectorAll('main'))
                 .filter((m) => !m.querySelector('main'));
@@ -603,7 +622,12 @@ def _extract_thinking_text(page: Any) -> str:
     return str(text or "").strip()
 
 
-def _build_yiyan_trace(thinking_text: str, *, deep_think_active: bool) -> dict[str, Any]:
+def _build_yiyan_trace(
+    thinking_text: str,
+    *,
+    deep_think_active: bool,
+    references: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """思考链 → trace record（kind="sse" 证据内容，词表对齐豆包/DeepSeek）。
 
     transport="dom" 如实标注：文心 SW 中转抓不到 completion SSE（20260727
@@ -612,12 +636,33 @@ def _build_yiyan_trace(thinking_text: str, *, deep_think_active: bool) -> dict[s
     thinking_chain: list[dict[str, Any]] = []
     if thinking_text:
         thinking_chain.append({"kind": "reasoning", "text": thinking_text})
+    refs = list(references or [])
+    source_rows = [
+        {
+            "title": str(ref.get("title") or "未命名来源"),
+            "url": ref.get("url"),
+            "site": ref.get("sitename"),
+            "rank": index,
+            "summary": str(ref.get("summary") or ""),
+        }
+        for index, ref in enumerate(refs, 1)
+    ]
     return {
         "engine": "yiyan",
         "transport": "dom",
+        "source_taxonomy_version": 2,
         "deep_think_active": deep_think_active,
         "thinking_chain": thinking_chain,
-        "search_blocks": [],
+        "search_blocks": (
+            [{"scene": None, "queries": [], "summary": "", "results": source_rows}]
+            if source_rows
+            else []
+        ),
+        # Wenxin exposes its searched/reference rows but no explicit per-page
+        # equivalent of DeepSeek TOOL_OPEN. Never infer actual opens from links.
+        "opened_pages_observed": False,
+        "opened_pages": [],
+        "answer_reference_pages": source_rows,
     }
 
 
@@ -629,6 +674,9 @@ class CollectedAnswer:
     meta: dict[str, Any] = field(default_factory=dict)
     # 思考链 trace 证据路径（kind="sse"，transport="dom"；无思考/写盘失败=None 诚实缺省）
     trace_path: Path | None = None
+    # Runtime answer screenshot + official share image/link. The official share
+    # image is preferred as screenshot_ref by _task_result_from_collected.
+    evidence: list[CollectionEvidenceRef] = field(default_factory=list)
     # 原始流量证据 ref（2026-08-10 起：sse_raw/har；GEO_RAW_CAPTURE=0 或写盘
     # 失败为空——诚实缺省）。_task_result_from_collected 并入 evidence。
     raw_evidence: list[CollectionEvidenceRef] = field(default_factory=list)
@@ -981,7 +1029,6 @@ def _task_result_from_collected(
     """CollectedAnswer → CollectionTaskResult 映射（answer 组装/出界 DLP 自检）。
     run_yiyan_collection 与 batch per-item ok 映射共用。"""
     answer_text = _compose_answer_text(collected.answer_text, collected.references)
-    screenshot_ref = f"file://{collected.screenshot_path}"
     # 结构化信源（W2 source_fetch 的唯一输入）：references 判形时已保证真实
     # http(s) URL；cited_text 无逐句引述可填 → None，transcript 口径诚实落
     # unverifiable。
@@ -996,7 +1043,7 @@ def _task_result_from_collected(
         and isinstance(ref.get("url"), str)
         and ref["url"].startswith(("http://", "https://"))
     ]
-    evidence: list[CollectionEvidenceRef] = []
+    evidence: list[CollectionEvidenceRef] = list(collected.evidence)
     if collected.trace_path is not None:
         evidence.append(
             CollectionEvidenceRef(
@@ -1009,6 +1056,15 @@ def _task_result_from_collected(
         )
     # 原始流量证据（2026-08-10 起）：sse_raw/har，_collect_one 题末导出。
     evidence.extend(collected.raw_evidence)
+    official_share_image = next(
+        (
+            ref.path
+            for ref in evidence
+            if ref.kind == "share_image" and ref.relation_type == "official_share_image"
+        ),
+        None,
+    )
+    screenshot_ref = f"file://{official_share_image or collected.screenshot_path}"
     # DLP 统一由 persist 层脱敏处理（单一权威边界，2026-08-06 起）。
     return CollectionTaskResult(
         business_key=item.business_key,
@@ -1487,18 +1543,32 @@ class _PlaywrightYiyanSession:
 
         on_stage("screenshot")
         shot_path = self._evidence_dir / f"{spec.file_stem}.png"
-        page.screenshot(path=str(shot_path), full_page=True)
+        try:
+            capture_full_page_safely(
+                page,
+                shot_path,
+                flatten_script=_FLATTEN_FOR_SCREENSHOT_JS,
+            )
+        except Exception as exc:
+            raise _IncompleteCapture(
+                f"evidence-screenshot-failed: {type(exc).__name__}: {exc}",
+                _shot("screenshot"),
+            ) from exc
         if not shot_path.exists():
             raise _IncompleteCapture("evidence-screenshot-failed: no file written")
         # 思考链 trace 落盘进证据链（kind="sse"，transport="dom"）。写盘失败不
         # 拖垮已成功的采集——如实 warning 且不出该证据（绝不出残缺/编造证据）。
         trace_path: Path | None = None
-        if thinking_text:
+        if thinking_text or references:
             trace_candidate = self._evidence_dir / f"{spec.file_stem}-sse-trace.json"
             try:
                 trace_candidate.write_text(
                     json.dumps(
-                        _build_yiyan_trace(thinking_text, deep_think_active=True),
+                        _build_yiyan_trace(
+                            thinking_text,
+                            deep_think_active=(spec.mode == "deep_think"),
+                            references=references,
+                        ),
                         ensure_ascii=False,
                         sort_keys=True,
                         separators=(",", ":"),
@@ -1512,6 +1582,67 @@ class _PlaywrightYiyanSession:
                     file_stem=spec.file_stem,
                     exc_info=True,
                 )
+        evidence = [
+            CollectionEvidenceRef(
+                kind="answer_screenshot",
+                path=str(shot_path),
+                relation_type="answer_page",
+                mime_type="image/png",
+                source_url=_CHAT_URL,
+            )
+        ]
+
+        on_stage("share_export")
+        share_image_path = self._evidence_dir / f"{spec.file_stem}-share.png"
+
+        def _share_click(locator: Any) -> None:
+            clicked_at = human_click(locator, page, self._rng, start=self._mouse_pos)
+            if clicked_at is not None:
+                self._mouse_pos = clicked_at
+
+        try:
+            share = capture_yiyan_official_share(
+                page,
+                share_image_path,
+                click=_share_click,
+            )
+            share_link_path = self._evidence_dir / f"{spec.file_stem}-share-link.json"
+            write_share_link_manifest(
+                share_link_path,
+                share_url=share.share_url,
+                platform="yiyan",
+                channel="clipboard",
+            )
+        except (OfficialShareExportError, OSError) as exc:
+            raise _IncompleteCapture(
+                "official-share-export-incomplete: Wenxin must provide both its "
+                f"share-card PNG and public share URL ({type(exc).__name__}: {exc})",
+                _shot("share_export"),
+            ) from exc
+        except Exception as exc:
+            raise _IncompleteCapture(
+                "official-share-export-incomplete: unexpected Wenxin share UI failure "
+                f"({type(exc).__name__}: {exc})",
+                _shot("share_export"),
+            ) from exc
+        evidence.extend(
+            [
+                CollectionEvidenceRef(
+                    kind="share_image",
+                    path=str(share.image_path),
+                    relation_type="official_share_image",
+                    mime_type="image/png",
+                    source_url=share.share_url,
+                ),
+                CollectionEvidenceRef(
+                    kind="share_link",
+                    path=str(share_link_path),
+                    relation_type="official_share_link",
+                    mime_type="application/json",
+                    source_url=share.share_url,
+                ),
+            ]
+        )
         return CollectedAnswer(
             answer_text=answer_text,
             references=references,
@@ -1527,6 +1658,7 @@ class _PlaywrightYiyanSession:
                 },
             },
             trace_path=trace_path,
+            evidence=evidence,
         )
 
     def _shot(self, page: Any, suffix: str, *, stem: str | None = None) -> Path | None:
@@ -1897,8 +2029,12 @@ def _extract_references(page: Any) -> list[dict[str, Any]]:
     seen: set[str] = set()
     containers = (
         'div.cosd-note-card a[href^="http"]',
+        'div.cosd-note-list a[href^="http"]',
+        '[class*="note-card"] a[href^="http"]',
+        '[class*="note-list"] a[href^="http"]',
         '[class*="reference"] a[href^="http"]',
         '[class*="source"] a[href^="http"]',
+        'div.chat-search-answer-generate a[href^="http"]',
         'div:has-text("参考资料") a[href^="http"]',
         'div:has-text("参考来源") a[href^="http"]',
     )

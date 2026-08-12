@@ -10,7 +10,7 @@
 - ``server/proxyllm/sse_parser.py``（SSE 事件切分、块组装、references 抽取、mojibake 修复）
 - ``server/proxyllm/login_state.py``（CAPTCHA_SELECTORS 验证码权威词表）
 
-只移植 happy path + 墙分类：自愈（session_heal）、分享导出、软禁打标、HAR 落盘等外围不搬。
+采集主链、官方分享导出与原始流量留痕已接入；session_heal、软禁打标等旧链外围不搬。
 
 v1 边界（2026-08-05 W1 起 deep_think 解锁）：
 
@@ -54,7 +54,8 @@ v1 边界（2026-08-05 W1 起 deep_think 解锁）：
   non_retryable；发送墙/限流/cloak → ``wall_send`` non_retryable（重试只是再撞）。
 - 成功判据（零合成）：提交被接受（输入框清空）且 /chat/completion 流真正
   loadingFinished 且解析出非空正文且不含墙特征——缺一都不得返回成功。
-  流截断/空答案/无流 → ``answer_capture_incomplete``（可重试的诚实失败）。
+  流截断/空答案/无流，或平台官方分享 PNG/公开链接任一缺失 →
+  ``answer_capture_incomplete``（可重试的诚实失败）；运行时截图绝不冒充分享图。
 
 拟人化口径（2026-08-06 起。背景：deep_think 模式 picker 连点+秒发被行为风控
 稳定识别出 wall_captcha（00:44/00:46/01:14 三连），而人工同账号同代理发送
@@ -133,8 +134,10 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import io
 import ipaddress
 import json
+import math
 import os
 import random
 import re
@@ -146,6 +149,7 @@ from typing import Any, Protocol
 from urllib.parse import urlsplit
 
 import structlog
+from PIL import Image, UnidentifiedImageError
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
@@ -167,6 +171,10 @@ from workflows.activities.human_like import (
     human_pause,
     human_read_pause,
     human_type,
+)
+from workflows.activities.official_share import (
+    recover_png_from_export_audit,
+    write_share_link_manifest,
 )
 from workflows.activities.raw_capture import dump_raw_evidence_refs, maybe_raw_capture
 from workflows.activities.resident_browser import (
@@ -227,22 +235,45 @@ _ASSISTANT_SELECTORS: tuple[str, ...] = (
 # 「新对话」入口（新会话纪律；命中第一个可见者即点，顺序即优先级）
 _NEW_CHAT_SELECTORS: tuple[str, ...] = (
     '[aria-label*="新对话"]',
+    '[aria-label*="开启新对话"]',
+    'button:has-text("开启新对话")',
+    '[role="button"]:has-text("开启新对话")',
     'button:has-text("新对话")',
     '[role="button"]:has-text("新对话")',
     'a:has-text("新对话")',
 )
 
-# 新会话验证：页面已存在消息节点计数（>0 = 旧会话/进行中的旧回答）。
-# data-testid="message_text_content" 是实测的助手气泡选择器（权威信号）；
-# 其余为保守补充（匹配不到=0，无害）。
+# 新会话验证：显式 data-empty-conversation=false 为最高优先级旧会话信号；
+# 其次用 202608 live 的 action-bar/message-box/messageid 语义节点，最后兼容旧
+# data-testid/author-role。>0 = 旧会话/进行中的旧回答。
 _CHAT_MESSAGE_COUNT_JS = r"""() => {
-  const sels = [
+  // 2026-08 live DOM no longer renders message_text_content.  A completed Q/A
+  // exposes one send and one receive action bar plus message-box target nodes.
+  // Any one of these stable semantic families is enough to prove this is not an
+  // empty conversation.  Return the first non-zero family to avoid double count.
+  const conversationStates = Array.from(
+    document.querySelectorAll('[data-empty-conversation]')
+  ).map((el) => el.getAttribute('data-empty-conversation'));
+  // Highest-priority explicit state from the live Doubao conversation root.
+  // false means old/non-empty even if virtualisation has unmounted all messages.
+  if (conversationStates.includes('false')) return 1;
+  const stable = [
+    '[data-foundation-type="send-message-action-bar"]',
+    '[data-foundation-type="receive-message-action-bar"]',
+    '[data-target-id="message-box-target-id"]',
+    '[messageid]'
+  ];
+  for (const s of stable) {
+    const n = document.querySelectorAll(s).length;
+    if (n > 0) return n;
+  }
+  const legacy = [
     '[data-testid="message_text_content"]',
     '[data-message-author-role="assistant"]',
     '[data-message-author-role="user"]'
   ];
   let n = 0;
-  for (const s of sels) n += document.querySelectorAll(s).length;
+  for (const s of legacy) n += document.querySelectorAll(s).length;
   return n;
 }"""
 
@@ -346,73 +377,181 @@ _INPUT_VALUE_JS = (
     "el => (el.value !== undefined && el.value !== null) ? el.value : (el.textContent || '')"
 )
 
-# 整页截图前把豆包内部 overflow 滚动容器压平进文档流（旧链 _FLATTEN_FOR_SCREENSHOT_JS）
-_FLATTEN_FOR_SCREENSHOT_JS = r"""
-() => {
-  const beforeBodyClientH = document.body ? document.body.clientHeight : 0;
-  const beforeBodyScrollH = document.body ? document.body.scrollHeight : 0;
-  const cands = [];
-  for (const el of document.querySelectorAll('div, main, section, article, aside, nav, form')) {
+# 2026-08 live DOM: the chat and the left history rail are separate scrollers.
+# The history rail is taller, so the old "largest scrollHeight + flatten every
+# transform" capture selected the rail and destroyed the virtual rows' translateY
+# positioning.  These scripts only read layout and move the *validated chat*
+# scroller.  They never touch an inline style or the document scroll position.
+_DOUBAO_CAPTURE_STATE_JS = r"""async (request) => {
+  const fail = (error) => ({ok: false, error});
+  const visible = (el) => {
+    const rect = el.getBoundingClientRect();
     const cs = getComputedStyle(el);
-    if ((cs.overflowY === 'auto' || cs.overflowY === 'scroll')
-        && el.scrollHeight > el.clientHeight + 100) {
-      cands.push(el);
-    }
-  }
-  let main = null;
-  let fullHeight = 0;
-  if (cands.length) {
-    cands.sort((a, b) => b.scrollHeight - a.scrollHeight);
-    main = cands[0];
-    fullHeight = main.scrollHeight;
-    let cur = main;
-    while (cur) {
-      if (cur === main) {
-        cur.style.setProperty('height', fullHeight + 'px', 'important');
-      } else {
-        cur.style.setProperty('height', 'auto', 'important');
-      }
-      cur.style.setProperty('max-height', 'none', 'important');
-      cur.style.setProperty('min-height', '0', 'important');
-      cur.style.setProperty('overflow', 'visible', 'important');
-      cur.style.setProperty('flex', '0 0 auto', 'important');
-      cur.style.setProperty('position', 'static', 'important');
-      cur.style.setProperty('transform', 'none', 'important');
-      cur.style.setProperty('contain', 'none', 'important');
-      if (cur === document.documentElement) break;
-      cur = cur.parentElement;
-    }
-  }
-  for (const el of document.querySelectorAll('*')) {
-    const cs = getComputedStyle(el);
-    if (cs.transform && cs.transform !== 'none') {
-      el.style.setProperty('transform', 'none', 'important');
-    }
-    if (cs.position === 'fixed') {
-      el.style.setProperty('position', 'absolute', 'important');
-    }
-  }
-  const targetH = Math.max(fullHeight, beforeBodyScrollH, beforeBodyClientH);
-  document.body.style.setProperty('height', 'auto', 'important');
-  document.body.style.setProperty('min-height', targetH + 'px', 'important');
-  document.body.style.setProperty('overflow', 'visible', 'important');
-  document.body.style.setProperty('transform', 'none', 'important');
-  document.documentElement.style.setProperty('height', 'auto', 'important');
-  document.documentElement.style.setProperty('min-height', targetH + 'px', 'important');
-  document.documentElement.style.setProperty('overflow', 'visible', 'important');
-  document.documentElement.style.setProperty('transform', 'none', 'important');
-  void document.body.offsetHeight;
-  const afterBodyScrollH = document.body ? document.body.scrollHeight : 0;
-  const afterDocScrollH = document.documentElement ? document.documentElement.scrollHeight : 0;
-  return {
-    ok: !!main,
-    scroller_full_height: fullHeight,
-    body_scroll_height_after: afterBodyScrollH,
-    doc_scroll_height_after: afterDocScrollH,
-    viewport_height: window.innerHeight,
+    return rect.width > 0 && rect.height > 0
+      && cs.display !== 'none' && cs.visibility !== 'hidden';
   };
-}
-"""
+  const chatScrollers = () => Array.from(
+    document.querySelectorAll('div.scroller[class*="v_list_scroller"]')
+  ).filter((el) => {
+    if (!visible(el)) return false;
+    const cs = getComputedStyle(el);
+    if (cs.overflowY !== 'auto' && cs.overflowY !== 'scroll') return false;
+    return el.querySelectorAll('[data-target-id="message-box-target-id"]').length === 2;
+  });
+
+  let candidates = chatScrollers();
+  if (candidates.length !== 1) return fail(`chat_scroller_count:${candidates.length}`);
+  let scroller = candidates[0];
+  if (request && Number.isFinite(request.scrollTop)) {
+    scroller.scrollTop = Number(request.scrollTop);
+    await new Promise((resolve) => requestAnimationFrame(
+      () => requestAnimationFrame(resolve)
+    ));
+    candidates = chatScrollers();
+    if (candidates.length !== 1) {
+      return fail(`chat_scroller_count_after_scroll:${candidates.length}`);
+    }
+    scroller = candidates[0];
+  }
+
+  const roots = Array.from(
+    scroller.querySelectorAll('[data-target-id="message-box-target-id"]')
+  );
+  if (roots.length !== 2) return fail(`message_root_count:${roots.length}`);
+  if (!roots[0].querySelector('[data-foundation-type="send-message-action-bar"]')) {
+    return fail('question_role_unproven');
+  }
+  if (!roots[1].querySelector('[data-foundation-type="receive-message-action-bar"]')) {
+    return fail('answer_role_unproven');
+  }
+  const contentNodes = roots.map((root) => Array.from(
+    root.querySelectorAll('[data-message-id]')
+  ));
+  if (contentNodes[0].length !== 1 || contentNodes[1].length !== 1) {
+    return fail(`message_content_count:${contentNodes[0].length},${contentNodes[1].length}`);
+  }
+  const question = contentNodes[0][0];
+  const answer = contentNodes[1][0];
+  // Doubao's markdown renderer inserts presentation-only spaces around Chinese
+  // quotation marks (e.g. `出现 “品牌”`), although the submitted task payload is
+  // `出现“品牌”`. Ignore only that renderer artifact; all other characters must
+  // remain an exact match so an old/adjacent question cannot be screenshotted.
+  const normalizeText = (value) => String(value || '')
+    .replace(/\s+/g, ' ')
+    .replace(/\s*([“”‘’「」『』])\s*/g, '$1')
+    .trim();
+  const expectedQuestion = normalizeText(request && request.expectedQuestion);
+  if (!expectedQuestion) return fail('expected_question_missing');
+  if (normalizeText(question.innerText) !== expectedQuestion) {
+    return fail('question_text_mismatch');
+  }
+  const excluded = [question, answer].find((node) => node.querySelector(
+    '[data-foundation-type$="message-action-bar"],'
+      + '[data-foundation-type="receive-message-suggest-foundation"],'
+      + '#input-engine-container'
+  ));
+  if (excluded) return fail('excluded_ui_inside_message_content');
+  if (scroller.querySelector('#input-engine-container')) {
+    return fail('composer_inside_chat_scroller');
+  }
+
+  const fingerprint = (node) => {
+    const text = normalizeText(node.innerText);
+    let hash = 2166136261;
+    for (let i = 0; i < text.length; i += 1) {
+      hash ^= text.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return `${text.length}:${(hash >>> 0).toString(16)}`;
+  };
+  const scrollerRect = scroller.getBoundingClientRect();
+  const scrollTop = scroller.scrollTop;
+  const blocks = [question, answer].map((node, index) => {
+    const rect = node.getBoundingClientRect();
+    return {
+      role: index === 0 ? 'question' : 'answer',
+      top: rect.top - scrollerRect.top + scrollTop,
+      bottom: rect.bottom - scrollerRect.top + scrollTop,
+      left: rect.left,
+      right: rect.right,
+      fingerprint: fingerprint(node),
+    };
+  });
+  if (blocks.some((block) => !Number.isFinite(block.top)
+      || !Number.isFinite(block.bottom))) {
+    return fail('message_bounds_invalid');
+  }
+  if (blocks.some((block) => block.fingerprint.startsWith('0:'))) {
+    return fail('message_text_empty');
+  }
+  if (blocks.some((block) => block.bottom <= block.top)) {
+    return fail('message_height_invalid');
+  }
+  if (blocks[0].bottom > blocks[1].top + 1) {
+    return fail('message_order_invalid');
+  }
+
+  const clipX = Math.min(blocks[0].left, blocks[1].left);
+  const clipRight = Math.max(blocks[0].right, blocks[1].right);
+  const clipWidth = clipRight - clipX;
+  const viewportHeight = scroller.clientHeight;
+  const maxScroll = Math.max(0, scroller.scrollHeight - viewportHeight);
+  if (clipWidth <= 0 || viewportHeight <= 0 || scroller.scrollHeight <= 0) {
+    return fail('chat_scroller_bounds_invalid');
+  }
+  if (clipX < scrollerRect.left - 1
+      || clipRight > scrollerRect.left + scroller.clientWidth + 1) {
+    return fail('message_outside_chat_scroller');
+  }
+  if (scrollerRect.top < 0 || scrollerRect.top + viewportHeight > window.innerHeight + 1
+      || clipX < 0 || clipRight > window.innerWidth + 1) {
+    return fail('chat_scroller_outside_viewport');
+  }
+  if (blocks.some((block) => block.top < -1
+      || block.bottom > scroller.scrollHeight + 1)) {
+    return fail('message_outside_scroll_extent');
+  }
+  return {
+    ok: true,
+    scroll_top: scrollTop,
+    scroll_height: scroller.scrollHeight,
+    max_scroll: maxScroll,
+    viewport_height: viewportHeight,
+    clip_x: clipX,
+    clip_y: scrollerRect.top,
+    clip_width: clipWidth,
+    blocks,
+  };
+}"""
+
+_DOUBAO_CAPTURE_RESTORE_JS = r"""async (scrollTop) => {
+  const candidates = Array.from(
+    document.querySelectorAll('div.scroller[class*="v_list_scroller"]')
+  ).filter((el) => {
+    const rect = el.getBoundingClientRect();
+    const cs = getComputedStyle(el);
+    return rect.width > 0 && rect.height > 0
+      && cs.display !== 'none' && cs.visibility !== 'hidden'
+      && (cs.overflowY === 'auto' || cs.overflowY === 'scroll');
+  });
+  if (candidates.length !== 1) {
+    return {ok: false, error: `restore_scroller_count:${candidates.length}`};
+  }
+  const scroller = candidates[0];
+  scroller.scrollTop = Number(scrollTop);
+  await new Promise((resolve) => requestAnimationFrame(
+    () => requestAnimationFrame(resolve)
+  ));
+  return {
+    ok: Math.abs(scroller.scrollTop - Number(scrollTop)) <= 1,
+    actual_scroll_top: scroller.scrollTop,
+  };
+}"""
+
+_DOUBAO_CAPTURE_OVERLAP_CSS_PX = 32.0
+_DOUBAO_CAPTURE_MAX_TILES = 200
+_DOUBAO_CAPTURE_MAX_WIDTH_CSS_PX = 5_000.0
+_DOUBAO_CAPTURE_MAX_HEIGHT_CSS_PX = 50_000.0
 
 
 # ---------------------------------------------------------------------------
@@ -1000,7 +1139,6 @@ def _task_result_from_collected(
     """CollectedAnswer → CollectionTaskResult 映射（answer 组装/citations/证据
     前置/出界 DLP 自检）。run_doubao_collection 与 batch per-item ok 映射共用。"""
     answer_text = _compose_answer_text(collected.answer_text, collected.references)
-    screenshot_ref = f"file://{collected.screenshot_path}"
     citations = _citation_payloads(collected.references)
     evidence = list(collected.evidence)
     if not any(ref.kind == "answer_screenshot" for ref in evidence):
@@ -1014,6 +1152,18 @@ def _task_result_from_collected(
                 source_url=_CHAT_URL,
             ),
         )
+    # The product-facing answer image is the platform's official share image.
+    # Runtime screenshots remain separate audit evidence and are only a backward-
+    # compatible fallback for injected/legacy CollectedAnswer objects.
+    official_share_image = next(
+        (
+            ref.path
+            for ref in evidence
+            if ref.kind == "share_image" and ref.relation_type == "official_share_image"
+        ),
+        None,
+    )
+    screenshot_ref = f"file://{official_share_image or collected.screenshot_path}"
     # DLP 统一由 persist 层脱敏处理（单一权威边界，2026-08-06 起）。
     return CollectionTaskResult(
         business_key=item.business_key,
@@ -1574,7 +1724,13 @@ class _PlaywrightDoubaoSession:
 
             on_stage("screenshot")
             shot_path = self._evidence_dir / f"{spec.file_stem}.png"
-            _capture_full_page(page, shot_path)
+            try:
+                _capture_full_page(page, shot_path, expected_question=spec.query)
+            except Exception as exc:
+                raise _IncompleteCapture(
+                    f"evidence-screenshot-failed: {type(exc).__name__}: {exc}",
+                    _shot("screenshot"),
+                ) from exc
             if not shot_path.exists():
                 raise _IncompleteCapture("evidence-screenshot-failed: no file written")
             evidence = [
@@ -1636,9 +1792,9 @@ class _PlaywrightDoubaoSession:
                         )
                     )
 
-            # Official sharing is intentionally best-effort: a transient share-panel
-            # redesign must not discard a valid answer, but each failure is explicit in
-            # structured worker logs and a successful export enters the evidence chain.
+            # Official share output is part of the successful-capture contract.  A
+            # runtime browser screenshot is audit evidence, not a substitute for the
+            # user-requested official share image/link.
             on_stage("share_export")
             # legacy share_export（server/proxyllm 只读移植源，bridge 动态加载）内部
             # 大量裸 mouse.click / locator.click：包一层 facade 换成拟人化路径。
@@ -1661,7 +1817,11 @@ class _PlaywrightDoubaoSession:
                     "error": f"{type(exc).__name__}: {exc}",
                 }
             share_url = _validated_doubao_share_url(share_link_audit.get("url"))
-            if share_image_audit.get("ok") and share_image_path.is_file():
+            share_image_ok = bool(share_image_audit.get("ok")) and recover_png_from_export_audit(
+                share_image_path, share_image_audit
+            )
+            share_link_ok = bool(share_link_audit.get("ok")) and share_url is not None
+            if share_image_ok:
                 evidence.append(
                     CollectionEvidenceRef(
                         kind="share_image",
@@ -1671,37 +1831,49 @@ class _PlaywrightDoubaoSession:
                         source_url=share_url,
                     )
                 )
-            if share_link_audit.get("ok") and share_url:
+            if share_link_ok and share_url:
                 share_link_path = self._evidence_dir / f"{spec.file_stem}-share-link.json"
-                share_link_path.write_text(
-                    json.dumps(
-                        {
-                            "channel": share_link_audit.get("channel"),
-                            "url": share_url,
-                        },
-                        ensure_ascii=False,
-                        sort_keys=True,
-                        separators=(",", ":"),
-                    ),
-                    encoding="utf-8",
-                )
-                evidence.append(
-                    CollectionEvidenceRef(
-                        kind="share_link",
-                        path=str(share_link_path),
-                        relation_type="official_share_link",
-                        mime_type="application/json",
-                        source_url=share_url,
+                try:
+                    write_share_link_manifest(
+                        share_link_path,
+                        share_url=share_url,
+                        platform="doubao",
+                        channel=(
+                            str(share_link_audit.get("channel"))
+                            if share_link_audit.get("channel")
+                            else None
+                        ),
                     )
-                )
-            if not share_image_audit.get("ok") or not share_url:
+                except OSError as exc:
+                    share_link_ok = False
+                    share_link_audit["manifest_error"] = f"{type(exc).__name__}: {exc}"
+                else:
+                    evidence.append(
+                        CollectionEvidenceRef(
+                            kind="share_link",
+                            path=str(share_link_path),
+                            relation_type="official_share_link",
+                            mime_type="application/json",
+                            source_url=share_url,
+                        )
+                    )
+            if not share_image_ok or not share_link_ok:
                 log.warning(
-                    "doubao_share_export_partial",
+                    "doubao_share_export_incomplete",
                     business_key=spec.business_key,
-                    image_ok=bool(share_image_audit.get("ok")),
+                    image_ok=share_image_ok,
                     image_error=str(share_image_audit.get("error") or "")[:300],
-                    link_ok=bool(share_link_audit.get("ok")),
-                    link_error=str(share_link_audit.get("error") or "")[:300],
+                    link_ok=share_link_ok,
+                    link_error=str(
+                        share_link_audit.get("error")
+                        or share_link_audit.get("manifest_error")
+                        or ""
+                    )[:300],
+                )
+                raise _IncompleteCapture(
+                    "official-share-export-incomplete: both a valid platform share PNG "
+                    "and an official public share URL are required",
+                    _shot("share_export"),
                 )
 
             on_stage("source_screenshots")
@@ -1899,117 +2071,32 @@ def _capture_source_screenshots(
     file_stem: str,
     timeout_error: type[Exception],
 ) -> tuple[list[CollectionEvidenceRef], dict[str, Any]]:
-    """Capture cited pages and visibly annotate title + mentioned paragraph metadata."""
-    limit = _source_screenshot_limit()
-    output: list[CollectionEvidenceRef] = []
-    failures: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    candidates: list[tuple[int, dict[str, Any], str]] = []
-    for ordinal, reference in enumerate(references, 1):
-        url = _external_http_url(reference.get("url"))
-        if not url or url in seen:
-            continue
-        seen.add(url)
-        candidates.append((ordinal, reference, url))
-        if len(candidates) >= limit:
-            break
-    for ordinal, reference, url in candidates:
-        source_page = context.new_page()
-        try:
-            try:
-                source_page.goto(url, wait_until="domcontentloaded", timeout=15_000)
-            except timeout_error:
-                # A useful DOM often exists even when trackers keep the load event open.
-                pass
-            source_page.wait_for_timeout(1_500)
-            summary_hint = str(reference.get("summary") or "").strip()[:2_000]
-            page_projection = source_page.evaluate(
-                r"""
-                hint => {
-                  const clean = value => (value || '').replace(/\s+/g, ' ').trim();
-                  const blocks = Array.from(document.querySelectorAll(
-                    'article p, main p, [role="main"] p, p, article li, main li'
-                  )).filter(el => el.offsetParent !== null)
-                    .map(el => clean(el.textContent)).filter(text => text.length >= 30);
-                  const needle = clean(hint).slice(0, 24);
-                  const mentioned = needle
-                    ? (blocks.find(text => text.includes(needle)) || '')
-                    : (blocks.find(text => text.length >= 60) || blocks[0] || '');
-                  return {title: clean(document.title), mentioned: mentioned.slice(0, 2000)};
-                }
-                """,
-                summary_hint,
-            )
-            actual_title = str((page_projection or {}).get("title") or "").strip()
-            actual_mention = str((page_projection or {}).get("mentioned") or "").strip()
-            title = (
-                actual_title or str(reference.get("title") or "").strip() or urlsplit(url).hostname
-            )
-            cited_text = summary_hint or actual_mention or None
-            # Keep the visual annotation compact enough that its heading, source title,
-            # mention excerpt, and URL are all visible in the captured viewport.  The
-            # full citation text remains available in the structured citation payload.
-            banner_mention = cited_text[:500] if cited_text else None
-            source_page.evaluate(
-                """
-                data => {
-                  document.getElementById('geo-source-evidence-banner')?.remove();
-                  const root = document.createElement('section');
-                  root.id = 'geo-source-evidence-banner';
-                  root.setAttribute('aria-label', 'GEO 信源证据元数据');
-                  Object.assign(root.style, {
-                    position: 'fixed', top: '12px', left: '12px', right: '12px',
-                    zIndex: '2147483647',
-                    padding: '14px 18px', background: 'rgba(255,255,255,.97)', color: '#111827',
-                    border: '2px solid #2563eb', borderRadius: '10px',
-                    boxShadow: '0 8px 28px rgba(0,0,0,.22)',
-                    font: '14px/1.5 system-ui, sans-serif', maxHeight: '34vh', overflow: 'auto'
-                  });
-                  const heading = document.createElement('strong');
-                  heading.textContent = 'GEO 信源证据（采集注释）';
-                  const title = document.createElement('div');
-                  title.textContent = `标题：${data.title || '未识别'}`;
-                  const mention = document.createElement('div');
-                  mention.textContent = `提及段落：${data.mention || '页面未提取到正文段落'}`;
-                  const address = document.createElement('div');
-                  address.textContent = `来源：${data.url}`;
-                  root.append(heading, title, mention, address);
-                  document.documentElement.appendChild(root);
-                }
-                """,
-                {"title": title, "mention": banner_mention, "url": url},
-            )
-            screenshot_path = evidence_dir / f"{file_stem}-source-{ordinal:02d}.png"
-            source_page.screenshot(path=str(screenshot_path), full_page=False, timeout=15_000)
-            if not screenshot_path.is_file() or screenshot_path.stat().st_size <= 0:
-                raise RuntimeError("source screenshot was not written")
-            output.append(
-                CollectionEvidenceRef(
-                    kind="source_screenshot",
-                    path=str(screenshot_path),
-                    relation_type="cited_source_snapshot",
-                    mime_type="image/png",
-                    source_url=url,
-                    title=title,
-                    cited_text=cited_text,
-                    ordinal=ordinal,
-                )
-            )
-        except Exception as exc:
-            failures.append({"ordinal": ordinal, "error": f"{type(exc).__name__}: {exc}"[:300]})
-        finally:
-            try:
-                source_page.close()
-            except Exception:
-                pass
-    if failures:
-        log.warning(
-            "doubao_source_screenshot_partial",
-            requested=len(candidates),
-            captured=len(output),
-            failures=failures,
-        )
-    return output, {"requested": len(candidates), "captured": len(output), "failures": failures}
+    """Fail closed: collection-time citation cards are not brand evidence.
+
+    This adapter has no authoritative project ``Brand.name``/alias context.  The
+    removed implementation copied a citation summary into a fixed page overlay and
+    screenshotted it, which could visually claim text existed on a page even when it
+    did not.  Real brand evidence is now produced downstream by ``source_fetch``
+    only after source text and live DOM both contain an exact project brand term.
+    """
+
+    del context, evidence_dir, file_stem, timeout_error
+    requested = min(
+        _source_screenshot_limit(),
+        len(
+            {
+                url
+                for reference in references
+                if (url := _external_http_url(reference.get("url"))) is not None
+            }
+        ),
+    )
+    return [], {
+        "requested": requested,
+        "captured": 0,
+        "failures": [],
+        "skipped": "brand_context_required_for_evidence",
+    }
 
 
 class _CompletionCapture:
@@ -2405,45 +2492,364 @@ def _scan_dom_notices(page: Any) -> dict[str, list[str]]:
     }
 
 
-def _capture_full_page(page: Any, out_path: Path) -> None:
-    """flatten 内部滚动容器后整页截图：CDP captureBeyondViewport 优先，full_page 兜底。"""
-    metrics: dict[str, Any] = {}
-    try:
-        raw = page.evaluate(_FLATTEN_FOR_SCREENSHOT_JS)
-        page.wait_for_timeout(300)
-        if isinstance(raw, dict):
-            metrics = raw
-    except Exception:
-        metrics = {}
-    target_height = max(
-        int(metrics.get("body_scroll_height_after") or 0),
-        int(metrics.get("doc_scroll_height_after") or 0),
-        int(metrics.get("scroller_full_height") or 0),
+class _DoubaoScopedCaptureError(RuntimeError):
+    """The current one-question Doubao answer could not be captured exactly."""
+
+
+def _capture_number(value: Any, name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise _DoubaoScopedCaptureError(f"capture metric {name} was not numeric")
+    number = float(value)
+    if not math.isfinite(number):
+        raise _DoubaoScopedCaptureError(f"capture metric {name} was not finite")
+    return number
+
+
+def _read_doubao_capture_state(
+    page: Any, *, expected_question: str, scroll_top: float | None = None
+) -> dict[str, Any]:
+    if not expected_question.strip():
+        raise _DoubaoScopedCaptureError("Doubao expected question was empty")
+    raw = page.evaluate(
+        _DOUBAO_CAPTURE_STATE_JS,
+        {"expectedQuestion": expected_question, "scrollTop": scroll_top},
     )
-    viewport_h = int(metrics.get("viewport_height") or 0)
-    if target_height and target_height > viewport_h + 50:
-        try:
-            cdp = page.context.new_cdp_session(page)
-            layout = cdp.send("Page.getLayoutMetrics")
-            css_size = layout.get("cssContentSize") or layout.get("contentSize") or {}
-            width = int(css_size.get("width") or 0) or 1280
-            height = max(target_height, int(css_size.get("height") or 0))
-            result = cdp.send(
-                "Page.captureScreenshot",
-                {
-                    "format": "png",
-                    "captureBeyondViewport": True,
-                    "fromSurface": True,
-                    "clip": {"x": 0, "y": 0, "width": width, "height": height, "scale": 1},
-                },
+    if not isinstance(raw, dict):
+        raise _DoubaoScopedCaptureError("Doubao capture probe returned no state")
+    if raw.get("ok") is not True:
+        reason = str(raw.get("error") or "unknown DOM shape")
+        raise _DoubaoScopedCaptureError(f"Doubao scoped capture unavailable: {reason}")
+    raw_blocks = raw.get("blocks")
+    if not isinstance(raw_blocks, list) or len(raw_blocks) != 2:
+        raise _DoubaoScopedCaptureError("Doubao capture requires exactly two message blocks")
+
+    blocks: list[dict[str, Any]] = []
+    for index, raw_block in enumerate(raw_blocks):
+        if not isinstance(raw_block, dict):
+            raise _DoubaoScopedCaptureError("Doubao message block was malformed")
+        expected_role = "question" if index == 0 else "answer"
+        if raw_block.get("role") != expected_role:
+            raise _DoubaoScopedCaptureError(
+                f"Doubao message order changed at {expected_role}"
             )
-            png_b64 = result.get("data")
-            if png_b64:
-                out_path.write_bytes(base64.b64decode(png_b64))
-                return
-        except Exception:
-            pass
-    page.screenshot(path=str(out_path), full_page=True)
+        fingerprint = raw_block.get("fingerprint")
+        if not isinstance(fingerprint, str) or not fingerprint:
+            raise _DoubaoScopedCaptureError(
+                f"Doubao {expected_role} text fingerprint was missing"
+            )
+        blocks.append(
+            {
+                "role": expected_role,
+                "top": _capture_number(raw_block.get("top"), f"{expected_role}.top"),
+                "bottom": _capture_number(
+                    raw_block.get("bottom"), f"{expected_role}.bottom"
+                ),
+                "left": _capture_number(
+                    raw_block.get("left"), f"{expected_role}.left"
+                ),
+                "right": _capture_number(
+                    raw_block.get("right"), f"{expected_role}.right"
+                ),
+                "fingerprint": fingerprint,
+            }
+        )
+
+    state = {
+        "scroll_top": _capture_number(raw.get("scroll_top"), "scroll_top"),
+        "scroll_height": _capture_number(raw.get("scroll_height"), "scroll_height"),
+        "max_scroll": _capture_number(raw.get("max_scroll"), "max_scroll"),
+        "viewport_height": _capture_number(
+            raw.get("viewport_height"), "viewport_height"
+        ),
+        "clip_x": _capture_number(raw.get("clip_x"), "clip_x"),
+        "clip_y": _capture_number(raw.get("clip_y"), "clip_y"),
+        "clip_width": _capture_number(raw.get("clip_width"), "clip_width"),
+        "blocks": blocks,
+    }
+    if state["clip_width"] > _DOUBAO_CAPTURE_MAX_WIDTH_CSS_PX:
+        raise _DoubaoScopedCaptureError("Doubao message capture width exceeded safety limit")
+    total_height = sum(block["bottom"] - block["top"] for block in blocks)
+    if total_height <= 0 or total_height > _DOUBAO_CAPTURE_MAX_HEIGHT_CSS_PX:
+        raise _DoubaoScopedCaptureError("Doubao message capture height was unsafe")
+    return state
+
+
+def _assert_doubao_capture_stable(
+    expected: dict[str, Any],
+    actual: dict[str, Any],
+    *,
+    requested_scroll_top: float,
+) -> None:
+    if abs(actual["scroll_top"] - requested_scroll_top) > 1:
+        raise _DoubaoScopedCaptureError(
+            "Doubao chat scroller did not settle at the requested tile"
+        )
+    for key in (
+        "scroll_height",
+        "max_scroll",
+        "viewport_height",
+        "clip_x",
+        "clip_y",
+        "clip_width",
+    ):
+        if abs(actual[key] - expected[key]) > 1:
+            raise _DoubaoScopedCaptureError(
+                f"Doubao chat layout changed during capture ({key})"
+            )
+    for expected_block, actual_block in zip(
+        expected["blocks"], actual["blocks"], strict=True
+    ):
+        role = expected_block["role"]
+        if actual_block["fingerprint"] != expected_block["fingerprint"]:
+            raise _DoubaoScopedCaptureError(
+                f"Doubao {role} text changed during screenshot capture"
+            )
+        for key in ("top", "bottom", "left", "right"):
+            if abs(actual_block[key] - expected_block[key]) > 1:
+                raise _DoubaoScopedCaptureError(
+                    f"Doubao {role} bounds changed during screenshot capture"
+                )
+
+
+def _doubao_tile_positions(
+    *,
+    top: float,
+    bottom: float,
+    viewport_height: float,
+    max_scroll: float,
+) -> list[float]:
+    first = min(max(top, 0.0), max_scroll)
+    last = min(max(bottom - viewport_height, 0.0), max_scroll)
+    if last <= first + 0.5:
+        return [first]
+    step = viewport_height - _DOUBAO_CAPTURE_OVERLAP_CSS_PX
+    if step <= 1:
+        raise _DoubaoScopedCaptureError("Doubao chat viewport was too short to tile")
+    count = int(math.ceil((last - first) / step)) + 1
+    if count > _DOUBAO_CAPTURE_MAX_TILES:
+        raise _DoubaoScopedCaptureError("Doubao answer required too many screenshot tiles")
+    stride = (last - first) / (count - 1)
+    return [first + stride * index for index in range(count)]
+
+
+def _capture_doubao_message_block(
+    page: Any,
+    *,
+    expected_question: str,
+    expected: dict[str, Any],
+    block: dict[str, Any],
+) -> tuple[Image.Image, int]:
+    positions = _doubao_tile_positions(
+        top=block["top"],
+        bottom=block["bottom"],
+        viewport_height=expected["viewport_height"],
+        max_scroll=expected["max_scroll"],
+    )
+    canvas: Image.Image | None = None
+    scale_x: float | None = None
+    scale_y: float | None = None
+    painted_until = block["top"]
+    try:
+        for position in positions:
+            state = _read_doubao_capture_state(
+                page,
+                expected_question=expected_question,
+                scroll_top=position,
+            )
+            _assert_doubao_capture_stable(
+                expected, state, requested_scroll_top=position
+            )
+            # Two rAFs ran in the probe; one short paint window then a second
+            # read proves neither virtual row nor its text was recycled meanwhile.
+            page.wait_for_timeout(75)
+            stable_state = _read_doubao_capture_state(
+                page, expected_question=expected_question
+            )
+            _assert_doubao_capture_stable(
+                expected,
+                stable_state,
+                requested_scroll_top=state["scroll_top"],
+            )
+            clip = {
+                "x": expected["clip_x"],
+                "y": expected["clip_y"],
+                "width": expected["clip_width"],
+                "height": expected["viewport_height"],
+            }
+            raw_png = page.screenshot(clip=clip, timeout=15_000)
+            if not isinstance(raw_png, bytes | bytearray):
+                raise _DoubaoScopedCaptureError(
+                    "Doubao screenshot API returned no PNG bytes"
+                )
+            try:
+                with Image.open(io.BytesIO(bytes(raw_png))) as opened:
+                    opened.load()
+                    tile = opened.convert("RGB")
+            except (OSError, UnidentifiedImageError, ValueError) as exc:
+                raise _DoubaoScopedCaptureError(
+                    "Doubao screenshot tile was not a valid image"
+                ) from exc
+
+            current_scale_x = tile.width / expected["clip_width"]
+            current_scale_y = tile.height / expected["viewport_height"]
+            if current_scale_x <= 0 or current_scale_y <= 0:
+                tile.close()
+                raise _DoubaoScopedCaptureError("Doubao screenshot tile scale was invalid")
+            if scale_x is None or scale_y is None:
+                scale_x = current_scale_x
+                scale_y = current_scale_y
+                if abs(scale_x - scale_y) > max(scale_x, scale_y) * 0.02:
+                    tile.close()
+                    raise _DoubaoScopedCaptureError(
+                        "Doubao screenshot tile used inconsistent pixel scaling"
+                    )
+                canvas = Image.new(
+                    "RGB",
+                    (
+                        tile.width,
+                        max(1, round((block["bottom"] - block["top"]) * scale_y)),
+                    ),
+                    "white",
+                )
+            elif (
+                abs(current_scale_x - scale_x) > 0.01
+                or abs(current_scale_y - scale_y) > 0.01
+                or canvas is None
+                or tile.width != canvas.width
+            ):
+                tile.close()
+                raise _DoubaoScopedCaptureError(
+                    "Doubao screenshot tile dimensions changed during capture"
+                )
+
+            visible_start = max(state["scroll_top"], block["top"])
+            visible_end = min(
+                state["scroll_top"] + expected["viewport_height"], block["bottom"]
+            )
+            segment_start = max(visible_start, painted_until)
+            if segment_start > painted_until + 1:
+                tile.close()
+                raise _DoubaoScopedCaptureError("Doubao screenshot tiles contained a gap")
+            if visible_end > segment_start:
+                assert scale_y is not None and canvas is not None
+                source_top = round((segment_start - state["scroll_top"]) * scale_y)
+                source_bottom = round((visible_end - state["scroll_top"]) * scale_y)
+                destination_top = round((segment_start - block["top"]) * scale_y)
+                source_top = min(max(source_top, 0), tile.height)
+                source_bottom = min(max(source_bottom, source_top), tile.height)
+                segment = tile.crop((0, source_top, tile.width, source_bottom))
+                remaining = canvas.height - destination_top
+                if segment.height > remaining:
+                    segment = segment.crop((0, 0, segment.width, max(0, remaining)))
+                if segment.height > 0:
+                    canvas.paste(segment, (0, destination_top))
+                segment.close()
+                painted_until = visible_end
+            tile.close()
+
+        if canvas is None or painted_until < block["bottom"] - 1:
+            raise _DoubaoScopedCaptureError(
+                f"Doubao {block['role']} screenshot tiles were incomplete"
+            )
+        return canvas, len(positions)
+    except BaseException:
+        if canvas is not None:
+            canvas.close()
+        raise
+
+
+def _capture_full_page(
+    page: Any, out_path: Path, *, expected_question: str
+) -> dict[str, Any]:
+    """Capture only the current question and answer content from Doubao.
+
+    The two unique ``[data-message-id]`` nodes exclude both message action bars,
+    follow-up suggestions, the composer, and the left history rail.  Tall answer
+    nodes are captured through the validated chat scroller in overlapping tiles;
+    no DOM style is changed, and the original ``scrollTop`` is restored even when
+    a screenshot or virtual-row stability check fails.  There is deliberately no
+    whole-page/flatten fallback because that would create misleading evidence.
+    """
+
+    initial = _read_doubao_capture_state(
+        page, expected_question=expected_question
+    )
+    original_scroll_top = initial["scroll_top"]
+    block_images: list[Image.Image] = []
+    final_image: Image.Image | None = None
+    tile_count = 0
+    capture_error: BaseException | None = None
+    restore_error: BaseException | None = None
+    try:
+        for block in initial["blocks"]:
+            image, count = _capture_doubao_message_block(
+                page,
+                expected_question=expected_question,
+                expected=initial,
+                block=block,
+            )
+            block_images.append(image)
+            tile_count += count
+        widths = {image.width for image in block_images}
+        if len(widths) != 1:
+            raise _DoubaoScopedCaptureError(
+                "Doubao question and answer screenshot widths differed"
+            )
+        final_image = Image.new(
+            "RGB",
+            (block_images[0].width, sum(image.height for image in block_images)),
+            "white",
+        )
+        paste_y = 0
+        for image in block_images:
+            final_image.paste(image, (0, paste_y))
+            paste_y += image.height
+    except BaseException as exc:
+        capture_error = exc
+    finally:
+        try:
+            restored = page.evaluate(_DOUBAO_CAPTURE_RESTORE_JS, original_scroll_top)
+            if not isinstance(restored, dict) or restored.get("ok") is not True:
+                reason = (
+                    str(restored.get("error") or restored.get("actual_scroll_top"))
+                    if isinstance(restored, dict)
+                    else "no restore result"
+                )
+                raise _DoubaoScopedCaptureError(
+                    f"Doubao chat scroll position could not be restored: {reason}"
+                )
+        except BaseException as exc:
+            restore_error = exc
+
+    for image in block_images:
+        image.close()
+    if capture_error is not None:
+        if final_image is not None:
+            final_image.close()
+        if restore_error is not None:
+            raise _DoubaoScopedCaptureError(
+                f"Doubao scoped screenshot failed and scroll restore also failed: "
+                f"{restore_error}"
+            ) from capture_error
+        raise capture_error
+    if restore_error is not None:
+        if final_image is not None:
+            final_image.close()
+        raise restore_error
+    if final_image is None:
+        raise _DoubaoScopedCaptureError("Doubao scoped screenshot produced no image")
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        final_image.save(out_path, format="PNG")
+    finally:
+        final_image.close()
+    return {
+        "method": "doubao_scoped_message_tiles",
+        "tile_count": tile_count,
+        "block_count": 2,
+        "restored_scroll_top": original_scroll_top,
+    }
 
 
 # ---------------------------------------------------------------------------

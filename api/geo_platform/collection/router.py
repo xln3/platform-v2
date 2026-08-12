@@ -502,6 +502,8 @@ class TraceAnswer(StrictModel):
 class TraceTotals(StrictModel):
     queries: int
     results: int
+    opened_pages: int | None
+    answer_reference_pages: int
     surfaced_reasoning_steps: int
     response_text_truncated: bool
 
@@ -517,13 +519,18 @@ class TaskTraceView(StrictModel):
     thinking_title: str | None
     reasoning: list[TraceReasoningStep]
     search_blocks: list[TraceSearchBlock]
+    opened_pages_observed: bool
+    opened_pages: list[TraceSearchResult]
+    answer_reference_pages: list[TraceSearchResult]
     search_queries: list[TraceSearchQuery]
     totals: TraceTotals
     disclosure: str
 
 
 _TRACE_DISCLOSURE = (
-    "仅展示平台明确传输到浏览器的检索与公开思考步骤；未返回的内部推理、资料取舍原因不可据此推断。"
+    "仅展示平台明确传输到浏览器的检索与公开思考步骤。“搜索命中”只是候选结果；"
+    "只有平台 TOOL_OPEN 事件才记为“实际打开”。旧记录未保留分类事件时会明示不可追溯；"
+    "未返回的内部推理、资料取舍原因不可据此推断。"
 )
 _TRACE_TEXT_LIMIT = 5_000  # 单段公开思考/回答正文的响应截断上限（对齐旧链口径）
 
@@ -560,6 +567,9 @@ def build_task_trace_view(
                     summary=str(step.get("summary") or ""),
                 )
             )
+    engine = str(trace_record.get("engine") or "")
+    taxonomy_version = trace_record.get("source_taxonomy_version")
+    legacy_deepseek = engine == "deepseek" and taxonomy_version != 2
     search_blocks: list[TraceSearchBlock] = []
     for block in trace_record.get("search_blocks") or []:
         if not isinstance(block, Mapping):
@@ -573,7 +583,7 @@ def build_task_trace_view(
                 site=(str(x.get("site")) if isinstance(x, Mapping) and x.get("site") else None),
                 rank=x.get("rank") if isinstance(x, Mapping) else None,
                 summary=(str(x.get("summary") or "")[:800] if isinstance(x, Mapping) else ""),
-                status="returned_reference",
+                status="legacy_unclassified" if legacy_deepseek else "search_hit",
             )
             for x in block.get("results") or []
         ]
@@ -587,6 +597,29 @@ def build_task_trace_view(
                 results=results,
             )
         )
+
+    def _source_pages(key: str, status: str) -> list[TraceSearchResult]:
+        rows: list[TraceSearchResult] = []
+        for index, value in enumerate(trace_record.get(key) or [], 1):
+            if not isinstance(value, Mapping):
+                continue
+            rows.append(
+                TraceSearchResult(
+                    title=str(value.get("title") or "未命名来源"),
+                    url=str(value.get("url")) if value.get("url") else None,
+                    site=str(value.get("site")) if value.get("site") else None,
+                    rank=value.get("rank") if value.get("rank") is not None else index,
+                    summary=str(value.get("summary") or "")[:800],
+                    status=status,
+                )
+            )
+        return rows
+
+    opened_pages_observed = bool(
+        taxonomy_version == 2 and trace_record.get("opened_pages_observed") is True
+    )
+    opened_pages = _source_pages("opened_pages", "opened_page")
+    answer_reference_pages = _source_pages("answer_reference_pages", "answer_reference")
     response_text = answer_text or ""
     response_truncated = len(response_text) > _TRACE_TEXT_LIMIT
     return TaskTraceView(
@@ -605,6 +638,9 @@ def build_task_trace_view(
         ),
         reasoning=reasoning,
         search_blocks=search_blocks,
+        opened_pages_observed=opened_pages_observed,
+        opened_pages=opened_pages,
+        answer_reference_pages=answer_reference_pages,
         search_queries=[
             TraceSearchQuery(
                 query=str(item.get("query") or ""), ordinal=int(item.get("ordinal") or 0)
@@ -615,6 +651,8 @@ def build_task_trace_view(
         totals=TraceTotals(
             queries=sum(len(b.queries) for b in search_blocks),
             results=sum(b.result_count for b in search_blocks),
+            opened_pages=len(opened_pages) if opened_pages_observed else None,
+            answer_reference_pages=len(answer_reference_pages),
             surfaced_reasoning_steps=len([s for s in reasoning if s.kind == "surfaced_reasoning"]),
             response_text_truncated=response_truncated,
         ),

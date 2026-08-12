@@ -393,6 +393,21 @@ def _install_fake_browser(monkeypatch: pytest.MonkeyPatch, page: _FakePage) -> N
 
     monkeypatch.setattr(yiyan_adapter, "_clean_profile_crash_state", _clean_spy)
 
+    def _fake_official_share(
+        _page: Any, out_path: Path, **_kwargs: Any
+    ) -> SimpleNamespace:
+        out_path.write_bytes(
+            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
+            b"\x00\x00\x00\x01\x00\x00\x00\x01"
+        )
+        return SimpleNamespace(
+            image_path=out_path,
+            share_url="https://mr.baidu.com/r/fakeOfficialShare",
+            audit={"fake": True},
+        )
+
+    monkeypatch.setattr(yiyan_adapter, "capture_yiyan_official_share", _fake_official_share)
+
 
 @pytest.fixture
 def adapter_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -509,6 +524,7 @@ async def test_session_collect_full_humanized_flow(
     launch_idx = events.index(("launch", str(tmp_path)))
     assert 0 < launch_idx < close_idx < len(events) - 1
 
+
     # 7) 崩溃标记被写回 Normal（其余键保留）
     prefs = json.loads((prefs_dir / "Preferences").read_text(encoding="utf-8"))
     assert prefs["profile"]["exit_type"] == "Normal"
@@ -517,6 +533,28 @@ async def test_session_collect_full_humanized_flow(
 
     # 8) 点击走贝塞尔轨迹（移动样本 ≥5），非瞬移
     assert len([e for e in events if e[0] == "mouse_move"]) >= 5
+
+
+async def test_session_fails_when_official_share_image_is_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, adapter_env: Path
+) -> None:
+    page = _FakePage(messages=0)
+    _install_fake_browser(monkeypatch, page)
+
+    def _missing_share(*_args: Any, **_kwargs: Any) -> Any:
+        raise yiyan_adapter.OfficialShareExportError("share image unavailable")
+
+    monkeypatch.setattr(yiyan_adapter, "capture_yiyan_official_share", _missing_share)
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await run_yiyan_collection(
+            _item(),
+            session_factory=_PlaywrightYiyanSession,
+            heartbeat=lambda _payload: None,
+        )
+
+    assert exc_info.value.type == "answer_capture_incomplete"
+    assert "official-share-export-incomplete" in str(exc_info.value)
 
 
 # ---------------------------------------------------------------------------

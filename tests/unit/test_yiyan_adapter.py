@@ -13,7 +13,7 @@ import pytest
 from temporalio.exceptions import ApplicationError
 
 from domain.evidence.dlp import assert_secret_free
-from workflows.activities.collection import CollectionTaskInput
+from workflows.activities.collection import CollectionEvidenceRef, CollectionTaskInput
 from workflows.activities.yiyan_adapter import (
     _STRIP_THINKING_JS,
     CollectedAnswer,
@@ -352,6 +352,31 @@ def test_task_result_maps_trace_evidence(tmp_path: Path) -> None:
     assert len(result.evidence) == 1
     assert result.evidence[0].kind == "sse"
     assert result.evidence[0].relation_type == "answer_sse_trace"
+
+
+def test_task_result_prefers_official_share_image_as_screenshot_ref(tmp_path: Path) -> None:
+    runtime = tmp_path / "runtime.png"
+    runtime.write_bytes(b"runtime")
+    official = tmp_path / "official-share.png"
+    official.write_bytes(b"official")
+    collected = CollectedAnswer(
+        answer_text="正文",
+        references=[],
+        screenshot_path=runtime,
+        evidence=[
+            CollectionEvidenceRef(
+                kind="share_image",
+                path=str(official),
+                relation_type="official_share_image",
+                mime_type="image/png",
+                source_url="https://mr.baidu.com/r/example",
+            )
+        ],
+    )
+
+    result = _task_result_from_collected(_item(), collected)
+
+    assert result.screenshot_ref == f"file://{official}"
 
 
 def test_strip_thinking_js_serializes_tables_as_markdown() -> None:
