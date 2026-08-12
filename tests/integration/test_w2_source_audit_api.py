@@ -327,7 +327,22 @@ def test_w2_fetch_then_audit_end_to_end(seeded_run: Any) -> None:
         documents = connection.execute(
             "SELECT * FROM platform.source_document ORDER BY url"
         ).fetchall()
+        answer_source_relations = connection.execute(
+            """
+            SELECT rel.from_pub_id, rel.to_pub_id
+            FROM evidence.evidence_relation rel
+            WHERE rel.tenant_pub_id=%s
+              AND rel.relation_type='cited_source_document'
+            ORDER BY rel.to_pub_id
+            """,
+            (seeded_run.tenant,),
+        ).fetchall()
     assert len(documents) == 2
+    assert len(answer_source_relations) == 2
+    assert len({row["from_pub_id"] for row in answer_source_relations}) == 1
+    assert {row["to_pub_id"] for row in answer_source_relations} == {
+        entry.source_document_pub_id for entry in fetch_result.fetched
+    }
     ok_doc = next(row for row in documents if row["url"] == _URL_OK)
     assert ok_doc["extract_status"] == "ok"
     assert ok_doc["http_status"] == 200
@@ -359,6 +374,10 @@ def test_w2_fetch_then_audit_end_to_end(seeded_run: Any) -> None:
         assert connection.execute(
             "SELECT count(*) FROM evidence.evidence_asset WHERE kind='source_text'"
         ).fetchone() == (1,)
+        assert connection.execute(
+            "SELECT count(*) FROM evidence.evidence_relation "
+            "WHERE relation_type='cited_source_document'"
+        ).fetchone() == (2,)
 
     # 官网快照（模拟 W4 产物）：确认官网域一页 + 外域一页（host 过滤必须剔除外域）
     _seed_own_site_snapshot(

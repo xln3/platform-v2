@@ -32,6 +32,7 @@ from workflows.activities.own_site_snapshot import (
     normalize_host,
     plan_citation_targets,
     relation_for_target,
+    relations_for_target,
     run_own_site_snapshots,
     select_site_targets,
     url_dedupe_key,
@@ -233,7 +234,7 @@ def test_homepage_url() -> None:
 
 
 def test_plan_citation_targets_hit_miss_dedupe_limit() -> None:
-    tasks = [
+    tasks: list[tuple[str, list[dict[str, Any]]]] = [
         (
             "ans_aaa",
             [
@@ -258,12 +259,43 @@ def test_plan_citation_targets_hit_miss_dedupe_limit() -> None:
         ("http://example.com:8080/ports", "ans_bbb"),
     ]
     assert all(t.kind == "citation" for t in targets)
-    # 上限截断且保序
+    # 上限是每个回答的上限：ans_aaa 取 1 条，ans_bbb 取 2 条。
     capped = plan_citation_targets(tasks, "example.com", 2)
     assert [t.url for t in capped] == [
         "https://www.example.com/about",
         "https://news.example.com/post",
     ]
+    assert capped[0].task_pub_ids == ("ans_aaa", "ans_bbb")
+
+
+def test_plan_citation_targets_per_answer_and_run_safety_cap() -> None:
+    tasks: list[tuple[str, list[dict[str, Any]]]] = [
+        (
+            "ans_aaa",
+            [
+                {"url": "https://example.com/a"},
+                {"url": "https://external.example/x"},
+                {"url": "https://example.com/b"},
+                {"url": "https://example.com/c"},
+            ],
+        ),
+        (
+            "ans_bbb",
+            [
+                {"url": "https://example.com/a"},
+                {"url": "https://example.com/d"},
+                {"url": "https://example.com/e"},
+            ],
+        ),
+    ]
+    targets = plan_citation_targets(tasks, "example.com", limit=2, run_limit=3)
+    assert [target.url for target in targets] == [
+        "https://example.com/a",
+        "https://example.com/b",
+        "https://example.com/d",
+    ]
+    # 同 URL 只抓一次，但两个回答均关联。
+    assert targets[0].task_pub_ids == ("ans_aaa", "ans_bbb")
 
 
 def test_select_site_targets_filters_and_limit() -> None:
@@ -319,6 +351,17 @@ def test_relation_for_target() -> None:
         task_pub_id="ans_aaa",
     )
     assert relation_for_target(citation, _RUN) == ("ans_aaa", "own_site_snapshot")
+    fanout = SnapshotTarget(
+        url="https://example.com/a",
+        key="https://example.com/a",
+        kind="citation",
+        task_pub_id="ans_aaa",
+        task_pub_ids=("ans_aaa", "ans_bbb"),
+    )
+    assert relations_for_target(fanout, _RUN) == [
+        ("ans_aaa", "own_site_snapshot"),
+        ("ans_bbb", "own_site_snapshot"),
+    ]
     site = SnapshotTarget(url="https://example.com", key="https://example.com/", kind="site_page")
     assert relation_for_target(site, _RUN) == (_RUN, "own_site_page")
     with pytest.raises(ValueError, match="task_pub_id"):
@@ -370,13 +413,15 @@ def test_config_from_env_defaults_and_overrides(monkeypatch: pytest.MonkeyPatch)
         "GEO_OWN_SITE_SNAPSHOT_ENABLED",
         "GEO_OWN_SITE_SNAPSHOT_LIMIT",
         "GEO_OWN_SITE_CITATION_LIMIT",
+        "GEO_OWN_SITE_CITATION_RUN_LIMIT",
         "GEO_OWN_SITE_PROXY_URL",
     ):
         monkeypatch.delenv(name, raising=False)
     config = OwnSiteSnapshotConfig.from_env()
     assert config.enabled is True
     assert config.snapshot_limit == 5
-    assert config.citation_limit == 5
+    assert config.citation_limit == 20
+    assert config.citation_run_limit == 200
     assert config.proxy_url is None
 
     monkeypatch.setenv("GEO_OWN_SITE_SNAPSHOT_ENABLED", "false")
@@ -386,7 +431,7 @@ def test_config_from_env_defaults_and_overrides(monkeypatch: pytest.MonkeyPatch)
     config = OwnSiteSnapshotConfig.from_env()
     assert config.enabled is False
     assert config.snapshot_limit == 20
-    assert config.citation_limit == 5
+    assert config.citation_limit == 20
     assert config.proxy_url == "http://127.0.0.1:7890"
 
     monkeypatch.setenv("GEO_OWN_SITE_SNAPSHOT_LIMIT", "0")  # 下限 1
@@ -470,6 +515,7 @@ def test_main_flow_capture_and_relations() -> None:
     assert [(c["url"], c["from_pub_id"], c["relation_type"]) for c in sink.calls] == [
         (_HOMEPAGE, _RUN, "own_site_page"),
         (_ABOUT, "ans_aaa", "own_site_snapshot"),
+        (_ABOUT, "ans_bbb", "own_site_snapshot"),
         (_PRODUCTS, _RUN, "own_site_page"),
     ]
     # capture_time 固定为 run.created_at；evidence_pub_id 确定性派生
@@ -548,8 +594,8 @@ def test_persist_failure_recorded_not_raised() -> None:
         sleep=lambda s: None,
     )
     assert [c.url for c in result.captured] == [_HOMEPAGE, _NEWS_POST, _PRODUCTS]
-    assert [(f.url) for f in result.failures] == [_ABOUT]
-    assert result.failures[0].error.startswith("persist: RuntimeError")
+    assert [(f.url) for f in result.failures] == [_ABOUT, _ABOUT]
+    assert result.failures[0].error.startswith("persist(ans_aaa): RuntimeError")
 
 
 def test_disabled_skips_before_any_io() -> None:

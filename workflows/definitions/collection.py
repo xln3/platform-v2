@@ -829,6 +829,11 @@ class GeoCollectionWorkflow:
             # W2 信源抓取+核对侧车：同样不得拖垮采集 run；activity 内部幂等+如实状态。
             if workflow.patched("source-fetch-v1"):
                 try:
+                    source_fetch_timeout = (
+                        timedelta(minutes=60)
+                        if workflow.patched("source-fetch-per-answer-v2")
+                        else timedelta(minutes=10)
+                    )
                     await workflow.execute_activity(
                         fetch_run_sources,
                         SourceFetchInput(
@@ -836,7 +841,7 @@ class GeoCollectionWorkflow:
                             project_pub_id=data.project_pub_id,
                             run_pub_id=data.run_pub_id,
                         ),
-                        start_to_close_timeout=timedelta(minutes=10),
+                        start_to_close_timeout=source_fetch_timeout,
                         heartbeat_timeout=timedelta(seconds=60),
                         retry_policy=RetryPolicy(maximum_attempts=2),
                     )

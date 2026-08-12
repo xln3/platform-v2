@@ -19,8 +19,11 @@
   本模块写入前先查既存资产：已存在就直接复用（activity 重试幂等），不重复写入。
 - env 配置（秘密绝不进 task payload）：``GEO_OWN_SITE_SNAPSHOT_ENABLED``（默认 true，
   false 时直接返回 skipped="disabled"）；``GEO_OWN_SITE_SNAPSHOT_LIMIT``（官网页上限，
-  默认 5 硬上限 20，主页本身算 1 条）；``GEO_OWN_SITE_CITATION_LIMIT``（own_source
-  引用页上限，默认 5 硬上限 20）；``GEO_OWN_SITE_PROXY_URL``（可选，缺省直连）。
+  默认 5 硬上限 20，主页本身算 1 条）；``GEO_OWN_SITE_CITATION_LIMIT``（每个
+  回答的 own_source 引用页上限，默认 20 硬上限 20）；同一官网 URL 被多个
+  回答引用时只抓取一次，但必须向每个回答扇出证据关系；
+  ``GEO_OWN_SITE_CITATION_RUN_LIMIT`` 作为单 run 安全上限（默认 200，硬上限
+  1000）；``GEO_OWN_SITE_PROXY_URL``（可选，缺省直连）。
 - 执行模型与 doubao_adapter 同款：sync 浏览器驱动包在 ``asyncio.to_thread`` 里跑，
   activity 协程侧每 10s 泵一次 heartbeat。官网是公开页，普通 launch+new_context
   （无需登录态 profile）；驱动首选 patchright（browser_driver 延迟加载）。
@@ -64,10 +67,14 @@ log = structlog.get_logger()
 ENV_ENABLED = "GEO_OWN_SITE_SNAPSHOT_ENABLED"
 ENV_SNAPSHOT_LIMIT = "GEO_OWN_SITE_SNAPSHOT_LIMIT"
 ENV_CITATION_LIMIT = "GEO_OWN_SITE_CITATION_LIMIT"
+ENV_CITATION_RUN_LIMIT = "GEO_OWN_SITE_CITATION_RUN_LIMIT"
 ENV_PROXY_URL = "GEO_OWN_SITE_PROXY_URL"
 
-_DEFAULT_LIMIT = 5
+_DEFAULT_SNAPSHOT_LIMIT = 5
+_DEFAULT_CITATION_LIMIT = 20
 _HARD_CAP_LIMIT = 20
+_DEFAULT_CITATION_RUN_LIMIT = 200
+_HARD_CAP_CITATION_RUN_LIMIT = 1_000
 
 _HEARTBEAT_INTERVAL_S = 10.0  # 与 doubao_adapter 同款泵频（heartbeat_timeout=30s 约束）
 _GOTO_TIMEOUT_MS = 20_000
@@ -287,6 +294,7 @@ class OwnSiteSnapshotConfig:
     snapshot_limit: int
     citation_limit: int
     proxy_url: str | None
+    citation_run_limit: int = _DEFAULT_CITATION_RUN_LIMIT
     headless: bool = True
 
     @classmethod
@@ -295,21 +303,37 @@ class OwnSiteSnapshotConfig:
         proxy_url = os.environ.get(ENV_PROXY_URL, "").strip() or None
         return cls(
             enabled=raw_enabled not in {"0", "false", "no", "off"},
-            snapshot_limit=_env_limit(ENV_SNAPSHOT_LIMIT),
-            citation_limit=_env_limit(ENV_CITATION_LIMIT),
+            snapshot_limit=_env_limit(ENV_SNAPSHOT_LIMIT, default=_DEFAULT_SNAPSHOT_LIMIT),
+            citation_limit=_env_limit(ENV_CITATION_LIMIT, default=_DEFAULT_CITATION_LIMIT),
             proxy_url=proxy_url,
+            citation_run_limit=_env_bounded_positive_int(
+                ENV_CITATION_RUN_LIMIT,
+                default=_DEFAULT_CITATION_RUN_LIMIT,
+                hard_cap=_HARD_CAP_CITATION_RUN_LIMIT,
+            ),
         )
 
 
-def _env_limit(name: str) -> int:
+def _env_limit(name: str, *, default: int) -> int:
     raw = os.environ.get(name, "").strip()
     if not raw:
-        return _DEFAULT_LIMIT
+        return default
     try:
         value = int(raw)
     except ValueError:
-        return _DEFAULT_LIMIT
+        return default
     return max(1, min(value, _HARD_CAP_LIMIT))
+
+
+def _env_bounded_positive_int(name: str, *, default: int, hard_cap: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return max(1, min(value, hard_cap))
 
 
 # ---------------------------------------------------------------------------
@@ -323,6 +347,9 @@ class SnapshotTarget:
     key: str  # 归一化去重键
     kind: str  # "citation"=own_source 引用页 / "site_page"=官网页
     task_pub_id: str | None = None
+    # 同 URL 可能被多个回答引用。task_pub_id 保留首个值以兼容旧调用，
+    # task_pub_ids 是完整证据关系集合。
+    task_pub_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -410,14 +437,18 @@ def plan_citation_targets(
     tasks: list[tuple[str, list[dict[str, Any]]]],
     domain: str,
     limit: int,
+    run_limit: int = _DEFAULT_CITATION_RUN_LIMIT,
 ) -> list[SnapshotTarget]:
-    """own_source 引用页规划：host 归一化命中官网域、按 URL 去重、保序、上限截断。
+    """own_source 引用页规划。
 
-    同一 URL 被多个 task 引用时保留首次出现的 task_pub_id（relation 归属）。
+    ``limit`` 是**每个回答**的上限，不是全 run 共享的 Top-N。抓取目标
+    仍按 URL 全局去重，但保留引用它的所有回答，便于存证后扇出 relation。
     """
-    targets: list[SnapshotTarget] = []
-    seen: set[str] = set()
+    ordered_keys: list[str] = []
+    by_key: dict[str, tuple[str, list[str]]] = {}
     for task_pub_id, citations in tasks:
+        selected_for_task = 0
+        task_seen: set[str] = set()
         for citation in citations:
             url = citation.get("url")
             if not isinstance(url, str) or not url.strip():
@@ -426,15 +457,29 @@ def plan_citation_targets(
             if host is None or not host_matches_domain(host, domain):
                 continue
             key = url_dedupe_key(url)
-            if key is None or key in seen:
+            if key is None or key in task_seen:
                 continue
-            seen.add(key)
-            targets.append(
-                SnapshotTarget(url=url.strip(), key=key, kind="citation", task_pub_id=task_pub_id)
-            )
-            if len(targets) >= limit:
-                return targets
-    return targets
+            task_seen.add(key)
+            selected_for_task += 1
+            if key not in by_key and len(ordered_keys) >= run_limit:
+                continue
+            if key not in by_key:
+                ordered_keys.append(key)
+                by_key[key] = (url.strip(), [task_pub_id])
+            elif task_pub_id not in by_key[key][1]:
+                by_key[key][1].append(task_pub_id)
+            if selected_for_task >= limit:
+                break
+    return [
+        SnapshotTarget(
+            url=by_key[key][0],
+            key=key,
+            kind="citation",
+            task_pub_id=by_key[key][1][0],
+            task_pub_ids=tuple(by_key[key][1]),
+        )
+        for key in ordered_keys
+    ]
 
 
 def select_site_targets(
@@ -487,6 +532,20 @@ def relation_for_target(target: SnapshotTarget, run_pub_id: str) -> tuple[str, s
             raise ValueError("citation target requires task_pub_id")
         return target.task_pub_id, _RELATION_CITATION
     return run_pub_id, _RELATION_SITE_PAGE
+
+
+def relations_for_target(target: SnapshotTarget, run_pub_id: str) -> list[tuple[str, str]]:
+    """返回目标的全部证据关系。
+
+    引用页同 URL 可被多个回答引用；每个回答都必须可回溯到同一份
+    正文/截图资产。
+    """
+    if target.kind != "citation":
+        return [relation_for_target(target, run_pub_id)]
+    task_ids = target.task_pub_ids or ((target.task_pub_id,) if target.task_pub_id else ())
+    if not task_ids:
+        raise ValueError("citation target requires task_pub_id")
+    return [(task_pub_id, _RELATION_CITATION) for task_pub_id in task_ids]
 
 
 def derive_evidence_pub_id(
@@ -968,7 +1027,12 @@ def execute_own_site_capture(
         return OwnSiteSnapshotResult(skipped="no_website")
     homepage = homepage_url(context.website)
     homepage_key = url_dedupe_key(homepage)
-    citation_targets = plan_citation_targets(context.tasks, site_host, config.citation_limit)
+    citation_targets = plan_citation_targets(
+        context.tasks,
+        site_host,
+        config.citation_limit,
+        config.citation_run_limit,
+    )
     # 主页若同时是引用页，按引用页身份存证（a∩b 去重、引用优先）
     homepage_citation = next((t for t in citation_targets if t.key == homepage_key), None)
     homepage_target = homepage_citation or SnapshotTarget(
@@ -992,23 +1056,30 @@ def execute_own_site_capture(
             return None
 
     def _persist(target: SnapshotTarget, fetched: FetchedPage) -> None:
-        from_pub_id, relation_type = relation_for_target(target, context.run_pub_id)
+        relations = relations_for_target(target, context.run_pub_id)
         progress("persist", target.url)
-        try:
-            persisted = sink.persist_page(
-                tenant_pub_id=item.tenant_pub_id,
-                project_pub_id=context.project_pub_id,
-                run_pub_id=context.run_pub_id,
-                target=target,
-                fetched=fetched,
-                from_pub_id=from_pub_id,
-                relation_type=relation_type,
-                capture_time=context.created_at,
-            )
-        except Exception as exc:
-            failures.append(
-                OwnSiteFailure(url=target.url, error=f"persist: {type(exc).__name__}: {exc}")
-            )
+        persisted = None
+        relation_type = relations[0][1]
+        for from_pub_id, relation_type in relations:
+            try:
+                persisted = sink.persist_page(
+                    tenant_pub_id=item.tenant_pub_id,
+                    project_pub_id=context.project_pub_id,
+                    run_pub_id=context.run_pub_id,
+                    target=target,
+                    fetched=fetched,
+                    from_pub_id=from_pub_id,
+                    relation_type=relation_type,
+                    capture_time=context.created_at,
+                )
+            except Exception as exc:
+                failures.append(
+                    OwnSiteFailure(
+                        url=target.url,
+                        error=f"persist({from_pub_id}): {type(exc).__name__}: {exc}",
+                    )
+                )
+        if persisted is None:
             return
         captured.append(
             OwnSiteCaptured(

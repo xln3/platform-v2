@@ -1,16 +1,22 @@
-"""W2 抓取层 activity（``fetch_run_sources``）：信源引用 Top N 正文抓取。
+"""W2 抓取层 activity（``fetch_run_sources``）：回答级信源正文抓取。
 
 需求规格：developlog/specs/geo-evaluation-improvement-20260805.md W2 节。
 workflow 挂接由协调者集成，本模块只提供 activity 与可单测核心：
 
-- 聚合本 run 全部 collection_task 的 citations_json，按 (task 顺序, citation ordinal)
-  稳定排序、URL 归一化去重，取前 N（``GEO_SOURCE_FETCH_LIMIT`` 缺省 5 硬夹 1..20）。
+- 每份回答独立规划引用 URL：优先有逐字引文的来源，再按 citation ordinal 稳定排序，
+  每回答取前 N（``GEO_SOURCE_FETCH_LIMIT`` 缺省 200、硬夹 1..500）；全 run 另设
+  ``GEO_SOURCE_FETCH_RUN_LIMIT`` 安全上限（缺省 20000、硬夹 1..50000）。相同 URL 只抓
+  一次，但会扇出关联到每份引用它的回答，避免旧版“全 run Top-N”只覆盖最早回答。
 - 每条：httpx 优先（15s 超时、正常浏览器 UA、跟随重定向、按域限速 2s）；
   正文 <200 字符 / 明显 JS 壳 / 超时 / 401·403·429 → patchright 浏览器回退（只取正文）。
   httpx 路径用 stdlib 密度抽取（``density-extract-v1``），浏览器路径 innerText
   （``innertext-v1``，与 own_site_snapshot 同款 JS），正文截 ≤20000 字符。
 - 产物：正文 bytes 进 evidence CAS（kind=``source_text``，text/plain;charset=utf-8）+
   ``platform.source_document`` 行（(run_id,url_hash) 唯一幂等；重跑已存在的 URL 直接复用）。
+- 品牌证据严格二次取证：只有抓到的 ``source_document`` 正文逐字包含项目
+  ``Brand.name``/``brand_alias``，且浏览器 DOM 也定位到同一词时，才截取该词所在
+  最小可读段落；只给原网页文字加红色矩形，不注入标题、摘要或说明浮层。截图以
+  ``brand_mention_source_snapshot`` 关联答案，并持久化真实 bbox/quote_hash。
 
 纪律：
 
@@ -21,7 +27,8 @@ workflow 挂接由协调者集成，本模块只提供 activity 与可单测核�
   run.created_at（own_site_snapshot.py 同模式）；EvidenceService 漂移规则要求同
   evidence_pub_id 再 capture 全部字段一致，写入前先查既存资产直接复用。
 - env：``GEO_SOURCE_FETCH_ENABLED``（缺省 true，false 时两 W2 activity 都 skipped=
-  "disabled" 零 IO）；``GEO_SOURCE_FETCH_LIMIT``（缺省 5 硬夹 1..20）。
+  "disabled" 零 IO）；``GEO_SOURCE_FETCH_LIMIT``（每回答缺省 200、硬夹 1..500）；
+  ``GEO_SOURCE_FETCH_RUN_LIMIT``（全 run 安全上限，缺省 20000、硬夹 1..50000）。
 - 执行模型与 own_site_snapshot 同款：sync 抓取包在 ``asyncio.to_thread`` 里跑，
   activity 协程侧每 10s 泵一次 heartbeat；公开页普通 launch+new_context（无需登录态
   profile），驱动首选 patchright（browser_driver 延迟加载）。
@@ -31,6 +38,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 import re
 import time
@@ -40,6 +48,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from hashlib import sha256
 from html.parser import HTMLParser
+from io import BytesIO
 from typing import Any, Protocol
 from urllib.parse import urlsplit
 
@@ -49,6 +58,7 @@ import structlog
 from geo_platform.config import get_settings
 from geo_platform.evidence.object_store import ContentAddressedObjectStore
 from geo_platform.evidence.service import EvidenceService
+from PIL import Image
 from psycopg.rows import dict_row
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -64,9 +74,12 @@ log = structlog.get_logger()
 
 ENV_ENABLED = "GEO_SOURCE_FETCH_ENABLED"
 ENV_FETCH_LIMIT = "GEO_SOURCE_FETCH_LIMIT"
+ENV_RUN_LIMIT = "GEO_SOURCE_FETCH_RUN_LIMIT"
 
-_DEFAULT_LIMIT = 5
-_HARD_CAP_LIMIT = 20
+_DEFAULT_LIMIT = 200
+_HARD_CAP_LIMIT = 500
+_DEFAULT_RUN_LIMIT = 20_000
+_HARD_CAP_RUN_LIMIT = 50_000
 
 _HEARTBEAT_INTERVAL_S = 10.0  # 与 own_site_snapshot 同款泵频
 _HTTP_TIMEOUT_S = 15.0
@@ -78,7 +91,10 @@ _MAX_TEXT_CHARS = 20_000
 
 _EVIDENCE_KIND = "source_text"
 _EVIDENCE_ASSET = "text"
-_ADAPTER_VERSION = "source-fetch-v1"
+_ADAPTER_VERSION = "source-fetch-v2"
+_BRAND_EVIDENCE_KIND = "source_screenshot"
+_BRAND_EVIDENCE_RELATION = "brand_mention_source_snapshot"
+_BRAND_EVIDENCE_ADAPTER_VERSION = "source-fetch-brand-mention-v1"
 _EXTRACTOR_HTTPX = "density-extract-v1"
 _EXTRACTOR_BROWSER = "innertext-v1"
 
@@ -153,6 +169,8 @@ class FetchedSource:
     extract_status: str
     source_document_pub_id: str
     bytes: int
+    answer_pub_ids: tuple[str, ...] = ()
+    brand_mention_captured: bool = False
 
 
 @dataclass
@@ -171,8 +189,9 @@ class SourceFetchResult:
 @dataclass(frozen=True)
 class SourceFetchConfig:
     enabled: bool
-    limit: int
+    limit: int  # 每份回答的正文抓取上限
     headless: bool = True
+    run_limit: int = _DEFAULT_RUN_LIMIT
 
     @classmethod
     def from_env(cls) -> SourceFetchConfig:
@@ -180,6 +199,7 @@ class SourceFetchConfig:
         return cls(
             enabled=raw_enabled not in {"0", "false", "no", "off"},
             limit=_env_limit(),
+            run_limit=_env_run_limit(),
         )
 
 
@@ -194,6 +214,17 @@ def _env_limit() -> int:
     return max(1, min(value, _HARD_CAP_LIMIT))
 
 
+def _env_run_limit() -> int:
+    raw = os.environ.get(ENV_RUN_LIMIT, "").strip()
+    if not raw:
+        return _DEFAULT_RUN_LIMIT
+    try:
+        value = int(raw)
+    except ValueError:
+        return _DEFAULT_RUN_LIMIT
+    return max(1, min(value, _HARD_CAP_RUN_LIMIT))
+
+
 # ---------------------------------------------------------------------------
 # 目标规划（纯函数，全部可单测）
 # ---------------------------------------------------------------------------
@@ -205,6 +236,7 @@ class SourceTarget:
     key: str  # 归一化去重键
     url_hash: str  # sha256(key)，source_document 幂等键成分
     host: str
+    task_pub_ids: tuple[str, ...]  # 引用此 URL 的回答；同 URL 只抓一次但关系扇出
 
 
 def normalize_host(url: str) -> str | None:
@@ -263,37 +295,84 @@ def is_static_resource_url(url: str) -> bool:
 def plan_source_targets(
     tasks: list[tuple[str, list[dict[str, Any]]]],
     limit: int,
+    run_limit: int = _DEFAULT_RUN_LIMIT,
 ) -> list[SourceTarget]:
-    """按 (task 顺序, citation ordinal) 稳定排序、URL 去重、取前 limit 条。
+    """按回答规划、跨回答去重，并保留 URL→全部引用回答的关系。
 
-    非 http(s)/不可归一化/静态资源 URL 直接丢弃（不立项、不造假状态行）。
+    每回答优先选择带 ``cited_text`` 的 URL，再按原 citation ordinal，最多
+    ``limit`` 条；跨回答相同 URL 只生成一个抓取目标，但 ``task_pub_ids`` 会
+    扇出。目标按回答轮询（每份回答先取第 1 条，再取第 2 条），避免
+    ``run_limit`` 安全阀被最早回答独占。非 http(s)/不可归一化/静态资源 URL
+    直接丢弃（不立项、不造假状态行）。
     """
+    per_answer_limit = max(1, min(limit, _HARD_CAP_LIMIT))
+    safe_run_limit = max(1, min(run_limit, _HARD_CAP_RUN_LIMIT))
     targets: list[SourceTarget] = []
-    seen: set[str] = set()
-    for _task_pub_id, citations in tasks:
-        for citation in citations:
+    target_index_by_key: dict[str, int] = {}
+    task_order = {task_pub_id: index for index, (task_pub_id, _citations) in enumerate(tasks)}
+    first_url_by_key: dict[str, str] = {}
+    planned_by_answer: list[tuple[str, list[tuple[int, int, str, str, str]]]] = []
+    for task_pub_id, citations in tasks:
+        candidates: list[tuple[int, int, str, str, str]] = []
+        seen_for_answer: set[str] = set()
+        for ordinal, citation in enumerate(citations):
             url = citation.get("url")
             if not isinstance(url, str) or not url.strip():
                 continue
             key = url_dedupe_key(url)
-            if key is None or key in seen:
+            if key is None or key in seen_for_answer:
                 continue
             if is_static_resource_url(key):
                 continue
             host = normalize_host(key)
             if host is None:
                 continue
-            seen.add(key)
+            seen_for_answer.add(key)
+            cited_text = citation.get("cited_text")
+            priority = 0 if isinstance(cited_text, str) and cited_text.strip() else 1
+            clean_url = url.strip()
+            first_url_by_key.setdefault(key, clean_url)
+            candidates.append((priority, ordinal, clean_url, key, host))
+        planned_by_answer.append((task_pub_id, sorted(candidates)[:per_answer_limit]))
+
+    # Round-robin by citation rank so a run safety cap cannot be monopolized by
+    # the earliest answers.  First give each answer one planned source, then its
+    # second source, and so on.
+    for citation_rank in range(per_answer_limit):
+        for task_pub_id, candidates in planned_by_answer:
+            if citation_rank >= len(candidates):
+                continue
+            _priority, _ordinal, url, key, host = candidates[citation_rank]
+            existing_index = target_index_by_key.get(key)
+            if existing_index is not None:
+                existing = targets[existing_index]
+                if task_pub_id not in existing.task_pub_ids:
+                    linked_task_pub_ids = tuple(
+                        sorted(
+                            (*existing.task_pub_ids, task_pub_id),
+                            key=lambda value: task_order[value],
+                        )
+                    )
+                    targets[existing_index] = SourceTarget(
+                        url=existing.url,
+                        key=existing.key,
+                        url_hash=existing.url_hash,
+                        host=existing.host,
+                        task_pub_ids=linked_task_pub_ids,
+                    )
+                continue
+            if len(targets) >= safe_run_limit:
+                continue
+            target_index_by_key[key] = len(targets)
             targets.append(
                 SourceTarget(
-                    url=url.strip(),
+                    url=first_url_by_key[key],
                     key=key,
                     url_hash=sha256(key.encode()).hexdigest(),
                     host=host,
+                    task_pub_ids=(task_pub_id,),
                 )
             )
-            if len(targets) >= limit:
-                return targets
     return targets
 
 
@@ -307,6 +386,18 @@ def derive_evidence_pub_id(tenant_pub_id: str, run_pub_id: str, url: str) -> str
     """确定性派生（own_site_snapshot 同模式）：同 (tenant,run,url,kind,asset) 必同 id。"""
     stable_key = "|".join((tenant_pub_id, run_pub_id, url, _EVIDENCE_KIND, _EVIDENCE_ASSET))
     return f"evd_{sha256(stable_key.encode()).hexdigest()[:26]}"
+
+
+def derive_brand_evidence_pub_id(tenant_pub_id: str, run_pub_id: str, url_hash: str) -> str:
+    """One deterministic brand-mention screenshot occurrence per run/source URL."""
+
+    stable_key = "|".join((tenant_pub_id, run_pub_id, url_hash, _BRAND_EVIDENCE_RELATION, "png"))
+    return f"evd_{sha256(stable_key.encode()).hexdigest()[:26]}"
+
+
+def derive_brand_anchor_pub_id(evidence_pub_id: str, matched_text: str) -> str:
+    stable_key = "|".join((evidence_pub_id, matched_text.casefold(), "dom-range-v1"))
+    return f"anch_{sha256(stable_key.encode()).hexdigest()[:26]}"
 
 
 # ---------------------------------------------------------------------------
@@ -434,6 +525,37 @@ def looks_like_js_shell(html: str, text: str) -> bool:
     return "enable javascript" in lowered or "请开启 javascript" in lowered or "需要开启" in lowered
 
 
+def normalize_brand_terms(values: list[object]) -> tuple[str, ...]:
+    """Normalize project brand/alias terms without inventing fuzzy matches.
+
+    One-character aliases are excluded because a substring hit on an arbitrary
+    Chinese character is not defensible brand evidence. Ordering is stable and
+    case-insensitive duplicates are removed, with ``Brand.name`` supplied first.
+    """
+
+    output: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if not isinstance(value, str):
+            continue
+        term = _INLINE_WS_RE.sub(" ", value).strip()
+        if len(term) < 2:
+            continue
+        key = term.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        output.append(term)
+    return tuple(output)
+
+
+def find_brand_term(text: str, brand_terms: tuple[str, ...]) -> str | None:
+    """Return the first exact project term present in extracted source text."""
+
+    folded = text.casefold()
+    return next((term for term in brand_terms if term.casefold() in folded), None)
+
+
 # ---------------------------------------------------------------------------
 # 抓取结果分类（纯函数，全部可单测）
 # ---------------------------------------------------------------------------
@@ -489,6 +611,102 @@ class ExistingDocument:
 
 
 @dataclass(frozen=True)
+class BrandMentionCapture:
+    """A real DOM-backed brand occurrence cropped from the source page.
+
+    ``paragraph_text`` and offsets describe the exact readable DOM container that
+    was screenshotted. ``bbox`` is relative to the PNG asset (CSS pixels,
+    device_scale_factor=1), not guessed full-page coordinates.
+    """
+
+    png_bytes: bytes
+    matched_text: str
+    paragraph_text: str
+    text_start: int
+    text_end: int
+    bbox: dict[str, float]
+
+
+def validate_brand_mention_capture(
+    capture: BrandMentionCapture,
+) -> BrandMentionCapture | None:
+    """Bind an anchor to the decoded PNG dimensions, failing closed.
+
+    Playwright can occasionally return a transparent 1x1 fallback image while the
+    DOM geometry still describes the pre-rasterized element.  Positive coordinates
+    alone therefore do not prove that a red box is drawable on the captured pixels.
+    Decode and verify the PNG, reject grossly impossible geometry, and persist the
+    exact image dimensions alongside the bbox so every read path can enforce the
+    same invariant without fetching the object from CAS.
+    """
+
+    if (
+        not isinstance(capture.png_bytes, bytes)
+        or not capture.png_bytes
+        or not capture.matched_text
+        or not capture.paragraph_text
+        or capture.text_start < 0
+        or capture.text_end <= capture.text_start
+        or capture.text_end > len(capture.paragraph_text)
+        or capture.paragraph_text[capture.text_start : capture.text_end].casefold()
+        != capture.matched_text.casefold()
+    ):
+        return None
+    try:
+        with Image.open(BytesIO(capture.png_bytes)) as image:
+            if image.format != "PNG":
+                return None
+            image_width, image_height = image.size
+            image.verify()
+    except (OSError, ValueError):
+        return None
+    if image_width <= 0 or image_height <= 0 or image_width > 100_000 or image_height > 100_000:
+        return None
+
+    geometry: dict[str, float] = {}
+    for key in ("x", "y", "width", "height"):
+        value = capture.bbox.get(key)
+        if (
+            not isinstance(value, int | float)
+            or isinstance(value, bool)
+            or not math.isfinite(value)
+        ):
+            return None
+        geometry[key] = float(value)
+    if (
+        geometry["x"] < 0
+        or geometry["y"] < 0
+        or geometry["width"] <= 0
+        or geometry["height"] <= 0
+        or geometry["x"] >= image_width
+        or geometry["y"] >= image_height
+    ):
+        return None
+
+    # Rasterization can round the final CSS pixel outward.  Clip only that trailing
+    # edge; a box whose origin lies outside the real image has already been rejected.
+    geometry["width"] = min(geometry["width"], image_width - geometry["x"])
+    geometry["height"] = min(geometry["height"], image_height - geometry["y"])
+    if geometry["width"] <= 0 or geometry["height"] <= 0:
+        return None
+    geometry.update(
+        {
+            "confidence": 1.0,
+            "image_width": float(image_width),
+            "image_height": float(image_height),
+        }
+    )
+    return BrandMentionCapture(
+        png_bytes=capture.png_bytes,
+        matched_text=capture.matched_text,
+        paragraph_text=capture.paragraph_text,
+        text_start=capture.text_start,
+        text_end=capture.text_end,
+        bbox=geometry,
+    )
+
+
+@dataclass(frozen=True)
 class RunSourceContext:
     tenant_pub_id: str
     tenant_id: str  # uuid 文本（platform RLS/外键用）
@@ -499,6 +717,7 @@ class RunSourceContext:
     created_at: datetime  # tz-aware；固定为 run 创建时间，作 capture_time
     tasks: list[tuple[str, list[dict[str, Any]]]]  # (task_pub_id, citations)
     existing: dict[str, ExistingDocument]  # url_hash → 已落库 source_document（幂等复用）
+    brand_terms: tuple[str, ...] = ()  # Brand.name first, then aliases; exact-match evidence only
 
 
 @dataclass(frozen=True)
@@ -513,6 +732,10 @@ class SourcePageFetcher(Protocol):
     def fetch_httpx(self, url: str) -> HttpAttempt: ...
 
     def fetch_browser(self, url: str) -> HttpAttempt: ...
+
+    def capture_brand_mention(
+        self, url: str, brand_terms: tuple[str, ...]
+    ) -> BrandMentionCapture | None: ...
 
     def close(self) -> None: ...
 
@@ -542,7 +765,18 @@ class SourceDocumentSink(Protocol):
         extractor: str | None,
         text: str,
         fetched_at: datetime,
+        brand_mention: BrandMentionCapture | None = None,
     ) -> PersistedDocument: ...
+
+    def link(
+        self,
+        *,
+        context: RunSourceContext,
+        target: SourceTarget,
+        source_document_pub_id: str,
+    ) -> None:
+        """Persist answer→source-document relations idempotently."""
+        ...
 
 
 # ---------------------------------------------------------------------------
@@ -614,6 +848,16 @@ class _PostgresSourceLoader:
                 """,
                 (run_row["id"],),
             ).fetchall()
+            brand_rows = connection.execute(
+                """
+                SELECT b.name, ba.value AS alias
+                FROM platform.brand b
+                LEFT JOIN platform.brand_alias ba ON ba.brand_id = b.id
+                WHERE b.project_id = %s
+                ORDER BY b.created_at, b.pub_id, ba.created_at, ba.pub_id
+                """,
+                (run_row["project_id"],),
+            ).fetchall()
         created_at = run_row["created_at"]
         if not isinstance(created_at, datetime):
             raise ApplicationError(
@@ -644,6 +888,10 @@ class _PostgresSourceLoader:
             )
             for row in document_rows
         }
+        brand_terms = normalize_brand_terms(
+            [row["name"] for row in brand_rows]
+            + [row["alias"] for row in brand_rows if row["alias"] is not None]
+        )
         return RunSourceContext(
             tenant_pub_id=tenant_pub_id,
             tenant_id=str(tenant_row["id"]),
@@ -654,6 +902,7 @@ class _PostgresSourceLoader:
             created_at=created_at,
             tasks=tasks,
             existing=existing,
+            brand_terms=brand_terms,
         )
 
 
@@ -663,7 +912,8 @@ class _EvidenceServiceSink:
     evidence_pub_id / source_document pub_id 均确定性派生；写入前先查既存资产——
     activity 重试时直接复用不重复写入（幂等，且规避同一 pub_id 二次 capture 的
     重放漂移 ValueError）。抓不到的 URL 也落 source_document 行（extract_status 如实，
-    无 CAS 资产）。
+    无 CAS 资产）。每条 source_document 与所有引用它的回答另以
+    ``evidence_relation:cited_source_document`` 幂等关联。
     """
 
     def __init__(self, *, dsn: str, service: EvidenceService) -> None:
@@ -681,6 +931,7 @@ class _EvidenceServiceSink:
         extractor: str | None,
         text: str,
         fetched_at: datetime,
+        brand_mention: BrandMentionCapture | None = None,
     ) -> PersistedDocument:
         document_pub_id = derive_document_pub_id(
             context.tenant_pub_id, context.run_pub_id, target.url_hash
@@ -742,8 +993,134 @@ class _EvidenceServiceSink:
                     text_sha256,
                 ),
             )
+            self._link_with_connection(
+                connection,
+                context=context,
+                target=target,
+                source_document_pub_id=document_pub_id,
+            )
+            if brand_mention is not None:
+                self._persist_brand_mention_with_connection(
+                    connection,
+                    context=context,
+                    target=target,
+                    source_document_pub_id=document_pub_id,
+                    capture=brand_mention,
+                )
             connection.commit()
         return PersistedDocument(pub_id=document_pub_id, bytes=len(payload))
+
+    def link(
+        self,
+        *,
+        context: RunSourceContext,
+        target: SourceTarget,
+        source_document_pub_id: str,
+    ) -> None:
+        """Backfill/fan out relations when the document itself is reused."""
+
+        with _platform_connection(self._dsn, context) as connection:
+            self._link_with_connection(
+                connection,
+                context=context,
+                target=target,
+                source_document_pub_id=source_document_pub_id,
+            )
+            connection.commit()
+
+    @staticmethod
+    def _link_with_connection(
+        connection: psycopg.Connection[Any],
+        *,
+        context: RunSourceContext,
+        target: SourceTarget,
+        source_document_pub_id: str,
+    ) -> None:
+        for answer_pub_id in target.task_pub_ids:
+            connection.execute(
+                """
+                INSERT INTO evidence.evidence_relation
+                  (tenant_pub_id,from_pub_id,to_pub_id,relation_type)
+                VALUES (%s,%s,%s,'cited_source_document')
+                ON CONFLICT (tenant_pub_id,from_pub_id,to_pub_id,relation_type) DO NOTHING
+                """,
+                (context.tenant_pub_id, answer_pub_id, source_document_pub_id),
+            )
+
+    def _persist_brand_mention_with_connection(
+        self,
+        connection: psycopg.Connection[Any],
+        *,
+        context: RunSourceContext,
+        target: SourceTarget,
+        source_document_pub_id: str,
+        capture: BrandMentionCapture,
+    ) -> None:
+        """Persist only a real, DOM-located brand occurrence and its pixel anchor."""
+
+        evidence_pub_id = derive_brand_evidence_pub_id(
+            context.tenant_pub_id, context.run_pub_id, target.url_hash
+        )
+        existing = connection.execute(
+            "SELECT 1 FROM evidence.evidence_asset WHERE tenant_pub_id=%s AND pub_id=%s",
+            (context.tenant_pub_id, evidence_pub_id),
+        ).fetchone()
+        if existing is None:
+            self._service.capture(
+                evidence_pub_id=evidence_pub_id,
+                tenant_pub_id=context.tenant_pub_id,
+                project_pub_id=context.project_pub_id,
+                kind=_BRAND_EVIDENCE_KIND,
+                payload=capture.png_bytes,
+                mime_type="image/png",
+                source_url=target.url,
+                provenance=RedactedProvenance(
+                    platform_account_pub_id=None,
+                    browser_profile_version_pub_id=None,
+                    session_event_pub_id=None,
+                    channel=CaptureChannel.WEB,
+                    authorization_scope=(),
+                    adapter_version=_BRAND_EVIDENCE_ADAPTER_VERSION,
+                    capture_time=context.created_at,
+                    access_class=AccessClass.CUSTOMER_PRIVATE,
+                ),
+                db_connection=connection,
+            )
+        anchor_pub_id = derive_brand_anchor_pub_id(evidence_pub_id, capture.matched_text)
+        connection.execute(
+            """
+            INSERT INTO evidence.evidence_anchor
+              (pub_id,tenant_pub_id,evidence_pub_id,text_start,text_end,bbox,quote_hash)
+            VALUES (%s,%s,%s,%s,%s,%s::jsonb,%s)
+            ON CONFLICT (pub_id) DO NOTHING
+            """,
+            (
+                anchor_pub_id,
+                context.tenant_pub_id,
+                evidence_pub_id,
+                capture.text_start,
+                capture.text_end,
+                json.dumps(capture.bbox, sort_keys=True, separators=(",", ":")),
+                sha256(capture.matched_text.encode()).hexdigest(),
+            ),
+        )
+        # Link from the source document for audit provenance, and from every answer
+        # that actually cited this URL for the answer-detail evidence surface.
+        for from_pub_id in (source_document_pub_id, *target.task_pub_ids):
+            connection.execute(
+                """
+                INSERT INTO evidence.evidence_relation
+                  (tenant_pub_id,from_pub_id,to_pub_id,relation_type)
+                VALUES (%s,%s,%s,%s)
+                ON CONFLICT (tenant_pub_id,from_pub_id,to_pub_id,relation_type) DO NOTHING
+                """,
+                (
+                    context.tenant_pub_id,
+                    from_pub_id,
+                    evidence_pub_id,
+                    _BRAND_EVIDENCE_RELATION,
+                ),
+            )
 
     def _ensure_asset(
         self,
@@ -848,6 +1225,72 @@ class _HttpxBrowserFetcher:
                 pass
         return HttpAttempt(final_url, None, text, _EXTRACTOR_BROWSER if text else None, None, None)
 
+    def capture_brand_mention(
+        self, url: str, brand_terms: tuple[str, ...]
+    ) -> BrandMentionCapture | None:
+        """Re-open a source and capture only a DOM-verifiable brand paragraph.
+
+        Extracted-text presence is checked by the caller first.  This second gate
+        deliberately requires a real text node in the live DOM; a citation summary,
+        page title, metadata tag, or generated overlay can never create evidence.
+        """
+
+        self._ensure_browser()
+        page = self._context.new_page()
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=_GOTO_TIMEOUT_MS)
+            page.wait_for_timeout(_SETTLE_MS)
+            projection = page.evaluate(_BRAND_MENTION_JS, list(brand_terms))
+            if not isinstance(projection, dict) or projection.get("matched") is not True:
+                return None
+            matched_text = projection.get("matched_text")
+            paragraph_text = projection.get("paragraph_text")
+            text_start = projection.get("text_start")
+            text_end = projection.get("text_end")
+            bbox = projection.get("bbox")
+            if (
+                not isinstance(matched_text, str)
+                or not matched_text
+                or not isinstance(paragraph_text, str)
+                or not paragraph_text
+                or not isinstance(text_start, int)
+                or isinstance(text_start, bool)
+                or not isinstance(text_end, int)
+                or isinstance(text_end, bool)
+                or text_start < 0
+                or text_end <= text_start
+                or not isinstance(bbox, dict)
+            ):
+                return None
+            safe_bbox: dict[str, float] = {}
+            for key in ("x", "y", "width", "height"):
+                value = bbox.get(key)
+                if not isinstance(value, int | float) or isinstance(value, bool):
+                    return None
+                safe_bbox[key] = float(value)
+            if safe_bbox["width"] <= 0 or safe_bbox["height"] <= 0:
+                return None
+            safe_bbox["confidence"] = 1.0
+            locator = page.locator('[data-geo-brand-mention-container="1"]').first
+            if locator.count() != 1:
+                return None
+            payload = locator.screenshot(type="png", timeout=15_000, animations="disabled")
+            if not isinstance(payload, bytes) or not payload:
+                return None
+            return validate_brand_mention_capture(BrandMentionCapture(
+                png_bytes=payload,
+                matched_text=matched_text,
+                paragraph_text=paragraph_text,
+                text_start=text_start,
+                text_end=text_end,
+                bbox=safe_bbox,
+            ))
+        finally:
+            try:
+                page.close()
+            except Exception:
+                pass
+
     def _ensure_browser(self) -> None:
         if self._context is not None:
             return
@@ -862,6 +1305,7 @@ class _HttpxBrowserFetcher:
             self._context = self._browser.new_context(
                 locale="zh-CN",
                 timezone_id="Asia/Shanghai",
+                device_scale_factor=1,
                 extra_http_headers={"Accept-Language": "zh-CN,zh;q=0.9,en;q=0.5"},
                 user_agent=_USER_AGENT,
             )
@@ -906,6 +1350,103 @@ _EXTRACT_TEXT_JS = r"""
 """
 
 
+# No badge, title, summary, or synthetic paragraph is injected.  The only DOM
+# mutation is wrapping an existing exact text-node range with a red rectangle.
+# The screenshot target is the smallest readable existing container around it.
+_BRAND_MENTION_JS = r"""
+(terms) => {
+  const clean = (value) => String(value || '').replace(/\s+/g, ' ').trim();
+  const root = document.querySelector('article, main, [role="main"]') || document.body;
+  if (!root) return {matched: false};
+  const candidates = (terms || [])
+    .map((value) => clean(value))
+    .filter((value) => value.length >= 2);
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const parent = node.parentElement;
+      if (!parent || ['SCRIPT','STYLE','NOSCRIPT','TEMPLATE','TEXTAREA'].includes(parent.tagName)) {
+        return NodeFilter.FILTER_REJECT;
+      }
+      if (parent.closest('[aria-hidden="true"]')) return NodeFilter.FILTER_REJECT;
+      const style = window.getComputedStyle(parent);
+      if (style.display === 'none' || style.visibility === 'hidden') {
+        return NodeFilter.FILTER_REJECT;
+      }
+      const text = String(node.nodeValue || '').toLocaleLowerCase();
+      return candidates.some((term) => text.includes(term.toLocaleLowerCase()))
+        ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+    }
+  });
+  const node = walker.nextNode();
+  if (!node) return {matched: false};
+  const raw = String(node.nodeValue || '');
+  const lowered = raw.toLocaleLowerCase();
+  const matchedTerm = candidates.find((term) => lowered.includes(term.toLocaleLowerCase()));
+  if (!matchedTerm) return {matched: false};
+  const start = lowered.indexOf(matchedTerm.toLocaleLowerCase());
+  if (start < 0 || start + matchedTerm.length > raw.length) return {matched: false};
+
+  const range = document.createRange();
+  range.setStart(node, start);
+  range.setEnd(node, start + matchedTerm.length);
+  const mark = document.createElement('mark');
+  mark.setAttribute('data-geo-brand-mention-mark', '1');
+  mark.style.cssText = [
+    'background:transparent', 'color:inherit', 'border:3px solid #dc2626',
+    'border-radius:2px', 'padding:0 2px', 'box-decoration-break:clone',
+    '-webkit-box-decoration-break:clone'
+  ].join(';');
+  try {
+    range.surroundContents(mark);
+  } catch (_) {
+    return {matched: false};
+  }
+
+  let container = mark.closest('p,li,blockquote,td,th,dd,dt,figcaption');
+  if (!container) {
+    let cursor = mark.parentElement;
+    while (cursor && cursor !== root) {
+      const text = clean(cursor.innerText || cursor.textContent);
+      const rect = cursor.getBoundingClientRect();
+      if (text.length >= matchedTerm.length && text.length <= 2000 && rect.width >= 120) {
+        container = cursor;
+        break;
+      }
+      cursor = cursor.parentElement;
+    }
+  }
+  if (!container) container = mark.parentElement;
+  if (!container) return {matched: false};
+  container.setAttribute('data-geo-brand-mention-container', '1');
+  container.scrollIntoView({block: 'center', inline: 'nearest'});
+
+  const paragraphText = clean(container.innerText || container.textContent).slice(0, 2000);
+  const paragraphFolded = paragraphText.toLocaleLowerCase();
+  const paragraphStart = paragraphFolded.indexOf(matchedTerm.toLocaleLowerCase());
+  if (paragraphStart < 0) return {matched: false};
+  const containerRect = container.getBoundingClientRect();
+  const markRect = mark.getBoundingClientRect();
+  if (containerRect.width <= 0 || containerRect.height <= 0 ||
+      markRect.width <= 0 || markRect.height <= 0) {
+    return {matched: false};
+  }
+  return {
+    matched: true,
+    matched_text: raw.slice(start, start + matchedTerm.length),
+    paragraph_text: paragraphText,
+    text_start: paragraphStart,
+    text_end: paragraphStart + matchedTerm.length,
+    bbox: {
+      x: Math.max(0, markRect.left - containerRect.left),
+      y: Math.max(0, markRect.top - containerRect.top),
+      width: markRect.width,
+      height: markRect.height
+    }
+  };
+}
+"""
+
+
 # ---------------------------------------------------------------------------
 # 同步核心（生产线程内跑；单测直接调用，依赖全注入）
 # ---------------------------------------------------------------------------
@@ -934,7 +1475,7 @@ def execute_source_fetch(
     context = loader.load(item.tenant_pub_id, item.run_pub_id, item.project_pub_id)
     if context is None:
         raise ApplicationError("collection run not found", type="run_not_found", non_retryable=True)
-    targets = plan_source_targets(context.tasks, config.limit)
+    targets = plan_source_targets(context.tasks, config.limit, config.run_limit)
 
     fetched: list[FetchedSource] = []
     failures: list[SourceFetchFailure] = []
@@ -954,12 +1495,26 @@ def execute_source_fetch(
         existing = context.existing.get(target.url_hash)
         if existing is not None:
             # 幂等复用：同 run 重跑不重复抓取/不重复 capture
+            try:
+                sink.link(
+                    context=context,
+                    target=target,
+                    source_document_pub_id=existing.pub_id,
+                )
+            except Exception as exc:
+                failures.append(
+                    SourceFetchFailure(
+                        url=target.url,
+                        error=f"link: {type(exc).__name__}: {exc}",
+                    )
+                )
             fetched.append(
                 FetchedSource(
                     url=target.url,
                     extract_status=existing.extract_status,
                     source_document_pub_id=existing.pub_id,
                     bytes=existing.bytes,
+                    answer_pub_ids=target.task_pub_ids,
                 )
             )
             continue
@@ -985,17 +1540,85 @@ def execute_source_fetch(
                         status = "ok"
             fetched_at = datetime.now(UTC)
             text = attempt.text if status == "ok" else ""
+            brand_mention: BrandMentionCapture | None = None
+            matched_brand = find_brand_term(text, context.brand_terms) if text else None
+            if matched_brand is not None:
+                progress("capture_brand_mention", target.url)
+                capture_method = getattr(fetcher, "capture_brand_mention", None)
+                if not callable(capture_method):
+                    failures.append(
+                        SourceFetchFailure(
+                            url=target.url,
+                            error="brand_capture: fetcher_does_not_support_dom_capture",
+                        )
+                    )
+                else:
+                    try:
+                        candidate = capture_method(target.url, context.brand_terms)
+                    except Exception as exc:
+                        failures.append(
+                            SourceFetchFailure(
+                                url=target.url,
+                                error=f"brand_capture: {type(exc).__name__}: {exc}",
+                            )
+                        )
+                    else:
+                        # A screenshot cannot become evidence merely because the
+                        # extracted text had a term. The live DOM capture must return
+                        # the same exact project term and that term must also exist in
+                        # the persisted source_document text.
+                        validated_candidate = (
+                            validate_brand_mention_capture(candidate)
+                            if candidate is not None
+                            else None
+                        )
+                        if candidate is not None and validated_candidate is None:
+                            failures.append(
+                                SourceFetchFailure(
+                                    url=target.url,
+                                    error="brand_capture: invalid_png_or_bbox",
+                                )
+                            )
+                        elif (
+                            validated_candidate is not None
+                            and validated_candidate.matched_text.casefold() in text.casefold()
+                            and any(
+                                validated_candidate.matched_text.casefold() == term.casefold()
+                                for term in context.brand_terms
+                            )
+                        ):
+                            brand_mention = validated_candidate
+                        else:
+                            failures.append(
+                                SourceFetchFailure(
+                                    url=target.url,
+                                    error="brand_capture: dom_brand_term_not_found",
+                                )
+                            )
             try:
-                persisted = sink.persist(
-                    context=context,
-                    target=target,
-                    final_url=attempt.final_url,
-                    http_status=attempt.http_status,
-                    extract_status=status,
-                    extractor=attempt.extractor if status == "ok" else None,
-                    text=text,
-                    fetched_at=fetched_at,
-                )
+                if brand_mention is not None:
+                    persisted = sink.persist(
+                        context=context,
+                        target=target,
+                        final_url=attempt.final_url,
+                        http_status=attempt.http_status,
+                        extract_status=status,
+                        extractor=attempt.extractor if status == "ok" else None,
+                        text=text,
+                        fetched_at=fetched_at,
+                        brand_mention=brand_mention,
+                    )
+                else:
+                    persisted = sink.persist(
+                        context=context,
+                        target=target,
+                        final_url=attempt.final_url,
+                        http_status=attempt.http_status,
+                        extract_status=status,
+                        extractor=attempt.extractor if status == "ok" else None,
+                        text=text,
+                        fetched_at=fetched_at,
+                    )
             except Exception as exc:
                 failures.append(
                     SourceFetchFailure(
@@ -1009,6 +1632,8 @@ def execute_source_fetch(
                     extract_status=status,
                     source_document_pub_id=persisted.pub_id,
                     bytes=persisted.bytes,
+                    answer_pub_ids=target.task_pub_ids,
+                    brand_mention_captured=brand_mention is not None,
                 )
             )
         except Exception as exc:
@@ -1022,6 +1647,13 @@ def execute_source_fetch(
         fetched=len(result.fetched),
         ok=sum(1 for f in result.fetched if f.extract_status == "ok"),
         failures=len(result.failures),
+        brand_mention_screenshots=sum(f.brand_mention_captured for f in result.fetched),
+        answer_source_relations=sum(len(target.task_pub_ids) for target in targets),
+        answers_with_planned_sources=len(
+            {answer_pub_id for target in targets for answer_pub_id in target.task_pub_ids}
+        ),
+        per_answer_limit=config.limit,
+        run_limit=config.run_limit,
     )
     return result
 
