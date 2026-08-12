@@ -26,11 +26,13 @@ import json
 import random
 import threading
 from collections.abc import Callable
+from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from PIL import Image
 from temporalio.exceptions import ApplicationError
 
 from workflows.activities import deepseek_adapter
@@ -297,6 +299,7 @@ class _FakePage:
         )
         self.tab_selected = tab_selected
         self.tab_found = tab_found
+        self.chat_scroll_top = 0.0
 
     def classify(self, selector: str) -> tuple[str, bool, dict[str, float] | None]:
         if selector == "body":
@@ -347,8 +350,43 @@ class _FakePage:
             return True
         if script == deepseek_adapter._CHAT_MESSAGE_COUNT_JS:
             return self.messages
-        if script == deepseek_adapter._FLATTEN_FOR_SCREENSHOT_JS:
-            return {}
+        if script == deepseek_adapter._DEEPSEEK_CAPTURE_STATE_JS:
+            request = _args[0] if _args and isinstance(_args[0], dict) else {}
+            requested = request.get("scrollTop")
+            if isinstance(requested, int | float) and not isinstance(requested, bool):
+                self.chat_scroll_top = min(max(float(requested), 0.0), 80.0)
+            return {
+                "ok": True,
+                "scroll_top": self.chat_scroll_top,
+                "scroll_height": 500.0,
+                "max_scroll": 80.0,
+                "capture_x": 240.0,
+                "capture_y": 40.0,
+                "capture_width": 760.0,
+                "capture_height": 420.0,
+                "blocks": [
+                    {
+                        "role": "question",
+                        "top": 0.0,
+                        "bottom": 80.0,
+                        "left": 240.0,
+                        "right": 1000.0,
+                        "fingerprint": "question-fixture",
+                    },
+                    {
+                        "role": "answer",
+                        "top": 80.0,
+                        "bottom": 500.0,
+                        "left": 240.0,
+                        "right": 1000.0,
+                        "fingerprint": "answer-fixture",
+                    },
+                ],
+            }
+        if script == deepseek_adapter._DEEPSEEK_CAPTURE_RESTORE_JS:
+            requested = _args[0] if _args else 0.0
+            self.chat_scroll_top = float(requested)
+            return {"ok": True, "actual_scroll_top": self.chat_scroll_top}
         if script == deepseek_adapter._TAB_STATE_JS:
             if not self.tab_found:
                 return {"found": False}
@@ -364,8 +402,19 @@ class _FakePage:
         self.events.append(("wait", timeout))
         self.clock.advance_ms(timeout)
 
-    def screenshot(self, *, path: str, **_kw: Any) -> None:
+    def screenshot(self, *, path: str | None = None, **kwargs: Any) -> bytes | None:
+        clip = kwargs.get("clip")
+        if isinstance(clip, dict):
+            stream = BytesIO()
+            Image.new(
+                "RGB",
+                (round(float(clip["width"])), round(float(clip["height"]))),
+                "white",
+            ).save(stream, format="PNG")
+            return stream.getvalue()
+        assert path is not None
         Path(path).write_bytes(b"\x89PNG-fake")
+        return None
 
 
 class _FakeContext:

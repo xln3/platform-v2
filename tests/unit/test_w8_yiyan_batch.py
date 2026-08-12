@@ -8,6 +8,7 @@ fake 浏览器全事件序列驱动（绝不启动真浏览器），照 tests/un
 
 from __future__ import annotations
 
+import io
 import json
 import random
 from collections.abc import Callable
@@ -16,6 +17,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from PIL import Image
 from temporalio.exceptions import ApplicationError
 
 from workflows.activities import yiyan_adapter
@@ -76,6 +78,14 @@ _NEW_CHAT_BB = {"x": 40.0, "y": 120.0, "width": 96.0, "height": 32.0}
 
 def _in_bb(bb: dict[str, float], x: float, y: float) -> bool:
     return bb["x"] <= x <= bb["x"] + bb["width"] and bb["y"] <= y <= bb["y"] + bb["height"]
+
+
+def _png_bytes(width: int, height: int, color: tuple[int, int, int]) -> bytes:
+    image = Image.new("RGB", (width, height), color)
+    payload = io.BytesIO()
+    image.save(payload, format="PNG")
+    image.close()
+    return payload.getvalue()
 
 
 class _FakeClock:
@@ -268,6 +278,12 @@ class _FakePage:
         # 清空 composer、不再出现答案容器——驱动 wall_send 路径。
         self.swallow_sends_from = swallow_sends_from
         self.send_clicks = 0
+        # Deterministic semantic model of 文心's one-turn inner chat scroller.
+        # The production probe moves this scrollTop while page_capture stitches
+        # question/answer tiles, then must restore the exact original value.
+        self.capture_scroll_top = 126.0
+        self.capture_initial_scroll_top = self.capture_scroll_top
+        self.capture_screenshot_calls = 0
         # 深度思考 chip 态（20260810）：fake 恒定关——normal 显式确保零点击通过。
         self.chip_state: dict[str, object] | None = {
             "active": False,
@@ -316,6 +332,44 @@ class _FakePage:
             return self.messages
         if script == yiyan_adapter._DEEP_THINK_CHIP_STATE_JS:
             return self.chip_state
+        if script == yiyan_adapter._YIYAN_CAPTURE_RESTORE_JS:
+            self.capture_scroll_top = float(_args[0])
+            return {"ok": True, "actual_scroll_top": self.capture_scroll_top}
+        if script == yiyan_adapter._YIYAN_CAPTURE_STATE_JS:
+            request = _args[0]
+            assert isinstance(request, dict)
+            assert isinstance(request.get("expectedQuestion"), str)
+            if request.get("scrollTop") is not None:
+                self.capture_scroll_top = float(request["scrollTop"])
+            return {
+                "ok": True,
+                "scroll_top": self.capture_scroll_top,
+                "scroll_height": 1_600,
+                "max_scroll": 1_000,
+                "capture_x": 220,
+                "capture_y": 60,
+                "capture_width": 880,
+                "capture_top_inset": 48,
+                "capture_height": 534,
+                "blocks": [
+                    {
+                        "role": "question",
+                        "top": 80,
+                        "bottom": 150,
+                        "left": 220,
+                        "right": 1_100,
+                        "fingerprint": "question:stable",
+                    },
+                    {
+                        "role": "answer",
+                        "top": 190,
+                        "bottom": 1_250,
+                        "left": 220,
+                        "right": 1_100,
+                        "fingerprint": "answer:stable",
+                    },
+                ],
+            }
         return None
 
     def goto(self, url: str, **_kw: Any) -> None:
@@ -328,8 +382,22 @@ class _FakePage:
         self.events.append(("wait", timeout))
         self.clock.advance_ms(timeout)
 
-    def screenshot(self, *, path: str, **_kw: Any) -> None:
-        Path(path).write_bytes(b"\x89PNG-fake")
+    def screenshot(
+        self,
+        *,
+        path: str | None = None,
+        clip: dict[str, float] | None = None,
+        timeout: int | None = None,
+        **_kw: Any,
+    ) -> bytes | None:
+        if path is not None:
+            Path(path).write_bytes(_png_bytes(1, 1, (255, 255, 255)))
+            return None
+        assert clip == {"x": 220.0, "y": 108.0, "width": 880.0, "height": 486.0}
+        assert timeout == 15_000
+        self.capture_screenshot_calls += 1
+        color = (int(self.capture_scroll_top) % 255, 60, 100)
+        return _png_bytes(880, 486, color)
 
 
 class _FakeContext:
@@ -527,6 +595,27 @@ async def test_session_collect_full_humanized_flow(
 
     # 8) 点击走贝塞尔轨迹（移动样本 ≥5），非瞬移
     assert len([e for e in events if e[0] == "mouse_move"]) >= 5
+
+    # 9) 新 scoped-capture 契约确实走了 PNG tile，并恢复常驻 tab 的内层滚动位。
+    assert page.capture_screenshot_calls >= 2
+    assert page.capture_scroll_top == page.capture_initial_scroll_top
+
+
+def test_scoped_capture_probe_is_semantic_and_does_not_mutate_styles() -> None:
+    script = yiyan_adapter._YIYAN_CAPTURE_STATE_JS
+
+    assert "#conversation-flow-container" in script
+    assert ".chat-qa-container" in script
+    assert ".conversation-flow-question-container" in script
+    assert "div.chat-search-answer-generate" in script
+    assert '[class*="chat-top-bar-new"]' in script
+    assert ".cs-scroll-to-bottom-btn" in script
+    assert "capture_top_inset" in script
+    assert "capture_height" in script
+    assert "question_text_mismatch" in script
+    assert ".style" not in script
+    assert "setAttribute('style'" not in script
+    assert "removeAttribute('style'" not in script
 
 
 async def test_session_fails_when_official_share_image_is_missing(
