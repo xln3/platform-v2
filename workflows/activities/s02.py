@@ -5,7 +5,7 @@ import base64
 import json
 import os
 import re
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -34,6 +34,23 @@ from domain.metrics.core import MetricRegistry
 from domain.reporting.freeze import freeze_report
 from domain.reporting.libreoffice import ReportRuntimeDependencyError, report_runtime_preflight
 from domain.scoring.analyzer import CitationInput, analyze_answer
+
+
+def _temporal_json_safe(value: Any) -> Any:
+    """Convert formal activity results to Temporal's default JSON value set."""
+    if isinstance(value, date | datetime):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, dict):
+        return {str(key): _temporal_json_safe(child) for key, child in value.items()}
+    if isinstance(value, list | tuple):
+        return [_temporal_json_safe(child) for child in value]
+    return value
+
+
+def _formal_activity_result(value: dict[str, Any]) -> dict[str, Any]:
+    return {key: _temporal_json_safe(child) for key, child in value.items()}
 
 
 @activity.defn
@@ -462,44 +479,52 @@ async def produce_formal_report_activity(payload: dict[str, Any]) -> dict[str, A
             "formal_evidence_requirements_not_met": "formal_evidence_requirements_not_met",
             "formal_fact_volume_exceeded": "formal_fact_volume_exceeded",
         }.get(str(exc), "production_failed")
-        return await asyncio.to_thread(
-            service.mark_failed,
-            tenant_pub_id=tenant_pub_id,
-            production_pub_id=production_pub_id,
-            error_code=error_code,
+        return _formal_activity_result(
+            await asyncio.to_thread(
+                service.mark_failed,
+                tenant_pub_id=tenant_pub_id,
+                production_pub_id=production_pub_id,
+                error_code=error_code,
+            )
         )
     except ReportRuntimeDependencyError:
-        return await asyncio.to_thread(
-            service.mark_failed,
-            tenant_pub_id=tenant_pub_id,
-            production_pub_id=production_pub_id,
-            error_code="libreoffice_dependency_missing",
+        return _formal_activity_result(
+            await asyncio.to_thread(
+                service.mark_failed,
+                tenant_pub_id=tenant_pub_id,
+                production_pub_id=production_pub_id,
+                error_code="libreoffice_dependency_missing",
+            )
         )
     activity.heartbeat({"stage": "formal_report_production_persisted"})
-    return result
+    return _formal_activity_result(result)
 
 
 @activity.defn
 async def fail_formal_report_activity(payload: dict[str, Any]) -> dict[str, Any]:
-    return await asyncio.to_thread(
-        _formal_report_service(ensure_bucket=False).mark_failed,
-        tenant_pub_id=str(payload["tenant_pub_id"]),
-        production_pub_id=str(payload["formal_production_pub_id"]),
-        error_code=str(payload.get("error_code") or "production_failed"),
+    return _formal_activity_result(
+        await asyncio.to_thread(
+            _formal_report_service(ensure_bucket=False).mark_failed,
+            tenant_pub_id=str(payload["tenant_pub_id"]),
+            production_pub_id=str(payload["formal_production_pub_id"]),
+            error_code=str(payload.get("error_code") or "production_failed"),
+        )
     )
 
 
 @activity.defn
 async def finalize_formal_report_activity(payload: dict[str, Any]) -> dict[str, Any]:
     review = payload["review"]
-    return await asyncio.to_thread(
-        _formal_report_service().finalize,
-        tenant_pub_id=str(payload["tenant_pub_id"]),
-        production_pub_id=str(payload["formal_production_pub_id"]),
-        reviewer_pub_id=str(review["reviewer_pub_id"]),
-        approved=bool(review["approved"]),
-        rationale=str(review.get("rationale") or "Formal report review"),
-        workflow_operation_id=f"{activity.info().workflow_id}/review",
+    return _formal_activity_result(
+        await asyncio.to_thread(
+            _formal_report_service().finalize,
+            tenant_pub_id=str(payload["tenant_pub_id"]),
+            production_pub_id=str(payload["formal_production_pub_id"]),
+            reviewer_pub_id=str(review["reviewer_pub_id"]),
+            approved=bool(review["approved"]),
+            rationale=str(review.get("rationale") or "Formal report review"),
+            workflow_operation_id=f"{activity.info().workflow_id}/review",
+        )
     )
 
 

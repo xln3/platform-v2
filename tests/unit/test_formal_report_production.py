@@ -5,6 +5,7 @@ import builtins
 import json
 from contextlib import contextmanager
 from datetime import UTC, date, datetime
+from decimal import Decimal
 from io import BytesIO
 from types import SimpleNamespace
 from typing import Any
@@ -710,6 +711,25 @@ def test_produce_activity_preserves_formal_fact_volume_error_code(
         )
     )
     assert result == {"status": "failed", "error_code": "formal_fact_volume_exceeded"}
+
+
+def test_formal_activity_result_is_temporal_json_serializable() -> None:
+    result = s02_activities._formal_activity_result(
+        {
+            "window_start": date(2026, 8, 10),
+            "created_at": datetime(2026, 8, 13, 0, 20, tzinfo=UTC),
+            "score": Decimal("1.25"),
+            "outputs": ({"service_number": 1},),
+        }
+    )
+
+    assert result == {
+        "window_start": "2026-08-10",
+        "created_at": "2026-08-13T00:20:00+00:00",
+        "score": "1.25",
+        "outputs": [{"service_number": 1}],
+    }
+    assert json.loads(json.dumps(result)) == result
 
 
 def test_s02_worker_preflights_before_accepting_work(monkeypatch: pytest.MonkeyPatch) -> None:
