@@ -2544,7 +2544,7 @@ def _read_doubao_capture_state(
             }
         )
 
-    state = {
+    state: dict[str, Any] = {
         "scroll_top": _capture_number(raw.get("scroll_top"), "scroll_top"),
         "scroll_height": _capture_number(raw.get("scroll_height"), "scroll_height"),
         "max_scroll": _capture_number(raw.get("max_scroll"), "max_scroll"),
