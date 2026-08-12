@@ -237,7 +237,7 @@ test('oversized answer evidence stays bounded, explicit and package-write locked
   ).toBeVisible();
   expect(Date.now() - openedAt).toBeLessThan(10_000);
   await expect(
-    dialog.getByRole('region', { name: '回答引用关系' }).locator('tbody tr'),
+    dialog.getByRole('region', { name: '答案组织引用' }).locator('tbody tr'),
   ).toHaveCount(199);
   await expect(
     dialog.getByRole('region', { name: '回答关联证据' }).locator('tbody tr'),
