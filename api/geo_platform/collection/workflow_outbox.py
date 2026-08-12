@@ -21,7 +21,7 @@ from workflows.activities.own_content_disparagement import OwnContentDisparageme
 from workflows.definitions.collection import GeoCollectionInput, GeoCollectionWorkflow
 from workflows.definitions.own_content import OwnContentDisparagementWorkflow
 from workflows.definitions.post_analysis import PostAnalysisInput, PostAnalysisWorkflow
-from workflows.definitions.s02 import AnswerAnalysisWorkflow
+from workflows.definitions.s02 import AnswerAnalysisWorkflow, ReportProductionWorkflow
 from workflows.definitions.session import AccountRevocationWorkflow, RevocationInput
 
 TRACE_PROPAGATOR = TraceContextTextMapPropagator()
@@ -89,6 +89,9 @@ def enqueue_workflow_start(
     task_queue: str,
     payload: dict[str, object],
 ) -> None:
+    payload_tenant = payload.get("tenant_pub_id")
+    if payload_tenant != tenant_pub_id:
+        raise ValueError("workflow_start_tenant_mismatch")
     # Persist only W3C traceparent/tracestate. The global propagator may include
     # baggage, which is caller-controlled and can contain sensitive values.
     trace_context: dict[str, str] = {}
@@ -222,7 +225,14 @@ class WorkflowStartOutbox:
             ).fetchone()
         if row is None:
             return None
-        return WorkflowStartCommand(**row)
+        command = WorkflowStartCommand(**row)
+        self._assert_start_tenant(command)
+        return command
+
+    @staticmethod
+    def _assert_start_tenant(command: WorkflowStartCommand) -> None:
+        if command.payload.get("tenant_pub_id") != command.tenant_pub_id:
+            raise RuntimeError("workflow_start_tenant_mismatch")
 
     def started(self, command: WorkflowStartCommand, temporal_run_id: str | None) -> None:
         with psycopg.connect(self.dsn) as connection:
@@ -261,6 +271,16 @@ class WorkflowStartOutbox:
                     WHERE workflow_id=%s
                     """,
                     (command.workflow_id,),
+                )
+            elif command.workflow_type == "formal_report_production":
+                connection.execute(
+                    """
+                    UPDATE reporting.formal_report_production
+                    SET status=CASE WHEN status='queued' THEN 'running' ELSE status END,
+                        updated_at=now()
+                    WHERE tenant_pub_id=%s AND workflow_id=%s
+                    """,
+                    (command.tenant_pub_id, command.workflow_id),
                 )
             connection.execute(
                 """
@@ -392,7 +412,7 @@ class WorkflowStartOutbox:
                   WHERE candidate.state='started'
                     AND candidate.workflow_type IN (
                       'geo_collection','geo_collection_observation','account_revocation',
-                      'answer_analysis','post_analysis'
+                      'answer_analysis','post_analysis','formal_report_production'
                     )
                     AND candidate.terminal_status IS NULL
                     AND (%s::text IS NULL OR candidate.workflow_id=%s)
@@ -491,6 +511,17 @@ class WorkflowStartOutbox:
                         """,
                         (command.workflow_id,),
                     )
+            elif command.workflow_type == "formal_report_production":
+                if temporal_status != "COMPLETED":
+                    connection.execute(
+                        """
+                        UPDATE reporting.formal_report_production
+                        SET status='failed',error_code='workflow_interrupted',updated_at=now()
+                        WHERE tenant_pub_id=%s AND workflow_id=%s
+                          AND status NOT IN ('signed','failed')
+                        """,
+                        (command.tenant_pub_id, command.workflow_id),
+                    )
             connection.execute(
                 """
                 UPDATE integration.workflow_start_command
@@ -526,6 +557,7 @@ class WorkflowStartOutbox:
         command = self.claim(workflow_id)
         if command is None:
             return False
+        self._assert_start_tenant(command)
         parent_context = TRACE_PROPAGATOR.extract(carrier=command.trace_context)
         context_token = context.attach(parent_context)
         try:
@@ -578,6 +610,13 @@ class WorkflowStartOutbox:
                             tenant_pub_id=str(payload["tenant_pub_id"]),
                             task_pub_id=str(payload["task_pub_id"]),
                         ),
+                        id=command.workflow_id,
+                        task_queue=command.task_queue,
+                    )
+                elif command.workflow_type == "formal_report_production":
+                    handle = await self.temporal.start_workflow(
+                        ReportProductionWorkflow.run,
+                        payload,
                         id=command.workflow_id,
                         task_queue=command.task_queue,
                     )

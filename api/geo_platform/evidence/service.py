@@ -3,6 +3,7 @@ from __future__ import annotations
 import hmac
 import json
 import secrets
+from collections.abc import Mapping
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
@@ -90,9 +91,36 @@ class EvidenceService:
                     provenance.capture_time,
                     provenance.authorized_session_capture,
                 )
-                if tuple(existing) != expected:
+                existing_values = (
+                    tuple(
+                        existing[column]
+                        for column in (
+                            "pub_id",
+                            "project_pub_id",
+                            "kind",
+                            "access_class",
+                            "sha256",
+                            "object_key",
+                            "mime_type",
+                            "byte_size",
+                            "source_url",
+                            "dlp_findings",
+                            "platform_account_pub_id",
+                            "browser_profile_version_pub_id",
+                            "session_event_pub_id",
+                            "channel",
+                            "authorization_scope",
+                            "adapter_version",
+                            "capture_time",
+                            "authorized_session_capture",
+                        )
+                    )
+                    if isinstance(existing, Mapping)
+                    else tuple(existing)
+                )
+                if existing_values != expected:
                     raise ValueError("evidence replay payload drifted")
-                return str(existing[0])
+                return str(existing["pub_id"] if isinstance(existing, Mapping) else existing[0])
             row = connection.execute(
                 """
                 INSERT INTO evidence.evidence_asset
@@ -127,7 +155,7 @@ class EvidenceService:
                 ),
             ).fetchone()
             assert row is not None
-            metadata_pub_id = str(row[0])
+            metadata_pub_id = str(row["pub_id"] if isinstance(row, Mapping) else row[0])
             return metadata_pub_id
 
         # CAS-first intentionally leaves a detectable orphan if this transaction fails.

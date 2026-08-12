@@ -1808,6 +1808,75 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/reports/formal-productions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Formal Productions */
+        get: operations["list_formal_productions_api_v2_reports_formal_productions_get"];
+        put?: never;
+        /** Create Formal Production */
+        post: operations["create_formal_production_api_v2_reports_formal_productions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/reports/formal-productions/{production_pub_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Formal Production */
+        get: operations["formal_production_api_v2_reports_formal_productions__production_pub_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/reports/formal-productions/{production_pub_id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Review Formal Production */
+        post: operations["review_formal_production_api_v2_reports_formal_productions__production_pub_id__review_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/reports/formal-productions/{production_pub_id}/artifacts/{service_number}/{format_name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Formal Artifact */
+        get: operations["formal_artifact_api_v2_reports_formal_productions__production_pub_id__artifacts__service_number___format_name__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/reports": {
         parameters: {
             query?: never;
@@ -5947,6 +6016,141 @@ export interface components {
              */
             updated_at: string;
         };
+        /** FormalArtifactView */
+        FormalArtifactView: {
+            /**
+             * Format
+             * @enum {string}
+             */
+            format: "docx" | "pdf" | "manifest";
+            /** Sha256 */
+            sha256: string;
+            /** Byte Size */
+            byte_size: number;
+            /** Mime Type */
+            mime_type: string;
+            /** Download Url */
+            download_url: string;
+        };
+        /** FormalOutputView */
+        FormalOutputView: {
+            /**
+             * Service Number
+             * @enum {integer}
+             */
+            service_number: 1 | 2 | 3 | 4;
+            /** Report Pub Id */
+            report_pub_id: string;
+            /** Report Version Pub Id */
+            report_version_pub_id: string;
+            /** Fact Snapshot Hash */
+            fact_snapshot_hash: string;
+            /** Artifacts */
+            artifacts: components["schemas"]["FormalArtifactView"][];
+        };
+        /** FormalProductionCreate */
+        FormalProductionCreate: {
+            /** Project Pub Id */
+            project_pub_id: string;
+            /** Services */
+            services: (1 | 2 | 3 | 4)[];
+            /**
+             * Window Start
+             * Format: date
+             */
+            window_start: string;
+            /**
+             * Window End
+             * Format: date
+             */
+            window_end: string;
+            /**
+             * Document Status
+             * @enum {string}
+             */
+            document_status: "pre_formal" | "formal";
+            /**
+             * Candidate Group Strategy
+             * @default evidence_completeness_v1
+             * @constant
+             */
+            candidate_group_strategy: "evidence_completeness_v1";
+            before_window?: components["schemas"]["WindowView"] | null;
+            after_window?: components["schemas"]["WindowView"] | null;
+        };
+        /** FormalProductionPage */
+        FormalProductionPage: {
+            /** Items */
+            items: components["schemas"]["FormalProductionView"][];
+            /** Next Cursor */
+            next_cursor: string | null;
+            /** Has More */
+            has_more: boolean;
+        };
+        /** FormalProductionView */
+        FormalProductionView: {
+            /** Pub Id */
+            pub_id: string;
+            /** Project Pub Id */
+            project_pub_id: string;
+            /** Services */
+            services: (1 | 2 | 3 | 4)[];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "running" | "failed" | "awaiting_review" | "signed";
+            /**
+             * Document Status
+             * @enum {string}
+             */
+            document_status: "pre_formal" | "formal";
+            /**
+             * Window Start
+             * Format: date
+             */
+            window_start: string;
+            /**
+             * Window End
+             * Format: date
+             */
+            window_end: string;
+            before_window: components["schemas"]["WindowView"] | null;
+            after_window: components["schemas"]["WindowView"] | null;
+            /**
+             * Candidate Group Strategy
+             * @constant
+             */
+            candidate_group_strategy: "evidence_completeness_v1";
+            /** Workflow Id */
+            workflow_id: string;
+            /** Fact Snapshot Hash */
+            fact_snapshot_hash: string | null;
+            /** Outputs */
+            outputs: components["schemas"]["FormalOutputView"][];
+            /** Error Code */
+            error_code: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** FormalReviewCreate */
+        FormalReviewCreate: {
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "approved" | "changes_requested";
+            /** Rationale */
+            rationale: string;
+        };
         /** FrozenConfigView */
         FrozenConfigView: {
             /** Pub Id */
@@ -9113,6 +9317,19 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+        };
+        /** WindowView */
+        WindowView: {
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
         };
         /** WorkLogCreate */
         WorkLogCreate: {
@@ -17115,6 +17332,358 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_formal_productions_api_v2_reports_formal_productions_get: {
+        parameters: {
+            query?: {
+                project_pub_id?: string | null;
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FormalProductionPage"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_formal_production_api_v2_reports_formal_productions_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FormalProductionCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FormalProductionView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    formal_production_api_v2_reports_formal_productions__production_pub_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                production_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FormalProductionView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    review_formal_production_api_v2_reports_formal_productions__production_pub_id__review_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                production_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FormalReviewCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FormalProductionView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    formal_artifact_api_v2_reports_formal_productions__production_pub_id__artifacts__service_number___format_name__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                production_pub_id: string;
+                service_number: number;
+                format_name: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Bad Request */

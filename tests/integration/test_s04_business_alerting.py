@@ -34,9 +34,31 @@ def test_business_metrics_aggregate_stale_state_without_tenant_labels() -> None:
                 INSERT INTO integration.workflow_start_command (
                   command_id,tenant_pub_id,workflow_type,workflow_id,task_queue,payload,
                   state,created_at,updated_at
-                ) VALUES (%s,%s,'answer_analysis',%s,'test','{}','pending',%s,%s)
+                ) VALUES (
+                  %s,%s,'answer_analysis',%s,'test',
+                  jsonb_build_object('tenant_pub_id',%s::text),'pending',%s,%s
+                )
                 """,
-                (uuid.uuid4(), tenant_pub_id, workflow_id, old, old),
+                (uuid.uuid4(), tenant_pub_id, workflow_id, tenant_pub_id, old, old),
+            )
+            connection.execute(
+                """
+                INSERT INTO integration.workflow_start_command (
+                      command_id,tenant_pub_id,workflow_type,workflow_id,task_queue,payload,
+                      state,created_at,updated_at
+                ) VALUES (
+                  %s,%s,'answer_analysis',%s,'test',
+                  jsonb_build_object('tenant_pub_id',%s::text),'started',%s,%s
+                )
+                """,
+                (
+                    uuid.uuid4(),
+                    tenant_pub_id,
+                    signal_workflow_id,
+                    tenant_pub_id,
+                    old,
+                    old,
+                ),
             )
             connection.execute(
                 """

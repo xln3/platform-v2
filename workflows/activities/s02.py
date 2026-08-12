@@ -16,6 +16,10 @@ from geo_platform.evidence.object_store import ContentAddressedObjectStore
 from geo_platform.evidence.service import EvidenceService
 from geo_platform.evidence.session_gateway import SessionGatewayClient
 from geo_platform.intelligence.service import IntelligenceService
+from geo_platform.reports.formal_production import (
+    FormalProductionInvalid,
+    FormalReportProductionService,
+)
 from geo_platform.reports.service import ReportService
 from geo_platform.tenancy.ids import new_pub_id
 from geo_platform.tenancy.psycopg import tenant_connection
@@ -28,6 +32,7 @@ from domain.evidence.provenance import AccessClass, CaptureChannel, RedactedProv
 from domain.intelligence.core import EvidenceRelation, SourceAssessment, score_investigation
 from domain.metrics.core import MetricRegistry
 from domain.reporting.freeze import freeze_report
+from domain.reporting.libreoffice import ReportRuntimeDependencyError, report_runtime_preflight
 from domain.scoring.analyzer import CitationInput, analyze_answer
 
 
@@ -434,6 +439,71 @@ async def produce_report_activity(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 @activity.defn
+async def preflight_formal_report_runtime_activity(payload: dict[str, Any]) -> dict[str, Any]:
+    del payload
+    runtime = await asyncio.to_thread(report_runtime_preflight)
+    return {"state": "ready", "libreoffice_version": runtime.version}
+
+
+@activity.defn
+async def produce_formal_report_activity(payload: dict[str, Any]) -> dict[str, Any]:
+    activity.heartbeat({"stage": "formal_report_production_started"})
+    service = _formal_report_service()
+    tenant_pub_id = str(payload["tenant_pub_id"])
+    production_pub_id = str(payload["formal_production_pub_id"])
+    try:
+        result = await asyncio.to_thread(
+            service.produce,
+            tenant_pub_id=tenant_pub_id,
+            production_pub_id=production_pub_id,
+        )
+    except FormalProductionInvalid as exc:
+        error_code = {
+            "formal_evidence_requirements_not_met": "formal_evidence_requirements_not_met",
+            "formal_fact_volume_exceeded": "formal_fact_volume_exceeded",
+        }.get(str(exc), "production_failed")
+        return await asyncio.to_thread(
+            service.mark_failed,
+            tenant_pub_id=tenant_pub_id,
+            production_pub_id=production_pub_id,
+            error_code=error_code,
+        )
+    except ReportRuntimeDependencyError:
+        return await asyncio.to_thread(
+            service.mark_failed,
+            tenant_pub_id=tenant_pub_id,
+            production_pub_id=production_pub_id,
+            error_code="libreoffice_dependency_missing",
+        )
+    activity.heartbeat({"stage": "formal_report_production_persisted"})
+    return result
+
+
+@activity.defn
+async def fail_formal_report_activity(payload: dict[str, Any]) -> dict[str, Any]:
+    return await asyncio.to_thread(
+        _formal_report_service(ensure_bucket=False).mark_failed,
+        tenant_pub_id=str(payload["tenant_pub_id"]),
+        production_pub_id=str(payload["formal_production_pub_id"]),
+        error_code=str(payload.get("error_code") or "production_failed"),
+    )
+
+
+@activity.defn
+async def finalize_formal_report_activity(payload: dict[str, Any]) -> dict[str, Any]:
+    review = payload["review"]
+    return await asyncio.to_thread(
+        _formal_report_service().finalize,
+        tenant_pub_id=str(payload["tenant_pub_id"]),
+        production_pub_id=str(payload["formal_production_pub_id"]),
+        reviewer_pub_id=str(review["reviewer_pub_id"]),
+        approved=bool(review["approved"]),
+        rationale=str(review.get("rationale") or "Formal report review"),
+        workflow_operation_id=f"{activity.info().workflow_id}/review",
+    )
+
+
+@activity.defn
 async def finalize_report_activity(payload: dict[str, Any]) -> dict[str, Any]:
     service = _report_service()
     decision = payload["review"]
@@ -589,6 +659,18 @@ def _report_service() -> ReportService:
     store.ensure_bucket()
     evidence = EvidenceService(dsn=_postgres_dsn(), store=store)
     return ReportService(dsn=_postgres_dsn(), evidence=evidence)
+
+
+def _formal_report_service(*, ensure_bucket: bool = True) -> FormalReportProductionService:
+    store = ContentAddressedObjectStore(
+        endpoint=os.getenv("GEO_MINIO_ENDPOINT", "http://127.0.0.1:19000"),
+        access_key=os.getenv("GEO_MINIO_ACCESS_KEY", "geo"),
+        secret_key=os.getenv("GEO_MINIO_SECRET_KEY", "geo_dev_only_password"),
+    )
+    if ensure_bucket:
+        store.ensure_bucket()
+    evidence = EvidenceService(dsn=_postgres_dsn(), store=store)
+    return FormalReportProductionService(dsn=_postgres_dsn(), evidence=evidence)
 
 
 def _audit_evidence_access(

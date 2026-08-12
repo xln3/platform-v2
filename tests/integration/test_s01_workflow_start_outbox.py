@@ -127,9 +127,12 @@ async def test_answer_analysis_workflow_start_command_dispatches_to_s02() -> Non
             INSERT INTO integration.workflow_start_command
               (command_id,tenant_pub_id,workflow_type,workflow_id,task_queue,payload,
                trace_context)
-            VALUES (%s,%s,'answer_analysis',%s,'geo-platform-v2-s02','{}','{}')
+            VALUES (
+              %s,%s,'answer_analysis',%s,'geo-platform-v2-s02',
+              jsonb_build_object('tenant_pub_id',%s::text),'{}'
+            )
             """,
-            (str(uuid.uuid4()), tenant, workflow_id),
+            (str(uuid.uuid4()), tenant, workflow_id, tenant),
         )
     temporal = SuccessfulTemporal()
     dispatcher = WorkflowStartOutbox(dsn=POSTGRES_DSN, temporal=temporal)  # type: ignore[arg-type]

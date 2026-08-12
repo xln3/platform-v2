@@ -11,10 +11,14 @@ with workflow.unsafe.imports_passed_through():
         analyze_answer_activity,
         capture_evidence_activity,
         extract_brands_activity,
+        fail_formal_report_activity,
+        finalize_formal_report_activity,
         finalize_report_activity,
         freeze_report_activity,
         persist_investigation_verdict_activity,
+        preflight_formal_report_runtime_activity,
         prepare_evidence_activity,
+        produce_formal_report_activity,
         produce_report_activity,
         score_investigation_activity,
     )
@@ -110,6 +114,7 @@ class EvidenceCaptureWorkflow:
 class ReportProductionWorkflow:
     def __init__(self) -> None:
         self._review: dict[str, Any] | None = None
+        self._formal_state: str | None = None
 
     @workflow.signal
     async def review(self, decision: dict[str, Any]) -> None:
@@ -118,10 +123,14 @@ class ReportProductionWorkflow:
 
     @workflow.query
     def state(self) -> str:
+        if self._formal_state is not None:
+            return self._formal_state
         return "reviewed" if self._review else "awaiting_review"
 
     @workflow.run
     async def run(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if payload.get("formal_production_pub_id"):
+            return await self._run_formal(payload)
         frozen = await workflow.execute_activity(
             freeze_report_activity,
             payload,
@@ -160,6 +169,65 @@ class ReportProductionWorkflow:
             "freeze": frozen,
             "review": self._review,
         }
+
+    async def _run_formal(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self._formal_state = "preflight"
+        try:
+            await workflow.execute_activity(
+                preflight_formal_report_runtime_activity,
+                payload,
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=_RETRY,
+            )
+        except Exception:
+            self._formal_state = "failed"
+            failed: dict[str, Any] = await workflow.execute_activity(
+                fail_formal_report_activity,
+                payload | {"error_code": "libreoffice_dependency_missing"},
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=_RETRY,
+            )
+            return failed
+        self._formal_state = "running"
+        try:
+            produced: dict[str, Any] = await workflow.execute_activity(
+                produce_formal_report_activity,
+                payload,
+                start_to_close_timeout=timedelta(minutes=30),
+                retry_policy=_RETRY,
+            )
+        except Exception:
+            self._formal_state = "failed"
+            failed = await workflow.execute_activity(
+                fail_formal_report_activity,
+                payload | {"error_code": "production_failed"},
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=_RETRY,
+            )
+            # A start-to-close timeout cancels Temporal's activity task, but it
+            # cannot kill the Python thread running synchronous DOCX/PDF work.  If
+            # that thread committed just before mark_failed acquired the row lock,
+            # the database already contains a complete awaiting-review bundle.  In
+            # that one case the workflow must resume the review wait instead of
+            # completing and orphaning an unsignable production.
+            if failed.get("status") != "awaiting_review":
+                return failed
+            produced = failed
+        if produced.get("status") == "failed":
+            self._formal_state = "failed"
+            return produced
+        self._formal_state = "awaiting_review"
+        await workflow.wait_condition(lambda: self._review is not None)
+        assert self._review is not None
+        self._formal_state = "finalizing"
+        finalized: dict[str, Any] = await workflow.execute_activity(
+            finalize_formal_report_activity,
+            payload | {"review": self._review},
+            start_to_close_timeout=timedelta(seconds=60),
+            retry_policy=_RETRY,
+        )
+        self._formal_state = str(finalized["status"])
+        return {**finalized, "production": produced, "review": self._review}
 
 
 @workflow.defn(name="AntiGeoInvestigationWorkflow")
