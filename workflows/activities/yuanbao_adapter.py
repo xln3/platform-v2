@@ -102,6 +102,7 @@ import structlog
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from workflows.activities.answer_dom_anchor import capture_answer_evidence
 from workflows.activities.browser_driver import load_sync_browser_driver
 from workflows.activities.browser_router import resolve_batch_instance
 from workflows.activities.collection import (
@@ -530,6 +531,8 @@ class CollectedAnswer:
     # 原始流量证据 ref（2026-08-10 起：sse_raw/har；GEO_RAW_CAPTURE=0 或写盘
     # 失败为空——诚实缺省）。_task_result_from_collected 并入 evidence。
     raw_evidence: list[CollectionEvidenceRef] = field(default_factory=list)
+    # Clean answer-only image plus verified DOM/OCR rectangles for report evidence cards.
+    answer_evidence: CollectionEvidenceRef | None = None
 
 
 @dataclass(frozen=True)
@@ -906,6 +909,8 @@ def _task_result_from_collected(
         )
     # 原始流量证据（2026-08-10 起）：sse_raw/har，_collect_one 题末导出。
     evidence.extend(collected.raw_evidence)
+    if collected.answer_evidence is not None:
+        evidence.append(collected.answer_evidence)
     # DLP 统一由 persist 层脱敏处理（单一权威边界，2026-08-06 起）。
     return CollectionTaskResult(
         business_key=item.business_key,
@@ -1381,6 +1386,24 @@ class _PlaywrightYuanbaoSession:
                         file_stem=spec.file_stem,
                         exc_info=True,
                     )
+            answer_capture = capture_answer_evidence(
+                page,
+                assistant_selectors=_ASSISTANT_SELECTORS,
+                answer_text=answer_text,
+                output_path=self._evidence_dir / f"{spec.file_stem}-answer-evidence.png",
+            )
+            answer_evidence = (
+                CollectionEvidenceRef(
+                    kind="answer_excerpt_screenshot",
+                    path=str(answer_capture.path),
+                    relation_type="answer_evidence_excerpt",
+                    mime_type="image/png",
+                    source_url=_CHAT_URL,
+                    anchors=answer_capture.anchors,
+                )
+                if answer_capture is not None and answer_capture.anchors
+                else None
+            )
             answer = CollectedAnswer(
                 answer_text=answer_text,
                 references=references,
@@ -1391,6 +1414,7 @@ class _PlaywrightYuanbaoSession:
                 },
                 trace_path=trace_path,
                 raw_evidence=raw_evidence,
+                answer_evidence=answer_evidence,
             )
         except (_WallError, _IncompleteCapture, _ModeToggleFailed) as exc:
             # 失败题同样留 raw/HAR（题末先 dump 后 detach）：ref 挂异常对象，经

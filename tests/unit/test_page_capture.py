@@ -106,8 +106,7 @@ class _ScopedPage:
                 self.scroll_top = float(arg["scrollTop"])
             answer_fingerprint = (
                 "answer-drifted"
-                if self.drift_after_probe is not None
-                and self.probe_count >= self.drift_after_probe
+                if self.drift_after_probe is not None and self.probe_count >= self.drift_after_probe
                 else "answer-stable"
             )
             return {

@@ -20,10 +20,11 @@
 - env 配置（秘密绝不进 task payload）：``GEO_OWN_SITE_SNAPSHOT_ENABLED``（默认 true，
   false 时直接返回 skipped="disabled"）；``GEO_OWN_SITE_SNAPSHOT_LIMIT``（官网页上限，
   默认 5 硬上限 20，主页本身算 1 条）；``GEO_OWN_SITE_CITATION_LIMIT``（每个
-  回答的 own_source 引用页上限，默认 20 硬上限 20）；同一官网 URL 被多个
+  回答的 own_source 引用页上限，默认 200 硬上限 500）；同一官网 URL 被多个
   回答引用时只抓取一次，但必须向每个回答扇出证据关系；
-  ``GEO_OWN_SITE_CITATION_RUN_LIMIT`` 作为单 run 安全上限（默认 200，硬上限
-  1000）；``GEO_OWN_SITE_PROXY_URL``（可选，缺省直连）。
+  ``GEO_OWN_SITE_CITATION_RUN_LIMIT`` 作为单 run 安全上限（默认 20000，硬上限
+  50000），按回答轮询使用，避免早期回答独占；``GEO_OWN_SITE_PROXY_URL``（可选，
+  缺省直连）。
 - 执行模型与 doubao_adapter 同款：sync 浏览器驱动包在 ``asyncio.to_thread`` 里跑，
   activity 协程侧每 10s 泵一次 heartbeat。官网是公开页，普通 launch+new_context
   （无需登录态 profile）；驱动首选 patchright（browser_driver 延迟加载）。
@@ -71,10 +72,11 @@ ENV_CITATION_RUN_LIMIT = "GEO_OWN_SITE_CITATION_RUN_LIMIT"
 ENV_PROXY_URL = "GEO_OWN_SITE_PROXY_URL"
 
 _DEFAULT_SNAPSHOT_LIMIT = 5
-_DEFAULT_CITATION_LIMIT = 20
-_HARD_CAP_LIMIT = 20
-_DEFAULT_CITATION_RUN_LIMIT = 200
-_HARD_CAP_CITATION_RUN_LIMIT = 1_000
+_HARD_CAP_SNAPSHOT_LIMIT = 20
+_DEFAULT_CITATION_LIMIT = 200
+_HARD_CAP_CITATION_LIMIT = 500
+_DEFAULT_CITATION_RUN_LIMIT = 20_000
+_HARD_CAP_CITATION_RUN_LIMIT = 50_000
 
 _HEARTBEAT_INTERVAL_S = 10.0  # 与 doubao_adapter 同款泵频（heartbeat_timeout=30s 约束）
 _GOTO_TIMEOUT_MS = 20_000
@@ -281,10 +283,23 @@ class OwnSiteFailure:
     error: str
 
 
+@dataclass(frozen=True)
+class OwnSitePlanCoverage:
+    answer_pub_id: str
+    eligible_official_urls: int
+    planned_official_urls: int
+    truncated_official_urls: int
+    coverage_rate: float | None
+    truncation_reason: str | None
+
+
 @dataclass
 class OwnSiteSnapshotResult:
     captured: list[OwnSiteCaptured] = field(default_factory=list)
     failures: list[OwnSiteFailure] = field(default_factory=list)
+    planning_coverage: list[OwnSitePlanCoverage] = field(default_factory=list)
+    citation_limit: int | None = None
+    citation_run_limit: int | None = None
     skipped: str | None = None  # "disabled" / "no_website" / None
 
 
@@ -303,8 +318,16 @@ class OwnSiteSnapshotConfig:
         proxy_url = os.environ.get(ENV_PROXY_URL, "").strip() or None
         return cls(
             enabled=raw_enabled not in {"0", "false", "no", "off"},
-            snapshot_limit=_env_limit(ENV_SNAPSHOT_LIMIT, default=_DEFAULT_SNAPSHOT_LIMIT),
-            citation_limit=_env_limit(ENV_CITATION_LIMIT, default=_DEFAULT_CITATION_LIMIT),
+            snapshot_limit=_env_limit(
+                ENV_SNAPSHOT_LIMIT,
+                default=_DEFAULT_SNAPSHOT_LIMIT,
+                hard_cap=_HARD_CAP_SNAPSHOT_LIMIT,
+            ),
+            citation_limit=_env_limit(
+                ENV_CITATION_LIMIT,
+                default=_DEFAULT_CITATION_LIMIT,
+                hard_cap=_HARD_CAP_CITATION_LIMIT,
+            ),
             proxy_url=proxy_url,
             citation_run_limit=_env_bounded_positive_int(
                 ENV_CITATION_RUN_LIMIT,
@@ -314,7 +337,7 @@ class OwnSiteSnapshotConfig:
         )
 
 
-def _env_limit(name: str, *, default: int) -> int:
+def _env_limit(name: str, *, default: int, hard_cap: int) -> int:
     raw = os.environ.get(name, "").strip()
     if not raw:
         return default
@@ -322,7 +345,7 @@ def _env_limit(name: str, *, default: int) -> int:
         value = int(raw)
     except ValueError:
         return default
-    return max(1, min(value, _HARD_CAP_LIMIT))
+    return max(1, min(value, hard_cap))
 
 
 def _env_bounded_positive_int(name: str, *, default: int, hard_cap: int) -> int:
@@ -443,11 +466,17 @@ def plan_citation_targets(
 
     ``limit`` 是**每个回答**的上限，不是全 run 共享的 Top-N。抓取目标
     仍按 URL 全局去重，但保留引用它的所有回答，便于存证后扇出 relation。
+    ``run_limit`` 只作为可配置运营保护：按引用序号跨回答轮询，先给每份
+    回答规划第 1 个官网 URL，再规划第 2 个，避免较早回答独占额度。
     """
-    ordered_keys: list[str] = []
-    by_key: dict[str, tuple[str, list[str]]] = {}
+    per_answer_limit = max(1, min(limit, _HARD_CAP_CITATION_LIMIT))
+    safe_run_limit = max(1, min(run_limit, _HARD_CAP_CITATION_RUN_LIMIT))
+    targets: list[SnapshotTarget] = []
+    target_index_by_key: dict[str, int] = {}
+    task_order = {task_pub_id: index for index, (task_pub_id, _citations) in enumerate(tasks)}
+    planned_by_answer: list[tuple[str, list[tuple[str, str]]]] = []
     for task_pub_id, citations in tasks:
-        selected_for_task = 0
+        candidates: list[tuple[str, str]] = []
         task_seen: set[str] = set()
         for citation in citations:
             url = citation.get("url")
@@ -460,26 +489,103 @@ def plan_citation_targets(
             if key is None or key in task_seen:
                 continue
             task_seen.add(key)
-            selected_for_task += 1
-            if key not in by_key and len(ordered_keys) >= run_limit:
-                continue
-            if key not in by_key:
-                ordered_keys.append(key)
-                by_key[key] = (url.strip(), [task_pub_id])
-            elif task_pub_id not in by_key[key][1]:
-                by_key[key][1].append(task_pub_id)
-            if selected_for_task >= limit:
+            candidates.append((url.strip(), key))
+            if len(candidates) >= per_answer_limit:
                 break
-    return [
-        SnapshotTarget(
-            url=by_key[key][0],
-            key=key,
-            kind="citation",
-            task_pub_id=by_key[key][1][0],
-            task_pub_ids=tuple(by_key[key][1]),
+        planned_by_answer.append((task_pub_id, candidates))
+
+    for citation_rank in range(per_answer_limit):
+        for task_pub_id, candidates in planned_by_answer:
+            if citation_rank >= len(candidates):
+                continue
+            url, key = candidates[citation_rank]
+            existing_index = target_index_by_key.get(key)
+            if existing_index is not None:
+                existing = targets[existing_index]
+                if task_pub_id not in existing.task_pub_ids:
+                    linked = tuple(
+                        sorted(
+                            (*existing.task_pub_ids, task_pub_id),
+                            key=lambda value: task_order[value],
+                        )
+                    )
+                    targets[existing_index] = SnapshotTarget(
+                        url=existing.url,
+                        key=existing.key,
+                        kind="citation",
+                        task_pub_id=existing.task_pub_id,
+                        task_pub_ids=linked,
+                    )
+                continue
+            if len(targets) >= safe_run_limit:
+                continue
+            target_index_by_key[key] = len(targets)
+            targets.append(
+                SnapshotTarget(
+                    url=url,
+                    key=key,
+                    kind="citation",
+                    task_pub_id=task_pub_id,
+                    task_pub_ids=(task_pub_id,),
+                )
+            )
+    return targets
+
+
+def citation_plan_coverage(
+    tasks: list[tuple[str, list[dict[str, Any]]]],
+    targets: list[SnapshotTarget],
+    *,
+    domain: str,
+    limit: int,
+    run_limit: int,
+) -> list[OwnSitePlanCoverage]:
+    """Return durable per-answer coverage for official citation planning."""
+
+    per_answer_limit = max(1, min(limit, _HARD_CAP_CITATION_LIMIT))
+    safe_run_limit = max(1, min(run_limit, _HARD_CAP_CITATION_RUN_LIMIT))
+    planned_by_answer: dict[str, set[str]] = {answer_pub_id: set() for answer_pub_id, _ in tasks}
+    for target in targets:
+        for answer_pub_id in target.task_pub_ids:
+            planned_by_answer.setdefault(answer_pub_id, set()).add(target.key)
+
+    rows: list[OwnSitePlanCoverage] = []
+    for answer_pub_id, citations in tasks:
+        eligible: set[str] = set()
+        for citation in citations:
+            url = citation.get("url")
+            if not isinstance(url, str) or not url.strip():
+                continue
+            host = normalize_host(url)
+            key = url_dedupe_key(url)
+            if (
+                host is None
+                or not host_matches_domain(host, domain)
+                or key is None
+                or is_static_resource_url(key)
+            ):
+                continue
+            eligible.add(key)
+        eligible_count = len(eligible)
+        planned_count = len(planned_by_answer.get(answer_pub_id, set()))
+        reasons: list[str] = []
+        if eligible_count > per_answer_limit:
+            reasons.append("per_answer_limit")
+        if planned_count < min(eligible_count, per_answer_limit) and len(targets) >= safe_run_limit:
+            reasons.append("run_limit")
+        rows.append(
+            OwnSitePlanCoverage(
+                answer_pub_id=answer_pub_id,
+                eligible_official_urls=eligible_count,
+                planned_official_urls=planned_count,
+                truncated_official_urls=max(0, eligible_count - planned_count),
+                coverage_rate=(
+                    round(planned_count / eligible_count, 4) if eligible_count else None
+                ),
+                truncation_reason="+".join(reasons) or None,
+            )
         )
-        for key in ordered_keys
-    ]
+    return rows
 
 
 def select_site_targets(
@@ -1016,7 +1122,11 @@ def execute_own_site_capture(
 ) -> OwnSiteSnapshotResult:
     """读 DB → 目标规划 → 逐页抓取 → 存证。单页失败进 failures 不中断（INV-32 如实记录）。"""
     if not config.enabled:
-        return OwnSiteSnapshotResult(skipped="disabled")
+        return OwnSiteSnapshotResult(
+            citation_limit=config.citation_limit,
+            citation_run_limit=config.citation_run_limit,
+            skipped="disabled",
+        )
     progress = on_progress if on_progress is not None else _noop_progress
     progress("load_context", "")
     context = loader.load(item.tenant_pub_id, item.run_pub_id, item.project_pub_id)
@@ -1024,7 +1134,11 @@ def execute_own_site_capture(
         raise ApplicationError("collection run not found", type="run_not_found", non_retryable=True)
     site_host = normalize_host(context.website or "")
     if not context.website or site_host is None:
-        return OwnSiteSnapshotResult(skipped="no_website")
+        return OwnSiteSnapshotResult(
+            citation_limit=config.citation_limit,
+            citation_run_limit=config.citation_run_limit,
+            skipped="no_website",
+        )
     homepage = homepage_url(context.website)
     homepage_key = url_dedupe_key(homepage)
     citation_targets = plan_citation_targets(
@@ -1032,6 +1146,13 @@ def execute_own_site_capture(
         site_host,
         config.citation_limit,
         config.citation_run_limit,
+    )
+    planning_coverage = citation_plan_coverage(
+        context.tasks,
+        citation_targets,
+        domain=site_host,
+        limit=config.citation_limit,
+        run_limit=config.citation_run_limit,
     )
     # 主页若同时是引用页，按引用页身份存证（a∩b 去重、引用优先）
     homepage_citation = next((t for t in citation_targets if t.key == homepage_key), None)
@@ -1110,12 +1231,22 @@ def execute_own_site_capture(
                 _persist(target, fetched)
     finally:
         session.close()
-    result = OwnSiteSnapshotResult(captured=captured, failures=failures, skipped=None)
+    result = OwnSiteSnapshotResult(
+        captured=captured,
+        failures=failures,
+        planning_coverage=planning_coverage,
+        citation_limit=config.citation_limit,
+        citation_run_limit=config.citation_run_limit,
+        skipped=None,
+    )
     log.info(
         "own_site_capture_done",
         run_pub_id=context.run_pub_id,
         captured=len(result.captured),
         failures=len(result.failures),
+        planned_official_urls=sum(row.planned_official_urls for row in planning_coverage),
+        truncated_official_urls=sum(row.truncated_official_urls for row in planning_coverage),
+        answers_truncated=sum(row.truncated_official_urls > 0 for row in planning_coverage),
     )
     return result
 

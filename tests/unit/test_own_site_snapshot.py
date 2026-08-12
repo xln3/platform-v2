@@ -23,6 +23,7 @@ from workflows.activities.own_site_snapshot import (
     RunSnapshotContext,
     SnapshotTarget,
     build_text_payload,
+    citation_plan_coverage,
     clean_text,
     derive_evidence_pub_id,
     execute_own_site_capture,
@@ -298,6 +299,77 @@ def test_plan_citation_targets_per_answer_and_run_safety_cap() -> None:
     assert targets[0].task_pub_ids == ("ans_aaa", "ans_bbb")
 
 
+def test_plan_citation_targets_run_cap_round_robins_across_answers() -> None:
+    tasks = [
+        (
+            "ans_aaa",
+            [
+                {"url": "https://example.com/a"},
+                {"url": "https://example.com/b"},
+            ],
+        ),
+        ("ans_bbb", [{"url": "https://example.com/c"}]),
+    ]
+
+    targets = plan_citation_targets(tasks, "example.com", limit=2, run_limit=2)
+
+    assert [target.url for target in targets] == [
+        "https://example.com/a",
+        "https://example.com/c",
+    ]
+
+
+def test_normal_protection_limits_preserve_thirty_official_urls_from_one_answer() -> None:
+    citations = [{"url": f"https://example.com/article-{index}"} for index in range(30)]
+
+    targets = plan_citation_targets(
+        [("ans_30", citations)], "example.com", limit=200, run_limit=20_000
+    )
+    coverage = citation_plan_coverage(
+        [("ans_30", citations)],
+        targets,
+        domain="example.com",
+        limit=200,
+        run_limit=20_000,
+    )
+
+    assert len(targets) == 30
+    assert coverage[0].planned_official_urls == 30
+    assert coverage[0].truncated_official_urls == 0
+    assert coverage[0].coverage_rate == 1.0
+    assert coverage[0].truncation_reason is None
+
+
+def test_citation_plan_coverage_records_official_url_protection_effects() -> None:
+    tasks = [
+        (
+            "ans_aaa",
+            [
+                {"url": "https://example.com/a"},
+                {"url": "https://example.com/b"},
+                {"url": "https://example.com/c"},
+                {"url": "https://other.example.net/not-official"},
+            ],
+        ),
+        ("ans_bbb", [{"url": "https://example.com/d"}]),
+    ]
+    targets = plan_citation_targets(tasks, "example.com", limit=2, run_limit=2)
+
+    coverage = citation_plan_coverage(
+        tasks,
+        targets,
+        domain="example.com",
+        limit=2,
+        run_limit=2,
+    )
+
+    assert coverage[0].eligible_official_urls == 3
+    assert coverage[0].planned_official_urls == 1
+    assert coverage[0].truncated_official_urls == 2
+    assert coverage[0].truncation_reason == "per_answer_limit+run_limit"
+    assert coverage[1].coverage_rate == 1.0
+
+
 def test_select_site_targets_filters_and_limit() -> None:
     links = [
         "https://example.com/products",
@@ -420,8 +492,8 @@ def test_config_from_env_defaults_and_overrides(monkeypatch: pytest.MonkeyPatch)
     config = OwnSiteSnapshotConfig.from_env()
     assert config.enabled is True
     assert config.snapshot_limit == 5
-    assert config.citation_limit == 20
-    assert config.citation_run_limit == 200
+    assert config.citation_limit == 200
+    assert config.citation_run_limit == 20_000
     assert config.proxy_url is None
 
     monkeypatch.setenv("GEO_OWN_SITE_SNAPSHOT_ENABLED", "false")
@@ -431,7 +503,7 @@ def test_config_from_env_defaults_and_overrides(monkeypatch: pytest.MonkeyPatch)
     config = OwnSiteSnapshotConfig.from_env()
     assert config.enabled is False
     assert config.snapshot_limit == 20
-    assert config.citation_limit == 20
+    assert config.citation_limit == 200
     assert config.proxy_url == "http://127.0.0.1:7890"
 
     monkeypatch.setenv("GEO_OWN_SITE_SNAPSHOT_LIMIT", "0")  # 下限 1

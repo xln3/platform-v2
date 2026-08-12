@@ -37,6 +37,7 @@ from workflows.activities.source_fetch import (
     normalize_brand_terms,
     plan_source_targets,
     run_source_fetch,
+    source_plan_coverage,
     url_dedupe_key,
 )
 
@@ -317,6 +318,45 @@ def test_plan_source_targets_run_cap_is_round_robin_across_answers() -> None:
     ]
 
 
+def test_normal_protection_limits_preserve_thirty_urls_from_one_answer() -> None:
+    citations = [_citation(f"https://source-{index}.example.com/article") for index in range(30)]
+
+    targets = plan_source_targets([("ans_30", citations)], limit=200, run_limit=20_000)
+    coverage = source_plan_coverage([("ans_30", citations)], targets, limit=200, run_limit=20_000)
+
+    assert len(targets) == 30
+    assert coverage[0].planned_urls == 30
+    assert coverage[0].truncated_urls == 0
+    assert coverage[0].coverage_rate == 1.0
+    assert coverage[0].truncation_reason is None
+
+
+def test_source_plan_coverage_records_per_answer_truncation_reason() -> None:
+    tasks = [
+        (
+            "ans_1",
+            [
+                _citation("https://first.example.com/1"),
+                _citation("https://first.example.com/2"),
+                _citation("https://first.example.com/3"),
+            ],
+        ),
+        ("ans_2", [_citation("https://second.example.com/1")]),
+        ("ans_3", [_citation("https://static.example.com/logo.png")]),
+    ]
+    targets = plan_source_targets(tasks, limit=2, run_limit=2)
+
+    coverage = source_plan_coverage(tasks, targets, limit=2, run_limit=2)
+
+    assert coverage[0].eligible_urls == 3
+    assert coverage[0].planned_urls == 1
+    assert coverage[0].truncated_urls == 2
+    assert coverage[0].truncation_reason == "per_answer_limit+run_limit"
+    assert coverage[1].coverage_rate == 1.0
+    assert coverage[1].truncation_reason is None
+    assert coverage[2].coverage_rate is None
+
+
 # ---------------------------------------------------------------------------
 # stdlib 密度抽取
 # ---------------------------------------------------------------------------
@@ -444,6 +484,7 @@ def test_execute_fetch_disabled_skips_zero_io() -> None:
     )
     assert result.skipped == "disabled"
     assert result.fetched == [] and sink.persisted == []
+    assert result.per_answer_limit == 5
 
 
 def test_execute_fetch_run_not_found_raises() -> None:

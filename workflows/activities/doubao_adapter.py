@@ -153,6 +153,7 @@ from PIL import Image, UnidentifiedImageError
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from workflows.activities.answer_dom_anchor import capture_answer_evidence
 from workflows.activities.browser_driver import load_sync_browser_driver
 from workflows.activities.browser_router import resolve_batch_instance
 from workflows.activities.collection import (
@@ -736,6 +737,7 @@ class CollectedAnswer:
     # 平台真实检索词（W1）：[{"query": ..., "ordinal": ...}]，按 SSE 出现顺序；
     # 无检索词/解析失败为空列表（诚实，不编造）。
     search_queries: list[dict[str, Any]] = field(default_factory=list)
+    answer_evidence: CollectionEvidenceRef | None = None
 
 
 class _BrowserSession(Protocol):
@@ -1169,6 +1171,8 @@ def _task_result_from_collected(
                 source_url=_CHAT_URL,
             ),
         )
+    if collected.answer_evidence is not None:
+        evidence.append(collected.answer_evidence)
     # The product-facing answer image is the platform's official share image.
     # Runtime screenshots remain separate audit evidence and are only a backward-
     # compatible fallback for injected/legacy CollectedAnswer objects.
@@ -1768,6 +1772,24 @@ class _PlaywrightDoubaoSession:
                     source_url=_CHAT_URL,
                 )
             ]
+            answer_capture = capture_answer_evidence(
+                page,
+                assistant_selectors=_ASSISTANT_SELECTORS,
+                answer_text=answer_text,
+                output_path=self._evidence_dir / f"{spec.file_stem}-answer-evidence.png",
+            )
+            answer_evidence = (
+                CollectionEvidenceRef(
+                    kind="answer_excerpt_screenshot",
+                    path=str(answer_capture.path),
+                    relation_type="answer_evidence_excerpt",
+                    mime_type="image/png",
+                    source_url=_CHAT_URL,
+                    anchors=answer_capture.anchors,
+                )
+                if answer_capture is not None and answer_capture.anchors
+                else None
+            )
 
             # 请求态≠实际态（旧链纪律：请求 deep_think ≠ 实际启用）。actual 仅当
             # SSE 证据（thinking root block_type=10040）为正才标 deep_think；证据
@@ -1927,6 +1949,7 @@ class _PlaywrightDoubaoSession:
                     "mode": mode_evidence,
                 },
                 search_queries=search_queries,
+                answer_evidence=answer_evidence,
             )
         except (_WallError, _IncompleteCapture, _DeepThinkToggleFailed) as exc:
             # 失败题同样留 raw/HAR（题末先 dump 后 detach）：ref 挂异常对象，经
@@ -2214,9 +2237,7 @@ class _CompletionCapture:
         # request carrying ``start_seq``.  Return every retained segment in wire
         # order; the SSE assembler already applies later block updates by id.
         return "\n".join(
-            body
-            for rid in self._completion_request_ids
-            if (body := self._bodies.get(rid, ""))
+            body for rid in self._completion_request_ids if (body := self._bodies.get(rid, ""))
         )
 
     def wait_finish(
@@ -2289,9 +2310,7 @@ class _CompletionCapture:
             "found": True,
             "finished": False,
             "failed": bool(failed_segments) or target in self._loading_failed,
-            "bytes_received": sum(
-                self._bytes.get(rid, 0) for rid in self._completion_request_ids
-            ),
+            "bytes_received": sum(self._bytes.get(rid, 0) for rid in self._completion_request_ids),
             "request_count": len(self._completion_request_ids),
             "recovered": False,
             "elapsed_ms": int((time.monotonic() - t0) * 1000),
@@ -3315,9 +3334,7 @@ def _assemble_sse_trace(
                             "url": url,
                             "site": tc.get("sitename"),
                             "rank": tc.get("index", res.get("index")),
-                            "summary": str(tc.get("summary") or "")[
-                                :_RESULT_SUMMARY_LIMIT
-                            ],
+                            "summary": str(tc.get("summary") or "")[:_RESULT_SUMMARY_LIMIT],
                         }
                     )
             block_identity = (

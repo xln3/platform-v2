@@ -116,6 +116,7 @@ import structlog
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from workflows.activities.answer_dom_anchor import capture_answer_evidence
 from workflows.activities.browser_driver import load_sync_browser_driver
 from workflows.activities.browser_router import resolve_batch_instance
 from workflows.activities.collection import (
@@ -608,6 +609,7 @@ class CollectedAnswer:
     # Runtime answer screenshot + official public-share page image/link. The
     # official share image is selected as screenshot_ref for product display.
     evidence: list[CollectionEvidenceRef] = field(default_factory=list)
+    answer_evidence: CollectionEvidenceRef | None = None
 
 
 @dataclass(frozen=True)
@@ -1015,6 +1017,8 @@ def _task_result_from_collected(
     evidence.extend(collected.opened_source_previews)
     # 原始流量证据（2026-08-10 起）：sse_raw/har，_collect_one 题末导出。
     evidence.extend(collected.raw_evidence)
+    if collected.answer_evidence is not None:
+        evidence.append(collected.answer_evidence)
     official_share_image = next(
         (
             ref.path
@@ -1519,6 +1523,24 @@ class _PlaywrightDeepseekSession:
                     source_url=_CHAT_URL,
                 )
             ]
+            answer_capture = capture_answer_evidence(
+                page,
+                assistant_selectors=_ASSISTANT_SELECTORS,
+                answer_text=answer_text,
+                output_path=self._evidence_dir / f"{spec.file_stem}-answer-evidence.png",
+            )
+            answer_evidence = (
+                CollectionEvidenceRef(
+                    kind="answer_excerpt_screenshot",
+                    path=str(answer_capture.path),
+                    relation_type="answer_evidence_excerpt",
+                    mime_type="image/png",
+                    source_url=_CHAT_URL,
+                    anchors=answer_capture.anchors,
+                )
+                if answer_capture is not None and answer_capture.anchors
+                else None
+            )
 
             on_stage("share_export")
             share_image_path = self._evidence_dir / f"{spec.file_stem}-share.png"
@@ -1586,6 +1608,7 @@ class _PlaywrightDeepseekSession:
                 raw_evidence=raw_evidence,
                 opened_source_previews=opened_source_previews,
                 evidence=evidence,
+                answer_evidence=answer_evidence,
             )
         except (_WallError, _IncompleteCapture, _ModeToggleFailed) as exc:
             # 失败题同样留 raw/HAR（题末先 dump 后 detach）：ref 挂异常对象，经

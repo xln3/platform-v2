@@ -10,6 +10,7 @@ from temporalio.client import Client
 from temporalio.contrib.opentelemetry import TracingInterceptor
 from temporalio.worker import Worker
 
+from workflows.activities.answer_dom_anchor import preflight_answer_evidence_ocr
 from workflows.activities.captcha_assist import (
     captcha_assist_start,
     captcha_assist_stop,
@@ -109,6 +110,11 @@ async def run_worker() -> None:
     configure_logging(settings.log_level)
     configure_tracing(settings, service_name="geo-platform-v2-worker")
     log = structlog.get_logger()
+    # Fail before connecting/registering/polling Temporal. Construction alone does
+    # not prove that bundled OCR models and ONNX Runtime can execute on this node, so
+    # the preflight performs real inference on a controlled in-memory PNG.
+    ocr_version = await asyncio.to_thread(preflight_answer_evidence_ocr)
+    log.info("answer_evidence_ocr_preflight_passed", ocr_version=ocr_version)
     client = await Client.connect(
         settings.temporal_address,
         namespace=settings.temporal_namespace,

@@ -179,10 +179,25 @@ class SourceFetchFailure:
     error: str
 
 
+@dataclass(frozen=True)
+class SourceFetchPlanCoverage:
+    """Per-answer planning audit; never presented as fetched-document counts."""
+
+    answer_pub_id: str
+    eligible_urls: int
+    planned_urls: int
+    truncated_urls: int
+    coverage_rate: float | None
+    truncation_reason: str | None
+
+
 @dataclass
 class SourceFetchResult:
     fetched: list[FetchedSource] = field(default_factory=list)
     failures: list[SourceFetchFailure] = field(default_factory=list)
+    planning_coverage: list[SourceFetchPlanCoverage] = field(default_factory=list)
+    per_answer_limit: int | None = None
+    run_limit: int | None = None
     skipped: str | None = None  # "disabled" / None
 
 
@@ -374,6 +389,61 @@ def plan_source_targets(
                 )
             )
     return targets
+
+
+def source_plan_coverage(
+    tasks: list[tuple[str, list[dict[str, Any]]]],
+    targets: list[SourceTarget],
+    *,
+    limit: int,
+    run_limit: int,
+) -> list[SourceFetchPlanCoverage]:
+    """Explain every answer's URL planning coverage and any protection truncation.
+
+    Counts use unique, parseable, non-static HTTP(S) citation URLs.  They are
+    planning counts, not fetch-success/document counts.  The result is returned by
+    the Temporal activity, making configured protection effects durable and
+    inspectable instead of a hidden Top-N.
+    """
+
+    per_answer_limit = max(1, min(limit, _HARD_CAP_LIMIT))
+    safe_run_limit = max(1, min(run_limit, _HARD_CAP_RUN_LIMIT))
+    planned_by_answer: dict[str, set[str]] = {answer_pub_id: set() for answer_pub_id, _ in tasks}
+    for target in targets:
+        for answer_pub_id in target.task_pub_ids:
+            planned_by_answer.setdefault(answer_pub_id, set()).add(target.key)
+
+    rows: list[SourceFetchPlanCoverage] = []
+    for answer_pub_id, citations in tasks:
+        eligible: set[str] = set()
+        for citation in citations:
+            url = citation.get("url")
+            if not isinstance(url, str) or not url.strip():
+                continue
+            key = url_dedupe_key(url)
+            if key is None or is_static_resource_url(key):
+                continue
+            eligible.add(key)
+        eligible_count = len(eligible)
+        planned_count = len(planned_by_answer.get(answer_pub_id, set()))
+        reasons: list[str] = []
+        if eligible_count > per_answer_limit:
+            reasons.append("per_answer_limit")
+        if planned_count < min(eligible_count, per_answer_limit) and len(targets) >= safe_run_limit:
+            reasons.append("run_limit")
+        rows.append(
+            SourceFetchPlanCoverage(
+                answer_pub_id=answer_pub_id,
+                eligible_urls=eligible_count,
+                planned_urls=planned_count,
+                truncated_urls=max(0, eligible_count - planned_count),
+                coverage_rate=(
+                    round(planned_count / eligible_count, 4) if eligible_count else None
+                ),
+                truncation_reason="+".join(reasons) or None,
+            )
+        )
+    return rows
 
 
 def derive_document_pub_id(tenant_pub_id: str, run_pub_id: str, url_hash: str) -> str:
@@ -1471,13 +1541,23 @@ def execute_source_fetch(
 ) -> SourceFetchResult:
     """读 DB → 目标规划 → 逐条抓取（限速）→ 存证。单条失败如实落库，不中断。"""
     if not config.enabled:
-        return SourceFetchResult(skipped="disabled")
+        return SourceFetchResult(
+            per_answer_limit=config.limit,
+            run_limit=config.run_limit,
+            skipped="disabled",
+        )
     progress = on_progress if on_progress is not None else _noop_progress
     progress("load_context", "")
     context = loader.load(item.tenant_pub_id, item.run_pub_id, item.project_pub_id)
     if context is None:
         raise ApplicationError("collection run not found", type="run_not_found", non_retryable=True)
     targets = plan_source_targets(context.tasks, config.limit, config.run_limit)
+    planning_coverage = source_plan_coverage(
+        context.tasks,
+        targets,
+        limit=config.limit,
+        run_limit=config.run_limit,
+    )
 
     fetched: list[FetchedSource] = []
     failures: list[SourceFetchFailure] = []
@@ -1642,7 +1722,14 @@ def execute_source_fetch(
             failures.append(
                 SourceFetchFailure(url=target.url, error=f"{type(exc).__name__}: {exc}")
             )
-    result = SourceFetchResult(fetched=fetched, failures=failures, skipped=None)
+    result = SourceFetchResult(
+        fetched=fetched,
+        failures=failures,
+        planning_coverage=planning_coverage,
+        per_answer_limit=config.limit,
+        run_limit=config.run_limit,
+        skipped=None,
+    )
     log.info(
         "source_fetch_done",
         run_pub_id=context.run_pub_id,
@@ -1654,6 +1741,9 @@ def execute_source_fetch(
         answers_with_planned_sources=len(
             {answer_pub_id for target in targets for answer_pub_id in target.task_pub_ids}
         ),
+        planned_urls=sum(row.planned_urls for row in planning_coverage),
+        truncated_urls=sum(row.truncated_urls for row in planning_coverage),
+        answers_truncated=sum(row.truncated_urls > 0 for row in planning_coverage),
         per_answer_limit=config.limit,
         run_limit=config.run_limit,
     )

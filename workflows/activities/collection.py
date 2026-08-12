@@ -1,4 +1,5 @@
 import json
+import math
 import mimetypes
 import os
 import re
@@ -33,6 +34,7 @@ from geo_platform.projects.models import Brand, Competitor, MonitoringConfigVers
 from geo_platform.tenancy.database import WorkerSessionLocal
 from geo_platform.tenancy.ids import new_pub_id
 from geo_platform.tenancy.repository import TenantRepository
+from PIL import Image, UnidentifiedImageError
 from sqlalchemy import select, text
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -79,6 +81,7 @@ class CollectionEvidenceRef:
     title: str | None = None
     cited_text: str | None = None
     ordinal: int | None = None
+    anchors: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -269,6 +272,7 @@ class RevocationResult:
 
 _EVIDENCE_KINDS = {
     "answer_screenshot",
+    "answer_excerpt_screenshot",
     "share_image",
     "share_link",
     "source_screenshot",
@@ -281,6 +285,7 @@ _EVIDENCE_KINDS = {
 }
 _EVIDENCE_RELATIONS = {
     "answer_page",
+    "answer_evidence_excerpt",
     "official_share_image",
     "official_share_link",
     "cited_source_snapshot",
@@ -404,7 +409,8 @@ def _normalize_evidence_refs(
                 source_url=None,
             ),
         )
-    return _normalize_evidence_list(raw_items)
+    answer_text = result.answer_text if isinstance(result.answer_text, str) else None
+    return _normalize_evidence_list(raw_items, answer_text=answer_text)
 
 
 def _evidence_mime_from_name(name: str) -> str | None:
@@ -419,7 +425,9 @@ def _evidence_mime_from_name(name: str) -> str | None:
     return mimetypes.guess_type(name)[0]
 
 
-def _normalize_evidence_list(raw_items: list[Any]) -> list[CollectionEvidenceRef]:
+def _normalize_evidence_list(
+    raw_items: list[Any], *, answer_text: str | None = None
+) -> list[CollectionEvidenceRef]:
     """证据列表逐条规范化（kind/relation 词表 + 本地路径 + mime + URL 形状）。
 
     ok 题经 ``_normalize_evidence_refs``（含截图前置）调用；失败题直接对
@@ -456,6 +464,16 @@ def _normalize_evidence_list(raw_items: list[Any]) -> list[CollectionEvidenceRef
         # 绝不因此拒绝测量原料）；DLP 只守本地自产路径串。
         if item.ordinal is not None and (not isinstance(item.ordinal, int) or item.ordinal < 1):
             raise ValueError("collection evidence ordinal is invalid")
+        anchors = _normalize_evidence_anchors(item.anchors, answer_text=answer_text)
+        is_answer_excerpt = item.kind == "answer_excerpt_screenshot"
+        if is_answer_excerpt != (item.relation_type == "answer_evidence_excerpt"):
+            raise ValueError("answer evidence kind and relation must be paired")
+        if is_answer_excerpt and not anchors:
+            raise ValueError("answer evidence screenshot requires a verified anchor")
+        if anchors and not is_answer_excerpt:
+            raise ValueError("collection evidence anchors require an answer evidence screenshot")
+        if is_answer_excerpt:
+            _verify_answer_evidence_dimensions(path, anchors)
         normalized.append(
             CollectionEvidenceRef(
                 kind=item.kind,
@@ -466,8 +484,125 @@ def _normalize_evidence_list(raw_items: list[Any]) -> list[CollectionEvidenceRef
                 title=title,
                 cited_text=cited_text,
                 ordinal=item.ordinal,
+                anchors=anchors,
             )
         )
+    return normalized
+
+
+def _verify_answer_evidence_dimensions(path: Path, anchors: list[dict[str, Any]]) -> None:
+    """Bind every persisted rectangle to the decoded CAS candidate dimensions."""
+
+    try:
+        with Image.open(path) as image:
+            image.verify()
+        with Image.open(path) as image:
+            image_width, image_height = image.size
+    except (OSError, UnidentifiedImageError, Image.DecompressionBombError) as error:
+        raise ValueError("answer evidence screenshot is not a valid image") from error
+    if (
+        image_width <= 0
+        or image_height <= 0
+        or image_width > 100_000
+        or image_height > 100_000
+        or image_width * image_height > 100_000_000
+    ):
+        raise ValueError("answer evidence screenshot dimensions are invalid")
+    for anchor in anchors:
+        bbox = anchor["bbox"]
+        if bbox["image_width"] != image_width or bbox["image_height"] != image_height:
+            raise ValueError("answer evidence anchor dimensions do not match the image")
+
+
+def _normalize_evidence_anchors(
+    raw_items: list[Any] | None, *, answer_text: str | None = None
+) -> list[dict[str, Any]]:
+    """Validate adapter-produced DOM/OCR text rectangles before persistence."""
+
+    if raw_items is None:
+        return []
+    if not isinstance(raw_items, list) or len(raw_items) > 500:
+        raise ValueError("collection evidence anchors are invalid")
+    normalized: list[dict[str, Any]] = []
+    previous_end = 0
+    for raw in raw_items:
+        if not isinstance(raw, dict):
+            raise ValueError("collection evidence anchor must be an object")
+        start = raw.get("text_start")
+        end = raw.get("text_end")
+        anchor_text = raw.get("text")
+        bbox = raw.get("bbox")
+        if (
+            not isinstance(start, int)
+            or isinstance(start, bool)
+            or not isinstance(end, int)
+            or isinstance(end, bool)
+            or start < 0
+            or end <= start
+            or not isinstance(anchor_text, str)
+            or not anchor_text
+            or len(anchor_text) != end - start
+            or not isinstance(bbox, dict)
+        ):
+            raise ValueError("collection evidence anchor text interval is invalid")
+        if start < previous_end:
+            raise ValueError("collection evidence anchor intervals must be ordered")
+        if answer_text is not None and (
+            end > len(answer_text) or answer_text[start:end] != anchor_text
+        ):
+            raise ValueError("collection evidence anchor does not match the answer text")
+        cleaned_bbox: dict[str, Any] = {}
+        for key in ("x", "y", "width", "height", "image_width", "image_height"):
+            value = bbox.get(key)
+            if isinstance(value, bool) or not isinstance(value, int | float):
+                raise ValueError("collection evidence anchor bbox is invalid")
+            number = float(value)
+            if (
+                not math.isfinite(number)
+                or number < 0
+                or (key in {"width", "height", "image_width", "image_height"} and number <= 0)
+            ):
+                raise ValueError("collection evidence anchor bbox is invalid")
+            cleaned_bbox[key] = int(number) if number.is_integer() else number
+        confidence = bbox.get("confidence", 1.0)
+        if (
+            isinstance(confidence, bool)
+            or not isinstance(confidence, int | float)
+            or not 0 <= float(confidence) <= 1
+        ):
+            raise ValueError("collection evidence anchor confidence is invalid")
+        method = str(bbox.get("anchor_method") or "").strip()
+        if not method or not _SAFE_TOKEN_RE.fullmatch(method):
+            raise ValueError("collection evidence anchor method is invalid")
+        if (
+            cleaned_bbox["x"] + cleaned_bbox["width"] > cleaned_bbox["image_width"]
+            or cleaned_bbox["y"] + cleaned_bbox["height"] > cleaned_bbox["image_height"]
+        ):
+            raise ValueError("collection evidence anchor bbox exceeds image dimensions")
+        cleaned_bbox["confidence"] = float(confidence)
+        cleaned_bbox["anchor_method"] = method
+        ocr_version = bbox.get("ocr_version")
+        if method.startswith("ocr_"):
+            if (
+                not isinstance(ocr_version, str)
+                or not ocr_version.strip()
+                or len(ocr_version.strip()) > 160
+            ):
+                raise ValueError("OCR evidence anchor version is invalid")
+            cleaned_bbox["ocr_version"] = ocr_version.strip()
+        elif ocr_version is not None:
+            if not isinstance(ocr_version, str) or not ocr_version.strip():
+                raise ValueError("collection evidence anchor OCR version is invalid")
+            cleaned_bbox["ocr_version"] = ocr_version.strip()[:160]
+        normalized.append(
+            {
+                "text_start": start,
+                "text_end": end,
+                "text": anchor_text,
+                "bbox": cleaned_bbox,
+            }
+        )
+        previous_end = end
     return normalized
 
 
@@ -566,6 +701,70 @@ def _persist_evidence_assets(
                 type="collection_evidence_payload_drift",
                 non_retryable=True,
             )
+        for anchor_index, anchor in enumerate(item.anchors, 1):
+            anchor_text = str(anchor["text"])
+            quote_hash = sha256(anchor_text.encode()).hexdigest()
+            anchor_key = "|".join(
+                (
+                    evidence_pub_id,
+                    str(anchor_index),
+                    str(anchor["text_start"]),
+                    str(anchor["text_end"]),
+                    quote_hash,
+                )
+            )
+            anchor_pub_id = f"anch_{sha256(anchor_key.encode()).hexdigest()[:25]}"
+            bbox_json = json.dumps(
+                anchor["bbox"], ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            )
+            session.execute(
+                text(
+                    """
+                    INSERT INTO evidence.evidence_anchor
+                      (pub_id,tenant_pub_id,evidence_pub_id,text_start,text_end,bbox,quote_hash)
+                    VALUES
+                      (:pub_id,:tenant_pub_id,:evidence_pub_id,:text_start,:text_end,
+                       CAST(:bbox AS jsonb),:quote_hash)
+                    ON CONFLICT (pub_id) DO NOTHING
+                    """
+                ),
+                {
+                    "pub_id": anchor_pub_id,
+                    "tenant_pub_id": tenant_pub_id,
+                    "evidence_pub_id": evidence_pub_id,
+                    "text_start": anchor["text_start"],
+                    "text_end": anchor["text_end"],
+                    "bbox": bbox_json,
+                    "quote_hash": quote_hash,
+                },
+            )
+            persisted_anchor = (
+                session.execute(
+                    text(
+                        """
+                        SELECT tenant_pub_id,evidence_pub_id,text_start,text_end,bbox,quote_hash
+                        FROM evidence.evidence_anchor WHERE pub_id=:pub_id
+                        """
+                    ),
+                    {"pub_id": anchor_pub_id},
+                )
+                .mappings()
+                .one()
+            )
+            expected_anchor = {
+                "tenant_pub_id": tenant_pub_id,
+                "evidence_pub_id": evidence_pub_id,
+                "text_start": anchor["text_start"],
+                "text_end": anchor["text_end"],
+                "bbox": anchor["bbox"],
+                "quote_hash": quote_hash,
+            }
+            if dict(persisted_anchor) != expected_anchor:
+                raise ApplicationError(
+                    "evidence anchor replay payload drifted",
+                    type="collection_evidence_anchor_payload_drift",
+                    non_retryable=True,
+                )
         session.execute(
             text(
                 """
