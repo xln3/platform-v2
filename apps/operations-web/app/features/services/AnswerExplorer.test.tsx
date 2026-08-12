@@ -205,9 +205,8 @@ describe('groupAnswerEvidenceByPurpose', () => {
 });
 
 describe('projectAiOpenedPages', () => {
-  const trace = (value: Record<string, unknown>) => value as unknown as Parameters<
-    typeof projectAiOpenedPages
-  >[0];
+  const trace = (value: Record<string, unknown>) =>
+    value as unknown as Parameters<typeof projectAiOpenedPages>[0];
 
   it('accepts only explicitly observed opened_page rows using the API rank field', () => {
     const projected = projectAiOpenedPages(

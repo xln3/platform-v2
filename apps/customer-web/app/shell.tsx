@@ -5566,9 +5566,7 @@ function LiveEvidenceCard({
       ) : (
         <EvidenceImageFrame
           label={`${asset.id} ${purpose === 'brand-mention' ? '品牌提及证据' : '页面概览'}`}
-          {...(purpose === 'brand-mention' && asset.anchors[0]
-            ? { anchor: asset.anchors[0] }
-            : {})}
+          {...(purpose === 'brand-mention' && asset.anchors[0] ? { anchor: asset.anchors[0] } : {})}
           overlayLabel="目标品牌原文位置"
         >
           {image}
@@ -5644,7 +5642,8 @@ function LiveEvidencePurposeGallery({
           ))
         ) : (
           <p className="answer-detail-neutral">
-            本次未登记 <code>ai_opened_source_preview</code> 图像资产；不会用检索结果或引用截图冒充页面概览。
+            本次未登记 <code>ai_opened_source_preview</code>{' '}
+            图像资产；不会用检索结果或引用截图冒充页面概览。
           </p>
         )}
       </section>
@@ -5666,10 +5665,14 @@ function LiveEvidencePurposeGallery({
       </section>
 
       {groups.sourceReviewScreenshots.length ? (
-        <section className="live-evidence-gallery evidence-purpose-quarantine" aria-label="采集后信源复核资产">
+        <section
+          className="live-evidence-gallery evidence-purpose-quarantine"
+          aria-label="采集后信源复核资产"
+        >
           <h3>采集后信源复核资产（已隔离）</h3>
           <p className="evidence-purpose-warning">
-            下列旧资产是答案生成后重开页面的复核截图，不是 AI 实际浏览证明；缺少真实品牌 bbox，因此不渲染图片，也不计入品牌证据。
+            下列旧资产是答案生成后重开页面的复核截图，不是 AI 实际浏览证明；缺少真实品牌
+            bbox，因此不渲染图片，也不计入品牌证据。
           </p>
           <ul>
             {groups.sourceReviewScreenshots.map((asset) => (

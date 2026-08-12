@@ -243,8 +243,8 @@ export function SiteAuditWorkspace({
 
           <h3>AI 回答引用的网站来源</h3>
           <p className="setup-summary">
-            “网站来源”指 AI 回答所列 URL 的域名；“覆盖回答”指至少引用该网站一次的回答数，
-            “URL 引用条目”指全部引用条目数。这里展示回答引用事实，不是下游抽样抓取的文档分布。
+            “网站来源”指 AI 回答所列 URL 的域名；“覆盖回答”指至少引用该网站一次的回答数， “URL
+            引用条目”指全部引用条目数。这里展示回答引用事实，不是下游抽样抓取的文档分布。
           </p>
           {answerHosts.length === 0 ? (
             <p className="empty">该时间窗内 AI 回答未返回可解析的引用 URL。</p>

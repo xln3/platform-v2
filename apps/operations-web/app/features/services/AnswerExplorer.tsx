@@ -108,17 +108,11 @@ function boundedEvidenceAnchor(asset: AnswerEvidence): EvidenceAnchor | undefine
     if (
       !values.every(
         (value) =>
-          typeof value === 'number' &&
-          Number.isFinite(value) &&
-          value >= 0 &&
-          value <= 1_000_000,
+          typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1_000_000,
       ) ||
       !imageSize.every(
         (value) =>
-          typeof value === 'number' &&
-          Number.isFinite(value) &&
-          value > 0 &&
-          value <= 1_000_000,
+          typeof value === 'number' && Number.isFinite(value) && value > 0 && value <= 1_000_000,
       ) ||
       values[2] === 0 ||
       values[3] === 0 ||
@@ -532,7 +526,8 @@ function AnswerDetail({
         <section className="answer-detail-section" aria-label="答案组织引用">
           <h4>答案组织引用（不等于品牌提及）</h4>
           <p className="answer-detail-meta evidence-definition">
-            下表只表示 AI 答案返回或组织时关联的引用。一个网页出现在此表，不代表页面提及目标品牌，也不代表已通过品牌原文取证。
+            下表只表示 AI
+            答案返回或组织时关联的引用。一个网页出现在此表，不代表页面提及目标品牌，也不代表已通过品牌原文取证。
           </p>
           {relations.kind === 'loading' ? (
             <p className="empty">正在加载引用…</p>
@@ -627,7 +622,9 @@ function EvidenceAssetCard({
               打开来源页
             </a>
           ) : null}
-          <button onClick={() => void onDownload(asset)}>{evidenceDownloadLabel(asset.kind)}</button>
+          <button onClick={() => void onDownload(asset)}>
+            {evidenceDownloadLabel(asset.kind)}
+          </button>
           {assetError === asset.pub_id ? (
             <span className="answer-detail-neutral">下载失败</span>
           ) : null}
@@ -657,7 +654,9 @@ function AnswerEvidencePurposeSections({
   // never promote a compatibility evidence row based on its display text.
   groups.brandMentionScreenshots = brandMentionEvidence;
   groups.aiOpenedPagePreviews = openedSourcePreviews;
-  const officialLinks = groups.officialShareLinks.filter((asset) => safePublicUrl(asset.source_url));
+  const officialLinks = groups.officialShareLinks.filter((asset) =>
+    safePublicUrl(asset.source_url),
+  );
   const missingShareParts = [
     ...(groups.officialShareImages.length ? [] : ['官方分享图片']),
     ...(officialLinks.length ? [] : ['官方分享链接']),
@@ -668,7 +667,8 @@ function AnswerEvidencePurposeSections({
         <h5>官方分享交付</h5>
         {missingShareParts.length ? (
           <p className="evidence-purpose-warning" role="status">
-            分享交付不完整：本次缺少{missingShareParts.join('、')}。运行时回答截图不能替代官方分享制品。
+            分享交付不完整：本次缺少{missingShareParts.join('、')}
+            。运行时回答截图不能替代官方分享制品。
           </p>
         ) : (
           <p className="evidence-purpose-ok">已同时保存官方分享图片和分享链接。</p>
@@ -710,7 +710,8 @@ function AnswerEvidencePurposeSections({
         <h5>AI 实际打开页面概览</h5>
         <p className="answer-detail-meta">
           以下图片由采集器依据平台显式 <code>TOOL_OPEN</code>{' '}
-          URL，在答案完成后重新打开页面采集；只用于查看页面大致情况，不是 AI 浏览当时的像素画面。页面加载失败时，概览数量可能少于上方实际打开页数。
+          URL，在答案完成后重新打开页面采集；只用于查看页面大致情况，不是 AI
+          浏览当时的像素画面。页面加载失败时，概览数量可能少于上方实际打开页数。
         </p>
         {groups.aiOpenedPagePreviews.length ? (
           groups.aiOpenedPagePreviews.map((asset) => (
@@ -725,7 +726,8 @@ function AnswerEvidencePurposeSections({
           ))
         ) : (
           <p className="answer-detail-neutral">
-            本次没有 <code>ai_opened_source_preview</code> 图像资产。上方“实际打开”列表可回放平台返回的页面元数据，但元数据不会被伪装成页面截图。
+            本次没有 <code>ai_opened_source_preview</code>{' '}
+            图像资产。上方“实际打开”列表可回放平台返回的页面元数据，但元数据不会被伪装成页面截图。
           </p>
         )}
       </section>
@@ -748,16 +750,21 @@ function AnswerEvidencePurposeSections({
           ))
         ) : (
           <p className="answer-detail-neutral">
-            本次没有通过“真实网页 + 品牌原文 + bbox”校验的证据。检索命中或答案引用不会自动算作品牌提及。
+            本次没有通过“真实网页 + 品牌原文 +
+            bbox”校验的证据。检索命中或答案引用不会自动算作品牌提及。
           </p>
         )}
       </section>
 
       {groups.sourceReviewScreenshots.length ? (
-        <section className="evidence-purpose evidence-purpose-quarantine" aria-label="采集后信源复核截图">
+        <section
+          className="evidence-purpose evidence-purpose-quarantine"
+          aria-label="采集后信源复核截图"
+        >
           <h5>采集后信源复核截图（已隔离）</h5>
           <p className="evidence-purpose-warning">
-            这些旧资产是答案生成后由采集器重新打开的页面，不是 AI 实际浏览证明；由于不具备可核验的品牌 bbox，不在界面中展示为品牌证据。
+            这些旧资产是答案生成后由采集器重新打开的页面，不是 AI
+            实际浏览证明；由于不具备可核验的品牌 bbox，不在界面中展示为品牌证据。
           </p>
           {groups.sourceReviewScreenshots.map((asset) => (
             <EvidenceAssetCard
@@ -801,9 +808,8 @@ function TraceReplay({ trace }: { trace: TaskTrace }) {
     <div className="trace-replay">
       <p className="answer-detail-meta">
         深度思考：{trace.deep_think_active ? '开' : '关'}
-        {trace.thinking_title ? ` · ${trace.thinking_title}` : ''} · 检索命中{' '}
-        {trace.totals.results} 页 · AI 实际打开{' '}
-        {opened.observed ? `${opened.pages.length} 页` : '不可追溯'} · 思考段{' '}
+        {trace.thinking_title ? ` · ${trace.thinking_title}` : ''} · 检索命中 {trace.totals.results}{' '}
+        页 · AI 实际打开 {opened.observed ? `${opened.pages.length} 页` : '不可追溯'} · 思考段{' '}
         {trace.totals.surfaced_reasoning_steps}
       </p>
       {trace.reasoning.map((step, index) =>
@@ -830,10 +836,15 @@ function TraceReplay({ trace }: { trace: TaskTrace }) {
             : `检索命中信源（${trace.totals.results} 页候选）`}
         </h5>
         <p className="answer-detail-meta">
-          标题或摘要命中只说明页面进入检索候选集；不说明 AI 打开了页面，也不说明页面内容被组织进答案。
+          标题或摘要命中只说明页面进入检索候选集；不说明 AI
+          打开了页面，也不说明页面内容被组织进答案。
         </p>
         {trace.search_blocks.map((block, index) => (
-          <details key={index} className="trace-search-block" open={trace.search_blocks.length === 1}>
+          <details
+            key={index}
+            className="trace-search-block"
+            open={trace.search_blocks.length === 1}
+          >
             <summary>
               检索词：{block.queries.join('、') || '未返回'}（{block.result_count} 条）
             </summary>
@@ -858,9 +869,7 @@ function TraceReplay({ trace }: { trace: TaskTrace }) {
       </section>
 
       <section className="trace-source-section trace-opened-pages" aria-label="AI 实际打开信源">
-        <h5>
-          AI 实际打开信源（{opened.observed ? `${opened.pages.length} 页` : '不可追溯'}）
-        </h5>
+        <h5>AI 实际打开信源（{opened.observed ? `${opened.pages.length} 页` : '不可追溯'}）</h5>
         {!opened.observed ? (
           <p className="answer-detail-neutral">
             此记录没有保存平台显式 <code>TOOL_OPEN</code>{' '}

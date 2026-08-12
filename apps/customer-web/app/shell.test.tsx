@@ -809,12 +809,8 @@ describe('Customer platform account lifecycle', () => {
     );
     expect(relation).not.toBeNull();
     const groups = groupLiveEvidenceByPurpose(relation!.evidence);
-    expect(groups.runtimeAnswerScreenshots.map((asset) => asset.id)).toEqual([
-      'evd_runtime_safe',
-    ]);
-    expect(groups.officialShareImages.map((asset) => asset.id)).toEqual([
-      'evd_share_image_safe',
-    ]);
+    expect(groups.runtimeAnswerScreenshots.map((asset) => asset.id)).toEqual(['evd_runtime_safe']);
+    expect(groups.officialShareImages.map((asset) => asset.id)).toEqual(['evd_share_image_safe']);
     expect(groups.officialShareLinks.map((asset) => asset.id)).toEqual(['evd_share_link_safe']);
     expect(groups.aiOpenedPagePreviews.map((asset) => asset.id)).toEqual(['evd_open_safe']);
     expect(groups.brandMentionScreenshots.map((asset) => asset.id)).toEqual(['evd_brand_safe']);
