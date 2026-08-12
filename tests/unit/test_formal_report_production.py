@@ -6,6 +6,7 @@ import json
 from contextlib import contextmanager
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from hashlib import sha256
 from io import BytesIO
 from types import SimpleNamespace
 from typing import Any
@@ -29,10 +30,12 @@ from geo_platform.reports.formal_production import (
     customer_fact_snapshot,
     evidence_descriptors,
     formal_evidence_gate,
+    formal_review_contract_hash,
     request_contract,
 )
 from geo_platform.tenancy.database import get_db
 from PIL import Image
+from temporalio.exceptions import ApplicationError
 
 from domain.reporting import libreoffice
 from domain.reporting.formal_review_service2_docx import _answer_views
@@ -608,6 +611,52 @@ def test_fail_formal_activity_does_not_preflight_object_store(
 
     assert result["status"] == "failed"
     assert calls == ["mark_failed"]
+
+
+def test_formal_review_contract_hash_is_canonical_and_strict() -> None:
+    expected = formal_review_contract_hash(
+        approved=False,
+        reviewer_pub_id="usr_reviewer",
+        rationale="Needs changes.",
+    )
+    assert (
+        expected
+        == sha256(
+            b'{"approved":false,"rationale":"Needs changes.","reviewer_pub_id":"usr_reviewer"}'
+        ).hexdigest()
+    )
+    with pytest.raises(FormalProductionInvalid, match="formal_review_signal_invalid"):
+        formal_review_contract_hash(  # type: ignore[arg-type]
+            approved="false",
+            reviewer_pub_id="usr_reviewer",
+            rationale="Needs changes.",
+        )
+
+
+def test_finalize_formal_activity_rejects_string_boolean_before_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        s02_activities,
+        "_formal_report_service",
+        lambda: pytest.fail("invalid review signal must not reach the database service"),
+    )
+    with pytest.raises(ApplicationError) as exc_info:
+        asyncio.run(
+            finalize_formal_report_activity(
+                {
+                    "tenant_pub_id": "ten_unit",
+                    "formal_production_pub_id": "frp_unit",
+                    "review": {
+                        "approved": "false",
+                        "reviewer_pub_id": "usr_reviewer",
+                        "rationale": "Needs changes.",
+                    },
+                }
+            )
+        )
+    assert exc_info.value.type == "formal_review_signal_invalid"
+    assert exc_info.value.non_retryable is True
 
 
 def test_formal_workflow_waits_for_review_when_timeout_loses_commit_race(

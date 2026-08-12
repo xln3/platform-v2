@@ -3,8 +3,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from datetime import date, datetime
 from typing import Annotated, Literal
 
@@ -35,6 +33,7 @@ from .formal_production import (
     FormalProductionNotFound,
     FormalReportProductionService,
     FormalWindow,
+    formal_review_contract_hash,
 )
 
 router = APIRouter(prefix="/api/v2/reports/formal-productions", tags=["formal_reports"])
@@ -290,14 +289,11 @@ def review_formal_production(
         "reviewer_pub_id": principal.actor_pub_id,
         "rationale": body.rationale,
     }
-    review_hash = hashlib.sha256(
-        json.dumps(
-            decision,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode()
-    ).hexdigest()
+    review_hash = formal_review_contract_hash(
+        approved=body.decision == "approved",
+        reviewer_pub_id=principal.actor_pub_id,
+        rationale=body.rationale,
+    )
     try:
         session.execute(
             production_router_text("SELECT pg_advisory_xact_lock(hashtextextended(:scope,0))"),

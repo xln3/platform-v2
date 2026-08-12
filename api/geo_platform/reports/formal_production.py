@@ -10,6 +10,7 @@ as a partial success.
 from __future__ import annotations
 
 import copy
+import hmac
 import json
 import re
 from collections.abc import Callable, Mapping, Sequence
@@ -63,6 +64,32 @@ class FormalProductionInvalid(ValueError):
 
 class FormalProductionIncomplete(RuntimeError):
     pass
+
+
+def formal_review_contract_hash(*, approved: bool, reviewer_pub_id: str, rationale: str) -> str:
+    """Hash the exact review signal contract claimed by the API transaction."""
+
+    if (
+        type(approved) is not bool
+        or not isinstance(reviewer_pub_id, str)
+        or not reviewer_pub_id
+        or not isinstance(rationale, str)
+        or not 1 <= len(rationale) <= 1000
+    ):
+        raise FormalProductionInvalid("formal_review_signal_invalid")
+    payload = {
+        "approved": approved,
+        "reviewer_pub_id": reviewer_pub_id,
+        "rationale": rationale,
+    }
+    return sha256(
+        json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
 
 
 @dataclass(frozen=True, slots=True)
@@ -1031,6 +1058,11 @@ class FormalReportProductionService:
         rationale: str,
         workflow_operation_id: str,
     ) -> dict[str, Any]:
+        expected_review_hash = formal_review_contract_hash(
+            approved=approved,
+            reviewer_pub_id=reviewer_pub_id,
+            rationale=rationale,
+        )
         decision = "approved" if approved else "changes_requested"
         with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
             production = connection.execute(
@@ -1042,6 +1074,11 @@ class FormalReportProductionService:
             ).fetchone()
             if production is None:
                 raise FormalProductionNotFound("formal_production_not_found")
+            claimed_review_hash = production["review_request_hash"]
+            if not isinstance(claimed_review_hash, str) or not hmac.compare_digest(
+                claimed_review_hash, expected_review_hash
+            ):
+                raise FormalProductionConflict("formal_review_contract_mismatch")
             if approved and production["document_status"] != "formal":
                 raise FormalProductionConflict("pre_formal_cannot_be_signed")
             outputs = connection.execute(

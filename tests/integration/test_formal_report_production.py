@@ -22,6 +22,7 @@ from geo_platform.reports.formal_production import (
     FormalProductionConflict,
     FormalProductionIncomplete,
     FormalReportProductionService,
+    formal_review_contract_hash,
 )
 
 from domain.evidence.provenance import AccessClass, CaptureChannel, RedactedProvenance
@@ -292,6 +293,24 @@ def test_formal_hardening_schema_and_role_acl_contracts() -> None:
               AND indexname='uq_formal_report_production_tenant_active'
             """
         ).fetchone()
+        outbox_rls = connection.execute(
+            """
+            SELECT c.relname,c.relrowsecurity,c.relforcerowsecurity
+            FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+            WHERE n.nspname='integration'
+              AND c.relname IN ('workflow_start_command','workflow_signal_command')
+            ORDER BY c.relname
+            """
+        ).fetchall()
+        outbox_policies = connection.execute(
+            """
+            SELECT tablename,policyname
+            FROM pg_policies
+            WHERE schemaname='integration'
+              AND tablename IN ('workflow_start_command','workflow_signal_command')
+            ORDER BY tablename,policyname
+            """
+        ).fetchall()
         roles = {
             str(row[0])
             for row in connection.execute(
@@ -318,10 +337,10 @@ def test_formal_hardening_schema_and_role_acl_contracts() -> None:
                 (role, role, role, role),
             ).fetchone()
             outbox_grants = {
-                str(row[0]): tuple(row[1])
+                str(row[0]): str(row[1])
                 for row in connection.execute(
                     """
-                    SELECT table_name,array_agg(privilege_type ORDER BY privilege_type)
+                    SELECT table_name,string_agg(privilege_type,',' ORDER BY privilege_type)
                     FROM information_schema.role_table_grants
                     WHERE grantee=%s AND table_schema='integration'
                       AND table_name IN (
@@ -332,20 +351,33 @@ def test_formal_hardening_schema_and_role_acl_contracts() -> None:
                     (role,),
                 ).fetchall()
             }
+            start_sequence_acl = connection.execute(
+                """
+                SELECT has_sequence_privilege(
+                         %s,'integration.workflow_start_command_id_seq','USAGE'
+                       ),
+                       has_sequence_privilege(
+                         %s,'integration.workflow_start_command_id_seq','SELECT'
+                       )
+                """,
+                (role, role),
+            ).fetchone()
             if role == "geo_api":
                 assert production_acl == (True, True, True, False)
                 assert output_acl == (True, False, False, False)
                 assert outbox_grants == {
-                    "workflow_start_command": ("INSERT", "SELECT"),
-                    "workflow_signal_command": ("INSERT", "SELECT"),
+                    "workflow_start_command": "INSERT,SELECT",
+                    "workflow_signal_command": "INSERT,SELECT",
                 }
+                assert start_sequence_acl == (True, True)
             else:
                 assert production_acl == (True, False, True, False)
                 assert output_acl == (True, True, False, False)
                 assert outbox_grants == {
-                    "workflow_start_command": ("SELECT", "UPDATE"),
-                    "workflow_signal_command": ("SELECT", "UPDATE"),
+                    "workflow_start_command": "INSERT,SELECT,UPDATE",
+                    "workflow_signal_command": "SELECT,UPDATE",
                 }
+                assert start_sequence_acl == (True, True)
     assert constraints == {
         "formal_report_output_production_fk",
         "formal_report_output_report_fk",
@@ -358,6 +390,149 @@ def test_formal_hardening_schema_and_role_acl_contracts() -> None:
         "formal_review_request_hash_ck",
     }
     assert active_index == (1,)
+    assert outbox_rls == [
+        ("workflow_signal_command", True, True),
+        ("workflow_start_command", True, True),
+    ]
+    assert outbox_policies == [
+        (table, policy)
+        for table in ("workflow_signal_command", "workflow_start_command")
+        for policy in (
+            "workflow_outbox_api_tenant",
+            "workflow_outbox_geo_compat",
+            "workflow_outbox_worker_dispatch",
+        )
+    ]
+
+
+def test_workflow_outbox_rls_isolates_api_and_allows_worker_dispatch() -> None:
+    suffix = secrets.token_hex(8)
+    tenant_a = f"tnt_outbox_a_{suffix}"
+    tenant_b = f"tnt_outbox_b_{suffix}"
+    with psycopg.connect(POSTGRES_DSN) as connection:
+        try:
+            roles = {
+                str(row[0])
+                for row in connection.execute(
+                    "SELECT rolname FROM pg_roles WHERE rolname IN ('geo_api','geo_worker')"
+                ).fetchall()
+            }
+            for role in ("geo_api", "geo_worker"):
+                if role not in roles:
+                    connection.execute(f'CREATE ROLE "{role}" NOLOGIN NOSUPERUSER NOBYPASSRLS')
+                connection.execute(f'GRANT USAGE ON SCHEMA integration TO "{role}"')
+            connection.execute(
+                "GRANT SELECT,INSERT ON integration.workflow_start_command TO geo_api"
+            )
+            connection.execute(
+                "GRANT SELECT,INSERT ON integration.workflow_signal_command TO geo_api"
+            )
+            connection.execute(
+                "GRANT USAGE,SELECT ON SEQUENCE "
+                "integration.workflow_start_command_id_seq TO geo_api"
+            )
+            connection.execute(
+                "GRANT USAGE,SELECT ON SEQUENCE "
+                "integration.workflow_signal_command_id_seq TO geo_api"
+            )
+            connection.execute(
+                "GRANT SELECT,INSERT,UPDATE ON integration.workflow_start_command TO geo_worker"
+            )
+            connection.execute(
+                "GRANT SELECT,UPDATE ON integration.workflow_signal_command TO geo_worker"
+            )
+            connection.execute(
+                "GRANT USAGE,SELECT ON SEQUENCE "
+                "integration.workflow_start_command_id_seq TO geo_worker"
+            )
+            workflows = {
+                tenant_a: f"answer-analysis/{tenant_a}/run_{suffix}/ans_a",
+                tenant_b: f"answer-analysis/{tenant_b}/run_{suffix}/ans_b",
+            }
+            for tenant, workflow_id in workflows.items():
+                connection.execute(
+                    """
+                    INSERT INTO integration.workflow_start_command (
+                      command_id,tenant_pub_id,workflow_type,workflow_id,task_queue,
+                      payload,trace_context
+                    ) VALUES (%s,%s,'answer_analysis',%s,'queue_probe','{}','{}')
+                    """,
+                    (uuid4(), tenant, workflow_id),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO integration.workflow_signal_command (
+                      command_id,tenant_pub_id,workflow_id,signal_name,args,trace_context,
+                      idempotency_key_hash,contract_hash
+                    ) VALUES (%s,%s,%s,'review','[]','{}',%s,%s)
+                    """,
+                    (
+                        uuid4(),
+                        tenant,
+                        workflow_id,
+                        sha256(f"key:{tenant}".encode()).hexdigest(),
+                        sha256(f"contract:{tenant}".encode()).hexdigest(),
+                    ),
+                )
+
+            connection.execute("SET LOCAL ROLE geo_api")
+            connection.execute("SELECT set_config('app.tenant_pub_id',%s,true)", (tenant_a,))
+            assert connection.execute(
+                """
+                SELECT tenant_pub_id FROM integration.workflow_start_command
+                WHERE workflow_id LIKE %s ORDER BY tenant_pub_id
+                """,
+                (f"answer-analysis/%/run_{suffix}/%",),
+            ).fetchall() == [(tenant_a,)]
+            assert connection.execute(
+                """
+                SELECT tenant_pub_id FROM integration.workflow_signal_command
+                WHERE workflow_id LIKE %s ORDER BY tenant_pub_id
+                """,
+                (f"answer-analysis/%/run_{suffix}/%",),
+            ).fetchall() == [(tenant_a,)]
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                with connection.transaction():
+                    connection.execute(
+                        """
+                        INSERT INTO integration.workflow_start_command (
+                          command_id,tenant_pub_id,workflow_type,workflow_id,task_queue,
+                          payload,trace_context
+                        ) VALUES (%s,%s,'answer_analysis',%s,'queue_probe','{}','{}')
+                        """,
+                        (
+                            uuid4(),
+                            tenant_b,
+                            f"answer-analysis/{tenant_b}/run_{suffix}/api-forbidden",
+                        ),
+                    )
+
+            connection.execute("RESET ROLE")
+            connection.execute("SET LOCAL ROLE geo_worker")
+            connection.execute("SELECT set_config('app.tenant_pub_id','',true)")
+            assert connection.execute(
+                """
+                SELECT tenant_pub_id FROM integration.workflow_start_command
+                WHERE workflow_id LIKE %s ORDER BY tenant_pub_id
+                """,
+                (f"answer-analysis/%/run_{suffix}/%",),
+            ).fetchall() == [(tenant_a,), (tenant_b,)]
+            worker_workflow = f"answer-analysis/{tenant_b}/run_{suffix}/worker-created"
+            connection.execute(
+                """
+                INSERT INTO integration.workflow_start_command (
+                  command_id,tenant_pub_id,workflow_type,workflow_id,task_queue,
+                  payload,trace_context
+                ) VALUES (%s,%s,'answer_analysis',%s,'queue_probe','{}','{}')
+                """,
+                (uuid4(), tenant_b, worker_workflow),
+            )
+            assert connection.execute(
+                "SELECT count(*) FROM integration.workflow_start_command WHERE workflow_id=%s",
+                (worker_workflow,),
+            ).fetchone() == (1,)
+        finally:
+            connection.rollback()
 
 
 def test_formal_enqueue_allows_only_one_active_production_per_tenant() -> None:
@@ -754,12 +929,56 @@ def test_formal_output_artifacts_persist_all_or_none_and_replay(
     assert replayed == completed
     assert _tenant_counts(tenant_pub_id, production_pub_id)["artifacts"] == 3
 
+    reviewer_pub_id = "usr_formal_integration_reviewer"
+    review_rationale = "Integration evidence needs changes."
+    claimed_review_hash = formal_review_contract_hash(
+        approved=False,
+        reviewer_pub_id=reviewer_pub_id,
+        rationale=review_rationale,
+    )
+    with psycopg.connect(POSTGRES_DSN) as connection:
+        connection.execute("SELECT set_config('app.tenant_pub_id', %s, true)", (tenant_pub_id,))
+        connection.execute(
+            """
+            UPDATE reporting.formal_report_production SET review_request_hash=%s
+            WHERE tenant_pub_id=%s AND pub_id=%s
+            """,
+            (claimed_review_hash, tenant_pub_id, production_pub_id),
+        )
+    with pytest.raises(FormalProductionConflict, match="formal_review_contract_mismatch"):
+        service.finalize(
+            tenant_pub_id=tenant_pub_id,
+            production_pub_id=production_pub_id,
+            reviewer_pub_id=reviewer_pub_id,
+            approved=True,
+            rationale=review_rationale,
+            workflow_operation_id=f"formal-review/{production_pub_id}",
+        )
+    with psycopg.connect(POSTGRES_DSN) as connection:
+        connection.execute("SELECT set_config('app.tenant_pub_id', %s, true)", (tenant_pub_id,))
+        untouched = connection.execute(
+            """
+            SELECT status,(SELECT count(*) FROM reporting.report_review review
+                           WHERE review.tenant_pub_id=production.tenant_pub_id
+                             AND review.report_version_pub_id IN (
+                               SELECT report_version_pub_id
+                               FROM reporting.formal_report_output
+                               WHERE tenant_pub_id=production.tenant_pub_id
+                                 AND production_pub_id=production.pub_id
+                             ))
+            FROM reporting.formal_report_production production
+            WHERE tenant_pub_id=%s AND pub_id=%s
+            """,
+            (tenant_pub_id, production_pub_id),
+        ).fetchone()
+    assert untouched == ("awaiting_review", 0)
+
     rejected = service.finalize(
         tenant_pub_id=tenant_pub_id,
         production_pub_id=production_pub_id,
-        reviewer_pub_id="usr_formal_integration_reviewer",
+        reviewer_pub_id=reviewer_pub_id,
         approved=False,
-        rationale="Integration evidence needs changes.",
+        rationale=review_rationale,
         workflow_operation_id=f"formal-review/{production_pub_id}",
     )
     assert rejected["status"] == "failed"
@@ -768,18 +987,18 @@ def test_formal_output_artifacts_persist_all_or_none_and_replay(
         service.finalize(
             tenant_pub_id=tenant_pub_id,
             production_pub_id=production_pub_id,
-            reviewer_pub_id="usr_formal_integration_reviewer",
+            reviewer_pub_id=reviewer_pub_id,
             approved=False,
-            rationale="Integration evidence needs changes.",
+            rationale=review_rationale,
             workflow_operation_id=f"formal-review/{production_pub_id}",
         )
         == rejected
     )
-    with pytest.raises(FormalProductionConflict, match="formal_review_replay_drift"):
+    with pytest.raises(FormalProductionConflict, match="formal_review_contract_mismatch"):
         service.finalize(
             tenant_pub_id=tenant_pub_id,
             production_pub_id=production_pub_id,
-            reviewer_pub_id="usr_formal_integration_reviewer",
+            reviewer_pub_id=reviewer_pub_id,
             approved=False,
             rationale="A drifted replay must not be accepted.",
             workflow_operation_id=f"formal-review/{production_pub_id}",

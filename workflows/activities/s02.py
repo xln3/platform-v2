@@ -17,8 +17,10 @@ from geo_platform.evidence.service import EvidenceService
 from geo_platform.evidence.session_gateway import SessionGatewayClient
 from geo_platform.intelligence.service import IntelligenceService
 from geo_platform.reports.formal_production import (
+    FormalProductionConflict,
     FormalProductionInvalid,
     FormalReportProductionService,
+    formal_review_contract_hash,
 )
 from geo_platform.reports.service import ReportService
 from geo_platform.tenancy.ids import new_pub_id
@@ -514,18 +516,49 @@ async def fail_formal_report_activity(payload: dict[str, Any]) -> dict[str, Any]
 
 @activity.defn
 async def finalize_formal_report_activity(payload: dict[str, Any]) -> dict[str, Any]:
-    review = payload["review"]
-    return _formal_activity_result(
-        await asyncio.to_thread(
+    review = payload.get("review")
+    if not isinstance(review, dict) or set(review) != {
+        "approved",
+        "reviewer_pub_id",
+        "rationale",
+    }:
+        raise ApplicationError(
+            "formal review signal is invalid",
+            type="formal_review_signal_invalid",
+            non_retryable=True,
+        )
+    approved = review["approved"]
+    reviewer_pub_id = review["reviewer_pub_id"]
+    rationale = review["rationale"]
+    try:
+        formal_review_contract_hash(
+            approved=approved,
+            reviewer_pub_id=reviewer_pub_id,
+            rationale=rationale,
+        )
+    except FormalProductionInvalid as exc:
+        raise ApplicationError(
+            "formal review signal is invalid",
+            type="formal_review_signal_invalid",
+            non_retryable=True,
+        ) from exc
+    try:
+        result = await asyncio.to_thread(
             _formal_report_service().finalize,
             tenant_pub_id=str(payload["tenant_pub_id"]),
             production_pub_id=str(payload["formal_production_pub_id"]),
-            reviewer_pub_id=str(review["reviewer_pub_id"]),
-            approved=bool(review["approved"]),
-            rationale=str(review.get("rationale") or "Formal report review"),
+            reviewer_pub_id=reviewer_pub_id,
+            approved=approved,
+            rationale=rationale,
             workflow_operation_id=f"{activity.info().workflow_id}/review",
         )
-    )
+    except FormalProductionConflict as exc:
+        raise ApplicationError(
+            str(exc),
+            type=str(exc),
+            non_retryable=True,
+        ) from exc
+    return _formal_activity_result(result)
 
 
 @activity.defn
