@@ -13,6 +13,7 @@
     "@geo/api-client": "workspace:*",
     "@geo/auth": "workspace:*",
     "@geo/design-system": "workspace:*",
+    "@geo/evidence-viewer": "workspace:*",
     "isbot": "^5",
     "react": "19.2.8",
     "react-dom": "19.2.8",

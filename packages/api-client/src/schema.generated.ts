@@ -1636,7 +1636,7 @@ export interface paths {
         };
         /**
          * Source Audit Overview
-         * @description W2 信源审计聚合（官网引用能效）：窗口内信源文档、官网命中占比与判定分布。
+         * @description W2 官网引用能效：回答引用口径 + 抓取/审计口径分层返回。
          */
         get: operations["source_audit_overview_api_v2_analytics_source_audit_get"];
         put?: never;
@@ -3922,6 +3922,12 @@ export interface components {
         AnswerRelationsView: {
             /** Answer Pub Id */
             answer_pub_id: string;
+            /** Answer Citations */
+            answer_citations: components["schemas"]["CitationRelationView"][];
+            /** Brand Mention Evidence */
+            brand_mention_evidence: components["schemas"]["AnswerEvidenceView"][];
+            /** Opened Source Previews */
+            opened_source_previews: components["schemas"]["AnswerEvidenceView"][];
             /** Citations */
             citations: components["schemas"]["CitationRelationView"][];
             /** Evidence */
@@ -8532,6 +8538,28 @@ export interface components {
             end: string;
             /** Own Site Host */
             own_site_host: string | null;
+            /** Answers Total */
+            answers_total: number;
+            /** Answers With Citation */
+            answers_with_citation: number;
+            /** Citation Coverage Rate */
+            citation_coverage_rate: number | null;
+            /** Answers With Own Site Citation */
+            answers_with_own_site_citation: number;
+            /** Own Site Answer Citation Rate */
+            own_site_answer_citation_rate: number | null;
+            /** Own Site Share Of Cited Answers */
+            own_site_share_of_cited_answers: number | null;
+            /** Citation References Total */
+            citation_references_total: number;
+            /** Own Site Citation References */
+            own_site_citation_references: number;
+            /** Own Site Reference Share */
+            own_site_reference_share: number | null;
+            /** Own Site Cited Text Answers */
+            own_site_cited_text_answers: number;
+            /** Own Site Cited Text Evidence Rate */
+            own_site_cited_text_evidence_rate: number | null;
             /** Documents Total */
             documents_total: number;
             /** Own Site Documents */
@@ -8542,9 +8570,17 @@ export interface components {
             own_site_transcript_total: number;
             /** Own Site Transcript Accurate */
             own_site_transcript_accurate: number;
+            /** Own Site Transcript Accuracy Rate */
+            own_site_transcript_accuracy_rate: number | null;
+            /** Own Site Adoption Evaluated Answers */
+            own_site_adoption_evaluated_answers: number;
+            /** Own Site Adoption Verified Answers */
+            own_site_adoption_verified_answers: number;
             /** Own Site Adoption Rate */
             own_site_adoption_rate: number | null;
             verdicts: components["schemas"]["SourceAuditVerdictsView"];
+            /** Answer Hosts */
+            answer_hosts: components["schemas"]["SourceCitationHostView"][];
             /** Hosts */
             hosts: components["schemas"]["SourceAuditHostView"][];
             /** Items */
@@ -8565,6 +8601,17 @@ export interface components {
         SourceAuditVerdictsView: {
             transcript: components["schemas"]["SourceAuditVerdictBucketView"];
             factual: components["schemas"]["SourceAuditVerdictBucketView"];
+        };
+        /** SourceCitationHostView */
+        SourceCitationHostView: {
+            /** Host */
+            host: string;
+            /** Answers */
+            answers: number;
+            /** References */
+            references: number;
+            /** Is Own Site */
+            is_own_site: boolean;
         };
         /** StepView */
         StepView: {
@@ -8739,6 +8786,12 @@ export interface components {
             reasoning: components["schemas"]["TraceReasoningStep"][];
             /** Search Blocks */
             search_blocks: components["schemas"]["TraceSearchBlock"][];
+            /** Opened Pages Observed */
+            opened_pages_observed: boolean;
+            /** Opened Pages */
+            opened_pages: components["schemas"]["TraceSearchResult"][];
+            /** Answer Reference Pages */
+            answer_reference_pages: components["schemas"]["TraceSearchResult"][];
             /** Search Queries */
             search_queries: components["schemas"]["TraceSearchQuery"][];
             totals: components["schemas"]["TraceTotals"];
@@ -8919,6 +8972,10 @@ export interface components {
             queries: number;
             /** Results */
             results: number;
+            /** Opened Pages */
+            opened_pages: number | null;
+            /** Answer Reference Pages */
+            answer_reference_pages: number;
             /** Surfaced Reasoning Steps */
             surfaced_reasoning_steps: number;
             /** Response Text Truncated */

@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest';
 import {
   evidenceDownloadLabel,
   formatByteSize,
+  groupAnswerEvidenceByPurpose,
   groupEvidenceByKind,
   isImageEvidence,
   isTraceUnavailable,
   mimeExtension,
   platformDisplayName,
+  projectAiOpenedPages,
   truncateText,
   type AnswerEvidence,
 } from './AnswerExplorer';
@@ -140,5 +142,126 @@ describe('groupEvidenceByKind', () => {
 
   it('returns an empty list for no evidence', () => {
     expect(groupEvidenceByKind([])).toEqual([]);
+  });
+});
+
+describe('groupAnswerEvidenceByPurpose', () => {
+  const asset = (
+    pub_id: string,
+    kind: string,
+    relation_type: string,
+    anchors: AnswerEvidence['anchors'] = [],
+  ): AnswerEvidence =>
+    ({
+      pub_id,
+      kind,
+      relation_type,
+      access_class: 'customer_private',
+      sha256: 'a'.repeat(64),
+      mime_type: kind === 'share_link' ? 'application/json' : 'image/png',
+      byte_size: 512,
+      source_url: 'https://example.com/page',
+      capture_time: '2026-08-12T00:00:00Z',
+      anchors,
+    }) as AnswerEvidence;
+
+  it('keeps official share, runtime, AI-open preview, brand proof and legacy review distinct', () => {
+    const bboxAnchor = {
+      pub_id: 'anch_1',
+      text_start: 10,
+      text_end: 14,
+      bbox: {
+        x: 100,
+        y: 80,
+        width: 200,
+        height: 40,
+        confidence: 1,
+        image_width: 700,
+        image_height: 300,
+      },
+      page_number: 1,
+      quote_hash: 'b'.repeat(64),
+    } as AnswerEvidence['anchors'][number];
+    const groups = groupAnswerEvidenceByPurpose([
+      asset('evd_share_image', 'share_image', 'official_share_image'),
+      asset('evd_share_link', 'share_link', 'official_share_link'),
+      asset('evd_runtime', 'answer_screenshot', 'answer_page'),
+      asset('evd_open', 'source_screenshot', 'ai_opened_source_preview'),
+      asset('evd_brand', 'source_screenshot', 'brand_mention_source_snapshot', [bboxAnchor]),
+      asset('evd_legacy', 'source_screenshot', 'cited_source_snapshot'),
+      asset('evd_fake_brand', 'source_screenshot', 'brand_mention_source_snapshot'),
+    ]);
+
+    expect(groups.officialShareImages.map((item) => item.pub_id)).toEqual(['evd_share_image']);
+    expect(groups.officialShareLinks.map((item) => item.pub_id)).toEqual(['evd_share_link']);
+    expect(groups.runtimeAnswerScreenshots.map((item) => item.pub_id)).toEqual(['evd_runtime']);
+    expect(groups.aiOpenedPagePreviews.map((item) => item.pub_id)).toEqual(['evd_open']);
+    expect(groups.brandMentionScreenshots.map((item) => item.pub_id)).toEqual(['evd_brand']);
+    expect(groups.sourceReviewScreenshots.map((item) => item.pub_id)).toEqual([
+      'evd_legacy',
+      'evd_fake_brand',
+    ]);
+  });
+});
+
+describe('projectAiOpenedPages', () => {
+  const trace = (value: Record<string, unknown>) => value as unknown as Parameters<
+    typeof projectAiOpenedPages
+  >[0];
+
+  it('accepts only explicitly observed opened_page rows using the API rank field', () => {
+    const projected = projectAiOpenedPages(
+      trace({
+        opened_pages_observed: true,
+        opened_pages: [
+          {
+            rank: 1,
+            title: '真实打开页',
+            url: 'https://example.com/opened',
+            site: 'example.com',
+            summary: '平台 TOOL_OPEN 摘要',
+            status: 'opened_page',
+          },
+        ],
+      }),
+    );
+    expect(projected).toEqual({
+      observed: true,
+      invalid: false,
+      pages: [
+        {
+          ordinal: 1,
+          title: '真实打开页',
+          url: 'https://example.com/opened',
+          site: 'example.com',
+          summary: '平台 TOOL_OPEN 摘要',
+        },
+      ],
+    });
+  });
+
+  it('never infers opened pages when observation is absent and rejects search-hit rows', () => {
+    expect(projectAiOpenedPages(trace({ opened_pages: [] }))).toEqual({
+      observed: false,
+      pages: [],
+      invalid: false,
+    });
+    expect(
+      projectAiOpenedPages(
+        trace({
+          opened_pages_observed: true,
+          opened_pages: [
+            {
+              rank: 1,
+              title: '仅检索命中',
+              url: 'https://example.com/hit',
+              site: null,
+              summary: '',
+              status: 'search_hit',
+            },
+          ],
+        }),
+      ),
+    ).toEqual({ observed: true, pages: [], invalid: true });
   });
 });

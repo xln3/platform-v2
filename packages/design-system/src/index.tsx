@@ -1872,12 +1872,14 @@ export function Pagination({
 export function Dialog({
   title,
   eyebrow,
+  size = 'default',
   closeLabel,
   onClose,
   children,
 }: {
   title: string;
   eyebrow?: string;
+  size?: 'default' | 'wide';
   closeLabel: string;
   onClose: () => void;
   children: ReactNode;
@@ -1919,7 +1921,7 @@ export function Dialog({
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
       <section
         ref={dialogRef}
-        className="modal"
+        className={`modal${size === 'wide' ? ' modal-wide' : ''}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}

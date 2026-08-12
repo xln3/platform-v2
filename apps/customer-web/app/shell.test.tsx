@@ -19,6 +19,7 @@ import Shell, {
   customerAccountLifecycleProjectionLimits,
   customerEvidenceProjectionLimits,
   customerGovernanceHistoryLimit,
+  groupLiveEvidenceByPurpose,
   customerMonitoringProjectionLimits,
   intakeProfileSchema,
   projectAnalyticsBreakdown,
@@ -45,6 +46,7 @@ import Shell, {
   projectReportDeliveryViews,
   projectResponsibleMemberViews,
   projectResponsibleMemberResult,
+  safeOfficialShareUrl,
 } from './shell';
 
 describe('Customer platform account lifecycle', () => {
@@ -730,6 +732,96 @@ describe('Customer platform account lifecycle', () => {
       expect.arrayContaining(['citations', 'evidence', 'anchors', 'history']),
     );
     expect(JSON.stringify(invalid)).not.toMatch(/proxy-password|Bearer|canary/i);
+  });
+
+  it('accepts only each platform official share host and path', () => {
+    expect(safeOfficialShareUrl('https://www.doubao.com/thread/abc', 'doubao')).toBe(
+      'https://www.doubao.com/thread/abc',
+    );
+    expect(safeOfficialShareUrl('https://chat.deepseek.com/share/abc', 'DeepSeek')).toBe(
+      'https://chat.deepseek.com/share/abc',
+    );
+    expect(safeOfficialShareUrl('https://mr.baidu.com/r/abc', '文心一言')).toBe(
+      'https://mr.baidu.com/r/abc',
+    );
+    expect(safeOfficialShareUrl('https://wenxin.baidu.com/share/abc', 'yiyan')).toBe(
+      'https://wenxin.baidu.com/share/abc',
+    );
+    expect(safeOfficialShareUrl('https://evil.example/thread/abc', 'doubao')).toBeNull();
+    expect(safeOfficialShareUrl('https://www.doubao.com/thread/abc', 'deepseek')).toBeNull();
+    expect(safeOfficialShareUrl('http://chat.deepseek.com/share/abc', 'deepseek')).toBeNull();
+  });
+
+  it('separates runtime, official share, AI-open previews, verified brand proof and legacy review', () => {
+    const evidenceRows = [
+      ['evd_runtime_safe', 'answer_screenshot', 'answer_page', []],
+      ['evd_share_image_safe', 'share_image', 'official_share_image', []],
+      ['evd_share_link_safe', 'share_link', 'official_share_link', []],
+      ['evd_open_safe', 'source_screenshot', 'ai_opened_source_preview', []],
+      [
+        'evd_brand_safe',
+        'source_screenshot',
+        'brand_mention_source_snapshot',
+        [
+          {
+            pub_id: 'anch_brand_safe',
+            text_start: 10,
+            text_end: 14,
+            bbox: {
+              x: 100,
+              y: 80,
+              width: 200,
+              height: 40,
+              confidence: 1,
+              image_width: 700,
+              image_height: 300,
+            },
+            page_number: 1,
+            quote_hash: 'b'.repeat(64),
+          },
+        ],
+      ],
+      ['evd_legacy_safe', 'source_screenshot', 'cited_source_snapshot', []],
+      ['evd_unproven_safe', 'source_screenshot', 'brand_mention_source_snapshot', []],
+    ].map(([pub_id, kind, relation_type, anchors]) => ({
+      pub_id,
+      relation_type,
+      kind,
+      access_class: 'customer_private',
+      sha256: 'a'.repeat(64),
+      mime_type: kind === 'share_link' ? 'application/json' : 'image/png',
+      byte_size: 512,
+      source_url: 'https://source.example/page',
+      capture_time: '2026-08-12T08:00:00Z',
+      anchors,
+    }));
+    const relation = projectAnswerRelations(
+      {
+        answer_pub_id: 'ans_purpose_safe',
+        citations: [],
+        answer_citations: [],
+        evidence: evidenceRows,
+        opened_source_previews: [evidenceRows[3]],
+        brand_mention_evidence: [evidenceRows[4]],
+        history: [],
+      },
+      'ans_purpose_safe',
+    );
+    expect(relation).not.toBeNull();
+    const groups = groupLiveEvidenceByPurpose(relation!.evidence);
+    expect(groups.runtimeAnswerScreenshots.map((asset) => asset.id)).toEqual([
+      'evd_runtime_safe',
+    ]);
+    expect(groups.officialShareImages.map((asset) => asset.id)).toEqual([
+      'evd_share_image_safe',
+    ]);
+    expect(groups.officialShareLinks.map((asset) => asset.id)).toEqual(['evd_share_link_safe']);
+    expect(groups.aiOpenedPagePreviews.map((asset) => asset.id)).toEqual(['evd_open_safe']);
+    expect(groups.brandMentionScreenshots.map((asset) => asset.id)).toEqual(['evd_brand_safe']);
+    expect(groups.sourceReviewScreenshots.map((asset) => asset.id)).toEqual([
+      'evd_legacy_safe',
+      'evd_unproven_safe',
+    ]);
   });
 
   it('bounds answer pages and preserves unknown mention as distinct from a real zero', () => {

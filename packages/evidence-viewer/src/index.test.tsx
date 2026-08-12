@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
-import { EvidenceViewer } from './index';
+import { EvidenceImageFrame, EvidenceViewer } from './index';
 
 afterEach(cleanup);
 
@@ -44,5 +44,61 @@ describe('EvidenceViewer', () => {
       [...container.querySelectorAll('dd')].map((definition) => definition.textContent),
     ).toEqual(['asset_safe_02', '—–—', '—']);
     expect(container.querySelector('.evidence-diff')).toBeNull();
+  });
+});
+
+describe('EvidenceImageFrame', () => {
+  it('scales a verified source-coordinate box over the real image without adding callout text', () => {
+    render(
+      <EvidenceImageFrame
+        label="盛邦安全信源原文证据"
+        overlayLabel="目标品牌提及位置"
+        anchor={{ assetId: 'evd_source_01', bbox: [100, 50, 200, 80] }}
+      >
+        <img src="/source.png" alt="真实信源页面截图" />
+      </EvidenceImageFrame>,
+    );
+
+    const image = screen.getByRole('img', { name: '真实信源页面截图' });
+    Object.defineProperties(image, {
+      naturalWidth: { configurable: true, value: 1_000 },
+      naturalHeight: { configurable: true, value: 500 },
+    });
+    fireEvent.load(image);
+
+    const overlay = screen.getByRole('img', {
+      name: '目标品牌提及位置，原图坐标 100,50,200,80',
+    });
+    expect((overlay as HTMLElement).style.left).toBe('10%');
+    expect((overlay as HTMLElement).style.top).toBe('10%');
+    expect((overlay as HTMLElement).style.width).toBe('20%');
+    expect((overlay as HTMLElement).style.height).toBe('16%');
+    expect(screen.getByText(/已绑定真实页面截图与原图坐标/)).toBeTruthy();
+  });
+
+  it('does not draw or invent an annotation when a box is missing or outside the image', () => {
+    const { rerender } = render(
+      <EvidenceImageFrame label="信源页面概览">
+        <img src="/source.png" alt="无定位截图" />
+      </EvidenceImageFrame>,
+    );
+    expect(screen.queryByRole('img', { name: /原图坐标/ })).toBeNull();
+    expect(screen.getByText(/不会在截图上虚构高亮或文本浮层/)).toBeTruthy();
+
+    rerender(
+      <EvidenceImageFrame
+        label="信源页面概览"
+        anchor={{ assetId: 'evd_source_02', bbox: [950, 450, 100, 80] }}
+      >
+        <img src="/source.png" alt="越界定位截图" />
+      </EvidenceImageFrame>,
+    );
+    const image = screen.getByRole('img', { name: '越界定位截图' });
+    Object.defineProperties(image, {
+      naturalWidth: { configurable: true, value: 1_000 },
+      naturalHeight: { configurable: true, value: 500 },
+    });
+    fireEvent.load(image);
+    expect(screen.queryByRole('img', { name: /原图坐标/ })).toBeNull();
   });
 });

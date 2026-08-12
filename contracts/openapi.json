@@ -19704,7 +19704,7 @@
           "analytics"
         ],
         "summary": "Source Audit Overview",
-        "description": "W2 信源审计聚合（官网引用能效）：窗口内信源文档、官网命中占比与判定分布。",
+        "description": "W2 官网引用能效：回答引用口径 + 抓取/审计口径分层返回。",
         "operationId": "source_audit_overview_api_v2_analytics_source_audit_get",
         "parameters": [
           {
@@ -51341,6 +51341,27 @@
             "type": "string",
             "title": "Answer Pub Id"
           },
+          "answer_citations": {
+            "items": {
+              "$ref": "#/components/schemas/CitationRelationView"
+            },
+            "type": "array",
+            "title": "Answer Citations"
+          },
+          "brand_mention_evidence": {
+            "items": {
+              "$ref": "#/components/schemas/AnswerEvidenceView"
+            },
+            "type": "array",
+            "title": "Brand Mention Evidence"
+          },
+          "opened_source_previews": {
+            "items": {
+              "$ref": "#/components/schemas/AnswerEvidenceView"
+            },
+            "type": "array",
+            "title": "Opened Source Previews"
+          },
           "citations": {
             "items": {
               "$ref": "#/components/schemas/CitationRelationView"
@@ -51367,6 +51388,9 @@
         "type": "object",
         "required": [
           "answer_pub_id",
+          "answer_citations",
+          "brand_mention_evidence",
+          "opened_source_previews",
           "citations",
           "evidence",
           "history"
@@ -64319,6 +64343,85 @@
             ],
             "title": "Own Site Host"
           },
+          "answers_total": {
+            "type": "integer",
+            "title": "Answers Total"
+          },
+          "answers_with_citation": {
+            "type": "integer",
+            "title": "Answers With Citation"
+          },
+          "citation_coverage_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Citation Coverage Rate"
+          },
+          "answers_with_own_site_citation": {
+            "type": "integer",
+            "title": "Answers With Own Site Citation"
+          },
+          "own_site_answer_citation_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Own Site Answer Citation Rate"
+          },
+          "own_site_share_of_cited_answers": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Own Site Share Of Cited Answers"
+          },
+          "citation_references_total": {
+            "type": "integer",
+            "title": "Citation References Total"
+          },
+          "own_site_citation_references": {
+            "type": "integer",
+            "title": "Own Site Citation References"
+          },
+          "own_site_reference_share": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Own Site Reference Share"
+          },
+          "own_site_cited_text_answers": {
+            "type": "integer",
+            "title": "Own Site Cited Text Answers"
+          },
+          "own_site_cited_text_evidence_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Own Site Cited Text Evidence Rate"
+          },
           "documents_total": {
             "type": "integer",
             "title": "Documents Total"
@@ -64346,6 +64449,25 @@
             "type": "integer",
             "title": "Own Site Transcript Accurate"
           },
+          "own_site_transcript_accuracy_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Own Site Transcript Accuracy Rate"
+          },
+          "own_site_adoption_evaluated_answers": {
+            "type": "integer",
+            "title": "Own Site Adoption Evaluated Answers"
+          },
+          "own_site_adoption_verified_answers": {
+            "type": "integer",
+            "title": "Own Site Adoption Verified Answers"
+          },
           "own_site_adoption_rate": {
             "anyOf": [
               {
@@ -64359,6 +64481,13 @@
           },
           "verdicts": {
             "$ref": "#/components/schemas/SourceAuditVerdictsView"
+          },
+          "answer_hosts": {
+            "items": {
+              "$ref": "#/components/schemas/SourceCitationHostView"
+            },
+            "type": "array",
+            "title": "Answer Hosts"
           },
           "hosts": {
             "items": {
@@ -64382,13 +64511,28 @@
           "start",
           "end",
           "own_site_host",
+          "answers_total",
+          "answers_with_citation",
+          "citation_coverage_rate",
+          "answers_with_own_site_citation",
+          "own_site_answer_citation_rate",
+          "own_site_share_of_cited_answers",
+          "citation_references_total",
+          "own_site_citation_references",
+          "own_site_reference_share",
+          "own_site_cited_text_answers",
+          "own_site_cited_text_evidence_rate",
           "documents_total",
           "own_site_documents",
           "own_site_share",
           "own_site_transcript_total",
           "own_site_transcript_accurate",
+          "own_site_transcript_accuracy_rate",
+          "own_site_adoption_evaluated_answers",
+          "own_site_adoption_verified_answers",
           "own_site_adoption_rate",
           "verdicts",
+          "answer_hosts",
           "hosts",
           "items"
         ],
@@ -64439,6 +64583,35 @@
           "factual"
         ],
         "title": "SourceAuditVerdictsView"
+      },
+      "SourceCitationHostView": {
+        "properties": {
+          "host": {
+            "type": "string",
+            "title": "Host"
+          },
+          "answers": {
+            "type": "integer",
+            "title": "Answers"
+          },
+          "references": {
+            "type": "integer",
+            "title": "References"
+          },
+          "is_own_site": {
+            "type": "boolean",
+            "title": "Is Own Site"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "host",
+          "answers",
+          "references",
+          "is_own_site"
+        ],
+        "title": "SourceCitationHostView"
       },
       "StepView": {
         "properties": {
@@ -64872,6 +65045,24 @@
             "type": "array",
             "title": "Search Blocks"
           },
+          "opened_pages_observed": {
+            "type": "boolean",
+            "title": "Opened Pages Observed"
+          },
+          "opened_pages": {
+            "items": {
+              "$ref": "#/components/schemas/TraceSearchResult"
+            },
+            "type": "array",
+            "title": "Opened Pages"
+          },
+          "answer_reference_pages": {
+            "items": {
+              "$ref": "#/components/schemas/TraceSearchResult"
+            },
+            "type": "array",
+            "title": "Answer Reference Pages"
+          },
           "search_queries": {
             "items": {
               "$ref": "#/components/schemas/TraceSearchQuery"
@@ -64895,6 +65086,9 @@
           "thinking_title",
           "reasoning",
           "search_blocks",
+          "opened_pages_observed",
+          "opened_pages",
+          "answer_reference_pages",
           "search_queries",
           "totals",
           "disclosure"
@@ -65401,6 +65595,21 @@
             "type": "integer",
             "title": "Results"
           },
+          "opened_pages": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opened Pages"
+          },
+          "answer_reference_pages": {
+            "type": "integer",
+            "title": "Answer Reference Pages"
+          },
           "surfaced_reasoning_steps": {
             "type": "integer",
             "title": "Surfaced Reasoning Steps"
@@ -65415,6 +65624,8 @@
         "required": [
           "queries",
           "results",
+          "opened_pages",
+          "answer_reference_pages",
           "surfaced_reasoning_steps",
           "response_text_truncated"
         ],

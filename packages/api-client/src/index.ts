@@ -1058,11 +1058,18 @@ export type AnalyticsCitationSafeView = Pick<
   | 'own_source'
   | 'content_hash'
 >;
+export type AnalyticsBoundingBoxSafeView = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  confidence?: number;
+};
 export type AnalyticsAnchorSafeView = Pick<
   AnalyticsAnchorContractView,
   'pub_id' | 'text_start' | 'text_end' | 'page_number' | 'quote_hash'
 > & {
-  bbox: null;
+  bbox: AnalyticsBoundingBoxSafeView | null;
 };
 export type AnalyticsEvidenceSafeView = Pick<
   AnalyticsEvidenceContractView,
@@ -1088,6 +1095,9 @@ export type AnalyticsHistorySafeView = {
 };
 export type AnalyticsAnswerRelationsProjection = {
   answer_pub_id: string;
+  answer_citations: AnalyticsCitationSafeView[];
+  brand_mention_evidence: AnalyticsEvidenceSafeView[];
+  opened_source_previews: AnalyticsEvidenceSafeView[];
   citations: AnalyticsCitationSafeView[];
   evidence: AnalyticsEvidenceSafeView[];
   history: AnalyticsHistorySafeView[];
@@ -2466,6 +2476,43 @@ const projectAnalyticsAnchorBoundary = (value: unknown): AnalyticsAnchorSafeView
         ? value.page_number
         : undefined;
   const quoteHash = value.quote_hash === null ? null : (safeHash(value.quote_hash) ?? undefined);
+  const bbox = (() => {
+    if (value.bbox === null) return null;
+    if (!isBrowserRecord(value.bbox)) return null;
+    const { x, y, width, height, confidence } = value.bbox;
+    if (
+      typeof x !== 'number' ||
+      !Number.isFinite(x) ||
+      x < 0 ||
+      x > 1_000_000 ||
+      typeof y !== 'number' ||
+      !Number.isFinite(y) ||
+      y < 0 ||
+      y > 1_000_000 ||
+      typeof width !== 'number' ||
+      !Number.isFinite(width) ||
+      width <= 0 ||
+      width > 1_000_000 ||
+      typeof height !== 'number' ||
+      !Number.isFinite(height) ||
+      height <= 0 ||
+      height > 1_000_000 ||
+      (confidence !== undefined &&
+        (typeof confidence !== 'number' ||
+          !Number.isFinite(confidence) ||
+          confidence < 0 ||
+          confidence > 1))
+    ) {
+      return null;
+    }
+    return {
+      x,
+      y,
+      width,
+      height,
+      ...(typeof confidence === 'number' ? { confidence } : {}),
+    };
+  })();
   const textStartIsValid = value.text_start === null || textStart !== null;
   const textEndIsValid = value.text_end === null || textEnd !== null;
   return pubId &&
@@ -2477,8 +2524,7 @@ const projectAnalyticsAnchorBoundary = (value: unknown): AnalyticsAnchorSafeView
         pub_id: pubId,
         text_start: textStart,
         text_end: textEnd,
-        // Bounding-box maps are not consumed by this surface and may contain arbitrary data.
-        bbox: null,
+        bbox,
         page_number: pageNumber,
         quote_hash: quoteHash,
       }
@@ -2613,8 +2659,41 @@ const projectAnalyticsAnswerRelationsBoundary = (
     customerEvidenceReadProjectionLimits.history,
     projectAnalyticsHistoryBoundary,
   );
+  const answerCitations = citations.data;
+  const brandMentionEvidence = evidence.data.filter(
+    (item) =>
+      item.relation_type === 'brand_mention_source_snapshot' &&
+      item.kind === 'source_screenshot' &&
+      item.anchors.some((anchor) => anchor.bbox !== null),
+  );
+  const openedSourcePreviews = evidence.data.filter(
+    (item) =>
+      item.relation_type === 'ai_opened_source_preview' && item.kind === 'source_screenshot',
+  );
+  const exactIds = (raw: unknown, expected: { pub_id: string }[], prefix: string): boolean => {
+    if (raw === undefined) return true; // compatibility with a pre-taxonomy API during rolling deploy
+    if (!Array.isArray(raw)) return false;
+    const ids = raw.map((item) =>
+      isBrowserRecord(item) ? projectAnalyticsPubId(item.pub_id, prefix) : null,
+    );
+    return (
+      ids.every((id): id is string => id !== null) &&
+      ids.length === expected.length &&
+      ids.every((id, index) => id === expected[index]?.pub_id)
+    );
+  };
+  if (
+    !exactIds(value.answer_citations, answerCitations, 'cit_') ||
+    !exactIds(value.brand_mention_evidence, brandMentionEvidence, 'evd_') ||
+    !exactIds(value.opened_source_previews, openedSourcePreviews, 'evd_')
+  ) {
+    return null;
+  }
   return {
     answer_pub_id: expectedAnswerPubId,
+    answer_citations: answerCitations,
+    brand_mention_evidence: brandMentionEvidence,
+    opened_source_previews: openedSourcePreviews,
     citations: citations.data,
     evidence: evidence.data,
     history: history.data,

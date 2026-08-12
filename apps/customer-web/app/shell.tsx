@@ -127,7 +127,7 @@ import {
 } from '@geo/api-client';
 import { getValidatedIdentityHeaders } from '@geo/auth';
 import { GeoBarChart } from '@geo/charts';
-import { EvidenceViewer } from '@geo/evidence-viewer';
+import { EvidenceImageFrame, EvidenceViewer, type EvidenceAnchor } from '@geo/evidence-viewer';
 import { useEffect, useRef, useState } from 'react';
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table';
 import { useSearchParams } from 'react-router';
@@ -5026,6 +5026,9 @@ type LiveAnswerRelations = {
     sourceHost: string;
     sourceUrl: string | null;
     anchorCount: number;
+    anchors: EvidenceAnchor[];
+    aiOpenedVerified: boolean;
+    brandMentionVerified: boolean;
   }[];
   history: {
     id: string;
@@ -5070,15 +5073,101 @@ const safeRelationHost = (value: unknown): string | null => {
   return url ? new URL(url).hostname : null;
 };
 
-const safeDoubaoShareUrl = (value: string | null): string | null => {
-  if (!value) return null;
-  const parsed = new URL(value);
-  return parsed.protocol === 'https:' &&
-    ['doubao.com', 'www.doubao.com'].includes(parsed.hostname) &&
-    parsed.pathname.startsWith('/thread/')
-    ? parsed.toString()
-    : null;
+const safeEvidenceBoundingBox = (value: unknown): [number, number, number, number] | null => {
+  if (!isRecord(value)) return null;
+  const coordinates = [value.x, value.y, value.width, value.height];
+  if (
+    !coordinates.every(
+      (coordinate) =>
+        typeof coordinate === 'number' &&
+        Number.isFinite(coordinate) &&
+        coordinate >= 0 &&
+        coordinate <= 1_000_000,
+    ) ||
+    coordinates[2] === 0 ||
+    coordinates[3] === 0
+  ) {
+    return null;
+  }
+  return coordinates as [number, number, number, number];
 };
+
+export const safeOfficialShareUrl = (value: string | null, platform: string): string | null => {
+  if (!value) return null;
+  const safe = safeRelationUrl(value);
+  if (!safe) return null;
+  const parsed = new URL(safe);
+  if (parsed.protocol !== 'https:') return null;
+  const normalizedPlatform = platform.trim().toLowerCase();
+  if (normalizedPlatform === 'doubao' || normalizedPlatform === '豆包') {
+    return ['doubao.com', 'www.doubao.com'].includes(parsed.hostname) &&
+      parsed.pathname.startsWith('/thread/')
+      ? parsed.toString()
+      : null;
+  }
+  if (normalizedPlatform === 'deepseek') {
+    return parsed.hostname === 'chat.deepseek.com' && parsed.pathname.startsWith('/share/')
+      ? parsed.toString()
+      : null;
+  }
+  if (['yiyan', '文心一言', '文心'].includes(normalizedPlatform)) {
+    return ['mr.baidu.com', 'wenxin.baidu.com'].includes(parsed.hostname)
+      ? parsed.toString()
+      : null;
+  }
+  return null;
+};
+
+type LiveEvidencePurposeGroups = {
+  officialShareImages: LiveAnswerRelations['evidence'];
+  officialShareLinks: LiveAnswerRelations['evidence'];
+  runtimeAnswerScreenshots: LiveAnswerRelations['evidence'];
+  aiOpenedPagePreviews: LiveAnswerRelations['evidence'];
+  brandMentionScreenshots: LiveAnswerRelations['evidence'];
+  sourceReviewScreenshots: LiveAnswerRelations['evidence'];
+  otherImages: LiveAnswerRelations['evidence'];
+};
+
+export function groupLiveEvidenceByPurpose(
+  evidence: LiveAnswerRelations['evidence'],
+): LiveEvidencePurposeGroups {
+  const groups: LiveEvidencePurposeGroups = {
+    officialShareImages: [],
+    officialShareLinks: [],
+    runtimeAnswerScreenshots: [],
+    aiOpenedPagePreviews: [],
+    brandMentionScreenshots: [],
+    sourceReviewScreenshots: [],
+    otherImages: [],
+  };
+  for (const asset of evidence) {
+    if (asset.kind === 'share_image' && asset.relation === 'official_share_image') {
+      groups.officialShareImages.push(asset);
+    } else if (asset.kind === 'share_link' && asset.relation === 'official_share_link') {
+      groups.officialShareLinks.push(asset);
+    } else if (asset.kind === 'answer_screenshot') {
+      groups.runtimeAnswerScreenshots.push(asset);
+    } else if (
+      asset.kind === 'source_screenshot' &&
+      asset.relation === 'ai_opened_source_preview' &&
+      asset.aiOpenedVerified
+    ) {
+      groups.aiOpenedPagePreviews.push(asset);
+    } else if (
+      asset.kind === 'source_screenshot' &&
+      asset.relation === 'brand_mention_source_snapshot' &&
+      asset.brandMentionVerified &&
+      asset.anchors.some((anchor) => anchor.bbox)
+    ) {
+      groups.brandMentionScreenshots.push(asset);
+    } else if (asset.kind === 'source_screenshot') {
+      groups.sourceReviewScreenshots.push(asset);
+    } else if (asset.mimeType.startsWith('image/')) {
+      groups.otherImages.push(asset);
+    }
+  }
+  return groups;
+}
 
 export function projectAnswerRelations(
   value: unknown,
@@ -5094,6 +5183,22 @@ export function projectAnswerRelations(
   ) {
     return null;
   }
+  const answerCitationRows = Array.isArray(value.answer_citations)
+    ? value.answer_citations
+    : value.citations;
+  const strictEvidenceIds = (candidate: unknown): Set<string> =>
+    new Set(
+      (Array.isArray(candidate) ? candidate : []).flatMap((item) => {
+        if (!isRecord(item)) return [];
+        const id = safeOpaqueId(item.pub_id, 'evd_');
+        return id ? [id] : [];
+      }),
+    );
+  // The API only emits these semantic collections after strict relation, MIME,
+  // byte-size and decoded-image bbox validation. Compatibility evidence rows are
+  // never promoted merely because their relation text looks authoritative.
+  const brandMentionEvidenceIds = strictEvidenceIds(value.brand_mention_evidence);
+  const aiOpenedPreviewIds = strictEvidenceIds(value.opened_source_previews);
   const invalidProjection = new Set<CustomerEvidenceProjectionCollection>();
   const projectionNotices: ProjectionLimitNoticeItem[] = [];
   const addLimitNotice = (
@@ -5112,7 +5217,7 @@ export function projectAnswerRelations(
     }
   };
 
-  const citations = value.citations
+  const citations = answerCitationRows
     .slice(0, customerEvidenceProjectionLimits.citations)
     .flatMap<LiveAnswerRelations['citations'][number]>((candidate) => {
       if (!isRecord(candidate)) {
@@ -5176,7 +5281,7 @@ export function projectAnswerRelations(
         },
       ];
     });
-  addLimitNotice('citations', '回答引用', value.citations.length, citations.length);
+  addLimitNotice('citations', '答案组织引用', answerCitationRows.length, citations.length);
 
   let truncatedAnchorTotal = 0;
   let truncatedAnchorShown = 0;
@@ -5226,7 +5331,7 @@ export function projectAnswerRelations(
       const sourceHost = sourceUrl ? safeRelationHost(sourceUrl) : '来源已隐藏';
       if (!Array.isArray(candidate.anchors)) invalidProjection.add('anchors');
       const anchors = Array.isArray(candidate.anchors) ? candidate.anchors : [];
-      let validAnchorCount = 0;
+      const projectedAnchors: EvidenceAnchor[] = [];
       for (const anchor of anchors.slice(0, customerEvidenceProjectionLimits.anchors)) {
         if (!isRecord(anchor)) {
           invalidProjection.add('anchors');
@@ -5257,15 +5362,21 @@ export function projectAnswerRelations(
         const quoteHash =
           anchor.quote_hash === null ||
           (typeof anchor.quote_hash === 'string' && /^[0-9a-f]{64}$/.test(anchor.quote_hash));
+        const bbox = safeEvidenceBoundingBox(anchor.bbox);
         if (!anchorId || !textStart || !textEnd || !textRange || !pageNumber || !quoteHash) {
           invalidProjection.add('anchors');
           continue;
         }
-        validAnchorCount += 1;
+        projectedAnchors.push({
+          assetId: id,
+          ...(typeof anchor.text_start === 'number' ? { textStart: anchor.text_start } : {}),
+          ...(typeof anchor.text_end === 'number' ? { textEnd: anchor.text_end } : {}),
+          ...(bbox ? { bbox } : {}),
+        });
       }
       if (anchors.length > customerEvidenceProjectionLimits.anchors) {
         truncatedAnchorTotal += anchors.length;
-        truncatedAnchorShown += validAnchorCount;
+        truncatedAnchorShown += projectedAnchors.length;
       }
       if (
         !id ||
@@ -5293,7 +5404,10 @@ export function projectAnswerRelations(
           byteSize,
           sourceHost,
           sourceUrl,
-          anchorCount: validAnchorCount,
+          anchorCount: projectedAnchors.length,
+          anchors: projectedAnchors,
+          aiOpenedVerified: aiOpenedPreviewIds.has(id),
+          brandMentionVerified: brandMentionEvidenceIds.has(id),
         },
       ];
     });
@@ -5420,6 +5534,153 @@ function LiveEvidenceImage({ asset }: { asset: LiveAnswerRelations['evidence'][n
           : { kind: result.kind };
       }}
     />
+  );
+}
+
+function LiveEvidenceCard({
+  asset,
+  purpose,
+}: {
+  asset: LiveAnswerRelations['evidence'][number];
+  purpose: 'plain' | 'ai-opened-preview' | 'brand-mention';
+}) {
+  const image = <LiveEvidenceImage asset={asset} />;
+  return (
+    <figure className="live-evidence-card">
+      <figcaption>
+        <strong>
+          {purpose === 'brand-mention'
+            ? '品牌提及原文证据'
+            : purpose === 'ai-opened-preview'
+              ? 'AI 打开 URL 的采集后页面概览'
+              : asset.kind === 'share_image'
+                ? '官方分享图片'
+                : '运行时回答截图'}
+        </strong>
+        <span>
+          {asset.sourceHost} · {asset.capturedAt} · {asset.integrity}
+        </span>
+      </figcaption>
+      {purpose === 'plain' ? (
+        image
+      ) : (
+        <EvidenceImageFrame
+          label={`${asset.id} ${purpose === 'brand-mention' ? '品牌提及证据' : '页面概览'}`}
+          {...(purpose === 'brand-mention' && asset.anchors[0]
+            ? { anchor: asset.anchors[0] }
+            : {})}
+          overlayLabel="目标品牌原文位置"
+        >
+          {image}
+        </EvidenceImageFrame>
+      )}
+      {purpose === 'ai-opened-preview' ? (
+        <p className="evidence-image-frame-status">
+          该图是采集器依据平台 TOOL_OPEN URL 事后重开的页面概览，不声称还原 AI 当时看到的像素。
+        </p>
+      ) : null}
+    </figure>
+  );
+}
+
+function LiveEvidencePurposeGallery({
+  evidence,
+  platform,
+}: {
+  evidence: LiveAnswerRelations['evidence'];
+  platform: string;
+}) {
+  const groups = groupLiveEvidenceByPurpose(evidence);
+  const validShareLinks = groups.officialShareLinks.flatMap((asset) => {
+    const url = safeOfficialShareUrl(asset.sourceUrl, platform);
+    return url ? [{ asset, url }] : [];
+  });
+  const missingShareParts = [
+    ...(groups.officialShareImages.length ? [] : ['官方分享图片']),
+    ...(validShareLinks.length ? [] : ['官方分享链接']),
+  ];
+  return (
+    <div className="live-evidence-purpose-sections">
+      <section className="live-evidence-gallery" aria-label="官方分享交付">
+        <h3>官方分享交付</h3>
+        {missingShareParts.length ? (
+          <p className="evidence-purpose-warning" role="status">
+            分享交付不完整：缺少{missingShareParts.join('、')}。运行时回答截图不会被当作官方分享图。
+          </p>
+        ) : (
+          <p className="evidence-purpose-ok">已同时保存官方分享图片与官方分享链接。</p>
+        )}
+        {validShareLinks.map(({ asset, url }) => (
+          <p key={asset.id}>
+            <a href={url} target="_blank" rel="noreferrer noopener">
+              打开{platform} 官方分享链接
+            </a>
+          </p>
+        ))}
+        {groups.officialShareImages.map((asset) => (
+          <LiveEvidenceCard key={asset.id} asset={asset} purpose="plain" />
+        ))}
+      </section>
+
+      <section className="live-evidence-gallery" aria-label="运行时回答截图">
+        <h3>运行时回答截图</h3>
+        <p className="panel-subtitle">
+          只证明采集时的问答界面状态，不是官方分享制品，也不是信源品牌原文证据。
+        </p>
+        {groups.runtimeAnswerScreenshots.length ? (
+          groups.runtimeAnswerScreenshots.map((asset) => (
+            <LiveEvidenceCard key={asset.id} asset={asset} purpose="plain" />
+          ))
+        ) : (
+          <p className="answer-detail-neutral">本次未登记运行时回答截图。</p>
+        )}
+      </section>
+
+      <section className="live-evidence-gallery" aria-label="AI 打开页面概览">
+        <h3>AI 打开页面概览</h3>
+        {groups.aiOpenedPagePreviews.length ? (
+          groups.aiOpenedPagePreviews.map((asset) => (
+            <LiveEvidenceCard key={asset.id} asset={asset} purpose="ai-opened-preview" />
+          ))
+        ) : (
+          <p className="answer-detail-neutral">
+            本次未登记 <code>ai_opened_source_preview</code> 图像资产；不会用检索结果或引用截图冒充页面概览。
+          </p>
+        )}
+      </section>
+
+      <section className="live-evidence-gallery" aria-label="品牌提及原文证据">
+        <h3>品牌提及原文证据</h3>
+        <p className="panel-subtitle">
+          只展示同时具备真实信源页截图、品牌原文命中和可核验 bbox 的资产。
+        </p>
+        {groups.brandMentionScreenshots.length ? (
+          groups.brandMentionScreenshots.map((asset) => (
+            <LiveEvidenceCard key={asset.id} asset={asset} purpose="brand-mention" />
+          ))
+        ) : (
+          <p className="answer-detail-neutral">
+            本次没有通过“真实网页 + 品牌原文 + bbox”校验的证据。
+          </p>
+        )}
+      </section>
+
+      {groups.sourceReviewScreenshots.length ? (
+        <section className="live-evidence-gallery evidence-purpose-quarantine" aria-label="采集后信源复核资产">
+          <h3>采集后信源复核资产（已隔离）</h3>
+          <p className="evidence-purpose-warning">
+            下列旧资产是答案生成后重开页面的复核截图，不是 AI 实际浏览证明；缺少真实品牌 bbox，因此不渲染图片，也不计入品牌证据。
+          </p>
+          <ul>
+            {groups.sourceReviewScreenshots.map((asset) => (
+              <li key={asset.id}>
+                {asset.id} · {asset.sourceHost} · {asset.relation}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+    </div>
   );
 }
 
@@ -6201,6 +6462,7 @@ function EvidenceWorkspace() {
         <Dialog
           title="证据与历史差异"
           eyebrow="Evidence viewer"
+          size="wide"
           closeLabel="关闭证据弹窗"
           onClose={closeEvidence}
         >
@@ -6223,13 +6485,16 @@ function EvidenceWorkspace() {
                 </div>
               ) : null}
               {liveRelationState === 'ready' && liveRelations?.citations.length ? (
-                <TableRegion label="回答引用关系">
+                <TableRegion label="答案组织引用">
                   <table className="data-table">
+                    <caption>
+                      仅表示 AI 答案返回或组织时关联的引用；不等于页面提及目标品牌。
+                    </caption>
                     <thead>
                       <tr>
                         <th>引用</th>
                         <th>来源</th>
-                        <th>提及段落</th>
+                        <th>AI 返回的引用片段</th>
                         <th>内容哈希</th>
                       </tr>
                     </thead>
@@ -6242,7 +6507,7 @@ function EvidenceWorkspace() {
                               {citation.host}
                             </a>
                           </td>
-                          <td>{citation.citedText ?? '未提取到提及段落'}</td>
+                          <td>{citation.citedText ?? '未提取到引用片段'}</td>
                           <td>{citation.contentHash}</td>
                         </tr>
                       ))}
@@ -6265,7 +6530,9 @@ function EvidenceWorkspace() {
                     <tbody>
                       {liveRelations.evidence.map((asset) => {
                         const shareUrl =
-                          asset.kind === 'share_link' ? safeDoubaoShareUrl(asset.sourceUrl) : null;
+                          asset.kind === 'share_link'
+                            ? safeOfficialShareUrl(asset.sourceUrl, effectiveSelected.model)
+                            : null;
                         return (
                           <tr key={asset.id}>
                             <td>{asset.id}</td>
@@ -6296,31 +6563,11 @@ function EvidenceWorkspace() {
                   </table>
                 </TableRegion>
               ) : null}
-              {liveRelationState === 'ready' &&
-              liveRelations?.evidence.some((asset) => asset.mimeType.startsWith('image/')) ? (
-                <section className="live-evidence-gallery" aria-label="回答、分享与信源截图">
-                  {liveRelations.evidence
-                    .filter((asset) => asset.mimeType.startsWith('image/'))
-                    .map((asset) => (
-                      <figure className="live-evidence-card" key={`${asset.id}-preview`}>
-                        <figcaption>
-                          <strong>
-                            {asset.kind === 'answer_screenshot'
-                              ? '回答截图'
-                              : asset.kind === 'share_image'
-                                ? '官方分享图片'
-                                : asset.kind === 'source_screenshot'
-                                  ? '信源截图（含标题、提及段落注释）'
-                                  : asset.kind}
-                          </strong>
-                          <span>
-                            {asset.sourceHost} · {asset.capturedAt} · {asset.integrity}
-                          </span>
-                        </figcaption>
-                        <LiveEvidenceImage asset={asset} />
-                      </figure>
-                    ))}
-                </section>
+              {liveRelationState === 'ready' && liveRelations?.evidence.length ? (
+                <LiveEvidencePurposeGallery
+                  evidence={liveRelations.evidence}
+                  platform={effectiveSelected.model}
+                />
               ) : null}
               {liveRelationState === 'ready' && liveRelations?.history.length ? (
                 <TableRegion label="证据历史差异">

@@ -162,7 +162,7 @@ type AnalyticsProjectedAnchorAllowsArbitraryKeys = string extends keyof Analytic
 type AnalyticsProjectedAnchorBboxAllowsRecord =
   Record<string, unknown> extends AnalyticsProjectedAnchor['bbox'] ? true : false;
 const analyticsProjectedAnchorsExcludeArbitraryKeys: AnalyticsProjectedAnchorAllowsArbitraryKeys = false;
-const analyticsProjectedAnchorBboxIsNullOnly: AnalyticsProjectedAnchorBboxAllowsRecord = false;
+const analyticsProjectedAnchorBboxIsBounded: AnalyticsProjectedAnchorBboxAllowsRecord = false;
 type InvestigationProjectedRecord =
   | InvestigationDetailProjection['scores'][number]
   | InvestigationDetailProjection['claims'][number]
@@ -595,7 +595,7 @@ describe('generated client', () => {
 
   it('does not expose arbitrary analytics anchor maps through the browser projection', () => {
     expect(analyticsProjectedAnchorsExcludeArbitraryKeys).toBe(false);
-    expect(analyticsProjectedAnchorBboxIsNullOnly).toBe(false);
+    expect(analyticsProjectedAnchorBboxIsBounded).toBe(false);
   });
 
   it('does not expose arbitrary investigation records through the browser projection', () => {
@@ -6961,7 +6961,14 @@ describe('fixed-field browser boundaries (Round170)', () => {
       pub_id: 'anch_safe',
       text_start: 0,
       text_end: 10,
-      bbox: { x: 'round170-bbox-canary' },
+      bbox: {
+        x: 10,
+        y: 20,
+        width: 30,
+        height: 40,
+        confidence: 0.9,
+        note: 'round170-bbox-canary',
+      },
       page_number: 1,
       quote_hash: 'd'.repeat(64),
       ...hostileExtensions,
@@ -7071,7 +7078,13 @@ describe('fixed-field browser boundaries (Round170)', () => {
       'text_end',
       'text_start',
     ]);
-    expect(projectedAnchor.bbox).toBeNull();
+    expect(projectedAnchor.bbox).toEqual({
+      x: 10,
+      y: 20,
+      width: 30,
+      height: 40,
+      confidence: 0.9,
+    });
     expect(sortedKeys(relations.data.history[0]!)).toEqual([
       'after_evidence_pub_id',
       'before_evidence_pub_id',

@@ -1135,6 +1135,9 @@ main {
   border-radius: 16px;
   padding: 24px;
 }
+.modal-wide {
+  width: min(1200px, 100%);
+}
 .modal-head {
   display: flex;
   justify-content: space-between;
@@ -2192,6 +2195,42 @@ label.field select {
   display: grid;
   gap: 18px;
   margin-top: 20px;
+  min-width: 0;
+}
+.live-evidence-purpose-sections {
+  display: grid;
+  gap: 20px;
+  margin-top: 20px;
+  min-width: 0;
+}
+.live-evidence-gallery {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+}
+.live-evidence-gallery > h3 {
+  margin: 0;
+}
+.evidence-purpose-warning,
+.evidence-purpose-ok {
+  border-radius: 8px;
+  padding: 9px 11px;
+  margin: 8px 0;
+  font-size: 13px;
+}
+.evidence-purpose-warning {
+  color: #7a352c;
+  background: #fff2ed;
+  border: 1px solid #f2c8bb;
+}
+.evidence-purpose-ok {
+  color: #185c3d;
+  background: #eef8f2;
+  border: 1px solid #c8e7d3;
+}
+.evidence-purpose-quarantine {
+  border-style: dashed;
+  background: #fcfaf7;
 }
 .live-evidence-card {
   margin: 0;
@@ -2199,6 +2238,8 @@ label.field select {
   border: 1px solid var(--line);
   border-radius: 12px;
   background: #f8faf9;
+  min-width: 0;
+  overflow: hidden;
 }
 .live-evidence-card figcaption {
   display: grid;
@@ -2217,6 +2258,38 @@ label.field select {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #fff;
+}
+.evidence-image-frame {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.evidence-image-frame-surface {
+  position: relative;
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: 8px;
+}
+.evidence-image-frame-surface .live-evidence-image {
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: 70vh;
+}
+.evidence-image-anchor-box {
+  position: absolute;
+  box-sizing: border-box;
+  border: 3px solid #d22f27;
+  background: rgb(210 47 39 / 8%);
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 85%);
+  pointer-events: none;
+}
+.evidence-image-frame-status {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
 }
 .evidence-diff {
   display: grid;
