@@ -1699,6 +1699,15 @@ class _PlaywrightDoubaoSession:
                     sse_trace = _sse_trace_from_body(sse_body)
                     if sse_trace is not None:
                         search_queries = list(sse_trace.get("queries") or [])
+            if meta.get("recovered"):
+                # A recovery segment may begin at start_seq > 0, so its retained
+                # network body is not guaranteed to contain the whole prose.  Once
+                # the recovered stream and DOM have settled, prefer the complete
+                # assistant bubble for answer text while keeping network-derived
+                # references/trace explicitly as the observed subset.
+                recovered_dom_text = _extract_response_text(page, spec.query)
+                if recovered_dom_text:
+                    answer_text = recovered_dom_text
             if not answer_text and meta.get("found"):
                 # SSE 捕获竞态失败时的 DOM 兜底（旧链同款回退路径）
                 answer_text = _extract_response_text(page, spec.query)
@@ -2130,6 +2139,7 @@ class _CompletionCapture:
         self._completion_request_ids: list[str] = []
         self._loading_finished: set[str] = set()
         self._loading_failed: set[str] = set()
+        self._loading_failed_at: dict[str, float] = {}
         self._bytes: dict[str, int] = {}
         self._bodies: dict[str, str] = {}
         for name in (
@@ -2168,6 +2178,12 @@ class _CompletionCapture:
                     self._fetch_body(req_id)
             elif name == "Network.loadingFailed":
                 self._loading_failed.add(req_id)
+                self._loading_failed_at[req_id] = time.monotonic()
+                # Chromium may still expose the received prefix after a resumable
+                # SSE transport failure.  Preserve it when available so a recovery
+                # request (start_seq > 0) can be assembled with the original prefix.
+                if req_id in self._completion_request_ids:
+                    self._fetch_body(req_id)
             elif name == "Network.dataReceived":
                 self._bytes[req_id] = self._bytes.get(req_id, 0) + int(
                     payload.get("dataLength", 0) or 0
@@ -2194,10 +2210,14 @@ class _CompletionCapture:
         return bool(self._completion_request_ids)
 
     def latest_body(self) -> str:
-        for rid in reversed(self._completion_request_ids):
-            if rid in self._bodies:
-                return self._bodies[rid]
-        return ""
+        # Doubao resumes an interrupted logical answer with a second completion
+        # request carrying ``start_seq``.  Return every retained segment in wire
+        # order; the SSE assembler already applies later block updates by id.
+        return "\n".join(
+            body
+            for rid in self._completion_request_ids
+            if (body := self._bodies.get(rid, ""))
+        )
 
     def wait_finish(
         self,
@@ -2206,8 +2226,18 @@ class _CompletionCapture:
         appearance_timeout_s: float,
         timeout_s: float,
         dom_quiet_s: float = 2.0,
+        recovery_grace_s: float = 15.0,
     ) -> dict[str, Any]:
-        """两段等待：先等流出现，再等 loadingFinished/Failed，最后 DOM 静默 settle。"""
+        """Wait for one logical answer, including Doubao's SSE recovery request.
+
+        A long ``deep_think`` response can lose its first event-stream connection.
+        The web client immediately reconnects with the same message and a positive
+        ``start_seq``.  Treating the first ``loadingFailed`` as final used to take a
+        diagnostic screenshot while the recovered answer was still rendering.
+        We now follow newly observed completion requests for a bounded grace period
+        and only declare success after the latest segment reaches
+        ``loadingFinished``.
+        """
         t0 = time.monotonic()
         appear_deadline = t0 + appearance_timeout_s
         overall_deadline = t0 + timeout_s
@@ -2223,18 +2253,47 @@ class _CompletionCapture:
                 "finished": False,
                 "failed": False,
                 "bytes_received": 0,
+                "request_count": 0,
+                "recovered": False,
                 "elapsed_ms": int((time.monotonic() - t0) * 1000),
             }
+        failed_segments: set[str] = set()
         while time.monotonic() < overall_deadline:
-            if target in self._loading_finished or target in self._loading_failed:
+            if target in self._loading_finished:
                 page.wait_for_timeout(int(dom_quiet_s * 1000))
-                break
+                return {
+                    "found": True,
+                    "finished": True,
+                    "failed": bool(failed_segments),
+                    "bytes_received": sum(
+                        self._bytes.get(rid, 0) for rid in self._completion_request_ids
+                    ),
+                    "request_count": len(self._completion_request_ids),
+                    "recovered": bool(failed_segments),
+                    "elapsed_ms": int((time.monotonic() - t0) * 1000),
+                }
+            if target in self._loading_failed:
+                failed_segments.add(target)
+                try:
+                    target_index = self._completion_request_ids.index(target)
+                except ValueError:
+                    target_index = -1
+                if target_index >= 0 and target_index + 1 < len(self._completion_request_ids):
+                    target = self._completion_request_ids[target_index + 1]
+                    continue
+                failed_at = self._loading_failed_at.get(target, time.monotonic())
+                if time.monotonic() >= min(overall_deadline, failed_at + recovery_grace_s):
+                    break
             page.wait_for_timeout(150)
         return {
             "found": True,
-            "finished": target in self._loading_finished,
-            "failed": target in self._loading_failed,
-            "bytes_received": self._bytes.get(target, 0),
+            "finished": False,
+            "failed": bool(failed_segments) or target in self._loading_failed,
+            "bytes_received": sum(
+                self._bytes.get(rid, 0) for rid in self._completion_request_ids
+            ),
+            "request_count": len(self._completion_request_ids),
+            "recovered": False,
             "elapsed_ms": int((time.monotonic() - t0) * 1000),
         }
 

@@ -1817,3 +1817,113 @@ async def test_run_doubao_batch_non_captcha_wall_has_no_pause(
     )
     assert result.results[0].error_type == "wall_login_required"
     assert result.captcha_pause is None
+
+
+class _RecoveryCDP:
+    def __init__(self, bodies: dict[str, str]) -> None:
+        self.handlers: dict[str, list[Callable[[dict[str, Any]], None]]] = {}
+        self.bodies = bodies
+
+    def send(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        if method == "Network.getResponseBody":
+            assert params is not None
+            return {"body": self.bodies[params["requestId"]], "base64Encoded": False}
+        return {}
+
+    def on(self, name: str, fn: Callable[[dict[str, Any]], None]) -> None:
+        self.handlers.setdefault(name, []).append(fn)
+
+    def emit(self, name: str, payload: dict[str, Any]) -> None:
+        for handler in self.handlers.get(name, []):
+            handler(payload)
+
+
+class _RecoveryContext:
+    def __init__(self, cdp: _RecoveryCDP) -> None:
+        self.cdp = cdp
+
+    def new_cdp_session(self, _page: Any) -> _RecoveryCDP:
+        return self.cdp
+
+
+class _RecoveryPage:
+    def __init__(self, clock: _FakeClock, schedule: list[tuple[float, Callable[[], None]]]) -> None:
+        self.clock = clock
+        self.schedule = list(schedule)
+
+    def wait_for_timeout(self, timeout: float) -> None:
+        self.clock.advance_ms(timeout)
+        ready = [entry for entry in self.schedule if entry[0] <= self.clock.now]
+        self.schedule = [entry for entry in self.schedule if entry[0] > self.clock.now]
+        for _at, callback in ready:
+            callback()
+
+
+def _emit_completion_start(cdp: _RecoveryCDP, request_id: str) -> None:
+    cdp.emit(
+        "Network.requestWillBeSent",
+        {"requestId": request_id, "request": {"url": "https://www.doubao.com/chat/completion"}},
+    )
+    cdp.emit(
+        "Network.responseReceived",
+        {"requestId": request_id, "response": {"mimeType": "text/event-stream"}},
+    )
+    cdp.emit("Network.dataReceived", {"requestId": request_id, "dataLength": 10})
+
+
+def test_completion_capture_follows_resumable_sse_recovery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = _FakeClock()
+    monkeypatch.setattr(doubao_adapter.time, "monotonic", clock.monotonic)
+    cdp = _RecoveryCDP({"req-1": "event: prefix\n", "req-2": "data: [DONE]\n"})
+    page = _RecoveryPage(clock, [])
+    capture = doubao_adapter._CompletionCapture(_RecoveryContext(cdp), page)
+    _emit_completion_start(cdp, "req-1")
+    page.schedule = [
+        (clock.now + 0.15, lambda: cdp.emit("Network.loadingFailed", {"requestId": "req-1"})),
+        (clock.now + 0.30, lambda: _emit_completion_start(cdp, "req-2")),
+        (clock.now + 0.45, lambda: cdp.emit("Network.loadingFinished", {"requestId": "req-2"})),
+    ]
+
+    meta = capture.wait_finish(
+        page,
+        appearance_timeout_s=1.0,
+        timeout_s=2.0,
+        dom_quiet_s=0.0,
+        recovery_grace_s=0.6,
+    )
+
+    assert meta["finished"] is True
+    assert meta["failed"] is True
+    assert meta["recovered"] is True
+    assert meta["request_count"] == 2
+    assert meta["bytes_received"] == 20
+    assert capture.latest_body() == "event: prefix\n\ndata: [DONE]\n"
+
+
+def test_completion_capture_fails_after_bounded_recovery_grace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = _FakeClock()
+    monkeypatch.setattr(doubao_adapter.time, "monotonic", clock.monotonic)
+    cdp = _RecoveryCDP({"req-1": "event: prefix\n"})
+    page = _RecoveryPage(clock, [])
+    capture = doubao_adapter._CompletionCapture(_RecoveryContext(cdp), page)
+    _emit_completion_start(cdp, "req-1")
+    page.schedule = [
+        (clock.now + 0.15, lambda: cdp.emit("Network.loadingFailed", {"requestId": "req-1"}))
+    ]
+
+    meta = capture.wait_finish(
+        page,
+        appearance_timeout_s=1.0,
+        timeout_s=2.0,
+        dom_quiet_s=0.0,
+        recovery_grace_s=0.3,
+    )
+
+    assert meta["finished"] is False
+    assert meta["failed"] is True
+    assert meta["recovered"] is False
+    assert meta["request_count"] == 1
