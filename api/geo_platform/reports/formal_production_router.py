@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from typing import Annotated, Literal
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -69,14 +70,27 @@ class FormalProductionCreate(StrictModel):
     services: list[Literal[1, 2, 3, 4]] = Field(min_length=1, max_length=4)
     window_start: date
     window_end: date
-    document_status: Literal["pre_formal", "formal"]
-    candidate_group_strategy: Literal["evidence_completeness_v1"] = "evidence_completeness_v1"
+    document_status: Literal["internal_review", "delivery_candidate"] = "internal_review"
+    candidate_group_strategy: Literal["preregistered_scope_v1"] = "preregistered_scope_v1"
+    version: str = Field(default="V1.0", pattern=r"^V[1-9]\d*\.\d+$", max_length=20)
+    prepared_by: str = Field(min_length=1, max_length=160)
+    prepared_date: date
+    reviewed_by: str | None = Field(default=None, min_length=1, max_length=160)
+    reviewed_date: date | None = None
     before_window: WindowView | None = None
     after_window: WindowView | None = None
 
+    @model_validator(mode="after")
+    def validate_governance(self) -> FormalProductionCreate:
+        if (self.reviewed_by is None) != (self.reviewed_date is None):
+            raise ValueError("review_record_incomplete")
+        if self.document_status == "delivery_candidate" and self.reviewed_by is None:
+            raise ValueError("candidate_review_record_required")
+        return self
+
 
 class FormalArtifactView(StrictModel):
-    format: Literal["docx", "pdf", "manifest"]
+    format: Literal["docx", "pdf", "xlsx", "zip", "manifest"]
     sha256: str
     byte_size: int
     mime_type: str
@@ -96,12 +110,15 @@ class FormalProductionView(StrictModel):
     project_pub_id: str
     services: list[Literal[1, 2, 3, 4]]
     status: Literal["queued", "running", "failed", "awaiting_review", "signed"]
-    document_status: Literal["pre_formal", "formal"]
+    document_status: Literal[
+        "pre_formal", "formal", "internal_review", "delivery_candidate", "approved_signed"
+    ]
     window_start: date
     window_end: date
     before_window: WindowView | None
     after_window: WindowView | None
-    candidate_group_strategy: Literal["evidence_completeness_v1"]
+    candidate_group_strategy: Literal["evidence_completeness_v1", "preregistered_scope_v1"]
+    document_governance: dict[str, object]
     workflow_id: str
     fact_snapshot_hash: str | None
     outputs: list[FormalOutputView]
@@ -192,6 +209,13 @@ def create_formal_production(
                 if body.after_window
                 else None
             ),
+            document_governance={
+                "version": body.version,
+                "prepared_by": body.prepared_by,
+                "prepared_date": body.prepared_date.isoformat(),
+                "reviewed_by": body.reviewed_by,
+                "reviewed_date": body.reviewed_date.isoformat() if body.reviewed_date else None,
+            },
             idempotency_key=idempotency_key,
             created_by_pub_id=principal.actor_pub_id,
             task_queue=get_settings().s02_temporal_task_queue,
@@ -278,8 +302,8 @@ def review_formal_production(
         raise HTTPException(
             status_code=404, detail={"code": "formal_production_not_found"}
         ) from exc
-    if body.decision == "approved" and current["document_status"] != "formal":
-        raise HTTPException(status_code=409, detail={"code": "pre_formal_cannot_be_signed"})
+    if body.decision == "approved" and current["document_status"] != "delivery_candidate":
+        raise HTTPException(status_code=409, detail={"code": "delivery_candidate_required"})
     tenant = session.scalar(select(Tenant).where(Tenant.pub_id == principal.tenant_pub_id))
     if tenant is None:
         raise HTTPException(status_code=404, detail={"code": "formal_production_not_found"})
@@ -322,10 +346,10 @@ def review_formal_production(
                 status_code=404,
                 detail={"code": "formal_production_not_found"},
             )
-        if body.decision == "approved" and claimed["document_status"] != "formal":
+        if body.decision == "approved" and claimed["document_status"] != "delivery_candidate":
             raise HTTPException(
                 status_code=409,
-                detail={"code": "pre_formal_cannot_be_signed"},
+                detail={"code": "delivery_candidate_required"},
             )
         replayed = workflow_signal_replayed(
             session,
@@ -401,7 +425,8 @@ def formal_artifact(
     if principal.role != Role.CUSTOMER:
         principal.require("formal_report:read")
     try:
-        payload, mime_type, digest = _service().artifact(
+        service = _service()
+        payload, mime_type, digest = service.artifact(
             tenant_pub_id=principal.tenant_pub_id,
             production_pub_id=production_pub_id,
             service_number=service_number,
@@ -409,6 +434,12 @@ def formal_artifact(
             customer_recipient_pub_id=(
                 principal.actor_pub_id if principal.role == Role.CUSTOMER else None
             ),
+        )
+        filename = service.artifact_filename(
+            tenant_pub_id=principal.tenant_pub_id,
+            production_pub_id=production_pub_id,
+            service_number=service_number,
+            format_name=format_name,
         )
     except FormalProductionNotFound as exc:
         raise HTTPException(status_code=404, detail={"code": "formal_artifact_not_found"}) from exc
@@ -418,7 +449,8 @@ def formal_artifact(
         media_type=mime_type,
         headers={
             "Content-Disposition": (
-                f'{disposition}; filename="formal-service-{service_number}.{format_name}"'
+                f'{disposition}; filename="service-{service_number}.{format_name}"; '
+                f"filename*=UTF-8''{quote(filename)}"
             ),
             "Cache-Control": "private, no-store",
             "X-Content-Type-Options": "nosniff",

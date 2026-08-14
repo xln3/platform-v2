@@ -28,6 +28,27 @@ def test_customer_report_does_not_exempt_non_hash_trace_values() -> None:
         assert_customer_report_safe([{"trace_token": "contact 13800138000"}])
 
 
+def test_customer_report_treats_source_count_keys_as_customer_data() -> None:
+    assert_customer_report_safe(
+        [{"sources": {"sitename_counts": {"riskprofiler.io": 1, "profile.example": 2}}}]
+    )
+
+
+def test_customer_report_still_checks_schema_below_dynamic_source_keys() -> None:
+    with pytest.raises(ValueError, match="operational provenance"):
+        assert_customer_report_safe(
+            [
+                {
+                    "sources": {
+                        "sitename_counts": {
+                            "riskprofiler.io": {"proxy_url": "https://example.test"}
+                        }
+                    }
+                }
+            ]
+        )
+
+
 @pytest.mark.parametrize(
     "section",
     [

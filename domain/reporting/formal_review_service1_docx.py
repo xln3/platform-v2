@@ -103,11 +103,19 @@ def _hyperlink(paragraph: Any, url: str, text: str = "打开原网页") -> None:
     link.set(qn("r:id"), relationship_id)
     run = OxmlElement("w:r")
     properties = OxmlElement("w:rPr")
+    fonts = OxmlElement("w:rFonts")
+    for attribute in ("ascii", "hAnsi", "eastAsia", "cs"):
+        fonts.set(qn(f"w:{attribute}"), "Noto Sans CJK SC")
     color = OxmlElement("w:color")
     color.set(qn("w:val"), "0563C1")
     underline = OxmlElement("w:u")
     underline.set(qn("w:val"), "single")
-    properties.extend((color, underline))
+    size = OxmlElement("w:sz")
+    size.set(qn("w:val"), "14")
+    language = OxmlElement("w:lang")
+    language.set(qn("w:val"), "zh-CN")
+    language.set(qn("w:eastAsia"), "zh-CN")
+    properties.extend((fonts, color, underline, size, language))
     run.append(properties)
     node = OxmlElement("w:t")
     node.text = text
@@ -288,7 +296,20 @@ def _mention_view(
         top, bottom = bands.get(platform, (0.18, 0.78))
         crop_top = int(height * top)
         crop_bottom = max(crop_top + 1, int(height * bottom))
-        label = "回答上下文（当前无可复核像素坐标）"
+        label = "回答关键局部（当前无可复核像素坐标）"
+
+    # A long share image squeezed to page height is not readable at 100% zoom.
+    # Bound the vertical slice relative to its usable width; the byte-for-byte
+    # long image remains in the evidence package and is never discarded.
+    usable_width = max(1, width - privacy_left)
+    maximum_readable_height = max(620, int(usable_width * 0.9))
+    if crop_bottom - crop_top > maximum_readable_height:
+        center = (crop_top + crop_bottom) // 2
+        if boxes:
+            center = (min(box[1] for box in boxes) + max(box[3] for box in boxes)) // 2
+        crop_top = max(0, center - maximum_readable_height // 2)
+        crop_bottom = min(height, crop_top + maximum_readable_height)
+        crop_top = max(0, crop_bottom - maximum_readable_height)
 
     crop = image.crop((privacy_left, crop_top, width, crop_bottom))
     if boxes:
@@ -314,6 +335,7 @@ def _add_screenshot_panel(
     number: int,
     image_kind: str,
     anchor: dict[str, Any] | None,
+    figure_prefix: str = "6",
 ) -> None:
     stream, label, anchored = _mention_view(
         payload,
@@ -343,8 +365,8 @@ def _add_screenshot_panel(
         anchor_note = "未绘制未经复核的定位框"
     _caption(
         doc,
-        f"图 6-{number}  {source_label} · {label}；{anchor_note}。"
-        "图片保留回答上下文，红框不改变原始文字内容。",
+        f"图 {figure_prefix}-{number}  {source_label} · {label}；{anchor_note}。"
+        "本页仅展示可读局部，完整长图见证据包；红框不改变原始文字内容。",
     )
 
 
@@ -401,6 +423,53 @@ def _metrics_explanation(doc: FormalDocument, *, target_brand: str) -> None:
         widths=(31, 75, 66),
         font_size=8,
     )
+
+
+def _repetition_copy(current: int, required: int, formal_answer_count: int) -> dict[str, str]:
+    """Return internally consistent sampling copy for complete/incomplete matrices."""
+
+    if current >= required:
+        return {
+            "callout": (
+                f"已按冻结矩阵完成报价要求的 {required} 次独立重复；"
+                f"正式签发前复核弱问题在 {current} 次观测中是否稳定复现。"
+            ),
+            "region_finding": (
+                f"当前每单元已完成 {current} 次独立观测；该差异仅描述本窗口，不外推为长期稳定差异。"
+            ),
+            "design_requirement": f"本窗口已完成 {current} 次独立重复",
+            "sample_requirement": f"已达到报价主样本 {formal_answer_count} 条",
+            "region_review": (
+                f"基于每单元 {current} 次独立观测，该差异仅作为本窗口结果，不外推为长期稳定差异。"
+            ),
+            "signoff_intro": (
+                "本节不是向客户内容运营团队分派任务，而是列出评测执行方在正式报告"
+                "签发前必须完成的完整性确认、异常复核与一致性检查。"
+                "具体内容优化方案应在正式评测结果冻结后另行制定。"
+            ),
+            "stability_current": f"每个问题×平台×地域均已完成 {current} 次独立观测",
+            "stability_action": f"按冻结矩阵核对 {current} 次观测完整性，并复核异常差异",
+            "weak_question_action": (
+                f"逐条复核 {current} 次独立观测，并在后续窗口保持原题不变以监测稳定性"
+            ),
+        }
+    return {
+        "callout": ("正式签发前由评测执行方按冻结矩阵补齐重复采样，并复核弱问题是否稳定复现。"),
+        "region_finding": f"当前每单元仅 {current} 次观测，该差异只能作为补采关注点。",
+        "design_requirement": f"正式应完成 {required} 次独立重复",
+        "sample_requirement": f"按报价补采完成后应为 {formal_answer_count} 条",
+        "region_review": (
+            f"由于当前每单元只有 {current} 次观测，应在正式重复采样后再判断差异是否稳定。"
+        ),
+        "signoff_intro": (
+            "本节不是向客户内容运营团队分派任务，而是列出评测执行方在正式报告签发前"
+            "必须完成的补采、复核与一致性检查。具体内容优化方案应在正式评测结果冻结后"
+            "另行制定。"
+        ),
+        "stability_current": f"当前每个问题×平台×地域只有 {current} 次观测",
+        "stability_action": f"由评测执行方补齐至 {required} 次独立重复，并按同一矩阵重算",
+        "weak_question_action": "原题保持不变完成复测，并复核同义改写是否造成稳定差异",
+    }
 
 
 def _add_representative_overview(
@@ -613,6 +682,11 @@ def render_service1_v2_docx(
             else 0
         )
     )
+    repetition_copy = _repetition_copy(
+        current_repetitions,
+        required_repetitions,
+        formal_answer_count,
+    )
 
     doc = FormalDocument(
         title="品牌 GEO 推荐结果评测报告",
@@ -657,8 +731,7 @@ def render_service1_v2_docx(
         f"{strongest_group[0]['title']}提及率最高（"
         f"{_fmt_percent(strongest_group[1].get('appearance_rate'))}），"
         f"{weakest_group[0]['title']}最低（"
-        f"{_fmt_percent(weakest_group[1].get('appearance_rate'))}）。"
-        "正式签发前由评测执行方按冻结矩阵补齐重复采样，并复核弱问题是否稳定复现。",
+        f"{_fmt_percent(weakest_group[1].get('appearance_rate'))}）。" + repetition_copy["callout"],
         kind="success",
     )
     doc.table(
@@ -725,7 +798,7 @@ def render_service1_v2_docx(
             for region, row in region_results
         )
         + f"；本批最高与最低相差 {region_gap:.2f} 个百分点。"
-        f"当前每单元仅 {current_repetitions} 次观测，该差异只能作为补采关注点。"
+        + repetition_copy["region_finding"]
     )
     findings.extend([model_finding, region_finding])
     doc.bullets(findings)
@@ -755,13 +828,13 @@ def render_service1_v2_docx(
             (
                 "重复",
                 f"当前 {current_repetitions} 次/问题×平台×地域单元",
-                f"正式应完成 {required_repetitions} 次独立重复",
+                repetition_copy["design_requirement"],
             ),
             (
                 "主样本",
                 f"{scope['questions']}×{scope['platforms']}×{scope['regions']}×"
                 f"{current_repetitions} = {scope['answers']} 条",
-                f"按报价补采完成后应为 {formal_answer_count} 条",
+                repetition_copy["sample_requirement"],
             ),
             (
                 "数据窗口",
@@ -915,8 +988,7 @@ def render_service1_v2_docx(
                 for region, row in region_results
             )
             + "。",
-            f"最高与最低相差 {region_gap:.2f} 个百分点；由于当前每单元只有 "
-            f"{current_repetitions} 次观测，应在正式重复采样后再判断差异是否稳定。",
+            f"最高与最低相差 {region_gap:.2f} 个百分点；" + repetition_copy["region_review"],
         ]
     )
 
@@ -1197,10 +1269,7 @@ def render_service1_v2_docx(
         ]
     )
     doc.heading("7.2 正式复测与签发检查", level=2)
-    doc.paragraph(
-        "本节不是向客户内容运营团队分派任务，而是列出评测执行方在正式报告签发前"
-        "必须完成的补采、复核与一致性检查。具体内容优化方案应在正式评测结果冻结后另行制定。"
-    )
+    doc.paragraph(repetition_copy["signoff_intro"])
     question_rows_by_rate = sorted(
         delivery["question_rows"], key=lambda row: (float(row["appearance_rate"]), row["question"])
     )
@@ -1219,8 +1288,8 @@ def render_service1_v2_docx(
         [
             (
                 "样本稳定性",
-                f"当前每个问题×平台×地域只有 {current_repetitions} 次观测",
-                f"由评测执行方补齐至 {required_repetitions} 次独立重复，并按同一矩阵重算",
+                repetition_copy["stability_current"],
+                repetition_copy["stability_action"],
                 "主样本单元完整；同时报告均值、离散程度与异常复核结果",
             ),
             (
@@ -1228,7 +1297,7 @@ def render_service1_v2_docx(
                 f"最低覆盖问题为“{weakest_question['question']}”；"
                 f"当前提及 {weakest_question['mentions']}/{weakest_question['answers']}，"
                 f"提及率 {_fmt_percent(weakest_question['appearance_rate'])}",
-                "原题保持不变完成复测，并复核同义改写是否造成稳定差异",
+                repetition_copy["weak_question_action"],
                 "区分可重复短板与单次随机波动；不以一次零提及直接下定论",
             ),
             (

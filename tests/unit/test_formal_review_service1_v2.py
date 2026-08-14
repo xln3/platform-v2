@@ -17,6 +17,7 @@ from domain.reporting.formal_review_service1_docx import (
     _mention_view,
     _metrics_explanation,
     _native_toc,
+    _repetition_copy,
     _source_share_donut,
 )
 
@@ -172,6 +173,24 @@ def test_native_toc_is_clickable_page_number_field_and_requests_refresh() -> Non
     assert 'TOC \\o "1-3" \\h \\z \\u' in body_xml
     assert "w:updateFields" in settings_xml
     assert 'w:val="true"' in settings_xml
+
+
+def test_repetition_copy_does_not_request_completed_sampling_again() -> None:
+    copy = _repetition_copy(current=2, required=2, formal_answer_count=144)
+
+    assert "已按冻结矩阵完成报价要求的 2 次独立重复" in copy["callout"]
+    assert copy["design_requirement"] == "本窗口已完成 2 次独立重复"
+    assert copy["sample_requirement"] == "已达到报价主样本 144 条"
+    assert "补齐重复采样" not in "".join(copy.values())
+    assert "正式重复采样后" not in "".join(copy.values())
+
+
+def test_repetition_copy_keeps_fail_closed_remediation_when_incomplete() -> None:
+    copy = _repetition_copy(current=1, required=2, formal_answer_count=144)
+
+    assert "补齐重复采样" in copy["callout"]
+    assert copy["design_requirement"] == "正式应完成 2 次独立重复"
+    assert copy["sample_requirement"] == "按报价补采完成后应为 144 条"
 
 
 def _all_word_xml(payload: bytes) -> str:

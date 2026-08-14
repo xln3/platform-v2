@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from docx import Document
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_TABLE_ALIGNMENT
@@ -41,11 +42,14 @@ _FORMAL_DOCUMENT_STATUSES = frozenset(
         "final",
         "signed",
         "approved",
+        "approved_signed",
         "正式",
         "正式报告",
         "已签发",
     }
 )
+_DELIVERY_CANDIDATE_STATUSES = frozenset({"delivery_candidate", "candidate"})
+_CHINA_TZ = ZoneInfo("Asia/Shanghai")
 
 
 def is_formal_document(facts: dict[str, Any]) -> bool:
@@ -59,6 +63,11 @@ def is_formal_document(facts: dict[str, Any]) -> bool:
     raw_status = str(facts.get("document_status") or "").strip().lower()
     normalized = raw_status.replace("-", "_").replace(" ", "_")
     return normalized in _FORMAL_DOCUMENT_STATUSES
+
+
+def is_delivery_candidate(facts: dict[str, Any]) -> bool:
+    raw_status = str(facts.get("document_status") or "").strip().lower()
+    return raw_status.replace("-", "_").replace(" ", "_") in _DELIVERY_CANDIDATE_STATUSES
 
 
 def build_report_code(
@@ -84,7 +93,17 @@ def build_report_code(
         )
         if cleaned_version:
             segments.append(cleaned_version)
-    segments.extend(("FORMAL" if is_formal_document(facts) else "REVIEW", date_stamp))
+    raw_status = str(facts.get("document_status") or "").strip().lower()
+    normalized_status = raw_status.replace("-", "_").replace(" ", "_")
+    state = {
+        "approved_signed": "SIGNED",
+        "delivery_candidate": "CANDIDATE",
+        "internal_review": "INTERNAL",
+    }.get(
+        normalized_status,
+        "FORMAL" if is_formal_document(facts) else "REVIEW",
+    )
+    segments.extend((state, date_stamp))
     return "-".join(segments)
 
 
@@ -278,7 +297,11 @@ def _fmt_ratio(numerator: int | float | None, denominator: int | float | None) -
 
 def _fmt_datetime(value: object) -> str:
     if isinstance(value, datetime):
-        return value.astimezone().strftime("%Y-%m-%d %H:%M")
+        aware = value if value.tzinfo else value.replace(tzinfo=UTC)
+        return (
+            aware.astimezone(_CHINA_TZ).strftime("%Y-%m-%d %H:%M ")
+            + "中国标准时间（UTC+8）"
+        )
     return str(value or "—")
 
 
@@ -401,12 +424,33 @@ class FormalDocument:
 
         self.document.core_properties.title = self.title
         self.document.core_properties.subject = self.subtitle
-        self.document.core_properties.author = "GEO 验证系统"
+        governance = self.facts.get("document_governance") or {}
+        self.document.core_properties.author = str(governance.get("prepared_by") or "GEO 项目组")
+        self.document.core_properties.last_modified_by = str(
+            governance.get("reviewed_by") or governance.get("prepared_by") or "GEO 项目组"
+        )
+        self.document.core_properties.category = "客户机密 GEO 评测报告"
+        self.document.core_properties.keywords = (
+            "GEO,AI推荐可见性,服务1,客户机密,中国标准时间"
+        )
+        self.document.core_properties.comments = "客户机密—仅限指定项目组"
+        for style in styles:
+            style_element = style.element
+            properties = style_element.get_or_add_rPr()
+            language = properties.find(qn("w:lang"))
+            if language is None:
+                language = OxmlElement("w:lang")
+                properties.append(language)
+            language.set(qn("w:val"), "zh-CN")
+            language.set(qn("w:eastAsia"), "zh-CN")
         self._header_footer(section)
 
     def _header_footer(self, section: Any) -> None:
         target_brand = str(self.facts.get("target_brand") or "目标品牌")
         formal = is_formal_document(self.facts)
+        candidate = is_delivery_candidate(self.facts)
+        internal = str(self.facts.get("document_status") or "").strip().lower() == "internal_review"
+        signed = str(self.facts.get("document_status") or "").strip().lower() == "approved_signed"
         header = section.header
         table = header.add_table(rows=1, cols=2, width=Mm(172))
         table.alignment = WD_TABLE_ALIGNMENT.CENTER
@@ -415,7 +459,17 @@ class FormalDocument:
         table.columns[1].width = Mm(60)
         left, right = table.rows[0].cells
         left.text = f"{target_brand}  |  GEO 验证服务"
-        right.text = "正式报告" if formal else "预正式审阅稿"
+        right.text = (
+            "已批准签发版"
+            if signed
+            else "正式报告"
+            if formal
+            else "客户交付候选稿"
+            if candidate
+            else "内部审核稿"
+            if internal
+            else "预正式审阅稿"
+        )
         right.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.RIGHT
         for cell in (left, right):
             _cell_margins(cell, top=0, bottom=40, start=0, end=0)
@@ -425,7 +479,22 @@ class FormalDocument:
         footer = section.footer
         paragraph = footer.paragraphs[0]
         paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-        footer_label = "正式报告   |   " if formal else "内部审阅 · 禁止外发   |   "
+        state_label = (
+            "已批准签发版"
+            if signed
+            else "正式报告"
+            if formal
+            else "客户交付候选稿"
+            if candidate
+            else "内部审核稿"
+            if internal
+            else "内部审阅 · 禁止外发"
+        )
+        footer_label = (
+            f"客户机密—仅限指定项目组   |   {state_label}   |   "
+            if formal or candidate or internal
+            else f"{state_label}   |   "
+        )
         run = paragraph.add_run(footer_label)
         _set_font(run, size=8)
         run.font.color.rgb = RGBColor.from_string(MUTED)
@@ -433,6 +502,9 @@ class FormalDocument:
 
     def cover(self, *, report_code: str) -> None:
         formal = is_formal_document(self.facts)
+        candidate = is_delivery_candidate(self.facts)
+        internal = str(self.facts.get("document_status") or "").strip().lower() == "internal_review"
+        signed = str(self.facts.get("document_status") or "").strip().lower() == "approved_signed"
         hero = self.document.add_table(rows=1, cols=1)
         hero.alignment = WD_TABLE_ALIGNMENT.CENTER
         cell = hero.cell(0, 0)
@@ -465,25 +537,46 @@ class FormalDocument:
             _cell_margins(banner_cell, top=150, bottom=150, start=180, end=180)
             warning = banner_cell.paragraphs[0]
             warning.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            warning_run = warning.add_run("预正式审阅稿 · 基于联调/试采样数据 · 禁止对外发布")
+            warning_run = warning.add_run(
+                "客户交付候选稿 · 待具名批准"
+                if candidate
+                else "内部审核稿 · 待完成数据与证据复核"
+                if internal
+                else "预正式审阅稿 · 基于联调/试采样数据 · 禁止对外发布"
+            )
             _set_font(warning_run, size=10)
             warning_run.font.bold = True
             warning_run.font.color.rgb = RGBColor.from_string(RED)
 
+        governance = self.facts.get("document_governance") or {}
         metadata = [
             ("项目", self.facts["project_name"]),
             ("评估窗口", f"{self.facts['window']['start']} 至 {self.facts['window']['end']}"),
             ("生成时间", _fmt_datetime(self.facts["generated_at"])),
             ("文档编号", report_code),
-            ("文档状态", "正式报告" if formal else "待客户审核内容与版式"),
+            ("版本", str(governance.get("version") or "V1.0")),
+            (
+                "文档状态",
+                "已批准签发版"
+                if signed
+                else "正式报告"
+                if formal
+                else "客户交付候选稿"
+                if candidate
+                else "内部审核稿",
+            ),
+            ("编制", str(governance.get("prepared_by") or "GEO 项目组")),
+            ("复核", str(governance.get("reviewed_by") or "待复核")),
+            ("批准", str(governance.get("approved_by") or "待批准")),
+            ("保密", "客户机密—仅限指定项目组"),
         ]
         self.table(["字段", "内容"], metadata, widths=(35, 137), header=False)
-        if not formal:
+        if not formal and not candidate:
             self.callout(
-                "审阅目的",
-                "本稿用于检查正式报告的内容结构、指标口径、证据披露和视觉版式。"
-                "数值来自当前已采集事实，但不代表已完成报价单约定的正式采样。",
-                kind="warning",
+                "版本说明",
+                "本版呈现当前可复算结果，并用于完成内容、数据、证据和版式复核；"
+                "发布条件及待办项见随附 manifest。",
+                kind="info",
             )
         self.document.add_page_break()  # type: ignore[no-untyped-call]
 

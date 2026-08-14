@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import base64
+import time
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
 from workflows.activities import official_share
 from workflows.activities.official_share import (
+    OfficialShareExportError,
     recover_png_from_export_audit,
     valid_png,
     validated_deepseek_share_url,
@@ -436,3 +439,141 @@ def test_deepseek_share_url_resolution_prefers_api_then_dom_then_clipboard(
         official_share._resolve_deepseek_share_url(api_payload, dom_text, clipboard_text)
         == expected
     )
+
+
+class _YiyanDownloadRoute:
+    def __init__(self, page: _YiyanDownloadPage, method: str, url: str, body: bytes | None) -> None:
+        self._page = page
+        self.request = SimpleNamespace(method=method, url=url, post_data_buffer=body)
+
+    def abort(self) -> None:
+        self._page.aborted.append(self.request.url)
+
+    def continue_(self) -> None:
+        self._page.continued.append(self.request.url)
+
+
+class _YiyanDownloadButton:
+    def __init__(self, page: _YiyanDownloadPage) -> None:
+        self._page = page
+
+    def is_visible(self, *, timeout: int | None = None) -> bool:
+        del timeout
+        return True
+
+    def get_attribute(self, name: str) -> str | None:
+        if name == "class":
+            return "cos-button cos-md cos-button-primary"
+        return None
+
+    def locator(self, selector: str) -> _YiyanDownloadLocatorList:
+        assert selector == ".cos-loading"
+        return _YiyanDownloadLocatorList([])
+
+    def click(self, *, timeout: int | None = None) -> None:
+        del timeout
+        self._page.simulate_upload()
+
+
+class _YiyanDownloadLocatorList:
+    def __init__(self, items: list[Any]) -> None:
+        self._items = items
+
+    def count(self) -> int:
+        return len(self._items)
+
+    def nth(self, index: int) -> Any:
+        return self._items[index]
+
+
+class _YiyanDownloadPage:
+    """Route-interception model: clicking 下载图片 fires BOS multipart PUT parts."""
+
+    def __init__(self, parts: dict[int, bytes]) -> None:
+        self._parts = parts
+        self._route: tuple[Any, Any] | None = None
+        self.aborted: list[str] = []
+        self.continued: list[str] = []
+        self.unrouted = False
+        self.download = _YiyanDownloadButton(self)
+
+    def route(self, pattern: Any, handler: Any) -> None:
+        self._route = (pattern, handler)
+
+    def unroute(self, pattern: Any, handler: Any) -> None:
+        assert self._route == (pattern, handler)
+        self.unrouted = True
+
+    def locator(self, selector: str) -> _YiyanDownloadLocatorList:
+        if "下载图片" in selector:
+            return _YiyanDownloadLocatorList([self.download])
+        raise AssertionError(f"unexpected selector: {selector}")
+
+    def wait_for_timeout(self, _ms: float) -> None:
+        time.sleep(0.001)
+
+    def simulate_upload(self) -> None:
+        assert self._route is not None
+        pattern, handler = self._route
+        sample = "https://aisearch.bj.bcebos.com/fileManager/K/share.png?uploads"
+        assert pattern.search(sample)
+        # initiate POST（空体）必须放行继续走真实 BOS
+        handler(_YiyanDownloadRoute(self, "POST", sample, None))
+        for part_no, body in self._parts.items():
+            url = (
+                "https://aisearch.bj.bcebos.com/fileManager/K/share.png"
+                f"?partNumber={part_no}&uploadId=u1"
+            )
+            handler(_YiyanDownloadRoute(self, "PUT", url, body))
+
+
+def test_yiyan_share_download_reassembles_bos_upload_parts(tmp_path: Path) -> None:
+    head, tail = _ONE_PIXEL_PNG_HEADER[:12], _ONE_PIXEL_PNG_HEADER[12:]
+    page = _YiyanDownloadPage({2: tail, 1: head})  # 乱序到达
+
+    audit = official_share._download_yiyan_share_image(
+        page, tmp_path / "share.png", timeout_ms=2_000, settle_ms=20
+    )
+
+    out = tmp_path / "share.png"
+    assert out.read_bytes() == _ONE_PIXEL_PNG_HEADER
+    assert valid_png(out) is True
+    assert audit["image_source"] == "share_download_button"
+    assert audit["upload_transport"] == "bos_upload_intercept"
+    assert audit["part_count"] == 2
+    assert audit["image_bytes"] == len(_ONE_PIXEL_PNG_HEADER)
+    assert page.unrouted is True
+    assert len(page.aborted) == 2
+    assert all("partNumber=" in url for url in page.aborted)
+    assert len(page.continued) == 1  # 仅 initiate POST 放行
+
+
+def test_yiyan_share_download_fail_closed_without_payload(tmp_path: Path) -> None:
+    page = _YiyanDownloadPage({})
+
+    with pytest.raises(OfficialShareExportError, match="no upload payload"):
+        official_share._download_yiyan_share_image(
+            page, tmp_path / "share.png", timeout_ms=50, settle_ms=10
+        )
+    assert page.unrouted is True
+    assert not (tmp_path / "share.png").exists()
+
+
+def test_yiyan_share_download_rejects_non_contiguous_parts(tmp_path: Path) -> None:
+    page = _YiyanDownloadPage({2: b"second", 3: b"third"})
+
+    with pytest.raises(OfficialShareExportError, match="not contiguous"):
+        official_share._download_yiyan_share_image(
+            page, tmp_path / "share.png", timeout_ms=2_000, settle_ms=20
+        )
+    assert not (tmp_path / "share.png").exists()
+
+
+def test_yiyan_share_download_rejects_non_png_payload(tmp_path: Path) -> None:
+    page = _YiyanDownloadPage({1: b"definitely-not-a-png"})
+
+    with pytest.raises(OfficialShareExportError, match="not a valid PNG"):
+        official_share._download_yiyan_share_image(
+            page, tmp_path / "share.png", timeout_ms=2_000, settle_ms=20
+        )
+    assert (tmp_path / "share.png").read_bytes() == b"definitely-not-a-png"  # 证据保留

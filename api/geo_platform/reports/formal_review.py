@@ -6,12 +6,12 @@ fact layer, so the metric definitions cannot drift between online and offline ou
 
 Important disciplines:
 
-* review data are explicitly labelled non-formal;
-* the service-1 main sample is balanced and deterministic (latest answer per
-  question/platform/region cell), while every excluded observation remains in the
+* report release state is explicit and cannot imply approval;
+* the service-1 main sample is balanced by independent run in each
+  question/platform/region cell, while every excluded observation remains in the
   audit snapshot;
-* candidate question groups are selected by evidence completeness, never by whether
-  the target brand scored well;
+* service-1 question groups come from a pre-sampling registration; historical data
+  without one can only produce a clearly limited, non-signable candidate;
 * service-3 answer citation rates and fetched-document ratios are different metrics;
 * transcript accuracy never masquerades as website-content adoption.
 """
@@ -28,6 +28,11 @@ from psycopg.rows import dict_row
 
 from domain.brandrank import adapter, metrics
 from domain.brandrank.rules import load_domain
+from domain.reporting.service1_governance import (
+    assign_repeats,
+    question_group_hash,
+    resolve_scope_registration,
+)
 from geo_platform.analytics.service import AnalyticsService, _platform_tenant_connection
 from geo_platform.brandrank import service as brandrank_service
 from geo_platform.reports import fact_suggestions
@@ -82,7 +87,7 @@ def candidate_groups_from_snapshot(snapshot: dict[str, Any]) -> tuple[list[dict[
     an explicit ``inferred`` marker in the fact snapshot.
     """
 
-    raw_groups: list[tuple[str, list[str]]] = []
+    raw_groups: list[tuple[str, list[str], dict[str, Any]]] = []
     for raw_group in snapshot.get("query_groups", []):
         if not isinstance(raw_group, dict):
             continue
@@ -94,7 +99,17 @@ def candidate_groups_from_snapshot(snapshot: dict[str, Any]) -> tuple[list[dict[
             and str(item["text"]).strip()
         ]
         if questions:
-            raw_groups.append((str(raw_group.get("name") or "").strip(), questions))
+            raw_groups.append(
+                (
+                    str(raw_group.get("name") or "").strip(),
+                    questions,
+                    {
+                        "service_number": raw_group.get("service_number"),
+                        "quotation_appendix": raw_group.get("quotation_appendix"),
+                        "business_line": raw_group.get("business_line"),
+                    },
+                )
+            )
     if not raw_groups:
         return [], False
 
@@ -104,11 +119,11 @@ def candidate_groups_from_snapshot(snapshot: dict[str, Any]) -> tuple[list[dict[
     if inferred:
         questions = raw_groups[0][1]
         raw_groups = [
-            ("", questions[offset : offset + 4]) for offset in range(0, len(questions), 4)
+            ("", questions[offset : offset + 4], {}) for offset in range(0, len(questions), 4)
         ]
 
     groups: list[dict[str, Any]] = []
-    for index, (name, questions) in enumerate(raw_groups, 1):
+    for index, (name, questions, metadata) in enumerate(raw_groups, 1):
         title = name if name and not inferred else _group_title(index, questions[0])
         groups.append(
             {
@@ -117,6 +132,8 @@ def candidate_groups_from_snapshot(snapshot: dict[str, Any]) -> tuple[list[dict[
                 "title": title,
                 "questions": questions,
                 "inferred": inferred,
+                "question_group_hash": question_group_hash(questions),
+                **metadata,
             }
         )
     return groups, inferred
@@ -162,8 +179,21 @@ def balance_primary_answers(
             key=lambda row: (row["capture_time"], str(row["pub_id"])),
             reverse=True,
         )
-        selected.extend(newest_first[:repetitions_per_cell])
-        duplicates.extend(newest_first[repetitions_per_cell:])
+        # A repeated answer must come from a different collection run.  Missing run
+        # IDs remain individually visible for historical candidates, but the formal
+        # governance gate rejects them as unproven independence.
+        newest_by_run: list[dict[str, Any]] = []
+        seen_runs: set[str] = set()
+        for row in newest_first:
+            run_id = str(row.get("run_pub_id") or "").strip()
+            run_key = run_id or f"missing:{row.get('pub_id')}"
+            if run_key in seen_runs:
+                duplicates.append(row)
+                continue
+            seen_runs.add(run_key)
+            newest_by_run.append(row)
+        selected.extend(newest_by_run[:repetitions_per_cell])
+        duplicates.extend(newest_by_run[repetitions_per_cell:])
     balanced = sorted(
         selected,
         key=lambda row: (
@@ -392,7 +422,7 @@ def _latest_snapshot(
     project_pub_id: str,
     answers: list[dict[str, Any]],
 ) -> tuple[int | None, dict[str, Any]]:
-    """Load the configuration whose question set best explains the answer window.
+    """Load the registered configuration, with a legacy descriptive fallback.
 
     Different platform runs may use separate config-version IDs while sharing the same
     evaluation questions.  Conversely, a newly-created one-question pilot can be the
@@ -442,7 +472,17 @@ def _latest_snapshot(
             str(row["created_at"]),
         )
 
-    selected = max((dict(row) for row in rows), key=snapshot_score)
+    def registered_score(row: dict[str, Any]) -> tuple[int, int, int, int, str]:
+        snapshot = _json_object(row["snapshot_json"])
+        registration = snapshot.get("service1_scope_registration")
+        registered = int(
+            isinstance(registration, dict)
+            and registration.get("schema_version") == "service1-scope-registration-v1"
+        )
+        matched, direct, revision, created = snapshot_score(row)
+        return registered, matched, direct, revision, created
+
+    selected = max((dict(row) for row in rows), key=registered_score)
     return int(selected["revision"]), _json_object(selected["snapshot_json"])
 
 
@@ -734,6 +774,11 @@ def build_formal_review_facts(
     citations = brandrank_service.fetch_citations(dsn, tenant_pub_id, answer_ids)
     config_revision, snapshot = _latest_snapshot(dsn, tenant_pub_id, project_pub_id, answers)
     groups, inferred = candidate_groups_from_snapshot(snapshot)
+    scope_registration = resolve_scope_registration(
+        snapshot=snapshot,
+        candidate_groups=groups,
+        answers=answers,
+    )
     balanced, duplicate_primary = balance_primary_answers(
         answers,
         candidate_groups=groups,
@@ -746,6 +791,10 @@ def build_formal_review_facts(
         citations,
         required_repetitions=QUOTATION_REPETITIONS_PER_CELL,
     )
+    selected_hashes = set(scope_registration["selected_group_hashes"])
+    for group in scored_groups:
+        group["selected_for_main_report"] = group["question_group_hash"] in selected_hashes
+        group["selection_basis"] = scope_registration["selection_basis"]
     selected_ids = {str(row["id"]) for row in scored_groups if row["selected_for_main_report"]}
     selected_answers = [row for row in balanced if row.get("candidate_group_id") in selected_ids]
 
@@ -802,8 +851,10 @@ def build_formal_review_facts(
     formal_sample_complete = bool(expected_selected_cells) and all(
         count == QUOTATION_REPETITIONS_PER_CELL for count in repetition_counts
     )
+    repeat_numbers, repeat_independence_reasons = assign_repeats(selected_answers)
     service1 = {
         "config_revision": config_revision,
+        "scope_registration": scope_registration,
         "candidate_grouping_inferred": inferred,
         "candidate_groups": scored_groups,
         "primary_mode": PRIMARY_MODE,
@@ -821,6 +872,8 @@ def build_formal_review_facts(
         "quotation_required_repetitions_per_cell": QUOTATION_REPETITIONS_PER_CELL,
         "expected_formal_answers": expected_formal_answers,
         "formal_sample_complete": formal_sample_complete,
+        "repeat_independence_ready": not repeat_independence_reasons,
+        "repeat_independence_reasons": repeat_independence_reasons,
         "formal_sample_gap": (
             None
             if formal_sample_complete
@@ -838,6 +891,9 @@ def build_formal_review_facts(
                 "region": str(row["region"]),
                 "mode": str(row["mode"]),
                 "capture_time": row["capture_time"],
+                "run_pub_id": str(row.get("run_pub_id") or ""),
+                "config_version_pub_id": str(row.get("config_version_pub_id") or ""),
+                "repeat_no": repeat_numbers.get(str(row["pub_id"])),
                 "candidate_group_id": row.get("candidate_group_id"),
                 "selected_for_main_report": str(row["pub_id"]) in selected_answer_ids,
                 "extract_status": extracts.get(str(row["pub_id"]), {}).get("status"),
@@ -860,7 +916,7 @@ def build_formal_review_facts(
     captured = [row["capture_time"] for row in answers]
     return {
         "schema_version": "formal-review-facts-v1",
-        "document_status": "pre_formal_review_nonproduction_data",
+        "document_status": "internal_review",
         "project_pub_id": project_pub_id,
         "project_name": str(project.get("name") or ""),
         "target_brand": target_brand,
@@ -874,10 +930,10 @@ def build_formal_review_facts(
         },
         "generated_at": generated_at,
         "limitations": [
-            "当前采集数据为联调/试采样，不是客户签收的正式运行数据。",
-            "地域以浏览器地域采样标识披露；当前未建立可审计的独立平台账号台账。",
-            "服务 1 正式口径需要每个单元重复 2 次；当前主样本每单元只有 1 条可比较观测。",
-            "官网内容采纳率缺少回答级采纳判定，当前只能如实披露为未评估（0/0）。",
+            "报告结论只适用于披露的问题文本、平台、地域标签与采集窗口。",
+            "地域标签只有在账号、浏览器实例和出口审计台账齐全时才能作为地域独立观测。",
+            "服务 1 的正式签发要求问题组在首次采样前完成冻结和确认。",
+            "回答列出的引用未经服务 2 事实核查，不代表引用支持回答中的每项陈述。",
         ],
         "service1": service1,
         "service2": service2,

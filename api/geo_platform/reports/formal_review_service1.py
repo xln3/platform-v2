@@ -23,7 +23,16 @@ from typing import Any
 from psycopg.rows import dict_row
 
 from domain.brandrank import adapter, metrics
-from domain.brandrank.rules import load_domain, normalize_brand_list
+from domain.brandrank.entities import load_entity_master, normalize_answer_entities
+from domain.brandrank.rules import load_domain
+from domain.reporting.service1_governance import assign_repeats, quotation_gate
+from domain.reporting.service1_metrics import (
+    comparable_competitors,
+    entity_metric,
+    ranked_entities,
+    repeat_consistency,
+    source_cooccurrence,
+)
 from geo_platform.brandrank import service as brandrank_service
 from geo_platform.evidence.object_store import ContentAddressedObjectStore
 from geo_platform.tenancy.psycopg import tenant_connection
@@ -154,6 +163,185 @@ def _load_answer_auxiliary(
             dict(value) for value in values if isinstance(value, dict)
         ]
     return has_screenshot, screenshot_kind, has_share_image, search_queries
+
+
+def _load_evidence_inventory(
+    dsn: str, tenant_pub_id: str, answer_pub_ids: list[str]
+) -> dict[str, list[dict[str, Any]]]:
+    """Load every answer-linked customer evidence descriptor, not one preferred image."""
+
+    if not answer_pub_ids:
+        return {}
+    with tenant_connection(dsn, tenant_pub_id, row_factory=dict_row) as connection:
+        rows = connection.execute(
+            """
+            SELECT relation.from_pub_id,relation.relation_type,asset.pub_id AS evidence_pub_id,
+                   asset.kind,asset.capture_time,asset.mime_type,asset.byte_size,asset.sha256,
+                   asset.object_key,asset.source_url
+            FROM evidence.evidence_relation relation
+            JOIN evidence.evidence_asset asset
+              ON asset.tenant_pub_id=relation.tenant_pub_id
+             AND asset.pub_id=relation.to_pub_id
+            WHERE relation.tenant_pub_id=%s
+              AND relation.from_pub_id=ANY(%s::text[])
+              AND asset.deleted_at IS NULL
+            ORDER BY relation.from_pub_id,asset.kind,asset.capture_time,asset.pub_id
+            """,
+            (tenant_pub_id, answer_pub_ids),
+        ).fetchall()
+    output: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        output[str(row["from_pub_id"])].append(
+            {
+                "evidence_id": str(row["evidence_pub_id"]),
+                "relation_type": str(row["relation_type"]),
+                "kind": str(row["kind"]),
+                "capture_time": row["capture_time"],
+                "mime_type": str(row["mime_type"]),
+                "byte_size": int(row["byte_size"]),
+                "sha256": str(row["sha256"]),
+                "object_key": str(row["object_key"]),
+                "source_url": row["source_url"],
+            }
+        )
+    return dict(output)
+
+
+def _load_sampling_provenance(
+    dsn: str, tenant_pub_id: str, answer_pub_ids: list[str]
+) -> dict[str, dict[str, Any]]:
+    """Load immutable task-outcome provenance; never infer it from current state."""
+
+    if not answer_pub_ids:
+        return {}
+    output: dict[str, dict[str, Any]] = {}
+    with tenant_connection(dsn, tenant_pub_id, row_factory=dict_row) as connection:
+        available = connection.execute(
+            """
+            SELECT to_regclass('platform.collection_account_event') AS event_table,
+                   to_regclass('platform.collection_task') AS task_table
+            """
+        ).fetchone()
+        if available and available["task_table"] is not None:
+            task_rows = connection.execute(
+                """
+                SELECT task.pub_id,task.matrix_json
+                FROM platform.collection_task task
+                JOIN platform.tenant tenant ON tenant.id=task.tenant_id
+                WHERE tenant.pub_id=%s AND task.pub_id=ANY(%s::text[])
+                """,
+                (tenant_pub_id, answer_pub_ids),
+            ).fetchall()
+            for row in task_rows:
+                matrix = row["matrix_json"]
+                if isinstance(matrix, str):
+                    try:
+                        matrix = json.loads(matrix)
+                    except ValueError:
+                        matrix = {}
+                if isinstance(matrix, dict):
+                    output[str(row["pub_id"])] = {
+                        "browser_instance": matrix.get("browser_instance"),
+                    }
+        if available and available["event_table"] is not None:
+            event_rows = connection.execute(
+                """
+                SELECT DISTINCT ON (event.new_value->>'task_pub_id')
+                       event.new_value->>'task_pub_id' AS answer_pub_id,
+                       event.new_value,event.created_at
+                FROM platform.collection_account_event event
+                WHERE event.event_type='task_outcome'
+                  AND event.new_value->>'task_pub_id'=ANY(%s::text[])
+                  AND event.new_value->>'outcome'='success'
+                ORDER BY event.new_value->>'task_pub_id',event.created_at DESC,event.id DESC
+                """,
+                (answer_pub_ids,),
+            ).fetchall()
+            for row in event_rows:
+                payload = row["new_value"] if isinstance(row["new_value"], dict) else {}
+                output[str(row["answer_pub_id"])] = {
+                    "account_id_masked": payload.get("account_id_masked"),
+                    "browser_instance": payload.get("browser_instance"),
+                    "egress_region_gb": payload.get("egress_region_gb"),
+                    "egress_audit": {
+                        "ip_sha256": payload.get("egress_ip_sha256"),
+                        "probe_at": payload.get("egress_probe_at"),
+                        "probe_state": payload.get("egress_probe_state"),
+                        "provenance_recorded_at": row["created_at"],
+                    }
+                    if payload.get("egress_region_gb")
+                    and payload.get("egress_ip_sha256")
+                    and payload.get("egress_probe_at")
+                    else None,
+                }
+    return output
+
+
+def _load_citation_snapshots(
+    dsn: str, tenant_pub_id: str, answer_pub_ids: list[str]
+) -> dict[str, list[dict[str, Any]]]:
+    """Load answer-linked URL snapshots and their optional screenshot descriptors."""
+
+    if not answer_pub_ids:
+        return {}
+    with tenant_connection(dsn, tenant_pub_id, row_factory=dict_row) as connection:
+        rows = connection.execute(
+            """
+            SELECT answer_relation.from_pub_id AS answer_pub_id,document.pub_id AS document_id,
+                   document.url,document.final_url,document.http_status,document.fetched_at,
+                   document.extract_status,document.bytes,document.text_sha256,
+                   document.text_cas_key,snapshot.pub_id AS snapshot_id,
+                   snapshot.sha256 AS snapshot_sha256,snapshot.object_key AS snapshot_object_key,
+                   snapshot.mime_type AS snapshot_mime_type,snapshot.byte_size AS snapshot_byte_size
+            FROM evidence.evidence_relation answer_relation
+            JOIN platform.source_document document
+              ON document.pub_id=answer_relation.to_pub_id
+            LEFT JOIN evidence.evidence_relation snapshot_relation
+              ON snapshot_relation.tenant_pub_id=answer_relation.tenant_pub_id
+             AND snapshot_relation.from_pub_id=document.pub_id
+             AND snapshot_relation.relation_type='brand_mention_source_snapshot'
+            LEFT JOIN evidence.evidence_asset snapshot
+              ON snapshot.tenant_pub_id=snapshot_relation.tenant_pub_id
+             AND snapshot.pub_id=snapshot_relation.to_pub_id AND snapshot.deleted_at IS NULL
+            WHERE answer_relation.tenant_pub_id=%s
+              AND answer_relation.from_pub_id=ANY(%s::text[])
+              AND answer_relation.relation_type='cited_source_document'
+            ORDER BY answer_relation.from_pub_id,document.url,snapshot.capture_time DESC
+            """,
+            (tenant_pub_id, answer_pub_ids),
+        ).fetchall()
+    output: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    seen: set[tuple[str, str]] = set()
+    for row in rows:
+        key = (str(row["answer_pub_id"]), str(row["document_id"]))
+        if key in seen:
+            continue
+        seen.add(key)
+        output[key[0]].append(
+            {
+                "document_id": key[1],
+                "url": str(row["url"]),
+                "final_url": row["final_url"],
+                "http_status": row["http_status"],
+                "visited_at": row["fetched_at"],
+                "extract_status": str(row["extract_status"]),
+                "byte_size": int(row["bytes"]),
+                "text_sha256": row["text_sha256"],
+                "text_object_key": row["text_cas_key"],
+                "snapshot": (
+                    {
+                        "evidence_id": str(row["snapshot_id"]),
+                        "sha256": str(row["snapshot_sha256"]),
+                        "object_key": str(row["snapshot_object_key"]),
+                        "mime_type": str(row["snapshot_mime_type"]),
+                        "byte_size": int(row["snapshot_byte_size"]),
+                    }
+                    if row["snapshot_id"] is not None
+                    else None
+                ),
+            }
+        )
+    return dict(output)
 
 
 def _load_native_answer_anchors(
@@ -351,13 +539,16 @@ def _representative_rows(
     """
 
     output: list[dict[str, Any]] = []
-    for group in selected_groups:
+    platform_rotation = [model for model in ("doubao", "deepseek", "yiyan")]
+    for group_index, group in enumerate(selected_groups):
         members = [
             row
             for row in answer_rows
             if row_details[str(row["pub_id"])]["candidate_group_id"] == group["id"]
         ]
-        candidates = members
+        designated_model = platform_rotation[group_index % len(platform_rotation)]
+        designated = [row for row in members if row.get("model") == designated_model]
+        candidates = designated or members
         used_models = {str(row["platform"]) for row in output}
 
         def completeness(
@@ -434,9 +625,8 @@ def _representative_rows(
                 "preferred_image_kind": preferred_image_kind,
                 "answer_anchor": answer_anchor,
                 "selection_note": (
-                    "代表页只用于展示证据链：每组优先选择官方分享图片；分享图片缺失时，"
-                    "再比较运行页截图可读性、引用、回答完整度和跨卡片平台多样性；不使用品牌是否提及或"
-                    "位次，不参与任何统计指标。"
+                    "代表页只用于展示回答及其所列引用：三组按固定平台轮换，组内优先选择"
+                    "官方分享图片；不使用品牌是否提及或位次，不参与任何统计指标。"
                 ),
             }
         )
@@ -469,11 +659,23 @@ def enrich_service1_v2_facts(
     has_screenshot, screenshot_kind, has_share_image, search_queries = _load_answer_auxiliary(
         dsn, tenant_pub_id, balanced_ids
     )
+    evidence_inventory = _load_evidence_inventory(dsn, tenant_pub_id, balanced_ids)
+    sampling_provenance = _load_sampling_provenance(dsn, tenant_pub_id, balanced_ids)
+    citation_snapshots = _load_citation_snapshots(dsn, tenant_pub_id, balanced_ids)
     rules = load_domain(str(facts["domain"]))
+    entity_master = load_entity_master(str(facts["domain"]))
     target_brand = str(facts["target_brand"])
     native_answer_anchors = _load_native_answer_anchors(dsn, tenant_pub_id, answers, target_brand)
-    target_normalized = normalize_brand_list([target_brand], rules)
-    normalized_target = target_normalized[0] if target_normalized else target_brand
+    governed_target = normalize_answer_entities(
+        [target_brand],
+        rules=rules,
+        master=entity_master,
+        target_brand=target_brand,
+        named_competitors=list(facts.get("competitors") or []),
+    )
+    normalized_target = (
+        str(governed_target[0]["canonical_name"]) if governed_target else target_brand
+    )
     candidate_groups = list(service1.get("candidate_groups") or [])
     question_group: dict[str, dict[str, Any]] = {
         str(question): group
@@ -482,17 +684,30 @@ def enrich_service1_v2_facts(
     }
 
     row_details: dict[str, dict[str, Any]] = {}
+    governed_extracts: dict[str, dict[str, Any]] = {}
     for answer in answers:
         answer_pub_id = str(answer["pub_id"])
         extract = extracts.get(answer_pub_id) or {}
         raw_brands = extract.get("brands") if extract.get("status") == "ok" else []
-        brands = normalize_brand_list(raw_brands if isinstance(raw_brands, list) else [], rules)
+        entities = normalize_answer_entities(
+            raw_brands if isinstance(raw_brands, list) else [],
+            rules=rules,
+            master=entity_master,
+            target_brand=target_brand,
+            named_competitors=list(facts.get("competitors") or []),
+        )
+        brands = [str(row["canonical_name"]) for row in entities]
+        governed_extracts[answer_pub_id] = {
+            "status": extract.get("status"),
+            "brands": brands,
+        }
         target_rank = brands.index(normalized_target) + 1 if normalized_target in brands else None
         group = question_group.get(str(answer.get("query_text") or ""), {})
         row_details[answer_pub_id] = {
             "candidate_group_id": group.get("id"),
             "group_title": group.get("title"),
             "brands": brands,
+            "entities": entities,
             "target_rank": target_rank,
             "citation_count": len(citations.get(answer_pub_id, [])),
             "has_answer_screenshot": has_screenshot.get(answer_pub_id, False),
@@ -501,7 +716,7 @@ def enrich_service1_v2_facts(
 
     overall_analysis = _scope_analysis(
         selected_answers,
-        extracts=extracts,
+        extracts=governed_extracts,
         citations=citations,
         domain=str(facts["domain"]),
         target_brand=target_brand,
@@ -512,7 +727,7 @@ def enrich_service1_v2_facts(
         scoped = [row for row in selected_answers if row.get("region") == region]
         result = _scope_analysis(
             scoped,
-            extracts=extracts,
+            extracts=governed_extracts,
             citations=citations,
             domain=str(facts["domain"]),
             target_brand=target_brand,
@@ -593,6 +808,18 @@ def enrich_service1_v2_facts(
 
     selected_group_ids = {str(group["id"]) for group in selected_groups}
     sample_registry = []
+    repeat_numbers, repeat_independence_reasons = assign_repeats(selected_answers)
+    cell_runs: dict[tuple[str, str, str], set[str]] = defaultdict(set)
+    cell_counts: dict[tuple[str, str, str], int] = defaultdict(int)
+    for row in selected_answers:
+        cell = (
+            str(row.get("query_text") or ""),
+            str(row.get("model") or ""),
+            str(row.get("region") or ""),
+        )
+        cell_counts[cell] += 1
+        if row.get("run_pub_id"):
+            cell_runs[cell].add(str(row["run_pub_id"]))
     ordered_answers = sorted(
         selected_answers,
         key=lambda row: (
@@ -603,12 +830,30 @@ def enrich_service1_v2_facts(
         ),
     )
     for display_number, row in enumerate(ordered_answers, 1):
-        detail = row_details[str(row["pub_id"])]
+        answer_pub_id = str(row["pub_id"])
+        detail = row_details[answer_pub_id]
         if detail["candidate_group_id"] not in selected_group_ids:
             continue
+        response_text = str(row.get("response_text") or "")
+        response_payload = response_text.encode()
+        assets = evidence_inventory.get(answer_pub_id, [])
+        screenshots = [
+            asset
+            for asset in assets
+            if asset["kind"] in {"answer_screenshot", "answer_excerpt_screenshot"}
+        ]
+        share_images = [asset for asset in assets if asset["kind"] == "share_image"]
+        provenance = sampling_provenance.get(answer_pub_id, {})
+        cell = (
+            str(row.get("query_text") or ""),
+            str(row.get("model") or ""),
+            str(row.get("region") or ""),
+        )
         sample_registry.append(
             {
                 "display_number": display_number,
+                "sample_id": f"S1-{display_number:04d}",
+                "answer_pub_id": answer_pub_id,
                 "group_title": detail["group_title"],
                 "question": str(row.get("query_text") or ""),
                 "platform": str(row.get("model") or ""),
@@ -618,10 +863,39 @@ def enrich_service1_v2_facts(
                 "region": str(row.get("region") or ""),
                 "mode": str(row.get("mode") or ""),
                 "capture_time": row.get("capture_time"),
+                "repeat_no": repeat_numbers.get(answer_pub_id),
+                "run_id": str(row.get("run_pub_id") or ""),
+                "independent_repeat": (cell_counts[cell] == 2 and len(cell_runs[cell]) == 2),
+                "account_id_masked": provenance.get("account_id_masked"),
+                "browser_instance": provenance.get("browser_instance"),
+                "egress_region_gb": provenance.get("egress_region_gb"),
+                "egress_audit": provenance.get("egress_audit"),
                 "mentioned": detail["target_rank"] is not None,
                 "target_rank": detail["target_rank"],
+                "entities": detail["entities"],
                 "citation_count": detail["citation_count"],
-                "response_chars": len(str(row.get("response_text") or "")),
+                "citations": [
+                    {
+                        "ordinal": citation.get("ordinal"),
+                        "host": citation.get("host"),
+                        "title": citation.get("title"),
+                        "url": citation.get("canonical_url") or citation.get("original_url") or "",
+                        "cited_text": citation.get("cited_text"),
+                    }
+                    for citation in citations.get(answer_pub_id, [])
+                ],
+                "citation_snapshots": citation_snapshots.get(answer_pub_id, []),
+                "response_chars": len(response_text),
+                "response_text": response_text,
+                "answer_evidence": {
+                    "path": f"answers/S1-{display_number:04d}.txt",
+                    "sha256": sha256(response_payload).hexdigest(),
+                    "byte_size": len(response_payload),
+                    "mime_type": "text/plain; charset=utf-8",
+                },
+                "screenshot_evidence": screenshots,
+                "share_image_evidence": share_images,
+                "all_evidence": assets,
                 "has_answer_screenshot": detail["has_answer_screenshot"],
                 "has_share_image": detail["has_share_image"],
             }
@@ -713,6 +987,92 @@ def enrich_service1_v2_facts(
         ),
     }
     service1["delivery_v2"] = delivery_v2
+    entity_ranking = ranked_entities(sample_registry)
+    competitor_ranking = [row for row in entity_ranking if row["competitor_eligible"]]
+    target_metric = entity_metric(sample_registry, normalized_target)
+    competitor_comparison = comparable_competitors(
+        sample_registry,
+        target_brand=normalized_target,
+        limit=5,
+    )
+    consistency = repeat_consistency(sample_registry, target_brand=normalized_target)
+    quotation_ready, quotation_reasons = quotation_gate(
+        selected_groups=selected_groups,
+        sample_rows=sample_registry,
+        scope_registration=service1.get("scope_registration") or {},
+    )
+
+    def scoped_metrics(field: str, values: Iterable[str]) -> dict[str, dict[str, Any]]:
+        return {
+            str(value): entity_metric(
+                [row for row in sample_registry if str(row.get(field) or "") == str(value)],
+                normalized_target,
+            )
+            for value in values
+        }
+
+    governed_question_rows = []
+    for group in selected_groups:
+        for question_index, question in enumerate(group.get("questions") or [], 1):
+            scoped = [row for row in sample_registry if row["question"] == question]
+            governed_question_rows.append(
+                {
+                    "group_title": group["title"],
+                    "group_index": group["index"],
+                    "question_index": question_index,
+                    "question": question,
+                    **entity_metric(scoped, normalized_target),
+                    "answers_with_citation": sum(bool(row["citations"]) for row in scoped),
+                }
+            )
+
+    representative_platforms = {str(row.get("platform")) for row in representative_answers}
+    service1["delivery_v3"] = {
+        "schema_version": "service1-delivery-v3",
+        "scope": {
+            **delivery_v2["scope"],
+            "scope_label": (service1.get("scope_registration") or {}).get("scope_label"),
+            "represents_overall_brand": bool(
+                (service1.get("scope_registration") or {}).get("represents_overall_brand")
+            ),
+            "registration_status": (service1.get("scope_registration") or {}).get("status"),
+            "entity_rows_audited": len(entity_ranking),
+            "competitor_entities": len(competitor_ranking),
+            "unclassified_entities": sum(row["entity_type"] == "unknown" for row in entity_ranking),
+        },
+        "selected_groups": selected_groups,
+        "target": target_metric,
+        "by_platform": scoped_metrics("platform", service1.get("primary_models") or []),
+        "by_region": scoped_metrics("region", service1.get("primary_regions") or []),
+        "by_group": scoped_metrics(
+            "group_title", [str(group["title"]) for group in selected_groups]
+        ),
+        "question_rows": governed_question_rows,
+        "entity_ranking": entity_ranking,
+        "competitor_ranking": competitor_ranking,
+        "competitor_comparison": competitor_comparison,
+        "repeat_consistency": consistency,
+        "repeat_independence_reasons": repeat_independence_reasons,
+        "source_cooccurrence": source_cooccurrence(sample_registry, target_brand=normalized_target),
+        "sources": source_overall,
+        "representative_answers": representative_answers,
+        "representative_platforms_complete": representative_platforms
+        == {"doubao", "deepseek", "yiyan"},
+        "sample_registry": sample_registry,
+        "quotation_gate": {
+            "status": "ready" if quotation_ready else "blocked",
+            "reasons": list(quotation_reasons),
+        },
+        "metric_policy": {
+            "answer_denominator": True,
+            "within_answer_canonical_entity_deduplication": True,
+            "competitor_eligibility_filter": True,
+            "percent_display_digits": 1,
+            "uncertainty": (
+                "Wilson 95% interval for mention rate; repeat-pair agreement reported separately"
+            ),
+        },
+    }
     return facts
 
 

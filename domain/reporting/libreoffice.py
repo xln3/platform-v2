@@ -16,9 +16,12 @@ import subprocess
 import sys
 import tempfile
 import time
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
+from io import BytesIO
 from pathlib import Path
 from typing import Any
+from zipfile import ZipFile
 
 _UNO_PATHS = (
     Path("/usr/lib/python3/dist-packages"),
@@ -104,6 +107,56 @@ def _property(uno: Any, name: str, value: Any) -> Any:
     return item
 
 
+def _visible_external_links(payload: bytes) -> tuple[tuple[str, str], ...]:
+    """Read visible URL labels and targets from the input OOXML relationship graph."""
+
+    try:
+        with ZipFile(BytesIO(payload)) as archive:
+            document = ET.fromstring(archive.read("word/document.xml"))
+            relationships = ET.fromstring(archive.read("word/_rels/document.xml.rels"))
+    except (KeyError, ET.ParseError, OSError):
+        return ()
+    relationship_ns = "http://schemas.openxmlformats.org/package/2006/relationships"
+    office_relationship_ns = (
+        "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    )
+    word_ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    targets = {
+        str(node.attrib.get("Id")): str(node.attrib.get("Target"))
+        for node in relationships.findall(f"{{{relationship_ns}}}Relationship")
+        if node.attrib.get("TargetMode") == "External"
+        and str(node.attrib.get("Type") or "").endswith("/hyperlink")
+        and str(node.attrib.get("Target") or "").startswith(("http://", "https://"))
+    }
+    output: list[tuple[str, str]] = []
+    for link in document.iter(f"{{{word_ns}}}hyperlink"):
+        relation_id = link.attrib.get(f"{{{office_relationship_ns}}}id")
+        target = targets.get(str(relation_id))
+        label = "".join(
+            node.text or "" for node in link.iter(f"{{{word_ns}}}t")
+        ).strip()
+        if target and label.startswith(("http://", "https://")):
+            output.append((label, target))
+    return tuple(output)
+
+
+def _activate_visible_links(document: Any, links: tuple[tuple[str, str], ...]) -> None:
+    """Work around LibreOffice 7.3 losing imported OOXML URL annotations."""
+
+    for label, target in links:
+        descriptor = document.createSearchDescriptor()
+        descriptor.SearchString = label
+        found = document.findFirst(descriptor)
+        if found is None:
+            raise ReportRuntimeDependencyError("visible_hyperlink_text_missing")
+        try:
+            found.setPropertyValue("HyperLinkURL", target)
+            found.setPropertyValue("VisitedCharStyleName", "Visited Internet Link")
+            found.setPropertyValue("UnvisitedCharStyleName", "Internet link")
+        except Exception as exc:
+            raise ReportRuntimeDependencyError("visible_hyperlink_activation_failed") from exc
+
+
 def refresh_docx_and_export_pdf(
     payload: bytes,
     *,
@@ -113,6 +166,7 @@ def refresh_docx_and_export_pdf(
 
     runtime = report_runtime_preflight()
     uno = _load_uno()
+    visible_links = _visible_external_links(payload)
     port = _free_port()
     with tempfile.TemporaryDirectory(prefix="geo-formal-report-") as directory:
         root = Path(directory).resolve()
@@ -167,12 +221,26 @@ def refresh_docx_and_export_pdf(
                 indexes = document.getDocumentIndexes()
                 for index in range(indexes.getCount()):
                     indexes.getByIndex(index).update()
+                _activate_visible_links(document, visible_links)
                 document.store()
+                filter_data = (
+                    _property(uno, "UseTaggedPDF", True),
+                    _property(uno, "PDFUACompliance", True),
+                    _property(uno, "ExportBookmarks", True),
+                    _property(uno, "ExportBookmarksToPDFDestination", True),
+                    _property(uno, "ConvertOOoTargetToPDFTarget", True),
+                    _property(uno, "ExportLinksRelativeFsys", False),
+                )
                 document.storeToURL(
                     pdf_path.as_uri(),
                     (
                         _property(uno, "FilterName", "writer_pdf_Export"),
                         _property(uno, "Overwrite", True),
+                        _property(
+                            uno,
+                            "FilterData",
+                            uno.Any("[]com.sun.star.beans.PropertyValue", filter_data),
+                        ),
                     ),
                 )
             finally:

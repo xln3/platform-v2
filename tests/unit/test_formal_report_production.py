@@ -84,6 +84,89 @@ def test_request_contract_requires_service4_windows_and_rejects_duplicates() -> 
         )
 
 
+def test_governed_release_contract_requires_preparation_and_candidate_review() -> None:
+    window = FormalWindow(date(2026, 8, 1), date(2026, 8, 13))
+    with pytest.raises(FormalProductionInvalid, match="document_governance_required"):
+        request_contract(
+            project_pub_id="prj_unit",
+            services=[1],
+            window=window,
+            document_status="internal_review",
+            candidate_group_strategy="preregistered_scope_v1",
+            before_window=None,
+            after_window=None,
+        )
+    with pytest.raises(FormalProductionInvalid, match="candidate_review_record_required"):
+        request_contract(
+            project_pub_id="prj_unit",
+            services=[1],
+            window=window,
+            document_status="delivery_candidate",
+            candidate_group_strategy="preregistered_scope_v1",
+            before_window=None,
+            after_window=None,
+            document_governance={
+                "version": "V1.0",
+                "prepared_by": "编制员",
+                "prepared_date": "2026-08-14",
+            },
+        )
+    contract = request_contract(
+        project_pub_id="prj_unit",
+        services=[1],
+        window=window,
+        document_status="delivery_candidate",
+        candidate_group_strategy="preregistered_scope_v1",
+        before_window=None,
+        after_window=None,
+        document_governance={
+            "version": "V1.0",
+            "prepared_by": "编制员",
+            "prepared_date": "2026-08-14",
+            "reviewed_by": "复核员",
+            "reviewed_date": "2026-08-14",
+        },
+    )
+    assert contract["document_governance"]["reviewed_by"] == "复核员"
+
+
+def test_signed_filename_uses_governed_approval_date(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Result:
+        def fetchone(self) -> dict[str, object]:
+            return {
+                "project_name": "客户项目",
+                "document_status": "approved_signed",
+                "document_governance": {
+                    "version": "V1.0",
+                    "prepared_date": "2026-08-14",
+                    "approved_date": "2026-08-15",
+                },
+                "frozen_at": datetime(2026, 8, 12, tzinfo=UTC),
+            }
+
+    class Connection:
+        def execute(self, *args: object, **kwargs: object) -> Result:
+            del args, kwargs
+            return Result()
+
+    @contextmanager
+    def fake_connection(*args: object, **kwargs: object):
+        del args, kwargs
+        yield Connection()
+
+    monkeypatch.setattr(production, "tenant_connection", fake_connection)
+    service = FormalReportProductionService(
+        dsn="postgresql://unit", evidence=SimpleNamespace(store=SimpleNamespace())
+    )
+
+    assert service.artifact_filename(
+        tenant_pub_id="ten_unit",
+        production_pub_id="frp_unit",
+        service_number=1,
+        format_name="pdf",
+    ) == "客户项目_服务1_V1.0_已批准签发版_20260815.pdf"
+
+
 def test_worker_rejects_a_persisted_request_whose_contract_drifted() -> None:
     window = FormalWindow(date(2026, 7, 1), date(2026, 7, 31))
     contract = request_contract(
@@ -104,6 +187,7 @@ def test_worker_rejects_a_persisted_request_whose_contract_drifted() -> None:
         "window_end": window.end,
         "document_status": "pre_formal",
         "candidate_group_strategy": "evidence_completeness_v1",
+        "document_governance": {},
         "frozen_at": datetime(2026, 8, 12, tzinfo=UTC),
         "created_by_pub_id": "usr_unit",
         "request_hash": production._canonical_hash(contract),
@@ -887,6 +971,7 @@ def _production_row(status: str = "awaiting_review") -> dict[str, Any]:
         "before_window": None,
         "after_window": None,
         "candidate_group_strategy": "evidence_completeness_v1",
+        "document_governance": {},
         "workflow_id": "formal-report/ten_unit/frp_unit",
         "fact_snapshot_hash": "a" * 64,
         "outputs": [],
@@ -902,7 +987,10 @@ def test_review_endpoint_queues_idempotent_signal_and_keeps_review_status(
     class FakeService:
         def get(self, **kwargs: object) -> dict[str, Any]:
             del kwargs
-            return _production_row() | {"document_status": "formal"}
+            return _production_row() | {
+                "document_status": "delivery_candidate",
+                "candidate_group_strategy": "preregistered_scope_v1",
+            }
 
     class FakeSession:
         def scalar(self, statement: object) -> object:
@@ -919,7 +1007,7 @@ def test_review_endpoint_queues_idempotent_signal_and_keeps_review_status(
                 def one_or_none(self) -> dict[str, object]:
                     return {
                         "status": "awaiting_review",
-                        "document_status": "formal",
+                        "document_status": "delivery_candidate",
                         "review_request_hash": None,
                     }
 
@@ -1008,7 +1096,7 @@ def test_review_endpoint_rejects_pre_formal_approval_before_signal(
     finally:
         app.dependency_overrides.pop(production_router.get_principal, None)
     assert response.status_code == 409
-    assert "pre_formal_cannot_be_signed" in str(response.json())
+    assert "delivery_candidate_required" in str(response.json())
     assert signals == []
 
 

@@ -11,7 +11,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from PIL import Image, UnidentifiedImageError
 
@@ -551,138 +551,103 @@ def _largest_visible(page: Any, selector: str) -> Any:
     return best[1]
 
 
-def _capture_yiyan_share_card_tiled(page: Any, out_path: Path) -> dict[str, Any]:
-    """Stitch Wenxin's official share preview from its real scroll viewport.
+_YIYAN_SHARE_UPLOAD_URL_RE = re.compile(r"https://[^/]*\.bcebos\.com/.*fileManager/")
 
-    The preview card is roughly 6k pixels tall, while Wenxin paints only the
-    currently visible 452px dialog-body slice.  A locator/full-page screenshot
-    therefore produces a deceptive long PNG whose lower 90% is blank.  Scrolling
-    the platform's own preview viewport and stitching those painted slices keeps
-    every pixel sourced from the official preview without inventing content.
+
+def _download_yiyan_share_image(
+    page: Any,
+    out_path: Path,
+    *,
+    click: Callable[[Any], None] | None = None,
+    timeout_ms: int = 60_000,
+    settle_ms: int = 3_000,
+) -> dict[str, Any]:
+    """Take Wenxin's official share image from the「下载图片」button's own payload.
+
+    The preview dialog's download button renders the full share card client-side
+    and multipart-uploads the PNG to ``aisearch.bj.bcebos.com`` (BOS) before
+    offering it.  The collection relay resets request bodies beyond ~128 KiB
+    (live-verified 2026-08-13: every PUT part dies with ERR_CONNECTION_RESET and
+    the platform toasts 网络异常), so the upload can never complete through it.
+    The PUT payloads are nevertheless the platform's own rendered image, so this
+    capture intercepts the parts, reassembles them in ``partNumber`` order and
+    aborts the doomed requests.  Fail-closed: no payload, non-contiguous parts or
+    an invalid reassembled PNG raise OfficialShareExportError — never fall back
+    to a preview-window screenshot.
     """
 
-    metrics = page.evaluate(
-        """() => {
-          const body = document.querySelector('.cos-dialog-body');
-          const root = document.querySelector('div[class^="_share-wrapper_"] > div');
-          if (!body || !root) return null;
-          const control = Array.from(body.children).find(
-            (el) => String(el.className).startsWith('_footer_'));
-          const record = {
-            bodyScrollTop: body.scrollTop,
-            control: control,
-            controlHadStyle: !!control && control.hasAttribute('style'),
-            controlStyle: control ? (control.getAttribute('style') || '') : ''
-          };
-          window.__geoYiyanShareCapture = record;
-          if (control) control.style.setProperty('display', 'none', 'important');
-          body.scrollTop = 0;
-          const rect = root.getBoundingClientRect();
-          return {
-            width: rect.width,
-            height: rect.height,
-            step: body.clientHeight,
-            maxScroll: body.scrollHeight - body.clientHeight
-          };
-        }"""
-    )
-    if not isinstance(metrics, dict):
-        raise OfficialShareExportError("Wenxin official share preview was not found")
-    try:
-        width = float(metrics["width"])
-        height = float(metrics["height"])
-        step = int(metrics["step"])
-        max_scroll = int(metrics["maxScroll"])
-    except (KeyError, TypeError, ValueError) as exc:
-        raise OfficialShareExportError("Wenxin share preview bounds were invalid") from exc
-    if width <= 0 or height <= 0 or width > 5_000 or height > 50_000 or step <= 0:
-        raise OfficialShareExportError("Wenxin share preview bounds were unsafe")
+    parts: dict[int, bytes] = {}
 
-    positions = list(range(0, max_scroll + 1, step))
-    if not positions or positions[-1] != max_scroll:
-        positions.append(max_scroll)
-    if len(positions) > 200:
-        raise OfficialShareExportError("Wenxin share preview required too many tiles")
+    def _handle(route: Any) -> None:
+        request = route.request
+        if str(request.method).upper() != "PUT":
+            route.continue_()
+            return
+        query = parse_qs(urlsplit(str(request.url)).query)
+        try:
+            part_number = int((query.get("partNumber") or [""])[0])
+        except (TypeError, ValueError):
+            part_number = -1
+        try:
+            body = request.post_data_buffer
+        except Exception:
+            body = None
+        if part_number >= 1 and body:
+            parts[part_number] = bytes(body)
+        route.abort()
 
-    canvas: Image.Image | None = None
-    scale_x = 1.0
-    scale_y = 1.0
-    painted_bottom = 0
+    click_control = click or (lambda locator: locator.click(timeout=8_000))
+    page.route(_YIYAN_SHARE_UPLOAD_URL_RE, _handle)
     try:
-        for position in positions:
-            raw_tile = page.evaluate(
-                """(position) => {
-                  const body = document.querySelector('.cos-dialog-body');
-                  const root = document.querySelector(
-                    'div[class^="_share-wrapper_"] > div');
-                  if (!body || !root) return null;
-                  body.scrollTop = position;
-                  const bodyRect = body.getBoundingClientRect();
-                  const rootRect = root.getBoundingClientRect();
-                  const top = Math.max(bodyRect.top, rootRect.top);
-                  const bottom = Math.min(bodyRect.bottom, rootRect.bottom);
-                  return {
-                    x: rootRect.x,
-                    y: top,
-                    width: rootRect.width,
-                    height: Math.max(0, bottom - top),
-                    pasteY: top - rootRect.top
-                  };
-                }""",
-                position,
-            )
-            if not isinstance(raw_tile, dict) or float(raw_tile.get("height") or 0) <= 0:
+        download = _first_enabled(
+            page,
+            (
+                '.cos-dialog button:has-text("下载图片")',
+                '.cos-dialog [role="button"]:has-text("下载图片")',
+            ),
+            timeout_ms=10_000,
+        )
+        click_control(download)
+        deadline = time.monotonic() + timeout_ms / 1_000
+        last_count = 0
+        stable_since: float | None = None
+        while time.monotonic() < deadline:
+            page.wait_for_timeout(500)
+            count = len(parts)
+            if count == 0:
                 continue
-            page.wait_for_timeout(100)
-            clip = {key: float(raw_tile[key]) for key in ("x", "y", "width", "height")}
-            tile_bytes = page.screenshot(clip=clip, animations="disabled")
-            with Image.open(io.BytesIO(tile_bytes)) as tile_image:
-                tile_image.load()
-                tile = tile_image.convert("RGB")
-            if canvas is None:
-                scale_x = tile.width / clip["width"]
-                scale_y = tile.height / clip["height"]
-                canvas = Image.new(
-                    "RGB",
-                    (round(width * scale_x), round(height * scale_y)),
-                    "white",
-                )
-            paste_y = round(float(raw_tile["pasteY"]) * scale_y)
-            canvas.paste(tile, (0, paste_y))
-            painted_bottom = max(painted_bottom, paste_y + tile.height)
-
-        if canvas is None or painted_bottom < canvas.height - 2:
-            raise OfficialShareExportError("Wenxin share preview tiles were incomplete")
-        canvas.save(out_path, format="PNG")
-        if out_path.stat().st_size > _MAX_SHARE_IMAGE_BYTES:
-            raise OfficialShareExportError("Wenxin official share preview exceeded size limit")
+            if count != last_count:
+                last_count = count
+                stable_since = time.monotonic()
+            elif (
+                stable_since is not None and (time.monotonic() - stable_since) * 1_000 >= settle_ms
+            ):
+                break
+        if not parts:
+            raise OfficialShareExportError(
+                "Wenxin share download produced no upload payload (the 下载图片 "
+                "click did not reach the platform's BOS multipart upload)"
+            )
+        ordered_numbers = sorted(parts)
+        if ordered_numbers != list(range(1, len(parts) + 1)):
+            raise OfficialShareExportError(
+                f"Wenxin share upload parts were not contiguous: {ordered_numbers}"
+            )
+        data = b"".join(parts[number] for number in ordered_numbers)
+        if len(data) > _MAX_SHARE_IMAGE_BYTES:
+            raise OfficialShareExportError("Wenxin share download exceeded size limit")
+        out_path.write_bytes(data)
+        if not valid_png(out_path):
+            raise OfficialShareExportError("Wenxin share download payload is not a valid PNG")
         return {
-            "tile_count": len(positions),
-            "width": canvas.width,
-            "height": canvas.height,
+            "image_source": "share_download_button",
+            "upload_transport": "bos_upload_intercept",
+            "part_count": len(ordered_numbers),
+            "image_bytes": len(data),
         }
-    except (OSError, UnidentifiedImageError, ValueError) as exc:
-        raise OfficialShareExportError("Wenxin official share preview was invalid") from exc
     finally:
         try:
-            page.evaluate(
-                """() => {
-                  const body = document.querySelector('.cos-dialog-body');
-                  const record = window.__geoYiyanShareCapture;
-                  if (!record) return false;
-                  if (body) body.scrollTop = record.bodyScrollTop;
-                  const control = record.control;
-                  if (control && control.isConnected) {
-                    if (record.controlHadStyle) {
-                      control.setAttribute('style', record.controlStyle);
-                    } else {
-                      control.removeAttribute('style');
-                    }
-                  }
-                  delete window.__geoYiyanShareCapture;
-                  return true;
-                }"""
-            )
+            page.unroute(_YIYAN_SHARE_UPLOAD_URL_RE, _handle)
         except Exception:
             pass
 
@@ -717,12 +682,12 @@ def capture_yiyan_official_share(
     *,
     click: Callable[[Any], None] | None = None,
 ) -> OfficialShareArtifacts:
-    """Capture Wenxin's official share-card preview and copied public link."""
+    """Capture Wenxin's official share download (下载图片) and copied public link."""
 
     click_control = click or (lambda locator: locator.click(timeout=8_000))
     out_path.parent.mkdir(parents=True, exist_ok=True)
     _grant_clipboard(page)
-    audit: dict[str, Any] = {"platform": "yiyan", "image_source": "share_preview_card"}
+    audit: dict[str, Any] = {"platform": "yiyan", "image_source": "share_download_button"}
     try:
         share = _prepare_yiyan_share_button(page)
         click_control(share)
@@ -753,11 +718,8 @@ def capture_yiyan_official_share(
             timeout_ms=30_000,
         )
         page.wait_for_timeout(1_000)  # preview card fonts/images finish hydrating
-        capture_audit = _capture_yiyan_share_card_tiled(page, out_path)
-        if not valid_png(out_path):
-            raise OfficialShareExportError("Wenxin official share preview is not a valid PNG")
+        capture_audit = _download_yiyan_share_image(page, out_path, click=click_control)
         audit["share_url"] = share_url
-        audit["image_bytes"] = out_path.stat().st_size
         audit.update(capture_audit)
         return OfficialShareArtifacts(out_path, share_url, audit)
     finally:

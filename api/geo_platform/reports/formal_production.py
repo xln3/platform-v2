@@ -14,11 +14,12 @@ import hmac
 import json
 import re
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time
 from hashlib import sha256
 from importlib import import_module
 from typing import Any, Protocol, cast
+from zoneinfo import ZoneInfo
 
 import psycopg
 from psycopg.rows import dict_row
@@ -29,6 +30,13 @@ from domain.evidence.provenance import AccessClass, CaptureChannel, RedactedProv
 from domain.reporting.freeze import ReportFreeze, freeze_report
 from domain.reporting.libreoffice import refresh_docx_and_export_pdf, report_runtime_preflight
 from domain.reporting.policy import assert_customer_report_safe
+from domain.reporting.publication_qa import (
+    compare_reexport,
+    displayed_service1_urls,
+    inspect_publication,
+)
+from domain.reporting.service1_artifacts import render_service1_sidecars
+from domain.reporting.service1_governance import release_state_label
 from geo_platform.evidence.service import EvidenceService
 from geo_platform.tenancy.psycopg import tenant_connection
 
@@ -38,7 +46,8 @@ from .formal_review_service2 import enrich_service2_v2_facts
 from .service3_review_v2 import build_service3_review_v2_facts
 
 FORMAL_WORKFLOW_TYPE = "formal_report_production"
-FORMAL_STRATEGY = "evidence_completeness_v1"
+FORMAL_STRATEGY = "preregistered_scope_v1"
+LEGACY_FORMAL_STRATEGY = "evidence_completeness_v1"
 FORMAL_METRIC_VERSION = "formal-review-metrics-v2"
 FORMAL_SCORER_VERSION = "formal-review-evidence-v2"
 
@@ -48,6 +57,24 @@ SERVICE_TITLES: dict[int, str] = {
     3: "官网内容 AI 引用能效评估报告",
     4: "GEO 试点与效果验证报告",
 }
+
+_MIME_TYPES = {
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "pdf": "application/pdf",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "zip": "application/zip",
+    "manifest": "application/json",
+}
+
+
+def _artifact_formats(service: int, document_status: str) -> tuple[str, ...]:
+    if service == 1 and document_status in {
+        "internal_review",
+        "delivery_candidate",
+        "approved_signed",
+    }:
+        return ("docx", "pdf", "xlsx", "zip", "manifest")
+    return ("docx", "pdf", "manifest")
 
 
 class FormalProductionNotFound(LookupError):
@@ -112,6 +139,7 @@ class FormalProductionRequest:
     request_hash: str
     before_window: FormalWindow | None = None
     after_window: FormalWindow | None = None
+    document_governance: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,16 +210,53 @@ def request_contract(
     candidate_group_strategy: str,
     before_window: FormalWindow | None,
     after_window: FormalWindow | None,
+    document_governance: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     normalized_services = normalize_services(services)
     if window.start > window.end:
         raise FormalProductionInvalid("invalid_window")
     if (window.end - window.start).days > 366:
         raise FormalProductionInvalid("window_too_large")
-    if document_status not in {"pre_formal", "formal"}:
+    if document_status not in {
+        "pre_formal",
+        "formal",
+        "internal_review",
+        "delivery_candidate",
+    }:
         raise FormalProductionInvalid("invalid_document_status")
-    if candidate_group_strategy != FORMAL_STRATEGY:
+    if candidate_group_strategy not in {FORMAL_STRATEGY, LEGACY_FORMAL_STRATEGY}:
         raise FormalProductionInvalid("invalid_candidate_group_strategy")
+    if document_status in {"internal_review", "delivery_candidate"} and (
+        candidate_group_strategy != FORMAL_STRATEGY
+    ):
+        raise FormalProductionInvalid("preregistered_scope_strategy_required")
+    if document_status in {"internal_review", "delivery_candidate"} and (
+        document_governance is None
+    ):
+        raise FormalProductionInvalid("document_governance_required")
+    governance: dict[str, Any] | None = None
+    if document_governance is not None:
+        governance = {
+            "version": str(document_governance.get("version") or "").strip(),
+            "prepared_by": str(document_governance.get("prepared_by") or "").strip(),
+            "reviewed_by": str(document_governance.get("reviewed_by") or "").strip() or None,
+            "prepared_date": str(document_governance.get("prepared_date") or "").strip(),
+            "reviewed_date": str(document_governance.get("reviewed_date") or "").strip() or None,
+        }
+        if not re.fullmatch(r"V[1-9]\d*\.\d+", governance["version"]):
+            raise FormalProductionInvalid("invalid_report_version")
+        if not governance["prepared_by"] or not governance["prepared_date"]:
+            raise FormalProductionInvalid("document_preparation_record_required")
+        try:
+            date.fromisoformat(governance["prepared_date"])
+            if governance["reviewed_date"]:
+                date.fromisoformat(str(governance["reviewed_date"]))
+        except ValueError as exc:
+            raise FormalProductionInvalid("invalid_governance_date") from exc
+        if document_status == "delivery_candidate" and (
+            not governance["reviewed_by"] or not governance["reviewed_date"]
+        ):
+            raise FormalProductionInvalid("candidate_review_record_required")
     if 4 in normalized_services:
         if before_window is None or after_window is None:
             raise FormalProductionInvalid("service4_windows_required")
@@ -201,7 +266,7 @@ def request_contract(
             raise FormalProductionInvalid("comparison_windows_overlap")
     elif before_window is not None or after_window is not None:
         raise FormalProductionInvalid("comparison_windows_require_service4")
-    return {
+    contract = {
         "project_pub_id": project_pub_id,
         "services": list(normalized_services),
         "window": {"start": window.start.isoformat(), "end": window.end.isoformat()},
@@ -218,6 +283,11 @@ def request_contract(
             else None
         ),
     }
+    # Legacy immutable rows predate the governance record; omitting the key for
+    # those requests preserves their historical request hash.
+    if governance is not None:
+        contract["document_governance"] = governance
+    return contract
 
 
 _DROP = object()
@@ -238,6 +308,7 @@ _INTERNAL_KEYS = frozenset(
         "candidate_group_id",
         "group_id",
         "selected_group_ids",
+        "cited_text",
         "workflow_id",
         "id",
     }
@@ -386,7 +457,56 @@ def formal_evidence_gate(service: int, facts: Mapping[str, Any]) -> tuple[bool, 
     reasons: list[str] = []
     if service == 1:
         service_facts = facts.get("service1")
-        delivery = service_facts.get("delivery_v2") if isinstance(service_facts, Mapping) else None
+        delivery = service_facts.get("delivery_v3") if isinstance(service_facts, Mapping) else None
+        if not isinstance(delivery, Mapping):
+            # Read-only compatibility for already frozen v2 productions.  New
+            # requests cannot use this path because their strategy is preregistered_scope_v1.
+            legacy = (
+                service_facts.get("delivery_v2")
+                if isinstance(service_facts, Mapping)
+                else None
+            )
+            selected = [
+                row
+                for row in (
+                    service_facts.get("candidate_groups", [])
+                    if isinstance(service_facts, Mapping)
+                    else []
+                )
+                if isinstance(row, Mapping) and row.get("selected_for_main_report")
+            ]
+            scope = legacy.get("scope") if isinstance(legacy, Mapping) else None
+            registry = legacy.get("sample_registry") if isinstance(legacy, Mapping) else None
+            required = int(service_facts.get("quotation_required_repetitions_per_cell") or 0)
+            if len(selected) != 3:
+                reasons.append("three_complete_candidate_groups_required")
+            if any(
+                int(group.get("observed_cells") or 0)
+                != int(group.get("expected_cells") or 0)
+                or int(group.get("expected_cells") or 0) <= 0
+                for group in selected
+            ):
+                reasons.append("selected_candidate_group_cells_incomplete")
+            answers = int(scope.get("answers") or 0) if isinstance(scope, Mapping) else 0
+            if not answers or int(scope.get("extract_ok") or 0) != answers:
+                reasons.append("brand_extraction_incomplete")
+            if (
+                int(scope.get("current_repetitions") or 0)
+                if isinstance(scope, Mapping)
+                else 0
+            ) < required or required <= 0:
+                reasons.append("quotation_repetitions_incomplete")
+            if (
+                not isinstance(registry, Sequence)
+                or len(registry) != answers
+                or any(
+                    not isinstance(row, Mapping)
+                    or not (row.get("has_share_image") or row.get("has_answer_screenshot"))
+                    for row in registry
+                )
+            ):
+                reasons.append("answer_visual_evidence_incomplete")
+            return not reasons, tuple(dict.fromkeys(reasons))
         scope = delivery.get("scope") if isinstance(delivery, Mapping) else None
         required = (
             int(service_facts.get("quotation_required_repetitions_per_cell") or 0)
@@ -396,15 +516,17 @@ def formal_evidence_gate(service: int, facts: Mapping[str, Any]) -> tuple[bool, 
         current = int(scope.get("current_repetitions") or 0) if isinstance(scope, Mapping) else 0
         answers = int(scope.get("answers") or 0) if isinstance(scope, Mapping) else 0
         extracts = int(scope.get("extract_ok") or 0) if isinstance(scope, Mapping) else 0
-        selected = (
-            [
-                row
-                for row in service_facts.get("candidate_groups", [])
-                if isinstance(row, Mapping) and row.get("selected_for_main_report")
-            ]
-            if isinstance(service_facts, Mapping)
-            else []
-        )
+        selected = delivery.get("selected_groups", []) if isinstance(delivery, Mapping) else []
+        quotation = delivery.get("quotation_gate") if isinstance(delivery, Mapping) else None
+        if not isinstance(quotation, Mapping) or quotation.get("status") != "ready":
+            reasons.extend(
+                str(value)
+                for value in (
+                    quotation.get("reasons", []) if isinstance(quotation, Mapping) else []
+                )
+            )
+            if not reasons:
+                reasons.append("service1_quotation_gate_incomplete")
         if len(selected) != 3:
             reasons.append("three_complete_candidate_groups_required")
         if any(
@@ -423,11 +545,17 @@ def formal_evidence_gate(service: int, facts: Mapping[str, Any]) -> tuple[bool, 
             or len(registry) != answers
             or any(
                 not isinstance(row, Mapping)
-                or not (row.get("has_share_image") or row.get("has_answer_screenshot"))
+                or not row.get("answer_evidence")
+                or not row.get("screenshot_evidence")
+                or not row.get("share_image_evidence")
                 for row in registry
             )
         ):
             reasons.append("answer_visual_evidence_incomplete")
+        if int(scope.get("unclassified_entities") or 0) > 0:
+            reasons.append("entity_master_classification_incomplete")
+        if not delivery.get("representative_platforms_complete"):
+            reasons.append("three_platform_representative_evidence_required")
     elif service == 2:
         service_facts = facts.get("service2")
         delivery = service_facts.get("delivery_v2") if isinstance(service_facts, Mapping) else None
@@ -593,8 +721,8 @@ class _Service1Adapter:
 
     def render(self, facts: dict[str, Any], *, blob_loader: Callable[[str, str], bytes]) -> bytes:
         renderer = import_module(
-            "domain.reporting.formal_review_service1_docx"
-        ).render_service1_v2_docx
+            "domain.reporting.formal_service1_delivery_docx"
+        ).render_service1_delivery_docx
         assets = {
             answer_id: blob_loader(str(row["object_key"]), str(row["sha256"]))
             for answer_id, row in facts.get("_formal_evidence_assets", {}).items()
@@ -755,6 +883,7 @@ class FormalReportProductionService:
         idempotency_key: str,
         created_by_pub_id: str,
         task_queue: str,
+        document_governance: Mapping[str, Any] | None = None,
     ) -> tuple[dict[str, Any], bool]:
         contract = request_contract(
             project_pub_id=project_pub_id,
@@ -764,6 +893,7 @@ class FormalReportProductionService:
             candidate_group_strategy=candidate_group_strategy,
             before_window=before_window,
             after_window=after_window,
+            document_governance=document_governance,
         )
         project_exists = session.execute(
             text(
@@ -819,11 +949,12 @@ class FormalReportProductionService:
                   pub_id,tenant_pub_id,project_pub_id,services,window_start,window_end,
                   before_start,before_end,after_start,after_end,document_status,
                   candidate_group_strategy,idempotency_key_hash,request_hash,workflow_id,
-                  created_by_pub_id
+                  created_by_pub_id,document_governance
                 ) VALUES (
                   :pub_id,:tenant_pub_id,:project_pub_id,:services,:window_start,:window_end,
                   :before_start,:before_end,:after_start,:after_end,:document_status,
-                  :strategy,:key_hash,:request_hash,:workflow_id,:created_by
+                  :strategy,:key_hash,:request_hash,:workflow_id,:created_by,
+                  CAST(:document_governance AS jsonb)
                 )
                 ON CONFLICT (tenant_pub_id,idempotency_key_hash) DO NOTHING
                 RETURNING pub_id
@@ -846,6 +977,9 @@ class FormalReportProductionService:
                 "request_hash": contract_hash,
                 "workflow_id": workflow_id,
                 "created_by": created_by_pub_id,
+                "document_governance": json.dumps(
+                    contract.get("document_governance") or {}, ensure_ascii=False
+                ),
             },
         ).scalar_one_or_none()
         created = inserted is not None
@@ -925,7 +1059,12 @@ class FormalReportProductionService:
                 for artifact in artifacts
                 if isinstance(artifact, Mapping)
             }
-            if formats != {"docx", "pdf", "manifest"} or len(artifacts) != 3:
+            expected_formats = set(
+                _artifact_formats(
+                    int(output["service_number"]), str(row.get("document_status") or "")
+                )
+            )
+            if formats != expected_formats or len(artifacts) != len(expected_formats):
                 raise FormalProductionIncomplete("formal_artifacts_incomplete")
             if any(
                 not isinstance(artifact, Mapping)
@@ -1048,6 +1187,216 @@ class FormalReportProductionService:
                 raise FormalProductionNotFound("formal_production_not_found")
         return self._public_row(dict(row), outputs=[])
 
+    def _prepare_signed_bundle(
+        self,
+        *,
+        tenant_pub_id: str,
+        production_pub_id: str,
+        approver_pub_id: str,
+    ) -> tuple[FormalProductionRequest, dict[int, dict[str, Any]], dict[int, dict[str, bytes]]]:
+        """Re-render an approved candidate with signed chrome and a new immutable version."""
+
+        with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
+            row = connection.execute(
+                """SELECT * FROM reporting.formal_report_production
+                   WHERE tenant_pub_id=%s AND pub_id=%s""",
+                (tenant_pub_id, production_pub_id),
+            ).fetchone()
+        if row is None:
+            raise FormalProductionNotFound("formal_production_not_found")
+        if row["status"] == "signed" and row["document_status"] == "approved_signed":
+            raise FormalProductionConflict("formal_production_already_signed")
+        if row["document_status"] != "delivery_candidate":
+            raise FormalProductionConflict("delivery_candidate_required")
+        candidate_request = self._request_from_row(row)
+        candidate_facts, _ = self._freeze_facts(candidate_request)
+        signed_at = datetime.now(UTC)
+        governance = {
+            **dict(candidate_request.document_governance or {}),
+            "approved_by": approver_pub_id,
+            "approved_date": signed_at.astimezone(ZoneInfo("Asia/Shanghai")).date().isoformat(),
+        }
+        signed_request = replace(
+            candidate_request,
+            document_status="approved_signed",
+            frozen_at=signed_at,
+            document_governance=governance,
+        )
+        signed_facts = copy.deepcopy(candidate_facts)
+        for service, value in signed_facts.items():
+            value["document_status"] = "approved_signed"
+            value["document_governance"] = governance
+            ready, reasons = formal_evidence_gate(service, value)
+            if not ready:
+                raise FormalProductionInvalid(
+                    "approval_data_gate_drifted:" + ",".join(reasons)
+                )
+            value["formal_evidence_gate"] = {"status": "ready", "reasons": []}
+        return signed_request, signed_facts, self._render_artifacts(signed_request, signed_facts)
+
+    def _persist_signed_service(
+        self,
+        *,
+        connection: psycopg.Connection[Any],
+        candidate_version_pub_id: str,
+        report_pub_id: str,
+        service: int,
+        request: FormalProductionRequest,
+        facts: Mapping[str, Any],
+        artifacts: Mapping[str, bytes],
+    ) -> str:
+        """Persist the post-approval rendering as version 2 and point delivery at it."""
+
+        expected_formats = set(_artifact_formats(service, "approved_signed"))
+        if set(artifacts) != expected_formats:
+            raise FormalProductionIncomplete("signed_artifacts_incomplete")
+        frozen = _freeze_service_fact(request, service, facts)
+        customer_facts = customer_fact_snapshot(facts)
+        if not isinstance(customer_facts, dict):
+            raise FormalProductionIncomplete("customer_fact_snapshot_invalid")
+        version_pub_id = _stable_pub_id(
+            "rptv", request.tenant_pub_id, request.pub_id, service, "approved-signed"
+        )
+        filters = dict(frozen.filters)
+        connection.execute(
+            """
+            INSERT INTO reporting.report_version (
+              pub_id,tenant_pub_id,report_pub_id,version_number,window_start,window_end,
+              filters,filter_hash,metric_version,scorer_version,fact_snapshot_hash,
+              status,ai_draft_hash,human_edit_hash,created_by_pub_id
+            ) VALUES (%s,%s,%s,2,%s,%s,%s,%s,%s,%s,%s,'published',%s,%s,%s)
+            """,
+            (
+                version_pub_id,
+                request.tenant_pub_id,
+                report_pub_id,
+                frozen.window_start,
+                frozen.window_end,
+                json.dumps(filters, ensure_ascii=False),
+                frozen.filter_hash,
+                frozen.metric_version,
+                frozen.scorer_version,
+                frozen.fact_snapshot_hash,
+                sha256(artifacts["docx"]).hexdigest(),
+                sha256(artifacts["pdf"]).hexdigest(),
+                str((facts.get("document_governance") or {}).get("approved_by")),
+            ),
+        )
+        component = {
+            "service_number": service,
+            "title": SERVICE_TITLES[service],
+            "document_status": "approved_signed",
+            "fact_snapshot_hash": frozen.fact_snapshot_hash,
+        }
+        connection.execute(
+            """
+            INSERT INTO reporting.report_component (
+              pub_id,tenant_pub_id,report_version_pub_id,component_type,ordinal,payload,source
+            ) VALUES (%s,%s,%s,'section',0,%s,'system')
+            """,
+            (
+                _stable_pub_id("rptc", request.tenant_pub_id, version_pub_id),
+                request.tenant_pub_id,
+                version_pub_id,
+                json.dumps(component, ensure_ascii=False),
+            ),
+        )
+        fact_payload = _canonical_json(customer_facts)
+        connection.execute(
+            """
+            INSERT INTO reporting.report_frozen_fact (
+              pub_id,tenant_pub_id,report_version_pub_id,ordinal,payload,payload_hash
+            ) VALUES (%s,%s,%s,0,%s,%s)
+            """,
+            (
+                _stable_pub_id("rptf", request.tenant_pub_id, version_pub_id),
+                request.tenant_pub_id,
+                version_pub_id,
+                fact_payload,
+                sha256(fact_payload.encode()).hexdigest(),
+            ),
+        )
+        for descriptor in evidence_descriptors(facts):
+            connection.execute(
+                """
+                INSERT INTO reporting.report_evidence_reference (
+                  pub_id,tenant_pub_id,report_version_pub_id,evidence_pub_id,purpose
+                ) VALUES (%s,%s,%s,%s,'formal_report_frozen_evidence')
+                """,
+                (
+                    _stable_pub_id(
+                        "rptev", request.tenant_pub_id, version_pub_id, descriptor["pub_id"]
+                    ),
+                    request.tenant_pub_id,
+                    version_pub_id,
+                    descriptor["pub_id"],
+                ),
+            )
+        provenance = RedactedProvenance(
+            platform_account_pub_id=None,
+            browser_profile_version_pub_id=None,
+            session_event_pub_id=None,
+            channel=CaptureChannel.API,
+            authorization_scope=("report:approve",),
+            adapter_version="formal-report-signing-v2",
+            capture_time=request.frozen_at,
+            access_class=AccessClass.CUSTOMER_PRIVATE,
+        )
+        for format_name in _artifact_formats(service, "approved_signed"):
+            evidence_pub_id = _stable_pub_id(
+                "evd",
+                request.tenant_pub_id,
+                request.pub_id,
+                service,
+                "approved-signed",
+                format_name,
+            )
+            captured = self.evidence.capture(
+                evidence_pub_id=evidence_pub_id,
+                tenant_pub_id=request.tenant_pub_id,
+                project_pub_id=request.project_pub_id,
+                kind=f"formal_report_service_{service}_approved_signed_{format_name}",
+                payload=artifacts[format_name],
+                mime_type=_MIME_TYPES[format_name],
+                source_url=None,
+                provenance=provenance,
+                db_connection=connection,
+            )
+            connection.execute(
+                """
+                INSERT INTO reporting.report_artifact (
+                  pub_id,tenant_pub_id,report_version_pub_id,format,evidence_pub_id
+                ) VALUES (%s,%s,%s,%s,%s)
+                """,
+                (
+                    _stable_pub_id(
+                        "rpta", request.tenant_pub_id, version_pub_id, format_name
+                    ),
+                    request.tenant_pub_id,
+                    version_pub_id,
+                    format_name,
+                    captured.metadata_pub_id or evidence_pub_id,
+                ),
+            )
+        connection.execute(
+            """UPDATE reporting.report_version SET status='superseded'
+               WHERE tenant_pub_id=%s AND pub_id=%s""",
+            (request.tenant_pub_id, candidate_version_pub_id),
+        )
+        connection.execute(
+            """UPDATE reporting.formal_report_output
+               SET report_version_pub_id=%s,fact_snapshot_hash=%s
+               WHERE tenant_pub_id=%s AND production_pub_id=%s AND service_number=%s""",
+            (
+                version_pub_id,
+                frozen.fact_snapshot_hash,
+                request.tenant_pub_id,
+                request.pub_id,
+                service,
+            ),
+        )
+        return version_pub_id
+
     def finalize(
         self,
         *,
@@ -1064,6 +1413,17 @@ class FormalReportProductionService:
             rationale=rationale,
         )
         decision = "approved" if approved else "changes_requested"
+        current = self.get(
+            tenant_pub_id=tenant_pub_id,
+            production_pub_id=production_pub_id,
+        )
+        signed_bundle = None
+        if approved and current["status"] != "signed":
+            signed_bundle = self._prepare_signed_bundle(
+                tenant_pub_id=tenant_pub_id,
+                production_pub_id=production_pub_id,
+                approver_pub_id=reviewer_pub_id,
+            )
         with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
             production = connection.execute(
                 """
@@ -1079,8 +1439,12 @@ class FormalReportProductionService:
                 claimed_review_hash, expected_review_hash
             ):
                 raise FormalProductionConflict("formal_review_contract_mismatch")
-            if approved and production["document_status"] != "formal":
-                raise FormalProductionConflict("pre_formal_cannot_be_signed")
+            if (
+                approved
+                and production["status"] != "signed"
+                and production["document_status"] != "delivery_candidate"
+            ):
+                raise FormalProductionConflict("delivery_candidate_required")
             outputs = connection.execute(
                 """
                 SELECT service_number,report_pub_id,report_version_pub_id
@@ -1142,6 +1506,21 @@ class FormalReportProductionService:
                 raise FormalProductionConflict("formal_production_not_reviewable")
             for output in outputs:
                 operation = f"{workflow_operation_id}/service-{output['service_number']}"
+                review_version_pub_id = str(output["report_version_pub_id"])
+                if approved:
+                    if signed_bundle is None:
+                        raise FormalProductionIncomplete("signed_bundle_missing")
+                    signed_request, signed_facts, signed_artifacts = signed_bundle
+                    service_number = int(output["service_number"])
+                    review_version_pub_id = self._persist_signed_service(
+                        connection=connection,
+                        candidate_version_pub_id=str(output["report_version_pub_id"]),
+                        report_pub_id=str(output["report_pub_id"]),
+                        service=service_number,
+                        request=signed_request,
+                        facts=signed_facts[service_number],
+                        artifacts=signed_artifacts[service_number],
+                    )
                 persisted = connection.execute(
                     """
                     INSERT INTO reporting.report_review (
@@ -1156,14 +1535,14 @@ class FormalReportProductionService:
                     (
                         _stable_pub_id("rvw", tenant_pub_id, operation),
                         tenant_pub_id,
-                        output["report_version_pub_id"],
+                        review_version_pub_id,
                         reviewer_pub_id,
                         decision,
                         rationale,
                         operation,
                     ),
                 ).fetchone()
-                expected = (output["report_version_pub_id"], reviewer_pub_id, decision, rationale)
+                expected = (review_version_pub_id, reviewer_pub_id, decision, rationale)
                 observed = (
                     (
                         persisted["report_version_pub_id"],
@@ -1184,14 +1563,6 @@ class FormalReportProductionService:
                     """,
                     ("published" if approved else "review", tenant_pub_id, output["report_pub_id"]),
                 )
-                if approved:
-                    connection.execute(
-                        """
-                        UPDATE reporting.report_version SET status='published'
-                        WHERE tenant_pub_id=%s AND pub_id=%s
-                        """,
-                        (tenant_pub_id, output["report_version_pub_id"]),
-                    )
                 connection.execute(
                     """
                     INSERT INTO reporting.report_event (
@@ -1203,7 +1574,7 @@ class FormalReportProductionService:
                         _stable_pub_id("evt", tenant_pub_id, operation),
                         tenant_pub_id,
                         output["report_pub_id"],
-                        output["report_version_pub_id"],
+                        review_version_pub_id,
                         "published" if approved else "changes_requested",
                         reviewer_pub_id,
                         json.dumps({"formal_production": True}),
@@ -1211,13 +1582,61 @@ class FormalReportProductionService:
                 )
             final_status = "signed" if approved else "failed"
             error_code = None if approved else "changes_requested"
+            signed_governance = (
+                dict(signed_bundle[0].document_governance or {}) if signed_bundle else {}
+            )
+            signed_fact_bundle_json = None
+            signed_fact_bundle_hash = None
+            signed_fact_snapshot_hash = None
+            if signed_bundle:
+                signed_fact_values = signed_bundle[1]
+                signed_fact_bundle = {
+                    "schema_version": "formal-report-fact-bundle-v1",
+                    "services": {
+                        str(service): value for service, value in signed_fact_values.items()
+                    },
+                }
+                signed_fact_bundle_json = _canonical_json(signed_fact_bundle)
+                signed_fact_bundle_hash = sha256(signed_fact_bundle_json.encode()).hexdigest()
+                signed_fact_snapshot_hash = _canonical_hash(
+                    {
+                        str(service): customer_fact_snapshot(value)
+                        for service, value in signed_fact_values.items()
+                    }
+                )
             updated = connection.execute(
                 """
                 UPDATE reporting.formal_report_production
-                SET status=%s,error_code=%s,updated_at=now()
+                SET status=%s,error_code=%s,
+                    document_status=CASE WHEN %s THEN 'approved_signed' ELSE document_status END,
+                    document_governance=CASE
+                      WHEN %s THEN %s::jsonb ELSE document_governance
+                    END,
+                    fact_bundle=CASE WHEN %s THEN %s::jsonb ELSE fact_bundle END,
+                    fact_bundle_hash=CASE WHEN %s THEN %s ELSE fact_bundle_hash END,
+                    fact_snapshot_hash=CASE WHEN %s THEN %s ELSE fact_snapshot_hash END,
+                    rendered_bundle=CASE WHEN %s THEN NULL ELSE rendered_bundle END,
+                    artifact_snapshot_hash=CASE WHEN %s THEN NULL ELSE artifact_snapshot_hash END,
+                    updated_at=now()
                 WHERE tenant_pub_id=%s AND pub_id=%s RETURNING *
                 """,
-                (final_status, error_code, tenant_pub_id, production_pub_id),
+                (
+                    final_status,
+                    error_code,
+                    approved,
+                    approved,
+                    json.dumps(signed_governance, ensure_ascii=False),
+                    approved,
+                    signed_fact_bundle_json,
+                    approved,
+                    signed_fact_bundle_hash,
+                    approved,
+                    signed_fact_snapshot_hash,
+                    approved,
+                    approved,
+                    tenant_pub_id,
+                    production_pub_id,
+                ),
             ).fetchone()
             assert updated is not None
         return self._public_row(dict(updated), outputs=[])
@@ -1231,7 +1650,7 @@ class FormalReportProductionService:
         format_name: str,
         customer_recipient_pub_id: str | None = None,
     ) -> tuple[bytes, str, str]:
-        if service_number not in {1, 2, 3, 4} or format_name not in {"docx", "pdf", "manifest"}:
+        if service_number not in {1, 2, 3, 4} or format_name not in _MIME_TYPES:
             raise FormalProductionNotFound("formal_artifact_not_found")
         with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
             row = connection.execute(
@@ -1289,6 +1708,55 @@ class FormalReportProductionService:
         payload = self.evidence.store.get_verified(str(row["object_key"]), str(row["sha256"]))
         return payload, str(row["mime_type"]), str(row["sha256"])
 
+    def artifact_filename(
+        self,
+        *,
+        tenant_pub_id: str,
+        production_pub_id: str,
+        service_number: int,
+        format_name: str,
+    ) -> str:
+        """Return the governed customer/service/version/date delivery filename."""
+
+        if service_number not in {1, 2, 3, 4} or format_name not in _MIME_TYPES:
+            raise FormalProductionNotFound("formal_artifact_not_found")
+        with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
+            row = connection.execute(
+                """
+                SELECT project.name AS project_name,production.document_status,
+                       production.document_governance,production.frozen_at
+                FROM reporting.formal_report_production production
+                JOIN platform.project project ON project.pub_id=production.project_pub_id
+                WHERE production.tenant_pub_id=%s AND production.pub_id=%s
+                  AND %s=ANY(production.services)
+                """,
+                (tenant_pub_id, production_pub_id, service_number),
+            ).fetchone()
+        if row is None:
+            raise FormalProductionNotFound("formal_artifact_not_found")
+        governance = row["document_governance"]
+        governance = governance if isinstance(governance, Mapping) else {}
+        version = str(governance.get("version") or "V1.0")
+        governed_date = (
+            governance.get("approved_date")
+            if row["document_status"] == "approved_signed"
+            else governance.get("prepared_date")
+        )
+        try:
+            stamp = date.fromisoformat(str(governed_date)).strftime("%Y%m%d")
+        except ValueError:
+            stamp = row["frozen_at"].astimezone(ZoneInfo("Asia/Shanghai")).strftime("%Y%m%d")
+        label = release_state_label(str(row["document_status"]))
+
+        def safe(value: object) -> str:
+            return re.sub(r"[^0-9A-Za-z\u4e00-\u9fff_-]+", "_", str(value)).strip("_")
+
+        safe_version = re.sub(r"[^0-9A-Za-z.-]+", "_", version).strip("_.")
+        return (
+            f"{safe(row['project_name'])}_服务{service_number}_{safe_version}_"
+            f"{safe(label)}_{stamp}.{format_name if format_name != 'manifest' else 'json'}"
+        )
+
     def _request(self, tenant_pub_id: str, production_pub_id: str) -> FormalProductionRequest:
         with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
             row = connection.execute(
@@ -1323,6 +1791,12 @@ class FormalReportProductionService:
         window = FormalWindow(row["window_start"], row["window_end"])
         document_status = str(row["document_status"])
         candidate_group_strategy = str(row["candidate_group_strategy"])
+        raw_governance = row.get("document_governance")
+        governance = (
+            raw_governance
+            if isinstance(raw_governance, Mapping) and raw_governance
+            else None
+        )
         try:
             contract = request_contract(
                 project_pub_id=str(row["project_pub_id"]),
@@ -1332,6 +1806,7 @@ class FormalReportProductionService:
                 candidate_group_strategy=candidate_group_strategy,
                 before_window=before,
                 after_window=after,
+                document_governance=governance,
             )
         except FormalProductionInvalid as exc:
             raise FormalProductionIncomplete("formal_request_invalid") from exc
@@ -1351,6 +1826,7 @@ class FormalReportProductionService:
             request_hash=request_hash,
             before_window=before,
             after_window=after,
+            document_governance=governance,
         )
 
     def _build_fact_bundle(
@@ -1372,12 +1848,22 @@ class FormalReportProductionService:
             raise
         for service, value in facts.items():
             value["document_status"] = request.document_status
+            value["document_governance"] = {
+                "version": "V1.0",
+                "prepared_by": request.created_by_pub_id,
+                "reviewed_by": None,
+                "approved_by": None,
+                "prepared_date": request.frozen_at.date().isoformat(),
+                "reviewed_date": None,
+                "approved_date": None,
+                **dict(request.document_governance or {}),
+            }
             ready, reasons = formal_evidence_gate(service, value)
             value["formal_evidence_gate"] = {
                 "status": "ready" if ready else "insufficient",
                 "reasons": list(reasons),
             }
-        if request.document_status == "formal" and any(
+        if request.document_status in {"formal", "delivery_candidate"} and any(
             value["formal_evidence_gate"]["status"] != "ready" for value in facts.values()
         ):
             raise FormalProductionInvalid("formal_evidence_requirements_not_met")
@@ -1481,35 +1967,83 @@ class FormalReportProductionService:
         request: FormalProductionRequest,
         facts: dict[int, dict[str, Any]],
     ) -> dict[int, dict[str, bytes]]:
-        def render_service(service: int) -> tuple[int, bytes, bytes]:
-            docx = FORMAL_REPORT_REGISTRY[service].render(
-                facts[service], blob_loader=self.evidence.store.get_verified
-            )
-            refreshed_docx, pdf = refresh_docx_and_export_pdf(docx)
-            return service, refreshed_docx, pdf
-
         rendered: dict[int, dict[str, bytes]] = {}
         for service in request.services:
-            _, docx, pdf = render_service(service)
+            initial_docx = FORMAL_REPORT_REGISTRY[service].render(
+                facts[service], blob_loader=self.evidence.store.get_verified
+            )
+            docx, pdf = refresh_docx_and_export_pdf(initial_docx)
             frozen = _freeze_service_fact(request, service, facts[service])
+            extra_artifacts: dict[str, bytes] = {}
+            publication_qa: dict[str, Any] | None = None
+            reexport_qa: dict[str, Any] | None = None
+            if service == 1 and request.document_status in {
+                "internal_review",
+                "delivery_candidate",
+                "approved_signed",
+            }:
+                extra_artifacts = render_service1_sidecars(
+                    facts[service], blob_loader=self.evidence.store.get_verified
+                )
+                delivery = facts[service]["service1"]["delivery_v3"]
+                scope_label = str(delivery["scope"].get("scope_label") or "本次三组已测业务场景")
+                report_title = f"{scope_label}品牌 GEO 推荐结果评测报告"
+                publication_qa = inspect_publication(
+                    docx=docx,
+                    pdf=pdf,
+                    expected_title=report_title,
+                    expected_status_label=release_state_label(request.document_status),
+                    expected_urls=displayed_service1_urls(facts[service]),
+                )
+                second_docx, second_pdf = refresh_docx_and_export_pdf(docx)
+                reexport_qa = compare_reexport(
+                    first_docx=docx,
+                    first_pdf=pdf,
+                    second_docx=second_docx,
+                    second_pdf=second_pdf,
+                )
+                if request.document_status in {"delivery_candidate", "approved_signed"} and (
+                    publication_qa["status"] != "passed"
+                    or reexport_qa["status"] != "passed"
+                ):
+                    raise FormalProductionInvalid("publication_quality_gate_failed")
+            payloads = {"docx": docx, "pdf": pdf, **extra_artifacts}
             manifest = {
-                "schema_version": "formal-report-manifest-v1",
+                "schema_version": (
+                    "formal-report-manifest-v2"
+                    if request.document_status
+                    in {"internal_review", "delivery_candidate", "approved_signed"}
+                    and service == 1
+                    else "formal-report-manifest-v1"
+                ),
                 "service_number": service,
                 "document_status": request.document_status,
+                "release_status_label": release_state_label(request.document_status),
+                "document_governance": facts[service].get("document_governance"),
                 "window": {
                     "start": request.window.start.isoformat(),
                     "end": request.window.end.isoformat(),
                 },
                 "generated_at": request.frozen_at.astimezone(UTC).isoformat(),
                 "fact_snapshot_hash": frozen.fact_snapshot_hash,
+                "data_gate": facts[service].get("formal_evidence_gate"),
+                "publication_qa": publication_qa,
+                "reexport_qa": reexport_qa,
                 "artifacts": {
-                    "docx": {"sha256": sha256(docx).hexdigest(), "byte_size": len(docx)},
-                    "pdf": {"sha256": sha256(pdf).hexdigest(), "byte_size": len(pdf)},
+                    name: {
+                        "sha256": sha256(payload).hexdigest(),
+                        "byte_size": len(payload),
+                        **(
+                            {"pages": publication_qa["pdf"]["pages"]}
+                            if name == "pdf" and publication_qa
+                            else {}
+                        ),
+                    }
+                    for name, payload in payloads.items()
                 },
             }
             rendered[service] = {
-                "docx": docx,
-                "pdf": pdf,
+                **payloads,
                 "manifest": _canonical_json(manifest).encode(),
             }
         return rendered
@@ -1534,17 +2068,12 @@ class FormalReportProductionService:
                 row["artifact_snapshot_hash"],
             )
         rendered = self._render_artifacts(request, facts)
-        mime_types = {
-            "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            "pdf": "application/pdf",
-            "manifest": "application/json",
-        }
         descriptors: dict[str, dict[str, dict[str, Any]]] = {}
         for service, formats in rendered.items():
             descriptors[str(service)] = {}
             for format_name, payload in formats.items():
                 stored = self.evidence.store.put_redacted(
-                    payload, mime_type=mime_types[format_name]
+                    payload, mime_type=_MIME_TYPES[format_name]
                 )
                 descriptors[str(service)][format_name] = {
                     "object_key": stored.key,
@@ -1595,7 +2124,8 @@ class FormalReportProductionService:
         for service, formats in descriptors.items():
             if not isinstance(formats, Mapping):
                 raise FormalProductionIncomplete("rendered_bundle_invalid")
-            if set(formats) != {"docx", "pdf", "manifest"}:
+            expected_formats = set(_artifact_formats(int(service), request.document_status))
+            if set(formats) != expected_formats:
                 raise FormalProductionIncomplete("rendered_bundle_invalid")
             output[int(service)] = {}
             for format_name, descriptor in formats.items():
@@ -1614,13 +2144,7 @@ class FormalReportProductionService:
                 payload = self.evidence.store.get_verified(
                     str(descriptor["object_key"]), str(descriptor["sha256"])
                 )
-                expected_mime_type = {
-                    "docx": (
-                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                    ),
-                    "pdf": "application/pdf",
-                    "manifest": "application/json",
-                }.get(str(format_name))
+                expected_mime_type = _MIME_TYPES.get(str(format_name))
                 if (
                     descriptor.get("byte_size") != len(payload)
                     or descriptor.get("mime_type") != expected_mime_type
@@ -1633,7 +2157,14 @@ class FormalReportProductionService:
                 raise FormalProductionIncomplete("rendered_manifest_integrity_failed") from exc
             if (
                 not isinstance(manifest, Mapping)
-                or manifest.get("schema_version") != "formal-report-manifest-v1"
+                or manifest.get("schema_version")
+                != (
+                    "formal-report-manifest-v2"
+                    if int(service) == 1
+                    and request.document_status
+                    in {"internal_review", "delivery_candidate", "approved_signed"}
+                    else "formal-report-manifest-v1"
+                )
                 or manifest.get("service_number") != int(service)
                 or manifest.get("document_status") != request.document_status
                 or manifest.get("fact_snapshot_hash")
@@ -1656,7 +2187,7 @@ class FormalReportProductionService:
                 != sha256(output[int(service)][format_name]).hexdigest()
                 or manifest_artifacts[format_name].get("byte_size")
                 != len(output[int(service)][format_name])
-                for format_name in ("docx", "pdf")
+                for format_name in expected_formats - {"manifest"}
             ):
                 raise FormalProductionIncomplete("rendered_manifest_integrity_failed")
         return output
@@ -1667,18 +2198,14 @@ class FormalReportProductionService:
         facts: dict[int, dict[str, Any]],
         artifacts: dict[int, dict[str, bytes]],
     ) -> dict[str, Any]:
-        mime_types = {
-            "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            "pdf": "application/pdf",
-            "manifest": "application/json",
-        }
         if set(facts) != set(request.services) or set(artifacts) != set(request.services):
             raise FormalProductionIncomplete("formal_bundle_services_incomplete")
         for service in request.services:
-            if set(artifacts[service]) != {"docx", "pdf", "manifest"} or any(
+            expected_formats = set(_artifact_formats(service, request.document_status))
+            if set(artifacts[service]) != expected_formats or any(
                 not isinstance(artifacts[service][format_name], bytes)
                 or not artifacts[service][format_name]
-                for format_name in ("docx", "pdf", "manifest")
+                for format_name in expected_formats
             ):
                 raise FormalProductionIncomplete("formal_artifacts_incomplete")
         with tenant_connection(self.dsn, request.tenant_pub_id, row_factory=dict_row) as connection:
@@ -1860,7 +2387,7 @@ class FormalReportProductionService:
                     capture_time=request.frozen_at,
                     access_class=AccessClass.CUSTOMER_PRIVATE,
                 )
-                for format_name in ("docx", "pdf", "manifest"):
+                for format_name in _artifact_formats(service, request.document_status):
                     evidence_pub_id = _stable_pub_id(
                         "evd", request.tenant_pub_id, request.pub_id, service, format_name
                     )
@@ -1870,7 +2397,7 @@ class FormalReportProductionService:
                         project_pub_id=request.project_pub_id,
                         kind=f"formal_report_service_{service}_{format_name}",
                         payload=artifacts[service][format_name],
-                        mime_type=mime_types[format_name],
+                        mime_type=_MIME_TYPES[format_name],
                         source_url=None,
                         provenance=provenance,
                         db_connection=connection,
@@ -2013,6 +2540,7 @@ class FormalReportProductionService:
                 else None
             ),
             "candidate_group_strategy": row["candidate_group_strategy"],
+            "document_governance": dict(row.get("document_governance") or {}),
             "workflow_id": row["workflow_id"],
             "fact_snapshot_hash": row.get("fact_snapshot_hash"),
             "error_code": row.get("error_code"),

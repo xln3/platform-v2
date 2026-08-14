@@ -3,7 +3,7 @@ import {
   defaultWindow,
   servicesApi,
   type FormalReportArtifact,
-  type FormalReportDocumentStatus,
+  type FormalReportCreatableDocumentStatus,
   type FormalReportOutput,
   type FormalReportProduction,
   type FormalReportReviewDecision,
@@ -30,6 +30,14 @@ const STATUS_LABELS: Record<FormalReportProduction['status'], string> = {
   failed: '失败',
   awaiting_review: '待审阅',
   signed: '已签发',
+};
+
+const DOCUMENT_STATUS_LABELS: Record<FormalReportProduction['document_status'], string> = {
+  pre_formal: '历史预正式稿',
+  formal: '历史正式候选稿',
+  internal_review: '内部审核稿',
+  delivery_candidate: '客户交付候选稿',
+  approved_signed: '已批准签发版',
 };
 
 const TERMINAL_STATUSES = new Set<FormalReportProduction['status']>([
@@ -60,6 +68,15 @@ function idempotencyKey(): string {
       ? crypto.randomUUID()
       : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   return `formal-report-${suffix}`;
+}
+
+function currentCstDate(): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
 }
 
 function artifactLabel(artifact: FormalReportArtifact): string {
@@ -103,7 +120,13 @@ export function FormalReportWorkspace({
   const [services, setServices] = useState<FormalReportService[]>([1, 2, 3, 4]);
   const [window_, setWindow] = useState<FormalReportWindow>(() => defaultWindow(30));
   const [pilotWindows, setPilotWindows] = useState(initialPilotWindows);
-  const [documentStatus, setDocumentStatus] = useState<FormalReportDocumentStatus>('pre_formal');
+  const [documentStatus, setDocumentStatus] =
+    useState<FormalReportCreatableDocumentStatus>('internal_review');
+  const [version, setVersion] = useState('V1.0');
+  const [preparedBy, setPreparedBy] = useState(session.actorId);
+  const [preparedDate, setPreparedDate] = useState(currentCstDate);
+  const [reviewedBy, setReviewedBy] = useState('');
+  const [reviewedDate, setReviewedDate] = useState('');
   const [productions, setProductions] = useState<FormalReportProduction[]>([]);
   const [state, setState] = useState<LoadState>('loading');
   const [busy, setBusy] = useState(false);
@@ -119,6 +142,10 @@ export function FormalReportWorkspace({
 
   const validationError = useMemo(() => {
     if (services.length === 0) return '请至少选择一项服务。';
+    if (!/^V[1-9]\d*\.\d+$/.test(version)) return '版本号须使用 V1.0 形式。';
+    if (!preparedBy.trim() || !preparedDate) return '请填写编制人和编制日期。';
+    if (documentStatus === 'delivery_candidate' && (!reviewedBy.trim() || !reviewedDate))
+      return '客户交付候选稿必须先填写复核人和复核日期。';
     if (!window_.start || !window_.end || window_.start > window_.end)
       return '请选择有效的事实冻结窗口。';
     if (!includesService4) return null;
@@ -128,7 +155,18 @@ export function FormalReportWorkspace({
     if (!after.start || !after.end || after.start > after.end) return '服务 4 的优化后窗口无效。';
     if (before.end >= after.start) return '服务 4 的优化前、优化后窗口必须按时间分离。';
     return null;
-  }, [includesService4, pilotWindows, services.length, window_]);
+  }, [
+    documentStatus,
+    includesService4,
+    pilotWindows,
+    preparedBy,
+    preparedDate,
+    reviewedBy,
+    reviewedDate,
+    services.length,
+    version,
+    window_,
+  ]);
 
   const refresh = useCallback(async () => {
     try {
@@ -175,6 +213,11 @@ export function FormalReportWorkspace({
         services,
         window: window_,
         documentStatus,
+        version,
+        preparedBy: preparedBy.trim(),
+        preparedDate,
+        ...(reviewedBy.trim() ? { reviewedBy: reviewedBy.trim() } : {}),
+        ...(reviewedDate ? { reviewedDate } : {}),
         ...(includesService4
           ? { beforeWindow: pilotWindows.before, afterWindow: pilotWindows.after }
           : {}),
@@ -225,12 +268,12 @@ export function FormalReportWorkspace({
     <>
       <section className="execution-card formal-report-launcher">
         <div className="section-title">
-          <h2>启动正式报告生产</h2>
-          <span>冻结事实 → Temporal 生成 → 待审阅 → 签发</span>
+          <h2>启动受治理报告生产</h2>
+          <span>冻结事实 → 内部审核/交付候选 → 人工批准 → 签发</span>
         </div>
         <p className="service-note">
-          所有报告从平台数据动态构建，并把事实快照、DOCX、PDF
-          与审计清单保存到同一生产记录。预正式稿可用于内部审阅；正式稿仍需审核签发。
+          报告从平台冻结事实动态构建，并把主报告、样本索引、证据包与 manifest
+          保存到同一生产记录。内部审核稿不可签发；客户交付候选稿仍须人工批准后才会重渲染为签发版。
         </p>
 
         <fieldset className="formal-service-picker">
@@ -278,18 +321,50 @@ export function FormalReportWorkspace({
             <select
               value={documentStatus}
               onChange={(event) =>
-                setDocumentStatus(event.target.value as FormalReportDocumentStatus)
+                setDocumentStatus(event.target.value as FormalReportCreatableDocumentStatus)
               }
             >
-              <option value="pre_formal">预正式 · 内部审阅</option>
-              <option value="formal">正式 · 进入签发流程</option>
+              <option value="internal_review">内部审核稿 · 不可签发</option>
+              <option value="delivery_candidate">客户交付候选稿 · 待人工批准</option>
             </select>
           </label>
+          <label>
+            4. 版本
+            <input value={version} onChange={(event) => setVersion(event.target.value)} />
+          </label>
+          <label>
+            编制人
+            <input value={preparedBy} onChange={(event) => setPreparedBy(event.target.value)} />
+          </label>
+          <label>
+            编制日期（中国标准时间）
+            <input
+              type="date"
+              value={preparedDate}
+              onChange={(event) => setPreparedDate(event.target.value)}
+            />
+          </label>
+          {documentStatus === 'delivery_candidate' ? (
+            <>
+              <label>
+                复核人
+                <input value={reviewedBy} onChange={(event) => setReviewedBy(event.target.value)} />
+              </label>
+              <label>
+                复核日期（中国标准时间）
+                <input
+                  type="date"
+                  value={reviewedDate}
+                  onChange={(event) => setReviewedDate(event.target.value)}
+                />
+              </label>
+            </>
+          ) : null}
         </div>
 
         {includesService4 ? (
           <fieldset className="formal-pilot-windows">
-            <legend>4. 服务 4 同矩阵对比窗口</legend>
+            <legend>5. 服务 4 同矩阵对比窗口</legend>
             <label>
               优化前开始
               <input
@@ -430,6 +505,7 @@ export function FormalReportWorkspace({
                       >
                         {STATUS_LABELS[production.status]}
                       </span>
+                      <small>{DOCUMENT_STATUS_LABELS[production.document_status]}</small>
                       {production.error_code ? <small>错误：{production.error_code}</small> : null}
                       {canReview && production.status === 'awaiting_review' ? (
                         <div className="formal-review-actions">
@@ -447,7 +523,7 @@ export function FormalReportWorkspace({
                               }
                             />
                           </label>
-                          {production.document_status === 'formal' ? (
+                          {production.document_status === 'delivery_candidate' ? (
                             <button
                               type="button"
                               disabled={
@@ -459,7 +535,7 @@ export function FormalReportWorkspace({
                               批准签发
                             </button>
                           ) : (
-                            <small>预正式稿仅供内部审阅，不可签发。</small>
+                            <small>只有客户交付候选稿可提交人工批准；内部审核稿不可签发。</small>
                           )}
                           <button
                             type="button"

@@ -196,7 +196,104 @@ def render_docx(title: str, sections: Sequence[Mapping[str, object]]) -> bytes:
 
 
 def render_xlsx(rows: Sequence[Mapping[str, object]]) -> bytes:
-    columns = sorted({key for row in rows for key in row})
+    """Render the legacy one-sheet workbook.
+
+    New report code should prefer :func:`render_xlsx_workbook`; keeping this
+    wrapper avoids changing the generic reporting API.
+    """
+
+    return render_xlsx_workbook({"Metrics": rows})
+
+
+def render_xlsx_workbook(
+    sheets: Mapping[str, Sequence[Mapping[str, object]]],
+    *,
+    column_order: Mapping[str, Sequence[str]] | None = None,
+) -> bytes:
+    """Render a dependency-free, multi-sheet OOXML workbook.
+
+    Service-1 delivery needs several auditable tables, while the runtime image
+    intentionally does not carry a spreadsheet library.  The generated package
+    uses inline strings, frozen headers and autofilters so it remains readable in
+    Excel and LibreOffice and deterministic enough for manifest hashing.
+    """
+
+    if not sheets:
+        raise RenderingError("xlsx_workbook_requires_sheet")
+    column_order = column_order or {}
+    normalized: list[tuple[str, Sequence[Mapping[str, object]]]] = []
+    used_names: set[str] = set()
+    for ordinal, (raw_name, rows) in enumerate(sheets.items(), 1):
+        name = _xlsx_sheet_name(str(raw_name), ordinal=ordinal, used=used_names)
+        normalized.append((name, rows))
+        used_names.add(name)
+
+    files: dict[str, str] = {
+        "_rels/.rels": (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
+            'Target="xl/workbook.xml"/></Relationships>'
+        ),
+        "xl/styles.xml": _xlsx_styles(),
+    }
+    content_overrides = [
+        '<Override PartName="/xl/workbook.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>',
+        '<Override PartName="/xl/styles.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>',
+    ]
+    workbook_sheets: list[str] = []
+    workbook_relationships: list[str] = []
+    for ordinal, (name, rows) in enumerate(normalized, 1):
+        configured = list(column_order.get(name, ()))
+        observed = sorted({str(key) for row in rows for key in row})
+        columns = [*configured, *[key for key in observed if key not in configured]]
+        if not columns:
+            columns = ["说明"]
+            rows = [{"说明": "无记录"}]
+        files[f"xl/worksheets/sheet{ordinal}.xml"] = _xlsx_sheet(columns, rows)
+        content_overrides.append(
+            f'<Override PartName="/xl/worksheets/sheet{ordinal}.xml" '
+            'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+        )
+        workbook_sheets.append(
+            f'<sheet name="{_xml(name)}" sheetId="{ordinal}" r:id="rId{ordinal}"/>'
+        )
+        workbook_relationships.append(
+            f'<Relationship Id="rId{ordinal}" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+            f'Target="worksheets/sheet{ordinal}.xml"/>'
+        )
+    style_rel_id = len(normalized) + 1
+    workbook_relationships.append(
+        f'<Relationship Id="rId{style_rel_id}" '
+        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" '
+        'Target="styles.xml"/>'
+    )
+    files["[Content_Types].xml"] = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        '<Default Extension="xml" ContentType="application/xml"/>'
+        f"{''.join(content_overrides)}</Types>"
+    )
+    files["xl/workbook.xml"] = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        f"<sheets>{''.join(workbook_sheets)}</sheets></workbook>"
+    )
+    files["xl/_rels/workbook.xml.rels"] = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        f"{''.join(workbook_relationships)}</Relationships>"
+    )
+    return _zip(files)
+
+
+def _xlsx_sheet(columns: Sequence[str], rows: Sequence[Mapping[str, object]]) -> str:
     all_rows: list[list[object]] = [
         list(columns),
         *[[row.get(column, "") for column in columns] for row in rows],
@@ -204,52 +301,82 @@ def render_xlsx(rows: Sequence[Mapping[str, object]]) -> bytes:
     sheet_rows: list[str] = []
     for row_number, values in enumerate(all_rows, 1):
         cells = "".join(
-            f'<c r="{_column_name(index)}{row_number}" t="inlineStr">'
-            f"<is><t>{_xml(str(value))}</t></is></c>"
+            f'<c r="{_column_name(index)}{row_number}" t="inlineStr" '
+            f's="{1 if row_number == 1 else 0}"><is><t xml:space="preserve">'
+            f"{_xml(_xlsx_value(value))}</t></is></c>"
             for index, value in enumerate(values, 1)
         )
         sheet_rows.append(f'<row r="{row_number}">{cells}</row>')
-    sheet = (
+    last_cell = f"{_column_name(len(columns))}{len(all_rows)}"
+    widths = "".join(
+        f'<col min="{index}" max="{index}" width="{_xlsx_column_width(column)}" customWidth="1"/>'
+        for index, column in enumerate(columns, 1)
+    )
+    return (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-        f"<sheetData>{''.join(sheet_rows)}</sheetData></worksheet>"
+        '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" '
+        'activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
+        f"<cols>{widths}</cols><sheetData>{''.join(sheet_rows)}</sheetData>"
+        f'<autoFilter ref="A1:{last_cell}"/></worksheet>'
     )
-    return _zip(
-        {
-            "[Content_Types].xml": (
-                '<?xml version="1.0" encoding="UTF-8"?>'
-                '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
-                '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
-                '<Default Extension="xml" ContentType="application/xml"/>'
-                '<Override PartName="/xl/workbook.xml" '
-                'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
-                '<Override PartName="/xl/worksheets/sheet1.xml" '
-                'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
-                "</Types>"
-            ),
-            "_rels/.rels": (
-                '<?xml version="1.0" encoding="UTF-8"?>'
-                '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-                '<Relationship Id="rId1" '
-                'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
-                'Target="xl/workbook.xml"/></Relationships>'
-            ),
-            "xl/workbook.xml": (
-                '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-                '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
-                'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
-                '<sheets><sheet name="Metrics" sheetId="1" r:id="rId1"/></sheets></workbook>'
-            ),
-            "xl/_rels/workbook.xml.rels": (
-                '<?xml version="1.0" encoding="UTF-8"?>'
-                '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-                '<Relationship Id="rId1" '
-                'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
-                'Target="worksheets/sheet1.xml"/></Relationships>'
-            ),
-            "xl/worksheets/sheet1.xml": sheet,
-        }
+
+
+def _xlsx_styles() -> str:
+    return (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        '<fonts count="2"><font><sz val="10"/><name val="Noto Sans CJK SC"/></font>'
+        '<font><b/><color rgb="FFFFFFFF"/><sz val="10"/><name val="Noto Sans CJK SC"/></font>'
+        '</fonts><fills count="3"><fill><patternFill patternType="none"/></fill>'
+        '<fill><patternFill patternType="gray125"/></fill>'
+        '<fill><patternFill patternType="solid"><fgColor rgb="FF1F4E78"/>'
+        '<bgColor indexed="64"/></patternFill></fill></fills>'
+        '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'
+        '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
+        '<cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" '
+        'applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>'
+        '<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFill="1" '
+        'applyFont="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>'
+        '</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/>'
+        '</cellStyles></styleSheet>'
     )
+
+
+def _xlsx_value(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "是" if value else "否"
+    if isinstance(value, Mapping | list | tuple):
+        import json
+
+        value = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    # Excel's hard cell limit is 32,767 characters.  Complete long answers are
+    # separately retained byte-for-byte in the evidence package.
+    text = str(value)
+    return text if len(text) <= 32767 else text[:32746] + "…（完整内容见证据包）"
+
+
+def _xlsx_sheet_name(value: str, *, ordinal: int, used: set[str]) -> str:
+    value = "".join("_" if character in "[]:*?/\\" else character for character in value)
+    value = value.strip(" '")[:31] or f"Sheet{ordinal}"
+    candidate = value
+    suffix = 2
+    while candidate in used:
+        tail = f"_{suffix}"
+        candidate = value[: 31 - len(tail)] + tail
+        suffix += 1
+    return candidate
+
+
+def _xlsx_column_width(column: str) -> int:
+    lowered = column.lower()
+    if any(token in lowered for token in ("response", "question", "url", "path", "说明")):
+        return 48
+    if any(token in lowered for token in ("time", "sha256", "entity", "brand", "name")):
+        return 26
+    return 16
 
 
 # 中文字体候选：env GEO_REPORT_PDF_FONT_PATH 优先，其后按覆盖率/常见度排序；

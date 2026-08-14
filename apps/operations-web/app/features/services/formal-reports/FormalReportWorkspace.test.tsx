@@ -30,12 +30,12 @@ function production(overrides: Record<string, unknown> = {}) {
     project_pub_id: 'prj_test',
     services: [1, 2, 3],
     status: 'queued',
-    document_status: 'pre_formal',
+    document_status: 'internal_review',
     window_start: '2026-08-01',
     window_end: '2026-08-12',
     before_window: null,
     after_window: null,
-    candidate_group_strategy: 'evidence_completeness_v1',
+    candidate_group_strategy: 'preregistered_scope_v1',
     workflow_id: 'formal-report/frp_test_001',
     fact_snapshot_hash: null,
     outputs: [],
@@ -117,8 +117,11 @@ describe('FormalReportWorkspace', () => {
       services: [1, 2, 3],
       window_start: '2026-08-01',
       window_end: '2026-08-12',
-      document_status: 'pre_formal',
-      candidate_group_strategy: 'evidence_completeness_v1',
+      document_status: 'internal_review',
+      candidate_group_strategy: 'preregistered_scope_v1',
+      version: 'V1.0',
+      prepared_by: 'usr_test',
+      prepared_date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
     });
   });
 
@@ -153,6 +156,28 @@ describe('FormalReportWorkspace', () => {
     expect(
       (screen.getByRole('button', { name: '冻结事实并启动生成' }) as HTMLButtonElement).disabled,
     ).toBe(true);
+  });
+
+  it('requires and submits a human review record for a delivery candidate', async () => {
+    render(<FormalReportWorkspace session={session} project={project} />);
+    await screen.findByText('当前项目还没有正式报告生产记录。');
+
+    fireEvent.change(screen.getByLabelText('3. 文档状态'), {
+      target: { value: 'delivery_candidate' },
+    });
+    expect(screen.getByRole('alert').textContent).toContain('必须先填写复核人和复核日期');
+    fireEvent.change(screen.getByLabelText('复核人'), { target: { value: '复核员甲' } });
+    fireEvent.change(screen.getByLabelText('复核日期（中国标准时间）'), {
+      target: { value: '2026-08-14' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '冻结事实并启动生成' }));
+    await screen.findByText(/生产请求 frp_test_001/);
+
+    const body = calls.find((call) => call.method === 'POST')?.body as Record<string, unknown>;
+    expect(body.document_status).toBe('delivery_candidate');
+    expect(body.candidate_group_strategy).toBe('preregistered_scope_v1');
+    expect(body.reviewed_by).toBe('复核员甲');
+    expect(body.reviewed_date).toBe('2026-08-14');
   });
 
   it('shows auditable artifacts and rejects an unsafe server-provided download URL', async () => {
@@ -220,7 +245,7 @@ describe('FormalReportWorkspace', () => {
   });
 
   it('lets a reviewer submit an idempotent decision with a rationale', async () => {
-    listItems = [production({ status: 'awaiting_review', document_status: 'formal' })];
+    listItems = [production({ status: 'awaiting_review', document_status: 'delivery_candidate' })];
     render(<FormalReportWorkspace session={{ ...session, role: 'reviewer' }} project={project} />);
 
     await screen.findByText('待审阅');
@@ -243,11 +268,11 @@ describe('FormalReportWorkspace', () => {
     });
   });
 
-  it('does not offer signing for a pre-formal review artifact', async () => {
-    listItems = [production({ status: 'awaiting_review', document_status: 'pre_formal' })];
+  it('does not offer signing for an internal-review artifact', async () => {
+    listItems = [production({ status: 'awaiting_review', document_status: 'internal_review' })];
     render(<FormalReportWorkspace session={{ ...session, role: 'reviewer' }} project={project} />);
 
-    await screen.findByText('预正式稿仅供内部审阅，不可签发。');
+    await screen.findByText('只有客户交付候选稿可提交人工批准；内部审核稿不可签发。');
     expect(screen.queryByRole('button', { name: '批准签发' })).toBeNull();
     expect(screen.getByRole('button', { name: '退回修改' })).toBeTruthy();
   });
