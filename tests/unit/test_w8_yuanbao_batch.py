@@ -1046,9 +1046,11 @@ async def test_collect_one_deep_think_turns_toggle_on(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """deep_think 口径：深度思考 toggle 关→开（幂等之外恰好一次拟人点击），
-    且点击严格先于打字；采集照常成功。"""
+    且点击严格先于打字；采集照常成功。2026-08-14 起注入思考块证据
+    （mode_unconfirmed 门：toggle 确认但无证据 = 诚实失败，本测试断言
+    toggle 行为而非该门）。"""
     _yuanbao_env(tmp_path, monkeypatch)
-    page = _FakePage(messages=0, deep_think_on=False)
+    page = _ThinkingFakePage("先拆解问题。\n再作答。", messages=0, deep_think_on=False)
     _install_fake_browser(monkeypatch, page)
 
     result = await run_yuanbao_collection(
@@ -1118,9 +1120,12 @@ async def test_collect_one_switches_model_family_to_hy3(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """模型族残留在 DeepSeek → 拟人打开模型下拉点 Hy3，再开深度思考；全部开关
-    交互严格先于打字。"""
+    交互严格先于打字。2026-08-14 起注入思考块证据（mode_unconfirmed 门：
+    toggle 确认但无证据 = 诚实失败，本测试断言模型族切换行为而非该门）。"""
     _yuanbao_env(tmp_path, monkeypatch)
-    page = _FakePage(messages=0, model_family="deepseek", deep_think_on=False)
+    page = _ThinkingFakePage(
+        "先拆解问题。\n再作答。", messages=0, model_family="deepseek", deep_think_on=False
+    )
     _install_fake_browser(monkeypatch, page)
 
     result = await run_yuanbao_collection(
@@ -1360,21 +1365,24 @@ async def test_collect_one_deep_think_persists_trace_evidence(
 async def test_collect_one_deep_think_without_block_marks_inactive(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """deep_think 模式但思考块缺失（toggle 已确保、块未渲染）：探针空 →
-    无引用时 trace 不落盘、evidence 空（绝不按 toggle 态硬标 deep_think_active）。"""
+    """deep_think 模式但思考块缺失（toggle 已确保、块未渲染）：2026-08-14 起
+    升级为 mode_unconfirmed 诚实失败（non_retryable）——无思考块无引用则
+    trace 不落盘、绝不出空证据，且绝不把无思考证据的答案按 deep_think 落
+    completed（旧「照出答案」口径曾让豆包配额墙假答案污染 analytics，已废止）。"""
     evidence = _yuanbao_env(tmp_path, monkeypatch)
     page = _FakePage(messages=0, deep_think_on=False)  # 探针对未知脚本返回 None
     _install_fake_browser(monkeypatch, page)
 
-    result = await run_yuanbao_collection(
-        _item(mode="deep_think"),
-        session_factory=_PlaywrightYuanbaoSession,
-        heartbeat=lambda p: None,
-    )
+    with pytest.raises(ApplicationError) as exc_info:
+        await run_yuanbao_collection(
+            _item(mode="deep_think"),
+            session_factory=_PlaywrightYuanbaoSession,
+            heartbeat=lambda p: None,
+        )
 
-    assert result.quality_state == "live_valid"
-    # 无 trace（思考块缺失不出空证据）；2026-08-10 起另有原始流量证据 sse_raw/har
-    assert [ref.kind for ref in result.evidence] == ["sse_raw", "har"]
+    assert exc_info.value.type == "mode_unconfirmed"
+    assert exc_info.value.non_retryable is True
+    # 无 trace（思考块缺失不出空证据）
     assert not (evidence / "run-9-task-5-a1-sse-trace.json").exists()
     # deep_think 模式下探针确实跑过（只是块缺失）
     assert (

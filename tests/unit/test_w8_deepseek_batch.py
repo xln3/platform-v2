@@ -86,6 +86,20 @@ _SSE_BODY = (
     "data: [DONE]\n"
 )
 
+# deep_think 证据流（2026-08-14 起 mode_unconfirmed 门要求：deep_think 题必须带
+# thinking_enabled 快照 + THINK 碎片才确认，否则诚实失败）；最小结构，无
+# TOOL_OPEN（避免 opened-source 预览抓取在单测里做真实 DNS 解析）。
+_SSE_BODY_DEEP_THINK = (
+    'data: {"v":{"response":{"message_id":2,"role":"ASSISTANT","thinking_enabled":true,'
+    '"search_enabled":true,"fragments":[{"id":2,"type":"THINK","content":"先想一下",'
+    '"references":[],"stage_id":1}]}}}\n\n'
+    'data: {"p":"response/fragments","o":"APPEND","v":'
+    '[{"id":3,"type":"RESPONSE","content":"深度答案","references":[],"stage_id":2}]}\n\n'
+    'data: {"v":"。"}\n\n'
+    'data: {"p":"response/status","o":"SET","v":"FINISHED"}\n\n'
+    "data: [DONE]\n"
+)
+
 
 def _in_bb(bb: dict[str, float], x: float, y: float) -> bool:
     return bb["x"] <= x <= bb["x"] + bb["width"] and bb["y"] <= y <= bb["y"] + bb["height"]
@@ -1039,7 +1053,8 @@ async def test_collect_one_deep_think_enables_toggles_before_typing(
 ) -> None:
     """deep_think 题（per-task 真 session + fake 浏览器）：发送前完成 快速模式
     tab + 深度思考/智能搜索 chips 全开；点击全部落在打字之前；幂等——已开的
-    开关零重复点击。"""
+    开关零重复点击。2026-08-14 起补 SSE 思考证据（mode_unconfirmed 门：chip
+    确认但流内无 thinking 碎片 = 诚实失败，本测试断言 toggle 行为而非该门）。"""
     _adapter_env(tmp_path, monkeypatch)
     page = _FakePage(
         messages=0,
@@ -1047,6 +1062,16 @@ async def test_collect_one_deep_think_enables_toggles_before_typing(
         tab_selected="专家模式",
     )
     _install_fake_browser(monkeypatch, page)
+
+    class _DeepThinkCDP(_FakeCDP):
+        """getResponseBody 返回带思考证据的 SSE body（唯一差异点）。"""
+
+        def send(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+            if method == "Network.getResponseBody":
+                return {"body": _SSE_BODY_DEEP_THINK, "base64Encoded": False}
+            return {}
+
+    page.cdp = _DeepThinkCDP(page)
 
     result = await run_deepseek_collection(
         _item(mode="deep_think"),
@@ -1095,8 +1120,9 @@ async def test_collect_one_deep_think_toggle_failure_is_honest(
 async def test_batch_deep_think_toggle_failure_walls_and_aborts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """batch 题级 toggle 失败 → 本题 wall(mode_toggle_failed) + 后续题
-    aborted（零浏览器交互）。"""
+    """batch 题级 toggle 失败 → 本题 wall(mode_toggle_failed)；2026-08-13 起
+    页面态 flake 不再连坐：后续题照常尝试（本题例 chip 同样缺失 → 同样诚实失败），
+    只有真墙（验证码/登录）才中止整批。"""
     page = _FakePage(messages=0, chips={"深度思考": False})  # 智能搜索 chip 缺失
     session = _make_session(tmp_path, monkeypatch, page)
     specs = [
@@ -1111,10 +1137,9 @@ async def test_batch_deep_think_toggle_failure_walls_and_aborts(
 
     outcomes = session.collect_batch(specs, on_stage=lambda s: None)
 
-    assert [o.status for o in outcomes] == ["wall", "aborted"]
+    assert [o.status for o in outcomes] == ["wall", "wall"]
     assert outcomes[0].error_type == "mode_toggle_failed"
-    assert outcomes[1].error_type == "aborted_after_failure"
-    assert "mode_toggle_failed" in (outcomes[1].error_message or "")
+    assert outcomes[1].error_type == "mode_toggle_failed"
     assert not [e for e in page.events if e[0] == "key"]  # 两题都零输入
 
 

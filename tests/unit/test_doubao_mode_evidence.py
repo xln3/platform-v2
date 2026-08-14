@@ -133,18 +133,20 @@ def test_collect_deep_think_sse_confirmed_records_actual_deep(
     assert any(ref.kind == "sse" for ref in answer.evidence)
 
 
-def test_collect_deep_think_unconfirmed_records_actual_normal(
+def test_collect_deep_think_unconfirmed_raises_after_trace(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """UI toggle 确认但 SSE 无 thinking root → 答案照出、actual 如实标 normal
-    （请求态≠实际态；旧链：证据未检测到启用不计深度态，但不编造失败）。"""
+    """UI toggle 确认但 SSE 无 thinking root → trace 先落盘取证（actual=normal
+    如实留痕），随后抛 _ModeUnconfirmed：请求态≠实际态绝不产出答案
+    （2026-08-14 起废止旧「答案照出」行为——豆包配额墙假答案曾借此污染
+    analytics，教训见 developlog/architecture/caiji-0813 设计计划 §5）。"""
     page = _FakePage(deep_think=True)  # 默认 _SSE_BODY 无 thinking root
     session, evidence = _make_session(tmp_path, monkeypatch, page, stem="run-9-task-2-a1")
 
-    answer = session.collect("深度思考的问题", on_stage=lambda s: None, mode="deep_think")
+    with pytest.raises(doubao_adapter._ModeUnconfirmed):
+        session.collect("深度思考的问题", on_stage=lambda s: None, mode="deep_think")
 
-    assert answer.answer_text == "这是答案"  # 诚实产出，不伪装失败
-    trace = _read_trace(evidence, "run-9-task-2-a1")
+    trace = _read_trace(evidence, "run-9-task-2-a1")  # 证据先落盘，抛错不丢痕
     assert trace["deep_think_active"] is False
     assert trace["mode"] == {
         "requested": "deep_think",
@@ -152,7 +154,6 @@ def test_collect_deep_think_unconfirmed_records_actual_normal(
         "sse_deep_think_active": False,
         "actual": "normal",
     }
-    assert answer.meta["mode"]["actual"] == "normal"
 
 
 def test_collect_normal_mode_records_requested_normal(

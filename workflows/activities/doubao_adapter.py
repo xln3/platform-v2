@@ -29,8 +29,9 @@ v1 边界（2026-08-05 W1 起 deep_think 解锁）：
   SSE 证据为正才标 deep_think，证据缺失（DOM 兜底/解析失败）或为负一律如实
   标 normal（旧链 portal 同款口径：「请求了深度思考，但证据中未检测到启用」
   不计深度态）。结论注入 trace JSON 的 ``mode`` 段随证据落盘并进
-  ``CollectedAnswer.meta``；请求 deep 而未获 SSE 确认时另发
-  ``doubao_deep_think_unconfirmed`` 警告日志。
+  ``CollectedAnswer.meta``；2026-08-14 起，请求 deep 而未获 SSE 确认由
+  warning-only 升级为 ``mode_unconfirmed`` 诚实失败（non_retryable，
+  不落 completed——配额耗尽后平台静默回退快速模式的答案曾是事故源头）。
 - 配置全走 env（秘密绝不进 task payload）：
   ``GEO_DOUBAO_PROFILE_DIR``（必填，浏览器 persistent profile 目录；缺失/不存在 →
   ``adapter_not_configured`` non_retryable）；``GEO_DOUBAO_PROXY_URL``（可选，
@@ -52,6 +53,10 @@ v1 边界（2026-08-05 W1 起 deep_think 解锁）：
 - 墙分类（先截屏存证再抛，错误 message 带证据路径、绝不含秘密）：
   登录墙/实名墙 → ``wall_login_required`` non_retryable；验证码 → ``wall_captcha``
   non_retryable；发送墙/限流/cloak → ``wall_send`` non_retryable（重试只是再撞）。
+  2026-08-14 起（墙词表 ``wall_lexicon``）：答案文本级配额/禁言/拒答 →
+  ``wall_quota``/``wall_muted``/``wall_refusal`` non_retryable；batch 连坐按
+  wall_type 细化（muted 全连坐、quota 只连坐同 mode、refusal 不连坐，见
+  ``collect_batch`` docstring）。
 - 成功判据（零合成）：提交被接受（输入框清空）且 /chat/completion 流真正
   loadingFinished 且解析出非空正文且不含墙特征——缺一都不得返回成功。
   流截断/空答案/无流，或平台官方分享 PNG/公开链接任一缺失 →
@@ -183,6 +188,11 @@ from workflows.activities.resident_browser import (
     platform_browser,
     resident_cdp_url,
 )
+from workflows.activities.wall_lexicon import (
+    WallVerdict,
+    classify_answer_text,
+    detect_muted_banner,
+)
 
 log = structlog.get_logger()
 
@@ -252,12 +262,15 @@ _CHAT_MESSAGE_COUNT_JS = r"""() => {
   // exposes one send and one receive action bar plus message-box target nodes.
   // Any one of these stable semantic families is enough to prove this is not an
   // empty conversation.  Return the first non-zero family to avoid double count.
+  //
+  // 2026-08-13 live 修正：当前构建的空会话首页也常驻
+  // data-empty-conversation="false"（语义漂移，豆包 sh/bj 双账号实测），单看
+  // 属性会把全新会话误判成旧会话。仅当「属性=false 且 URL 带会话 id」时才采信
+  // 其非空语义——该组合覆盖虚拟列表卸载长会话消息的场景。
   const conversationStates = Array.from(
     document.querySelectorAll('[data-empty-conversation]')
   ).map((el) => el.getAttribute('data-empty-conversation'));
-  // Highest-priority explicit state from the live Doubao conversation root.
-  // false means old/non-empty even if virtualisation has unmounted all messages.
-  if (conversationStates.includes('false')) return 1;
+  const hasConversationId = /\/chat\/[^/?#]+/.test(location.pathname);
   const stable = [
     '[data-foundation-type="send-message-action-bar"]',
     '[data-foundation-type="receive-message-action-bar"]',
@@ -275,7 +288,9 @@ _CHAT_MESSAGE_COUNT_JS = r"""() => {
   ];
   let n = 0;
   for (const s of legacy) n += document.querySelectorAll(s).length;
-  return n;
+  if (n > 0) return n;
+  if (conversationStates.includes('false') && hasConversationId) return 1;
+  return 0;
 }"""
 
 # 拟人化节奏区间（秒）——端详页面 / 发送前通读 / 切模式后回神 / 新会话切换 /
@@ -307,8 +322,10 @@ _CAPTCHA_SELECTORS: tuple[str, ...] = (
 
 _CLOAK_TEXT_MARKERS: tuple[str, ...] = ("页面暂时不可用", "页面不可用")
 
-# DOM 层系统通知词表（softban 过频提示 / 实名墙）——命中判定 gated by not has_answer，
-# 出了真答案的运行绝不误判（答案正文提及「过频/实名」不翻标记）
+# DOM 层系统通知词表（softban 过频提示 / 实名墙）——2026-08-14 起扫描无条件
+# 执行（曾被 `if not answer_text:` 门挡 = 配额/禁言文案当答案采回的事故根因）；
+# 已出答案时把答案正文从扫描文本中剔除，「答案正文提及「过频/实名」不翻标记」
+# 的旧不变量保持成立。答案文本级的配额/禁言/拒答判定在 wall_lexicon（唯一真源）。
 _SOFTBAN_DOM_PHRASES: tuple[str, ...] = (
     "今日请求过频",
     "请求过于频繁",
@@ -443,7 +460,12 @@ _DOUBAO_CAPTURE_STATE_JS = r"""async (request) => {
     .trim();
   const expectedQuestion = normalizeText(request && request.expectedQuestion);
   if (!expectedQuestion) return fail('expected_question_missing');
-  if (normalizeText(question.innerText) !== expectedQuestion) {
+  // 2026-08-13 live：豆包渲染层还会在 CJK↔拉丁字母边界自动补展示空格（提交
+  // 「高校非传统IT资产」→ 气泡显示「高校非传统 IT 资产」）。问题比对改为
+  // 去除全部空白后的精确比较——防错问截图的强度不变（不同问题的非空白
+  // 字符必然不同），只豁免渲染层补的空格。
+  const normalizeQuestionText = (value) => normalizeText(value).replace(/\s+/g, '');
+  if (normalizeQuestionText(question.innerText) !== normalizeQuestionText(expectedQuestion)) {
     return fail('question_text_mismatch');
   }
   const excluded = [question, answer].find((node) => node.querySelector(
@@ -723,6 +745,18 @@ class _DeepThinkToggleFailed(RuntimeError):
         self.evidence_refs: list[CollectionEvidenceRef] = []
 
 
+class _ModeUnconfirmed(RuntimeError):
+    """deep_think 请求已下达（UI toggle 后置校验通过）但 SSE 无 thinking root
+    证据——诚实失败（non_retryable）：绝不把无思考证据的答案按 deep_think 落
+    completed。2026-08-14 起由 warning-only 升级（配额耗尽后平台静默回退快速
+    模式的「正常答案」曾是 2026-08-13 事故源头之一）。"""
+
+    def __init__(self, message: str, evidence_path: Path | None = None) -> None:
+        super().__init__(message)
+        self.evidence_path = evidence_path
+        self.evidence_refs: list[CollectionEvidenceRef] = []
+
+
 class _Cloaked(RuntimeError):
     """豆包反爬 cloak（“页面暂时不可用”）——采集线程内部信号，调用方转 _WallError。"""
 
@@ -986,6 +1020,23 @@ async def run_doubao_batch(
                 for item in batch.items
             ]
         )
+    except _ModeUnconfirmed as mu:
+        # 防御：mode_unconfirmed 应在题内转 outcome；逃出即按 session 级诚实记录。
+        evidence_suffix = f"; evidence={mu.evidence_path}" if mu.evidence_path else ""
+        bound.info("doubao_batch_session_mode_unconfirmed", stage=progress["stage"])
+        return CollectionBatchResult(
+            results=[
+                _failure_batch_item(
+                    item,
+                    status="wall",
+                    error_type="mode_unconfirmed",
+                    error_message=f"{mu}{evidence_suffix}",
+                    evidence_path=mu.evidence_path,
+                    evidence=mu.evidence_refs,
+                )
+                for item in batch.items
+            ]
+        )
     except _IncompleteCapture as inc:
         # session 级临时故障（浏览器启动失败等）：一题未发，raise 走 batch 重试。
         evidence_suffix = f"; evidence={inc.evidence_path}" if inc.evidence_path else ""
@@ -1139,6 +1190,14 @@ async def run_doubao_collection(
         raise ApplicationError(
             f"{toggle}{evidence_suffix}", type="deep_think_toggle_failed", non_retryable=True
         ) from toggle
+    except _ModeUnconfirmed as mu:
+        # deep_think 无 SSE 思考证据（2026-08-14 起）：non_retryable 诚实失败，
+        # 绝不把无思考证据的答案按 deep_think 落 completed。
+        evidence_suffix = f"; evidence={mu.evidence_path}" if mu.evidence_path else ""
+        bound.info("doubao_mode_unconfirmed", stage=progress["stage"])
+        raise ApplicationError(
+            f"{mu}{evidence_suffix}", type="mode_unconfirmed", non_retryable=True
+        ) from mu
     except _IncompleteCapture as inc:
         evidence_suffix = f"; evidence={inc.evidence_path}" if inc.evidence_path else ""
         bound.info("doubao_capture_incomplete", reason=str(inc), stage=progress["stage"])
@@ -1321,10 +1380,13 @@ class _PlaywrightDoubaoSession:
       会话但绝不重开浏览器）；每题成功后做「阅读停顿」（拟人读完回答：滚动
       浏览 + 停留）；结束统一 context.close() + 崩溃标记清理（全路径 finally）。
 
-    batch 失败语义：题级墙/incomplete 转 outcome——该题诚实失败、后续题
-    aborted（零浏览器交互：真人撞墙后会停下，不编造不硬闯），结果列表与
-    输入等长同序；session 建立阶段（launch/navigate/登录墙检查）的异常
-    原样逃出，由 activity 层按 session 级语义处理（一题未发）。
+    batch 失败语义（2026-08-14 细化）：题级失败转 outcome，结果列表与输入
+    等长同序；连坐按失败类型分级——真墙（captcha/login/send/muted/cloak）=
+    账号级阻断，后续题全 aborted（零浏览器交互：真人撞墙后会停下，不编造不
+    硬闯）；wall_quota=配额按 (账号×mode) 计费，只连坐同 mode 余题；
+    wall_refusal/incomplete/toggle 失败/mode_unconfirmed=题级 flake 或内容
+    失败，不连坐，本题诚实失败后续跑。session 建立阶段（launch/navigate/登录
+    墙检查）的异常原样逃出，由 activity 层按 session 级语义处理（一题未发）。
     """
 
     def __init__(self, config: DoubaoAdapterConfig, evidence_dir: Path, file_stem: str) -> None:
@@ -1354,8 +1416,19 @@ class _PlaywrightDoubaoSession:
         self, items: list[DoubaoBatchItemSpec], on_stage: Callable[[str], None]
     ) -> list[DoubaoBatchItemOutcome]:
         outcomes: list[DoubaoBatchItemOutcome] = []
+        # 配额墙按 (账号×mode) 计费（2026-08-14 起）：wall_quota 只连坐同 mode
+        # 余题——记录已撞配额的 mode，轮到其余题位次时零浏览器交互追加 aborted
+        # 占位（结果列表与输入等长同序的契约不变）。
+        quota_blocked: dict[str, DoubaoBatchItemSpec] = {}
         with self._browser_session(on_stage) as (context, page, pw_timeout, driver):
             for index, spec in enumerate(items):
+                if spec.mode in quota_blocked:
+                    outcomes.append(
+                        self._aborted_outcome(
+                            spec, quota_blocked[spec.mode], "wall_quota", batch_stopped=False
+                        )
+                    )
+                    continue
                 on_stage(f"item:{spec.business_key}")
                 try:
                     answer = self._collect_one(
@@ -1363,29 +1436,42 @@ class _PlaywrightDoubaoSession:
                     )
                 except _WallError as wall:
                     outcomes.append(self._failure_outcome(spec, "wall", wall.wall_type, wall))
+                    if wall.wall_type == "wall_refusal":
+                        # 拒答=题级内容失败（平台拒答本题），非账号墙：不连坐，
+                        # 本题诚实失败后继续下一题。
+                        continue
+                    if wall.wall_type == "wall_quota":
+                        # 配额按 (账号×mode) 计费：只连坐同 mode 余题，其他 mode
+                        # 照跑（专家模式配额耗尽 ≠ 快速模式不可用）。
+                        quota_blocked[spec.mode] = spec
+                        continue
+                    # 真墙（captcha/login/send/muted/cloak…）：账号级阻断，余题
+                    # 全 aborted（真人撞墙即停，零浏览器交互不硬闯）。
                     outcomes.extend(
                         self._aborted_outcome(rest, spec, wall.wall_type)
                         for rest in items[index + 1 :]
                     )
                     return outcomes
+                except _ModeUnconfirmed as mu:
+                    # deep_think 无 SSE 思考证据（2026-08-14 起 non_retryable 诚实
+                    # 失败）：题级失败不连坐（与 toggle 失败同哲学），余题照跑。
+                    outcomes.append(self._failure_outcome(spec, "wall", "mode_unconfirmed", mu))
+                    continue
                 except _DeepThinkToggleFailed as toggle:
+                    # 2026-08-13 起不连坐：toggle 失败是页面态 flake（点击未命中/
+                    # 水合时序），非账号墙；大段批量下一中止会把百余未执行题全部
+                    # 连坐成 aborted。本题诚实失败、继续下一题（fresh_chat 会在下
+                    # 题开头重新校验页面态）。真墙（验证码/登录）仍走上面的中止。
                     outcomes.append(
                         self._failure_outcome(spec, "wall", "deep_think_toggle_failed", toggle)
                     )
-                    outcomes.extend(
-                        self._aborted_outcome(rest, spec, "deep_think_toggle_failed")
-                        for rest in items[index + 1 :]
-                    )
-                    return outcomes
+                    continue
                 except _IncompleteCapture as inc:
+                    # 同上：截图为题级 flake，记 incomplete 后续跑，不中止整批。
                     outcomes.append(
                         self._failure_outcome(spec, "incomplete", "answer_capture_incomplete", inc)
                     )
-                    outcomes.extend(
-                        self._aborted_outcome(rest, spec, "answer_capture_incomplete")
-                        for rest in items[index + 1 :]
-                    )
-                    return outcomes
+                    continue
                 outcomes.append(
                     DoubaoBatchItemOutcome(
                         business_key=spec.business_key, status="ok", answer=answer
@@ -1406,7 +1492,7 @@ class _PlaywrightDoubaoSession:
         spec: DoubaoBatchItemSpec,
         status: str,
         error_type: str,
-        exc: _WallError | _IncompleteCapture | _DeepThinkToggleFailed,
+        exc: _WallError | _IncompleteCapture | _DeepThinkToggleFailed | _ModeUnconfirmed,
     ) -> DoubaoBatchItemOutcome:
         return DoubaoBatchItemOutcome(
             business_key=spec.business_key,
@@ -1419,17 +1505,29 @@ class _PlaywrightDoubaoSession:
 
     @staticmethod
     def _aborted_outcome(
-        spec: DoubaoBatchItemSpec, failed_spec: DoubaoBatchItemSpec, error_type: str | None
+        spec: DoubaoBatchItemSpec,
+        failed_spec: DoubaoBatchItemSpec,
+        error_type: str | None,
+        *,
+        batch_stopped: bool = True,
     ) -> DoubaoBatchItemOutcome:
         # 真人撞墙后会停下：本题未执行（零浏览器交互），诚实标记不编造不硬闯。
+        if batch_stopped:
+            reason = (
+                f"not executed: batch stopped after item {failed_spec.business_key!r} "
+                f"failed ({error_type or 'unknown'}) — no browser interaction for this item"
+            )
+        else:
+            # 配额连坐（wall_quota）：批次未停，仅同 mode 余题占位。
+            reason = (
+                f"not executed: same-mode quota wall at item {failed_spec.business_key!r} "
+                f"({error_type or 'unknown'}) — no browser interaction for this item"
+            )
         return DoubaoBatchItemOutcome(
             business_key=spec.business_key,
             status="aborted",
             error_type="aborted_after_failure",
-            error_message=(
-                f"not executed: batch stopped after item {failed_spec.business_key!r} "
-                f"failed ({error_type or 'unknown'}) — no browser interaction for this item"
-            ),
+            error_message=reason,
         )
 
     def _reading_pause(self, page: Any) -> float:
@@ -1612,6 +1710,19 @@ class _PlaywrightDoubaoSession:
                         "login wall surfaced while awaiting chat input",
                         _shot("login"),
                     )
+                # 禁言 banner（2026-08-14 起）：composer 长期不可得时扫整页文本。
+                # 只跑禁言 regex（整页含 UI 营销件，配额/拒答词表套整页必误伤，
+                # 词表层已隔离）；命中改抛 wall_muted（带解封时间），走既有墙管道。
+                muted = detect_muted_banner("doubao", _read_page_text(page))
+                if muted is not None:
+                    until_note = (
+                        f" until={muted.until.isoformat()}" if muted.until is not None else ""
+                    )
+                    raise _WallError(
+                        "wall_muted",
+                        f"muted banner on page ({muted.phrase!r}){until_note}",
+                        _shot("muted"),
+                    )
                 raise _IncompleteCapture(
                     "could-not-find-chat-input",
                     _shot("no_input"),
@@ -1639,6 +1750,12 @@ class _PlaywrightDoubaoSession:
                 # 必须在打字/发送之前完成并经后置校验确认；确认不了即诚实失败，
                 # 绝不静默回退 normal（那会把 normal 答案错标成 deep_think）。
                 on_stage("enable_deep_think")
+                # 新会话 SPA 重建 composer 后模式 picker 可能晚于输入框挂载
+                # （20260813 正式采集首批 3 任务均因此快速失败）：先有界等待再进
+                # toggle，等不到仍按原语义诚实失败。
+                picker_deadline = time.monotonic() + 20.0
+                while _mode_picker(page) is None and time.monotonic() < picker_deadline:
+                    page.wait_for_timeout(400)
                 if not _try_enable_deep_think(page, self._rng):
                     raise _DeepThinkToggleFailed(
                         "deep_think mode picker could not be engaged "
@@ -1717,20 +1834,24 @@ class _PlaywrightDoubaoSession:
                 answer_text = _extract_response_text(page, spec.query)
             on_stage("answer_extracted")
 
-            if not answer_text:
-                notices = _scan_dom_notices(page)
-                if notices["softban"]:
-                    raise _WallError(
-                        "wall_send",
-                        "rate-limit notice in DOM: " + ",".join(notices["softban"]),
-                        _shot("send_wall"),
-                    )
-                if notices["realname"]:
-                    raise _WallError(
-                        "wall_login_required",
-                        "realname wall notice in DOM: " + ",".join(notices["realname"]),
-                        _shot("realname"),
-                    )
+            # 软墙/实名扫描无条件执行（2026-08-14 起——曾被 `if not answer_text:`
+            # 门挡，出了"答案"就绝不扫描 = 配额/禁言文案当答案采回的事故根因）。
+            # 已出答案时把答案正文从扫描文本中剔除：「答案正文提及「过频/实名」
+            # 不翻标记」的旧不变量保持成立（best-effort 精确串剔除，见
+            # _scan_dom_notices）。
+            notices = _scan_dom_notices(page, exclude=answer_text)
+            if notices["softban"]:
+                raise _WallError(
+                    "wall_send",
+                    "rate-limit notice in DOM: " + ",".join(notices["softban"]),
+                    _shot("send_wall"),
+                )
+            if notices["realname"]:
+                raise _WallError(
+                    "wall_login_required",
+                    "realname wall notice in DOM: " + ",".join(notices["realname"]),
+                    _shot("realname"),
+                )
             if not meta.get("found"):
                 raise _IncompleteCapture(
                     "send-accepted-no-completion: composer cleared (submission accepted) "
@@ -1750,6 +1871,19 @@ class _PlaywrightDoubaoSession:
                     "answer-empty-after-finished-stream: neither SSE assembly nor DOM "
                     "fallback produced answer text",
                     _shot("empty_answer"),
+                )
+
+            # 答案验收门（2026-08-14 起，词表唯一真源 wall_lexicon）：答案文本
+            # 定稿后、返回 ok 之前——平台提示文案（配额耗尽/禁言/拒答模板）被
+            # 当作答案采回时在此拦截，抛 _WallError 走既有墙管道（batch 连坐
+            # 语义按 wall_type 细化，见 collect_batch docstring）。batch 与
+            # per-task 单题共用本路径，两路都盖。
+            verdict = classify_answer_text("doubao", answer_text)
+            if verdict is not None:
+                raise _WallError(
+                    verdict.wall_type,
+                    _wall_verdict_message(verdict, answer_text),
+                    _shot("answer_wall"),
                 )
 
             on_stage("screenshot")
@@ -1802,12 +1936,6 @@ class _PlaywrightDoubaoSession:
             )
             if sse_trace is not None:
                 sse_trace["mode"] = mode_evidence
-            if spec.mode == "deep_think" and mode_evidence["actual"] != "deep_think":
-                log.warning(
-                    "doubao_deep_think_unconfirmed",
-                    business_key=spec.business_key,
-                    sse_deep_think_active=mode_evidence["sse_deep_think_active"],
-                )
 
             # W1：SSE 结构化 trace 落盘进证据链（kind="sse"）。写盘失败不拖垮
             # 已成功的采集——如实 warning 且不出该证据（绝不出残缺/编造证据）。
@@ -1839,6 +1967,19 @@ class _PlaywrightDoubaoSession:
                             source_url=_CHAT_URL,
                         )
                     )
+
+            # mode 证据升级（2026-08-14 起，warning-only → non_retryable 诚实
+            # 失败）：trace 已先落盘取证。请求 deep_think 而 SSE 无思考证据 =
+            # 平台静默回退快速模式的嫌疑答案，绝不落 completed（2026-08-13
+            # 事故教训：配额耗尽后的回退答案曾被当 deep_think 有效答案采回）。
+            if spec.mode == "deep_think" and mode_evidence["actual"] != "deep_think":
+                raise _ModeUnconfirmed(
+                    "deep_think requested and UI toggle confirmed, but SSE stream "
+                    "carries no thinking-root evidence (sse_deep_think_active="
+                    f"{mode_evidence['sse_deep_think_active']}) — refusing to record "
+                    "a normal-evidence answer as deep_think",
+                    _shot("mode_unconfirmed"),
+                )
 
             # Official share output is part of the successful-capture contract.  A
             # runtime browser screenshot is audit evidence, not a substitute for the
@@ -1951,7 +2092,7 @@ class _PlaywrightDoubaoSession:
                 search_queries=search_queries,
                 answer_evidence=answer_evidence,
             )
-        except (_WallError, _IncompleteCapture, _DeepThinkToggleFailed) as exc:
+        except (_WallError, _IncompleteCapture, _DeepThinkToggleFailed, _ModeUnconfirmed) as exc:
             # 失败题同样留 raw/HAR（题末先 dump 后 detach）：ref 挂异常对象，经
             # _failure_outcome → 失败 result.evidence → persist 层进 CAS。
             exc.evidence_refs = dump_raw_evidence_refs(
@@ -2574,17 +2715,53 @@ def _trim_response(text: str) -> str:
     return text.strip()
 
 
-def _scan_dom_notices(page: Any) -> dict[str, list[str]]:
-    """best-effort 读 body 文本扫系统通知词（softban 过频 / 实名墙）。"""
+def _read_page_text(page: Any) -> str:
+    """best-effort 读 body 文本（2s 超时；失败=空串，绝不因此拖垮采集）。"""
     try:
-        body = page.locator("body").inner_text(timeout=2000)
+        return str(page.locator("body").inner_text(timeout=2000) or "")
     except Exception:
-        body = ""
-    text = body or ""
+        return ""
+
+
+def _scan_dom_notices(page: Any, *, exclude: str = "") -> dict[str, list[str]]:
+    """best-effort 读 body 文本扫系统通知词（softban 过频 / 实名墙）。
+
+    2026-08-14 起调用方无条件扫描（不再 gated by 无答案）；``exclude`` 传入
+    已定稿答案正文做精确串剔除——系统通知在答案气泡之外，剔除后「答案正文
+    提及「过频/实名」不翻标记」的旧不变量保持成立（SSE 正文与 DOM 渲染可能有
+    空白差，剔除是 best-effort，词表本身已是平台口吻短语）。"""
+    text = _read_page_text(page)
+    if exclude:
+        text = text.replace(exclude, " ")
     return {
         "softban": [p for p in _SOFTBAN_DOM_PHRASES if p in text],
         "realname": [p for p in _REALNAME_DOM_PHRASES if p in text],
     }
+
+
+def _wall_hit_fragment(text: str, phrase: str, *, limit: int = 120) -> str:
+    """命中证据片段：命中短语前后各留上下文，整体截断（答案文本本身就是要
+    落库的采集内容，绝不含秘密）。phrase 为 regex 命中串时同样是原文子串。"""
+    idx = text.find(phrase)
+    if idx < 0:
+        return text[:limit]
+    start = max(0, idx - 20)
+    fragment = text[start : idx + len(phrase) + 80].strip()
+    if len(fragment) <= limit:
+        return fragment
+    return fragment[: limit - 1] + "…"
+
+
+def _wall_verdict_message(verdict: WallVerdict, answer_text: str) -> str:
+    """答案验收门命中 → _WallError message（类型 + 短语 + 截断片段 + 禁言解封时间）。"""
+    fragment = _wall_hit_fragment(answer_text, verdict.phrase)
+    until_note = (
+        f" until={verdict.until.isoformat()}" if verdict.until is not None else ""
+    )
+    return (
+        f"answer-text wall hit [{verdict.wall_type}] phrase={verdict.phrase!r}"
+        f"{until_note} fragment={fragment!r}"
+    )
 
 
 class _DoubaoScopedCaptureError(RuntimeError):
@@ -3584,19 +3761,52 @@ def _try_enable_deep_think(page: Any, rng: random.Random) -> bool:
             for _attempt in range(2):
                 human_click(picker, page, rng, hover_s=_PACE_PICKER_HOVER_S)
                 try:
-                    page.get_by_text(_DEEP_MODE_LABELS[0], exact=True).first.wait_for(
-                        state="visible", timeout=2500
-                    )
+                    page.get_by_role(
+                        "menuitem", name=_DEEP_MODE_LABELS[0], exact=True
+                    ).first.wait_for(state="visible", timeout=5_000)
                     menu_open = True
                     break
                 except Exception:
-                    continue
+                    # Older builds expose the option without menuitem semantics.
+                    try:
+                        page.get_by_text(_DEEP_MODE_LABELS[0], exact=True).first.wait_for(
+                            state="visible", timeout=1_000
+                        )
+                        menu_open = True
+                        break
+                    except Exception:
+                        pass
+                    # 20260814 live calibration: on the current Radix picker the
+                    # Bezier mouse click can occasionally leave the trigger closed
+                    # even though its bounding box is valid.  Fall back to
+                    # Playwright's native pointer click only after that observable
+                    # failure; it still emits real mouse events and avoids turning a
+                    # transient click miss into deep_think_toggle_failed.
+                    try:
+                        picker.click(timeout=2_000)
+                        page.get_by_role(
+                            "menuitem", name=_DEEP_MODE_LABELS[0], exact=True
+                        ).first.wait_for(state="visible", timeout=5_000)
+                        menu_open = True
+                        break
+                    except Exception:
+                        try:
+                            page.get_by_text(_DEEP_MODE_LABELS[0], exact=True).first.wait_for(
+                                state="visible", timeout=1_000
+                            )
+                            menu_open = True
+                            break
+                        except Exception:
+                            continue
             _pace(*_PACE_MENU_READ_S)  # 读菜单
             candidates = []
             if menu_open:
                 for label in _DEEP_MODE_LABELS:
+                    # Prefer the semantic Radix menuitem.  A generic exact-text
+                    # locator can resolve to an inner wrapper whose mouse click does
+                    # not activate the menu item in the 20260814 build.
+                    candidates.append(page.get_by_role("menuitem", name=label, exact=True).first)
                     candidates.append(page.get_by_text(label, exact=True).first)
-                    candidates.append(page.get_by_role("menuitem", name=label).first)
                     candidates.append(page.get_by_role("button", name=label).first)
                 for sub in _DEEP_MODE_SUBTITLES:
                     candidates.append(page.get_by_text(sub).first)
@@ -3610,6 +3820,16 @@ def _try_enable_deep_think(page: Any, rng: random.Random) -> bool:
                             page.wait_for_timeout(400)
                             if _deep_think_engaged(page):
                                 return True
+                        # Same calibrated fallback for a visible menu item whose
+                        # coordinate click was swallowed.  Never use it after the
+                        # state changed, so a successful human click is not doubled.
+                        if opt.is_visible(timeout=300):
+                            opt.click(timeout=2_000)
+                            page.wait_for_timeout(400)
+                            if _deep_think_engaged(page):
+                                page.wait_for_timeout(400)
+                                if _deep_think_engaged(page):
+                                    return True
                 except Exception:
                     continue
         except Exception:

@@ -1038,6 +1038,57 @@ def test_deep_think_toggle_uses_human_pacing() -> None:
     assert any(400.0 <= w <= 1_000.0 for _, w in mid_waits)
 
 
+def test_deep_think_toggle_uses_native_fallback_after_swallowed_coordinate_click(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A visible Radix trigger/item may swallow a coordinate mouse click.
+
+    The calibrated fallback must use semantic menuitems plus native pointer clicks,
+    while keeping the verified postcondition as the success oracle.
+    """
+    page = _FakePage(deep_think=True)
+    state = {"menu_open": False}
+
+    class _FallbackLocator(_FakeLocator):
+        def _present(self) -> bool:
+            if self._selector == "__option_expert__":
+                return state["menu_open"]
+            return super()._present()
+
+        def click(self, **kw: Any) -> None:
+            self._page.events.append(("locator_click", self._selector, kw))
+            if self._selector == 'button:has-text("快速")':
+                state["menu_open"] = True
+            elif self._selector == "__option_expert__":
+                self._page.deep_think_engaged = True
+                state["menu_open"] = False
+
+    def locator(selector: str) -> _FallbackLocator:
+        page.events.append(("locator", selector))
+        return _FallbackLocator(page, selector)
+
+    def get_by_role(role: str, **kw: Any) -> _FallbackLocator:
+        if role == "menuitem" and kw.get("name") == "专家":
+            return _FallbackLocator(page, "__option_expert__")
+        return _FallbackLocator(page, "__absent_role__")
+
+    def get_by_text(text: str, exact: bool = False) -> _FallbackLocator:
+        if text == "专家" and exact:
+            return _FallbackLocator(page, "__option_expert__")
+        return _FallbackLocator(page, "__absent_text__")
+
+    monkeypatch.setattr(page, "locator", locator)
+    monkeypatch.setattr(page, "get_by_role", get_by_role)
+    monkeypatch.setattr(page, "get_by_text", get_by_text)
+    monkeypatch.setattr(doubao_adapter, "human_click", lambda *_a, **_kw: None)
+
+    assert _try_enable_deep_think(page, random.Random(31)) is True
+    assert page.deep_think_engaged is True
+    native_targets = [e[1] for e in page.events if e[0] == "locator_click"]
+    assert 'button:has-text("快速")' in native_targets
+    assert "__option_expert__" in native_targets
+
+
 def test_fresh_chat_fast_path_when_already_fresh() -> None:
     page = _FakePage(messages=0)
     rng = random.Random(6)

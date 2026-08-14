@@ -1406,8 +1406,15 @@ def test_collect_batch_mixed_modes_per_item_ensure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """双模式混合 batch：mode 门放行 + 逐题确保（normal↔deep_think 双向切换），
-    已是目标模式的题零按键（幂等，不制造多余行为指纹）。"""
+    已是目标模式的题零按键（幂等，不制造多余行为指纹）。2026-08-14 起注入
+    思考流程卡证据（mode_unconfirmed 门：无卡 = 诚实失败，本测试断言逐题
+    模式确保行为而非该门）。"""
     page = _FakePage(messages=0)
+    page.thinking_payload = {
+        "card_found": True,
+        "steps": [{"kind": "reasoning", "title": "拆解问题", "text": "先想一下。"}],
+        "queries": [],
+    }
     session = _make_session(tmp_path, monkeypatch, page)
     specs = _batch_specs(4, modes=["normal", "deep_think", "deep_think", "normal"])
 
@@ -1481,20 +1488,23 @@ def test_collect_batch_deep_think_persists_thinking_trace(
 def test_collect_batch_deep_think_without_thinking_card_stays_honest(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """deep_think 题但思考卡缺货（探针空）：trace 不出（无引用无思考卡），
-    deep_think_active 不硬标——诚实缺省，采集本身照常成功。"""
+    """deep_think 题但思考卡缺货（探针空）：2026-08-14 起升级为 mode_unconfirmed
+    诚实失败（题级 wall 不连坐）——trace 不出（无引用无思考卡）、deep_think_active
+    不硬标，绝不把无思考证据的答案按 deep_think 落 completed（旧「照出答案」
+    口径曾让豆包配额墙假答案污染 analytics，已废止）。配套 normal 题照跑 =
+    题级失败不连坐。"""
     page = _FakePage(messages=0)
     page.thinking_payload = None  # 探针返回 None → 无卡
     session = _make_session(tmp_path, monkeypatch, page)
-    spec = _batch_specs(1, modes=["deep_think"])[0]
+    specs = _batch_specs(2, modes=["deep_think", "normal"])
 
-    outcomes = session.collect_batch([spec], on_stage=lambda s: None)
+    outcomes = session.collect_batch(specs, on_stage=lambda s: None)
 
-    assert outcomes[0].status == "ok"
-    assert outcomes[0].answer is not None
-    assert outcomes[0].answer.trace_path is None  # 无引用+无思考卡 → 不出空证据
-    assert outcomes[0].answer.search_queries == []
-    assert not (tmp_path / "evidence" / f"{spec.file_stem}-sse-trace.json").exists()
+    assert [o.status for o in outcomes] == ["wall", "ok"]  # 不连坐：normal 题照跑
+    assert outcomes[0].error_type == "mode_unconfirmed"
+    assert outcomes[0].answer is None
+    # 无引用+无思考卡 → 不出空证据
+    assert not (tmp_path / "evidence" / f"{specs[0].file_stem}-sse-trace.json").exists()
 
 
 def test_collect_batch_mode_toggle_failure_is_honest_wall(

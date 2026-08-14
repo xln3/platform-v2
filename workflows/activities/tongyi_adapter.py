@@ -32,6 +32,10 @@
 - 墙分类（先截屏存证再抛，错误 message 带证据路径、绝不含秘密）：
   登录墙/实名墙 → ``wall_login_required`` non_retryable；验证码（阿里滑块等）→
   ``wall_captcha`` non_retryable；发送墙/限流 → ``wall_send`` non_retryable。
+  2026-08-14 起（墙词表 ``wall_lexicon``，对齐豆包）：答案文本级配额/禁言/
+  拒答 → ``wall_quota``/``wall_muted``/``wall_refusal`` non_retryable；batch
+  连坐按 wall_type 细化（muted 全连坐、quota 只连坐同 mode、refusal 不
+  连坐，见 ``collect_batch`` docstring）。
 - 成功判据（零合成）：提交被接受（输入框清空）且流式结束（CDP finished 或
   DOM 静默兜底成立）且 **DOM 稳定门通过**（complete 类或文本静默 2.5s，
   2026-08-07 起——CDP 流完成不等于渲染完成）且正文非空且不含墙特征——
@@ -177,6 +181,9 @@ from workflows.activities.collection import (
     CollectionTaskResult,
     batch_result_with_captcha_pause,
 )
+
+# 答案验收门命中消息的组装与豆包同一份实现（单一事实源，行为逐字一致）。
+from workflows.activities.doubao_adapter import _wall_verdict_message
 from workflows.activities.human_like import (
     human_click,
     human_pause,
@@ -185,6 +192,7 @@ from workflows.activities.human_like import (
 )
 from workflows.activities.raw_capture import dump_raw_evidence_refs, maybe_raw_capture
 from workflows.activities.resident_browser import platform_browser, resident_cdp_url
+from workflows.activities.wall_lexicon import classify_answer_text, detect_muted_banner
 
 log = structlog.get_logger()
 
@@ -627,6 +635,18 @@ class _ModeToggleFailed(RuntimeError):
         self.evidence_refs: list[CollectionEvidenceRef] = []
 
 
+class _ModeUnconfirmed(RuntimeError):
+    """deep_think 请求已下达（菜单后置校验通过）但无 bar_workflow 思考流程卡
+    DOM 证据——诚实失败（non_retryable）：绝不把无思考证据的答案按 deep_think
+    落 completed（对照豆包 2026-08-14 口径：配额耗尽后平台静默回退非思考
+    模式的「正常答案」曾是 2026-08-13 事故源头之一）。"""
+
+    def __init__(self, message: str, evidence_path: Path | None = None) -> None:
+        super().__init__(message)
+        self.evidence_path = evidence_path
+        self.evidence_refs: list[CollectionEvidenceRef] = []
+
+
 @dataclass
 class CollectedAnswer:
     answer_text: str
@@ -821,6 +841,23 @@ async def run_tongyi_batch(
                 for item in batch.items
             ]
         )
+    except _ModeUnconfirmed as mu:
+        # 防御：mode_unconfirmed 应在题内转 outcome；逃出即按 session 级诚实记录。
+        evidence_suffix = f"; evidence={mu.evidence_path}" if mu.evidence_path else ""
+        bound.info("tongyi_batch_session_mode_unconfirmed", stage=progress["stage"])
+        return CollectionBatchResult(
+            results=[
+                _failure_batch_item(
+                    item,
+                    status="wall",
+                    error_type="mode_unconfirmed",
+                    error_message=f"{mu}{evidence_suffix}",
+                    evidence_path=mu.evidence_path,
+                    evidence=mu.evidence_refs,
+                )
+                for item in batch.items
+            ]
+        )
     except _ModeToggleFailed as toggle:
         # 防御：toggle 失败应在题内转 outcome；逃出即按 session 级 wall 诚实记录。
         evidence_suffix = f"; evidence={toggle.evidence_path}" if toggle.evidence_path else ""
@@ -991,6 +1028,14 @@ async def run_tongyi_collection(
         raise ApplicationError(
             f"{toggle}{evidence}", type="mode_toggle_failed", non_retryable=True
         ) from toggle
+    except _ModeUnconfirmed as mu:
+        # deep_think 无思考流程卡证据（2026-08-14 起）：non_retryable 诚实失败，
+        # 绝不把无思考证据的答案按 deep_think 落 completed。
+        evidence = f"; evidence={mu.evidence_path}" if mu.evidence_path else ""
+        bound.info("tongyi_mode_unconfirmed", stage=progress["stage"])
+        raise ApplicationError(
+            f"{mu}{evidence}", type="mode_unconfirmed", non_retryable=True
+        ) from mu
     except _IncompleteCapture as inc:
         evidence = f"; evidence={inc.evidence_path}" if inc.evidence_path else ""
         bound.info("tongyi_capture_incomplete", reason=str(inc), stage=progress["stage"])
@@ -1121,10 +1166,14 @@ class _PlaywrightTongyiSession:
       launch 路径结束统一 context.close()（platform_browser 契约）+ 崩溃标记
       清理；attach 路径只断开连接，绝不 close/清理 profile。
 
-    batch 失败语义：题级墙/incomplete 转 outcome——该题诚实失败、后续题
-    aborted（零浏览器交互：真人撞墙后会停下，不编造不硬闯），结果列表与
-    输入等长同序；session 建立阶段（launch/navigate/登录墙检查）的异常
-    原样逃出，由 activity 层按 session 级语义处理（一题未发）。
+    batch 失败语义（2026-08-14 细化，对齐豆包）：题级失败转 outcome，结果列表
+    与输入等长同序；连坐按失败类型分级——真墙（captcha/login/send/muted）=
+    账号级阻断，后续题全 aborted（零浏览器交互：真人撞墙后会停下，不编造不
+    硬闯）；wall_quota=配额按 (账号×mode) 计费，只连坐同 mode 余题；
+    wall_refusal/mode_unconfirmed=题级内容/证据失败，不连坐，本题诚实失败后
+    续跑；incomplete/toggle 失败维持旧语义（该题诚实失败、后续题 aborted）。
+    session 建立阶段（launch/navigate/登录墙检查）的异常原样逃出，由
+    activity 层按 session 级语义处理（一题未发）。
     """
 
     def __init__(self, config: TongyiAdapterConfig, evidence_dir: Path, file_stem: str) -> None:
@@ -1152,18 +1201,45 @@ class _PlaywrightTongyiSession:
         self, items: list[TongyiBatchItemSpec], on_stage: Callable[[str], None]
     ) -> list[TongyiBatchItemOutcome]:
         outcomes: list[TongyiBatchItemOutcome] = []
+        # 配额墙按 (账号×mode) 计费（2026-08-14 起，对齐豆包）：wall_quota 只
+        # 连坐同 mode 余题——记录已撞配额的 mode，轮到其余题位次时零浏览器交互
+        # 追加 aborted 占位（结果列表与输入等长同序的契约不变）。
+        quota_blocked: dict[str, TongyiBatchItemSpec] = {}
         with self._browser_session(on_stage) as (context, page, _pw_timeout, driver):
             for index, spec in enumerate(items):
+                if spec.mode in quota_blocked:
+                    outcomes.append(
+                        self._aborted_outcome(
+                            spec, quota_blocked[spec.mode], "wall_quota", batch_stopped=False
+                        )
+                    )
+                    continue
                 on_stage(f"item:{spec.business_key}")
                 try:
                     answer = self._collect_one(context, page, spec, on_stage, driver=driver)
                 except _WallError as wall:
                     outcomes.append(self._failure_outcome(spec, "wall", wall.wall_type, wall))
+                    if wall.wall_type == "wall_refusal":
+                        # 拒答=题级内容失败（平台拒答本题），非账号墙：不连坐，
+                        # 本题诚实失败后继续下一题。
+                        continue
+                    if wall.wall_type == "wall_quota":
+                        # 配额按 (账号×mode) 计费：只连坐同 mode 余题，其他 mode
+                        # 照跑（思考研究配额耗尽 ≠ 快速模式不可用）。
+                        quota_blocked[spec.mode] = spec
+                        continue
+                    # 真墙（captcha/login/send/muted…）：账号级阻断，余题全
+                    # aborted（真人撞墙即停，零浏览器交互不硬闯）。
                     outcomes.extend(
                         self._aborted_outcome(rest, spec, wall.wall_type)
                         for rest in items[index + 1 :]
                     )
                     return outcomes
+                except _ModeUnconfirmed as mu:
+                    # deep_think 无思考流程卡 DOM 证据（2026-08-14 起 non_retryable
+                    # 诚实失败）：题级失败不连坐，余题照跑。
+                    outcomes.append(self._failure_outcome(spec, "wall", "mode_unconfirmed", mu))
+                    continue
                 except _ModeToggleFailed as toggle:
                     outcomes.append(
                         self._failure_outcome(spec, "wall", "mode_toggle_failed", toggle)
@@ -1202,7 +1278,7 @@ class _PlaywrightTongyiSession:
         spec: TongyiBatchItemSpec,
         status: str,
         error_type: str,
-        exc: _WallError | _IncompleteCapture | _ModeToggleFailed,
+        exc: _WallError | _IncompleteCapture | _ModeToggleFailed | _ModeUnconfirmed,
     ) -> TongyiBatchItemOutcome:
         return TongyiBatchItemOutcome(
             business_key=spec.business_key,
@@ -1215,17 +1291,29 @@ class _PlaywrightTongyiSession:
 
     @staticmethod
     def _aborted_outcome(
-        spec: TongyiBatchItemSpec, failed_spec: TongyiBatchItemSpec, error_type: str | None
+        spec: TongyiBatchItemSpec,
+        failed_spec: TongyiBatchItemSpec,
+        error_type: str | None,
+        *,
+        batch_stopped: bool = True,
     ) -> TongyiBatchItemOutcome:
         # 真人撞墙后会停下：本题未执行（零浏览器交互），诚实标记不编造不硬闯。
+        if batch_stopped:
+            reason = (
+                f"not executed: batch stopped after item {failed_spec.business_key!r} "
+                f"failed ({error_type or 'unknown'}) — no browser interaction for this item"
+            )
+        else:
+            # 配额连坐（wall_quota）：批次未停，仅同 mode 余题占位。
+            reason = (
+                f"not executed: same-mode quota wall at item {failed_spec.business_key!r} "
+                f"({error_type or 'unknown'}) — no browser interaction for this item"
+            )
         return TongyiBatchItemOutcome(
             business_key=spec.business_key,
             status="aborted",
             error_type="aborted_after_failure",
-            error_message=(
-                f"not executed: batch stopped after item {failed_spec.business_key!r} "
-                f"failed ({error_type or 'unknown'}) — no browser interaction for this item"
-            ),
+            error_message=reason,
         )
 
     def _reading_pause(self, page: Any) -> float:
@@ -1376,6 +1464,20 @@ class _PlaywrightTongyiSession:
                         "login wall surfaced while awaiting chat input",
                         _shot("login"),
                     )
+                # 禁言 banner（2026-08-14 起，对齐豆包）：composer 长期不可得时
+                # 扫整页文本。只跑禁言 regex（整页含 UI 营销件，配额/拒答词表
+                # 套整页必误伤，词表层已隔离）；命中改抛 wall_muted（带解封
+                # 时间），走既有墙管道。
+                muted = detect_muted_banner("tongyi", _read_page_text(page))
+                if muted is not None:
+                    until_note = (
+                        f" until={muted.until.isoformat()}" if muted.until is not None else ""
+                    )
+                    raise _WallError(
+                        "wall_muted",
+                        f"muted banner on page ({muted.phrase!r}){until_note}",
+                        _shot("muted"),
+                    )
                 raise _IncompleteCapture(
                     "could-not-find-chat-input",
                     _shot("no_input"),
@@ -1513,20 +1615,25 @@ class _PlaywrightTongyiSession:
                     answer_text, references = _extract_response(page)
             on_stage("answer_extracted")
 
+            # 软墙/实名扫描无条件执行（2026-08-14 起，对齐豆包——曾被
+            # `if not answer_text:` 门挡，出了"答案"就绝不扫描 = 配额/禁言文案
+            # 当答案采回的事故根因）。已出答案时把答案正文从扫描文本中剔除：
+            # 「答案正文提及「过频/实名」不翻标记」的旧不变量保持成立
+            # （best-effort 精确串剔除，见 _scan_dom_notices）。
+            notices = _scan_dom_notices(page, exclude=answer_text)
+            if notices["softban"]:
+                raise _WallError(
+                    "wall_send",
+                    "rate-limit notice in DOM: " + ",".join(notices["softban"]),
+                    _shot("send_wall"),
+                )
+            if notices["realname"]:
+                raise _WallError(
+                    "wall_login_required",
+                    "realname wall notice in DOM: " + ",".join(notices["realname"]),
+                    _shot("realname"),
+                )
             if not answer_text:
-                notices = _scan_dom_notices(page)
-                if notices["softban"]:
-                    raise _WallError(
-                        "wall_send",
-                        "rate-limit notice in DOM: " + ",".join(notices["softban"]),
-                        _shot("send_wall"),
-                    )
-                if notices["realname"]:
-                    raise _WallError(
-                        "wall_login_required",
-                        "realname wall notice in DOM: " + ",".join(notices["realname"]),
-                        _shot("realname"),
-                    )
                 if _detect_login_wall(page):
                     raise _WallError(
                         "wall_login_required",
@@ -1543,6 +1650,19 @@ class _PlaywrightTongyiSession:
                     "wall_login_required",
                     "login-required text marker inside extracted answer",
                     _shot("login"),
+                )
+
+            # 答案验收门（2026-08-14 起，词表唯一真源 wall_lexicon，对齐豆包）：
+            # 答案文本定稿后、返回 ok 之前——平台提示文案（配额耗尽/禁言/拒答
+            # 模板）被当作答案采回时在此拦截，抛 _WallError 走既有墙管道（batch
+            # 连坐语义按 wall_type 细化，见 collect_batch docstring）。batch 与
+            # per-task 单题共用本路径，两路都盖。
+            verdict = classify_answer_text("tongyi", answer_text)
+            if verdict is not None:
+                raise _WallError(
+                    verdict.wall_type,
+                    _wall_verdict_message(verdict, answer_text),
+                    _shot("answer_wall"),
                 )
 
             # 思考研究模式：答案稳定后抽思考流程卡（bar_workflow：思考链步骤 +
@@ -1590,6 +1710,18 @@ class _PlaywrightTongyiSession:
                     {"query": query, "ordinal": index}
                     for index, query in enumerate(thinking.get("queries") or [], 1)
                 ]
+            # mode 证据升级（2026-08-14 起，对齐豆包，warning-only →
+            # non_retryable 诚实失败）：trace 已先落盘取证（deep_think_active 以
+            # 实际抽到思考流程卡为准）。请求 deep_think 而无 bar_workflow 思考卡
+            # 证据 = 平台静默回退非思考模式的嫌疑答案，绝不落 completed
+            # （2026-08-13 事故教训：配额耗尽后的回退答案曾被当 deep_think 采回）。
+            if spec.mode == "deep_think" and not (thinking and thinking.get("card_found")):
+                raise _ModeUnconfirmed(
+                    "deep_think requested and mode menu confirmed, but no "
+                    "bar_workflow thinking card found in DOM — refusing to record "
+                    "a normal-evidence answer as deep_think",
+                    _shot("mode_unconfirmed"),
+                )
             answer_capture = capture_answer_evidence(
                 page,
                 assistant_selectors=_ASSISTANT_SELECTORS,
@@ -1618,7 +1750,7 @@ class _PlaywrightTongyiSession:
                 raw_evidence=raw_evidence,
                 answer_evidence=answer_evidence,
             )
-        except (_WallError, _IncompleteCapture, _ModeToggleFailed) as exc:
+        except (_WallError, _IncompleteCapture, _ModeToggleFailed, _ModeUnconfirmed) as exc:
             # 失败题同样留 raw/HAR（题末先 dump 后 detach）：ref 挂异常对象，经
             # _failure_outcome → 失败 result.evidence → persist 层进 CAS。
             exc.evidence_refs = dump_raw_evidence_refs(
@@ -2563,13 +2695,24 @@ def _trim_response(text: str) -> str:
     return text.strip()
 
 
-def _scan_dom_notices(page: Any) -> dict[str, list[str]]:
-    """best-effort 读 body 文本扫系统通知词（限流 / 实名墙）。"""
+def _read_page_text(page: Any) -> str:
+    """best-effort 读 body 文本（2s 超时；失败=空串，绝不因此拖垮采集）。"""
     try:
-        body = page.locator("body").inner_text(timeout=2000)
+        return str(page.locator("body").inner_text(timeout=2000) or "")
     except Exception:
-        body = ""
-    text = body or ""
+        return ""
+
+
+def _scan_dom_notices(page: Any, *, exclude: str = "") -> dict[str, list[str]]:
+    """best-effort 读 body 文本扫系统通知词（限流 / 实名墙）。
+
+    2026-08-14 起调用方无条件扫描（不再 gated by 无答案，对齐豆包）；
+    ``exclude`` 传入已定稿答案正文做精确串剔除——系统通知在答案气泡之外，
+    剔除后「答案正文提及「过频/实名」不翻标记」的旧不变量保持成立
+    （best-effort 精确串剔除，词表本身已是平台口吻短语）。"""
+    text = _read_page_text(page)
+    if exclude:
+        text = text.replace(exclude, " ")
     return {
         "softban": [p for p in _SOFTBAN_DOM_PHRASES if p in text],
         "realname": [p for p in _REALNAME_DOM_PHRASES if p in text],

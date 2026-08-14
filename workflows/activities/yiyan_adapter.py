@@ -53,6 +53,10 @@ v1 边界（20260810 deep_think 解锁）：
 - 墙分类（先截屏存证再抛，错误 message 带证据路径、绝不含秘密）：
   登录墙/实名墙 → ``wall_login_required`` non_retryable；验证码 → ``wall_captcha``
   non_retryable；发送墙/限流 → ``wall_send`` non_retryable。
+  2026-08-14 起（墙词表 ``wall_lexicon``，对齐豆包）：答案文本级配额/禁言/
+  拒答 → ``wall_quota``/``wall_muted``/``wall_refusal`` non_retryable；batch
+  连坐按 wall_type 细化（muted 全连坐、quota 只连坐同 mode、refusal 不
+  连坐，见 ``collect_batch`` docstring）。
 - 成功判据（零合成）：提交被接受（输入框清空）且答案容器出现且「生成中」
   指示器消失、正文静默稳定且非空且不含墙特征——缺一都不得返回成功。
   流截断/空答案/无流，或文心官方分享卡片 PNG/公开链接任一缺失 →
@@ -147,7 +151,10 @@ from workflows.activities.collection import (
     CollectionTaskResult,
     batch_result_with_captcha_pause,
 )
-from workflows.activities.doubao_adapter import _clean_profile_crash_state
+from workflows.activities.doubao_adapter import (
+    _clean_profile_crash_state,
+    _wall_verdict_message,
+)
 from workflows.activities.human_like import (
     human_click,
     human_pause,
@@ -162,6 +169,7 @@ from workflows.activities.official_share import (
 from workflows.activities.page_capture import capture_scoped_chat_tiles
 from workflows.activities.raw_capture import dump_raw_evidence_refs, maybe_raw_capture
 from workflows.activities.resident_browser import platform_browser
+from workflows.activities.wall_lexicon import classify_answer_text, detect_muted_banner
 
 log = structlog.get_logger()
 
@@ -566,10 +574,45 @@ _YIYAN_CAPTURE_RESTORE_JS = r"""async (scrollTop) => {
   await new Promise((resolve) => requestAnimationFrame(
     () => requestAnimationFrame(resolve)
   ));
+  for (const el of document.querySelectorAll('[data-yiyan-capture-unsticky]')) {
+    el.style.removeProperty('position');
+    el.removeAttribute('data-yiyan-capture-unsticky');
+  }
+  const injected = document.getElementById('yiyan-capture-chrome-hide');
+  if (injected) injected.remove();
   return {
     ok: Math.abs(scroller.scrollTop - Number(scrollTop)) <= 1,
     actual_scroll_top: scroller.scrollTop,
   };
+}"""
+
+# 表格答案的 markdown 表头工具条（.cosd-markdown-table-header）是 position:sticky，
+# 分片滚动时随视口吸附位置漂移，拼接会重影/覆盖正文。采集期间临时改 static（由
+# _YIYAN_CAPTURE_RESTORE_JS 统一还原），探针的未知 sticky 节点检查保持 fail-closed。
+# 浮动思考头（.fixed-header-container）是滚动时按需挂载的视口副本 UI chrome，
+# 非答案内容（fingerprint 本就排除）；用注入样式整采隐藏，滚动中新挂载的副本同样
+# 生效，restore 时移除样式节点统一还原。
+_YIYAN_CAPTURE_UNSTICKY_JS = r"""() => {
+  const STYLE_ID = 'yiyan-capture-chrome-hide';
+  if (!document.getElementById(STYLE_ID)) {
+    const style = document.createElement('style');
+    style.id = STYLE_ID;
+    style.textContent =
+      'div.chat-search-answer-generate .fixed-header-container{display:none!important}';
+    document.head.appendChild(style);
+  }
+  const headers = Array.from(document.querySelectorAll(
+    'div.chat-search-answer-generate .cosd-markdown-table-header'
+  ));
+  let marked = 0;
+  for (const el of headers) {
+    if (el.hasAttribute('data-yiyan-capture-unsticky')) continue;
+    if (getComputedStyle(el).position !== 'sticky') continue;
+    el.setAttribute('data-yiyan-capture-unsticky', '1');
+    el.style.position = 'static';
+    marked += 1;
+  }
+  return {ok: true, marked};
 }"""
 
 
@@ -684,6 +727,18 @@ class _IncompleteCapture(RuntimeError):
 
 class _ModeToggleFailed(RuntimeError):
     """深度思考 chip 无法确认到目标态（non_retryable；绝不按错误口径采）。"""
+
+    def __init__(self, message: str, evidence_path: Path | None = None) -> None:
+        super().__init__(message)
+        self.evidence_path = evidence_path
+        self.evidence_refs: list[CollectionEvidenceRef] = []
+
+
+class _ModeUnconfirmed(RuntimeError):
+    """deep_think 请求已下达（chip 后置校验通过）但无 ai-thinking-steps DOM
+    思考步证据——诚实失败（non_retryable）：绝不把无思考证据的答案按
+    deep_think 落 completed（对照豆包 2026-08-14 口径：配额耗尽后平台静默
+    回退非思考模式的「正常答案」曾是 2026-08-13 事故源头之一）。"""
 
     def __init__(self, message: str, evidence_path: Path | None = None) -> None:
         super().__init__(message)
@@ -1006,6 +1061,23 @@ async def run_yiyan_batch(
                 for item in batch.items
             ]
         )
+    except _ModeUnconfirmed as mu:
+        # 防御：mode_unconfirmed 应在题内转 outcome；逃出即按 session 级诚实记录。
+        evidence_suffix = f"; evidence={mu.evidence_path}" if mu.evidence_path else ""
+        bound.info("yiyan_batch_session_mode_unconfirmed", stage=progress["stage"])
+        return CollectionBatchResult(
+            results=[
+                _failure_batch_item(
+                    item,
+                    status="wall",
+                    error_type="mode_unconfirmed",
+                    error_message=f"{mu}{evidence_suffix}",
+                    evidence_path=mu.evidence_path,
+                    evidence=mu.evidence_refs,
+                )
+                for item in batch.items
+            ]
+        )
     except _IncompleteCapture as inc:
         # session 级临时故障（浏览器启动失败等）：一题未发，raise 走 batch 重试。
         evidence_suffix = f"; evidence={inc.evidence_path}" if inc.evidence_path else ""
@@ -1159,6 +1231,14 @@ async def run_yiyan_collection(
         raise ApplicationError(
             f"{toggle}{evidence}", type="mode_toggle_failed", non_retryable=True
         ) from toggle
+    except _ModeUnconfirmed as mu:
+        # deep_think 无思考步证据（2026-08-14 起）：non_retryable 诚实失败，
+        # 绝不把无思考证据的答案按 deep_think 落 completed。
+        evidence = f"; evidence={mu.evidence_path}" if mu.evidence_path else ""
+        bound.info("yiyan_mode_unconfirmed", stage=progress["stage"])
+        raise ApplicationError(
+            f"{mu}{evidence}", type="mode_unconfirmed", non_retryable=True
+        ) from mu
     except _IncompleteCapture as inc:
         evidence = f"; evidence={inc.evidence_path}" if inc.evidence_path else ""
         bound.info("yiyan_capture_incomplete", reason=str(inc), stage=progress["stage"])
@@ -1271,10 +1351,14 @@ class _PlaywrightYiyanSession:
       launch 路径结束统一 context.close()（platform_browser finally）+ 崩溃
       标记清理；attach 路径退出只断开 CDP。
 
-    batch 失败语义：题级墙/incomplete 转 outcome——该题诚实失败、后续题
-    aborted（零浏览器交互：真人撞墙后会停下，不编造不硬闯），结果列表与
-    输入等长同序；session 建立阶段（launch/attach/navigate/登录墙检查）的
-    异常原样逃出，由 activity 层按 session 级语义处理（一题未发）。
+    batch 失败语义（2026-08-14 细化，对齐豆包）：题级失败转 outcome，结果列表
+    与输入等长同序；连坐按失败类型分级——真墙（captcha/login/send/muted）=
+    账号级阻断，后续题全 aborted（零浏览器交互：真人撞墙后会停下，不编造不
+    硬闯）；wall_quota=配额按 (账号×mode) 计费，只连坐同 mode 余题；
+    wall_refusal/incomplete/toggle 失败/mode_unconfirmed=题级 flake 或内容
+    失败，不连坐，本题诚实失败后续跑。session 建立阶段（launch/attach/
+    navigate/登录墙检查）的异常原样逃出，由 activity 层按 session 级语义处理
+    （一题未发）。
     """
 
     def __init__(self, config: YiyanAdapterConfig, evidence_dir: Path, file_stem: str) -> None:
@@ -1304,8 +1388,19 @@ class _PlaywrightYiyanSession:
         self, items: list[YiyanBatchItemSpec], on_stage: Callable[[str], None]
     ) -> list[YiyanBatchItemOutcome]:
         outcomes: list[YiyanBatchItemOutcome] = []
+        # 配额墙按 (账号×mode) 计费（2026-08-14 起，对齐豆包）：wall_quota 只
+        # 连坐同 mode 余题——记录已撞配额的 mode，轮到其余题位次时零浏览器交互
+        # 追加 aborted 占位（结果列表与输入等长同序的契约不变）。
+        quota_blocked: dict[str, YiyanBatchItemSpec] = {}
         with self._browser_session(on_stage) as (context, page, pw_timeout, driver):
             for index, spec in enumerate(items):
+                if spec.mode in quota_blocked:
+                    outcomes.append(
+                        self._aborted_outcome(
+                            spec, quota_blocked[spec.mode], "wall_quota", batch_stopped=False
+                        )
+                    )
+                    continue
                 on_stage(f"item:{spec.business_key}")
                 try:
                     answer = self._collect_one(
@@ -1313,31 +1408,41 @@ class _PlaywrightYiyanSession:
                     )
                 except _WallError as wall:
                     outcomes.append(self._failure_outcome(spec, "wall", wall.wall_type, wall))
+                    if wall.wall_type == "wall_refusal":
+                        # 拒答=题级内容失败（平台拒答本题），非账号墙：不连坐，
+                        # 本题诚实失败后继续下一题。
+                        continue
+                    if wall.wall_type == "wall_quota":
+                        # 配额按 (账号×mode) 计费：只连坐同 mode 余题，其他 mode
+                        # 照跑（深度思考配额耗尽 ≠ 普通模式不可用）。
+                        quota_blocked[spec.mode] = spec
+                        continue
+                    # 真墙（captcha/login/send/muted…）：账号级阻断，余题全
+                    # aborted（真人撞墙即停，零浏览器交互不硬闯）。
                     outcomes.extend(
                         self._aborted_outcome(rest, spec, wall.wall_type)
                         for rest in items[index + 1 :]
                     )
                     return outcomes
+                except _ModeUnconfirmed as mu:
+                    # deep_think 无思考步 DOM 证据（2026-08-14 起 non_retryable
+                    # 诚实失败）：题级失败不连坐（与 toggle 失败同哲学），余题照跑。
+                    outcomes.append(self._failure_outcome(spec, "wall", "mode_unconfirmed", mu))
+                    continue
                 except _ModeToggleFailed as toggle:
-                    # chip 确认不了目标态=口径无法保证：本题诚实失败、后续题
-                    # aborted（零浏览器交互），绝不按错误口径采。
+                    # 2026-08-13 起不连坐：chip 确认失败是页面态 flake（非账号墙），
+                    # 大段批量下一中止会把百余未执行题连坐成 aborted。本题诚实失败、
+                    # 继续下一题；真墙（验证码/登录）仍走上面的中止。
                     outcomes.append(
                         self._failure_outcome(spec, "wall", "mode_toggle_failed", toggle)
                     )
-                    outcomes.extend(
-                        self._aborted_outcome(rest, spec, "mode_toggle_failed")
-                        for rest in items[index + 1 :]
-                    )
-                    return outcomes
+                    continue
                 except _IncompleteCapture as inc:
+                    # 同上：截图为题级 flake，记 incomplete 后续跑，不中止整批。
                     outcomes.append(
                         self._failure_outcome(spec, "incomplete", "answer_capture_incomplete", inc)
                     )
-                    outcomes.extend(
-                        self._aborted_outcome(rest, spec, "answer_capture_incomplete")
-                        for rest in items[index + 1 :]
-                    )
-                    return outcomes
+                    continue
                 outcomes.append(
                     YiyanBatchItemOutcome(
                         business_key=spec.business_key, status="ok", answer=answer
@@ -1358,7 +1463,7 @@ class _PlaywrightYiyanSession:
         spec: YiyanBatchItemSpec,
         status: str,
         error_type: str,
-        exc: _WallError | _IncompleteCapture | _ModeToggleFailed,
+        exc: _WallError | _IncompleteCapture | _ModeToggleFailed | _ModeUnconfirmed,
     ) -> YiyanBatchItemOutcome:
         return YiyanBatchItemOutcome(
             business_key=spec.business_key,
@@ -1371,17 +1476,29 @@ class _PlaywrightYiyanSession:
 
     @staticmethod
     def _aborted_outcome(
-        spec: YiyanBatchItemSpec, failed_spec: YiyanBatchItemSpec, error_type: str | None
+        spec: YiyanBatchItemSpec,
+        failed_spec: YiyanBatchItemSpec,
+        error_type: str | None,
+        *,
+        batch_stopped: bool = True,
     ) -> YiyanBatchItemOutcome:
         # 真人撞墙后会停下：本题未执行（零浏览器交互），诚实标记不编造不硬闯。
+        if batch_stopped:
+            reason = (
+                f"not executed: batch stopped after item {failed_spec.business_key!r} "
+                f"failed ({error_type or 'unknown'}) — no browser interaction for this item"
+            )
+        else:
+            # 配额连坐（wall_quota）：批次未停，仅同 mode 余题占位。
+            reason = (
+                f"not executed: same-mode quota wall at item {failed_spec.business_key!r} "
+                f"({error_type or 'unknown'}) — no browser interaction for this item"
+            )
         return YiyanBatchItemOutcome(
             business_key=spec.business_key,
             status="aborted",
             error_type="aborted_after_failure",
-            error_message=(
-                f"not executed: batch stopped after item {failed_spec.business_key!r} "
-                f"failed ({error_type or 'unknown'}) — no browser interaction for this item"
-            ),
+            error_message=reason,
         )
 
     def _reading_pause(self, page: Any) -> float:
@@ -1499,7 +1616,7 @@ class _PlaywrightYiyanSession:
         )
         try:
             answer = self._collect_one_dom(page, spec, on_stage, driver=driver)
-        except (_WallError, _IncompleteCapture, _ModeToggleFailed) as exc:
+        except (_WallError, _IncompleteCapture, _ModeToggleFailed, _ModeUnconfirmed) as exc:
             # 失败题同样留 raw/HAR（题末先 dump 后 detach）：ref 挂异常对象，经
             # _failure_outcome → 失败 result.evidence → persist 层进 CAS。
             exc.evidence_refs = dump_raw_evidence_refs(
@@ -1562,6 +1679,20 @@ class _PlaywrightYiyanSession:
                     "wall_login_required",
                     "login wall surfaced while awaiting chat input",
                     _shot("login"),
+                )
+            # 禁言 banner（2026-08-14 起，对齐豆包）：composer 长期不可得时
+            # 扫整页文本。只跑禁言 regex（整页含 UI 营销件，配额/拒答词表
+            # 套整页必误伤，词表层已隔离）；命中改抛 wall_muted（带解封
+            # 时间），走既有墙管道。
+            muted = detect_muted_banner("yiyan", _read_page_text(page))
+            if muted is not None:
+                until_note = (
+                    f" until={muted.until.isoformat()}" if muted.until is not None else ""
+                )
+                raise _WallError(
+                    "wall_muted",
+                    f"muted banner on page ({muted.phrase!r}){until_note}",
+                    _shot("muted"),
                 )
             raise _IncompleteCapture(
                 "could-not-find-chat-input",
@@ -1657,20 +1788,24 @@ class _PlaywrightYiyanSession:
                 thinking_text = _extract_thinking_text(page)
         on_stage("answer_extracted")
 
-        if not answer_text:
-            notices = _scan_dom_notices(page)
-            if notices["softban"]:
-                raise _WallError(
-                    "wall_send",
-                    "rate-limit notice in DOM: " + ",".join(notices["softban"]),
-                    _shot("send_wall"),
-                )
-            if notices["realname"]:
-                raise _WallError(
-                    "wall_login_required",
-                    "realname wall notice in DOM: " + ",".join(notices["realname"]),
-                    _shot("realname"),
-                )
+        # 软墙/实名扫描无条件执行（2026-08-14 起，对齐豆包——曾被
+        # `if not answer_text:` 门挡，出了"答案"就绝不扫描 = 配额/禁言文案
+        # 当答案采回的事故根因）。已出答案时把答案正文从扫描文本中剔除：
+        # 「答案正文提及「过频/实名」不翻标记」的旧不变量保持成立
+        # （best-effort 精确串剔除，见 _scan_dom_notices）。
+        notices = _scan_dom_notices(page, exclude=answer_text)
+        if notices["softban"]:
+            raise _WallError(
+                "wall_send",
+                "rate-limit notice in DOM: " + ",".join(notices["softban"]),
+                _shot("send_wall"),
+            )
+        if notices["realname"]:
+            raise _WallError(
+                "wall_login_required",
+                "realname wall notice in DOM: " + ",".join(notices["realname"]),
+                _shot("realname"),
+            )
         if not meta.get("found"):
             raise _IncompleteCapture(
                 "send-accepted-no-stream: composer cleared (submission accepted) "
@@ -1692,9 +1827,25 @@ class _PlaywrightYiyanSession:
                 _shot("empty_answer"),
             )
 
+        # 答案验收门（2026-08-14 起，词表唯一真源 wall_lexicon，对齐豆包）：
+        # 答案文本定稿后、返回 ok 之前——平台提示文案（配额耗尽/禁言/拒答
+        # 模板）被当作答案采回时在此拦截，抛 _WallError 走既有墙管道（batch
+        # 连坐语义按 wall_type 细化，见 collect_batch docstring）。batch 与
+        # per-task 单题共用本路径，两路都盖。
+        verdict = classify_answer_text("yiyan", answer_text)
+        if verdict is not None:
+            raise _WallError(
+                verdict.wall_type,
+                _wall_verdict_message(verdict, answer_text),
+                _shot("answer_wall"),
+            )
+
         on_stage("screenshot")
         shot_path = self._evidence_dir / f"{spec.file_stem}.png"
         try:
+            # 表格答案的 sticky 表头工具条先降级为 static（restore 脚本统一还原），
+            # 否则分片拼接会重影；未知 sticky 节点仍由探针 fail-closed。
+            page.evaluate(_YIYAN_CAPTURE_UNSTICKY_JS)
             capture_scoped_chat_tiles(
                 page,
                 shot_path,
@@ -1712,6 +1863,8 @@ class _PlaywrightYiyanSession:
             raise _IncompleteCapture("evidence-screenshot-failed: no file written")
         # 思考链 trace 落盘进证据链（kind="sse"，transport="dom"）。写盘失败不
         # 拖垮已成功的采集——如实 warning 且不出该证据（绝不出残缺/编造证据）。
+        # deep_think_active 以实际抽到思考步为准（证据为正才标 true；chip 已
+        # 确保但思考步缺失时如实 false，对照元宝同日口径）。
         trace_path: Path | None = None
         if thinking_text or references:
             trace_candidate = self._evidence_dir / f"{spec.file_stem}-sse-trace.json"
@@ -1720,7 +1873,7 @@ class _PlaywrightYiyanSession:
                     json.dumps(
                         _build_yiyan_trace(
                             thinking_text,
-                            deep_think_active=(spec.mode == "deep_think"),
+                            deep_think_active=bool(thinking_text),
                             references=references,
                         ),
                         ensure_ascii=False,
@@ -1736,6 +1889,17 @@ class _PlaywrightYiyanSession:
                     file_stem=spec.file_stem,
                     exc_info=True,
                 )
+        # mode 证据升级（2026-08-14 起，对齐豆包，warning-only → non_retryable
+        # 诚实失败）：trace 已先落盘取证。请求 deep_think 而无 ai-thinking-steps
+        # 思考步证据 = 平台静默回退非思考模式的嫌疑答案，绝不落 completed
+        # （2026-08-13 事故教训：配额耗尽后的回退答案曾被当 deep_think 采回）。
+        if spec.mode == "deep_think" and not thinking_text:
+            raise _ModeUnconfirmed(
+                "deep_think requested and chip confirmed, but no ai-thinking-steps "
+                "thinking evidence found in DOM — refusing to record a "
+                "normal-evidence answer as deep_think",
+                _shot("mode_unconfirmed"),
+            )
         evidence = [
             CollectionEvidenceRef(
                 kind="answer_screenshot",
@@ -2246,13 +2410,24 @@ def _trim_response(text: str) -> str:
     return text.strip()
 
 
-def _scan_dom_notices(page: Any) -> dict[str, list[str]]:
-    """best-effort 读 body 文本扫系统通知词（限流 / 实名墙）。"""
+def _read_page_text(page: Any) -> str:
+    """best-effort 读 body 文本（2s 超时；失败=空串，绝不因此拖垮采集）。"""
     try:
-        body = page.locator("body").inner_text(timeout=2000)
+        return str(page.locator("body").inner_text(timeout=2000) or "")
     except Exception:
-        body = ""
-    text = body or ""
+        return ""
+
+
+def _scan_dom_notices(page: Any, *, exclude: str = "") -> dict[str, list[str]]:
+    """best-effort 读 body 文本扫系统通知词（限流 / 实名墙）。
+
+    2026-08-14 起调用方无条件扫描（不再 gated by 无答案，对齐豆包）；
+    ``exclude`` 传入已定稿答案正文做精确串剔除——系统通知在答案气泡之外，
+    剔除后「答案正文提及「过频/实名」不翻标记」的旧不变量保持成立
+    （best-effort 精确串剔除，词表本身已是平台口吻短语）。"""
+    text = _read_page_text(page)
+    if exclude:
+        text = text.replace(exclude, " ")
     return {
         "softban": [p for p in _SOFTBAN_DOM_PHRASES if p in text],
         "realname": [p for p in _REALNAME_DOM_PHRASES if p in text],
