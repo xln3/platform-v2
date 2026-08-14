@@ -67,6 +67,15 @@ services:
       POSTGRES_USER: temporal
       POSTGRES_PWD: ${GEO_PROD_TEMPORAL_POSTGRES_PASSWORD:?required}
       POSTGRES_SEEDS: temporal-postgres
+      # Temporal's internal gRPC clients must never inherit the host HTTP proxy.
+      # grpc-go does not reliably honour CIDR entries in NO_PROXY, which can
+      # otherwise route intra-container calls through the workstation proxy.
+      HTTP_PROXY: ''
+      HTTPS_PROXY: ''
+      NO_PROXY: '*'
+      http_proxy: ''
+      https_proxy: ''
+      no_proxy: '*'
     ports: ['127.0.0.1:17234:7233']
     healthcheck:
       test: ['CMD', 'temporal', 'operator', 'cluster', 'health', '--address', 'temporal:7233']
@@ -157,6 +166,22 @@ services:
       - ./observability/prometheus.yaml:/etc/prometheus/prometheus.yml:ro
       - ./observability/business-alerts.yaml:/etc/prometheus/rules/business-alerts.yaml:ro
       - prometheus-data:/prometheus
+
+  node-exporter:
+    image: prom/node-exporter:v1.12.1
+    restart: unless-stopped
+    command:
+      [
+        '--path.procfs=/host/proc',
+        '--path.sysfs=/host/sys',
+        '--path.rootfs=/rootfs',
+        '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)',
+      ]
+    ports: ['127.0.0.1:19100:9100']
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
 
   alertmanager:
     image: prom/alertmanager:v0.28.1
