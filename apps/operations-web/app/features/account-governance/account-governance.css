@@ -1,0 +1,302 @@
+/* 采集账号/浏览器管理页样式——全部作用域在 .acct-gov-page 下，不污染全局。 */
+.acct-gov-page {
+  max-width: 1560px;
+  margin: auto;
+  padding: 32px;
+  color: #17211b;
+}
+.acct-gov-page button {
+  border: 1px solid #b9c7be;
+  border-radius: 8px;
+  background: #fff;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.acct-gov-page button:hover {
+  background: #edf5ef;
+}
+.acct-gov-page button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.acct-gov-page button.primary {
+  background: #157347;
+  border-color: #157347;
+  color: #fff;
+}
+.acct-gov-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: start;
+  margin-bottom: 12px;
+}
+.acct-gov-heading h1 {
+  font-size: clamp(24px, 3vw, 34px);
+  margin: 4px 0;
+}
+.acct-gov-heading p {
+  color: #637168;
+  max-width: 720px;
+  margin: 4px 0;
+}
+.acct-gov-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.acct-gov-empty {
+  padding: 30px;
+  text-align: center;
+  color: #637168;
+}
+.acct-gov-table-scroll {
+  overflow: auto;
+  background: #fff;
+  border: 1px solid #dde5df;
+  border-radius: 14px;
+}
+.acct-gov-table {
+  border-collapse: collapse;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.acct-gov-table th,
+.acct-gov-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid #edf0ee;
+  vertical-align: top;
+}
+.acct-gov-table thead th {
+  background: #f1f6f2;
+  color: #2c4134;
+  text-align: center;
+  border-bottom: 1px solid #dde5df;
+}
+.acct-gov-table thead tr:first-child th {
+  border-left: 1px solid #e4ebe6;
+}
+.acct-gov-table td.acct-gov-null {
+  color: #a3ada7;
+  text-align: center;
+  vertical-align: middle;
+}
+.acct-gov-table tbody tr:hover td {
+  background: #f8fbf9;
+}
+.acct-gov-table tr:target td {
+  background: #fff7d6;
+}
+.acct-gov-table select {
+  max-width: 130px;
+  padding: 5px 6px;
+  border: 1px solid #cbd9cf;
+  border-radius: 7px;
+  background: #fff;
+  color: #17211b;
+  font: inherit;
+}
+.acct-gov-quota {
+  font-variant-numeric: tabular-nums;
+}
+.acct-gov-countdown {
+  display: block;
+  color: #775a00;
+  font-size: 11px;
+  margin-top: 2px;
+}
+.acct-gov-muted {
+  color: #a3ada7;
+}
+.acct-gov-warn {
+  background: #fff1ca;
+}
+.acct-gov-bad {
+  background: #fde2e2;
+}
+.acct-gov-link {
+  display: grid;
+  gap: 4px;
+  justify-items: start;
+}
+/* 链路状态灯：ok=绿 / down=红 / untested=灰 */
+.acct-gov-light {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #b7c1ba;
+}
+.acct-gov-light.ok {
+  background: #24834f;
+}
+.acct-gov-light.bad {
+  background: #c03325;
+}
+/* 运行状态徽章 */
+.acct-gov-badge {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 99px;
+  font-size: 12px;
+  font-weight: 600;
+  margin-left: 6px;
+}
+.acct-gov-badge:first-child {
+  margin-left: 0;
+}
+.acct-gov-badge small,
+.acct-gov-badge a {
+  display: block;
+  font-weight: 400;
+  font-size: 11px;
+}
+.acct-gov-badge a {
+  color: inherit;
+  text-decoration: underline;
+  overflow-wrap: anywhere;
+}
+.acct-gov-badge.idle {
+  background: #dff4e7;
+  color: #17613a;
+}
+.acct-gov-badge.running {
+  background: #dbe9fb;
+  color: #1d4e89;
+}
+.acct-gov-badge.muted,
+.acct-gov-badge.error {
+  background: #fde2e2;
+  color: #8e2222;
+}
+.acct-gov-badge.quota {
+  background: #ffedd1;
+  color: #8a5a00;
+}
+.acct-gov-badge.captcha {
+  background: #eadffb;
+  color: #5b3a9e;
+}
+.acct-gov-badge.neutral {
+  background: #ecefef;
+  color: #52605a;
+}
+/* 事件时间线 */
+.acct-gov-events-row td {
+  background: #fafcfb;
+}
+.acct-gov-events {
+  margin: 6px 0;
+  padding-left: 20px;
+  display: grid;
+  gap: 6px;
+  white-space: normal;
+}
+.acct-gov-events li {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: baseline;
+}
+.acct-gov-events time {
+  color: #637168;
+  font-size: 12px;
+}
+.acct-gov-events small {
+  color: #637168;
+  overflow-wrap: anywhere;
+}
+/* 弹层表单 */
+.acct-gov-dialog-body {
+  display: grid;
+  gap: 12px;
+  min-width: min(480px, 78vw);
+}
+.acct-gov-dialog-body p {
+  margin: 0;
+}
+.acct-gov-field {
+  display: grid;
+  gap: 6px;
+  color: #415047;
+  font-size: 13px;
+}
+.acct-gov-field input,
+.acct-gov-quota-grid input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #cbd9cf;
+  border-radius: 9px;
+  background: #fff;
+  color: #17211b;
+  font: inherit;
+}
+.acct-gov-quota-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.acct-gov-quota-grid label {
+  display: grid;
+  gap: 6px;
+  color: #415047;
+  font-size: 13px;
+}
+.acct-gov-note {
+  background: #eef4ff;
+  border-left: 4px solid #2f5aa8;
+  color: #274264;
+  padding: 10px 12px;
+  border-radius: 0 10px 10px 0;
+  font-size: 13px;
+}
+.acct-gov-error {
+  background: #fde2e2;
+  border-left: 4px solid #a22323;
+  color: #8e2222;
+  padding: 10px 12px;
+}
+/* 页内 toast */
+.acct-gov-toasts {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  display: grid;
+  gap: 8px;
+  z-index: 80;
+  max-width: min(420px, 90vw);
+}
+.acct-gov-toast {
+  border-radius: 10px;
+  padding: 12px 14px;
+  box-shadow: 0 10px 30px #17211b22;
+  font-size: 13px;
+  background: #fff;
+  border-left: 4px solid #829b8c;
+}
+.acct-gov-toast.positive {
+  border-left-color: #24834f;
+}
+.acct-gov-toast.warning {
+  border-left-color: #b98700;
+}
+.acct-gov-toast.negative {
+  border-left-color: #a22323;
+}
+@media (max-width: 700px) {
+  .acct-gov-page {
+    padding: 16px;
+  }
+  .acct-gov-heading {
+    display: block;
+  }
+  .acct-gov-heading .acct-gov-actions {
+    margin-top: 10px;
+  }
+  .acct-gov-quota-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

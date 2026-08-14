@@ -15,4 +15,6 @@ export default [
   route('sop/projects/:projectPubId', 'features/sop/project-route.tsx'),
   route('post-analysis', 'features/post-analysis/route.tsx'),
   route('post-analysis/tasks/:taskPubId', 'features/post-analysis/task-route.tsx'),
+  route('accounts', 'features/account-governance/accounts-route.tsx'),
+  route('browsers', 'features/account-governance/browsers-route.tsx'),
 ] satisfies RouteConfig;

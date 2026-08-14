@@ -48,6 +48,16 @@ export const operationsNav = [
     href: '/platform/operations/execution',
   },
   {
+    id: 'accounts',
+    label: '账号管理',
+    href: '/platform/operations/accounts',
+  },
+  {
+    id: 'browsers',
+    label: '浏览器管理',
+    href: '/platform/operations/browsers',
+  },
+  {
     id: 'onboarding',
     label: '开户向导',
     href: '/platform/operations/onboarding',
