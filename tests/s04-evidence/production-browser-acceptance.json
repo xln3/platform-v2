@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-11T17:08:36.641Z",
+  "generated_at": "2026-08-12T16:18:06.300Z",
   "production_url": "https://127.0.0.1:8443",
   "qualification": {
     "kind": "active_production_assets",
@@ -7,7 +7,7 @@
   },
   "result": "passed",
   "identity": {
-    "source": "legacy_http_only_session",
+    "source": "native_http_only_session",
     "legacy_role": "admin",
     "verified_v2_roles": [
       "admin"
@@ -743,6 +743,72 @@
       "anti_geo_governance_boundary_passed": true
     },
     {
+      "application": "operations-formal-reports",
+      "role": "admin",
+      "viewport": "desktop",
+      "entry_status": 200,
+      "screenshot": "tests/s04-evidence/production-screenshots/operations-formal-reports-desktop.png",
+      "secret_material_absent": true,
+      "authenticated": true,
+      "workspace_available": true,
+      "expected_content_visible": true,
+      "runtime_issue_counts": {
+        "console_error": 0,
+        "page_error": 0,
+        "request_failed": 0,
+        "error_response": 0,
+        "forbidden_actor_header": 0
+      },
+      "stale_browser_identity_keys": [],
+      "unverified_navigation_badges": 0,
+      "live_notification_boundary_passed": true,
+      "anti_geo_governance_boundary_passed": true
+    },
+    {
+      "application": "operations-formal-reports",
+      "role": "admin",
+      "viewport": "tablet",
+      "entry_status": 200,
+      "screenshot": "tests/s04-evidence/production-screenshots/operations-formal-reports-tablet.png",
+      "secret_material_absent": true,
+      "authenticated": true,
+      "workspace_available": true,
+      "expected_content_visible": true,
+      "runtime_issue_counts": {
+        "console_error": 0,
+        "page_error": 0,
+        "request_failed": 0,
+        "error_response": 0,
+        "forbidden_actor_header": 0
+      },
+      "stale_browser_identity_keys": [],
+      "unverified_navigation_badges": 0,
+      "live_notification_boundary_passed": true,
+      "anti_geo_governance_boundary_passed": true
+    },
+    {
+      "application": "operations-formal-reports",
+      "role": "admin",
+      "viewport": "mobile",
+      "entry_status": 200,
+      "screenshot": "tests/s04-evidence/production-screenshots/operations-formal-reports-mobile.png",
+      "secret_material_absent": true,
+      "authenticated": true,
+      "workspace_available": true,
+      "expected_content_visible": true,
+      "runtime_issue_counts": {
+        "console_error": 0,
+        "page_error": 0,
+        "request_failed": 0,
+        "error_response": 0,
+        "forbidden_actor_header": 0
+      },
+      "stale_browser_identity_keys": [],
+      "unverified_navigation_badges": 0,
+      "live_notification_boundary_passed": true,
+      "anti_geo_governance_boundary_passed": true
+    },
+    {
       "application": "reports",
       "role": "admin",
       "viewport": "desktop",
@@ -1008,7 +1074,7 @@
     }
   ],
   "summary": {
-    "total": 45,
-    "passed": 45
+    "total": 48,
+    "passed": 48
   }
 }
