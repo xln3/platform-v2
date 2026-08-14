@@ -60,12 +60,18 @@ type Pages = {
       "taskPubId": string;
     };
   };
+  "/accounts": {
+    params: {};
+  };
+  "/browsers": {
+    params: {};
+  };
 };
 
 type RouteFiles = {
   "root.tsx": {
     id: "root";
-    page: "/" | "/login" | "/execution" | "/media-prices" | "/quotations" | "/onboarding" | "/service-visibility" | "/service-risk" | "/service-site-audit" | "/service-pilot" | "/formal-reports" | "/sop" | "/sop/projects/:projectPubId" | "/post-analysis" | "/post-analysis/tasks/:taskPubId";
+    page: "/" | "/login" | "/execution" | "/media-prices" | "/quotations" | "/onboarding" | "/service-visibility" | "/service-risk" | "/service-site-audit" | "/service-pilot" | "/formal-reports" | "/sop" | "/sop/projects/:projectPubId" | "/post-analysis" | "/post-analysis/tasks/:taskPubId" | "/accounts" | "/browsers";
   };
   "shell.tsx": {
     id: "shell";
@@ -127,6 +133,14 @@ type RouteFiles = {
     id: "features/post-analysis/task-route";
     page: "/post-analysis/tasks/:taskPubId";
   };
+  "features/account-governance/accounts-route.tsx": {
+    id: "features/account-governance/accounts-route";
+    page: "/accounts";
+  };
+  "features/account-governance/browsers-route.tsx": {
+    id: "features/account-governance/browsers-route";
+    page: "/browsers";
+  };
 };
 
 type RouteModules = {
@@ -146,4 +160,6 @@ type RouteModules = {
   "features/sop/project-route": typeof import("./app/features/sop/project-route.tsx");
   "features/post-analysis/route": typeof import("./app/features/post-analysis/route.tsx");
   "features/post-analysis/task-route": typeof import("./app/features/post-analysis/task-route.tsx");
+  "features/account-governance/accounts-route": typeof import("./app/features/account-governance/accounts-route.tsx");
+  "features/account-governance/browsers-route": typeof import("./app/features/account-governance/browsers-route.tsx");
 };

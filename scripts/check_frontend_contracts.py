@@ -43,6 +43,9 @@ page_coverage = {
             "service-site-audit",
             "service-pilot",
             "formal-reports",
+            # 服务1地域/账号审计链的运维入口。
+            "accounts",
+            "browsers",
             # 报告交付：独立 report-studio app（/platform/reports/）的整页跳转入口。
             "reports-delivery",
         },
@@ -160,12 +163,17 @@ for app, basename in apps.items():
         # session context exist yet, so it posts to the identity endpoint directly.
         # The onboarding wizard follows the execution feature's operations-side client pattern.
         # The four service workspaces reuse that raw client pattern plus raw fetches for the
-        # analytics endpoints that have no generated wrapper yet.
+        # analytics endpoints that have no generated wrapper yet. Account governance is the
+        # operations-only machine-resource control plane and follows the same boundary until
+        # those collection endpoints gain projected @geo/api-client wrappers.
         if app == "operations-web" and (
             source.is_relative_to(app_root / "app" / "features" / "execution")
             or source.is_relative_to(app_root / "app" / "features" / "login")
             or source.is_relative_to(app_root / "app" / "features" / "onboarding")
             or source.is_relative_to(app_root / "app" / "features" / "services")
+            or source.is_relative_to(
+                app_root / "app" / "features" / "account-governance"
+            )
         ):
             continue
         # report-studio 的扩展 fact 面板直连同源扩展组端点：扩展键（w3_disparagement/

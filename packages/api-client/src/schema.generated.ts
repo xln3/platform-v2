@@ -740,6 +740,209 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/collection-accounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Collection Accounts */
+        get: operations["list_collection_accounts_api_v2_collection_accounts_get"];
+        put?: never;
+        /** Create Collection Account */
+        post: operations["create_collection_account_api_v2_collection_accounts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/collection-platform-accounts/{pub_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Patch Platform Account
+         * @description 地域/额度/实例绑定修改。region_gb 变更必须 confirm=true（前端二次确认的
+         *     后端锚点）；浏览器换绑做「地域IP不匹配」fail-closed 复核。
+         */
+        patch: operations["patch_platform_account_api_v2_collection_platform_accounts__pub_id__patch"];
+        trace?: never;
+    };
+    "/api/v2/collection-accounts/{pub_id}/link-test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Link Test
+         * @description 链路联通性测试（设计 §6.4）。push=发测试推送看回执；sms=发测试指引 +
+         *     惰性判定（等待窗内已有 otp push 到达 → sms_link_state='ok'，不挂长任务）。
+         */
+        post: operations["link_test_api_v2_collection_accounts__pub_id__link_test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/collection-accounts/{pub_id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Account Events
+         * @description 该手机号（含其平台行）的审计事件，倒序 50 条。
+         */
+        get: operations["list_account_events_api_v2_collection_accounts__pub_id__events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/collection-browsers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Collection Browsers */
+        get: operations["list_collection_browsers_api_v2_collection_browsers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/collection-browsers/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sync Browsers
+         * @description 把 GEO_BROWSER_INSTANCES 镜像进 collection_browser（幂等；手动触发，
+         *     不在启动时自动调）。
+         */
+        post: operations["sync_browsers_api_v2_collection_browsers_sync_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/collection-browsers/{key}/restart": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restart Browser
+         * @description P0 不真执行 systemctl restart（api 沙箱也无权），如实记录 + 返回
+         *     「需运维窗口」。
+         *     TODO(P1): 审批流 + fence 释放 → systemctl restart → 探活闭环。
+         */
+        post: operations["restart_browser_api_v2_collection_browsers__key__restart_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/collection-browsers/{key}/release-lock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Release Browser Lock
+         * @description 释放实例 fence 锁（platform.browser_fence.released_at=now）——现有手工
+         *     SQL 回收的产品化；stale lease 回收语义不变（本操作即「人工回收」）。
+         */
+        post: operations["release_browser_lock_api_v2_collection_browsers__key__release_lock_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/collection-regions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Collection Regions */
+        get: operations["list_collection_regions_api_v2_collection_regions_get"];
+        put?: never;
+        /**
+         * Create Collection Region
+         * @description 「添加地域」向导落点：只登记字典行（凭证明文在 env，proxy_env_key 引用之，
+         *     不落库明文）；relay 单元/浏览器扩实例是部署动作，不在本端点做。
+         */
+        post: operations["create_collection_region_api_v2_collection_regions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/collection-regions/{gb}/probe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Probe Region
+         * @description 立即巡检一个地域的 relay 出口（结果经 governor.record_region_probe 落库）。
+         */
+        post: operations["probe_region_api_v2_collection_regions__gb__probe_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/assist/{ticket}": {
         parameters: {
             query?: never;
@@ -1418,6 +1621,30 @@ export interface paths {
         put?: never;
         /** Complete Terminal Task */
         post: operations["complete_terminal_task_api_v2_terminal_tasks__task_pub_id__complete_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/analytics/sampling-progress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Sampling Progress
+         * @description Latest logical sampling batch as query × platform/region/mode coverage.
+         *
+         *     Formal runs may be split into one frozen config per sampling leg and followed by
+         *     small top-up configs. ``select_sampling_campaign`` joins those revisions back to
+         *     their latest complete query plan; older probes remain outside the count.
+         */
+        get: operations["sampling_progress_api_v2_analytics_sampling_progress_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3860,6 +4087,40 @@ export interface components {
             /** Region */
             region: string;
         };
+        /** AccountEventView */
+        AccountEventView: {
+            /** Event Pub Id */
+            event_pub_id: string;
+            /** Event Type */
+            event_type: string;
+            /** Actor */
+            actor: string;
+            /** Phone Account Pub Id */
+            phone_account_pub_id: string | null;
+            /** Platform Account Pub Id */
+            platform_account_pub_id: string | null;
+            /** Browser Pub Id */
+            browser_pub_id: string | null;
+            /** Region Pub Id */
+            region_pub_id: string | null;
+            /** Old Value */
+            old_value: {
+                [key: string]: unknown;
+            } | null;
+            /** New Value */
+            new_value: {
+                [key: string]: unknown;
+            } | null;
+            /** Evidence */
+            evidence: string | null;
+            /** Run Pub Id */
+            run_pub_id: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
         /** AccountView */
         AccountView: {
             /** Pub Id */
@@ -4831,6 +5092,30 @@ export interface components {
             /** Citation Coverage */
             citation_coverage: number | null;
         };
+        /** BrowserActionResult */
+        BrowserActionResult: {
+            /** Ok */
+            ok: boolean;
+            /** Instance Key */
+            instance_key: string;
+            /** Executed */
+            executed: boolean;
+            /** Detail */
+            detail: string;
+        };
+        /** BrowserSyncResult */
+        BrowserSyncResult: {
+            /** Synced */
+            synced: number;
+            /** Created */
+            created: number;
+            /** Updated */
+            updated: number;
+            /** Errors */
+            errors: string[];
+            /** Instances */
+            instances: string[];
+        };
         /** CapabilityLeaseCreate */
         CapabilityLeaseCreate: {
             /** Platform Account Pub Id */
@@ -5043,6 +5328,67 @@ export interface components {
             public_statement: string;
             /** Truth Confirmed */
             truth_confirmed: boolean;
+        };
+        /**
+         * CollectionBrowserView
+         * @description 浏览器管理页行 = 常驻实例（bindings：平台 → 手机号行 pub_id，稀疏）。
+         */
+        CollectionBrowserView: {
+            /** Browser Pub Id */
+            browser_pub_id: string;
+            /** Instance Key */
+            instance_key: string;
+            /** Platform */
+            platform: string;
+            /** Region Gb */
+            region_gb: string | null;
+            /** Exit Ip */
+            exit_ip: string | null;
+            /** Cdp Port */
+            cdp_port: number | null;
+            /** Systemd Unit */
+            systemd_unit: string | null;
+            /** Activity */
+            activity: string;
+            /** Error Streak */
+            error_streak: number;
+            /** Breaker Until */
+            breaker_until: string | null;
+            /** Muted Until */
+            muted_until: string | null;
+            /** Started At */
+            started_at: string | null;
+            /** Uptime S */
+            uptime_s: number | null;
+            /** Rss Bytes */
+            rss_bytes: number | null;
+            /** Bindings */
+            bindings: {
+                [key: string]: string;
+            };
+        };
+        /** CollectionRegionView */
+        CollectionRegionView: {
+            /** Region Pub Id */
+            region_pub_id: string;
+            /** Region Gb */
+            region_gb: string;
+            /** Name */
+            name: string | null;
+            /** Source */
+            source: string;
+            /** Proxy Env Key */
+            proxy_env_key: string | null;
+            /** Relay Unit */
+            relay_unit: string | null;
+            /** Exit Ip Last */
+            exit_ip_last: string | null;
+            /** Last Probe At */
+            last_probe_at: string | null;
+            /** State */
+            state: string;
+            /** Note */
+            note: string | null;
         };
         /** CommentCreate */
         CommentCreate: {
@@ -6022,7 +6368,7 @@ export interface components {
              * Format
              * @enum {string}
              */
-            format: "docx" | "pdf" | "manifest";
+            format: "docx" | "pdf" | "xlsx" | "zip" | "manifest";
             /** Sha256 */
             sha256: string;
             /** Byte Size */
@@ -6066,15 +6412,32 @@ export interface components {
             window_end: string;
             /**
              * Document Status
+             * @default internal_review
              * @enum {string}
              */
-            document_status: "pre_formal" | "formal";
+            document_status: "internal_review" | "delivery_candidate";
             /**
              * Candidate Group Strategy
-             * @default evidence_completeness_v1
+             * @default preregistered_scope_v1
              * @constant
              */
-            candidate_group_strategy: "evidence_completeness_v1";
+            candidate_group_strategy: "preregistered_scope_v1";
+            /**
+             * Version
+             * @default V1.0
+             */
+            version: string;
+            /** Prepared By */
+            prepared_by: string;
+            /**
+             * Prepared Date
+             * Format: date
+             */
+            prepared_date: string;
+            /** Reviewed By */
+            reviewed_by?: string | null;
+            /** Reviewed Date */
+            reviewed_date?: string | null;
             before_window?: components["schemas"]["WindowView"] | null;
             after_window?: components["schemas"]["WindowView"] | null;
         };
@@ -6104,7 +6467,7 @@ export interface components {
              * Document Status
              * @enum {string}
              */
-            document_status: "pre_formal" | "formal";
+            document_status: "pre_formal" | "formal" | "internal_review" | "delivery_candidate" | "approved_signed";
             /**
              * Window Start
              * Format: date
@@ -6119,9 +6482,13 @@ export interface components {
             after_window: components["schemas"]["WindowView"] | null;
             /**
              * Candidate Group Strategy
-             * @constant
+             * @enum {string}
              */
-            candidate_group_strategy: "evidence_completeness_v1";
+            candidate_group_strategy: "evidence_completeness_v1" | "preregistered_scope_v1";
+            /** Document Governance */
+            document_governance: {
+                [key: string]: unknown;
+            };
             /** Workflow Id */
             workflow_id: string;
             /** Fact Snapshot Hash */
@@ -6597,6 +6964,35 @@ export interface components {
             expires_at: string;
             /** Released At */
             released_at: string | null;
+        };
+        /** LinkTestRequest */
+        LinkTestRequest: {
+            /**
+             * Channel
+             * @enum {string}
+             */
+            channel: "sms" | "push";
+        };
+        /** LinkTestResult */
+        LinkTestResult: {
+            /** Ok */
+            ok: boolean;
+            /** Channel */
+            channel: string;
+            /** Sms Link State */
+            sms_link_state?: string | null;
+            /** Push Link State */
+            push_link_state?: string | null;
+            /** Last Sms At */
+            last_sms_at?: string | null;
+            /** Last Push Test At */
+            last_push_test_at?: string | null;
+            /** Wait Window S */
+            wait_window_s?: number | null;
+            /** Guidance */
+            guidance?: string | null;
+            /** Detail */
+            detail?: string | null;
         };
         /** MemberCreate */
         MemberCreate: {
@@ -7179,6 +7575,131 @@ export interface components {
              * Format: date-time
              */
             expires_at: string;
+        };
+        /** PhoneAccountCreate */
+        PhoneAccountCreate: {
+            /** Phone */
+            phone: string;
+            /** Owner Note */
+            owner_note?: string | null;
+        };
+        /**
+         * PhoneAccountRow
+         * @description 账号管理页行 = 手机号（platforms 五平台固定列，无行 = null）。
+         */
+        PhoneAccountRow: {
+            /** Phone Account Pub Id */
+            phone_account_pub_id: string;
+            /** Phone Masked */
+            phone_masked: string;
+            /** Owner Note */
+            owner_note: string | null;
+            /** State */
+            state: string;
+            /** Sms Link State */
+            sms_link_state: string;
+            /** Last Sms At */
+            last_sms_at: string | null;
+            /** Push Link State */
+            push_link_state: string;
+            /** Last Push Test At */
+            last_push_test_at: string | null;
+            /** Platforms */
+            platforms: {
+                [key: string]: components["schemas"]["PlatformAccountCell"] | null;
+            };
+        };
+        /**
+         * PlatformAccountCell
+         * @description 手机号 × 平台格（五平台格同构三子列：地域/额度/状态 + 实例绑定）。
+         */
+        PlatformAccountCell: {
+            /** Platform Account Pub Id */
+            platform_account_pub_id: string;
+            /** Region Gb */
+            region_gb: string | null;
+            /** Quota Day */
+            quota_day: number | null;
+            /** Quota Week */
+            quota_week: number | null;
+            /** Quota Year */
+            quota_year: number | null;
+            /** Used Today */
+            used_today: number;
+            /** Used Week */
+            used_week: number;
+            /** Used Year */
+            used_year: number;
+            /** Quota Reset At */
+            quota_reset_at: string | null;
+            /** Quota Resume At */
+            quota_resume_at: string | null;
+            /** Runtime State */
+            runtime_state: string;
+            /** Current Run Pub Id */
+            current_run_pub_id: string | null;
+            /** Muted Until */
+            muted_until: string | null;
+            /** State Reason */
+            state_reason: string | null;
+            /** Browser Instance Key */
+            browser_instance_key: string | null;
+        };
+        /** PlatformAccountPatch */
+        PlatformAccountPatch: {
+            /** Region Gb */
+            region_gb?: string | null;
+            /** Quota Day */
+            quota_day?: number | null;
+            /** Quota Week */
+            quota_week?: number | null;
+            /** Quota Year */
+            quota_year?: number | null;
+            /** Browser Instance Key */
+            browser_instance_key?: string | null;
+            /**
+             * Confirm
+             * @default false
+             */
+            confirm: boolean;
+        };
+        /**
+         * PlatformAccountView
+         * @description PATCH 响应 = 格 + 所属手机号行。
+         */
+        PlatformAccountView: {
+            /** Platform Account Pub Id */
+            platform_account_pub_id: string;
+            /** Region Gb */
+            region_gb: string | null;
+            /** Quota Day */
+            quota_day: number | null;
+            /** Quota Week */
+            quota_week: number | null;
+            /** Quota Year */
+            quota_year: number | null;
+            /** Used Today */
+            used_today: number;
+            /** Used Week */
+            used_week: number;
+            /** Used Year */
+            used_year: number;
+            /** Quota Reset At */
+            quota_reset_at: string | null;
+            /** Quota Resume At */
+            quota_resume_at: string | null;
+            /** Runtime State */
+            runtime_state: string;
+            /** Current Run Pub Id */
+            current_run_pub_id: string | null;
+            /** Muted Until */
+            muted_until: string | null;
+            /** State Reason */
+            state_reason: string | null;
+            /** Browser Instance Key */
+            browser_instance_key: string | null;
+            /** Phone Account Pub Id */
+            phone_account_pub_id: string;
         };
         /** PlatformAttestation */
         PlatformAttestation: {
@@ -7807,6 +8328,41 @@ export interface components {
                 [key: string]: components["schemas"]["RefreshSourceView"];
             };
         };
+        /** RegionCreate */
+        RegionCreate: {
+            /** Region Gb */
+            region_gb: string;
+            /** Name */
+            name?: string | null;
+            /** Proxy Env Key */
+            proxy_env_key?: string | null;
+            /** Relay Unit */
+            relay_unit?: string | null;
+        };
+        /** RegionProbeResult */
+        RegionProbeResult: {
+            /** Region Gb */
+            region_gb: string;
+            /** Ok */
+            ok: boolean;
+            /** Exit Ip */
+            exit_ip: string | null;
+            /** Note */
+            note: string | null;
+            /** Alerted */
+            alerted: boolean;
+        };
+        /** ReleaseLockResult */
+        ReleaseLockResult: {
+            /** Ok */
+            ok: boolean;
+            /** Instance Key */
+            instance_key: string;
+            /** Released */
+            released: boolean;
+            /** Detail */
+            detail: string;
+        };
         /** ReportArtifactView */
         ReportArtifactView: {
             /** Pub Id */
@@ -8413,6 +8969,67 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /** SamplingProgressCellView */
+        SamplingProgressCellView: {
+            /** Column Key */
+            column_key: string;
+            /** Completed Samples */
+            completed_samples: number;
+            /**
+             * Latest Capture Time
+             * Format: date-time
+             */
+            latest_capture_time: string;
+        };
+        /** SamplingProgressColumnView */
+        SamplingProgressColumnView: {
+            /** Key */
+            key: string;
+            /** Model */
+            model: string;
+            /** Region */
+            region: string;
+            /** Mode */
+            mode: string;
+        };
+        /** SamplingProgressRowView */
+        SamplingProgressRowView: {
+            /** Appendix */
+            appendix: string | null;
+            /** Group */
+            group: string;
+            /** Group Name */
+            group_name: string;
+            /** Expression */
+            expression: string;
+            /** Query Text */
+            query_text: string;
+            /** Cells */
+            cells: components["schemas"]["SamplingProgressCellView"][];
+        };
+        /** SamplingProgressView */
+        SamplingProgressView: {
+            /** Project Pub Id */
+            project_pub_id: string;
+            /** Config Revision Start */
+            config_revision_start: number | null;
+            /** Config Revision End */
+            config_revision_end: number | null;
+            /** Columns */
+            columns: components["schemas"]["SamplingProgressColumnView"][];
+            /** Rows */
+            rows: components["schemas"]["SamplingProgressRowView"][];
+            /** Observed Cells */
+            observed_cells: number;
+            /** Total Cells */
+            total_cells: number;
+            /** Answer Count */
+            answer_count: number;
+            /** Latest Capture Time */
+            latest_capture_time: string | null;
+            /** Live Runs */
+            live_runs: number;
         };
         /** ScheduleCreate */
         ScheduleCreate: {
@@ -13277,6 +13894,826 @@ export interface operations {
             };
         };
     };
+    list_collection_accounts_api_v2_collection_accounts_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PhoneAccountRow"][];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_collection_account_api_v2_collection_accounts_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PhoneAccountCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PhoneAccountRow"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_platform_account_api_v2_collection_platform_accounts__pub_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlatformAccountPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformAccountView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    link_test_api_v2_collection_accounts__pub_id__link_test_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LinkTestRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkTestResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_account_events_api_v2_collection_accounts__pub_id__events_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountEventView"][];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_collection_browsers_api_v2_collection_browsers_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionBrowserView"][];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sync_browsers_api_v2_collection_browsers_sync_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrowserSyncResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restart_browser_api_v2_collection_browsers__key__restart_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                key: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BrowserActionResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    release_browser_lock_api_v2_collection_browsers__key__release_lock_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                key: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReleaseLockResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_collection_regions_api_v2_collection_regions_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionRegionView"][];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_collection_region_api_v2_collection_regions_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegionCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionRegionView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    probe_region_api_v2_collection_regions__gb__probe_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                gb: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegionProbeResult"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     assist_page_api_v2_assist__ticket__get: {
         parameters: {
             query?: never;
@@ -15848,6 +17285,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TerminalResultView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sampling_progress_api_v2_analytics_sampling_progress_get: {
+        parameters: {
+            query: {
+                project_pub_id: string;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SamplingProgressView"];
                 };
             };
             /** @description Bad Request */
