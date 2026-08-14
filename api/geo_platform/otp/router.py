@@ -52,6 +52,8 @@ import structlog
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from ..collection.otp_bridge import record_sms_received, upsert_phone_account
+from ..tenancy.database import SessionLocal
 from .extract import (
     HINT_RE,
     PHONE_RE,
@@ -205,6 +207,33 @@ def _clamp_within(raw: str | None) -> int:
     return max(1, min(v, _MAX_WITHIN_S))
 
 
+# ---------------------------------------------------------------------------
+# OTP 迁库旁路（2026-08-13，采集账号治理 s06_0022）：文件链路仍是现状真源，
+# collection_phone_account 行是镜像。两个钩子一律 best-effort——失败只 warning，
+# 绝不阻断推送/注册现有链路（DB 未迁移/不可达时文件链路照常工作）。
+# ---------------------------------------------------------------------------
+
+
+def _sync_phone_account_best_effort(phone: str, owner_note: str | None) -> None:
+    """注册 → upsert collection_phone_account（phone 唯一；slot/carrier→owner_note）。"""
+    try:
+        with SessionLocal() as session:
+            upsert_phone_account(session, phone=phone, owner_note=owner_note)
+            session.commit()
+    except Exception as e:  # noqa: BLE001 — 迁库失败绝不阻断注册（文件已落）
+        log.warning("otp_phone_account_sync_failed", phone=mask_phone(phone), error=repr(e))
+
+
+def _record_sms_best_effort(phone: str) -> None:
+    """push 路由到号 → 回填 last_sms_at=now + sms_link_state='ok'（转码链路事实源）。"""
+    try:
+        with SessionLocal() as session:
+            record_sms_received(session, phone=phone)
+            session.commit()
+    except Exception as e:  # noqa: BLE001 — 回填失败绝不阻断推送（收件箱已落）
+        log.warning("otp_sms_backfill_failed", phone=mask_phone(phone), error=repr(e))
+
+
 def _extract_code(norm: dict[str, Any]) -> tuple[str, str, str]:
     """抽 (code, code_source, method)。V2 首版 **regex-only**：``extract_otp_code``
     正则级联为权威；转发器附带的 code hint 仅在被短信正文数字边界佐证时兜底
@@ -338,6 +367,8 @@ async def otp_push(request: Request) -> JSONResponse:
     remote_addr = request.client.host if request.client else ""
     _atomic_write_json(_inbox_dir() / f"{phone}.json", rec)
     _append_event_best_effort(rec, code_source=code_source, remote_addr=remote_addr)
+    if routed:  # 迁库旁路：回填转码链路事实（unrouted 无号可回填，跳过）
+        _record_sms_best_effort(phone)
 
     # 绝不把短信正文（含验证码明文）写日志——只记长度/平台，phone 掩码。
     if not code and raw:
@@ -550,6 +581,8 @@ async def otp_register(request: Request) -> JSONResponse:
         {"phone": phone, "carrier": carrier, "slot": slot, "remark": remark, "ts": time.time()}
     )
     _atomic_write_json(_registry_path(), entries)
+    # 迁库旁路：slot/carrier 拼 owner_note（皆空 → 完整 remark 兜底）
+    _sync_phone_account_best_effort(phone, " ".join(p for p in (slot, carrier) if p) or remark)
     log.info("otp_number_registered", phone=mask_phone(phone), created=created, slot=slot or "-")
     return JSONResponse(
         content={"ok": True, "created": created, "phone": mask_phone(phone), "remark": remark}

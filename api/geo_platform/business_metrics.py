@@ -10,10 +10,22 @@ import psycopg
 import structlog
 from prometheus_client import Gauge, start_http_server
 from psycopg.rows import dict_row
+from sqlalchemy import select
 
 from .analytics.outbox import ANALYTICS_EVENT_TYPES
+from .collection.account_models import CollectionRegion
+from .collection.relay_probe import probe_collection_region
 from .config import get_settings
 from .logging import configure_logging
+from .tenancy.database import SessionLocal
+
+log = structlog.get_logger()
+
+# relay 巡检（2026-08-13，采集账号治理 s06_0022）：借 15s 指标循环做调度，
+# 每 region 每 10 分钟巡一次（内存记 last 时间，进程重启即全量重巡——可接受，
+# 单次巡检与手工 probe 同语义）。失败才推送（推送在 probe_collection_region 内）。
+_REGION_PROBE_INTERVAL_S = 600.0
+_region_probe_last: dict[str, float] = {}
 
 ADMISSION_REASONS = (
     "not_requested",
@@ -156,6 +168,32 @@ def apply_business_metrics(snapshot: BusinessMetricsSnapshot) -> None:
     COLLECTION_LAST_SUCCESS.set(time.time())
 
 
+def probe_due_collection_regions(now_mono: float) -> None:
+    """对到期的 collection_region 逐条巡检（best-effort：任何失败只日志，绝不
+    影响指标导出主链路；表未迁移/DB 不可达时整轮跳过）。"""
+    try:
+        with SessionLocal() as session:
+            regions = list(session.scalars(select(CollectionRegion)))
+            for region in regions:
+                last = _region_probe_last.get(region.region_gb)
+                if last is not None and now_mono - last < _REGION_PROBE_INTERVAL_S:
+                    continue
+                _region_probe_last[region.region_gb] = now_mono
+                try:
+                    probe_collection_region(session, region.region_gb)
+                    session.commit()
+                except Exception as exc:  # noqa: BLE001 — 单 region 失败不拖垮整轮
+                    session.rollback()
+                    log.warning(
+                        "region_probe_failed",
+                        region_gb=region.region_gb,
+                        error_type=type(exc).__name__,
+                        error=str(exc)[:200],
+                    )
+    except Exception as exc:  # noqa: BLE001 — 巡检是旁路，绝不影响 metrics 循环
+        log.warning("region_probe_sweep_failed", error_type=type(exc).__name__)
+
+
 async def run_exporter() -> None:
     settings = get_settings()
     configure_logging(settings.log_level)
@@ -178,6 +216,13 @@ async def run_exporter() -> None:
             COLLECTION_SUCCESS.set(0)
             log.error(
                 "business_metrics_collection_failed",
+                error_type=type(error).__name__,
+            )
+        try:  # relay 巡检钩子：独立 try，绝不影响 COLLECTION_SUCCESS 口径
+            await asyncio.to_thread(probe_due_collection_regions, time.monotonic())
+        except Exception as error:
+            log.warning(
+                "region_probe_hook_failed",
                 error_type=type(error).__name__,
             )
         try:

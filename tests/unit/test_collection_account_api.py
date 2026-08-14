@@ -1,0 +1,729 @@
+"""采集账号治理 API（api/geo_platform/collection/account_admin_router.py）单元测试。
+
+全 fake：TestClient 进程内 + dependency_overrides[get_principal]/[get_db]；
+_FakeSession 照 test_account_governor.py 同款（select 结构路由到内存行），
+扩展 in_ 谓词支持（events 端点的 platform_account_id.in_ 查询）。
+systemd 实采缝（probe_browser_runtime）与推送缝（push_captcha_assist）一律
+monkeypatch——不起 systemctl、不出网。
+"""
+
+from __future__ import annotations
+
+import itertools
+from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+import pytest
+from fastapi.testclient import TestClient
+from geo_platform.collection import account_admin_router
+from geo_platform.collection.account_models import (
+    CollectionAccountEvent,
+    CollectionBrowser,
+    CollectionPhoneAccount,
+    CollectionPlatformAccount,
+    CollectionRegion,
+)
+from geo_platform.collection.models import BrowserFence
+from geo_platform.identity.policy import Principal, Role, get_principal
+from geo_platform.main import app
+from geo_platform.tenancy.database import get_db
+from geo_platform.tenancy.ids import new_pub_id
+
+_NOW = datetime(2026, 8, 13, 12, 0, tzinfo=UTC)
+
+client = TestClient(app)
+
+
+class _FakeSession:
+    """account_admin_router 用到的最小 Session 假面（equality + in_ + order_by + limit）。"""
+
+    def __init__(self) -> None:
+        self.rows: dict[type, list[Any]] = {}
+        self._ids: dict[type, itertools.count] = {}
+        self.committed = 0
+
+    def get(self, cls: type, pk: Any) -> Any | None:
+        for row in self.rows.get(cls, []):
+            if row.id == pk:
+                return row
+        return None
+
+    def scalar(self, stmt: Any) -> Any | None:
+        rows = self._select(stmt)
+        return rows[0] if rows else None
+
+    def scalars(self, stmt: Any) -> list[Any]:
+        return list(self._select(stmt))
+
+    def _select(self, stmt: Any) -> list[Any]:
+        cls = stmt.column_descriptions[0]["entity"]
+        rows = list(self.rows.get(cls, []))
+        for criterion in stmt._where_criteria:
+            key = criterion.left.key
+            value = criterion.right.value
+            if isinstance(value, list):  # in_ 谓词
+                rows = [row for row in rows if getattr(row, key) in value]
+            else:
+                rows = [row for row in rows if getattr(row, key) == value]
+        for order in stmt._order_by_clauses:
+            element = getattr(order, "element", order)  # 裸列（asc）无 .element 包装
+            key = element.key
+            desc = "desc" in str(getattr(order, "modifier", ""))
+            rows.sort(key=lambda row: getattr(row, key), reverse=desc)
+        if stmt._limit is not None:
+            rows = rows[: stmt._limit]
+        return rows
+
+    def add(self, obj: Any) -> None:
+        self.rows.setdefault(type(obj), []).append(obj)
+
+    def flush(self) -> None:
+        for cls, rows in self.rows.items():
+            counter = self._ids.setdefault(cls, itertools.count(1))
+            for row in rows:
+                if getattr(row, "id", None) is None:
+                    row.id = next(counter)
+
+    def commit(self) -> None:
+        self.committed += 1
+
+    def rollback(self) -> None:
+        pass
+
+
+@pytest.fixture
+def session() -> _FakeSession:
+    return _FakeSession()
+
+
+@pytest.fixture(autouse=True)
+def _cleanup_overrides() -> Iterator[None]:
+    yield
+    app.dependency_overrides.pop(get_principal, None)
+    app.dependency_overrides.pop(get_db, None)
+
+
+def _bind(session: _FakeSession, role: Role | None = Role.OPERATOR) -> None:
+    if role is not None:
+        app.dependency_overrides[get_principal] = lambda: Principal(
+            subject="ops-1", role=role, tenant_pub_id="tnt_ops", user_pub_id="usr_ops"
+        )
+    app.dependency_overrides[get_db] = lambda: session
+
+
+def _seed_phone(session: _FakeSession, **over: Any) -> CollectionPhoneAccount:
+    fields: dict[str, Any] = {
+        "pub_id": new_pub_id("pha"),
+        "phone": "13121622231",
+        "owner_note": "SIM1 联通",
+        "state": "active",
+        "sms_link_state": "untested",
+        "push_link_state": "untested",
+        "created_at": _NOW,
+        "updated_at": _NOW,
+    }
+    fields.update(over)
+    row = CollectionPhoneAccount(**fields)
+    session.add(row)
+    session.flush()
+    return row
+
+
+def _seed_platform(
+    session: _FakeSession, phone_id: int, **over: Any
+) -> CollectionPlatformAccount:
+    fields: dict[str, Any] = {
+        "pub_id": new_pub_id("ppa"),
+        "phone_account_id": phone_id,
+        "platform": "doubao",
+        "region_gb": "310000",
+        "runtime_state": "idle",
+        "used_today": 0,
+        "used_week": 0,
+        "used_year": 0,
+        "browser_instance_key": "doubao_sh",
+        "created_at": _NOW,
+        "updated_at": _NOW,
+    }
+    fields.update(over)
+    row = CollectionPlatformAccount(**fields)
+    session.add(row)
+    session.flush()
+    return row
+
+
+def _seed_browser(session: _FakeSession, **over: Any) -> CollectionBrowser:
+    fields: dict[str, Any] = {
+        "pub_id": new_pub_id("brw"),
+        "instance_key": "doubao_sh",
+        "platform": "doubao",
+        "region_gb": "310000",
+        "cdp_port": 19222,
+        "systemd_unit": "geo-platform-v2-browser@doubao_sh.service",
+        "activity": "idle",
+        "error_streak": 0,
+        "created_at": _NOW,
+        "updated_at": _NOW,
+    }
+    fields.update(over)
+    row = CollectionBrowser(**fields)
+    session.add(row)
+    session.flush()
+    return row
+
+
+def _seed_region(session: _FakeSession, **over: Any) -> CollectionRegion:
+    fields: dict[str, Any] = {
+        "pub_id": new_pub_id("rgn"),
+        "region_gb": "310000",
+        "state": "ok",
+        "source": "wukong",
+        "created_at": _NOW,
+        "updated_at": _NOW,
+    }
+    fields.update(over)
+    row = CollectionRegion(**fields)
+    session.add(row)
+    session.flush()
+    return row
+
+
+def _events(session: _FakeSession, event_type: str | None = None) -> list[CollectionAccountEvent]:
+    rows = session.rows.get(CollectionAccountEvent, [])
+    if event_type is None:
+        return list(rows)
+    return [row for row in rows if row.event_type == event_type]
+
+
+# ── 身份门 ──────────────────────────────────────────────────────────────────
+
+
+def test_list_accounts_requires_identity_401(session: _FakeSession) -> None:
+    _bind(session, role=None)  # 不 override get_principal → 真身份链 → 无头 401
+    resp = client.get("/api/v2/collection-accounts")
+    assert resp.status_code == 401
+    assert resp.json()["error"]["code"] == "identity_headers_missing"
+
+
+def test_list_accounts_forbidden_role_403(session: _FakeSession) -> None:
+    _bind(session, role=Role.CUSTOMER)  # customer 无 account:read
+    assert client.get("/api/v2/collection-accounts").status_code == 403
+
+
+# ── GET/POST /collection-accounts ───────────────────────────────────────────
+
+
+def test_list_accounts_fixed_five_platform_columns(session: _FakeSession) -> None:
+    phone = _seed_phone(session)
+    account = _seed_platform(session, phone.id, quota_day=50, used_today=3)
+    _bind(session)
+    resp = client.get("/api/v2/collection-accounts")
+    assert resp.status_code == 200
+    rows = resp.json()
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["phone_account_pub_id"] == phone.pub_id
+    assert row["phone_masked"] == "131***2231"
+    assert row["owner_note"] == "SIM1 联通"
+    assert row["state"] == "active"
+    assert row["sms_link_state"] == "untested"
+    assert row["last_sms_at"] is None
+    assert row["push_link_state"] == "untested"
+    assert row["last_push_test_at"] is None
+    # 五平台固定列，无行 = null
+    assert set(row["platforms"]) == {"doubao", "yiyan", "deepseek", "yuanbao", "tongyi"}
+    cell = row["platforms"]["doubao"]
+    assert cell["platform_account_pub_id"] == account.pub_id
+    assert cell["region_gb"] == "310000"
+    assert cell["quota_day"] == 50
+    assert cell["used_today"] == 3
+    assert cell["runtime_state"] == "idle"
+    assert cell["browser_instance_key"] == "doubao_sh"
+    for slug in ("yiyan", "deepseek", "yuanbao", "tongyi"):
+        assert row["platforms"][slug] is None
+
+
+def test_create_account_then_conflict_409(session: _FakeSession) -> None:
+    _bind(session)
+    resp = client.post("/api/v2/collection-accounts", json={"phone": "13121622231"})
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["phone_masked"] == "131***2231"
+    assert set(body["platforms"]) == {"doubao", "yiyan", "deepseek", "yuanbao", "tongyi"}
+    assert all(cell is None for cell in body["platforms"].values())
+    events = _events(session, "phone_account_created")
+    assert len(events) == 1
+    assert events[0].actor == "usr_ops"
+    # 幂等冲突
+    conflict = client.post("/api/v2/collection-accounts", json={"phone": "13121622231"})
+    assert conflict.status_code == 409
+    assert conflict.json()["error"]["code"] == "phone_already_exists"
+    # 畸形号
+    bad = client.post("/api/v2/collection-accounts", json={"phone": "123"})
+    assert bad.status_code == 400
+    assert bad.json()["error"]["code"] == "bad_phone"
+
+
+# ── PATCH /collection-platform-accounts/{pub_id} ────────────────────────────
+
+
+def test_patch_region_change_requires_confirm(session: _FakeSession) -> None:
+    phone = _seed_phone(session)
+    account = _seed_platform(session, phone.id)
+    _seed_region(session, region_gb="110000", state="ok")
+    _bind(session)
+    resp = client.patch(
+        f"/api/v2/collection-platform-accounts/{account.pub_id}",
+        json={"region_gb": "110000"},
+    )
+    assert resp.status_code == 400
+    assert resp.json()["error"]["code"] == "region_change_requires_confirmation"
+    assert account.region_gb == "310000"  # 未变
+    assert _events(session) == []  # 未写事件
+
+
+def test_patch_region_unavailable_400(session: _FakeSession) -> None:
+    phone = _seed_phone(session)
+    account = _seed_platform(session, phone.id)
+    _seed_region(session, region_gb="120000", state="down")  # 非 ok 不可用
+    _bind(session)
+    resp = client.patch(
+        f"/api/v2/collection-platform-accounts/{account.pub_id}",
+        json={"region_gb": "120000", "confirm": True},
+    )
+    assert resp.status_code == 400
+    assert resp.json()["error"]["code"] == "region_not_available"
+    missing = client.patch(
+        f"/api/v2/collection-platform-accounts/{account.pub_id}",
+        json={"region_gb": "440300", "confirm": True},
+    )
+    assert missing.status_code == 400
+    assert missing.json()["error"]["code"] == "region_not_available"
+
+
+def test_patch_region_and_quota_ok_writes_audit(session: _FakeSession) -> None:
+    phone = _seed_phone(session)
+    account = _seed_platform(session, phone.id)
+    _seed_region(session, region_gb="110000", state="ok")
+    _bind(session)
+    resp = client.patch(
+        f"/api/v2/collection-platform-accounts/{account.pub_id}",
+        json={"region_gb": "110000", "quota_day": 30, "quota_week": 200, "confirm": True},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["region_gb"] == "110000"
+    assert body["quota_day"] == 30
+    assert body["quota_week"] == 200
+    assert body["quota_year"] is None
+    assert body["phone_account_pub_id"] == phone.pub_id
+    events = _events(session, "config_change")
+    assert len(events) == 1
+    event = events[0]
+    assert event.actor == "usr_ops"
+    assert event.phone_account_id == phone.id
+    assert event.platform_account_id == account.id
+    assert event.old_value == {"region_gb": "310000", "quota_day": None, "quota_week": None}
+    assert event.new_value == {"region_gb": "110000", "quota_day": 30, "quota_week": 200}
+
+
+def test_patch_browser_bind_region_ip_mismatch_409(session: _FakeSession) -> None:
+    phone = _seed_phone(session)
+    account = _seed_platform(session, phone.id)  # region 310000
+    _seed_browser(session, instance_key="doubao_bj", region_gb="110000")
+    _bind(session)
+    resp = client.patch(
+        f"/api/v2/collection-platform-accounts/{account.pub_id}",
+        json={"browser_instance_key": "doubao_bj"},
+    )
+    assert resp.status_code == 409
+    assert resp.json()["error"]["code"] == "region_ip_mismatch"
+    assert account.browser_instance_key == "doubao_sh"  # 未变
+    # 地域匹配的绑定成功
+    ok = client.patch(
+        f"/api/v2/collection-platform-accounts/{account.pub_id}",
+        json={"browser_instance_key": "doubao_sh2"},
+    )
+    assert ok.status_code == 404  # 实例不存在 → browser_not_found
+    _seed_browser(session, instance_key="doubao_sh2", region_gb="310000")
+    ok = client.patch(
+        f"/api/v2/collection-platform-accounts/{account.pub_id}",
+        json={"browser_instance_key": "doubao_sh2"},
+    )
+    assert ok.status_code == 200
+    assert ok.json()["browser_instance_key"] == "doubao_sh2"
+
+
+def test_patch_unknown_account_404(session: _FakeSession) -> None:
+    _bind(session)
+    resp = client.patch(
+        "/api/v2/collection-platform-accounts/ppa_missing", json={"quota_day": 1}
+    )
+    assert resp.status_code == 404
+    assert resp.json()["error"]["code"] == "platform_account_not_found"
+
+
+# ── link-test ────────────────────────────────────────────────────────────────
+
+
+def test_link_test_push_not_configured_503(
+    session: _FakeSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    phone = _seed_phone(session)
+    monkeypatch.delenv("GEO_ASSIST_NOTIFY_URL", raising=False)
+    _bind(session)
+    resp = client.post(
+        f"/api/v2/collection-accounts/{phone.pub_id}/link-test", json={"channel": "push"}
+    )
+    assert resp.status_code == 503
+    assert resp.json()["error"]["code"] == "push_channel_not_configured"
+
+
+def test_link_test_push_success_marks_ok(
+    session: _FakeSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    phone = _seed_phone(session)
+    monkeypatch.setenv("GEO_ASSIST_NOTIFY_URL", "https://sctapi.ftqq.com/KEY.send")
+    monkeypatch.setenv("GEO_ASSIST_NOTIFY_FLAVOR", "serverchan")
+    sent: list[dict[str, Any]] = []
+
+    def fake_push(**kwargs: Any) -> bool:
+        sent.append(kwargs)
+        return True
+
+    monkeypatch.setattr(account_admin_router, "push_captcha_assist", fake_push)
+    _bind(session)
+    resp = client.post(
+        f"/api/v2/collection-accounts/{phone.pub_id}/link-test", json={"channel": "push"}
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body == {
+        "ok": True,
+        "channel": "push",
+        "sms_link_state": None,
+        "push_link_state": "ok",
+        "last_sms_at": None,
+        "last_push_test_at": body["last_push_test_at"],
+        "wait_window_s": None,
+        "guidance": None,
+        "detail": None,
+    }
+    assert body["last_push_test_at"] is not None
+    assert sent and sent[0]["flavor"] == "serverchan"
+    assert "131***2231" in sent[0]["title"]  # 掩码，不明文
+    assert phone.push_link_state == "ok"
+    assert phone.last_push_test_at is not None
+    events = _events(session, "link_test")
+    assert len(events) == 1
+    assert events[0].new_value == {"channel": "push", "result": "ok"}
+
+
+def test_link_test_push_failure_keeps_state(
+    session: _FakeSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    phone = _seed_phone(session)
+    monkeypatch.setenv("GEO_ASSIST_NOTIFY_URL", "https://sctapi.ftqq.com/KEY.send")
+    monkeypatch.setattr(account_admin_router, "push_captcha_assist", lambda **kw: False)
+    _bind(session)
+    resp = client.post(
+        f"/api/v2/collection-accounts/{phone.pub_id}/link-test", json={"channel": "push"}
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is False
+    assert body["detail"] == "push_failed"
+    assert phone.push_link_state == "untested"  # 失败如实，状态不动
+    assert _events(session, "link_test")[0].new_value["result"] == "failed"
+
+
+def test_link_test_sms_lazy_freshness(session: _FakeSession) -> None:
+    phone = _seed_phone(session, last_sms_at=_NOW, updated_at=_NOW)
+    _bind(session)
+    resp = client.post(
+        f"/api/v2/collection-accounts/{phone.pub_id}/link-test", json={"channel": "sms"}
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["channel"] == "sms"
+    assert body["wait_window_s"] == 180
+    assert body["guidance"]
+    # last_sms_at 在窗内 → 惰性判联通
+    # （_NOW 与真实 now 差距大——这里是陈旧场景）
+    assert body["sms_link_state"] == "untested"
+    assert phone.sms_link_state == "untested"
+
+
+def test_link_test_sms_fresh_marks_ok(session: _FakeSession) -> None:
+    fresh = datetime.now(UTC) - timedelta(seconds=30)
+    phone = _seed_phone(session, last_sms_at=fresh, updated_at=_NOW)
+    _bind(session)
+    resp = client.post(
+        f"/api/v2/collection-accounts/{phone.pub_id}/link-test", json={"channel": "sms"}
+    )
+    assert resp.status_code == 200
+    assert resp.json()["sms_link_state"] == "ok"
+    assert phone.sms_link_state == "ok"
+
+
+# ── events ───────────────────────────────────────────────────────────────────
+
+
+def test_events_merges_phone_and_platform_rows(session: _FakeSession) -> None:
+    phone = _seed_phone(session)
+    account = _seed_platform(session, phone.id)
+    for index in range(3):
+        session.add(
+            CollectionAccountEvent(
+                pub_id=new_pub_id("aev"),
+                phone_account_id=phone.id,
+                event_type="phone_event",
+                actor="usr_ops",
+                created_at=_NOW + timedelta(seconds=index),
+            )
+        )
+    session.add(
+        CollectionAccountEvent(
+            pub_id=new_pub_id("aev"),
+            platform_account_id=account.id,
+            event_type="config_change",
+            actor="usr_ops",
+            new_value={"region_gb": "110000"},
+            created_at=_NOW + timedelta(seconds=10),
+        )
+    )
+    other = _seed_phone(session, phone="15510162660")
+    session.add(
+        CollectionAccountEvent(
+            pub_id=new_pub_id("aev"),
+            phone_account_id=other.id,
+            event_type="unrelated",
+            actor="usr_ops",
+            created_at=_NOW + timedelta(seconds=20),
+        )
+    )
+    session.flush()
+    _bind(session)
+    resp = client.get(f"/api/v2/collection-accounts/{phone.pub_id}/events")
+    assert resp.status_code == 200
+    rows = resp.json()
+    assert len(rows) == 4  # 3 phone + 1 platform，不串号
+    assert rows[0]["event_type"] == "config_change"  # 倒序：最新的在最前
+    assert rows[0]["platform_account_pub_id"] == account.pub_id
+    assert rows[0]["new_value"] == {"region_gb": "110000"}
+    assert rows[0]["actor"] == "usr_ops"
+    assert {row["event_type"] for row in rows} == {"phone_event", "config_change"}
+
+
+def test_events_unknown_phone_404(session: _FakeSession) -> None:
+    _bind(session)
+    resp = client.get("/api/v2/collection-accounts/pha_missing/events")
+    assert resp.status_code == 404
+    assert resp.json()["error"]["code"] == "phone_account_not_found"
+
+
+# ── browsers ────────────────────────────────────────────────────────────────
+
+
+def test_browsers_list_shape_with_bindings(
+    session: _FakeSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    phone = _seed_phone(session)
+    _seed_platform(session, phone.id, browser_instance_key="doubao_sh")
+    _seed_browser(session)
+    started = datetime.now(UTC) - timedelta(hours=3)
+    monkeypatch.setattr(
+        account_admin_router,
+        "probe_browser_runtime",
+        lambda unit, key: {
+            "started_at": started,
+            "uptime_s": 3 * 3600,
+            "rss_bytes": 512 * 1024 * 1024,
+        },
+    )
+    _bind(session)
+    resp = client.get("/api/v2/collection-browsers")
+    assert resp.status_code == 200
+    rows = resp.json()
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["instance_key"] == "doubao_sh"
+    assert row["platform"] == "doubao"
+    assert row["region_gb"] == "310000"
+    assert row["cdp_port"] == 19222
+    assert row["systemd_unit"] == "geo-platform-v2-browser@doubao_sh.service"
+    assert row["activity"] == "idle"
+    assert row["error_streak"] == 0
+    assert row["uptime_s"] == 10800
+    assert row["rss_bytes"] == 512 * 1024 * 1024
+    assert row["started_at"] is not None
+    assert row["bindings"] == {"doubao": phone.pub_id}
+
+
+def test_restart_records_event_not_executed(session: _FakeSession) -> None:
+    browser = _seed_browser(session)
+    _bind(session)
+    resp = client.post("/api/v2/collection-browsers/doubao_sh/restart")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body == {
+        "ok": True,
+        "instance_key": "doubao_sh",
+        "executed": False,
+        "detail": "manual_restart_window_required",
+    }
+    events = _events(session, "browser_restart_requested")
+    assert len(events) == 1
+    assert events[0].browser_id == browser.id
+    assert events[0].actor == "usr_ops"
+    missing = client.post("/api/v2/collection-browsers/nope_xx/restart")
+    assert missing.status_code == 404
+
+
+def test_release_lock_sets_released_at_idempotent(session: _FakeSession) -> None:
+    browser = _seed_browser(session)
+    fence = BrowserFence(
+        platform="doubao_sh",
+        holder="worker-1",
+        fencing_token=7,
+        expires_at=datetime.now(UTC) + timedelta(hours=2),
+    )
+    session.add(fence)
+    session.flush()
+    _bind(session)
+    resp = client.post("/api/v2/collection-browsers/doubao_sh/release-lock")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["released"] is True
+    assert body["detail"] == "lock_released"
+    assert fence.released_at is not None
+    events = _events(session, "browser_lock_released")
+    assert len(events) == 1
+    assert events[0].browser_id == browser.id
+    assert events[0].old_value == {
+        "holder": "worker-1",
+        "fencing_token": 7,
+        "released_at": None,
+    }
+    # 幂等：再释放 = 无活动锁
+    again = client.post("/api/v2/collection-browsers/doubao_sh/release-lock")
+    assert again.status_code == 200
+    assert again.json()["released"] is False
+    assert again.json()["detail"] == "no_active_lock"
+
+
+# ── regions ──────────────────────────────────────────────────────────────────
+
+
+def test_regions_create_list_and_validation(session: _FakeSession) -> None:
+    _bind(session)
+    resp = client.post(
+        "/api/v2/collection-regions",
+        json={
+            "region_gb": "110000",
+            "name": "北京",
+            "proxy_env_key": "GEO_PROXY_BJ",
+            "relay_unit": "geo-platform-v2-proxy-relay@bj.service",
+        },
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["region_gb"] == "110000"
+    assert body["name"] == "北京"
+    assert body["proxy_env_key"] == "GEO_PROXY_BJ"
+    assert body["relay_unit"] == "geo-platform-v2-proxy-relay@bj.service"
+    assert body["state"] == "ok"
+    assert body["source"] == "wukong"
+    assert _events(session, "region_created")[0].actor == "usr_ops"
+    dup = client.post("/api/v2/collection-regions", json={"region_gb": "110000"})
+    assert dup.status_code == 409
+    assert dup.json()["error"]["code"] == "region_already_exists"
+    bad = client.post("/api/v2/collection-regions", json={"region_gb": "11"})
+    assert bad.status_code == 400
+    assert bad.json()["error"]["code"] == "bad_region_gb"
+    listed = client.get("/api/v2/collection-regions")
+    assert listed.status_code == 200
+    assert [row["region_gb"] for row in listed.json()] == ["110000"]
+
+
+def test_region_probe_endpoint(
+    session: _FakeSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _seed_region(session, region_gb="110000")
+    calls: list[str] = []
+
+    def fake_probe(conn: Any, region_gb: str) -> dict[str, Any]:
+        calls.append(region_gb)
+        return {
+            "region_gb": region_gb,
+            "ok": True,
+            "exit_ip": "106.37.143.183",
+            "note": None,
+            "alerted": False,
+        }
+
+    monkeypatch.setattr(account_admin_router, "probe_collection_region", fake_probe)
+    _bind(session)
+    resp = client.post("/api/v2/collection-regions/110000/probe")
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "region_gb": "110000",
+        "ok": True,
+        "exit_ip": "106.37.143.183",
+        "note": None,
+        "alerted": False,
+    }
+    assert calls == ["110000"]
+    assert session.committed >= 1
+
+
+def test_region_probe_unknown_404(session: _FakeSession) -> None:
+    _bind(session)
+    resp = client.post("/api/v2/collection-regions/659999/probe")
+    assert resp.status_code == 404
+    assert resp.json()["error"]["code"] == "region_not_found"
+
+
+# ── sync 端点 ────────────────────────────────────────────────────────────────
+
+
+def test_browser_sync_endpoint_idempotent(
+    session: _FakeSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("GEO_BROWSER_INSTANCES", "doubao_bj,deepseek_sh")
+    monkeypatch.setenv("GEO_BROWSER_DOUBAO_BJ_CDP_URL", "http://127.0.0.1:19233")
+    monkeypatch.setenv("GEO_BROWSER_DOUBAO_BJ_EXIT_GB", "110000")
+    monkeypatch.setenv("GEO_BROWSER_DEEPSEEK_SH_CDP_URL", "http://127.0.0.1:19234")
+    monkeypatch.setenv("GEO_BROWSER_DEEPSEEK_SH_EXIT_GB", "310000")
+    _bind(session)
+    resp = client.post("/api/v2/collection-browsers/sync")
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "synced": 2,
+        "created": 2,
+        "updated": 0,
+        "errors": [],
+        "instances": ["doubao_bj", "deepseek_sh"],
+    }
+    again = client.post("/api/v2/collection-browsers/sync")
+    assert again.status_code == 200
+    assert again.json()["created"] == 0
+    assert again.json()["updated"] == 2  # 幂等：重复跑零新建
+    rows = session.rows.get(CollectionBrowser, [])
+    assert len(rows) == 2
+    doubao = next(row for row in rows if row.instance_key == "doubao_bj")
+    assert doubao.platform == "doubao"
+    assert doubao.region_gb == "110000"
+    assert doubao.cdp_port == 19233
+    assert doubao.systemd_unit == "geo-platform-v2-browser@doubao_bj.service"
+
+
+def test_browser_sync_env_missing_503(
+    session: _FakeSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("GEO_BROWSER_INSTANCES", raising=False)
+    _bind(session)
+    resp = client.post("/api/v2/collection-browsers/sync")
+    assert resp.status_code == 503
+    assert resp.json()["error"]["code"] == "browser_instances_not_configured"

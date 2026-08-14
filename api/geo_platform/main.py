@@ -12,6 +12,7 @@ from opentelemetry import context
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 from .brandrank.router import router as brandrank_router
+from .collection.account_admin_router import router as account_admin_router
 from .collection.assist_router import router as assist_router
 from .collection.capability_router import router as capability_router
 from .collection.customer_account_router import router as customer_account_router
@@ -168,6 +169,7 @@ app.include_router(confirmation_router)
 app.include_router(customer_router)
 app.include_router(onboarding_router)
 app.include_router(collection_router)
+app.include_router(account_admin_router)
 app.include_router(assist_router)
 app.include_router(otp_router)
 app.include_router(schedule_router)
