@@ -4,7 +4,7 @@ from datetime import timedelta
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ApplicationError, CancelledError
+from temporalio.exceptions import ActivityError, ApplicationError, CancelledError
 
 with workflow.unsafe.imports_passed_through():
     from collections.abc import Callable, Coroutine
@@ -249,6 +249,43 @@ def task_result_from_batch_item(item_result: CollectionBatchItemResult) -> Colle
         evidence=list(item_result.evidence),
         search_queries=list(item_result.search_queries),
     )
+
+
+def account_unavailable_reason(exc: BaseException) -> str | None:
+    """batch activity 失败因子里的 account_unavailable 原因串；非治理不可用 → None。
+
+    采集账号治理（2026-08-14 起，caiji-0813 §6.2）：browser_router 消费
+    AccountGovernor 判定「该平台该地域有账号但全不可用」时 raise
+    ApplicationError(type="account_unavailable", non_retryable=True)——activity
+    在任何浏览器交互之前失败（不 attach、不撞墙、不回退 env），异常因子经
+    ActivityError.cause 传到 workflow 侧。
+    """
+    cause = getattr(exc, "cause", None)
+    if isinstance(cause, ApplicationError) and cause.type == "account_unavailable":
+        return cause.message or str(cause)
+    return None
+
+
+def account_unavailable_placeholders(
+    items: list[CollectionTaskInput], reason: str
+) -> list[CollectionBatchItemResult]:
+    """治理不可用段的等长占位（status=wall + error_type=account_unavailable）。
+
+    照 captcha_pause 占位先例：与输入等长同序、走失败落库路径
+    （state=failed / quality_state=error_type / answer_text=None）——不进
+    fanout、不污染 analytics（dimensions 的 not_challenged/degraded=0 盖章只
+    发生在 completed 答案上，占位行永远盖不到）。内容确定（无时间戳），
+    activity 重试/重放的 drift 校验幂等。
+    """
+    return [
+        CollectionBatchItemResult(
+            business_key=item.business_key,
+            status="wall",
+            error_type="account_unavailable",
+            error_message=reason,
+        )
+        for item in items
+    ]
 
 
 @workflow.defn
@@ -563,30 +600,49 @@ class GeoCollectionWorkflow:
                 # 截短重发（撞码题本身重采）；无撞码时循环一次即出，行为同旧路径。
                 remaining_items = segment_items
                 while remaining_items:
-                    batch_output: CollectionBatchResult = await workflow.execute_activity(
-                        BATCH_ACTIVITY_BY_SLUG[slug],
-                        CollectionBatchInput(
-                            tenant_pub_id=data.tenant_pub_id,
-                            run_pub_id=data.run_pub_id,
-                            items=remaining_items,
-                        ),
-                        start_to_close_timeout=timedelta(
-                            minutes=doubao_batch_timeout_minutes(
-                                len(remaining_items), data.activity_timeout_minutes
-                            )
-                        ),
-                        heartbeat_timeout=timedelta(seconds=30),
-                        retry_policy=RetryPolicy(
-                            initial_interval=timedelta(seconds=1),
-                            maximum_interval=timedelta(seconds=30),
-                            maximum_attempts=2,
-                            non_retryable_error_types=[
-                                "adapter_not_configured",
-                                "unsupported_mode",
-                                "batch_outcome_contract_violation",
-                            ],
-                        ),
-                    )
+                    try:
+                        batch_output = await workflow.execute_activity(
+                            BATCH_ACTIVITY_BY_SLUG[slug],
+                            CollectionBatchInput(
+                                tenant_pub_id=data.tenant_pub_id,
+                                run_pub_id=data.run_pub_id,
+                                items=remaining_items,
+                            ),
+                            start_to_close_timeout=timedelta(
+                                minutes=doubao_batch_timeout_minutes(
+                                    len(remaining_items), data.activity_timeout_minutes
+                                )
+                            ),
+                            heartbeat_timeout=timedelta(seconds=30),
+                            retry_policy=RetryPolicy(
+                                initial_interval=timedelta(seconds=1),
+                                maximum_interval=timedelta(seconds=30),
+                                maximum_attempts=2,
+                                non_retryable_error_types=[
+                                    "adapter_not_configured",
+                                    "unsupported_mode",
+                                    "batch_outcome_contract_violation",
+                                    "account_unavailable",
+                                ],
+                            ),
+                        )
+                    except ActivityError as exc:
+                        unavailable = account_unavailable_reason(exc)
+                        if unavailable is None:
+                            raise
+                        # 账号治理不可用（额度尽/禁言/region_down…）：整段落等长
+                        # account_unavailable 占位——activity 在任何浏览器交互之前
+                        # 失败（不 attach、不撞墙、不回退 env），占位诚实落库后继续
+                        # 后续段；绝不整批 failed（2026-08-14 起，caiji-0813 §6.2）。
+                        workflow.logger.warning(
+                            "%s batch unavailable (account governance): %s", slug, unavailable
+                        )
+                        placeholders = account_unavailable_placeholders(
+                            remaining_items, unavailable
+                        )
+                        await self._persist_batch_results(data, remaining_items, placeholders)
+                        processed += len(placeholders)
+                        break
                     # captcha-assist-v1 patch 每次循环迭代只调一次（重放确定性），
                     # 门控判定走纯函数 gate_captcha_pause：未 patch 的历史重放与
                     # 畸形 pause 一律丢弃按旧语义落库；五平台 live adapter 的正常

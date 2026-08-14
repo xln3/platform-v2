@@ -19,6 +19,14 @@ import os
 
 os.environ.setdefault("GEO_BROWSER_FENCING", "local")
 
+# 采集账号治理消费（2026-08-14 起，browser_router GEO_ACCOUNT_GOVERNANCE）：
+# 生产缺省 db（先读 AccountGovernor 实体表），但 unit 层绝不起真 PG（dev 栈
+# 2026-08-13 已下线）——缺省 off 让既有路由/适配器用例保持纯 env 语义零 DB
+# 探测；治理消费行为由 test_browser_router_governance.py /
+# test_collection_governance_wiring.py 用 fake session seam 显式覆盖（自行
+# setenv("GEO_ACCOUNT_GOVERNANCE", "db")）。
+os.environ.setdefault("GEO_ACCOUNT_GOVERNANCE", "off")
+
 for _key, _port, _exit_gb in (
     ("doubao_sh", 19222, "310000"),
     ("deepseek_tj", 19224, "120000"),

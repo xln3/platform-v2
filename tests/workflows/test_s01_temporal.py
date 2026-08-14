@@ -448,6 +448,7 @@ async def test_platform_session_external_cancellation_releases_fenced_lease() ->
 
 batch_calls: list[list[str]] = []
 persisted_items: list[tuple[str, str]] = []
+persisted_error_types: list[tuple[str, str | None]] = []
 
 
 def _batch_task(key: str, adapter: str) -> CollectionTaskInput:
@@ -527,6 +528,7 @@ async def persist_collection_result_fixture(
 ) -> None:
     del tenant_pub_id, run_pub_id, task_input
     persisted_items.append((result.business_key, result.status))
+    persisted_error_types.append((result.business_key, result.error_type))
 
 
 async def test_doubao_segments_routed_to_batch_and_per_task() -> None:
@@ -628,6 +630,76 @@ async def test_doubao_batch_wall_persists_failures_and_run_continues() -> None:
     ]
     # 终态按 completed 标记（persist 侧 derive 落 completed_with_failures，mark 不降级）
     assert terminal_run_states == [("tnt_batch_wall", "run_batch_wall", "completed", None)]
+
+
+@activity.defn(name="collect_doubao_batch")
+async def collect_doubao_batch_account_unavailable(
+    batch: CollectionBatchInput,
+) -> CollectionBatchResult:
+    """治理不可用信号 fixture：模拟 browser_router 在 adapter 内、任何浏览器交互
+    之前 raise account_unavailable（non_retryable）——整段一题未发。"""
+    batch_calls.append([item.business_key for item in batch.items])
+    raise ApplicationError(
+        "no collectable governed account for platform 'doubao' region gb=110000 "
+        "(reason=no_collectable_account) — refusing env fallback",
+        type="account_unavailable",
+        non_retryable=True,
+    )
+
+
+async def test_batch_account_unavailable_persists_placeholders_and_run_completes() -> None:
+    """采集账号治理（2026-08-14 起，caiji-0813 §6.2）：batch activity 抛
+    account_unavailable → workflow 把该 (platform,region) 段的剩余题转成等长
+    account_unavailable 占位落库（不 attach 浏览器、不撞墙、不回退 env），
+    run 绝不整批 failed，后续段照常采集。"""
+    batch_calls.clear()
+    persisted_items.clear()
+    persisted_error_types.clear()
+    terminal_run_states.clear()
+    async with await WorkflowEnvironment.start_time_skipping() as environment:
+        async with Worker(
+            environment.client,
+            task_queue="s01-batch-governance-test",
+            workflows=[GeoCollectionWorkflow],
+            activities=[
+                collect_with_adapter,
+                collect_doubao_batch_account_unavailable,
+                persist_collection_result_fixture,
+                publish_downstream_event,
+                mark_collection_run_terminal,
+            ],
+        ):
+            result = await environment.client.execute_workflow(
+                GeoCollectionWorkflow.run,
+                GeoCollectionInput(
+                    tenant_pub_id="tnt_batch_gov",
+                    project_pub_id="prj_batch_gov",
+                    run_pub_id="run_batch_gov",
+                    config_version_pub_id="cfv_batch_gov",
+                    tasks=[
+                        _batch_task("g-1", "doubao"),
+                        _batch_task("g-2", "doubao"),
+                        _batch_task("g-3", "fixed"),
+                    ],
+                    persist_results=True,
+                    inter_task_delay_max_s=0.0,
+                ),
+                id="geo-collection/batch-governance-test",
+                task_queue="s01-batch-governance-test",
+            )
+    assert result.state == "completed"
+    # 治理信号 non_retryable：batch 恰好调用一次，一题未发
+    assert batch_calls == [["g-1", "g-2"]]
+    # 该段两题落等长 account_unavailable 占位；后续 fixed 题照常采集
+    assert persisted_items == [("g-1", "wall"), ("g-2", "wall"), ("g-3", "ok")]
+    assert persisted_error_types == [
+        ("g-1", "account_unavailable"),
+        ("g-2", "account_unavailable"),
+        ("g-3", None),
+    ]
+    # 占位题不进 completed（零合成），run 终态正常完成
+    assert [item.business_key for item in result.completed] == ["g-3"]
+    assert terminal_run_states == [("tnt_batch_gov", "run_batch_gov", "completed", None)]
 
 
 @activity.defn(name="collect_deepseek_batch")

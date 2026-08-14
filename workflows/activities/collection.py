@@ -11,7 +11,10 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlsplit
+from zoneinfo import ZoneInfo
 
+import structlog
+from geo_platform.collection.account_governor import AccountGovernor
 from geo_platform.collection.leases import acquire_session_lease
 from geo_platform.collection.models import (
     AccountAuthorization,
@@ -40,6 +43,9 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from domain.evidence.dlp import assert_secret_free
+from workflows.activities.browser_router import account_governance_enabled
+
+log = structlog.get_logger()
 
 
 @dataclass
@@ -368,6 +374,20 @@ def _normalize_citations(items: list[dict[str, Any]]) -> list[dict[str, str | No
     return normalized
 
 
+_HEX_TOKEN_RE = re.compile(r"[0-9a-f]{32,64}")
+
+
+def _assert_system_ref_secret_free(value: str) -> None:
+    """系统自产引用（证据路径主干=business key/sha256 hex、error_type 词表）的秘密自检。
+
+    64-hex 主干里的随机数字串可能撞上手机号正则（20260813 生产实证：yiyan 证据
+    文件名 …a17581478051f… 命中 1[3-9]\\d{9} → collection_result_dlp_rejected，
+    整个 544 题 run 被误杀）。hex token 按 opaque 剥离后再扫描；路径目录、
+    error_type 词表等其余字符照常 fail-closed。
+    """
+    assert_secret_free(_HEX_TOKEN_RE.sub("", value))
+
+
 def _path_from_evidence_ref(value: str) -> Path:
     if not isinstance(value, str) or not value or len(value) > 2_048:
         raise ValueError("collection evidence path is invalid")
@@ -382,7 +402,7 @@ def _path_from_evidence_ref(value: str) -> Path:
     size = path.stat().st_size
     if size <= 0 or size > _MAX_EVIDENCE_BYTES:
         raise ValueError("collection evidence size is outside the allowed range")
-    assert_secret_free(str(path))
+    _assert_system_ref_secret_free(str(path))
     return path
 
 
@@ -1159,6 +1179,113 @@ def _task_matrix(
     return matrix
 
 
+# ---------------------------------------------------------------------------
+# 采集账号治理上报（2026-08-14 起，设计文档 caiji-0813 §5.4 统一出口 / §6.1）
+# ---------------------------------------------------------------------------
+
+# 治理墙词表 = account_governor._WALL_TYPES 的同名词集（墙 error_type 原样透传为
+# governor wall_type）。mode_unconfirmed/deep_think_toggle_failed 等题级失败
+# 不在表内 → 只记 task_outcome（参与同类失败熔断），不报墙。
+_GOVERNOR_WALL_ERROR_TYPES = frozenset({"wall_quota", "wall_muted", "wall_captcha", "wall_refusal"})
+
+# adapter 墙 outcome 的 error_message 携带禁言解封点（wall_lexicon WallVerdict.until
+# 的 isoformat，naive 本地时间=Asia/Shanghai，精确到分）：两种 producer 形状
+# 「answer-text wall hit [wall_muted] … until=2026-08-14T13:02:00 fragment=…」与
+# 「muted banner on page (…) until=…; evidence=…」。
+_MUTED_UNTIL_RE = re.compile(r"\buntil=(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?)")
+_SHANGHAI = ZoneInfo("Asia/Shanghai")
+
+
+def _governor_wall_type(status: str, error_type: str | None) -> str | None:
+    """墙 outcome → governor wall_type；非墙/非治理词表 → None（只记 task_outcome）。"""
+    if status == "wall" and error_type in _GOVERNOR_WALL_ERROR_TYPES:
+        return error_type
+    return None
+
+
+def _parse_wall_until(error_message: str | None) -> datetime | None:
+    """从墙 outcome 的 error_message 解析禁言解封点（naive 北京 → aware UTC）。
+
+    解析不出 → None（governor 按 muted_until=NULL=人工封禁语义处理，不自动恢复）。
+    """
+    if not error_message:
+        return None
+    match = _MUTED_UNTIL_RE.search(error_message)
+    if match is None:
+        return None
+    try:
+        naive = datetime.fromisoformat(match.group(1))
+    except ValueError:
+        return None
+    return naive.replace(tzinfo=_SHANGHAI).astimezone(UTC)
+
+
+def _report_outcome_to_governor(
+    *,
+    run_pub_id: str,
+    result: CollectionBatchItemResult | CollectionTaskResult,
+    task_input: CollectionTaskInput | None,
+    task_pub_id: str,
+    status: str,
+) -> None:
+    """采集终态的治理旁路上报：逐题 task_outcome + 墙 outcome 的 report_wall。
+
+    - 逐题 record_task_outcome（task_pub_id 入去重键，activity 重试/重放不重复
+      计数）：ok→success 记用量台账；失败按 status 词（wall/incomplete/aborted）
+      + error_type 参与同类失败 ≥3 熔断。
+    - 墙 outcome（wall_quota/wall_muted/wall_captcha/wall_refusal）→ report_wall：
+      quota 传 mode、until=None（governor 自算日重置点）；muted 从 error_message
+      解析解封点；refusal 只记事件不改状态（governor 内语义）。
+    - 治理层是旁路：独立 WorkerSessionLocal 事务 + 全异常吞为 warning——治理
+      故障绝不阻断/毒化采集落库主链（与 browser_router 的 fail-open 同款）。
+      GEO_ACCOUNT_GOVERNANCE=off 时整体跳过（单测/应急 kill switch）。
+    只在 persist 新建任务行（非幂等重放）时调用，重试不重复报墙。
+    """
+    if task_input is None or not account_governance_enabled():
+        return
+    platform = (task_input.adapter or "").strip().lower()
+    if not platform:
+        return
+    error_type = getattr(result, "error_type", None)
+    error_message = getattr(result, "error_message", None)
+    browser_instance_key = getattr(result, "browser_instance", None)
+    mode = task_input.mode or None
+    try:
+        with WorkerSessionLocal() as session:
+            governor = AccountGovernor(session)
+            governor.record_task_outcome(
+                platform=platform,
+                browser_instance_key=browser_instance_key,
+                outcome="success" if status == "ok" else status,
+                error_type=error_type,
+                run_pub_id=run_pub_id,
+                mode=mode,
+                task_pub_id=task_pub_id,
+            )
+            wall_type = _governor_wall_type(status, error_type)
+            if wall_type is not None:
+                governor.report_wall(
+                    platform=platform,
+                    wall_type=wall_type,
+                    evidence=(error_message or error_type or "")[:500],
+                    browser_instance_key=browser_instance_key,
+                    run_pub_id=run_pub_id,
+                    mode=mode,
+                    until=(_parse_wall_until(error_message) if wall_type == "wall_muted" else None),
+                )
+            session.commit()
+    except Exception as exc:  # noqa: BLE001 — 治理旁路故障不阻断采集主链
+        log.warning(
+            "account_governor_report_failed",
+            run_pub_id=run_pub_id,
+            task_pub_id=task_pub_id,
+            platform=platform,
+            status=status,
+            error_type=error_type,
+            error=repr(exc),
+        )
+
+
 @activity.defn
 def persist_collection_result(
     tenant_pub_id: str,
@@ -1192,7 +1319,7 @@ def persist_collection_result(
     # screenshot_ref 是平台自产路径串（非公开内容），保持 fail-closed 自检。
     try:
         if result.screenshot_ref:
-            assert_secret_free(result.screenshot_ref)
+            _assert_system_ref_secret_free(result.screenshot_ref)
     except ValueError as error:
         raise ApplicationError(
             "collection result rejected by DLP",
@@ -1244,6 +1371,7 @@ def persist_collection_result(
         search_queries_json = json.dumps(
             search_queries, ensure_ascii=False, sort_keys=True, separators=(",", ":")
         )
+        created = prior is None
         if prior is None:
             task = CollectionTask(
                 # The collection task is also the durable analytics answer identity.
@@ -1303,6 +1431,18 @@ def persist_collection_result(
         )
         run.state = _derive_run_state(run)
         session.commit()
+        task_pub_id = task.pub_id
+    if created:
+        # 采集账号治理旁路上报（2026-08-14 起）：逐题终态记用量台账。
+        # 独立事务 + 全异常吞 warning，绝不阻断采集落库主链；幂等重放
+        # （任务行已存在）不重报。
+        _report_outcome_to_governor(
+            run_pub_id=run_pub_id,
+            result=result,
+            task_input=task_input,
+            task_pub_id=task_pub_id,
+            status="ok",
+        )
 
 
 def _derive_run_state(run: CollectionRun) -> str:
@@ -1345,9 +1485,9 @@ def _persist_collection_failure(
     # error_message 可能嵌入页面文本——属原始采集材料，原文存储（零 DLP）；
     # error_type/截图 ref 是平台自产词表与路径，保持 fail-closed 自检。
     try:
-        assert_secret_free(error_type)
+        _assert_system_ref_secret_free(error_type)
         if result.screenshot_ref:
-            assert_secret_free(result.screenshot_ref)
+            _assert_system_ref_secret_free(result.screenshot_ref)
     except ValueError as error:
         raise ApplicationError(
             "collection result rejected by DLP",
@@ -1394,6 +1534,7 @@ def _persist_collection_failure(
             sort_keys=True,
             separators=(",", ":"),
         )
+        created = prior is None
         if prior is None:
             task = CollectionTask(
                 pub_id=new_pub_id("ans"),
@@ -1447,6 +1588,18 @@ def _persist_collection_failure(
         )
         run.state = _derive_run_state(run)
         session.commit()
+        task_pub_id = task.pub_id
+    if created:
+        # 采集账号治理旁路上报（2026-08-14 起）：逐题终态（失败收敛熔断）+
+        # 墙 outcome 的 report_wall（quota/muted/captcha 改写账号状态）。
+        # 独立事务 + 全异常吞 warning，绝不阻断采集落库主链；幂等重放不重报。
+        _report_outcome_to_governor(
+            run_pub_id=run_pub_id,
+            result=result,
+            task_input=task_input,
+            task_pub_id=task_pub_id,
+            status=status,
+        )
 
 
 @activity.defn

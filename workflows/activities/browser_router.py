@@ -24,6 +24,22 @@
 - region 无法归一为 GB 码，或归一后与该平台的全部实例 ``exit_gb`` 省码不符
   → ``region_exit_mismatch``（有实例但地域对不上——绝不拿别的地域出口顶替）。
 
+采集账号治理消费（2026-08-14 起，设计文档 caiji-0813 §1.3 派题链 / §6.2）：
+resolve 先经 ``AccountGovernor.resolve_collectable(platform, region_gb)`` 读实体表——
+
+- 命中 → 用其绑定实例键（env 仍是 CDP/出口真源，须仍在 ``GEO_BROWSER_INSTANCES``
+  清单内），并校验出口省码与派题地域一致，不一致 fail-closed ``region_ip_mismatch``
+  （配置错误，绝不带错地域出口硬采）；
+- 该平台该地域一行账号都没有（no_account_registered）→ **env 清单回退**
+  （过渡期保命，structlog 记 fallback）；
+- 有账号但全不可用（全忙/额度尽/禁言/region_down）→ ``account_unavailable``
+  non_retryable（带 reason；workflow 侧转等长占位落库——绝不回退 env 硬撞，
+  也绝不让整批 run failed）；
+- 治理层 DB 异常 → env 回退 + warning（治理故障不阻断采集主链）。
+
+开关 ``GEO_ACCOUNT_GOVERNANCE=db|off``（缺省 db；off=跳过治理层直走 env 清单，
+单测/应急 kill switch——与 ``GEO_BROWSER_FENCING`` 同款闸门先例）。
+
 地域匹配粒度 = 省级（GB 码前两位）：测量合格性（INV-1 geo provenance）本身
 就是省码粒度；市级 region（如 深圳→440300）由同省实例（exit 44xxxx）服务
 是正确的。同平台同省多实例（未来账号维度）取清单序首个，确定性选择。
@@ -31,8 +47,9 @@
 region→GB 归一词表 vendored 自旧链 ``geosys.wiring.normalize_region`` 同源
 （``_ISO_TO_GB_31`` + 中文城市名 + 6 位 GB 原样透传，2026-08-09 对齐），与
 ``region_proxy_router`` 的 wukong 路径同口径；本模块不 import 旧链——worker
-env 可能无 ``GEO_WUKONG_MODULE_ROOT``，路由必须是自包含纯函数（无 IO/DB/时钟，
-只读 env）。
+env 可能无 ``GEO_WUKONG_MODULE_ROOT``。env 清单解析保持纯函数（无 IO/时钟）；
+治理消费段新增 worker DB 依赖（``WorkerSessionLocal``，异常一律 fail-open
+回退 env 路径）。
 """
 
 from __future__ import annotations
@@ -42,9 +59,24 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+import structlog
+from geo_platform.collection.account_governor import AccountGovernor
+from geo_platform.collection.account_models import (
+    CollectionPlatformAccount,
+    CollectionRegion,
+)
+from geo_platform.tenancy.database import WorkerSessionLocal
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 from temporalio.exceptions import ApplicationError
 
+log = structlog.get_logger()
+
 ENV_BROWSER_INSTANCES = "GEO_BROWSER_INSTANCES"
+
+# 采集账号治理消费开关（2026-08-14 起）：db=先消费 AccountGovernor 实体状态
+# （缺省）；off=跳过治理层直走 env 清单（单测/应急 kill switch）。
+ENV_ACCOUNT_GOVERNANCE = "GEO_ACCOUNT_GOVERNANCE"
 
 # 与 tools/resident_browser.py 的 RESIDENT_PLATFORM 同一正则：实例键可以直接
 # 当 opaque platform 进 browser-%i.env / fence / 锁（不含连字符，systemd 实例名安全）。
@@ -201,20 +233,159 @@ def _load_instance(key: str) -> InstanceRoute:
     return InstanceRoute(instance_key=key, platform=platform, exit_gb=exit_gb, cdp_url=cdp_url)
 
 
-def resolve_browser_instance(platform: str, region: str) -> InstanceRoute:
-    """(adapter slug, task region) → 常驻实例路由。纯函数（只读 env，无 IO）。
+def account_governance_enabled() -> bool:
+    """GEO_ACCOUNT_GOVERNANCE=db|off（缺省 db）：off = 跳过治理层直走 env 清单。
 
-    平台段匹配 = 实例键第一段（``{platform}_{regiontag}``）；地域匹配 = 省码
-    （region 归一 GB 与实例 exit_gb 的前两位相等）。同省多实例取清单序首个。
+    任何非 "off" 值按 db 处理（治理层自身的 DB 异常仍 fail-open 回退 env，
+    不在此处引入新失败模式）。
+    """
+    return os.environ.get(ENV_ACCOUNT_GOVERNANCE, "db").strip().lower() != "off"
+
+
+def _worker_session() -> Session:
+    """worker 侧 DB session（seam：单测替换为 fake session 工厂；生产 = WorkerSessionLocal）。"""
+    return WorkerSessionLocal()
+
+
+def _governor_decision(slug: str, region_gb: str) -> tuple[str, dict[str, Any] | None]:
+    """治理层派题判定（读实体表；governor 的 lazy resume/reset 随之提交落库）。
+
+    返回 (decision, payload)：
+
+    - ``("hit", payload)``：resolve_collectable 命中（payload 含
+      browser_instance_key / platform_account_pub_id / remaining_today）；
+    - ``("no_account_registered", None)``：该平台该地域一行账号都没有
+      → 调用方 env 回退（过渡期保命）；
+    - ``("unavailable", {"reason": ...})``：region_down / 有账号但全不可用
+      （全忙/额度尽/禁言/实例熔断）→ 调用方 account_unavailable 信号，
+      绝不 env 回退硬撞；
+    - ``("governor_error", None)``：治理层 DB 异常 → 调用方 env 回退 + warning
+      （治理故障不阻断采集主链；表未迁移的环境也走这条路，行为与旧版一致）。
+    """
+    try:
+        with _worker_session() as session:
+            governor = AccountGovernor(session)
+            resolved = governor.resolve_collectable(platform=slug, region_gb=region_gb)
+            if resolved is not None:
+                session.commit()
+                return "hit", resolved
+            reason = _unavailable_reason(session, slug, region_gb)
+            session.commit()
+    except Exception as exc:  # noqa: BLE001 — 治理层故障不阻断采集主链
+        log.warning(
+            "account_governor_resolve_error",
+            platform=slug,
+            region_gb=region_gb,
+            error=repr(exc),
+        )
+        return "governor_error", None
+    if reason == "no_account_registered":
+        log.warning(
+            "account_resolve_env_fallback",
+            platform=slug,
+            region_gb=region_gb,
+            reason=reason,
+        )
+        return "no_account_registered", None
+    return "unavailable", {"reason": reason}
+
+
+def _unavailable_reason(session: Session, slug: str, region_gb: str) -> str:
+    """governor 返回 None 后的原因甄别（governor 读路径只落 structlog 不落审计，
+    调度侧需要机器可读 reason 决定 env 回退还是 account_unavailable 占位）。
+
+    与 resolve_collectable 的判定同序：region 行 state!='ok' 优先于账号存在性
+    （region_down 时账号有无都不 env 回退——该地域出口已不可信）。
+    """
+    region = session.scalar(select(CollectionRegion).where(CollectionRegion.region_gb == region_gb))
+    if region is not None and region.state != "ok":
+        return "region_down"
+    registered = next(
+        iter(
+            session.scalars(
+                select(CollectionPlatformAccount).where(
+                    CollectionPlatformAccount.platform == slug,
+                    CollectionPlatformAccount.region_gb == region_gb,
+                )
+            )
+        ),
+        None,
+    )
+    return "no_collectable_account" if registered is not None else "no_account_registered"
+
+
+def _route_from_governor_hit(slug: str, region_gb: str, payload: dict[str, Any]) -> InstanceRoute:
+    """治理命中 → 实例路由。绑定键仍须过 env 校验（CDP/出口真源）+ 地域一致性。
+
+    - 账号未绑定浏览器（key 为空）→ account_unavailable(no_bound_browser)：
+      治理行存在但派题链不完整，诚实占位而非回退 env 撞别人的会话；
+    - 键不在 GEO_BROWSER_INSTANCES 清单 / env 配置缺失畸形 → 治理与部署真源
+      不一致，fail-closed browser_instances_invalid；
+    - 键平台段 ≠ 派题平台 → 绑定错平台，fail-closed browser_instances_invalid；
+    - 实例出口省码 ≠ 派题地域省码 → 「地域IP不匹配」硬约束，fail-closed
+      region_ip_mismatch（设计文档 §1.2/§1.3）。
+    """
+    key = str(payload.get("browser_instance_key") or "").strip().lower()
+    if not key:
+        raise _fail(
+            "account_unavailable",
+            f"governed account {payload.get('platform_account_pub_id')!r} for platform "
+            f"{slug!r} region gb={region_gb} has no bound browser instance "
+            "(reason=no_bound_browser)",
+        )
+    if key not in _instance_keys():
+        raise _fail(
+            "browser_instances_invalid",
+            f"governed browser instance {key!r} is not in {ENV_BROWSER_INSTANCES} "
+            "(governance/deployment mismatch — fail-closed)",
+        )
+    route = _load_instance(key)
+    if route.platform != slug:
+        raise _fail(
+            "browser_instances_invalid",
+            f"governed browser instance {key!r} platform segment does not match {slug!r}",
+        )
+    if route.exit_gb[:2] != region_gb[:2]:
+        raise _fail(
+            "region_ip_mismatch",
+            f"governed browser instance {key!r} exit gb={route.exit_gb} does not serve "
+            f"task region gb={region_gb} for platform {slug!r} (region/IP mismatch — "
+            "fail-closed, never collect through a wrong-region exit)",
+        )
+    return route
+
+
+def resolve_browser_instance(platform: str, region: str) -> InstanceRoute:
+    """(adapter slug, task region) → 常驻实例路由。
+
+    派题链（2026-08-14 起）：先消费 AccountGovernor 实体状态（命中用其绑定实例；
+    无账号行/治理层故障回退 env 清单序逻辑；有账号全不可用 → account_unavailable
+    non_retryable，由 workflow 侧转等长占位，绝不回退 env 硬撞、绝不拖垮整批）。
+    env 路径保持纯函数：平台段匹配 = 实例键第一段（``{platform}_{regiontag}``）；
+    地域匹配 = 省码（region 归一 GB 与实例 exit_gb 的前两位相等）。同省多实例
+    取清单序首个。
     """
     slug = str(platform or "").strip().lower()
+    region_gb = normalize_region_gb(region)
+    if region_gb and account_governance_enabled():
+        decision, payload = _governor_decision(slug, region_gb)
+        if decision == "hit" and payload is not None:
+            return _route_from_governor_hit(slug, region_gb, payload)
+        if decision == "unavailable":
+            reason = (payload or {}).get("reason") or "no_collectable_account"
+            raise _fail(
+                "account_unavailable",
+                f"no collectable governed account for platform {slug!r} region "
+                f"gb={region_gb} (reason={reason}) — refusing env fallback "
+                "(never burn another account's session)",
+            )
+        # no_account_registered / governor_error → env 清单回退（fallback 已记日志）
     candidates = [_load_instance(key) for key in _instance_keys() if key.split("_", 1)[0] == slug]
     if not candidates:
         raise _fail(
             "browser_instance_unavailable",
             f"no resident browser instance for platform {slug!r} in {ENV_BROWSER_INSTANCES}",
         )
-    region_gb = normalize_region_gb(region)
     if not region_gb:
         raise _fail(
             "region_exit_mismatch",
