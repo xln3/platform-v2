@@ -26,6 +26,11 @@ _CLIENT_FORBIDDEN = (
     "冻结矩阵",
     "mode=",
     "[特殊字符]",
+    "发布门禁未通过",
+    "不得对外交付",
+    "阻断项已逐项",
+    "缺失时不得批准签发",
+    "不作出的承诺",
 )
 
 
@@ -801,7 +806,10 @@ def render_service1_delivery_docx(
     payload = bytes(doc.save())
     # Renderer-level defence.  OOXML is compressed, so the publication QA repeats
     # this check on extracted document/PDF text after conversion.
-    visible_values = " ".join(paragraph.text for paragraph in doc.document.paragraphs)
+    visible_values = " ".join(
+        [paragraph.text for paragraph in doc.document.paragraphs]
+        + [cell.text for table in doc.document.tables for row in table.rows for cell in row.cells]
+    )
     found = [value for value in _CLIENT_FORBIDDEN if value in visible_values]
     if found:
         raise ValueError("customer_report_internal_language:" + ",".join(found))

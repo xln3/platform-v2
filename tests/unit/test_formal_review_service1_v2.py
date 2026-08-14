@@ -242,3 +242,22 @@ def test_legacy_review_status_keeps_clear_review_warning_without_customer_code()
     assert "禁止外发" in xml
     assert "SBAQ" not in xml
     assert "盛邦安全" not in xml
+
+
+def test_internal_review_cover_states_progress_without_rejection_language() -> None:
+    facts = {
+        "target_brand": "示例客户品牌",
+        "project_name": "内部复核项目",
+        "window": {"start": "2026-08-10", "end": "2026-08-12"},
+        "generated_at": "2026-08-12T12:00:00+08:00",
+        "document_status": "internal_review",
+        "document_governance": {"version": "V1.0", "prepared_by": "项目组"},
+    }
+    document = FormalDocument(title="测试报告", subtitle="服务 1", facts=facts)
+    document.cover(report_code=build_report_code(facts, service_number=1, version="V1.0"))
+
+    xml = _all_word_xml(document.save())
+    assert "内部审核稿 · 待完成数据与证据复核" in xml
+    assert "本版呈现当前可复算结果" in xml
+    for forbidden in ("发布门禁未通过", "不得对外交付", "阻断项已逐项"):
+        assert forbidden not in xml

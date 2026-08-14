@@ -298,10 +298,7 @@ def _fmt_ratio(numerator: int | float | None, denominator: int | float | None) -
 def _fmt_datetime(value: object) -> str:
     if isinstance(value, datetime):
         aware = value if value.tzinfo else value.replace(tzinfo=UTC)
-        return (
-            aware.astimezone(_CHINA_TZ).strftime("%Y-%m-%d %H:%M ")
-            + "中国标准时间（UTC+8）"
-        )
+        return aware.astimezone(_CHINA_TZ).strftime("%Y-%m-%d %H:%M ") + "中国标准时间（UTC+8）"
     return str(value or "—")
 
 
@@ -430,9 +427,7 @@ class FormalDocument:
             governance.get("reviewed_by") or governance.get("prepared_by") or "GEO 项目组"
         )
         self.document.core_properties.category = "客户机密 GEO 评测报告"
-        self.document.core_properties.keywords = (
-            "GEO,AI推荐可见性,服务1,客户机密,中国标准时间"
-        )
+        self.document.core_properties.keywords = "GEO,AI推荐可见性,服务1,客户机密,中国标准时间"
         self.document.core_properties.comments = "客户机密—仅限指定项目组"
         for style in styles:
             style_element = style.element
