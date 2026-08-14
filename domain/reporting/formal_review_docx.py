@@ -50,6 +50,20 @@ _FORMAL_DOCUMENT_STATUSES = frozenset(
 )
 _DELIVERY_CANDIDATE_STATUSES = frozenset({"delivery_candidate", "candidate"})
 _CHINA_TZ = ZoneInfo("Asia/Shanghai")
+_SERVICE1_COVER_TITLE_SUFFIX = "品牌 GEO 推荐结果评测报告"
+
+
+def _cover_title(title: str) -> str:
+    """Keep the service label intact on long, scoped service-1 covers."""
+
+    normalized = str(title).strip()
+    if normalized != _SERVICE1_COVER_TITLE_SUFFIX and normalized.endswith(
+        _SERVICE1_COVER_TITLE_SUFFIX
+    ):
+        scope = normalized[: -len(_SERVICE1_COVER_TITLE_SUFFIX)].rstrip()
+        if scope:
+            return f"{scope}\n{_SERVICE1_COVER_TITLE_SUFFIX}"
+    return normalized
 
 
 def is_formal_document(facts: dict[str, Any]) -> bool:
@@ -296,6 +310,11 @@ def _fmt_ratio(numerator: int | float | None, denominator: int | float | None) -
 
 
 def _fmt_datetime(value: object) -> str:
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return str(value or "—")
     if isinstance(value, datetime):
         aware = value if value.tzinfo else value.replace(tzinfo=UTC)
         return aware.astimezone(_CHINA_TZ).strftime("%Y-%m-%d %H:%M ") + "中国标准时间（UTC+8）"
@@ -514,7 +533,7 @@ class FormalDocument:
         label_run.font.color.rgb = RGBColor.from_string("90D5ED")
         title = cell.add_paragraph()
         title.alignment = WD_ALIGN_PARAGRAPH.LEFT
-        title_run = title.add_run(self.title)
+        title_run = title.add_run(_cover_title(self.title))
         _set_font(title_run, size=28)
         title_run.font.bold = True
         title_run.font.color.rgb = RGBColor.from_string(WHITE)
@@ -528,20 +547,27 @@ class FormalDocument:
             banner = self.document.add_table(rows=1, cols=1)
             banner.alignment = WD_TABLE_ALIGNMENT.CENTER
             banner_cell = banner.cell(0, 0)
-            _shade(banner_cell, PALE_RED)
+            banner_fill = PALE_GREEN if candidate else LIGHT_BLUE if internal else PALE_RED
+            banner_color = GREEN if candidate else BLUE if internal else RED
+            internal_label = (
+                "内部审核稿 · 本批指标已可复算"
+                if self.title.strip().endswith(_SERVICE1_COVER_TITLE_SUFFIX)
+                else "内部审核稿 · 当前结果供复核"
+            )
+            _shade(banner_cell, banner_fill)
             _cell_margins(banner_cell, top=150, bottom=150, start=180, end=180)
             warning = banner_cell.paragraphs[0]
             warning.alignment = WD_ALIGN_PARAGRAPH.CENTER
             warning_run = warning.add_run(
                 "客户交付候选稿 · 待具名批准"
                 if candidate
-                else "内部审核稿 · 待完成数据与证据复核"
+                else internal_label
                 if internal
                 else "预正式审阅稿 · 基于联调/试采样数据 · 禁止对外发布"
             )
             _set_font(warning_run, size=10)
             warning_run.font.bold = True
-            warning_run.font.color.rgb = RGBColor.from_string(RED)
+            warning_run.font.color.rgb = RGBColor.from_string(banner_color)
 
         governance = self.facts.get("document_governance") or {}
         metadata = [
@@ -573,7 +599,7 @@ class FormalDocument:
                 "发布条件及待办项见随附 manifest。",
                 kind="info",
             )
-        self.document.add_page_break()  # type: ignore[no-untyped-call]
+        self.document.add_page_break()
 
     def heading(self, text: str, *, level: int = 1) -> None:
         paragraph = self.document.add_heading(text, level=level)
@@ -726,7 +752,7 @@ class FormalDocument:
         paragraph.add_run().add_picture(picture, width=Cm(16.7))
 
     def page_break(self) -> None:
-        self.document.add_page_break()  # type: ignore[no-untyped-call]
+        self.document.add_page_break()
 
     def save(self) -> bytes:
         output = BytesIO()

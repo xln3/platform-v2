@@ -12,7 +12,12 @@ from geo_platform.reports.formal_review_service1 import (
 )
 from PIL import Image
 
-from domain.reporting.formal_review_docx import FormalDocument, build_report_code
+from domain.reporting.formal_review_docx import (
+    FormalDocument,
+    _cover_title,
+    _fmt_datetime,
+    build_report_code,
+)
 from domain.reporting.formal_review_service1_docx import (
     _mention_view,
     _metrics_explanation,
@@ -253,11 +258,46 @@ def test_internal_review_cover_states_progress_without_rejection_language() -> N
         "document_status": "internal_review",
         "document_governance": {"version": "V1.0", "prepared_by": "项目组"},
     }
-    document = FormalDocument(title="测试报告", subtitle="服务 1", facts=facts)
+    document = FormalDocument(title="品牌 GEO 推荐结果评测报告", subtitle="服务 1", facts=facts)
     document.cover(report_code=build_report_code(facts, service_number=1, version="V1.0"))
 
     xml = _all_word_xml(document.save())
-    assert "内部审核稿 · 待完成数据与证据复核" in xml
+    assert "内部审核稿 · 本批指标已可复算" in xml
     assert "本版呈现当前可复算结果" in xml
-    for forbidden in ("发布门禁未通过", "不得对外交付", "阻断项已逐项"):
+    assert "FBEDEE" not in xml
+    for forbidden in (
+        "发布门禁未通过",
+        "不得对外交付",
+        "阻断项已逐项",
+        "待完成数据与证据复核",
+    ):
         assert forbidden not in xml
+
+
+def test_non_service1_internal_cover_uses_a_neutral_review_label() -> None:
+    facts = {
+        "target_brand": "示例客户品牌",
+        "project_name": "内部复核项目",
+        "window": {"start": "2026-08-10", "end": "2026-08-12"},
+        "generated_at": "2026-08-12T12:00:00+08:00",
+        "document_status": "internal_review",
+    }
+    document = FormalDocument(title="品牌事实准确性评测报告", subtitle="服务 2", facts=facts)
+    document.cover(report_code=build_report_code(facts, service_number=2, version="V1.0"))
+
+    xml = _all_word_xml(document.save())
+    assert "内部审核稿 · 当前结果供复核" in xml
+    assert "本批指标已可复算" not in xml
+
+
+def test_frozen_iso_times_are_rendered_in_china_standard_time() -> None:
+    assert _fmt_datetime("2026-08-12T19:24:40.669272+00:00") == (
+        "2026-08-13 03:24 中国标准时间（UTC+8）"
+    )
+
+
+def test_long_service1_cover_title_breaks_before_the_complete_service_label() -> None:
+    assert _cover_title("网空线三类资产治理场景品牌 GEO 推荐结果评测报告") == (
+        "网空线三类资产治理场景\n品牌 GEO 推荐结果评测报告"
+    )
+    assert _cover_title("品牌 GEO 推荐结果评测报告") == "品牌 GEO 推荐结果评测报告"
