@@ -9,6 +9,7 @@ import {
 } from '@geo/api-client';
 import { ConfigLauncher } from '../ConfigLauncher';
 import { RunsPanel } from '../RunsPanel';
+import { SamplingProgressPanel } from '../SamplingProgressPanel';
 import { WindowPicker } from '../WindowPicker';
 import {
   defaultWindow,
@@ -64,6 +65,7 @@ export function VisibilityWorkspace({
   const [brands, setBrands] = useState<BrandVisibilityResult | { kind: 'loading' }>({
     kind: 'loading',
   });
+  const [samplingVersion, setSamplingVersion] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -119,8 +121,18 @@ export function VisibilityWorkspace({
         projectPubId={project.pub_id}
         groupName="品牌AI认知评测"
         queryPlaceholder="国内网络空间资产搜索引擎哪家强"
+        onChanged={() => setSamplingVersion((current) => current + 1)}
       />
-      <RunsPanel session={session} projectPubId={project.pub_id} />
+      <SamplingProgressPanel
+        key={`progress-${samplingVersion}`}
+        session={session}
+        projectPubId={project.pub_id}
+      />
+      <RunsPanel
+        key={`records-${samplingVersion}`}
+        session={session}
+        projectPubId={project.pub_id}
+      />
       <section className="execution-card">
         <div className="section-title">
           <h2>评测结果</h2>

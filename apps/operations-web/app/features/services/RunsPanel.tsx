@@ -60,7 +60,7 @@ export function RunsPanel({ session, projectPubId, readOnly = false }: Props) {
   return (
     <section className="execution-card runs-panel">
       <div className="section-title">
-        <h2>采样进度</h2>
+        <h2>采样记录</h2>
         <span>{hasLive ? '存在进行中的 run，每 15 秒自动刷新' : '全部 run 已到终态'}</span>
       </div>
       {notice ? (

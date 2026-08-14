@@ -21,6 +21,14 @@ from ..config import get_settings
 from ..identity.policy import Principal, get_principal
 from ..tenancy.psycopg import tenant_connection
 from . import comparisons
+from .sampling_progress import (
+    parse_sampling_configs,
+    sampling_columns,
+    sampling_plan_items,
+    select_sampling_campaign,
+    uses_quotation_appendices,
+    variant_label,
+)
 from .service import AnalyticsService
 
 router = APIRouter(prefix="/api/v2/analytics", tags=["analytics"])
@@ -79,6 +87,41 @@ class AnswerView(StrictModel):
 class AnswerPage(StrictModel):
     data: list[AnswerView]
     page: dict[str, str | bool | None]
+
+
+class SamplingProgressColumnView(StrictModel):
+    key: str
+    model: str
+    region: str
+    mode: str
+
+
+class SamplingProgressCellView(StrictModel):
+    column_key: str
+    completed_samples: int
+    latest_capture_time: datetime
+
+
+class SamplingProgressRowView(StrictModel):
+    appendix: str | None
+    group: str
+    group_name: str
+    expression: str
+    query_text: str
+    cells: list[SamplingProgressCellView]
+
+
+class SamplingProgressView(StrictModel):
+    project_pub_id: str
+    config_revision_start: int | None
+    config_revision_end: int | None
+    columns: list[SamplingProgressColumnView]
+    rows: list[SamplingProgressRowView]
+    observed_cells: int
+    total_cells: int
+    answer_count: int
+    latest_capture_time: datetime | None
+    live_runs: int
 
 
 class BreakdownView(StrictModel):
@@ -438,6 +481,154 @@ def _project_fact_check(value: object) -> DisparagementFactCheckView | None:
         summary=_safe_optional_text(value.get("summary"), 2000),
         source_url=_safe_source_url(value.get("source_url")),
         checked_at=checked_at,
+    )
+
+
+@router.get("/sampling-progress", response_model=SamplingProgressView)
+def sampling_progress(
+    project_pub_id: str,
+    principal: Principal = Depends(get_principal),
+) -> SamplingProgressView:
+    """Latest logical sampling batch as query × platform/region/mode coverage.
+
+    Formal runs may be split into one frozen config per sampling leg and followed by
+    small top-up configs. ``select_sampling_campaign`` joins those revisions back to
+    their latest complete query plan; older probes remain outside the count.
+    """
+
+    principal.require("project:read")
+    with tenant_connection(_dsn(), principal.tenant_pub_id, row_factory=dict_row) as connection:
+        tenant_row = connection.execute(
+            "SELECT id FROM platform.tenant WHERE pub_id=%s", (principal.tenant_pub_id,)
+        ).fetchone()
+        # analytics tables key RLS by tenant_pub_id; platform configuration tables key it by
+        # tenant UUID. Establish both fail-closed contexts before reading across the schemas.
+        connection.execute(
+            "SELECT set_config('app.tenant_id', %s, true)",
+            (str(tenant_row["id"]) if tenant_row is not None else "",),
+        )
+        config_rows = connection.execute(
+            """
+            SELECT version.pub_id,version.revision,version.snapshot_json
+            FROM platform.monitoring_config_version version
+            JOIN platform.monitoring_config config ON config.id=version.config_id
+            JOIN platform.project project ON project.id=config.project_id
+            JOIN platform.tenant tenant ON tenant.id=version.tenant_id
+            WHERE tenant.pub_id=%s AND project.pub_id=%s
+            ORDER BY version.revision DESC
+            LIMIT 100
+            """,
+            (principal.tenant_pub_id, project_pub_id),
+        ).fetchall()
+        baseline, campaign = select_sampling_campaign(parse_sampling_configs(config_rows))
+        if baseline is None:
+            return SamplingProgressView(
+                project_pub_id=project_pub_id,
+                config_revision_start=None,
+                config_revision_end=None,
+                columns=[],
+                rows=[],
+                observed_cells=0,
+                total_cells=0,
+                answer_count=0,
+                latest_capture_time=None,
+                live_runs=0,
+            )
+
+        campaign_pub_ids = [config.pub_id for config in campaign]
+        answer_rows = connection.execute(
+            """
+            SELECT query_text,model,region,mode,count(*)::bigint AS completed_samples,
+                   max(capture_time) AS latest_capture_time
+            FROM analytics.answer
+            WHERE tenant_pub_id=%s AND project_pub_id=%s
+              AND config_version_pub_id=ANY(%s::text[])
+            GROUP BY query_text,model,region,mode
+            """,
+            (principal.tenant_pub_id, project_pub_id, campaign_pub_ids),
+        ).fetchall()
+        live_run_row = connection.execute(
+            """
+            SELECT count(*)::bigint AS live_runs
+            FROM platform.collection_run run
+            JOIN platform.monitoring_config_version version ON version.id=run.config_version_id
+            JOIN platform.tenant tenant ON tenant.id=run.tenant_id
+            WHERE tenant.pub_id=%s AND version.pub_id=ANY(%s::text[])
+              AND run.state NOT IN
+                ('completed','completed_with_failures','failed','cancelled','skipped')
+            """,
+            (principal.tenant_pub_id, campaign_pub_ids),
+        ).fetchone()
+        live_runs = int(live_run_row["live_runs"]) if live_run_row is not None else 0
+
+    plan_items = sampling_plan_items(baseline)
+    columns = sampling_columns(campaign)
+    column_keys = {(column.model, column.region, column.mode): column.key for column in columns}
+    plan_queries = {item.query_text for item in plan_items}
+    cells_by_query: dict[str, list[SamplingProgressCellView]] = {}
+    answer_count = 0
+    latest_capture_time: datetime | None = None
+    observed_cells = 0
+    for answer_row in answer_rows:
+        query_text = answer_row["query_text"]
+        column_key = column_keys.get(
+            (answer_row["model"], answer_row["region"], answer_row["mode"])
+        )
+        captured_at = answer_row["latest_capture_time"]
+        if (
+            not isinstance(query_text, str)
+            or query_text not in plan_queries
+            or column_key is None
+            or not isinstance(captured_at, datetime)
+        ):
+            continue
+        completed_samples = int(answer_row["completed_samples"])
+        cells_by_query.setdefault(query_text, []).append(
+            SamplingProgressCellView(
+                column_key=column_key,
+                completed_samples=completed_samples,
+                latest_capture_time=captured_at,
+            )
+        )
+        observed_cells += 1
+        answer_count += completed_samples
+        if latest_capture_time is None or captured_at > latest_capture_time:
+            latest_capture_time = captured_at
+
+    quotation_appendices = uses_quotation_appendices(plan_items)
+    rows = [
+        SamplingProgressRowView(
+            appendix=("附录二" if item.group_index <= 18 else "附录三")
+            if quotation_appendices
+            else None,
+            group=f"G{item.group_index:02d}",
+            group_name=item.group_name,
+            expression=variant_label(item.variant_index),
+            query_text=item.query_text,
+            cells=cells_by_query.get(item.query_text, []),
+        )
+        for item in plan_items
+    ]
+    revisions = [config.revision for config in campaign]
+    return SamplingProgressView(
+        project_pub_id=project_pub_id,
+        config_revision_start=min(revisions),
+        config_revision_end=max(revisions),
+        columns=[
+            SamplingProgressColumnView(
+                key=column.key,
+                model=column.model,
+                region=column.region,
+                mode=column.mode,
+            )
+            for column in columns
+        ],
+        rows=rows,
+        observed_cells=observed_cells,
+        total_cells=len(rows) * len(columns),
+        answer_count=answer_count,
+        latest_capture_time=latest_capture_time,
+        live_runs=int(live_runs),
     )
 
 

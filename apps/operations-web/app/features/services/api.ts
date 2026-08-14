@@ -191,6 +191,42 @@ export type BrandVisibilityResult =
   | { kind: 'llm_disabled' }
   | { kind: 'unavailable' };
 
+// ── 采样进度（最新完整题库 + 同批拆腿/补采配置）──
+export type SamplingProgressColumn = {
+  key: string;
+  model: string;
+  region: string;
+  mode: string;
+};
+
+export type SamplingProgressCell = {
+  column_key: string;
+  completed_samples: number;
+  latest_capture_time: string;
+};
+
+export type SamplingProgressRow = {
+  appendix: string | null;
+  group: string;
+  group_name: string;
+  expression: string;
+  query_text: string;
+  cells: SamplingProgressCell[];
+};
+
+export type SamplingProgress = {
+  project_pub_id: string;
+  config_revision_start: number | null;
+  config_revision_end: number | null;
+  columns: SamplingProgressColumn[];
+  rows: SamplingProgressRow[];
+  observed_cells: number;
+  total_cells: number;
+  answer_count: number;
+  latest_capture_time: string | null;
+  live_runs: number;
+};
+
 // ── 官网信源审计（source-audit，端点并行开发中，按冻结契约对接）──
 export type SourceAuditVerdicts = {
   accurate: number;
@@ -296,7 +332,13 @@ export type PilotDeltaResult =
 
 // ── 正式报告生产（服务 1–4，共享冻结事实与 Temporal 生产链）──
 export type FormalReportService = 1 | 2 | 3 | 4;
-export type FormalReportDocumentStatus = 'pre_formal' | 'formal';
+export type FormalReportDocumentStatus =
+  | 'pre_formal'
+  | 'formal'
+  | 'internal_review'
+  | 'delivery_candidate'
+  | 'approved_signed';
+export type FormalReportCreatableDocumentStatus = 'internal_review' | 'delivery_candidate';
 export type FormalReportProductionStatus =
   | 'queued'
   | 'running'
@@ -332,7 +374,7 @@ export type FormalReportProduction = {
   window_end: string;
   before_window: FormalReportWindow | null;
   after_window: FormalReportWindow | null;
-  candidate_group_strategy: 'evidence_completeness_v1';
+  candidate_group_strategy: 'evidence_completeness_v1' | 'preregistered_scope_v1';
   workflow_id: string;
   fact_snapshot_hash: string | null;
   outputs: FormalReportOutput[];
@@ -345,7 +387,12 @@ export type FormalReportProductionCreate = {
   projectPubId: string;
   services: FormalReportService[];
   window: FormalReportWindow;
-  documentStatus: FormalReportDocumentStatus;
+  documentStatus: FormalReportCreatableDocumentStatus;
+  version: string;
+  preparedBy: string;
+  preparedDate: string;
+  reviewedBy?: string;
+  reviewedDate?: string;
   beforeWindow?: FormalReportWindow;
   afterWindow?: FormalReportWindow;
   idempotencyKey: string;
@@ -564,6 +611,10 @@ export const servicesApi = {
   projects: (session: SessionContext) => executionApi.projects(session),
   configVersions: (session: SessionContext, projectPubId: string): Promise<FrozenConfig[]> =>
     executionApi.configVersions(session, projectPubId),
+  samplingProgress: (session: SessionContext, projectPubId: string): Promise<SamplingProgress> =>
+    servicesGet(session, '/api/v2/analytics/sampling-progress', {
+      project_pub_id: projectPubId,
+    }),
   disparagementRate: (
     session: SessionContext,
     input: { projectPubId: string; start: string; end: string; dimension: DisparagementDimension },
@@ -758,7 +809,12 @@ export const servicesApi = {
         window_start: input.window.start,
         window_end: input.window.end,
         document_status: input.documentStatus,
-        candidate_group_strategy: 'evidence_completeness_v1',
+        candidate_group_strategy: 'preregistered_scope_v1',
+        version: input.version,
+        prepared_by: input.preparedBy,
+        prepared_date: input.preparedDate,
+        ...(input.reviewedBy ? { reviewed_by: input.reviewedBy } : {}),
+        ...(input.reviewedDate ? { reviewed_date: input.reviewedDate } : {}),
         ...(input.beforeWindow ? { before_window: input.beforeWindow } : {}),
         ...(input.afterWindow ? { after_window: input.afterWindow } : {}),
       },

@@ -57,6 +57,23 @@ describe('VisibilityWorkspace', () => {
             { status: 200, headers: { 'Content-Type': 'application/json' } },
           );
         }
+        if (url.includes('/analytics/sampling-progress')) {
+          return new Response(
+            JSON.stringify({
+              project_pub_id: 'prj_test',
+              config_revision_start: null,
+              config_revision_end: null,
+              columns: [],
+              rows: [],
+              observed_cells: 0,
+              total_cells: 0,
+              answer_count: 0,
+              latest_capture_time: null,
+              live_runs: 0,
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
         // RunsPanel 的 run 列表：空列表即可。
         return new Response(JSON.stringify([]), {
           status: 200,
@@ -75,6 +92,8 @@ describe('VisibilityWorkspace', () => {
     render(<VisibilityWorkspace session={session} project={projectWith('cybersecurity')} />);
     await screen.findByText(/品牌可见度榜单（近 30 天 · 规则包：cybersecurity）/);
     await screen.findByText(/该时间窗内可用于榜单的真实答案不足。/);
+    expect(screen.getByRole('heading', { name: '采样进度' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: '采样记录' })).toBeTruthy();
 
     expect(brandVisibilityUrls).toHaveLength(1);
     const url = new URL(brandVisibilityUrls[0]!);
@@ -92,6 +111,23 @@ describe('VisibilityWorkspace', () => {
             status: 400,
             headers: { 'Content-Type': 'application/json' },
           });
+        }
+        if (url.includes('/analytics/sampling-progress')) {
+          return new Response(
+            JSON.stringify({
+              project_pub_id: 'prj_test',
+              config_revision_start: null,
+              config_revision_end: null,
+              columns: [],
+              rows: [],
+              observed_cells: 0,
+              total_cells: 0,
+              answer_count: 0,
+              latest_capture_time: null,
+              live_runs: 0,
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
         }
         return new Response(JSON.stringify([]), {
           status: 200,

@@ -439,6 +439,114 @@
 .comparison-unpaired {
   margin-top: 12px;
 }
+.sampling-progress-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0;
+}
+.sampling-progress-summary span {
+  border: 1px solid #dce6df;
+  border-radius: 999px;
+  background: #f7faf8;
+  color: #415047;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 650;
+}
+.sampling-progress-note {
+  margin: 10px 0 12px;
+  color: #637168;
+  font-size: 13px;
+}
+.sampling-progress-table-scroll {
+  max-height: min(68vh, 760px);
+  border: 1px solid #dde5df;
+  border-radius: 12px;
+}
+.services-page .sampling-progress-table {
+  width: max-content;
+  min-width: 100%;
+  font-size: 13px;
+}
+.services-page .sampling-progress-table th,
+.services-page .sampling-progress-table td {
+  box-sizing: border-box;
+  background: #fff;
+  vertical-align: top;
+}
+.services-page .sampling-progress-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  background: #f1f6f2;
+  color: #2c4134;
+  white-space: nowrap;
+}
+.services-page .sampling-progress-table th:nth-child(1),
+.services-page .sampling-progress-table td:nth-child(1) {
+  position: sticky;
+  left: 0;
+  width: 78px;
+  min-width: 78px;
+  z-index: 2;
+}
+.services-page .sampling-progress-table th:nth-child(2),
+.services-page .sampling-progress-table td:nth-child(2) {
+  position: sticky;
+  left: 78px;
+  width: 64px;
+  min-width: 64px;
+  z-index: 2;
+}
+.services-page .sampling-progress-table th:nth-child(3),
+.services-page .sampling-progress-table td:nth-child(3) {
+  position: sticky;
+  left: 142px;
+  width: 112px;
+  min-width: 112px;
+  z-index: 2;
+}
+.services-page .sampling-progress-table th:nth-child(4),
+.services-page .sampling-progress-table td:nth-child(4) {
+  position: sticky;
+  left: 254px;
+  width: 360px;
+  min-width: 360px;
+  max-width: 360px;
+  z-index: 2;
+  box-shadow: 5px 0 8px #263c2d0d;
+}
+.services-page .sampling-progress-table thead th:nth-child(-n + 4) {
+  z-index: 5;
+  background: #f1f6f2;
+}
+.services-page .sampling-progress-table th:nth-child(n + 5),
+.services-page .sampling-progress-table td:nth-child(n + 5) {
+  width: 148px;
+  min-width: 148px;
+  text-align: center;
+}
+.services-page .sampling-progress-table th small,
+.services-page .sampling-progress-table td time {
+  display: block;
+  margin-top: 4px;
+  color: #718078;
+  font-size: 11px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+.services-page .sampling-progress-table td strong {
+  color: #17613a;
+  font-size: 13px;
+}
+.services-page .sampling-progress-table td.sampling-progress-empty {
+  color: #a3ada7;
+  vertical-align: middle;
+}
+.services-page .sampling-progress-table tbody tr:hover td {
+  background: #f8fbf9;
+}
 @media (max-width: 700px) {
   .services-page {
     padding: 16px;
@@ -457,6 +565,18 @@
   }
   .services-page .section-title {
     display: block;
+  }
+  .services-page .sampling-progress-table th:nth-child(3),
+  .services-page .sampling-progress-table td:nth-child(3),
+  .services-page .sampling-progress-table th:nth-child(4),
+  .services-page .sampling-progress-table td:nth-child(4) {
+    position: static;
+    box-shadow: none;
+  }
+  .services-page .sampling-progress-table thead th:nth-child(3),
+  .services-page .sampling-progress-table thead th:nth-child(4) {
+    position: sticky;
+    top: 0;
   }
 }
 
