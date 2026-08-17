@@ -27,6 +27,7 @@ from domain.brandrank.entities import load_entity_master, normalize_answer_entit
 from domain.brandrank.rules import load_domain
 from domain.reporting.service1_governance import assign_repeats, quotation_gate
 from domain.reporting.service1_metrics import (
+    classify_query_intent,
     comparable_competitors,
     entity_metric,
     ranked_entities,
@@ -946,7 +947,7 @@ def enrich_service1_v2_facts(
     share_image_count = sum(
         1 for row in selected_answers if has_share_image.get(str(row["pub_id"]), False)
     )
-    delivery_v2 = {
+    delivery_v2: dict[str, Any] = {
         "schema_version": "service1-delivery-v2",
         "scope": {
             "selected_groups": len(selected_groups),
@@ -1021,10 +1022,103 @@ def enrich_service1_v2_facts(
                     "group_index": group["index"],
                     "question_index": question_index,
                     "question": question,
+                    "query_intent": classify_query_intent(question),
                     **entity_metric(scoped, normalized_target),
                     "answers_with_citation": sum(bool(row["citations"]) for row in scoped),
                 }
             )
+
+    intent_breakdown: dict[str, dict[str, Any]] = {}
+    for row in governed_question_rows:
+        bucket = intent_breakdown.setdefault(
+            str(row["query_intent"]),
+            {"questions": 0, "answers": 0, "mentions": 0},
+        )
+        bucket["questions"] += 1
+        bucket["answers"] += int(row["answers"])
+        bucket["mentions"] += int(row["mentions"])
+    for bucket in intent_breakdown.values():
+        bucket["mention_rate"] = (
+            round(bucket["mentions"] / bucket["answers"] * 100, 1) if bucket["answers"] else 0.0
+        )
+        bucket["mention_rate_fraction"] = f"{bucket['mentions']}/{bucket['answers']}"
+
+    expected_cells = [
+        (str(question), str(model), str(region))
+        for group in selected_groups
+        for question in list(group.get("questions") or [])
+        for model in list(service1.get("primary_models") or [])
+        for region in list(service1.get("primary_regions") or [])
+    ]
+    observed_cell_counts: dict[tuple[str, str, str], int] = defaultdict(int)
+    for row in sample_registry:
+        observed_cell_counts[
+            (
+                str(row.get("question") or ""),
+                str(row.get("platform") or ""),
+                str(row.get("region") or ""),
+            )
+        ] += 1
+    repetitions_required = int(service1.get("quotation_required_repetitions_per_cell") or 2)
+    incomplete_cells = [
+        {
+            "question": question,
+            "platform": model,
+            "platform_label": MODEL_LABELS.get(model, model),
+            "region": region,
+            "observed": observed_cell_counts.get((question, model, region), 0),
+            "required": repetitions_required,
+        }
+        for question, model, region in expected_cells
+        if observed_cell_counts.get((question, model, region), 0) != repetitions_required
+    ]
+
+    target_alias_record = next(
+        (record for record in entity_master.entities if record.canonical_name == normalized_target),
+        None,
+    )
+    target_observed_aliases = next(
+        (
+            list(row["raw_aliases"])
+            for row in entity_ranking
+            if row["canonical_name"] == normalized_target
+        ),
+        [],
+    )
+    target_aliases = {
+        "registered": list(target_alias_record.aliases) if target_alias_record else [],
+        "observed": target_observed_aliases,
+    }
+    entity_type_counts = {
+        entity_type: sum(row["entity_type"] == entity_type for row in entity_ranking)
+        for entity_type in ("company", "product", "tool", "institution", "unknown")
+    }
+
+    rank_distribution = [
+        {"label": "第 1 位", "count": sum(row["target_rank"] == 1 for row in sample_registry)},
+        {
+            "label": "第 2–3 位",
+            "count": sum(
+                row["target_rank"] is not None and 2 <= int(row["target_rank"]) <= 3
+                for row in sample_registry
+            ),
+        },
+        {
+            "label": "第 4–5 位",
+            "count": sum(
+                row["target_rank"] is not None and 4 <= int(row["target_rank"]) <= 5
+                for row in sample_registry
+            ),
+        },
+        {
+            "label": "第 6 位以后",
+            "count": sum(
+                row["target_rank"] is not None and int(row["target_rank"]) >= 6
+                for row in sample_registry
+            ),
+        },
+        {"label": "未提及", "count": sum(row["target_rank"] is None for row in sample_registry)},
+    ]
 
     representative_platforms = {str(row.get("platform")) for row in representative_answers}
     service1["delivery_v3"] = {
@@ -1039,6 +1133,7 @@ def enrich_service1_v2_facts(
             "entity_rows_audited": len(entity_ranking),
             "competitor_entities": len(competitor_ranking),
             "unclassified_entities": sum(row["entity_type"] == "unknown" for row in entity_ranking),
+            "expected_answers": int(service1.get("expected_formal_answers") or 0),
         },
         "selected_groups": selected_groups,
         "target": target_metric,
@@ -1048,6 +1143,11 @@ def enrich_service1_v2_facts(
             "group_title", [str(group["title"]) for group in selected_groups]
         ),
         "question_rows": governed_question_rows,
+        "intent_breakdown": intent_breakdown,
+        "incomplete_cells": incomplete_cells,
+        "target_aliases": target_aliases,
+        "entity_type_counts": entity_type_counts,
+        "rank_distribution": rank_distribution,
         "entity_ranking": entity_ranking,
         "competitor_ranking": competitor_ranking,
         "competitor_comparison": competitor_comparison,

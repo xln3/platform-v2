@@ -196,7 +196,10 @@ def inspect_publication(
     expected_title: str,
     expected_status_label: str,
     expected_urls: Iterable[str] = (),
-    page_range: tuple[int, int] = (25, 32),
+    # The client-restructured report carries self-contained appendices (per-question
+    # results, competitor scope, representative excerpts); 25–40 pages is the healthy
+    # band, the lower bound still catches a hollow export.
+    page_range: tuple[int, int] = (25, 40),
 ) -> dict[str, Any]:
     """Inspect one converted pair and return explicit gates and diagnostics."""
 

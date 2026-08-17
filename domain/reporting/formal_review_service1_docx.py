@@ -354,19 +354,15 @@ def _add_screenshot_panel(
     source_label = (
         "平台官方分享图片"
         if image_kind == "share_image"
-        else "干净回答证据图"
+        else "回答证据截图"
         if image_kind == "answer_excerpt_screenshot"
-        else "运行页截图（历史退级）"
+        else "运行页截图"
     )
-    if anchored:
-        coordinate_source = label.removeprefix("被提及位置（").removesuffix("）")
-        anchor_note = f"红框依据{coordinate_source}"
-    else:
-        anchor_note = "未绘制未经复核的定位框"
+    anchor_note = "，红框标出品牌出现位置" if anchored else ""
     _caption(
         doc,
-        f"图 {figure_prefix}-{number}  {source_label} · {label}；{anchor_note}。"
-        "本页仅展示可读局部，完整长图见证据包；红框不改变原始文字内容。",
+        f"图 {figure_prefix}-{number}  {source_label} · 回答关键片段{anchor_note}；"
+        "完整回答见附录，完整长图见随附证据包。",
     )
 
 

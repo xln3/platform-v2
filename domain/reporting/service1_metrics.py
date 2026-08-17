@@ -8,6 +8,56 @@ from collections.abc import Mapping, Sequence
 from statistics import mean
 from typing import Any
 
+QUERY_INTENT_LABELS = {
+    "recommend": "推荐型",
+    "selection": "选型型",
+    "knowledge": "知识型",
+}
+
+# Order matters: a question asking for evaluation criteria is classified before
+# one asking for a vendor shortlist, because criteria questions legitimately
+# produce answers without any brand mention.
+_KNOWLEDGE_MARKERS = (
+    "哪些指标",
+    "什么指标",
+    "应关注哪些",
+    "关注哪些指标",
+    "评估指标",
+    "技术原理",
+    "是什么",
+    "什么意思",
+    "如何理解",
+    "怎么实现",
+)
+_SELECTION_MARKERS = (
+    "如何选择",
+    "怎么选择",
+    "选型",
+    "如何评估",
+    "怎么评估",
+    "评估厂商",
+    "哪些因素",
+    "对比",
+    "哪家强",
+)
+
+
+def classify_query_intent(question: object) -> str:
+    """Classify one evaluation question as recommend/selection/knowledge.
+
+    The classification is deterministic so the DOCX, the XLSX index and any
+    re-computation always agree.  Knowledge questions (evaluation criteria,
+    concepts) are not expected to name vendors; a zero mention there must not be
+    read as a brand visibility gap.
+    """
+
+    text = str(question or "")
+    if any(marker in text for marker in _KNOWLEDGE_MARKERS):
+        return "knowledge"
+    if any(marker in text for marker in _SELECTION_MARKERS):
+        return "selection"
+    return "recommend"
+
 
 def wilson_interval(successes: int, total: int, *, z: float = 1.96) -> tuple[float, float] | None:
     if total <= 0:
@@ -250,6 +300,8 @@ def source_cooccurrence(
 
 
 __all__ = [
+    "QUERY_INTENT_LABELS",
+    "classify_query_intent",
     "comparable_competitors",
     "entity_metric",
     "ranked_entities",

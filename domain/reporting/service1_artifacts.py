@@ -20,6 +20,7 @@ from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 from zoneinfo import ZoneInfo
 
 from .artifacts import render_xlsx_workbook
+from .service1_metrics import QUERY_INTENT_LABELS, classify_query_intent
 
 BlobLoader = Callable[[str, str], bytes]
 
@@ -275,6 +276,7 @@ def render_service1_index_xlsx(facts: Mapping[str, Any]) -> bytes:
             "question_index": ordinal,
             "variant": "原题" if ordinal == 1 else chr(63 + ordinal),
             "question": question,
+            "query_intent": QUERY_INTENT_LABELS[classify_query_intent(question)],
         }
         for group in delivery.get("selected_groups") or []
         for ordinal, question in enumerate(group.get("questions") or [], 1)
@@ -286,7 +288,7 @@ def render_service1_index_xlsx(facts: Mapping[str, Any]) -> bytes:
             {
                 "说明": summary,
                 "样本索引": _sample_rows(registry),
-                "问题冻结": questions,
+                "问题清单": questions,
                 "实体排名": list(delivery.get("entity_ranking") or []),
                 "竞品对比": comparison,
                 "同题同平台": list(
@@ -294,7 +296,7 @@ def render_service1_index_xlsx(facts: Mapping[str, Any]) -> bytes:
                 ),
                 "引用URL": _citation_rows(registry),
                 "证据文件": _evidence_rows(registry),
-                "重复一致性": list(delivery["repeat_consistency"].get("details") or []),
+                "两次测试波动": list(delivery["repeat_consistency"].get("details") or []),
             }
         )
     )

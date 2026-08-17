@@ -249,7 +249,7 @@ def test_legacy_review_status_keeps_clear_review_warning_without_customer_code()
     assert "盛邦安全" not in xml
 
 
-def test_internal_review_cover_states_progress_without_rejection_language() -> None:
+def test_internal_review_cover_uses_a_neutral_review_label_for_service1() -> None:
     facts = {
         "target_brand": "示例客户品牌",
         "project_name": "内部复核项目",
@@ -262,8 +262,10 @@ def test_internal_review_cover_states_progress_without_rejection_language() -> N
     document.cover(report_code=build_report_code(facts, service_number=1, version="V1.0"))
 
     xml = _all_word_xml(document.save())
-    assert "内部审核稿 · 本批指标已可复算" in xml
-    assert "本版呈现当前可复算结果" in xml
+    assert "内部审核稿 · 当前结果供复核" in xml
+    assert "本批指标已可复算" not in xml
+    assert "数据补齐与人工复核、批准完成后" in xml
+    assert "manifest" not in xml
     assert "FBEDEE" not in xml
     for forbidden in (
         "发布门禁未通过",

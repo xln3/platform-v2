@@ -549,11 +549,6 @@ class FormalDocument:
             banner_cell = banner.cell(0, 0)
             banner_fill = PALE_GREEN if candidate else LIGHT_BLUE if internal else PALE_RED
             banner_color = GREEN if candidate else BLUE if internal else RED
-            internal_label = (
-                "内部审核稿 · 本批指标已可复算"
-                if self.title.strip().endswith(_SERVICE1_COVER_TITLE_SUFFIX)
-                else "内部审核稿 · 当前结果供复核"
-            )
             _shade(banner_cell, banner_fill)
             _cell_margins(banner_cell, top=150, bottom=150, start=180, end=180)
             warning = banner_cell.paragraphs[0]
@@ -561,7 +556,7 @@ class FormalDocument:
             warning_run = warning.add_run(
                 "客户交付候选稿 · 待具名批准"
                 if candidate
-                else internal_label
+                else "内部审核稿 · 当前结果供复核"
                 if internal
                 else "预正式审阅稿 · 基于联调/试采样数据 · 禁止对外发布"
             )
@@ -595,8 +590,8 @@ class FormalDocument:
         if not formal and not candidate:
             self.callout(
                 "版本说明",
-                "本版呈现当前可复算结果，并用于完成内容、数据、证据和版式复核；"
-                "发布条件及待办项见随附 manifest。",
+                "本版为内部审核稿，呈现当前可复算结果，用于完成内容、数据、证据和版式复核；"
+                "数据补齐与人工复核、批准完成后，方可成为客户交付候选稿。",
                 kind="info",
             )
         self.document.add_page_break()
