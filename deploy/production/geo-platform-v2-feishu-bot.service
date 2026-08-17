@@ -1,0 +1,45 @@
+[Unit]
+Description=GEO Platform V2 Feishu Custom Application Bot
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=xln
+Group=xln
+WorkingDirectory=/home/xln/geo-system/platform-v2
+EnvironmentFile=/etc/geo-platform-v2/platform.env
+EnvironmentFile=/etc/geo-platform-v2/feishu-bot.env
+Environment=GEO_ENV=production
+Environment=GEO_LOG_LEVEL=INFO
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment="HTTP_PROXY="
+Environment="HTTPS_PROXY="
+Environment="ALL_PROXY="
+Environment="NO_PROXY=*"
+Environment="http_proxy="
+Environment="https_proxy="
+Environment="all_proxy="
+Environment="no_proxy=*"
+LoadCredential=feishu-app-secret:/etc/geo-platform-v2/credentials/feishu-app-secret
+LoadCredential=feishu-verification-token:/etc/geo-platform-v2/credentials/feishu-verification-token
+LoadCredential=feishu-encrypt-key:/etc/geo-platform-v2/credentials/feishu-encrypt-key
+LoadCredential=feishu-allowed-open-ids:/etc/geo-platform-v2/credentials/feishu-allowed-open-ids
+LoadCredential=feishu-link-signing-key:/etc/geo-platform-v2/credentials/feishu-link-signing-key
+ExecStart=/home/xln/geo-system/platform-v2/.venv/bin/python -m geo_platform.notifications.bot
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=20
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadOnlyPaths=/home/xln/geo-system/platform-v2
+ReadWritePaths=/home/xln/geo-system/platform-v2/runtime/captcha-assist
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LimitNOFILE=4096
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target
