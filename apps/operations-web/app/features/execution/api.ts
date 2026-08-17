@@ -455,7 +455,13 @@ export const executionApi = {
     ),
   answers: async (
     session: SessionContext,
-    input: { projectPubId: string; runPubId?: string; cursor?: string; limit?: number },
+    input: {
+      projectPubId: string;
+      answerPubId?: string;
+      runPubId?: string;
+      cursor?: string;
+      limit?: number;
+    },
   ) =>
     requireData(
       await client.GET('/api/v2/analytics/answers', {
@@ -463,6 +469,7 @@ export const executionApi = {
           header: session.headers,
           query: {
             project_pub_id: input.projectPubId,
+            ...(input.answerPubId ? { answer_pub_id: input.answerPubId } : {}),
             ...(input.runPubId ? { run_pub_id: input.runPubId } : {}),
             ...(input.cursor ? { cursor: input.cursor } : {}),
             limit: input.limit ?? 50,

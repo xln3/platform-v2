@@ -309,6 +309,65 @@
   color: #637168;
   font-size: 13px;
 }
+.metric-cards .metric-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.metric-cards .metric-help {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: inherit;
+}
+.services-page button.metric-help-trigger {
+  display: inline-grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid #91a198;
+  border-radius: 50%;
+  background: #fff;
+  color: #526158;
+  font: 700 12px/1 sans-serif;
+}
+.services-page button.metric-help-trigger:hover,
+.services-page button.metric-help-trigger:focus-visible {
+  border-color: #157347;
+  background: #e7f6ec;
+  color: #17613a;
+}
+.metric-help-tooltip {
+  position: absolute;
+  z-index: 30;
+  bottom: calc(100% + 9px);
+  left: 50%;
+  width: max-content;
+  max-width: min(320px, calc(100vw - 48px));
+  padding: 10px 12px;
+  border-radius: 9px;
+  background: #17211b;
+  box-shadow: 0 8px 24px #17211b33;
+  color: #fff !important;
+  font-size: 12px !important;
+  font-weight: 400;
+  line-height: 1.55;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 3px);
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+  visibility: hidden;
+  white-space: normal;
+}
+.metric-help:hover .metric-help-tooltip,
+.metric-help:focus-within .metric-help-tooltip {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  visibility: visible;
+}
 .metric-cards strong {
   display: block;
   font-size: 26px;
@@ -539,6 +598,32 @@
 .services-page .sampling-progress-table td strong {
   color: #17613a;
   font-size: 13px;
+}
+.services-page .sampling-progress-count {
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #17613a;
+  padding: 0 2px;
+  font-size: 13px;
+  font-weight: 750;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.services-page .sampling-progress-count:hover,
+.services-page .sampling-progress-count:focus-visible {
+  background: #e6f3e9;
+}
+.sampling-answer-context,
+.sampling-answer-instruction {
+  color: #637168;
+  font-size: 13px;
+}
+.sampling-answer-context {
+  margin: 10px 0 16px;
+}
+.sampling-answer-instruction {
+  margin: 0 0 10px;
 }
 .services-page .sampling-progress-table td.sampling-progress-empty {
   color: #a3ada7;

@@ -58,7 +58,7 @@ def _string_list(value: object) -> tuple[str, ...]:
 
 
 def parse_sampling_configs(rows: Iterable[Mapping[str, Any]]) -> list[SamplingConfig]:
-    """Project frozen-config rows (newest first) -> bounded sampling plans.
+    """Project frozen-config rows (newest first) -> sampling plans.
 
     Frozen snapshots are internal data, but the read path still treats malformed legacy
     JSON as unavailable instead of letting one bad revision break the whole page.
@@ -133,20 +133,19 @@ def select_sampling_campaign(
     A normal launch has one full plan. Formal collection can split that plan by platform/
     region, then add nested or disjoint small top-up configs. Within the current mode block,
     the largest revision whose query set contains every newer query is the canonical plan.
-    Older adjacent copies of that exact plan are the other sampling legs. A mode change is
-    a campaign boundary.
+    Older adjacent copies of that exact plan are the other sampling legs. Small top-ups may
+    deliberately change mode (for example, 豆包专家额度耗尽后改走快速)，so mode alone
+    cannot end the baseline search: containment still ties such a top-up to the full plan.
+    Once the baseline is found, only its exact-plan/mode peers are extended further backward.
     """
 
     if not configs:
         return None, []
     latest = configs[0]
-    latest_modes = frozenset(latest.modes)
     accumulated: set[str] = set()
     baseline_index = 0
     baseline_size = len(latest.query_texts)
     for index, candidate in enumerate(configs):
-        if frozenset(candidate.modes) != latest_modes:
-            break
         candidate_queries = set(candidate.query_texts)
         accumulated.update(candidate_queries)
         if accumulated.issubset(candidate_queries) and len(candidate_queries) > baseline_size:
@@ -154,10 +153,11 @@ def select_sampling_campaign(
             baseline_size = len(candidate_queries)
 
     baseline = configs[baseline_index]
+    baseline_modes = frozenset(baseline.modes)
     selected = list(configs[: baseline_index + 1])
     for candidate in configs[baseline_index + 1 :]:
         if (
-            frozenset(candidate.modes) != latest_modes
+            frozenset(candidate.modes) != baseline_modes
             or candidate.query_texts != baseline.query_texts
         ):
             break

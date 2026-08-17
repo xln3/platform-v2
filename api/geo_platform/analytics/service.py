@@ -752,6 +752,8 @@ class AnalyticsService:
     ) -> list[dict[str, Any]]:
         """W3 disparagement_rate 聚合：按 品牌(target)/拉踩方(subject)/平台 分组。
 
+        统计总体只包含项目首个 brand（目标品牌）的判定；历史上已经生成的竞品
+        判定也在查询层排除，避免旧数据继续进入客户风险指标。
         只统计 judgment_status='ok' 的窗级判定（validation_failure 判分已丢弃，
         绝不入分布）；experimental_count 暴露词典兜底行占比，便于消费方区分
         LLM 判定与 experimental 弱判定混口径。
@@ -777,6 +779,13 @@ class AnalyticsService:
                          AS experimental_count
                 FROM platform.disparagement_judgment j
                 JOIN platform.project p ON p.id = j.project_id
+                JOIN LATERAL (
+                  SELECT b.name
+                  FROM platform.brand b
+                  WHERE b.project_id = p.id
+                  ORDER BY b.created_at, b.pub_id
+                  LIMIT 1
+                ) target ON target.name = j.target_brand
                 WHERE j.tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid
                   AND p.pub_id = %s
                   AND j.judgment_status = 'ok'
@@ -811,6 +820,7 @@ class AnalyticsService:
     ) -> list[dict[str, Any]]:
         """W3 典型案例清单：disparagement=true 按 confidence 降序（证据+出处链接）。
 
+        只返回项目目标品牌作为被核查对象的案例；历史竞品案例不外露。
         出处链接：subject_type=source_document 时取 source_document.url；answer
         判定的出处是答案本身（subject_pub_id，即 collection_task/answer pub_id）。
         fact_check：按 judgment_pub_id 左联契约表 T1（platform.disparagement_
@@ -830,6 +840,13 @@ class AnalyticsService:
                        d.url AS source_url
                 FROM platform.disparagement_judgment j
                 JOIN platform.project p ON p.id = j.project_id
+                JOIN LATERAL (
+                  SELECT b.name
+                  FROM platform.brand b
+                  WHERE b.project_id = p.id
+                  ORDER BY b.created_at, b.pub_id
+                  LIMIT 1
+                ) target ON target.name = j.target_brand
                 LEFT JOIN platform.source_document d
                   ON d.tenant_id = j.tenant_id AND d.pub_id = j.subject_pub_id
                  AND j.subject_type = 'source_document'

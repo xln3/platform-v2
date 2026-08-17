@@ -203,6 +203,7 @@ export type SamplingProgressCell = {
   column_key: string;
   completed_samples: number;
   latest_capture_time: string;
+  answer_pub_ids: string[];
 };
 
 export type SamplingProgressRow = {

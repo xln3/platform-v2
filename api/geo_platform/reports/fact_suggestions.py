@@ -329,6 +329,8 @@ def fetch_disparagement_judgments(
 ) -> tuple[list[dict[str, Any]], bool]:
     """W3 窗级判定（platform.disparagement_judgment，只取 judgment_status='ok'）。
 
+    只读取项目目标品牌（platform.brand 首行）作为被核查对象的判定，历史竞品
+    判定不进入报告工作室的风险统计与案例。
     窗=created_at ∈ [since, until]（与主建议的答案窗同一对起止）。出处链接：
     subject_type=source_document 时左联 source_document.url（照 analytics service
     .disparagement_cases 同款）；answer 判定的出处是答案本身（subject_pub_id）。
@@ -345,6 +347,13 @@ def fetch_disparagement_judgments(
                    j.created_at, j.content_origin, d.url AS source_url
             FROM platform.disparagement_judgment j
             JOIN platform.project p ON p.id = j.project_id
+            JOIN LATERAL (
+              SELECT b.name
+              FROM platform.brand b
+              WHERE b.project_id = p.id
+              ORDER BY b.created_at, b.pub_id
+              LIMIT 1
+            ) target ON target.name = j.target_brand
             LEFT JOIN platform.source_document d
               ON d.tenant_id = j.tenant_id AND d.pub_id = j.subject_pub_id
              AND j.subject_type = 'source_document'
@@ -512,6 +521,16 @@ def _build_w3_section(
         dsn, tenant_pub_id, project_pub_id, since, now
     )
     own = {normalize_brand(b, rules) for b in project["brand_names"] if b}
+    target_brand = (
+        normalize_brand(str(project["brand_names"][0]), rules) if project["brand_names"] else ""
+    )
+    # DB 读取已经按目标品牌收紧；这里再做一次消费侧防御，避免滚动升级期间的旧
+    # 读取实现或测试接缝把竞品判定混回客户风险统计。
+    judgments = [
+        judgment
+        for judgment in judgments
+        if normalize_brand(str(judgment.get("target_brand") or ""), rules) == target_brand
+    ]
     competitor_set = {normalize_brand(c, rules) for c in project["competitor_names"] if c}
 
     buckets: dict[str, dict[str, int]] = {

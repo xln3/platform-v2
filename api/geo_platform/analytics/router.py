@@ -100,6 +100,7 @@ class SamplingProgressCellView(StrictModel):
     column_key: str
     completed_samples: int
     latest_capture_time: datetime
+    answer_pub_ids: list[str]
 
 
 class SamplingProgressRowView(StrictModel):
@@ -516,7 +517,6 @@ def sampling_progress(
             JOIN platform.tenant tenant ON tenant.id=version.tenant_id
             WHERE tenant.pub_id=%s AND project.pub_id=%s
             ORDER BY version.revision DESC
-            LIMIT 100
             """,
             (principal.tenant_pub_id, project_pub_id),
         ).fetchall()
@@ -539,7 +539,8 @@ def sampling_progress(
         answer_rows = connection.execute(
             """
             SELECT query_text,model,region,mode,count(*)::bigint AS completed_samples,
-                   max(capture_time) AS latest_capture_time
+                   max(capture_time) AS latest_capture_time,
+                   array_agg(pub_id ORDER BY capture_time DESC,pub_id DESC) AS answer_pub_ids
             FROM analytics.answer
             WHERE tenant_pub_id=%s AND project_pub_id=%s
               AND config_version_pub_id=ANY(%s::text[])
@@ -588,6 +589,7 @@ def sampling_progress(
                 column_key=column_key,
                 completed_samples=completed_samples,
                 latest_capture_time=captured_at,
+                answer_pub_ids=[str(pub_id) for pub_id in answer_row["answer_pub_ids"]],
             )
         )
         observed_cells += 1

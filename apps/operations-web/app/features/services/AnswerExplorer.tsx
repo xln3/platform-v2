@@ -288,6 +288,62 @@ type Props = {
   runPubId: string;
 };
 
+export function AnswerRowsTable({
+  answers,
+  onSelect,
+  ariaLabel,
+}: {
+  answers: AnswerRow[];
+  onSelect: (answer: AnswerRow) => void;
+  ariaLabel?: string;
+}) {
+  return (
+    <div className="table-scroll">
+      <table aria-label={ariaLabel}>
+        <thead>
+          <tr>
+            <th>采集时间</th>
+            <th>问题</th>
+            <th>平台</th>
+            <th>模式</th>
+            <th>地域</th>
+            <th>提及</th>
+            <th>排名</th>
+            <th>引用</th>
+          </tr>
+        </thead>
+        <tbody>
+          {answers.map((answer) => (
+            <tr
+              key={answer.pub_id}
+              className="answer-row"
+              tabIndex={0}
+              onClick={() => onSelect(answer)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  onSelect(answer);
+                }
+              }}
+            >
+              <td data-label="采集时间">{new Date(answer.capture_time).toLocaleString('zh-CN')}</td>
+              <td data-label="问题">{truncateText(answer.query_text ?? '')}</td>
+              <td data-label="平台">{platformDisplayName(answer.model)}</td>
+              <td data-label="模式">{answer.mode}</td>
+              <td data-label="地域">{answer.region}</td>
+              <td data-label="提及">
+                {answer.mentioned === null ? '—' : answer.mentioned ? '提及' : '未提及'}
+              </td>
+              <td data-label="排名">{answer.rank ?? '—'}</td>
+              <td data-label="引用">{answer.citation_count}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export function AnswerExplorer({ session, projectPubId, runPubId }: Props) {
   const [rows, setRows] = useState<AnswerRow[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -348,44 +404,7 @@ export function AnswerExplorer({ session, projectPubId, runPubId }: Props) {
         <p className="empty">该 run 尚无采集问答。答案扇出到 analytics 后才会出现在这里。</p>
       ) : (
         <>
-          <div className="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>采集时间</th>
-                  <th>问题</th>
-                  <th>平台</th>
-                  <th>模式</th>
-                  <th>地域</th>
-                  <th>提及</th>
-                  <th>排名</th>
-                  <th>引用</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((answer) => (
-                  <tr
-                    key={answer.pub_id}
-                    className="answer-row"
-                    onClick={() => setSelected(answer)}
-                  >
-                    <td data-label="采集时间">
-                      {new Date(answer.capture_time).toLocaleString('zh-CN')}
-                    </td>
-                    <td data-label="问题">{truncateText(answer.query_text ?? '')}</td>
-                    <td data-label="平台">{platformDisplayName(answer.model)}</td>
-                    <td data-label="模式">{answer.mode}</td>
-                    <td data-label="地域">{answer.region}</td>
-                    <td data-label="提及">
-                      {answer.mentioned === null ? '—' : answer.mentioned ? '提及' : '未提及'}
-                    </td>
-                    <td data-label="排名">{answer.rank ?? '—'}</td>
-                    <td data-label="引用">{answer.citation_count}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <AnswerRowsTable answers={rows} onSelect={setSelected} />
           {nextCursor ? (
             <p className="answer-explorer-more">
               <button disabled={loadingMore} onClick={() => void loadMore()}>
@@ -415,7 +434,7 @@ type RelationsState =
   | { kind: 'ready'; data: AnswerRelations }
   | { kind: 'failed' };
 
-function AnswerDetail({
+export function AnswerDetail({
   session,
   answer,
   onClose,
