@@ -290,6 +290,8 @@ async def test_registry_schema_matches_workflow_product(
         assert set(cli_rec) == set(workflow_rec)  # 字段集一字不差
         assert cli_rec["version"] == workflow_rec["version"] == 1
         assert cli_rec["state"] == workflow_rec["state"] == "active"
+        assert workflow_rec["tenant_pub_id"] == "tenant_1"
+        assert cli_rec["tenant_pub_id"] is None
     finally:
         await captcha_assist_stop(
             CaptchaAssistStopInput(run_pub_id="run_schema", session_id=started.session_id)
@@ -382,7 +384,31 @@ def test_done_via_stdin_enter_exit_0(monkeypatch: pytest.MonkeyPatch, tmp_path, 
     _assert_lock_free("yiyan")
 
 
-def test_no_notify_runs_and_prints_ticket(
+def test_feishu_app_otp_uses_outbox_without_webhook(
+    monkeypatch: pytest.MonkeyPatch, tmp_path, capsys
+) -> None:
+    page = _FakePage(url="https://yiyan.baidu.com/", title="文心一言")
+    _browser, _handle, pushes = _wire(monkeypatch, tmp_path, [page])
+    _solve_when_active(tmp_path)
+    monkeypatch.setenv("GEO_ASSIST_NOTIFY_FLAVOR", "feishu_app")
+    monkeypatch.setenv("GEO_FEISHU_CHAT_ID", "oc_test")
+    monkeypatch.delenv("GEO_ASSIST_NOTIFY_URL", raising=False)
+    enqueued: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        captcha_assist,
+        "_enqueue_feishu_app_assist",
+        lambda **kwargs: enqueued.append(kwargs) or "ntf_test_otp",
+    )
+    monkeypatch.setattr(captcha_assist, "_mark_feishu_app_assist_state", lambda *_args: True)
+    rc = otp_assist_login.main(["--platform", "yiyan", "--ttl-min", "5"])
+    assert rc == 0
+    assert pushes == []
+    assert enqueued[0]["session_kind"] == "otp_cli"
+    assert _only_record(tmp_path)["notification_id"] == "ntf_test_otp"
+    assert "flavor=feishu_app" in capsys.readouterr().out
+
+
+def test_no_notify_runs_and_prints_relative_assist_url(
     monkeypatch: pytest.MonkeyPatch, tmp_path, capsys
 ) -> None:
     _wire(monkeypatch, tmp_path, [_FakePage()], notify=False)
@@ -391,7 +417,8 @@ def test_no_notify_runs_and_prints_ticket(
     out = capsys.readouterr().out
     assert rc == 0
     assert "GEO_ASSIST_PUBLIC_BASE 未配置" in out  # 如实报缺配置
-    assert "ticket: " in out  # 明文照打，运维自行拼接
+    assert "接管相对链接: /api/v2/assist/" in out
+    assert "ticket: " not in out  # bearer 只作为 URL 路径的一部分输出
     rec = _only_record(tmp_path)
     assert rec["push_sent"] is False  # 未推送
     _assert_lock_free("yiyan")

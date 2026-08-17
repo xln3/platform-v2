@@ -49,6 +49,7 @@ def _default_client_factory(config: research.LlmConfig) -> httpx.Client:
         base_url=base,
         headers={"Authorization": f"Bearer {config.api_key}"},
         timeout=_TIMEOUT_SECONDS,
+        trust_env=False,
     )
 
 

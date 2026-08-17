@@ -94,3 +94,39 @@ def test_share_image_does_not_repeat_a_successful_first_capture(
 
     assert calls == [45.0]
     assert result["attempts"] == 1
+
+
+def test_share_link_retries_once_when_slow_modal_is_left_open(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[float] = []
+
+    class _Exporter:
+        @staticmethod
+        def capture_share_link(_page: object, *, timeout_s: float) -> dict:
+            calls.append(timeout_s)
+            if len(calls) == 1:
+                return {
+                    "ok": False,
+                    "error": "no_header_icon_candidates",
+                    "channel": None,
+                    "timings_ms": {"total": 25_000},
+                }
+            return {
+                "ok": True,
+                "channel": "share_save_response",
+                "url": "https://www.doubao.com/thread/current",
+            }
+
+    monkeypatch.setattr(doubao_share_bridge, "_share_export_module", lambda: _Exporter())
+
+    result = doubao_share_bridge.capture_share_link(object())
+
+    assert calls == [25.0, 25.0]
+    assert result["ok"] is True
+    assert result["attempts"] == 2
+    assert result["first_attempt"] == {
+        "error": "no_header_icon_candidates",
+        "channel": None,
+        "timings_ms": {"total": 25_000},
+    }

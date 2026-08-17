@@ -31,8 +31,10 @@ from workflows.activities.doubao_adapter import (
     _HumanizedPageFacade,
     _IncompleteCapture,
     _PlaywrightDoubaoSession,
+    _QuickModeToggleFailed,
     _try_close_overlays,
     _try_enable_deep_think,
+    _try_enable_quick_mode,
     _WallError,
     mask_proxy_url,
     run_doubao_collection,
@@ -377,6 +379,23 @@ async def test_deep_think_toggle_failure_is_non_retryable(adapter_env: Path) -> 
     assert "evidence=" in str(exc_info.value)
 
 
+async def test_quick_mode_toggle_failure_is_non_retryable(adapter_env: Path) -> None:
+    evidence = adapter_env / "run-7-task-3-a1-quick-mode.png"
+    evidence.write_bytes(b"\x89PNG-fake")
+    session = _FakeSession(error=_QuickModeToggleFailed("picker still reads 专家", evidence))
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await run_doubao_collection(
+            _item(mode="normal"),
+            session_factory=_factory(session),
+            heartbeat=lambda p: None,
+        )
+
+    assert exc_info.value.type == "mode_toggle_failed"
+    assert exc_info.value.non_retryable is True
+    assert "evidence=" in str(exc_info.value)
+
+
 async def test_unknown_mode_rejected_as_unsupported(adapter_env: Path) -> None:
     """normal/deep_think 之外的 mode 仍诚实拒绝（mode 门在浏览器启动之前）。"""
     session = _FakeSession(result=None)
@@ -523,6 +542,7 @@ _SEND_BB = {"x": 640.0, "y": 610.0, "width": 32.0, "height": 32.0}
 _NEW_CHAT_BB = {"x": 40.0, "y": 120.0, "width": 96.0, "height": 32.0}
 _PICKER_BB = {"x": 100.0, "y": 560.0, "width": 60.0, "height": 28.0}
 _OPTION_BB = {"x": 200.0, "y": 400.0, "width": 120.0, "height": 36.0}
+_QUICK_OPTION_BB = {"x": 200.0, "y": 350.0, "width": 120.0, "height": 36.0}
 _OVERLAY_BB = {"x": 300.0, "y": 200.0, "width": 90.0, "height": 32.0}
 _DOWNLOAD_IMG_BB = {"x": 400.0, "y": 300.0, "width": 80.0, "height": 32.0}
 
@@ -735,10 +755,18 @@ class _FakePage:
             return ("send", True, _SEND_BB)
         if self.new_chat_button and selector in doubao_adapter._NEW_CHAT_SELECTORS:
             return ("new_chat", True, _NEW_CHAT_BB)
-        if self.deep_think and selector == 'button:has-text("快速")':
+        if (
+            self.deep_think
+            and not self.deep_think_engaged
+            and selector == 'button:has-text("快速")'
+        ):
+            return ("picker", True, _PICKER_BB)
+        if self.deep_think and self.deep_think_engaged and selector == 'button:has-text("专家")':
             return ("picker", True, _PICKER_BB)
         if self.deep_think and selector == "__option_expert__":
             return ("option", True, _OPTION_BB)
+        if self.deep_think and selector == "__option_quick__":
+            return ("option", True, _QUICK_OPTION_BB)
         if selector == 'button:has-text("下载图片")':
             return ("download", True, _DOWNLOAD_IMG_BB)
         if selector in self.visible_overlays:
@@ -760,6 +788,8 @@ class _FakePage:
             self.data_empty_conversation = True
         elif _in_bb(_OPTION_BB, x, y):
             self.deep_think_engaged = True
+        elif _in_bb(_QUICK_OPTION_BB, x, y):
+            self.deep_think_engaged = False
 
     def locator(self, selector: str) -> _FakeLocator:
         self.events.append(("locator", selector))
@@ -768,9 +798,16 @@ class _FakePage:
     def get_by_text(self, text: str, exact: bool = False) -> _FakeLocator:
         if self.deep_think and text == "专家" and exact:
             return _FakeLocator(self, "__option_expert__")
+        if self.deep_think and text == "快速" and exact:
+            return _FakeLocator(self, "__option_quick__")
         return _FakeLocator(self, "__absent_text__")
 
     def get_by_role(self, role: str, **_kw: Any) -> _FakeLocator:
+        if self.deep_think and role in {"menuitem", "button"}:
+            if _kw.get("name") == "专家":
+                return _FakeLocator(self, "__option_expert__")
+            if _kw.get("name") == "快速":
+                return _FakeLocator(self, "__option_quick__")
         return _FakeLocator(self, "__absent_role__")
 
     def evaluate(self, script: str, *_args: Any) -> Any:
@@ -877,11 +914,17 @@ def _install_fake_browser(monkeypatch: pytest.MonkeyPatch, page: _FakePage) -> N
 
     monkeypatch.setattr(doubao_adapter, "_capture_full_page", _fake_answer_capture)
 
-    def _fake_share_image(pg: Any, out_path: Path) -> dict[str, Any]:
-        pg.mouse.click(300.0, 300.0)  # 经 facade：应变成贝塞尔移动+悬停+点击
-        pg.locator('button:has-text("下载图片")').first.click(timeout=4_000)
+    def _fake_official_share_page(
+        _context: Any,
+        _url: str,
+        out_path: Path,
+        *,
+        expected_question: str,
+        expected_answer: str,
+    ) -> dict[str, Any]:
+        assert expected_question and expected_answer
         out_path.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01")
-        return {"ok": True, "channel": "fake-official-preview"}
+        return {"ok": True, "channel": "fake-official-share-page"}
 
     def _fake_share_link(pg: Any) -> dict[str, Any]:
         pg.mouse.click(500.0, 500.0)  # 无业务区坐标（避开「新对话」等业务按钮）
@@ -891,7 +934,7 @@ def _install_fake_browser(monkeypatch: pytest.MonkeyPatch, page: _FakePage) -> N
             "url": "https://www.doubao.com/thread/fakeTestShare123",
         }
 
-    monkeypatch.setattr(doubao_adapter, "capture_share_image", _fake_share_image)
+    monkeypatch.setattr(doubao_adapter, "_capture_official_share_page", _fake_official_share_page)
     monkeypatch.setattr(doubao_adapter, "capture_share_link", _fake_share_link)
 
 
@@ -1038,6 +1081,21 @@ def test_deep_think_toggle_uses_human_pacing() -> None:
     assert any(400.0 <= w <= 1_000.0 for _, w in mid_waits)
 
 
+def test_quick_mode_toggle_switches_inherited_expert_state() -> None:
+    """normal=快速：浏览器继承专家态时必须显式选「快速」并双拍确认。"""
+    page = _FakePage(deep_think=True)
+    page.deep_think_engaged = True
+
+    assert _try_enable_quick_mode(page, random.Random(13)) is True
+    assert page.deep_think_engaged is False
+    quick_clicks = [
+        event
+        for event in page.events
+        if event[0] == "mouse_click" and _in_bb(_QUICK_OPTION_BB, event[1], event[2])
+    ]
+    assert len(quick_clicks) == 1
+
+
 def test_deep_think_toggle_uses_native_fallback_after_swallowed_coordinate_click(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1159,6 +1217,65 @@ def test_task_result_prefers_official_share_image_as_screenshot_ref(tmp_path: Pa
     result = doubao_adapter._task_result_from_collected(_item(), collected)
 
     assert result.screenshot_ref == f"file://{official}"
+
+
+def test_official_share_page_capture_verifies_current_qa_and_writes_png(tmp_path: Path) -> None:
+    question = "安全研究人员选择国内空间搜索引擎应考虑哪些因素"
+    answer = "# 评估因素\n应从**数据质量**、指纹能力、检索语法和 API 自动化等维度评估。"
+    rendered_answer = "评估因素\n应从数据质量、指纹能力、检索语法和 API 自动化等维度评估。"
+    output = tmp_path / "official-thread.png"
+
+    class _VisibleText:
+        @property
+        def first(self) -> _VisibleText:
+            return self
+
+        def wait_for(self, **_kw: Any) -> None:
+            return None
+
+    class _Body:
+        def inner_text(self, **_kw: Any) -> str:
+            return f"{question}\n{rendered_answer}"
+
+    class _SharePage:
+        closed = False
+
+        def goto(self, *_a: Any, **_kw: Any) -> Any:
+            return SimpleNamespace(status=200)
+
+        def get_by_text(self, text: str, **_kw: Any) -> _VisibleText:
+            assert text == question
+            return _VisibleText()
+
+        def locator(self, selector: str) -> _Body:
+            assert selector == "body"
+            return _Body()
+
+        def screenshot(self, *, path: str, **_kw: Any) -> None:
+            image = Image.new("RGB", (640, 480), "white")
+            image.save(path, format="PNG")
+            image.close()
+
+        def close(self) -> None:
+            self.closed = True
+
+    page = _SharePage()
+    context = SimpleNamespace(new_page=lambda: page)
+
+    audit = doubao_adapter._capture_official_share_page(
+        context,
+        "https://www.doubao.com/thread/currentAnswer123",
+        output,
+        expected_question=question,
+        expected_answer=answer,
+    )
+
+    assert audit["ok"] is True
+    assert audit["question_verified"] is True
+    assert audit["answer_verified"] is True
+    assert audit["dims"] == {"width": 640, "height": 480}
+    assert output.is_file()
+    assert page.closed is True
 
 
 def test_fresh_chat_clicks_new_conversation_button() -> None:

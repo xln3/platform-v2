@@ -681,7 +681,9 @@ async def run_yuanbao_batch(
         run_pub_id=batch.run_pub_id,
         attempt=attempt,
         items=len(specs),
-        proxy=mask_proxy_url(config.proxy_url),
+        browser_instance=instance_key,
+        egress_region_gb=route.exit_gb if route is not None else None,
+        fallback_proxy=(mask_proxy_url(config.proxy_url) if route is None else None),
     )
     progress: dict[str, Any] = {"stage": "browser_launch", "item": None}
 

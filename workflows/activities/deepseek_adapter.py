@@ -766,7 +766,9 @@ async def run_deepseek_batch(
         run_pub_id=batch.run_pub_id,
         attempt=attempt,
         items=len(specs),
-        proxy=mask_proxy_url(config.proxy_url),
+        browser_instance=instance_key,
+        egress_region_gb=route.exit_gb if route is not None else None,
+        fallback_proxy=(mask_proxy_url(config.proxy_url) if route is None else None),
     )
     if not specs:
         # 空 batch → 空结果，零浏览器交互（连 session 都不建）。

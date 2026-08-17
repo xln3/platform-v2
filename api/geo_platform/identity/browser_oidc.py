@@ -236,6 +236,7 @@ class BrowserOidcFlow:
                 timeout=5,
                 follow_redirects=False,
                 transport=self.transport,
+                trust_env=False,
             ) as client:
                 response = await client.post(
                     self.config.token_endpoint,

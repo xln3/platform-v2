@@ -605,10 +605,14 @@ class _FailoverFakeClient:
     """httpx.Client 替身：按 base_url 决定成败（主通道 ConnectError，备通道 200）。"""
 
     instances: list[str] = []
+    trust_env_values: list[bool] = []
 
-    def __init__(self, *, base_url: str, headers: dict, timeout: float) -> None:
+    def __init__(
+        self, *, base_url: str, headers: dict, timeout: float, trust_env: bool
+    ) -> None:
         self.base_url = base_url
         _FailoverFakeClient.instances.append(base_url)
+        _FailoverFakeClient.trust_env_values.append(trust_env)
 
     def __enter__(self) -> _FailoverFakeClient:
         return self
@@ -625,6 +629,7 @@ class _FailoverFakeClient:
 def test_audit_llm_client_fails_over_to_fallback_base_url(monkeypatch: pytest.MonkeyPatch) -> None:
     """主通道网络失败 → 自动换 base_url_fallback 重试一次（20260810 aihubmix 直连不通实证）。"""
     _FailoverFakeClient.instances = []
+    _FailoverFakeClient.trust_env_values = []
     monkeypatch.setattr("workflows.activities.source_audit.httpx.Client", _FailoverFakeClient)
     client = _ResponsesApiJudge(
         AuditLlmConfig(
@@ -640,11 +645,13 @@ def test_audit_llm_client_fails_over_to_fallback_base_url(monkeypatch: pytest.Mo
         "https://primary.example.com/v1",
         "https://fallback.example.com/v1",
     ]
+    assert _FailoverFakeClient.trust_env_values == [False, False]
 
 
 def test_audit_llm_client_single_channel_without_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     """无 fallback 配置时保持单通道（旧行为）：主失败即抛 JudgeError。"""
     _FailoverFakeClient.instances = []
+    _FailoverFakeClient.trust_env_values = []
     monkeypatch.setattr("workflows.activities.source_audit.httpx.Client", _FailoverFakeClient)
     client = _ResponsesApiJudge(
         AuditLlmConfig(api_key="k", model="m", base_url="https://primary.example.com")
@@ -652,3 +659,4 @@ def test_audit_llm_client_single_channel_without_fallback(monkeypatch: pytest.Mo
     with pytest.raises(JudgeError):
         client._post({"model": "m"})
     assert _FailoverFakeClient.instances == ["https://primary.example.com/v1"]
+    assert _FailoverFakeClient.trust_env_values == [False]
