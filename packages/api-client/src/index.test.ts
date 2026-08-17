@@ -29,6 +29,7 @@ import {
   getAnalyticsBreakdown,
   getAnalyticsDelta,
   getAnalyticsOverview,
+  getCustomerAnswerPage,
   getCustomerDashboard,
   getCustomerMetricCatalog,
   getEvidenceAssetContent,
@@ -75,6 +76,7 @@ import {
   logoutIdentitySession,
   publishReport,
   projectCustomerAccountView,
+  projectCustomerAnswerPageBoundary,
   projectCustomerDashboardBoundary,
   projectCustomerMetricCatalogBoundary,
   projectCustomerEventView,
@@ -5236,6 +5238,100 @@ describe('generated client', () => {
       kind: 'ready',
       data: { metrics: [{ code: 'mention_rate' }] },
     });
+  });
+
+  it('projects customer answer pages with complete public answer text and exact pagination', async () => {
+    const payload = {
+      schema_version: 'customer-answer-page-v1',
+      project_pub_id: 'prj_safe',
+      data: [
+        {
+          answer_pub_id: 'ans_safe_01',
+          query_pub_id: 'qry_hash_b5855173086854844b54',
+          query_text: '盛邦安全的安全能力与客服电话是什么？',
+          response_text:
+            '回答原文保留公开数字内容：访问 https://39.105.175.14:8443，或联系 400-123-4567。\n第二段也应完整显示。',
+          model: 'deepseek',
+          region: '中国',
+          mode: 'deep',
+          capture_time: '2026-08-17T08:00:00Z',
+          mentioned: true,
+          rank: 1,
+          sentiment: 'positive',
+          recommended: true,
+          citation_count: 3,
+        },
+      ],
+      page: { total: 21, offset: 20, limit: 20, has_more: false },
+    };
+
+    const projected = projectCustomerAnswerPageBoundary(payload, 'prj_safe', 20, 20);
+    expect(projected?.data[0]?.response_text).toContain('39.105.175.14:8443');
+    expect(projected?.data[0]?.response_text).toContain('400-123-4567');
+    expect(projected?.page).toEqual({ total: 21, offset: 20, limit: 20, has_more: false });
+    expect(
+      projectCustomerAnswerPageBoundary(
+        { ...payload, internal: { task_success_rate: 0.98 } },
+        'prj_safe',
+        20,
+        20,
+      ),
+    ).toBeNull();
+    expect(
+      projectCustomerAnswerPageBoundary(
+        { ...payload, page: { ...payload.page, has_more: true } },
+        'prj_safe',
+        20,
+        20,
+      ),
+    ).toBeNull();
+
+    const request = vi.fn(
+      async (_input: RequestInfo | URL) =>
+        new Response(JSON.stringify(payload), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+    vi.stubGlobal('fetch', request);
+    const client = createGeoApiClient('http://127.0.0.1:45200');
+    const headers = {
+      'X-Tenant-Id': 'tnt_safe',
+      'X-Actor-Id': 'customer-safe',
+      'X-Actor-Role': 'customer' as const,
+    };
+    await expect(
+      getCustomerAnswerPage(
+        'prj_safe',
+        '2026-08-01',
+        '2026-08-17',
+        {
+          search: '盛邦安全',
+          mentioned: true,
+          sentiment: 'positive',
+          offset: 20,
+          limit: 20,
+        },
+        headers,
+        client,
+      ),
+    ).resolves.toMatchObject({
+      kind: 'ready',
+      data: { data: [{ answer_pub_id: 'ans_safe_01' }], page: { total: 21 } },
+    });
+    const outbound = request.mock.calls[0]?.[0] as Request;
+    const url = new URL(outbound.url);
+    expect(url.pathname).toBe('/api/v2/customer-dashboard/projects/prj_safe/answers');
+    expect(Object.fromEntries(url.searchParams)).toMatchObject({
+      start: '2026-08-01',
+      end: '2026-08-17',
+      search: '盛邦安全',
+      mentioned: 'true',
+      sentiment: 'positive',
+      offset: '20',
+      limit: '20',
+    });
+    expect(outbound.headers.get('X-Tenant-Id')).toBe('tnt_safe');
   });
 });
 

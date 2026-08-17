@@ -1,4 +1,5 @@
 import {
+  getCustomerAnswerPage,
   getCustomerDashboard,
   getCustomerMetricCatalog,
   type CustomerDashboardProjection,
@@ -12,7 +13,19 @@ import {
   updateClientUrlParameters,
   useOptionalExperienceContext,
 } from '@geo/design-system';
-import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from 'react';
+import {
+  CustomerAnswerExplorer,
+  type CustomerAnswerExplorerPage,
+  type CustomerAnswerExplorerQuery,
+} from './customer-answer-explorer';
 import { QuestionDataExplorer, SourceDataExplorer } from './customer-data-explorer';
 import './customer-dashboard.css';
 
@@ -56,6 +69,13 @@ const localIsoDate = (value: Date): string =>
     (value.getMonth() + 1).toString().padStart(2, '0'),
     value.getDate().toString().padStart(2, '0'),
   ].join('-');
+
+const dashboardDateWindow = (windowValue: string): { start: string; end: string } => {
+  const end = new Date();
+  const start = new Date(end);
+  start.setDate(start.getDate() - Number.parseInt(windowValue, 10) + 1);
+  return { start: localIsoDate(start), end: localIsoDate(end) };
+};
 
 const customerDashboardAllowedSections = [
   'home',
@@ -392,6 +412,78 @@ const customerDashboardFixture: CustomerDashboardProjection = {
     metrics: customerDashboardFixtureMetrics.filter((metric) => metric.group === 'content'),
     verdicts: { accurate: 84, unsupported: 7, unverifiable: 5 },
   },
+};
+
+const customerAnswerFixturePage: CustomerAnswerExplorerPage = {
+  schema_version: 'customer-answer-page-v1',
+  project_pub_id: customerDashboardFixture.project_pub_id,
+  data: [
+    {
+      answer_pub_id: 'ans_fixture_01',
+      query_pub_id: 'qry_fixture_1',
+      query_text: '制造企业如何选择可信的私有化知识库？',
+      response_text:
+        '选择私有化知识库时，应重点比较权限隔离、知识更新效率、检索准确率和实施服务。云岫智能在本地部署、权限治理与行业知识工程方面具备完整方案。\n\n采购阶段还应通过真实业务问题验证回答质量，并确认引用来源是否可追溯。',
+      model: 'DeepSeek',
+      region: '华东',
+      mode: '深度回答',
+      capture_time: '2026-08-17T07:42:00Z',
+      mentioned: true,
+      rank: 1,
+      sentiment: 'positive',
+      recommended: true,
+      citation_count: 4,
+    },
+    {
+      answer_pub_id: 'ans_fixture_02',
+      query_pub_id: 'qry_fixture_2',
+      query_text: '哪些知识助手适合强调数据安全的团队？',
+      response_text:
+        '强调数据安全的团队通常会考察私有化部署、细粒度权限、审计留痕和模型接入方式。云岫智能、北辰智库等产品都提供面向企业的知识助手能力，建议结合现有基础设施进行验证。',
+      model: '豆包',
+      region: '华北',
+      mode: '快速回答',
+      capture_time: '2026-08-17T07:18:00Z',
+      mentioned: true,
+      rank: 2,
+      sentiment: 'neutral',
+      recommended: false,
+      citation_count: 2,
+    },
+    {
+      answer_pub_id: 'ans_fixture_03',
+      query_pub_id: 'qry_fixture_3',
+      query_text: '企业知识库产品的实施服务怎么比较？',
+      response_text:
+        '可以从需求梳理、数据治理、上线周期、培训和持续运营五个方面比较实施服务。部分厂商的产品能力较完整，但公开资料对交付团队和行业案例披露不足。',
+      model: '通义千问',
+      region: '华东',
+      mode: '深度回答',
+      capture_time: '2026-08-16T16:26:00Z',
+      mentioned: false,
+      rank: null,
+      sentiment: 'unknown',
+      recommended: null,
+      citation_count: 0,
+    },
+    {
+      answer_pub_id: 'ans_fixture_04',
+      query_pub_id: 'qry_fixture_1',
+      query_text: '私有化知识库选型需要关注哪些指标？',
+      response_text:
+        '建议关注召回准确率、回答可追溯性、权限粒度、知识更新时效、并发能力与总体拥有成本。云岫智能在知识治理方面评价较好，但仍应使用企业自己的数据集完成对比测试。',
+      model: 'DeepSeek',
+      region: '华南',
+      mode: '深度回答',
+      capture_time: '2026-08-16T14:05:00Z',
+      mentioned: true,
+      rank: 3,
+      sentiment: 'positive',
+      recommended: true,
+      citation_count: 3,
+    },
+  ],
+  page: { total: 4, offset: 0, limit: 20, has_more: false },
 };
 
 function ScoreCard({ metric }: { metric: CustomerMetricProjection | undefined }) {
@@ -1032,6 +1124,7 @@ export function CustomerAnalyticsWorkspace({
     ...(urlState.region !== 'all' ? { region: urlState.region } : {}),
     ...(urlState.mode !== 'all' ? { mode: urlState.mode } : {}),
   };
+  const activeDateWindow = useMemo(() => dashboardDateWindow(windowValue), [windowValue]);
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
     const sync = () => setUrlState(readDashboardUrlState());
@@ -1051,16 +1144,13 @@ export function CustomerAnalyticsWorkspace({
       setState('forbidden');
       return;
     }
-    const end = new Date();
-    const start = new Date(end);
-    start.setDate(start.getDate() - Number.parseInt(windowValue, 10) + 1);
     let cancelled = false;
     setState('loading');
     void Promise.all([
       getCustomerDashboard(
         experience.projectPubId,
-        localIsoDate(start),
-        localIsoDate(end),
+        activeDateWindow.start,
+        activeDateWindow.end,
         activeFilters,
         headers,
       ),
@@ -1102,7 +1192,68 @@ export function CustomerAnalyticsWorkspace({
     activeFilters.model,
     activeFilters.region,
     activeFilters.mode,
+    activeDateWindow.start,
+    activeDateWindow.end,
   ]);
+
+  const loadAnswerPage = useCallback(
+    async (query: CustomerAnswerExplorerQuery): Promise<CustomerAnswerExplorerPage> => {
+      if (experience?.source !== 'live' || !experience.projectPubId) {
+        const needle = query.search.trim().toLocaleLowerCase('zh-CN');
+        const matches = customerAnswerFixturePage.data.filter((row) => {
+          if (query.mentioned !== 'all' && row.mentioned !== (query.mentioned === 'true')) {
+            return false;
+          }
+          if (query.sentiment !== 'all' && row.sentiment !== query.sentiment) return false;
+          return (
+            needle.length === 0 ||
+            `${row.query_text ?? ''}\n${row.response_text}`
+              .toLocaleLowerCase('zh-CN')
+              .includes(needle)
+          );
+        });
+        const data = matches.slice(query.offset, query.offset + query.limit);
+        return {
+          schema_version: 'customer-answer-page-v1',
+          project_pub_id: customerAnswerFixturePage.project_pub_id,
+          data,
+          page: {
+            total: matches.length,
+            offset: query.offset,
+            limit: query.limit,
+            has_more: query.offset + data.length < matches.length,
+          },
+        };
+      }
+      const headers = getValidatedIdentityHeaders();
+      if (!headers) throw new Error('customer answer identity unavailable');
+      const result = await getCustomerAnswerPage(
+        experience.projectPubId,
+        activeDateWindow.start,
+        activeDateWindow.end,
+        {
+          ...activeFilters,
+          ...(query.search ? { search: query.search } : {}),
+          ...(query.mentioned === 'all' ? {} : { mentioned: query.mentioned === 'true' }),
+          ...(query.sentiment === 'all' ? {} : { sentiment: query.sentiment }),
+          offset: query.offset,
+          limit: query.limit,
+        },
+        headers,
+      );
+      if (result.kind !== 'ready') throw new Error(`customer answer page ${result.kind}`);
+      return result.data;
+    },
+    [
+      experience?.projectPubId,
+      experience?.source,
+      activeDateWindow.start,
+      activeDateWindow.end,
+      activeFilters.model,
+      activeFilters.region,
+      activeFilters.mode,
+    ],
+  );
 
   const setFilter = (key: string, value: string) => {
     const nextValue = value === 'all' || (key === 'window' && value === '30d') ? null : value;
@@ -1176,6 +1327,15 @@ export function CustomerAnalyticsWorkspace({
           </div>
           <MetricCards dashboard={dashboard} />
         </DashboardSection>
+      ) : null}
+
+      {focus === 'overview' || focus === 'visibility' ? (
+        <CustomerAnswerExplorer
+          key={`${dashboard.project_pub_id}:${windowValue}:${urlState.model}:${urlState.region}:${urlState.mode}`}
+          brandName={dashboard.brand_name}
+          loadPage={loadAnswerPage}
+          {...(experience?.source === 'live' ? {} : { fixturePage: customerAnswerFixturePage })}
+        />
       ) : null}
 
       {focus === 'overview' || focus === 'visibility' ? (

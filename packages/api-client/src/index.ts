@@ -323,6 +323,48 @@ export type CustomerDashboardProjection = Pick<
     verdicts: Record<string, number>;
   };
 };
+type CustomerAnswerPageContractResponse =
+  paths['/api/v2/customer-dashboard/projects/{project_pub_id}/answers']['get']['responses']['200']['content']['application/json'];
+type CustomerAnswerContractView = CustomerAnswerPageContractResponse['data'][number];
+export type CustomerAnswerSentiment = NonNullable<CustomerAnswerContractView['sentiment']>;
+export type CustomerAnswerProjection = Pick<
+  CustomerAnswerContractView,
+  | 'answer_pub_id'
+  | 'response_text'
+  | 'model'
+  | 'region'
+  | 'mode'
+  | 'capture_time'
+  | 'mentioned'
+  | 'citation_count'
+> & {
+  query_pub_id: Exclude<CustomerAnswerContractView['query_pub_id'], undefined>;
+  query_text: Exclude<CustomerAnswerContractView['query_text'], undefined>;
+  rank: Exclude<CustomerAnswerContractView['rank'], undefined>;
+  sentiment: Exclude<CustomerAnswerContractView['sentiment'], undefined>;
+  recommended: Exclude<CustomerAnswerContractView['recommended'], undefined>;
+};
+export type CustomerAnswerPageProjection = {
+  schema_version: 'customer-answer-page-v1';
+  project_pub_id: string;
+  data: CustomerAnswerProjection[];
+  page: {
+    total: number;
+    offset: number;
+    limit: number;
+    has_more: boolean;
+  };
+};
+export type CustomerAnswerPageQuery = {
+  search?: string;
+  model?: string;
+  region?: string;
+  mode?: string;
+  mentioned?: boolean;
+  sentiment?: CustomerAnswerSentiment;
+  offset?: number;
+  limit?: number;
+};
 type CustomerMetricCatalogContractResponse =
   paths['/api/v2/customer-dashboard/metrics/catalog']['get']['responses']['200']['content']['application/json'];
 type CustomerMetricSpecContractView = CustomerMetricCatalogContractResponse['metrics'][number];
@@ -1825,6 +1867,55 @@ export async function getCustomerDashboard(
   }
 }
 
+export async function getCustomerAnswerPage(
+  projectPubId: string,
+  start: string,
+  end: string,
+  query: CustomerAnswerPageQuery,
+  headers: IdentitySessionHeaders,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<ProjectResourceResult<CustomerAnswerPageProjection>> {
+  const offset = query.offset ?? 0;
+  const limit = query.limit ?? 20;
+  if (
+    !Number.isSafeInteger(offset) ||
+    offset < 0 ||
+    !Number.isSafeInteger(limit) ||
+    limit < 1 ||
+    limit > 50
+  ) {
+    return { kind: 'unavailable' };
+  }
+  try {
+    const result = await projectedApiClient(client).GET(
+      '/api/v2/customer-dashboard/projects/{project_pub_id}/answers',
+      {
+        params: {
+          path: { project_pub_id: projectPubId },
+          query: {
+            start,
+            end,
+            ...(query.search ? { search: query.search } : {}),
+            ...(query.model ? { model: query.model } : {}),
+            ...(query.region ? { region: query.region } : {}),
+            ...(query.mode ? { mode: query.mode } : {}),
+            ...(query.mentioned === undefined ? {} : { mentioned: query.mentioned }),
+            ...(query.sentiment ? { sentiment: query.sentiment } : {}),
+            offset,
+            limit,
+          },
+          header: headers,
+        },
+      },
+    );
+    if (!result.data) return classifyResourceFailure(result.response.status);
+    const projected = projectCustomerAnswerPageBoundary(result.data, projectPubId, offset, limit);
+    return projected ? { kind: 'ready', data: projected } : { kind: 'unavailable' };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
 export async function getCustomerMetricCatalog(
   headers: IdentitySessionHeaders,
   client: ProjectedApiClientOverride = apiClient,
@@ -2215,6 +2306,17 @@ const safeCustomerQueryPubId = (value: unknown): string | null =>
     ? value
     : null;
 
+const customerAnswerDisallowedControlPattern = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u;
+const safeCustomerAnswerText = (value: unknown, maxLength: number): string | null =>
+  typeof value === 'string' &&
+  value.length <= maxLength &&
+  !customerAnswerDisallowedControlPattern.test(value)
+    ? value
+    : null;
+
+const safeCustomerAnswerPubId = (value: unknown): string | null =>
+  typeof value === 'string' && /^ans_[A-Za-z0-9_-]{1,116}$/u.test(value) ? value : null;
+
 const safeCustomerSourceHost = (value: unknown): string | null => {
   if (typeof value !== 'string' || value.length === 0 || value.length > 255) return null;
   const normalized = value.toLowerCase().replace(/\.$/u, '');
@@ -2542,6 +2644,127 @@ export function projectCustomerDashboardBoundary(
     risk: { metrics: riskMetrics, by_model: riskModels },
     source_audit: { metrics: sourceAuditMetrics, verdicts },
     snapshot_hash: snapshotHash,
+  };
+}
+
+export function projectCustomerAnswerPageBoundary(
+  value: unknown,
+  expectedProjectPubId: string,
+  expectedOffset: number,
+  expectedLimit: number,
+): CustomerAnswerPageProjection | null {
+  if (
+    !isBrowserRecord(value) ||
+    customerDashboardContainsOperationalField(value) ||
+    value.schema_version !== 'customer-answer-page-v1' ||
+    value.project_pub_id !== expectedProjectPubId ||
+    !/^prj_[A-Za-z0-9_-]{1,116}$/u.test(expectedProjectPubId) ||
+    !Array.isArray(value.data) ||
+    value.data.length > 50 ||
+    value.data.length > expectedLimit ||
+    !isBrowserRecord(value.page)
+  ) {
+    return null;
+  }
+
+  const total = safeCount(value.page.total);
+  const offset = safeCount(value.page.offset);
+  const limit = safeCount(value.page.limit);
+  if (
+    total === null ||
+    offset !== expectedOffset ||
+    limit !== expectedLimit ||
+    limit < 1 ||
+    limit > 50 ||
+    typeof value.page.has_more !== 'boolean' ||
+    value.page.has_more !== offset + value.data.length < total ||
+    (value.data.length > 0 && offset + value.data.length > total)
+  ) {
+    return null;
+  }
+
+  const seenAnswerIds = new Set<string>();
+  const data: CustomerAnswerProjection[] = [];
+  for (const candidate of value.data) {
+    if (!isBrowserRecord(candidate)) return null;
+    const answerPubId = safeCustomerAnswerPubId(candidate.answer_pub_id);
+    const queryPubId =
+      candidate.query_pub_id === null || candidate.query_pub_id === undefined
+        ? null
+        : safeCustomerQueryPubId(candidate.query_pub_id);
+    const queryText =
+      candidate.query_text === null || candidate.query_text === undefined
+        ? null
+        : safeCustomerAnswerText(candidate.query_text, 20_000);
+    const responseText = safeCustomerAnswerText(candidate.response_text, 200_000);
+    const model = safeBrowserString(candidate.model, 120);
+    const region = safeBrowserString(candidate.region, 120);
+    const mode = safeBrowserString(candidate.mode, 80);
+    const captureTime = projectSafeIsoTimestamp(candidate.capture_time);
+    const rawRank = candidate.rank;
+    const rank =
+      rawRank === null || rawRank === undefined
+        ? null
+        : typeof rawRank === 'number' && Number.isSafeInteger(rawRank) && rawRank >= 1
+          ? rawRank
+          : null;
+    const sentiment =
+      candidate.sentiment === null || candidate.sentiment === undefined
+        ? null
+        : safeBrowserEnum(candidate.sentiment, [
+            'positive',
+            'neutral',
+            'negative',
+            'unknown',
+          ] as const);
+    const recommended =
+      candidate.recommended === null || candidate.recommended === undefined
+        ? null
+        : candidate.recommended;
+    const citationCount = safeCount(candidate.citation_count);
+    if (
+      !answerPubId ||
+      seenAnswerIds.has(answerPubId) ||
+      (candidate.query_pub_id !== null &&
+        candidate.query_pub_id !== undefined &&
+        queryPubId === null) ||
+      (candidate.query_text !== null && candidate.query_text !== undefined && queryText === null) ||
+      responseText === null ||
+      !model ||
+      !region ||
+      !mode ||
+      !captureTime ||
+      typeof candidate.mentioned !== 'boolean' ||
+      (rawRank !== null && rawRank !== undefined && rank === null) ||
+      (candidate.sentiment !== null && candidate.sentiment !== undefined && !sentiment) ||
+      (recommended !== null && typeof recommended !== 'boolean') ||
+      citationCount === null
+    ) {
+      return null;
+    }
+    seenAnswerIds.add(answerPubId);
+    data.push({
+      answer_pub_id: answerPubId,
+      query_pub_id: queryPubId,
+      query_text: queryText,
+      response_text: responseText,
+      model,
+      region,
+      mode,
+      capture_time: captureTime,
+      mentioned: candidate.mentioned,
+      rank,
+      sentiment,
+      recommended,
+      citation_count: citationCount,
+    });
+  }
+
+  return {
+    schema_version: 'customer-answer-page-v1',
+    project_pub_id: expectedProjectPubId,
+    data,
+    page: { total, offset, limit, has_more: value.page.has_more },
   };
 }
 
