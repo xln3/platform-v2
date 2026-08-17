@@ -877,9 +877,19 @@ test('validated customer reads mounted data and serializes every write without s
   await expect(page.getByRole('heading', { name: '真实客户品牌 · 真实 AI 回答' })).toBeVisible();
   await expect(
     page
-      .locator('.geo-answer-card__response p')
+      .locator('.geo-answer-row__lead')
       .filter({ hasText: '真实客户回答原文，完整展示品牌提及、推荐语境与引用信息。' }),
   ).toBeVisible();
+  await expect(page.getByRole('button', { name: '按 AI 平台' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(page.getByRole('region', { name: 'doubao回答明细' })).toBeVisible();
+  await page.getByRole('button', { name: '按回答模式' }).click();
+  await expect(page.getByRole('region', { name: 'deep回答明细' })).toBeVisible();
+  await page.getByRole('button', { name: '按地域' }).click();
+  await expect(page.getByRole('region', { name: 'east回答明细' })).toBeVisible();
+  await page.getByRole('button', { name: '按 AI 平台' }).click();
   await expectSafePageScreenshot(page, 'customer-live-home.png', {
     fullPage: true,
     animations: 'disabled',

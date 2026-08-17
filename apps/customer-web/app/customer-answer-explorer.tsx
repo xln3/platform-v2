@@ -1,5 +1,5 @@
 import { Badge } from '@geo/design-system';
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import './customer-answer-explorer.css';
 
 export type CustomerAnswerSentiment = 'positive' | 'neutral' | 'negative' | 'unknown';
@@ -35,6 +35,7 @@ export type CustomerAnswerExplorerPage = {
 export type CustomerAnswerMentionFilter = 'all' | 'true' | 'false';
 export type CustomerAnswerSentimentFilter = 'all' | CustomerAnswerSentiment;
 export type CustomerAnswerPageSize = 10 | 20 | 50;
+export type CustomerAnswerGroupBy = 'platform' | 'mode' | 'region';
 
 export type CustomerAnswerExplorerQuery = {
   search: string;
@@ -62,6 +63,27 @@ const sentimentPresentation: Record<
   neutral: { label: '中性', tone: 'neutral' },
   negative: { label: '负面', tone: 'danger' },
   unknown: { label: '情感未知', tone: 'warning' },
+};
+
+const groupByPresentation: Record<
+  CustomerAnswerGroupBy,
+  { label: string; groupLabel: string; description: string }
+> = {
+  platform: {
+    label: '按 AI 平台',
+    groupLabel: 'AI 平台',
+    description: '先区分豆包、DeepSeek、通义千问等回答平台',
+  },
+  mode: {
+    label: '按回答模式',
+    groupLabel: '回答模式',
+    description: '区分快速回答、深度回答等采集模式',
+  },
+  region: {
+    label: '按地域',
+    groupLabel: '地域',
+    description: '按华北、华东等实际采集地域归类',
+  },
 };
 
 const firstParagraph = (response: string): string => {
@@ -105,73 +127,147 @@ function SummaryTile({
   );
 }
 
-function AnswerFact({ children }: { children: ReactNode }) {
-  return <span className="geo-answer-explorer__fact">{children}</span>;
-}
-
-function AnswerCard({ brandName, row }: { brandName: string; row: CustomerAnswerExplorerRow }) {
+function AnswerResultBadges({
+  brandName,
+  row,
+}: {
+  brandName: string;
+  row: CustomerAnswerExplorerRow;
+}) {
   const sentiment = sentimentPresentation[row.sentiment ?? 'unknown'];
-  const queryLabel = row.query_text?.trim() || '未关联原始问题';
-  const responseLead = firstParagraph(row.response_text);
 
   return (
-    <article className="geo-answer-card">
-      <header className="geo-answer-card__header">
-        <div className="geo-answer-card__question">
-          <span>用户问题</span>
-          <h3>{queryLabel}</h3>
+    <div className="geo-answer-row__facts" aria-label="回答指标">
+      <Badge tone={row.mentioned ? 'positive' : 'neutral'}>
+        {row.mentioned ? `已提及${brandName}` : `未提及${brandName}`}
+      </Badge>
+      <Badge tone={row.rank === null ? 'neutral' : row.rank <= 3 ? 'info' : 'warning'}>
+        {row.rank === null ? '排名 —' : `排名 #${row.rank}`}
+      </Badge>
+      <Badge tone={sentiment.tone}>{sentiment.label}</Badge>
+      <Badge
+        tone={
+          row.recommended === true ? 'positive' : row.recommended === false ? 'warning' : 'neutral'
+        }
+      >
+        {row.recommended === true
+          ? '明确推荐'
+          : row.recommended === false
+            ? '未形成推荐'
+            : '推荐待判定'}
+      </Badge>
+      <Badge tone={row.citation_count > 0 ? 'info' : 'neutral'}>
+        {row.citation_count.toLocaleString('zh-CN')} 条引用
+      </Badge>
+    </div>
+  );
+}
+
+const answerGroupValue = (
+  row: CustomerAnswerExplorerRow,
+  groupBy: CustomerAnswerGroupBy,
+): string => {
+  const rawValue = groupBy === 'platform' ? row.model : groupBy === 'mode' ? row.mode : row.region;
+  return rawValue.trim() || '未标注';
+};
+
+function AnswerGroup({
+  brandName,
+  groupBy,
+  groupIndex,
+  label,
+  rows,
+}: {
+  brandName: string;
+  groupBy: CustomerAnswerGroupBy;
+  groupIndex: number;
+  label: string;
+  rows: readonly CustomerAnswerExplorerRow[];
+}) {
+  const headingId = `geo-answer-group-${groupBy}-${groupIndex}`;
+  const mentionCount = rows.filter((row) => row.mentioned).length;
+  const citationCount = rows.reduce((total, row) => total + row.citation_count, 0);
+
+  return (
+    <section className="geo-answer-group" data-tone={groupIndex % 4} aria-labelledby={headingId}>
+      <header className="geo-answer-group__header">
+        <div>
+          <span>{groupByPresentation[groupBy].groupLabel}</span>
+          <h3 id={headingId}>{label}</h3>
         </div>
-        <div className="geo-answer-card__context" aria-label="回答上下文">
-          <strong>{row.model}</strong>
-          <span>{row.region}</span>
-          <span>{row.mode}</span>
-          <time dateTime={row.capture_time}>{formatCaptureTime(row.capture_time)}</time>
+        <div className="geo-answer-group__stats" aria-label={`${label}分类摘要`}>
+          <strong>{rows.length.toLocaleString('zh-CN')} 条回答</strong>
+          <span>{mentionCount.toLocaleString('zh-CN')} 条提及品牌</span>
+          <span>{citationCount.toLocaleString('zh-CN')} 条引用</span>
         </div>
       </header>
 
-      <div className="geo-answer-card__facts" aria-label="回答指标">
-        <Badge tone={row.mentioned ? 'positive' : 'neutral'}>
-          {row.mentioned ? `已提及${brandName}` : `未提及${brandName}`}
-        </Badge>
-        <Badge tone={row.rank === null ? 'neutral' : row.rank <= 3 ? 'info' : 'warning'}>
-          {row.rank === null ? '排名 —' : `排名 #${row.rank}`}
-        </Badge>
-        <Badge tone={sentiment.tone}>{sentiment.label}</Badge>
-        <Badge
-          tone={
-            row.recommended === true
-              ? 'positive'
-              : row.recommended === false
-                ? 'warning'
-                : 'neutral'
-          }
-        >
-          {row.recommended === true
-            ? '明确推荐'
-            : row.recommended === false
-              ? '未形成推荐'
-              : '推荐待判定'}
-        </Badge>
-        <Badge tone={row.citation_count > 0 ? 'info' : 'neutral'}>
-          {row.citation_count.toLocaleString('zh-CN')} 条引用
-        </Badge>
+      <div
+        className="geo-answer-group__table-wrap"
+        role="region"
+        aria-label={`${label}回答明细`}
+        tabIndex={0}
+      >
+        <table className="geo-answer-group__table">
+          <caption>
+            {groupByPresentation[groupBy].groupLabel}“{label}”回答明细
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">用户问题与 AI 回答</th>
+              {groupBy !== 'platform' ? <th scope="col">AI 平台</th> : null}
+              {groupBy !== 'mode' ? <th scope="col">回答模式</th> : null}
+              {groupBy !== 'region' ? <th scope="col">地域</th> : null}
+              <th scope="col">品牌表现</th>
+              <th scope="col">采集时间</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => {
+              const queryLabel = row.query_text?.trim() || '未关联原始问题';
+              return (
+                <tr key={row.answer_pub_id}>
+                  <td className="geo-answer-row__answer">
+                    <span>用户问题</span>
+                    <strong>{queryLabel}</strong>
+                    <p className="geo-answer-row__lead">{firstParagraph(row.response_text)}</p>
+                    <details className="geo-answer-row__details">
+                      <summary>查看完整回答</summary>
+                      <div>{row.response_text || '该回答没有可显示的正文。'}</div>
+                      <footer>
+                        <span>回答记录 {row.answer_pub_id}</span>
+                        {row.query_pub_id ? <span>问题记录 {row.query_pub_id}</span> : null}
+                      </footer>
+                    </details>
+                  </td>
+                  {groupBy !== 'platform' ? (
+                    <td className="geo-answer-row__dimension" data-dimension="platform">
+                      {row.model || '未标注'}
+                    </td>
+                  ) : null}
+                  {groupBy !== 'mode' ? (
+                    <td className="geo-answer-row__dimension" data-dimension="mode">
+                      {row.mode || '未标注'}
+                    </td>
+                  ) : null}
+                  {groupBy !== 'region' ? (
+                    <td className="geo-answer-row__dimension" data-dimension="region">
+                      {row.region || '未标注'}
+                    </td>
+                  ) : null}
+                  <td className="geo-answer-row__result">
+                    <AnswerResultBadges brandName={brandName} row={row} />
+                  </td>
+                  <td className="geo-answer-row__time">
+                    <time dateTime={row.capture_time}>{formatCaptureTime(row.capture_time)}</time>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
-
-      <div className="geo-answer-card__response">
-        <span>AI 回答首段</span>
-        <p>{responseLead}</p>
-      </div>
-
-      <details className="geo-answer-card__details">
-        <summary>展开完整回答</summary>
-        <div>{row.response_text || '该回答没有可显示的正文。'}</div>
-      </details>
-
-      <footer>
-        <AnswerFact>回答记录 {row.answer_pub_id}</AnswerFact>
-        {row.query_pub_id ? <AnswerFact>问题记录 {row.query_pub_id}</AnswerFact> : null}
-      </footer>
-    </article>
+    </section>
   );
 }
 
@@ -200,6 +296,7 @@ export function CustomerAnswerExplorer({
   const [search, setSearch] = useState('');
   const [mentioned, setMentioned] = useState<CustomerAnswerMentionFilter>('all');
   const [sentiment, setSentiment] = useState<CustomerAnswerSentimentFilter>('all');
+  const [groupBy, setGroupBy] = useState<CustomerAnswerGroupBy>('platform');
   const [offset, setOffset] = useState(0);
   const [limit, setLimit] = useState<CustomerAnswerPageSize>(20);
   const [state, setState] = useState<LoadState>(fixturePage ? 'ready' : 'loading');
@@ -274,6 +371,29 @@ export function CustomerAnswerExplorer({
   const currentMentionCount = rows.filter((row) => row.mentioned).length;
   const currentCitationCount = rows.filter((row) => row.citation_count > 0).length;
   const hasFilters = search.length > 0 || mentioned !== 'all' || sentiment !== 'all';
+  const dimensionCounts = useMemo(
+    () => ({
+      platform: new Set(rows.map((row) => answerGroupValue(row, 'platform'))).size,
+      mode: new Set(rows.map((row) => answerGroupValue(row, 'mode'))).size,
+      region: new Set(rows.map((row) => answerGroupValue(row, 'region'))).size,
+    }),
+    [rows],
+  );
+  const groupedRows = useMemo(() => {
+    const groups = new Map<string, CustomerAnswerExplorerRow[]>();
+    for (const row of rows) {
+      const label = answerGroupValue(row, groupBy);
+      const group = groups.get(label) ?? [];
+      group.push(row);
+      groups.set(label, group);
+    }
+    return [...groups.entries()]
+      .map(([label, group]) => ({ label, rows: group }))
+      .sort(
+        (left, right) =>
+          right.rows.length - left.rows.length || left.label.localeCompare(right.label, 'zh-CN'),
+      );
+  }, [groupBy, rows]);
 
   return (
     <section className="geo-answer-explorer" aria-labelledby="geo-answer-explorer-title">
@@ -371,6 +491,32 @@ export function CustomerAnswerExplorer({
         />
       </div>
 
+      {state === 'ready' && rows.length > 0 ? (
+        <div className="geo-answer-explorer__classification" aria-label="回答分类方式">
+          <div>
+            <span>当前页分类</span>
+            <strong>
+              {dimensionCounts.platform.toLocaleString('zh-CN')} 个平台 ·{' '}
+              {dimensionCounts.mode.toLocaleString('zh-CN')} 种模式 ·{' '}
+              {dimensionCounts.region.toLocaleString('zh-CN')} 个地域
+            </strong>
+            <small>{groupByPresentation[groupBy].description}</small>
+          </div>
+          <div className="geo-answer-explorer__group-switch" role="group" aria-label="选择分组维度">
+            {(Object.keys(groupByPresentation) as CustomerAnswerGroupBy[]).map((value) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={groupBy === value}
+                onClick={() => setGroupBy(value)}
+              >
+                {groupByPresentation[value].label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       {state === 'loading' ? <LoadingPanel /> : null}
 
       {state === 'failed' ? (
@@ -415,9 +561,16 @@ export function CustomerAnswerExplorer({
       ) : null}
 
       {state === 'ready' && rows.length > 0 ? (
-        <div className="geo-answer-explorer__cards">
-          {rows.map((row) => (
-            <AnswerCard key={row.answer_pub_id} brandName={brandName} row={row} />
+        <div className="geo-answer-explorer__groups">
+          {groupedRows.map((group, index) => (
+            <AnswerGroup
+              key={`${groupBy}-${group.label}`}
+              brandName={brandName}
+              groupBy={groupBy}
+              groupIndex={index}
+              label={group.label}
+              rows={group.rows}
+            />
           ))}
         </div>
       ) : null}
