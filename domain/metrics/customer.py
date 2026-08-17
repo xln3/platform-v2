@@ -393,6 +393,14 @@ _METRIC_SPECS: tuple[MetricSpec, ...] = (
         "unique_source_hosts", "独立信源网站", "source", "count", "higher", "被引用的独立域名数量。"
     ),
     MetricSpec(
+        "unique_source_pages",
+        "独立信源页面",
+        "source",
+        "count",
+        "higher",
+        "按规范化 URL 去重后，被 AI 回答引用的独立页面数量。",
+    ),
+    MetricSpec(
         "source_diversity_index",
         "信源多样性指数",
         "source",
@@ -844,6 +852,11 @@ def _aggregate_sources(
     own_references = sum(citation.own_source for citation in citations)
     cited_text = sum(bool((citation.cited_text or "").strip()) for citation in citations)
     citation_titles = sum(bool((citation.title or "").strip()) for citation in citations)
+    source_page_urls = {
+        citation.canonical_url.strip()
+        for citation in citations
+        if citation.canonical_url and citation.canonical_url.strip()
+    }
     host_counts: Counter[str] = Counter()
     host_answer_ids: dict[str, set[str]] = defaultdict(set)
     own_hosts: set[str] = set()
@@ -886,6 +899,7 @@ def _aggregate_sources(
             "average_citations": _ratio(len(citations), total_answers),
             "citation_references": Decimal(len(citations)),
             "unique_source_hosts": Decimal(len(host_counts)),
+            "unique_source_pages": Decimal(len(source_page_urls)),
             "source_concentration_hhi": _score(hhi * Decimal(100)) if hhi is not None else None,
             "source_diversity_index": _score((Decimal(1) - hhi) * Decimal(100))
             if hhi is not None

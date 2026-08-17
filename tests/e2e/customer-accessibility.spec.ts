@@ -17,7 +17,7 @@ test('customer shell is keyboard reachable and WCAG AA clean', async ({ page }) 
   await page.getByRole('button', { name: '展开 AI 面板' }).click();
   await expectAccessible(page);
   await page.getByRole('button', { name: '收起 AI 面板' }).click();
-  for (const workspace of ['资料', '品牌产品', '问题目标', '报告', '成员']) {
+  for (const workspace of ['资料', '品牌产品', '问题目标', '信源与内容', '报告', '成员']) {
     await page.getByRole('button', { name: workspace, exact: true }).click();
     if (workspace === '报告') {
       await page.getByRole('button', { name: '在线预览' }).click();

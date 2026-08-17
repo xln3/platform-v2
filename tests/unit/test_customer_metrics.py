@@ -179,6 +179,9 @@ def test_customer_bundle_computes_full_business_dimensions_without_task_fields()
     assert _metric(bundle, "citation_coverage") == pytest.approx(2 / 3, abs=0.0001)
     assert _metric(bundle, "uncited_answer_rate") == pytest.approx(1 / 3, abs=0.0001)
     assert _metric(bundle, "mentioned_answer_citation_rate") == 0.5
+    assert _metric(bundle, "citation_references") == 3
+    assert _metric(bundle, "unique_source_hosts") == 2
+    assert _metric(bundle, "unique_source_pages") == 2
     assert _metric(bundle, "top_source_share") == pytest.approx(2 / 3, abs=0.0001)
     assert _metric(bundle, "own_source_answer_rate") == pytest.approx(1 / 3, abs=0.0001)
     assert _metric(bundle, "own_source_share_of_cited_answers") == 0.5

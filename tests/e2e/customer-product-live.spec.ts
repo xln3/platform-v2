@@ -763,6 +763,9 @@ test('validated customer reads mounted data and serializes every write without s
     ...dimensionMetrics,
     dashboardMetric('share_of_voice', '竞争声量份额', 'competition', 'percentage', 0.4),
     dashboardMetric('own_source_answer_rate', '官网引用回答率', 'source', 'percentage', 0.25),
+    dashboardMetric('unique_source_hosts', '独立信源网站', 'source', 'count', 1742),
+    dashboardMetric('unique_source_pages', '独立信源页面', 'source', 'count', 12684),
+    dashboardMetric('citation_references', '引用总次数', 'source', 'count', 18926),
     dashboardMetric('positive_rate', '正面回答率', 'reputation', 'percentage', 0.75),
   ];
   await page.route('**/api/v2/customer-dashboard/metrics/catalog**', (route) =>
@@ -871,6 +874,10 @@ test('validated customer reads mounted data and serializes every write without s
   await expect(page.getByText('资料确认', { exact: true })).toHaveCount(0);
   await expect(page.getByText('Project stage', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: '六大经营指数' })).toBeVisible();
+  const sourceScale = page.getByLabel('AI 信源资产规模');
+  await expect(sourceScale.getByText('1,742', { exact: true })).toBeVisible();
+  await expect(sourceScale.getByText('12,684', { exact: true })).toBeVisible();
+  await expect(sourceScale.getByText('18,926', { exact: true })).toBeVisible();
   await expect(
     page.locator('.geo-kpi-card').filter({ hasText: '品牌提及率' }).getByText('75.0%'),
   ).toBeVisible();

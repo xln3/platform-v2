@@ -264,6 +264,8 @@ const customerDashboardFixtureMetrics: CustomerMetricProjection[] = [
   fixtureMetric('citation_coverage', '引用覆盖率', 'source', 'percentage', 0.733),
   fixtureMetric('uncited_answer_rate', '无引用回答率', 'source', 'percentage', 0.267, 'lower'),
   fixtureMetric('unique_source_hosts', '独立信源网站', 'source', 'count', 126),
+  fixtureMetric('unique_source_pages', '独立信源页面', 'source', 'count', 1842),
+  fixtureMetric('citation_references', '引用总次数', 'source', 'count', 3426),
   fixtureMetric('source_diversity_index', '信源多样性指数', 'source', 'score', 82.4),
   fixtureMetric('top_source_share', '头部信源份额', 'source', 'percentage', 0.126, 'lower'),
   fixtureMetric('own_source_answer_rate', '官网引用回答率', 'source', 'percentage', 0.317),
@@ -837,17 +839,45 @@ function SourcePanel({
     0,
     full ? 100 : 10,
   );
+  const websiteCount = metricValue(dashboard.metrics, 'unique_source_hosts');
+  const pageCount = metricValue(dashboard.metrics, 'unique_source_pages');
+  const referenceCount = metricValue(dashboard.metrics, 'citation_references');
+  const citationCoverage = metricValue(dashboard.metrics, 'citation_coverage');
   return (
     <section className="geo-dashboard-panel">
-      <div className="geo-panel-title">
-        <div>
-          <span>Source Landscape</span>
-          <h3>AI 核心信源</h3>
+      <header className="geo-source-scale" aria-labelledby="geo-source-scale-title">
+        <div className="geo-source-scale__copy">
+          <span>Source Intelligence Scale</span>
+          <h3 id="geo-source-scale-title">AI 信源资产规模</h3>
+          <p>从真实 AI 回答引用中汇总：网站按域名去重，页面按规范化 URL 去重。</p>
+          <div className="geo-source-scale__facts" aria-label="信源引用概况">
+            <span>
+              <b>{formatMetric(referenceCount)}</b> 次真实引用
+            </span>
+            <span>
+              <b>{formatMetric(citationCoverage)}</b> 回答含引用
+            </span>
+          </div>
         </div>
-        <strong>
-          {formatMetric(metricValue(dashboard.metrics, 'unique_source_hosts'))} 个网站
-        </strong>
-      </div>
+        <div className="geo-source-scale__numbers">
+          <div data-tone="website">
+            <span>独立信源网站</span>
+            <strong>
+              <b>{formatMetric(websiteCount)}</b>
+              <small>个网站</small>
+            </strong>
+            <p>跨域信源覆盖规模</p>
+          </div>
+          <div data-tone="page">
+            <span>独立信源页面</span>
+            <strong>
+              <b>{formatMetric(pageCount)}</b>
+              <small>个页面</small>
+            </strong>
+            <p>去重后的引用页面</p>
+          </div>
+        </div>
+      </header>
       <div className="geo-source-summary">
         {[
           'citation_coverage',
