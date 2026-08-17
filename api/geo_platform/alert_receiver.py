@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import re
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from time import monotonic
 from typing import Any
 
@@ -12,16 +18,24 @@ import structlog
 from workflows.activities.assist_notify import push_captcha_assist
 
 from .logging import configure_logging
+from .notifications.config import FeishuBotConfig
+from .notifications.redaction import redact_notification_text
+from .notifications.service import NotificationService
+from .tenancy.database import SessionLocal
 
 MAX_BODY_BYTES = 65_536
-ALLOWED_LABELS = ("alertname", "severity", "category", "service")
-# Server酱方糖外发：SendKey 由 env GEO_ALERT_SCT_SENDKEY 提供，未配置 = 只写日志不外发。
+ALLOWED_LABELS = ("alertname", "severity", "category", "service", "region")
+ALLOWED_ANNOTATIONS = ("summary", "description")
+_SAFE_FINGERPRINT_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+# 旧 Server酱 fallback：优先从 systemd credential file 读 SendKey；env 仅临时兼容。
 SCT_API_URL_TEMPLATE = "https://sctapi.ftqq.com/{sendkey}.send"
 # 同 alertname+fingerprint 的限频窗口：窗口内不重复外发（进程内账本，重启即重置）。
 SCT_RESEND_WINDOW_S = 300.0
 log = structlog.get_logger()
 
 _sct_last_sent: dict[tuple[str, str], float] = {}
+_legacy_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="legacy-alert-forward")
+_legacy_slots = threading.BoundedSemaphore(64)
 
 
 def safe_alert_projection(payload: object) -> list[dict[str, str]]:
@@ -37,7 +51,7 @@ def safe_alert_projection(payload: object) -> list[dict[str, str]]:
         item = {
             "status": str(value.get("status", "unknown"))[:16],
             **{
-                key: str(labels[key])[:120]
+                key: redact_notification_text(labels[key])[:120]
                 for key in ALLOWED_LABELS
                 if key in labels and isinstance(labels[key], str)
             },
@@ -46,10 +60,115 @@ def safe_alert_projection(payload: object) -> list[dict[str, str]]:
         # 载荷缺省时保持缺省，不改动既有投影形状。
         fingerprint = value.get("fingerprint")
         if isinstance(fingerprint, str) and fingerprint:
-            item["fingerprint"] = fingerprint[:64]
+            item["fingerprint"] = (
+                fingerprint[:128]
+                if _SAFE_FINGERPRINT_RE.fullmatch(fingerprint)
+                else hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()
+            )
+        annotations = value.get("annotations")
+        if isinstance(annotations, dict):
+            for key in ALLOWED_ANNOTATIONS:
+                annotation = annotations.get(key)
+                if isinstance(annotation, str) and annotation:
+                    item[key] = " ".join(redact_notification_text(annotation).split())[:500]
+        for source, target in (("startsAt", "starts_at"), ("endsAt", "ends_at")):
+            timestamp = value.get(source)
+            if isinstance(timestamp, str) and timestamp:
+                item[target] = timestamp[:80]
         if item.get("alertname"):
             projected.append(item)
     return projected
+
+
+def eligible_for_feishu(
+    alert: dict[str, str],
+    *,
+    config: FeishuBotConfig | None = None,
+    now: datetime | None = None,
+) -> bool:
+    alertname = alert.get("alertname", "")
+    service = alert.get("service", "")
+    if alertname.startswith("GeoFeishu") or service == "feishu-bot":
+        return False
+    if alert.get("severity", "").lower() == "critical":
+        return True
+    policy = config or FeishuBotConfig.from_env()
+    if alertname not in policy.warning_names():
+        return False
+    if alert.get("status", "firing").lower() == "resolved":
+        return True
+    return not policy.warning_is_quiet(now)
+
+
+def persist_business_alerts_feishu(
+    alerts: list[dict[str, str]],
+    *,
+    config: FeishuBotConfig | None = None,
+) -> int | None:
+    """Persist accepted transitions; this function performs no external I/O."""
+    bot_config = config or FeishuBotConfig.from_env()
+    if not bot_config.chat_id:
+        log.warning("business_alert_feishu_unconfigured")
+        return None
+    try:
+        bot_config.validate_policy()
+        accepted = [alert for alert in alerts if eligible_for_feishu(alert, config=bot_config)]
+        if not accepted:
+            return 0
+        with SessionLocal() as session:
+            service = NotificationService(session)
+            for alert in accepted:
+                service.record_alert(
+                    alert,
+                    target_chat_id=bot_config.chat_id,
+                    repeat_window_seconds=bot_config.alert_repeat_window_seconds,
+                    card_update_seconds=bot_config.alert_card_update_seconds,
+                )
+            session.commit()
+        return len(accepted)
+    except Exception as error:  # noqa: BLE001 - alert intake must always answer quickly
+        log.warning(
+            "business_alert_feishu_persist_failed",
+            marker=type(error).__name__,
+            count=len(alerts),
+        )
+        return None
+
+
+def _legacy_forward_job(alerts: list[dict[str, str]], sendkey: str) -> None:
+    try:
+        forward_business_alerts_sct(alerts, sendkey=sendkey)
+    finally:
+        _legacy_slots.release()
+
+
+def enqueue_legacy_business_alerts(alerts: list[dict[str, str]], *, sendkey: str) -> bool:
+    """Bounded compatibility fallback; webhook request threads never wait on Server酱."""
+    if not sendkey.strip():
+        return False
+    if not _legacy_slots.acquire(blocking=False):
+        log.warning("business_alert_legacy_queue_full")
+        return False
+    try:
+        _legacy_executor.submit(_legacy_forward_job, list(alerts), sendkey)
+    except RuntimeError:
+        _legacy_slots.release()
+        return False
+    return True
+
+
+def _legacy_sendkey() -> str:
+    """Credential-file first, env only as a temporary backwards-compatible fallback."""
+    configured = os.getenv("GEO_ALERT_SCT_SENDKEY_FILE", "").strip()
+    credential_dir = os.getenv("CREDENTIALS_DIRECTORY", "").strip()
+    path = configured or (str(Path(credential_dir) / "alert-sct-sendkey") if credential_dir else "")
+    if path:
+        try:
+            return Path(path).read_text(encoding="utf-8").strip()
+        except OSError:
+            log.warning("business_alert_legacy_credential_unreadable")
+            return ""
+    return os.getenv("GEO_ALERT_SCT_SENDKEY", "").strip()
 
 
 def _sct_prune(now: float) -> None:
@@ -138,8 +257,34 @@ class AlertReceiverHandler(BaseHTTPRequestHandler):
             self._respond(HTTPStatus.BAD_REQUEST)
             return
         for alert in alerts:
-            log.info("business_alert_notification", **alert)
-        forward_business_alerts_sct(alerts, sendkey=os.getenv("GEO_ALERT_SCT_SENDKEY", ""))
+            log.info(
+                "business_alert_notification",
+                **{
+                    key: alert[key]
+                    for key in (
+                        "status",
+                        "severity",
+                        "category",
+                        "service",
+                        "region",
+                        "alertname",
+                        "fingerprint",
+                    )
+                    if alert.get(key)
+                },
+            )
+        channel = os.getenv("GEO_ALERT_NOTIFY_CHANNEL", "serverchan").strip().lower()
+        if channel == "feishu_app":
+            if persist_business_alerts_feishu(alerts) is None:
+                self._respond(HTTPStatus.SERVICE_UNAVAILABLE)
+                return
+        elif channel == "serverchan":
+            enqueue_legacy_business_alerts(
+                alerts,
+                sendkey=_legacy_sendkey(),
+            )
+        elif channel not in {"", "disabled", "none"}:
+            log.warning("business_alert_channel_unknown", channel=channel[:40])
         self._respond(HTTPStatus.NO_CONTENT)
 
 

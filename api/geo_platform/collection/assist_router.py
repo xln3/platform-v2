@@ -16,9 +16,6 @@ from __future__ import annotations
 
 import collections
 import hashlib
-import json
-import os
-import secrets
 import threading
 import time
 from pathlib import Path
@@ -27,17 +24,24 @@ from typing import Any
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from ..notifications.config import FeishuBotConfig, read_secret_file
+from ..notifications.security import CallbackSecurityError, verify_assist_capability
 from ..tenancy.database import get_db
-from ..tenancy.models import Tenant
-from ..tenancy.repository import set_tenant_context
-from .models import CollectionRun
-from .workflow_outbox import (
+from .assist_completion import (
+    AssistCompletionError,
     WorkflowSignalConflictError,
-    enqueue_workflow_signal,
-    workflow_signal_replayed,
+    prepare_assist_completion,
+)
+from .assist_registry import (
+    DEFAULT_ASSIST_DIR,
+    AssistRegistryError,
+    load_registry_by_digest,
+    mark_registry_solved,
+    registry_path,
+    session_kind,
+    write_registry_atomic,
 )
 
 router = APIRouter(prefix="/api/v2", tags=["assist"])
@@ -45,7 +49,7 @@ router = APIRouter(prefix="/api/v2", tags=["assist"])
 # 注册表目录 = platform-v2/runtime/captcha-assist/。契约文档写的 parents[2] 是
 # 从 worker 侧 workflows/activities/ 算的；本文件在 api/geo_platform/collection/
 # 下，深一级，故 parents[3]。目录由 worker 创建，这里只读（/done 只原地替换文件）。
-ASSIST_DIR = Path(__file__).resolve().parents[3] / "runtime" / "captcha-assist"
+ASSIST_DIR = DEFAULT_ASSIST_DIR
 
 _TICKET_MAX_LEN = 256
 _INPUT_MAX_BYTES = 8192
@@ -66,32 +70,40 @@ def _denied() -> HTTPException:
 
 def _registry_path(ticket: str) -> Path:
     digest = hashlib.sha256(ticket.encode("utf-8")).hexdigest()
-    return ASSIST_DIR / f"{digest}.json"
+    return registry_path(ASSIST_DIR, digest)
 
 
 def _load_registry(ticket: str) -> dict[str, Any]:
     """按 ticket 读注册表并做全部有效性校验；任何失败都是同一个 403。"""
     if not ticket or len(ticket) > _TICKET_MAX_LEN:
         raise _denied()
-    path = _registry_path(ticket)
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        return load_registry_by_digest(
+            ASSIST_DIR,
+            hashlib.sha256(ticket.encode("utf-8")).hexdigest(),
+        )
+    except AssistRegistryError:
         raise _denied() from None
-    if not isinstance(data, dict) or data.get("version") != 1:
+
+
+def _load_notification_registry(notification_id: str, capability: str) -> dict[str, Any]:
+    if not notification_id.startswith("ntf_") or len(notification_id) > 80:
         raise _denied()
-    stored_hash = data.get("ticket_hash")
-    digest = hashlib.sha256(ticket.encode("utf-8")).hexdigest()
-    if not isinstance(stored_hash, str) or not secrets.compare_digest(stored_hash, digest):
-        raise _denied()
-    expires_at = data.get("expires_at")
-    if not isinstance(expires_at, int | float) or isinstance(expires_at, bool):
-        raise _denied()
-    if time.time() >= expires_at:  # 与 worker 侧 registry_expired 同口径：now >= expires_at
-        raise _denied()
-    if data.get("state") not in {"active", "solved"}:  # closed/未知状态一律拒绝
-        raise _denied()
-    return data
+    try:
+        config = FeishuBotConfig.from_env()
+        key = read_secret_file(
+            config.link_signing_key_file,
+            label="feishu_link_signing_key",
+            min_length=32,
+        )
+        ticket_sha256, _expires_at = verify_assist_capability(
+            notification_id=notification_id,
+            capability=capability,
+            key=key,
+        )
+        return load_registry_by_digest(ASSIST_DIR, ticket_sha256)
+    except (AssistRegistryError, CallbackSecurityError, RuntimeError, ValueError):
+        raise _denied() from None
 
 
 def _bridge_port(registry: dict[str, Any]) -> int:
@@ -103,9 +115,7 @@ def _bridge_port(registry: dict[str, Any]) -> int:
 
 def _write_registry_atomic(path: Path, data: dict[str, Any]) -> None:
     """同目录临时文件 + os.replace，worker 侧读到的永远是完整 JSON。"""
-    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    os.replace(tmp, path)
+    write_registry_atomic(path, data)
 
 
 def _rate_limited(kind: str, ticket: str) -> bool:
@@ -156,10 +166,18 @@ def assist_page(ticket: str) -> HTMLResponse:
     return HTMLResponse(_PAGE_HTML)
 
 
-@router.get("/assist/{ticket}/frame")
-def assist_frame(ticket: str) -> Response:
-    registry = _load_registry(ticket)
-    if _rate_limited("frame", ticket):
+@router.get(
+    "/assist/notification/{notification_id}/{capability}",
+    response_class=HTMLResponse,
+)
+def notification_assist_page(notification_id: str, capability: str) -> HTMLResponse:
+    """Card link backed by a short-lived HMAC capability, never a stored raw ticket."""
+    _load_notification_registry(notification_id, capability)
+    return HTMLResponse(_PAGE_HTML)
+
+
+def _frame_response(registry: dict[str, Any], *, rate_key: str) -> Response:
+    if _rate_limited("frame", rate_key):
         return JSONResponse(status_code=429, content={"error": "rate_limited"})
     port = _bridge_port(registry)
     try:
@@ -171,9 +189,19 @@ def assist_frame(ticket: str) -> Response:
     return Response(content=upstream.content, media_type="image/jpeg")
 
 
-@router.get("/assist/{ticket}/status")
-def assist_status(ticket: str) -> JSONResponse:
+@router.get("/assist/{ticket}/frame")
+def assist_frame(ticket: str) -> Response:
     registry = _load_registry(ticket)
+    return _frame_response(registry, rate_key=ticket)
+
+
+@router.get("/assist/notification/{notification_id}/{capability}/frame")
+def notification_assist_frame(notification_id: str, capability: str) -> Response:
+    registry = _load_notification_registry(notification_id, capability)
+    return _frame_response(registry, rate_key=capability)
+
+
+def _status_response(registry: dict[str, Any]) -> JSONResponse:
     port = _bridge_port(registry)
     try:
         upstream = _bridge(port, "GET", "/status")
@@ -186,20 +214,30 @@ def assist_status(ticket: str) -> JSONResponse:
     except ValueError:
         body = {}
     merged = body if isinstance(body, dict) else {"bridge_status": body}
-    # 注册表字段权威：bridge 不知道 ticket 生命周期；bridge /status 也不带
-    # platform/business_key，手机页顶部状态条只能靠注册表补。
     merged["state"] = registry.get("state")
     merged["expires_at"] = registry.get("expires_at")
     merged["solved_at"] = registry.get("solved_at")
     merged["platform"] = registry.get("platform")
     merged["business_key"] = registry.get("business_key")
+    merged["session_kind"] = session_kind(registry)
     return JSONResponse(status_code=200, content=merged)
 
 
-@router.post("/assist/{ticket}/input")
-async def assist_input(ticket: str, request: Request) -> JSONResponse:
+@router.get("/assist/{ticket}/status")
+def assist_status(ticket: str) -> JSONResponse:
     registry = _load_registry(ticket)
-    if _rate_limited("input", ticket):
+    return _status_response(registry)
+
+
+@router.get("/assist/notification/{notification_id}/{capability}/status")
+def notification_assist_status(notification_id: str, capability: str) -> JSONResponse:
+    return _status_response(_load_notification_registry(notification_id, capability))
+
+
+async def _input_response(
+    registry: dict[str, Any], *, rate_key: str, request: Request
+) -> JSONResponse:
+    if _rate_limited("input", rate_key):
         return JSONResponse(status_code=429, content={"error": "rate_limited"})
     port = _bridge_port(registry)
     length = request.headers.get("content-length")
@@ -211,7 +249,7 @@ async def assist_input(ticket: str, request: Request) -> JSONResponse:
         if declared > _INPUT_MAX_BYTES:
             return JSONResponse(status_code=413, content={"error": "payload_too_large"})
     body = await request.body()
-    if len(body) > _INPUT_MAX_BYTES:  # Content-Length 缺失/撒谎时的兜底
+    if len(body) > _INPUT_MAX_BYTES:
         return JSONResponse(status_code=413, content={"error": "payload_too_large"})
     try:
         upstream = _bridge(port, "POST", "/input", content=body)
@@ -224,60 +262,69 @@ async def assist_input(ticket: str, request: Request) -> JSONResponse:
     return JSONResponse(status_code=upstream.status_code, content=payload)
 
 
-@router.post("/assist/{ticket}/done")
-def assist_done(ticket: str, session: Session = Depends(get_db)) -> dict[str, bool]:
-    """人工确认完成：先入 workflow signal outbox（幂等），再原子更新注册表。
-
-    顺序上 DB 先于注册表文件：若中间崩溃，重试时 workflow_signal_replayed
-    命中同 idempotency_key 直接跳过重复入队，随后补写注册表，流程自愈；
-    反过来先写文件则会漏 signal、workflow 永远挂起。
-    """
+@router.post("/assist/{ticket}/input")
+async def assist_input(ticket: str, request: Request) -> JSONResponse:
     registry = _load_registry(ticket)
-    if registry.get("state") == "solved":
-        return {"ok": True}  # 重复 done 幂等：不再入 signal
-    run_pub_id = registry.get("run_pub_id")
-    session_id = registry.get("session_id")
-    if not isinstance(run_pub_id, str) or not isinstance(session_id, str):
-        raise _denied()
-    run = session.scalar(select(CollectionRun).where(CollectionRun.pub_id == run_pub_id))
-    if run is None:
-        raise HTTPException(status_code=404, detail={"code": "run_not_found"})
-    tenant = session.get(Tenant, run.tenant_id)
-    if tenant is None:
-        raise HTTPException(status_code=404, detail={"code": "run_not_found"})
-    set_tenant_context(session, tenant_id=tenant.id, tenant_pub_id=tenant.pub_id)
+    return await _input_response(registry, rate_key=ticket, request=request)
+
+
+@router.post("/assist/notification/{notification_id}/{capability}/input")
+async def notification_assist_input(
+    notification_id: str, capability: str, request: Request
+) -> JSONResponse:
+    registry = _load_notification_registry(notification_id, capability)
+    return await _input_response(registry, rate_key=capability, request=request)
+
+
+def _complete_registry(
+    registry: dict[str, Any], *, ticket_sha256: str, session: Session
+) -> dict[str, bool]:
     try:
-        if not workflow_signal_replayed(
+        prepare_assist_completion(
             session,
-            tenant_pub_id=tenant.pub_id,
-            workflow_id=run.workflow_id,
-            signal_name="captcha_solved",
-            args=[session_id],
-            idempotency_key=f"captcha-solved:{session_id}",
-        ):
-            enqueue_workflow_signal(
-                session,
-                tenant_pub_id=tenant.pub_id,
-                workflow_id=run.workflow_id,
-                signal_name="captcha_solved",
-                args=[session_id],
-                idempotency_key=f"captcha-solved:{session_id}",
-            )
+            registry=registry,
+            ticket_sha256=ticket_sha256,
+        )
         session.commit()
     except WorkflowSignalConflictError as error:
         session.rollback()
         raise HTTPException(status_code=409, detail={"code": "idempotency_conflict"}) from error
+    except AssistCompletionError as error:
+        session.rollback()
+        code = str(error)
+        if code == "assist_run_not_found":
+            raise HTTPException(status_code=404, detail={"code": "run_not_found"}) from error
+        raise _denied() from error
     with _registry_lock:
-        path = _registry_path(ticket)
-        try:
-            latest = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            latest = None
-        if isinstance(latest, dict):
-            latest["state"] = "solved"
-            latest["solved_at"] = int(time.time())
-            _write_registry_atomic(path, latest)
+        registry_finalized = mark_registry_solved(ASSIST_DIR, ticket_sha256)
+    if not registry_finalized:
+        # The database effect is already durable and idempotent. A 503 asks the
+        # caller to retry only the file-finalization side of this crash window.
+        raise HTTPException(status_code=503, detail={"code": "assist_finalize_pending"})
     return {"ok": True}
+
+
+@router.post("/assist/{ticket}/done")
+def assist_done(ticket: str, session: Session = Depends(get_db)) -> dict[str, bool]:
+    """人工确认完成：按 session_kind 落库，再原子更新注册表。
+
+    workflow captcha 走幂等 signal outbox；OTP CLI 不查询 run、不发 signal。
+    两类都保持 DB 先于文件，重复请求可补写崩溃窗口里的注册表。
+    """
+    registry = _load_registry(ticket)
+    digest = hashlib.sha256(ticket.encode("utf-8")).hexdigest()
+    return _complete_registry(registry, ticket_sha256=digest, session=session)
+
+
+@router.post("/assist/notification/{notification_id}/{capability}/done")
+def notification_assist_done(
+    notification_id: str,
+    capability: str,
+    session: Session = Depends(get_db),
+) -> dict[str, bool]:
+    registry = _load_notification_registry(notification_id, capability)
+    digest = str(registry["ticket_hash"])
+    return _complete_registry(registry, ticket_sha256=digest, session=session)
 
 
 _PAGE_HTML = """<!DOCTYPE html>
@@ -407,7 +454,12 @@ _PAGE_HTML = """<!DOCTYPE html>
       return r.json();
     }).then(function (s) {
       if (s.platform) setText(platformEl, s.platform + ' 人工协助');
-      if (s.business_key) setText(bizEl, '撞码题：' + s.business_key);
+      if (s.session_kind === 'otp_cli') {
+        doneBtn.textContent = '我已完成登录';
+        if (s.business_key) setText(bizEl, '登录事项：' + s.business_key);
+      } else if (s.business_key) {
+        setText(bizEl, '撞码题：' + s.business_key);
+      }
       if (typeof s.expires_at === 'number') expiresAt = s.expires_at;
       if (s.state === 'solved') { showSolved(); return; }
       if (s.state === 'closed') { showFatal(); return; }

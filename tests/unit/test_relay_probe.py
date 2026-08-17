@@ -46,9 +46,7 @@ class _FakeSession:
         rows = list(self.rows.get(cls, []))
         for criterion in stmt._where_criteria:
             rows = [
-                row
-                for row in rows
-                if getattr(row, criterion.left.key) == criterion.right.value
+                row for row in rows if getattr(row, criterion.left.key) == criterion.right.value
             ]
         return rows
 
@@ -196,6 +194,33 @@ def test_probe_failure_alert_unconfigured_only_logs(
     result = probe_collection_region(session, "110000")  # type: ignore[arg-type]
     assert result["ok"] is False
     assert result["alerted"] is False  # 未配置只日志，如实返回
+
+
+def test_probe_repeated_failure_does_not_repeat_alert(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _FakeSession()
+    region = _seed_region(session, state="down")
+    monkeypatch.setenv("GEO_PROXY_BJ", "http://127.0.0.1:17890")
+    monkeypatch.setenv("GEO_ASSIST_NOTIFY_URL", "https://sctapi.ftqq.com/KEY.send")
+
+    def boom(proxy: str) -> str:
+        raise TimeoutError("still down")
+
+    sent: list[dict[str, Any]] = []
+    monkeypatch.setattr(relay_probe, "_fetch_exit_ip", boom)
+    monkeypatch.setattr(
+        relay_probe, "push_captcha_assist", lambda **kw: sent.append(kw) is None or True
+    )
+
+    result = probe_collection_region(session, "110000")  # type: ignore[arg-type]
+
+    assert result["ok"] is False
+    assert result["note"] == "probe_failed:TimeoutError"
+    assert result["alerted"] is False
+    assert region.state == "down"
+    assert sent == []
+    assert _events(session) == []  # 无状态翻转，不重复写事件或推送
 
 
 def test_probe_arrears_not_overwritten(

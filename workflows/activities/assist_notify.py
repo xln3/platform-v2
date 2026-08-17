@@ -1,4 +1,4 @@
-"""验证码人工接管推送网关（bark / serverchan / 企业微信 / ntfy / raw）。
+"""旧 webhook 推送网关（含 feishu_webhook；不含自建应用 feishu_app）。
 
 纪律：
 - 绝不抛异常——推送失败/对端异常只记 warning 返回 False，绝不阻断采集 workflow。
@@ -20,6 +20,10 @@ import structlog
 
 log = structlog.get_logger()
 
+# urllib 默认读取 HTTP(S)_PROXY。人工接管通知属于 GEO 业务流量，必须直连，
+# 不能借用宿主机为了访问境外站点配置的代理。
+_DIRECT_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
 # body 里含 assist_url（调用方拼装）；bark 的 ?url= / raw 的 url 字段从这里抽取。
 _URL_RE = re.compile(r"https?://\S+")
 
@@ -30,9 +34,19 @@ def _extract_url(body: str) -> str:
 
 
 def _request(req: urllib.request.Request, timeout_s: float) -> bool:
-    with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+    with _DIRECT_OPENER.open(req, timeout=timeout_s) as resp:
         status: int = resp.status  # urlopen 响应的 status 在 typeshed 为 Any，收窄为 int
         return 200 <= status < 300
+
+
+def _feishu_request(req: urllib.request.Request, timeout_s: float) -> bool:
+    """飞书 webhook 即使业务失败也可能回 HTTP 200，必须同时校验 JSON code。"""
+    with _DIRECT_OPENER.open(req, timeout=timeout_s) as resp:
+        if not 200 <= resp.status < 300:
+            return False
+        payload = json.loads(resp.read(65_537))
+        code = payload.get("code", payload.get("StatusCode")) if isinstance(payload, dict) else None
+        return code == 0
 
 
 def _json_post(url: str, payload: dict[str, Any]) -> urllib.request.Request:
@@ -73,6 +87,20 @@ def push_captcha_assist(
             # Server酱 Turbo（sctapi）兼容：title/desp query 参数
             qs = urllib.parse.urlencode({"title": title, "desp": body})
             return _request(urllib.request.Request(f"{base}?{qs}", method="GET"), timeout_s)
+        if flavor in {"feishu", "feishu_webhook"}:
+            if flavor == "feishu":
+                log.warning(
+                    "assist_notify.deprecated_flavor",
+                    flavor="feishu",
+                    replacement="feishu_webhook",
+                )
+            return _feishu_request(
+                _json_post(
+                    base,
+                    {"msg_type": "text", "content": {"text": f"{title}\n{body}"}},
+                ),
+                timeout_s,
+            )
         if flavor == "wecom":
             return _request(
                 _json_post(base, {"msgtype": "text", "text": {"content": f"{title}\n{body}"}}),
@@ -102,5 +130,9 @@ def push_captcha_assist(
         log.warning("assist_notify.unknown_flavor", flavor=flavor)
         return False
     except Exception as exc:  # noqa: BLE001 — 推送失败绝不阻断 workflow
-        log.warning("assist_notify.push_failed", flavor=flavor, error=str(exc))
+        log.warning(
+            "assist_notify.push_failed",
+            flavor=flavor,
+            marker=type(exc).__name__,
+        )
         return False
