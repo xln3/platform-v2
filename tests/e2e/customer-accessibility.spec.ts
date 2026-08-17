@@ -43,8 +43,8 @@ test('customer shell is keyboard reachable and WCAG AA clean', async ({ page }) 
   await page.getByRole('button', { name: '终端已连接' }).click();
   await expect(page.getByRole('heading', { name: '请在豆包原生页面完成验证' })).toBeVisible();
   await expectAccessible(page);
-  await page.getByRole('button', { name: '监测表现' }).click();
-  await page.getByText('近五个冻结日品牌提及率趋势图表已渲染').waitFor();
+  await page.getByRole('button', { name: '品牌可见度' }).click();
+  await page.getByRole('heading', { name: '云岫智能 · 品牌可见度与模型表现' }).waitFor();
   await expectAccessible(page);
   await page.getByRole('button', { name: '回答明细' }).click();
   const evidenceTrigger = page.getByRole('button', { name: '查看回答截图' }).first();

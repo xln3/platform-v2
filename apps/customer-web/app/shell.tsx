@@ -10044,11 +10044,8 @@ function AiOpsDock() {
   const [expanded, setExpanded] = useState(() => {
     const stored = readAiDockStorage(aiDockExpandedKey);
     if (stored) return stored !== '0';
-    // 窄屏（≤620px 底部固定导航布局）默认收起，避免悬浮面板遮挡底栏导航与内容；
-    // matchMedia 缺失的环境（如 jsdom）保持桌面语义：默认展开。
-    return !(
-      typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 620px)').matches
-    );
+    // 首访默认收起：操作入口常驻，但不遮挡客户仪表盘、筛选器和回答原文。
+    return false;
   });
   const [catalog, setCatalog] = useState<ResearchModelCatalog | null>(null);
   const [pinned, setPinned] = useState(() => readAiOperationModel('intake-research'));

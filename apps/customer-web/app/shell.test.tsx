@@ -1376,13 +1376,16 @@ describe('Customer intake workspace', () => {
         <Shell />
       </MemoryRouter>,
     );
-    // 默认展开：列出 AI 操作与当前模型徽章；fixture 环境下模型下拉禁用
+    // 首访默认收起，避免覆盖仪表盘；用户主动展开后可见模型清单。
     expect(screen.getByLabelText('AI 操作面板')).toBeTruthy();
+    expect(screen.queryByText('AI 操作')).toBeNull();
+    await user.click(screen.getByRole('button', { name: '展开 AI 面板' }));
     expect(screen.getByText('AI 操作')).toBeTruthy();
     expect(screen.getByText('默认模型')).toBeTruthy();
     const select = screen.getByLabelText('AI 一键调研预填模型选择') as HTMLSelectElement;
     expect(select.disabled).toBe(true);
-    // 折叠后清单消失、状态记忆到 localStorage；再展开恢复
+    expect(localStorage.getItem('geo.ai.dock.expanded')).toBe('1');
+    // 折叠后清单消失、状态记忆到 localStorage；再展开恢复。
     await user.click(screen.getByRole('button', { name: '收起 AI 面板' }));
     expect(screen.queryByText('AI 操作')).toBeNull();
     expect(localStorage.getItem('geo.ai.dock.expanded')).toBe('0');

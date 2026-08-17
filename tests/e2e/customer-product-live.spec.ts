@@ -729,17 +729,157 @@ test('validated customer reads mounted data and serializes every write without s
     });
   });
 
+  const dashboardMetric = (
+    code: string,
+    label: string,
+    group: string,
+    format: 'percentage' | 'score' | 'rank' | 'count' | 'decimal',
+    value: number,
+    direction: 'higher' | 'lower' | 'neutral' = 'higher',
+  ) => ({
+    code,
+    label,
+    group,
+    format,
+    direction,
+    value,
+    state: 'ready',
+    version: 'customer-metrics-v1',
+  });
+  const dimensionMetrics = [
+    dashboardMetric('mention_rate', '品牌提及率', 'visibility', 'percentage', 0.75),
+    dashboardMetric('top3_rate', 'Top3 率', 'ranking', 'percentage', 0.5),
+    dashboardMetric('average_rank', '平均排名', 'ranking', 'rank', 2, 'lower'),
+    dashboardMetric('recommendation_rate', '品牌推荐率', 'visibility', 'percentage', 0.625),
+    dashboardMetric('citation_coverage', '引用覆盖率', 'source', 'percentage', 0.5),
+  ];
+  const dashboardMetrics = [
+    dashboardMetric('geo_visibility_index', 'GEO 可见度指数', 'composite', 'score', 75),
+    dashboardMetric('competitive_power_index', '竞争力指数', 'composite', 'score', 68),
+    dashboardMetric('source_authority_index', '信源权威指数', 'composite', 'score', 71),
+    dashboardMetric('content_readiness_index', '内容准备度指数', 'composite', 'score', 64),
+    dashboardMetric('reputation_index', 'AI 口碑指数', 'composite', 'score', 79),
+    dashboardMetric('cognition_consistency_index', 'AI 认知一致性指数', 'composite', 'score', 73),
+    ...dimensionMetrics,
+    dashboardMetric('share_of_voice', '竞争声量份额', 'competition', 'percentage', 0.4),
+    dashboardMetric('own_source_answer_rate', '官网引用回答率', 'source', 'percentage', 0.25),
+    dashboardMetric('positive_rate', '正面回答率', 'reputation', 'percentage', 0.75),
+  ];
+  await page.route('**/api/v2/customer-dashboard/metrics/catalog**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        schema_version: 'customer-metric-catalog-v1',
+        metrics: dashboardMetrics.map(({ value: _value, state: _state, ...metric }) => ({
+          ...metric,
+          description: `${metric.label}的真实客户合同口径。`,
+        })),
+      }),
+    }),
+  );
+  await page.route('**/api/v2/customer-dashboard/projects/**', (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/answers')) {
+      const offset = Number(url.searchParams.get('offset') ?? '0');
+      const limit = Number(url.searchParams.get('limit') ?? '20');
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          schema_version: 'customer-answer-page-v1',
+          project_pub_id: 'prj_customer_product_live',
+          data:
+            offset === 0
+              ? [
+                  {
+                    answer_pub_id: 'ans_customer_product_live_01',
+                    query_pub_id: 'qry_customer_product_live_01',
+                    query_text: '真实客户合同问题',
+                    response_text: '真实客户回答原文，完整展示品牌提及、推荐语境与引用信息。',
+                    model: 'doubao',
+                    region: 'east',
+                    mode: 'deep',
+                    capture_time: '2026-07-25T00:00:00Z',
+                    mentioned: true,
+                    rank: 1,
+                    sentiment: 'positive',
+                    recommended: true,
+                    citation_count: 2,
+                  },
+                ]
+              : [],
+          page: { total: 1, offset, limit, has_more: false },
+        }),
+      });
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        schema_version: 'customer-dashboard-v1',
+        metric_version: 'customer-metrics-v1',
+        project_pub_id: 'prj_customer_product_live',
+        brand_name: '真实客户品牌',
+        state: 'ready',
+        generated_at: '2026-07-25T01:00:00Z',
+        as_of: '2026-07-25T00:00:00Z',
+        window: { start: '2026-07-01', end: '2026-07-25', filters: {} },
+        metrics: dashboardMetrics,
+        models: [{ key: 'doubao', label: 'doubao', metrics: dimensionMetrics }],
+        competitors: [
+          {
+            name: '真实分析竞品',
+            metrics: [
+              dashboardMetric('share_of_voice', '竞争声量份额', 'competition', 'percentage', 0.3),
+            ],
+          },
+        ],
+        questions: [
+          {
+            query_pub_id: 'qry_customer_product_live_01',
+            query_text: '真实客户合同问题',
+            query_group: '选型',
+            metrics: dimensionMetrics,
+          },
+        ],
+        sources: [
+          {
+            host: 'source.example',
+            references: 2,
+            share: 1,
+            own_source: false,
+            answers: 1,
+          },
+        ],
+        regions: [{ key: 'east', label: 'east', metrics: dimensionMetrics }],
+        modes: [{ key: 'deep', label: 'deep', metrics: dimensionMetrics }],
+        trends: ['2026-07-21', '2026-07-22', '2026-07-23', '2026-07-24', '2026-07-25'].map(
+          (date) => ({ date, metrics: dimensionMetrics }),
+        ),
+        risk: { metrics: [], by_model: [] },
+        source_audit: { metrics: [], verdicts: {} },
+        snapshot_hash: 'a'.repeat(64),
+      }),
+    });
+  });
+
   await page.goto('/platform/customer/');
-  await expect(page.getByRole('heading', { name: '项目监测概览' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '真实客户品牌 · AI 认知资产总览' })).toBeVisible();
   await expect(page.getByRole('heading', { name: '监测运行中' })).toHaveCount(0);
   await expect(page.getByRole('progressbar', { name: '项目进度' })).toHaveCount(0);
   await expect(page.getByText('资料确认', { exact: true })).toHaveCount(0);
-  await expect(page.getByText('Analytics overview', { exact: true })).toBeVisible();
   await expect(page.getByText('Project stage', { exact: true })).toHaveCount(0);
-  await expect(page.locator('.metric-value').filter({ hasText: /^75\.0%$/ })).toBeVisible();
-  await expect(page.getByText(/当前合同未提供项目阶段或采集计划，不展示进度比例/)).toBeVisible();
-  await expect(page.getByText(/当前安全投影未提供建议动作，不根据指标推断客户待办/)).toBeVisible();
-  await expect(page.getByText('样本不足')).toBeVisible();
+  await expect(page.getByRole('heading', { name: '六大经营指数' })).toBeVisible();
+  await expect(
+    page.locator('.geo-kpi-card').filter({ hasText: '品牌提及率' }).getByText('75.0%'),
+  ).toBeVisible();
+  await expect(page.getByRole('heading', { name: '真实客户品牌 · 真实 AI 回答' })).toBeVisible();
+  await expect(
+    page
+      .locator('.geo-answer-card__response p')
+      .filter({ hasText: '真实客户回答原文，完整展示品牌提及、推荐语境与引用信息。' }),
+  ).toBeVisible();
   await expectSafePageScreenshot(page, 'customer-live-home.png', {
     fullPage: true,
     animations: 'disabled',
@@ -795,22 +935,24 @@ test('validated customer reads mounted data and serializes every write without s
     fullPage: true,
     animations: 'disabled',
   });
-  await page.getByRole('button', { name: '监测表现' }).click();
-  await expect(page.locator('.metric-value').filter({ hasText: /^75\.0%$/ })).toBeVisible();
-  await expect(page.getByText('3 / 4 · 已完成')).toBeVisible();
-  await expect(page.getByLabel('监测指标窗口对比')).toContainText('品牌提及率');
-  await expect(page.getByLabel('监测指标窗口对比')).toContainText('75.0%');
-  await expect(page.getByRole('table', { name: '逐日品牌提及率' })).toBeVisible();
-  await expect(page.getByRole('table', { name: '确认竞品提及率' })).toContainText('真实分析竞品');
-  await expect(page.getByRole('table', { name: '各模型品牌提及率' })).toContainText('doubao');
-  await expect(page.getByLabel('地域与回答模式表现')).toContainText('east');
-  await expect(page.getByLabel('问题级表现')).toContainText('真实合同问题');
+  await page.getByRole('button', { name: '品牌可见度' }).click();
+  await expect(
+    page.getByRole('heading', { name: '真实客户品牌 · 品牌可见度与模型表现' }),
+  ).toBeVisible();
+  await expect(
+    page.locator('.geo-kpi-card').filter({ hasText: '品牌提及率' }).getByText('75.0%'),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('img', { name: '品牌提及率、Top3 率和引用覆盖率趋势' }),
+  ).toBeVisible();
+  await expect(page.getByLabel('模型表现数据表')).toContainText('doubao');
+  await expect(page.getByLabel('地区表现数据表')).toContainText('east');
+  await expect(page.getByLabel('回答模式表现数据表')).toContainText('deep');
+  await expect(page.getByText('真实客户合同问题', { exact: true })).toBeVisible();
   await expectSafePageScreenshot(page, 'customer-live-monitoring.png', {
     fullPage: true,
     animations: 'disabled',
   });
-  await synchronouslyActivateTwice(page.getByRole('button', { name: '导出当前筛选 XLSX' }));
-  await expect(page.getByText('真实 XLSX 导出已冻结并进入证据存储')).toBeVisible();
   await page.goto(
     '/platform/customer/?section=evidence&evidence_page=2&evidence_cursor=evd_Bearer%20evidence-cursor-canary',
   );
@@ -904,7 +1046,7 @@ test('validated customer reads mounted data and serializes every write without s
   await expect.poll(() => reportQuestionBodies).toHaveLength(2);
   await page.getByRole('button', { name: '前往监测导出' }).click();
   await expect(page).toHaveURL(/section=monitoring/);
-  await expect(page.getByRole('heading', { name: '模型表现' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '模型表现', exact: true })).toBeVisible();
   releaseDelayedReportQuestion?.();
   await page.waitForTimeout(250);
   expect(reportQuestionAuthorityReads).toBe(2);
@@ -921,11 +1063,7 @@ test('validated customer reads mounted data and serializes every write without s
   expect(surfaces).not.toMatch(
     /analytics-(?:canary|breakdown-canary)|analytics-delta-(?:canary|root-canary)|analytics-competitor-canary|answers-canary|answer-provenance-canary|evidence-canary|export-canary|package-canary|catalog-(?:brand|competitor|query|goal)-canary|customer-report-(?:detail|cursor)-canary|delivery-(?:comment|extension|recipient|confirm-response)-canary|profile-field-canary|proxy-password|SESSION=|Bearer |318294|429155|731904|824911|\/secret\/profile/i,
   );
-  expect(exportBodies).toHaveLength(1);
-  expect(exportBodies[0]).toMatchObject({
-    project_pub_id: 'prj_customer_product_live',
-    dimensions: {},
-  });
+  expect(exportBodies).toHaveLength(0);
   expect(packageBodies).toHaveLength(1);
   expect(packageBodies[0]).toMatchObject({
     evidence_pub_ids: ['evd_live_safe'],
@@ -1002,6 +1140,23 @@ test('customer product 404 fails closed without revealing whether analytics exis
       path: '/api/v2/analytics/answers',
       status: 404,
     },
+    {
+      id: 'customer-dashboard-forbidden',
+      path: '/api/v2/customer-dashboard/projects/prj_customer_hidden',
+      status: 404,
+      body: {
+        error: {
+          code: 'not_found',
+          message: 'customer-dashboard-forbidden-canary',
+          request_id: 'req_dashboard_safe',
+        },
+      },
+    },
+    {
+      id: 'customer-metric-catalog-forbidden',
+      path: '/api/v2/customer-dashboard/metrics/catalog',
+      status: 404,
+    },
   ]);
   await page.route('**/api/v2/identity/session', (route) =>
     route.fulfill({
@@ -1046,10 +1201,11 @@ test('customer product 404 fails closed without revealing whether analytics exis
     }),
   );
   await page.goto('/platform/customer/');
-  await page.getByRole('button', { name: '监测表现' }).click();
+  await page.getByRole('button', { name: '品牌可见度' }).click();
   await expect(page.getByText('无权查看')).toBeVisible();
   await expect(page.getByText('Cookie=forbidden-customer-canary')).toHaveCount(0);
-  expect(await syntheticHttpResponseCount(page, 'customer-overview-forbidden')).toBe(2);
+  await expect(page.getByText('customer-dashboard-forbidden-canary')).toHaveCount(0);
+  expect(await syntheticHttpResponseCount(page, 'customer-dashboard-forbidden')).toBeGreaterThan(0);
   expect(await syntheticHttpResponseCount(page, 'customer-answers-forbidden')).toBe(0);
 });
 

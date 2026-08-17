@@ -4,9 +4,9 @@
       "/home/xln/.config/nvm/versions/node/v24.6.0/bin/node",
       "/home/xln/geo-system/platform-v2/node_modules/@playwright/test/cli.js",
       "test",
-      "tests/e2e/customer-accessibility.spec.ts",
-      "--project=customer-desktop",
-      "--project=customer-mobile"
+      "tests/e2e/customer-visual.spec.ts",
+      "--grep",
+      "customer (home|monitoring) visual baseline"
     ],
     "configFile": "/home/xln/geo-system/platform-v2/playwright.config.ts",
     "rootDir": "/home/xln/geo-system/platform-v2/tests/e2e",
@@ -290,30 +290,32 @@
     "workers": 1,
     "webServer": {
       "command": "exec bash scripts/start_e2e_webservers.sh",
-      "url": "http://127.0.0.1:46101/platform/customer/",
+      "url": "http://127.0.0.1:45101/platform/customer/",
       "env": {
         "PYTHON_BASIC_REPL": "1",
         "LESSOPEN": "| /usr/bin/lesspipe %s",
+        "TMUX": "/tmp/tmux-1000/default,4013479,71",
         "CODEX_CI": "1",
+        "HTTPS_PROXY": "",
         "USER": "xln",
-        "SSH_CLIENT": "114.248.4.235 59999 2222",
+        "SSH_CLIENT": "117.133.64.159 8015 2222",
         "npm_config_user_agent": "pnpm/11.17.0 npm/? node/v24.6.0 linux x64",
         "XDG_SESSION_TYPE": "tty",
-        "GIT_ASKPASS": "/home/xln/.vscode-server/cli/servers/Stable-df53daabb18cd157bdb08c7f01c34df936cf12f4/server/extensions/git/dist/askpass.sh",
-        "SHLVL": "2",
-        "BROWSER": "/home/xln/.vscode-server/cli/servers/Stable-df53daabb18cd157bdb08c7f01c34df936cf12f4/server/bin/helpers/browser.sh",
+        "GIT_ASKPASS": "/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/extensions/git/dist/askpass.sh",
+        "SHLVL": "3",
+        "BROWSER": "/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/bin/helpers/browser.sh",
         "MOTD_SHOWN": "pam",
         "HOME": "/home/xln",
-        "TERM_PROGRAM_VERSION": "1.132.0",
+        "TERM_PROGRAM_VERSION": "3.2a",
         "NVM_BIN": "/home/xln/.config/nvm/versions/node/v24.6.0/bin",
-        "VSCODE_IPC_HOOK_CLI": "/run/user/1000/vscode-ipc-015b9b80-4dbc-43cf-9b7f-78f79b0e48ce.sock",
+        "VSCODE_IPC_HOOK_CLI": "/run/user/1000/vscode-ipc-19a833ff-7b40-43ab-9744-1d6bf8bcdc83.sock",
         "NO_PROXY": "*",
         "NVM_INC": "/home/xln/.config/nvm/versions/node/v24.6.0/include/node",
         "COREPACK_ROOT": "/home/xln/.config/nvm/versions/node/v24.6.0/lib/node_modules/corepack",
         "PAGER": "cat",
-        "VSCODE_GIT_ASKPASS_MAIN": "/home/xln/.vscode-server/cli/servers/Stable-df53daabb18cd157bdb08c7f01c34df936cf12f4/server/extensions/git/dist/askpass-main.js",
+        "VSCODE_GIT_ASKPASS_MAIN": "/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/extensions/git/dist/askpass-main.js",
         "HF_ENDPOINT": "https://hf-mirror.com",
-        "VSCODE_GIT_ASKPASS_NODE": "/home/xln/.vscode-server/cli/servers/Stable-df53daabb18cd157bdb08c7f01c34df936cf12f4/server/node",
+        "VSCODE_GIT_ASKPASS_NODE": "/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/node",
         "LC_CTYPE": "C.UTF-8",
         "PYDEVD_DISABLE_FILE_VALIDATION": "1",
         "BUNDLED_DEBUGPY_PATH": "/home/xln/.vscode-server/extensions/ms-python.debugpy-2026.6.0-linux-x64/bundled/libs/debugpy",
@@ -322,29 +324,32 @@
         "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/1000/bus",
         "COLORTERM": "",
         "NVM_DIR": "/home/xln/.config/nvm",
+        "https_proxy": "http://127.0.0.1:7890",
+        "CODEX_PERMISSION_PROFILE": ":danger-full-access",
         "COREPACK_ENABLE_DOWNLOAD_PROMPT": "1",
         "LOGNAME": "xln",
+        "ALL_PROXY": "",
         "pnpm_config_verify_deps_before_run": "false",
+        "http_proxy": "http://127.0.0.1:7890",
         "_": "/usr/bin/env",
-        "CLAUDE_CODE_SSE_PORT": "19531",
+        "CLAUDE_CODE_SSE_PORT": "31479",
         "XDG_SESSION_CLASS": "user",
         "TERM": "dumb",
-        "XDG_SESSION_ID": "13183",
-        "GEO_E2E_PORT_BASE": "46100",
-        "PATH": "./node_modules/.bin:/home/xln/geo-system/platform-v2/node_modules/.bin:/home/xln/.local/bin:/home/xln/.config/nvm/versions/node/v24.6.0/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/codex-path:/home/xln/.codex/tmp/arg0/codex-arg0SOY6Tb:/home/xln/.kimi-code/bin:/home/xln/.deno/bin:/home/xln/.local/bin:/home/xln/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand:/home/xln/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli:/home/xln/.vscode-server/cli/servers/Stable-df53daabb18cd157bdb08c7f01c34df936cf12f4/server/bin/remote-cli:/home/xln/.local/bin:/home/xln/.kimi-code/bin:/home/xln/google-cloud-sdk/bin:/home/xln/.deno/bin:/home/xln/.config/nvm/versions/node/v24.6.0/bin:/home/xln/.local/bin:/home/xln/.deno/bin:/home/xln/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/home/xln/.vscode-server/extensions/ms-python.debugpy-2026.6.0-linux-x64/bundled/scripts/noConfigScripts",
+        "XDG_SESSION_ID": "5582",
+        "PATH": "./node_modules/.bin:/home/xln/geo-system/platform-v2/node_modules/.bin:/home/xln/.local/bin:/home/xln/.config/nvm/versions/node/v24.6.0/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/codex-path:/home/xln/.codex/tmp/arg0/codex-arg04aG9US:/home/xln/.local/bin:/home/xln/.kimi-code/bin:/home/xln/.deno/bin:/home/xln/.local/bin:/home/xln/.kimi-code/bin:/home/xln/.deno/bin:/home/xln/.local/bin:/home/xln/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand:/home/xln/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli:/home/xln/.vscode-server/cli/servers/Stable-df53daabb18cd157bdb08c7f01c34df936cf12f4/server/bin/remote-cli:/home/xln/.local/bin:/home/xln/.kimi-code/bin:/home/xln/google-cloud-sdk/bin:/home/xln/.deno/bin:/home/xln/.config/nvm/versions/node/v24.6.0/bin:/home/xln/.local/bin:/home/xln/.deno/bin:/home/xln/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/home/xln/.vscode-server/extensions/ms-python.debugpy-2026.6.0-linux-x64/bundled/scripts/noConfigScripts",
         "XDG_RUNTIME_DIR": "/run/user/1000",
-        "VSCODE_DEBUGPY_ADAPTER_ENDPOINTS": "/home/xln/.vscode-server/extensions/ms-python.debugpy-2026.6.0-linux-x64/.noConfigDebugAdapterEndpoints/endpoint-b4ba1648c8eb5e70.txt",
+        "VSCODE_DEBUGPY_ADAPTER_ENDPOINTS": "/home/xln/.vscode-server/extensions/ms-python.debugpy-2026.6.0-linux-x64/.noConfigDebugAdapterEndpoints/endpoint-70a46e768030bfa5.txt",
         "LANG": "C.UTF-8",
-        "PYTHONSTARTUP": "/home/xln/.vscode-server/data/User/workspaceStorage/ce453d1112b3c2b22346e34462d801db/ms-python.python/pythonrc.py",
+        "PYTHONSTARTUP": "/home/xln/.vscode-server/data/User/workspaceStorage/064617a2688c468aa40abc1ece39445c/ms-python.python/pythonrc.py",
         "GH_PAGER": "cat",
         "LS_COLORS": "rs=0:di=01;34:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=30;41:tw=30;42:ow=34;42:st=37;44:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arc=01;31:*.arj=01;31:*.taz=01;31:*.lha=01;31:*.lz4=01;31:*.lzh=01;31:*.lzma=01;31:*.tlz=01;31:*.txz=01;31:*.tzo=01;31:*.t7z=01;31:*.zip=01;31:*.z=01;31:*.dz=01;31:*.gz=01;31:*.lrz=01;31:*.lz=01;31:*.lzo=01;31:*.xz=01;31:*.zst=01;31:*.tzst=01;31:*.bz2=01;31:*.bz=01;31:*.tbz=01;31:*.tbz2=01;31:*.tz=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.war=01;31:*.ear=01;31:*.sar=01;31:*.rar=01;31:*.alz=01;31:*.ace=01;31:*.zoo=01;31:*.cpio=01;31:*.7z=01;31:*.rz=01;31:*.cab=01;31:*.wim=01;31:*.swm=01;31:*.dwm=01;31:*.esd=01;31:*.jpg=01;35:*.jpeg=01;35:*.mjpg=01;35:*.mjpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.svg=01;35:*.svgz=01;35:*.mng=01;35:*.pcx=01;35:*.mov=01;35:*.mpg=01;35:*.mpeg=01;35:*.m2v=01;35:*.mkv=01;35:*.webm=01;35:*.webp=01;35:*.ogm=01;35:*.mp4=01;35:*.m4v=01;35:*.mp4v=01;35:*.vob=01;35:*.qt=01;35:*.nuv=01;35:*.wmv=01;35:*.asf=01;35:*.rm=01;35:*.rmvb=01;35:*.flc=01;35:*.avi=01;35:*.fli=01;35:*.flv=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.yuv=01;35:*.cgm=01;35:*.emf=01;35:*.ogv=01;35:*.ogx=01;35:*.aac=00;36:*.au=00;36:*.flac=00;36:*.m4a=00;36:*.mid=00;36:*.midi=00;36:*.mka=00;36:*.mp3=00;36:*.mpc=00;36:*.ogg=00;36:*.ra=00;36:*.wav=00;36:*.oga=00;36:*.opus=00;36:*.spx=00;36:*.xspf=00;36:",
         "CLAUDE_CODE_DISABLE_1M_CONTEXT": "1",
-        "VSCODE_GIT_IPC_HANDLE": "/run/user/1000/vscode-git-33f2b7f329.sock",
-        "TERM_PROGRAM": "vscode",
+        "VSCODE_GIT_IPC_HANDLE": "/run/user/1000/vscode-git-732bafe257.sock",
+        "TERM_PROGRAM": "tmux",
         "SHELL": "/bin/bash",
         "NODE_PATH": "/home/xln/geo-system/platform-v2/node_modules/.pnpm/@playwright+test@1.61.1/node_modules/@playwright/test/node_modules:/home/xln/geo-system/platform-v2/node_modules/.pnpm/@playwright+test@1.61.1/node_modules:/home/xln/geo-system/platform-v2/node_modules/.pnpm/node_modules",
         "LESSCLOSE": "/usr/bin/lesspipe %s %s",
-        "CODEX_THREAD_ID": "01a00f47-88f1-7b72-a4d9-59fa04c76b0a",
+        "CODEX_THREAD_ID": "01a00e81-ba7a-77a3-b0b1-5a2a50dcafb3",
         "PNPM_PACKAGE_NAME": "geo-platform-v2",
         "VSCODE_GIT_ASKPASS_EXTRA_ARGS": "",
         "GIT_PAGER": "cat",
@@ -352,32 +357,33 @@
         "DISABLE_AUTOUPDATER": "1",
         "LC_ALL": "C.UTF-8",
         "CODEX_MANAGED_PACKAGE_ROOT": "/home/xln/.config/nvm/versions/node/v24.6.0/lib/node_modules/@openai/codex",
-        "COPILOT_DEBUG_NONCE": "30f44bcb56fce761b4e710f9b7cf855e",
+        "COPILOT_DEBUG_NONCE": "9abf7f5d3e8c784e97955dcc9fdda180",
         "SSH_CONNECTION": "114.248.4.235 59999 172.16.1.190 2222",
         "NVM_CD_FLAGS": "",
         "XDG_DATA_DIRS": "/usr/share/gnome:/usr/local/share:/usr/share:/var/lib/snapd/desktop",
-        "GEO_E2E_REUSE_SERVER": "1",
+        "HTTP_PROXY": "",
         "npm_command": "exec",
         "CODEX_MANAGED_BY_NPM": "1",
+        "TMUX_PANE": "%71",
         "GEO_VITE_NO_WATCH": "1",
         "GEO_E2E_BUILD": "1",
         "VITE_ALLOW_CONTRACT_FIXTURES": "true",
         "VITE_GEO_API_BASE": ""
       },
-      "reuseExistingServer": true,
+      "reuseExistingServer": false,
       "timeout": 240000
     }
   },
   "suites": [
     {
-      "title": "customer-accessibility.spec.ts",
-      "file": "customer-accessibility.spec.ts",
+      "title": "customer-visual.spec.ts",
+      "file": "customer-visual.spec.ts",
       "column": 0,
       "line": 0,
       "specs": [
         {
-          "title": "customer shell is keyboard reachable and WCAG AA clean",
-          "ok": false,
+          "title": "customer home visual baseline has no page overflow",
+          "ok": true,
           "tags": [],
           "tests": [
             {
@@ -390,50 +396,130 @@
                 {
                   "workerIndex": 0,
                   "parallelIndex": 0,
-                  "status": "timedOut",
-                  "duration": 30188,
-                  "error": {
-                    "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m",
-                    "stack": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m"
-                  },
-                  "errors": [
-                    {
-                      "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m"
-                    },
-                    {
-                      "location": {
-                        "file": "/home/xln/geo-system/platform-v2/tests/e2e/customer-accessibility.spec.ts",
-                        "column": 52,
-                        "line": 46
-                      },
-                      "message": "Error: locator.click: Test timeout of 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('button', { name: '监测表现' })\u001b[22m\n\n\n  44 |   await expect(page.getByRole('heading', { name: '请在豆包原生页面完成验证' })).toBeVisible();\n  45 |   await expectAccessible(page);\n> 46 |   await page.getByRole('button', { name: '监测表现' }).click();\n     |                                                    ^\n  47 |   await page.getByText('近五个冻结日品牌提及率趋势图表已渲染').waitFor();\n  48 |   await expectAccessible(page);\n  49 |   await page.getByRole('button', { name: '回答明细' }).click();\n    at /home/xln/geo-system/platform-v2/tests/e2e/customer-accessibility.spec.ts:46:52"
-                    }
-                  ],
+                  "status": "passed",
+                  "duration": 2010,
+                  "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-08-17T10:40:12.972Z",
+                  "startTime": "2026-08-17T11:38:42.656Z",
                   "annotations": [],
-                  "attachments": [
-                    {
-                      "name": "error-context",
-                      "contentType": "text/markdown",
-                      "path": "/home/xln/geo-system/platform-v2/tests/e2e-results/customer-accessibility-cus-015d6-reachable-and-WCAG-AA-clean-customer-desktop/error-context.md"
-                    }
-                  ]
+                  "attachments": []
                 }
               ],
-              "status": "unexpected"
+              "status": "expected"
             }
           ],
-          "id": "342a72a7523f6db49d61-e3d2f913b18ac6910040",
-          "file": "customer-accessibility.spec.ts",
-          "line": 8,
-          "column": 5
+          "id": "e1a80a90cc14ec58051f-88d33941dafb09f9f9a8",
+          "file": "customer-visual.spec.ts",
+          "line": 56,
+          "column": 7
         },
         {
-          "title": "customer shell is keyboard reachable and WCAG AA clean",
-          "ok": false,
+          "title": "customer monitoring visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1358,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-17T11:38:44.918Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-d1a4a439452485ac7a22",
+          "file": "customer-visual.spec.ts",
+          "line": 56,
+          "column": 7
+        },
+        {
+          "title": "customer home visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1834,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-17T11:38:46.798Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-ef207ee0f51396339285",
+          "file": "customer-visual.spec.ts",
+          "line": 56,
+          "column": 7
+        },
+        {
+          "title": "customer monitoring visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1198,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-17T11:38:48.876Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-1a49e883abefde82458a",
+          "file": "customer-visual.spec.ts",
+          "line": 56,
+          "column": 7
+        },
+        {
+          "title": "customer home visual baseline has no page overflow",
+          "ok": true,
           "tags": [],
           "tests": [
             {
@@ -444,59 +530,71 @@
               "projectName": "customer-mobile",
               "results": [
                 {
-                  "workerIndex": 1,
+                  "workerIndex": 2,
                   "parallelIndex": 0,
-                  "status": "timedOut",
-                  "duration": 30185,
-                  "error": {
-                    "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m",
-                    "stack": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m"
-                  },
-                  "errors": [
-                    {
-                      "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m"
-                    },
-                    {
-                      "location": {
-                        "file": "/home/xln/geo-system/platform-v2/tests/e2e/customer-accessibility.spec.ts",
-                        "column": 52,
-                        "line": 46
-                      },
-                      "message": "Error: locator.click: Test timeout of 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('button', { name: '监测表现' })\u001b[22m\n\n\n  44 |   await expect(page.getByRole('heading', { name: '请在豆包原生页面完成验证' })).toBeVisible();\n  45 |   await expectAccessible(page);\n> 46 |   await page.getByRole('button', { name: '监测表现' }).click();\n     |                                                    ^\n  47 |   await page.getByText('近五个冻结日品牌提及率趋势图表已渲染').waitFor();\n  48 |   await expectAccessible(page);\n  49 |   await page.getByRole('button', { name: '回答明细' }).click();\n    at /home/xln/geo-system/platform-v2/tests/e2e/customer-accessibility.spec.ts:46:52"
-                    }
-                  ],
+                  "status": "passed",
+                  "duration": 1524,
+                  "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-08-17T10:40:43.949Z",
+                  "startTime": "2026-08-17T11:38:50.596Z",
                   "annotations": [],
-                  "attachments": [
-                    {
-                      "name": "error-context",
-                      "contentType": "text/markdown",
-                      "path": "/home/xln/geo-system/platform-v2/tests/e2e-results/customer-accessibility-cus-015d6-reachable-and-WCAG-AA-clean-customer-mobile/error-context.md"
-                    }
-                  ]
+                  "attachments": []
                 }
               ],
-              "status": "unexpected"
+              "status": "expected"
             }
           ],
-          "id": "342a72a7523f6db49d61-ac08dd1f56bf8eec2b06",
-          "file": "customer-accessibility.spec.ts",
-          "line": 8,
-          "column": 5
+          "id": "e1a80a90cc14ec58051f-47cfe387b8ad8e7a639d",
+          "file": "customer-visual.spec.ts",
+          "line": 56,
+          "column": 7
+        },
+        {
+          "title": "customer monitoring visual baseline has no page overflow",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-mobile",
+              "projectName": "customer-mobile",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 977,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-17T11:38:52.334Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "e1a80a90cc14ec58051f-f329281d9ed96f09a6d6",
+          "file": "customer-visual.spec.ts",
+          "line": 56,
+          "column": 7
         }
       ]
     }
   ],
   "errors": [],
   "stats": {
-    "startTime": "2026-08-17T10:40:12.532Z",
-    "duration": 61977.303,
-    "expected": 0,
+    "startTime": "2026-08-17T11:38:10.340Z",
+    "duration": 43128.729,
+    "expected": 6,
     "skipped": 0,
-    "unexpected": 2,
+    "unexpected": 0,
     "flaky": 0
   }
 }

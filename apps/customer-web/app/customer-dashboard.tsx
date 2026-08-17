@@ -1269,6 +1269,15 @@ export function CustomerAnalyticsWorkspace({
   if (state === 'empty') return <StatePanel state="insufficient" />;
   if (!dashboard) return <StatePanel state="insufficient" />;
 
+  const visibleFilterOptions =
+    state === 'fixture'
+      ? {
+          model: dashboard.models.map((row) => row.key),
+          region: dashboard.regions.map((row) => row.key),
+          mode: dashboard.modes.map((row) => row.key),
+        }
+      : filterOptions;
+
   const metricGroupsForFocus: Record<CustomerAnalyticsFocus, readonly string[]> = {
     overview: [
       'composite',
@@ -1311,7 +1320,7 @@ export function CustomerAnalyticsWorkspace({
           <small>{dashboard.snapshot_hash.slice(0, 12)}</small>
         </div>
       </section>
-      <DashboardFilters options={filterOptions} urlState={urlState} setFilter={setFilter} />
+      <DashboardFilters options={visibleFilterOptions} urlState={urlState} setFilter={setFilter} />
 
       {focus === 'overview' || focus === 'visibility' ? (
         <DashboardSection>

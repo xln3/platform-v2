@@ -630,34 +630,55 @@ test('monitoring filters are URL-bound and restore through browser history', asy
     }),
   );
   await page.goto('/platform/customer/');
-  await page.getByRole('button', { name: '监测表现' }).click();
+  await page.getByRole('button', { name: '品牌可见度' }).click();
   await expect(page).toHaveURL(/section=monitoring/);
-  await expect(page.getByText('各模型品牌提及率图表已渲染')).toBeAttached();
-  await expect(page.getByRole('table', { name: /各模型品牌提及率/ })).toBeVisible();
-  await page.getByLabel('模型', { exact: true }).selectOption('deepseek');
-  await expect(page).toHaveURL(/model=deepseek/);
-  await page.getByLabel('回答模式', { exact: true }).selectOption('deep');
-  await expect(page).toHaveURL(/mode=deep/);
-  await page.getByLabel('时间窗口').selectOption('7d');
-  await expect(page).toHaveURL(/window=7d/);
-  await page.getByLabel('监测地域').selectOption('east');
-  await expect(page).toHaveURL(/region=east/);
-  await expect(page.getByRole('heading', { name: '竞品表现' })).toBeVisible();
-  await expect(page.getByRole('table', { name: '近五个冻结日品牌提及率趋势' })).toBeVisible();
-  await expect(page.getByRole('table', { name: '品牌与确认竞品提及率' })).toBeVisible();
-  await expect(page.getByLabel('地域与回答模式表现')).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: '云岫智能 · 品牌可见度与模型表现' }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('img', { name: '品牌提及率、Top3 率和引用覆盖率趋势' }),
+  ).toBeVisible();
+  await expect(page.getByLabel('模型表现数据表')).toBeVisible();
+  await expect(page.getByLabel('地区表现数据表')).toBeVisible();
+  await expect(page.getByLabel('回答模式表现数据表')).toBeVisible();
+  const analysisFilters = page.getByLabel('分析筛选');
+  const modelFilter = analysisFilters
+    .locator('label')
+    .filter({ hasText: /^AI 模型/ })
+    .locator('select');
+  const modeFilter = analysisFilters
+    .locator('label')
+    .filter({ hasText: /^回答模式/ })
+    .locator('select');
+  const windowFilter = analysisFilters
+    .locator('label')
+    .filter({ hasText: /^观察窗口/ })
+    .locator('select');
+  const regionFilter = analysisFilters
+    .locator('label')
+    .filter({ hasText: /^地区/ })
+    .locator('select');
+  await modelFilter.selectOption('DeepSeek');
+  await expect.poll(() => new URL(page.url()).searchParams.get('model')).toBe('DeepSeek');
+  await modeFilter.selectOption('深度回答');
+  await expect.poll(() => new URL(page.url()).searchParams.get('mode')).toBe('深度回答');
+  await windowFilter.selectOption('7d');
+  await expect.poll(() => new URL(page.url()).searchParams.get('window')).toBe('7d');
+  await regionFilter.selectOption('华东');
+  await expect.poll(() => new URL(page.url()).searchParams.get('region')).toBe('华东');
+  await expect(page.getByRole('heading', { name: '云岫智能 · 真实 AI 回答' })).toBeVisible();
 
   await page.goBack();
-  await expect(page.getByLabel('监测地域')).toHaveValue('all');
-  await expect(page.getByLabel('时间窗口')).toHaveValue('7d');
+  await expect(regionFilter).toHaveValue('all');
+  await expect(windowFilter).toHaveValue('7d');
   await page.goBack();
-  await expect(page.getByLabel('时间窗口')).toHaveValue('30d');
-  await expect(page.getByLabel('回答模式', { exact: true })).toHaveValue('deep');
+  await expect(windowFilter).toHaveValue('30d');
+  await expect(modeFilter).toHaveValue('深度回答');
   await page.goBack();
-  await expect(page.getByLabel('回答模式', { exact: true })).toHaveValue('all');
-  await expect(page.getByLabel('模型', { exact: true })).toHaveValue('deepseek');
+  await expect(modeFilter).toHaveValue('all');
+  await expect(modelFilter).toHaveValue('DeepSeek');
   await page.goBack();
-  await expect(page.getByLabel('模型', { exact: true })).toHaveValue('all');
+  await expect(modelFilter).toHaveValue('all');
 });
 
 test('customer profile, brand assets and configuration requests validate and submit', async ({
