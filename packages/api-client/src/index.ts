@@ -257,6 +257,83 @@ export type AnalyticsOverviewMetric = Pick<
   | 'filter_hash'
 >;
 export type AnalyticsOverviewSafeResponse = AnalyticsOverviewMetric[];
+type CustomerDashboardContractResponse =
+  paths['/api/v2/customer-dashboard/projects/{project_pub_id}']['get']['responses']['200']['content']['application/json'];
+type CustomerMetricContractView = CustomerDashboardContractResponse['metrics'][number];
+export type CustomerMetricProjection = Pick<
+  CustomerMetricContractView,
+  'code' | 'label' | 'group' | 'format' | 'direction' | 'value' | 'state' | 'version'
+>;
+export type CustomerDimensionProjection = {
+  key: string;
+  label: string;
+  metrics: CustomerMetricProjection[];
+};
+export type CustomerCompetitorProjection = {
+  name: string;
+  metrics: CustomerMetricProjection[];
+};
+export type CustomerQuestionProjection = {
+  query_pub_id: string;
+  query_text: string;
+  query_group: string | null;
+  metrics: CustomerMetricProjection[];
+};
+export type CustomerSourceProjection = {
+  host: string;
+  references: number;
+  share: number | null;
+  own_source: boolean;
+  answers: number;
+};
+export type CustomerTrendProjection = {
+  date: string;
+  metrics: CustomerMetricProjection[];
+};
+export type CustomerDashboardProjection = Pick<
+  CustomerDashboardContractResponse,
+  | 'schema_version'
+  | 'metric_version'
+  | 'project_pub_id'
+  | 'brand_name'
+  | 'state'
+  | 'generated_at'
+  | 'as_of'
+  | 'snapshot_hash'
+> & {
+  window: {
+    start: string | null;
+    end: string | null;
+    filters: Partial<Record<'model' | 'region' | 'mode', string>>;
+  };
+  metrics: CustomerMetricProjection[];
+  models: CustomerDimensionProjection[];
+  competitors: CustomerCompetitorProjection[];
+  questions: CustomerQuestionProjection[];
+  sources: CustomerSourceProjection[];
+  regions: CustomerDimensionProjection[];
+  modes: CustomerDimensionProjection[];
+  trends: CustomerTrendProjection[];
+  risk: {
+    metrics: CustomerMetricProjection[];
+    by_model: CustomerDimensionProjection[];
+  };
+  source_audit: {
+    metrics: CustomerMetricProjection[];
+    verdicts: Record<string, number>;
+  };
+};
+type CustomerMetricCatalogContractResponse =
+  paths['/api/v2/customer-dashboard/metrics/catalog']['get']['responses']['200']['content']['application/json'];
+type CustomerMetricSpecContractView = CustomerMetricCatalogContractResponse['metrics'][number];
+export type CustomerMetricSpecProjection = Pick<
+  CustomerMetricSpecContractView,
+  'code' | 'label' | 'group' | 'format' | 'direction' | 'description' | 'version'
+>;
+export type CustomerMetricCatalogProjection = {
+  schema_version: 'customer-metric-catalog-v1';
+  metrics: CustomerMetricSpecProjection[];
+};
 type AnalyticsBreakdownContractResponse =
   paths['/api/v2/analytics/breakdown']['get']['responses']['200']['content']['application/json'];
 type AnalyticsBreakdownContractView = AnalyticsBreakdownContractResponse[number];
@@ -1132,6 +1209,19 @@ export const customerAnalyticsProjectionLimits = {
   question: 100,
 } as const;
 
+export const customerDashboardProjectionLimits = {
+  metrics: 100,
+  models: 100,
+  competitors: 200,
+  questions: 1_000,
+  sources: 5_000,
+  regions: 200,
+  modes: 100,
+  trends: 367,
+  riskModels: 100,
+  metricCatalog: 200,
+} as const;
+
 export const customerEvidenceReadProjectionLimits = {
   answers: 200,
   assets: 200,
@@ -1708,6 +1798,50 @@ export async function getAnalyticsOverview(
   }
 }
 
+export async function getCustomerDashboard(
+  projectPubId: string,
+  start: string,
+  end: string,
+  filters: { model?: string; region?: string; mode?: string },
+  headers: IdentitySessionHeaders,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<ProjectResourceResult<CustomerDashboardProjection>> {
+  try {
+    const result = await projectedApiClient(client).GET(
+      '/api/v2/customer-dashboard/projects/{project_pub_id}',
+      {
+        params: {
+          path: { project_pub_id: projectPubId },
+          query: { start, end, ...filters },
+          header: headers,
+        },
+      },
+    );
+    if (!result.data) return classifyResourceFailure(result.response.status);
+    const projected = projectCustomerDashboardBoundary(result.data, projectPubId);
+    return projected ? { kind: 'ready', data: projected } : { kind: 'unavailable' };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+export async function getCustomerMetricCatalog(
+  headers: IdentitySessionHeaders,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<ProjectResourceResult<CustomerMetricCatalogProjection>> {
+  try {
+    const result = await projectedApiClient(client).GET(
+      '/api/v2/customer-dashboard/metrics/catalog',
+      { params: { header: headers } },
+    );
+    if (!result.data) return classifyResourceFailure(result.response.status);
+    const projected = projectCustomerMetricCatalogBoundary(result.data);
+    return projected ? { kind: 'ready', data: projected } : { kind: 'unavailable' };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
 export async function getAnalyticsBreakdown(
   projectPubId: string,
   start: string,
@@ -2031,6 +2165,433 @@ const safeBrowserEnum = <const Values extends readonly string[]>(
   typeof value === 'string' && (allowed as readonly string[]).includes(value)
     ? (value as Values[number])
     : null;
+
+const customerDashboardForbiddenOperationalFields = new Set([
+  'totaltasks',
+  'completedtasks',
+  'failedtasks',
+  'successrate',
+  'tasksuccessrate',
+  'collectionsuccessrate',
+  'attemptcount',
+  'workflowid',
+  'temporalrunid',
+  'browserinstance',
+  'platformaccount',
+  'accountpubid',
+  'errorcode',
+]);
+
+const customerDashboardContainsOperationalField = (value: unknown): boolean => {
+  const pending: unknown[] = [value];
+  let visited = 0;
+  while (pending.length) {
+    const candidate = pending.pop();
+    visited += 1;
+    if (visited > 250_000) return true;
+    if (Array.isArray(candidate)) {
+      pending.push(...candidate);
+      continue;
+    }
+    if (!isBrowserRecord(candidate)) continue;
+    for (const [key, child] of Object.entries(candidate)) {
+      const normalized = key.toLowerCase().replace(/[^a-z0-9]/gu, '');
+      if (customerDashboardForbiddenOperationalFields.has(normalized)) return true;
+      pending.push(child);
+    }
+  }
+  return false;
+};
+
+const safeCustomerDashboardDate = (value: unknown): string | null => {
+  const candidate = safeBrowserString(value, 10);
+  return candidate && projectSafeIsoTimestamp(`${candidate}T00:00:00Z`) ? candidate : null;
+};
+
+const safeCustomerQueryPubId = (value: unknown): string | null =>
+  typeof value === 'string' &&
+  value.length <= 120 &&
+  /^qry_(?:hash_)?[A-Za-z0-9_-]{1,116}$/u.test(value)
+    ? value
+    : null;
+
+const safeCustomerSourceHost = (value: unknown): string | null => {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 255) return null;
+  const normalized = value.toLowerCase().replace(/\.$/u, '');
+  if (normalized !== value || /[\s/:?#]/u.test(normalized)) return null;
+  const labels = normalized.split('.');
+  if (
+    labels.length < 2 ||
+    labels.some(
+      (label) =>
+        label.length === 0 ||
+        label.length > 63 ||
+        !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/u.test(label),
+    )
+  ) {
+    return null;
+  }
+  if (labels.length === 4 && labels.every((label) => /^\d{1,3}$/u.test(label))) {
+    return labels.every((label) => Number(label) <= 255) ? normalized : null;
+  }
+  return normalized;
+};
+
+const projectCustomerMetricBoundary = (value: unknown): CustomerMetricProjection | null => {
+  if (!isBrowserRecord(value)) return null;
+  const code = safeBrowserString(value.code, 80);
+  const label = safeBrowserString(value.label, 120);
+  const group = safeBrowserString(value.group, 40);
+  const format = safeBrowserEnum(value.format, [
+    'percentage',
+    'score',
+    'rank',
+    'count',
+    'decimal',
+  ] as const);
+  const direction = safeBrowserEnum(value.direction, ['higher', 'lower', 'neutral'] as const);
+  const state = safeBrowserEnum(value.state, ['ready', 'not_ready'] as const);
+  const version = safeBrowserString(value.version, 80);
+  const metricValue =
+    value.value === null
+      ? null
+      : typeof value.value === 'number' && Number.isFinite(value.value)
+        ? value.value
+        : undefined;
+  if (
+    !code ||
+    !/^[a-z][a-z0-9_]{0,79}$/u.test(code) ||
+    !label ||
+    !group ||
+    !format ||
+    !direction ||
+    !state ||
+    !version ||
+    metricValue === undefined ||
+    (state === 'not_ready' && metricValue !== null) ||
+    (state === 'ready' && metricValue === null)
+  ) {
+    return null;
+  }
+  if (metricValue !== null) {
+    const inDomain =
+      format === 'percentage'
+        ? metricValue >= 0 && metricValue <= 1
+        : format === 'score'
+          ? metricValue >= 0 && metricValue <= 100
+          : format === 'rank'
+            ? metricValue >= 1 && metricValue <= 1_000_000
+            : format === 'count'
+              ? Number.isSafeInteger(metricValue) && metricValue >= 0
+              : Math.abs(metricValue) <= 1_000_000_000;
+    if (!inDomain) return null;
+  }
+  return { code, label, group, format, direction, value: metricValue, state, version };
+};
+
+const projectCustomerMetricList = (
+  value: unknown,
+  limit = customerDashboardProjectionLimits.metrics,
+): CustomerMetricProjection[] | null => {
+  if (!Array.isArray(value) || value.length > limit) return null;
+  const projected: CustomerMetricProjection[] = [];
+  const codes = new Set<string>();
+  for (const candidate of value) {
+    const metric = projectCustomerMetricBoundary(candidate);
+    if (!metric || codes.has(metric.code)) return null;
+    codes.add(metric.code);
+    projected.push(metric);
+  }
+  return projected;
+};
+
+const projectCustomerDimensionList = (
+  value: unknown,
+  limit: number,
+): CustomerDimensionProjection[] | null => {
+  if (!Array.isArray(value) || value.length > limit) return null;
+  const projected: CustomerDimensionProjection[] = [];
+  const keys = new Set<string>();
+  for (const candidate of value) {
+    if (!isBrowserRecord(candidate)) return null;
+    const key = safeBrowserString(candidate.key, 160);
+    const label = safeBrowserString(candidate.label, 160);
+    const metrics = projectCustomerMetricList(candidate.metrics);
+    if (!key || !label || !metrics || keys.has(key)) return null;
+    keys.add(key);
+    projected.push({ key, label, metrics });
+  }
+  return projected;
+};
+
+const projectCustomerCompetitors = (value: unknown): CustomerCompetitorProjection[] | null => {
+  if (!Array.isArray(value) || value.length > customerDashboardProjectionLimits.competitors) {
+    return null;
+  }
+  const projected: CustomerCompetitorProjection[] = [];
+  const names = new Set<string>();
+  for (const candidate of value) {
+    if (!isBrowserRecord(candidate)) return null;
+    const name = safeBrowserString(candidate.name, 200);
+    const metrics = projectCustomerMetricList(candidate.metrics);
+    if (!name || !metrics || names.has(name)) return null;
+    names.add(name);
+    projected.push({ name, metrics });
+  }
+  return projected;
+};
+
+const projectCustomerQuestions = (value: unknown): CustomerQuestionProjection[] | null => {
+  if (!Array.isArray(value) || value.length > customerDashboardProjectionLimits.questions) {
+    return null;
+  }
+  const projected: CustomerQuestionProjection[] = [];
+  const ids = new Set<string>();
+  for (const candidate of value) {
+    if (!isBrowserRecord(candidate)) return null;
+    const queryPubId = safeCustomerQueryPubId(candidate.query_pub_id);
+    const queryText = safeBrowserString(candidate.query_text, 2_000);
+    const queryGroup =
+      candidate.query_group === null || candidate.query_group === undefined
+        ? null
+        : safeBrowserString(candidate.query_group, 200);
+    const metrics = projectCustomerMetricList(candidate.metrics);
+    if (
+      !queryPubId ||
+      !queryText ||
+      (queryGroup === null &&
+        candidate.query_group !== null &&
+        candidate.query_group !== undefined) ||
+      !metrics ||
+      ids.has(queryPubId)
+    ) {
+      return null;
+    }
+    ids.add(queryPubId);
+    projected.push({
+      query_pub_id: queryPubId,
+      query_text: queryText,
+      query_group: queryGroup,
+      metrics,
+    });
+  }
+  return projected;
+};
+
+const projectCustomerSources = (value: unknown): CustomerSourceProjection[] | null => {
+  if (!Array.isArray(value) || value.length > customerDashboardProjectionLimits.sources) {
+    return null;
+  }
+  const projected: CustomerSourceProjection[] = [];
+  const hosts = new Set<string>();
+  for (const candidate of value) {
+    if (!isBrowserRecord(candidate)) return null;
+    const host = safeCustomerSourceHost(candidate.host);
+    const references = safeCount(candidate.references);
+    const answers = safeCount(candidate.answers);
+    const share =
+      candidate.share === null || candidate.share === undefined
+        ? null
+        : typeof candidate.share === 'number' &&
+            Number.isFinite(candidate.share) &&
+            candidate.share >= 0 &&
+            candidate.share <= 1
+          ? candidate.share
+          : undefined;
+    if (
+      !host ||
+      references === null ||
+      answers === null ||
+      share === undefined ||
+      typeof candidate.own_source !== 'boolean' ||
+      hosts.has(host)
+    ) {
+      return null;
+    }
+    hosts.add(host);
+    projected.push({ host, references, share, own_source: candidate.own_source, answers });
+  }
+  return projected;
+};
+
+const projectCustomerTrends = (value: unknown): CustomerTrendProjection[] | null => {
+  if (!Array.isArray(value) || value.length > customerDashboardProjectionLimits.trends) return null;
+  const projected: CustomerTrendProjection[] = [];
+  const dates = new Set<string>();
+  for (const candidate of value) {
+    if (!isBrowserRecord(candidate)) return null;
+    const date = safeCustomerDashboardDate(candidate.date);
+    const metrics = projectCustomerMetricList(candidate.metrics);
+    if (!date || !metrics || dates.has(date)) return null;
+    dates.add(date);
+    projected.push({ date, metrics });
+  }
+  return projected;
+};
+
+const projectCustomerWindow = (value: unknown): CustomerDashboardProjection['window'] | null => {
+  if (!isBrowserRecord(value) || !isBrowserRecord(value.filters)) return null;
+  const start = value.start === null ? null : safeCustomerDashboardDate(value.start);
+  const end = value.end === null ? null : safeCustomerDashboardDate(value.end);
+  if ((value.start !== null && !start) || (value.end !== null && !end)) return null;
+  const filters: Partial<Record<'model' | 'region' | 'mode', string>> = {};
+  const entries = Object.entries(value.filters);
+  if (entries.length > 3) return null;
+  for (const [key, raw] of entries) {
+    if (!['model', 'region', 'mode'].includes(key)) return null;
+    const projected = safeBrowserString(raw, key === 'mode' ? 80 : 120);
+    if (!projected) return null;
+    filters[key as 'model' | 'region' | 'mode'] = projected;
+  }
+  return { start, end, filters };
+};
+
+export function projectCustomerDashboardBoundary(
+  value: unknown,
+  expectedProjectPubId: string,
+): CustomerDashboardProjection | null {
+  if (
+    !isBrowserRecord(value) ||
+    customerDashboardContainsOperationalField(value) ||
+    value.schema_version !== 'customer-dashboard-v1' ||
+    value.metric_version !== 'customer-metrics-v1' ||
+    value.project_pub_id !== expectedProjectPubId ||
+    !/^prj_[A-Za-z0-9_-]{1,116}$/u.test(expectedProjectPubId)
+  ) {
+    return null;
+  }
+  const brandName = safeBrowserString(value.brand_name, 200);
+  const state = safeBrowserEnum(value.state, ['ready', 'building'] as const);
+  const generatedAt = projectSafeIsoTimestamp(value.generated_at);
+  const asOf = value.as_of === null ? null : projectSafeIsoTimestamp(value.as_of);
+  const window = projectCustomerWindow(value.window);
+  const metrics = projectCustomerMetricList(value.metrics);
+  const models = projectCustomerDimensionList(
+    value.models,
+    customerDashboardProjectionLimits.models,
+  );
+  const competitors = projectCustomerCompetitors(value.competitors);
+  const questions = projectCustomerQuestions(value.questions);
+  const sources = projectCustomerSources(value.sources);
+  const regions = projectCustomerDimensionList(
+    value.regions,
+    customerDashboardProjectionLimits.regions,
+  );
+  const modes = projectCustomerDimensionList(value.modes, customerDashboardProjectionLimits.modes);
+  const trends = projectCustomerTrends(value.trends);
+  const snapshotHash = safeHash(value.snapshot_hash);
+  if (
+    !brandName ||
+    !state ||
+    !generatedAt ||
+    (value.as_of !== null && !asOf) ||
+    !window ||
+    !metrics ||
+    !models ||
+    !competitors ||
+    !questions ||
+    !sources ||
+    !regions ||
+    !modes ||
+    !trends ||
+    !snapshotHash ||
+    !isBrowserRecord(value.risk) ||
+    !isBrowserRecord(value.source_audit)
+  ) {
+    return null;
+  }
+  const riskMetrics = projectCustomerMetricList(value.risk.metrics);
+  const riskModels = projectCustomerDimensionList(
+    value.risk.by_model,
+    customerDashboardProjectionLimits.riskModels,
+  );
+  const sourceAuditMetrics = projectCustomerMetricList(value.source_audit.metrics);
+  if (
+    !riskMetrics ||
+    !riskModels ||
+    !sourceAuditMetrics ||
+    !isBrowserRecord(value.source_audit.verdicts)
+  ) {
+    return null;
+  }
+  const verdicts: Record<string, number> = {};
+  if (Object.keys(value.source_audit.verdicts).length > 20) return null;
+  for (const [key, count] of Object.entries(value.source_audit.verdicts)) {
+    const safeKey = safeBrowserString(key, 40);
+    const safeValue = safeCount(count);
+    if (!safeKey || safeValue === null) return null;
+    verdicts[safeKey] = safeValue;
+  }
+  return {
+    schema_version: 'customer-dashboard-v1',
+    metric_version: 'customer-metrics-v1',
+    project_pub_id: expectedProjectPubId,
+    brand_name: brandName,
+    state,
+    generated_at: generatedAt,
+    as_of: asOf,
+    window,
+    metrics,
+    models,
+    competitors,
+    questions,
+    sources,
+    regions,
+    modes,
+    trends,
+    risk: { metrics: riskMetrics, by_model: riskModels },
+    source_audit: { metrics: sourceAuditMetrics, verdicts },
+    snapshot_hash: snapshotHash,
+  };
+}
+
+export function projectCustomerMetricCatalogBoundary(
+  value: unknown,
+): CustomerMetricCatalogProjection | null {
+  if (
+    !isBrowserRecord(value) ||
+    value.schema_version !== 'customer-metric-catalog-v1' ||
+    !Array.isArray(value.metrics) ||
+    value.metrics.length > customerDashboardProjectionLimits.metricCatalog ||
+    customerDashboardContainsOperationalField(value)
+  ) {
+    return null;
+  }
+  const metrics: CustomerMetricSpecProjection[] = [];
+  const codes = new Set<string>();
+  for (const candidate of value.metrics) {
+    if (!isBrowserRecord(candidate)) return null;
+    const code = safeBrowserString(candidate.code, 80);
+    const label = safeBrowserString(candidate.label, 120);
+    const group = safeBrowserString(candidate.group, 40);
+    const format = safeBrowserEnum(candidate.format, [
+      'percentage',
+      'score',
+      'rank',
+      'count',
+      'decimal',
+    ] as const);
+    const direction = safeBrowserEnum(candidate.direction, ['higher', 'lower', 'neutral'] as const);
+    const description = safeBrowserString(candidate.description, 500);
+    const version = safeBrowserString(candidate.version, 80);
+    if (
+      !code ||
+      !/^[a-z][a-z0-9_]{0,79}$/u.test(code) ||
+      !label ||
+      !group ||
+      !format ||
+      !direction ||
+      !description ||
+      !version ||
+      codes.has(code)
+    ) {
+      return null;
+    }
+    codes.add(code);
+    metrics.push({ code, label, group, format, direction, description, version });
+  }
+  return { schema_version: 'customer-metric-catalog-v1', metrics };
+}
 
 export function projectHealthBoundary(value: unknown): HealthProjection | null {
   return isBrowserRecord(value) && value.status === 'ok' ? { status: 'ok' } : null;

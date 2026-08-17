@@ -106,6 +106,9 @@ button {
 .sidebar nav {
   display: grid;
   gap: 4px;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
 }
 .sidebar nav button,
 .sidebar nav a {
@@ -183,6 +186,45 @@ button {
 }
 .top-actions button {
   min-width: 24px;
+}
+.project-context-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 20px;
+}
+.project-context-list h3 {
+  margin: 0 0 2px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.project-context-option {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--paper);
+  color: var(--ink);
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  text-align: left;
+  text-decoration: none;
+}
+.project-context-option:not(:disabled):hover {
+  border-color: var(--green);
+  background: var(--green-soft);
+}
+.project-context-option em {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+  white-space: nowrap;
+}
+.project-context-current {
+  border-color: var(--green);
+  background: var(--green-soft);
 }
 .top-actions .session-logout {
   white-space: nowrap;

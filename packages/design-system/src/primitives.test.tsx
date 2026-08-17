@@ -721,6 +721,59 @@ describe('shared experience primitives', () => {
     expect(dialog.textContent).not.toContain('有一项待人工确认');
   });
 
+  it('lists every authorized project and preserves the active project across navigation', () => {
+    render(
+      <ExperienceProvider
+        value={{
+          tenantPubId: 'tnt_safe',
+          tenantLabel: '安全租户',
+          projectPubId: 'prj_security',
+          projectLabel: '盛邦安全-GEO验证',
+          userPubId: 'usr_safe',
+          userLabel: '安全用户',
+          roles: ['customer'],
+          projects: [
+            {
+              projectPubId: 'prj_security',
+              projectLabel: '盛邦安全-GEO验证',
+              state: 'draft',
+            },
+            {
+              projectPubId: 'prj_testdeep',
+              projectLabel: 'testdeep',
+              state: 'paused',
+            },
+          ],
+          source: 'live',
+        }}
+      >
+        <ProductShell
+          product="Customer Web"
+          title="客户工作台"
+          description="安全工作区"
+          nav={[
+            { id: 'home', label: '首页' },
+            { id: 'reports', label: '报告', href: '/platform/customer/reports' },
+          ]}
+          probe={async () => ({ status: 'ok' })}
+        >
+          {() => <section>安全业务内容</section>}
+        </ProductShell>
+      </ExperienceProvider>,
+    );
+
+    expect(screen.getByRole('link', { name: '报告' }).getAttribute('href')).toBe(
+      '/platform/customer/reports?project=prj_security',
+    );
+    fireEvent.click(screen.getByRole('button', { name: /安全租户.*盛邦安全/u }));
+    const dialog = screen.getByRole('dialog', { name: '当前项目上下文' });
+    expect(dialog.textContent).toContain('盛邦安全-GEO验证');
+    expect(dialog.textContent).toContain('testdeep');
+    expect(screen.getByRole('link', { name: /testdeep/u }).getAttribute('href')).toBe(
+      '?project=prj_testdeep',
+    );
+  });
+
   it('projects health status again in the shared shell and ignores superseded probes', async () => {
     let resolveFirst: ((value: { status: string }) => void) | undefined;
     const firstProbe = vi.fn(

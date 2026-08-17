@@ -29,6 +29,8 @@ import {
   getAnalyticsBreakdown,
   getAnalyticsDelta,
   getAnalyticsOverview,
+  getCustomerDashboard,
+  getCustomerMetricCatalog,
   getEvidenceAssetContent,
   getHealth,
   geoApiJsonResponseMaxBytes,
@@ -73,6 +75,8 @@ import {
   logoutIdentitySession,
   publishReport,
   projectCustomerAccountView,
+  projectCustomerDashboardBoundary,
+  projectCustomerMetricCatalogBoundary,
   projectCustomerEventView,
   projectCustomerPairingView,
   projectEvaluationDatasetView,
@@ -5113,6 +5117,125 @@ describe('generated client', () => {
         client,
       ),
     ).toEqual({ kind: 'unavailable' });
+  });
+
+  it('projects the complete customer dashboard and rejects any operational task field', async () => {
+    const metric = (code: string, value: number | null = 0.5) => ({
+      code,
+      label: code === 'mention_rate' ? '品牌提及率' : 'GEO 可见度指数',
+      group: code === 'mention_rate' ? 'visibility' : 'composite',
+      format: code === 'mention_rate' ? 'percentage' : 'score',
+      direction: 'higher',
+      value,
+      state: value === null ? 'not_ready' : 'ready',
+      version: 'customer-metrics-v1',
+    });
+    const payload = {
+      schema_version: 'customer-dashboard-v1',
+      metric_version: 'customer-metrics-v1',
+      project_pub_id: 'prj_safe',
+      brand_name: '盛邦安全',
+      state: 'ready',
+      generated_at: '2026-08-17T08:00:00Z',
+      as_of: '2026-08-16T08:00:00Z',
+      window: { start: '2026-08-01', end: '2026-08-17', filters: {} },
+      metrics: [metric('geo_visibility_index', 72), metric('mention_rate')],
+      models: [{ key: 'doubao', label: '豆包', metrics: [metric('mention_rate')] }],
+      competitors: [{ name: '竞品 A', metrics: [metric('mention_rate', 0.3)] }],
+      questions: [
+        {
+          // Opaque hashes may naturally contain phone-shaped digit runs. The fixed
+          // qry_ grammar is the security boundary; prose DLP must not reject the ID.
+          query_pub_id: 'qry_hash_b5855173086854844b54',
+          query_text: '安全厂商怎么选',
+          query_group: '选型',
+          metrics: [metric('mention_rate')],
+        },
+      ],
+      sources: [
+        {
+          host: 'example.com',
+          references: 2,
+          share: 1,
+          own_source: true,
+          answers: 2,
+        },
+        {
+          host: '101.132.138.0',
+          references: 1,
+          share: 0.25,
+          own_source: false,
+          answers: 1,
+        },
+        {
+          host: 'www.962600.com',
+          references: 1,
+          share: 0.25,
+          own_source: false,
+          answers: 1,
+        },
+      ],
+      regions: [{ key: '华东', label: '华东', metrics: [metric('mention_rate')] }],
+      modes: [{ key: 'deep', label: 'deep', metrics: [metric('mention_rate')] }],
+      trends: [{ date: '2026-08-16', metrics: [metric('mention_rate')] }],
+      risk: { metrics: [], by_model: [] },
+      source_audit: { metrics: [], verdicts: { accurate: 2 } },
+      snapshot_hash: 'a'.repeat(64),
+    };
+
+    const projectedDashboard = projectCustomerDashboardBoundary(payload, 'prj_safe');
+    expect(projectedDashboard?.brand_name).toBe('盛邦安全');
+    expect(projectedDashboard?.metrics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'geo_visibility_index', value: 72 }),
+      ]),
+    );
+    expect(projectedDashboard?.questions[0]?.query_pub_id).toBe('qry_hash_b5855173086854844b54');
+    expect(projectedDashboard?.sources.map((source) => source.host)).toEqual([
+      'example.com',
+      '101.132.138.0',
+      'www.962600.com',
+    ]);
+    expect(
+      projectCustomerDashboardBoundary(
+        { ...payload, internal: { success_rate: 0.98 } },
+        'prj_safe',
+      ),
+    ).toBeNull();
+    expect(projectCustomerDashboardBoundary(payload, 'prj_other')).toBeNull();
+
+    const catalog = {
+      schema_version: 'customer-metric-catalog-v1',
+      metrics: [
+        {
+          ...metric('mention_rate'),
+          description: '有效回答中提到目标品牌的比例。',
+        },
+      ].map(({ value: _value, state: _state, ...item }) => item),
+    };
+    expect(projectCustomerMetricCatalogBoundary(catalog)?.metrics).toHaveLength(1);
+
+    const request = vi.fn(async (input: RequestInfo | URL) => {
+      const path = new URL((input as Request).url).pathname;
+      return new Response(JSON.stringify(path.endsWith('/metrics/catalog') ? catalog : payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    vi.stubGlobal('fetch', request);
+    const client = createGeoApiClient('http://127.0.0.1:45200');
+    const headers = {
+      'X-Tenant-Id': 'tnt_safe',
+      'X-Actor-Id': 'customer-safe',
+      'X-Actor-Role': 'customer' as const,
+    };
+    await expect(
+      getCustomerDashboard('prj_safe', '2026-08-01', '2026-08-17', {}, headers, client),
+    ).resolves.toMatchObject({ kind: 'ready', data: { brand_name: '盛邦安全' } });
+    await expect(getCustomerMetricCatalog(headers, client)).resolves.toMatchObject({
+      kind: 'ready',
+      data: { metrics: [{ code: 'mention_rate' }] },
+    });
   });
 });
 

@@ -139,17 +139,22 @@ import {
   useCustomerMutationGuard,
   type CustomerAccountMutationTicket,
 } from './account-mutation-guard';
+import { CustomerAnalyticsWorkspace } from './customer-dashboard';
 import './ai-dock.css';
 
 const nav = [
-  { id: 'home', label: '首页' },
+  { id: 'home', label: '经营概览' },
+  { id: 'monitoring', label: '品牌可见度' },
+  { id: 'evidence', label: '回答明细' },
+  { id: 'competition', label: '竞品对标' },
+  { id: 'sources', label: '信源与内容' },
+  { id: 'reputation', label: '口碑与风险' },
+  { id: 'opportunities', label: '问题机会' },
+  { id: 'reports', label: '报告' },
   { id: 'profile', label: '资料' },
   { id: 'intake', label: '信息表' },
   { id: 'assets', label: '品牌产品' },
   { id: 'questions', label: '问题目标' },
-  { id: 'monitoring', label: '监测表现' },
-  { id: 'evidence', label: '回答证据' },
-  { id: 'reports', label: '报告' },
   { id: 'members', label: '成员' },
   { id: 'accounts', label: '平台账号', badge: '2' },
 ];
@@ -4814,21 +4819,7 @@ function HomeWorkspace() {
       {liveState === 'forbidden' ? <StatePanel state="forbidden" /> : null}
       {liveState === 'empty' ? <StatePanel state="empty" /> : null}
       {liveState === 'ready' ? <MetricGrid metrics={liveCards} /> : null}
-      {liveState === 'fixture' ? (
-        <MetricGrid
-          metrics={[
-            { label: '客户待办', value: '2', detail: '资料确认 1 · 报告问题 1' },
-            { label: '今日任务', value: '38/40', detail: '2 条延迟', trend: '95%' },
-            {
-              label: '最新提及率',
-              value: '68.4%',
-              detail: '26 / 38 个有效回答',
-              trend: '↑ 6.2%',
-            },
-            { label: '证据完整率', value: '92%', detail: '回答与信源截图' },
-          ]}
-        />
-      ) : null}
+      {liveState === 'fixture' ? <StatePanel state="insufficient" /> : null}
       <div className="two-column">
         <section className="panel">
           <h2>下一步</h2>
@@ -10181,6 +10172,10 @@ export default function Shell() {
             'intake',
             'assets',
             'monitoring',
+            'competition',
+            'sources',
+            'reputation',
+            'opportunities',
             'accounts',
             'questions',
             'evidence',
@@ -10189,9 +10184,17 @@ export default function Shell() {
           ].includes(active) ? (
             <StatePanel state="insufficient" />
           ) : active === 'home' ? (
-            <HomeWorkspace />
+            <CustomerAnalyticsWorkspace focus="overview" />
           ) : active === 'monitoring' ? (
-            <Monitoring />
+            <CustomerAnalyticsWorkspace focus="visibility" />
+          ) : active === 'competition' ? (
+            <CustomerAnalyticsWorkspace focus="competition" />
+          ) : active === 'sources' ? (
+            <CustomerAnalyticsWorkspace focus="sources" />
+          ) : active === 'reputation' ? (
+            <CustomerAnalyticsWorkspace focus="reputation" />
+          ) : active === 'opportunities' ? (
+            <CustomerAnalyticsWorkspace focus="opportunities" />
           ) : active === 'accounts' ? (
             <Accounts />
           ) : active === 'profile' ? (

@@ -728,7 +728,7 @@ test('customer reviews evidence, exports, questions reports and manages members'
   await expect(page).toHaveURL(/section=reports/);
   await expect(page.getByRole('heading', { name: '2026 Q3 GEO 监测与优化建议' })).toBeVisible();
 
-  await page.getByRole('button', { name: '回答证据' }).click();
+  await page.getByRole('button', { name: '回答明细' }).click();
   await page.getByRole('button', { name: '下一页' }).click();
   await expect(page).toHaveURL(/answer_page=2/);
   await page.getByLabel('回答地域').selectOption('上海');

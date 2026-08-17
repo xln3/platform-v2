@@ -20,6 +20,10 @@ page_coverage = {
             "assets",
             "questions",
             "monitoring",
+            "competition",
+            "sources",
+            "reputation",
+            "opportunities",
             "evidence",
             "reports",
             "members",
@@ -171,9 +175,7 @@ for app, basename in apps.items():
             or source.is_relative_to(app_root / "app" / "features" / "login")
             or source.is_relative_to(app_root / "app" / "features" / "onboarding")
             or source.is_relative_to(app_root / "app" / "features" / "services")
-            or source.is_relative_to(
-                app_root / "app" / "features" / "account-governance"
-            )
+            or source.is_relative_to(app_root / "app" / "features" / "account-governance")
         ):
             continue
         # report-studio 的扩展 fact 面板直连同源扩展组端点：扩展键（w3_disparagement/
@@ -1671,9 +1673,9 @@ for fragment in (
 ):
     if fragment not in api_client:
         errors.append(f"@geo/api-client browser identity type is missing {fragment}")
-if api_client.count("client: ProjectedApiClientOverride = apiClient") != 118:
+if api_client.count("client: ProjectedApiClientOverride = apiClient") != 120:
     errors.append(
-        "@geo/api-client must keep all 118 projected wrapper overrides free of the raw "
+        "@geo/api-client must keep all 120 projected wrapper overrides free of the raw "
         "generated client type"
     )
 projected_client_unwraps = len(
@@ -1682,7 +1684,7 @@ projected_client_unwraps = len(
         api_client,
     )
 ) + api_client.count("const api = projectedApiClient(client);")
-if projected_client_unwraps != 118:
+if projected_client_unwraps != 120:
     errors.append(
         "@geo/api-client must unwrap every projected wrapper override only inside its "
         "generated request implementation"
@@ -4049,6 +4051,21 @@ for product, coverage in page_coverage.items():
         errors.append(
             f"{coverage['app']} navigation drifted; missing={missing}, unexpected={unexpected}"
         )
+    if coverage["app"] == "customer-web":
+        entry_match = re.search(
+            r"installClientBrowserSecurity\(\s*\[(.*?)\]\s*\)",
+            client_entries["customer-web"],
+            flags=re.DOTALL,
+        )
+        entry_sections = (
+            set(re.findall(r"['\"]([^'\"]+)['\"]", entry_match.group(1))) if entry_match else set()
+        )
+        if entry_sections != navigation_sections:
+            errors.append(
+                "customer-web URL security allowlist drifted from product navigation; "
+                f"missing={sorted(navigation_sections - entry_sections)}, "
+                f"unexpected={sorted(entry_sections - navigation_sections)}"
+            )
 
     spec_path = root / "tests" / "e2e" / str(coverage["spec"])
     spec = spec_path.read_text(encoding="utf-8")

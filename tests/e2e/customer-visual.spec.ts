@@ -4,7 +4,7 @@ import { prepareVisualPage } from './visual-regression';
 import { rm } from 'node:fs/promises';
 
 const workspaces = [
-  { section: 'home', snapshot: 'customer-home.png', ready: '监测运行中' },
+  { section: 'home', snapshot: 'customer-home.png', ready: '云岫智能 · AI 认知资产总览' },
   { section: 'profile', snapshot: 'customer-profile.png', ready: '甲方资料' },
   { section: 'intake', snapshot: 'customer-intake-form.png', ready: '客户信息收集表' },
   { section: 'assets', snapshot: 'customer-brand-assets.png', ready: '品牌、产品与竞品' },
@@ -13,7 +13,31 @@ const workspaces = [
     snapshot: 'customer-questions-goals.png',
     ready: '问题、目标与配置申请',
   },
-  { section: 'monitoring', snapshot: 'customer-monitoring-dimensions.png', ready: '模型表现' },
+  {
+    section: 'monitoring',
+    snapshot: 'customer-monitoring-dimensions.png',
+    ready: '云岫智能 · 品牌可见度与模型表现',
+  },
+  {
+    section: 'competition',
+    snapshot: 'customer-competition.png',
+    ready: '云岫智能 · 竞品对标与心智份额',
+  },
+  {
+    section: 'sources',
+    snapshot: 'customer-sources.png',
+    ready: '云岫智能 · 信源权威与内容准备度',
+  },
+  {
+    section: 'reputation',
+    snapshot: 'customer-reputation.png',
+    ready: '云岫智能 · AI 口碑与品牌风险',
+  },
+  {
+    section: 'opportunities',
+    snapshot: 'customer-opportunities.png',
+    ready: '云岫智能 · 问题机会与增长缺口',
+  },
   {
     section: 'evidence',
     snapshot: 'customer-answers-evidence.png',
@@ -32,9 +56,6 @@ for (const workspace of workspaces) {
   test(`customer ${workspace.section} visual baseline has no page overflow`, async ({ page }) => {
     await prepareVisualPage(page, `/platform/customer/?section=${workspace.section}`);
     await page.getByRole('heading', { name: workspace.ready, exact: true }).first().waitFor();
-    if (workspace.section === 'monitoring') {
-      await page.getByText('近五个冻结日品牌提及率趋势图表已渲染').waitFor();
-    }
     await expect
       .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1))
       .toBe(true);

@@ -1248,7 +1248,7 @@ describe('Customer platform account lifecycle', () => {
         <Shell />
       </MemoryRouter>,
     );
-    await user.click(screen.getByRole('button', { name: '回答证据' }));
+    await user.click(screen.getByRole('button', { name: '回答明细' }));
     expect(screen.getByText('企业知识库如何选择？')).toBeTruthy();
     expect(screen.getByText('Answer ans_01')).toBeTruthy();
     await user.click(screen.getAllByRole('button', { name: '查看回答截图' })[0]!);

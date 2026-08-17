@@ -46,7 +46,7 @@ test('customer shell is keyboard reachable and WCAG AA clean', async ({ page }) 
   await page.getByRole('button', { name: '监测表现' }).click();
   await page.getByText('近五个冻结日品牌提及率趋势图表已渲染').waitFor();
   await expectAccessible(page);
-  await page.getByRole('button', { name: '回答证据' }).click();
+  await page.getByRole('button', { name: '回答明细' }).click();
   const evidenceTrigger = page.getByRole('button', { name: '查看回答截图' }).first();
   await evidenceTrigger.focus();
   await page.keyboard.press('Enter');

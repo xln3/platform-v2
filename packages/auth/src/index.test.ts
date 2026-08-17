@@ -40,10 +40,15 @@ function createStorage(values: Record<string, string>) {
 function installStorage(
   values: Record<string, string> = {},
   sessionValues: Record<string, string> = {},
+  href = 'http://localhost/',
 ) {
   const local = createStorage(values);
   const session = createStorage(sessionValues);
-  vi.stubGlobal('window', { localStorage: local.storage, sessionStorage: session.storage });
+  vi.stubGlobal('window', {
+    localStorage: local.storage,
+    sessionStorage: session.storage,
+    location: { href },
+  });
   vi.stubGlobal('localStorage', local.storage);
   vi.stubGlobal('sessionStorage', session.storage);
   return {
@@ -356,5 +361,208 @@ describe('createExperienceLoader', () => {
       'X-Actor-Id': 'usr_cookie',
       'X-Actor-Role': 'customer',
     });
+  });
+
+  it('selects an authorized project explicitly requested by the URL', async () => {
+    installStorage(
+      {
+        'geo.session.tenant': 'tnt_live',
+        'geo.session.actor': 'subject-live',
+        'geo.session.role': 'customer',
+      },
+      {},
+      'https://example.test/platform/customer/?project=prj_security',
+    );
+    getIdentitySession.mockResolvedValue({
+      kind: 'ready',
+      session: {
+        tenant_pub_id: 'tnt_live',
+        user_pub_id: 'usr_live',
+        role: 'customer',
+        permissions: ['project:read'],
+      },
+      projects: {
+        data: [
+          {
+            pub_id: 'prj_testdeep',
+            name: 'testdeep',
+            state: 'paused',
+            updated_at: '2026-08-17T01:00:00Z',
+          },
+          {
+            pub_id: 'prj_security',
+            name: '盛邦安全-GEO验证',
+            state: 'draft',
+            updated_at: '2026-08-16T01:00:00Z',
+          },
+        ],
+        meta: { next_cursor: null },
+      },
+    });
+
+    await expect(createExperienceLoader(fixture)()).resolves.toMatchObject({
+      kind: 'ready',
+      value: {
+        projectPubId: 'prj_security',
+        projectLabel: '盛邦安全-GEO验证',
+        projects: [
+          { projectPubId: 'prj_security', state: 'draft' },
+          { projectPubId: 'prj_testdeep', state: 'paused' },
+        ],
+      },
+    });
+  });
+
+  it('prefers a usable project state over an older arbitrary public-id order', async () => {
+    installStorage({
+      'geo.session.tenant': 'tnt_live',
+      'geo.session.actor': 'subject-live',
+      'geo.session.role': 'customer',
+    });
+    getIdentitySession.mockResolvedValue({
+      kind: 'ready',
+      session: {
+        tenant_pub_id: 'tnt_live',
+        user_pub_id: 'usr_live',
+        role: 'customer',
+        permissions: ['project:read'],
+      },
+      projects: {
+        data: [
+          {
+            pub_id: 'prj_000_testdeep',
+            name: 'testdeep',
+            state: 'paused',
+            updated_at: '2026-08-17T02:00:00Z',
+          },
+          {
+            pub_id: 'prj_999_security',
+            name: '盛邦安全-GEO验证',
+            state: 'draft',
+            updated_at: '2026-08-16T02:00:00Z',
+          },
+        ],
+        meta: { next_cursor: null },
+      },
+    });
+
+    await expect(createExperienceLoader(fixture)()).resolves.toMatchObject({
+      kind: 'ready',
+      value: { projectPubId: 'prj_999_security', projectLabel: '盛邦安全-GEO验证' },
+    });
+  });
+
+  it('defaults to the most recently updated usable project and remembers it', async () => {
+    const browserStorage = installStorage({
+      'geo.session.tenant': 'tnt_live',
+      'geo.session.actor': 'subject-live',
+      'geo.session.role': 'customer',
+    });
+    getIdentitySession.mockResolvedValue({
+      kind: 'ready',
+      session: {
+        tenant_pub_id: 'tnt_live',
+        user_pub_id: 'usr_live',
+        role: 'customer',
+        permissions: ['project:read'],
+      },
+      projects: {
+        data: [
+          {
+            pub_id: 'prj_active_old',
+            name: '早期进行中项目',
+            state: 'active',
+            updated_at: '2026-07-01T01:00:00Z',
+          },
+          {
+            pub_id: 'prj_draft_latest',
+            name: '盛邦安全-GEO验证',
+            state: 'draft',
+            updated_at: '2026-08-17T01:00:00Z',
+          },
+        ],
+        meta: { next_cursor: null },
+      },
+    });
+
+    await expect(createExperienceLoader(fixture)()).resolves.toMatchObject({
+      kind: 'ready',
+      value: { projectPubId: 'prj_draft_latest', projectLabel: '盛邦安全-GEO验证' },
+    });
+    expect(browserStorage.data.get('geo.preference.last-project')).toBe('prj_draft_latest');
+  });
+
+  it('restores the last authorized project instead of replacing the customer context', async () => {
+    installStorage({
+      'geo.session.tenant': 'tnt_live',
+      'geo.session.actor': 'subject-live',
+      'geo.session.role': 'customer',
+      'geo.preference.last-project': 'prj_active_old',
+    });
+    getIdentitySession.mockResolvedValue({
+      kind: 'ready',
+      session: {
+        tenant_pub_id: 'tnt_live',
+        user_pub_id: 'usr_live',
+        role: 'customer',
+        permissions: ['project:read'],
+      },
+      projects: {
+        data: [
+          {
+            pub_id: 'prj_active_old',
+            name: '用户上次查看的项目',
+            state: 'active',
+            updated_at: '2026-07-01T01:00:00Z',
+          },
+          {
+            pub_id: 'prj_draft_latest',
+            name: '最近更新项目',
+            state: 'draft',
+            updated_at: '2026-08-17T01:00:00Z',
+          },
+        ],
+        meta: { next_cursor: null },
+      },
+    });
+
+    await expect(createExperienceLoader(fixture)()).resolves.toMatchObject({
+      kind: 'ready',
+      value: { projectPubId: 'prj_active_old', projectLabel: '用户上次查看的项目' },
+    });
+  });
+
+  it('fails closed when the URL requests a project outside the authorized project list', async () => {
+    installStorage(
+      {
+        'geo.session.tenant': 'tnt_live',
+        'geo.session.actor': 'subject-live',
+        'geo.session.role': 'customer',
+      },
+      {},
+      'https://example.test/platform/customer/?project=prj_other_tenant',
+    );
+    getIdentitySession.mockResolvedValue({
+      kind: 'ready',
+      session: {
+        tenant_pub_id: 'tnt_live',
+        user_pub_id: 'usr_live',
+        role: 'customer',
+        permissions: ['project:read'],
+      },
+      projects: {
+        data: [
+          {
+            pub_id: 'prj_security',
+            name: '盛邦安全-GEO验证',
+            state: 'draft',
+            updated_at: '2026-08-17T01:00:00Z',
+          },
+        ],
+        meta: { next_cursor: null },
+      },
+    });
+
+    await expect(createExperienceLoader(fixture)()).resolves.toEqual({ kind: 'forbidden' });
   });
 });
