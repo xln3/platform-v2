@@ -3,7 +3,7 @@ from geo_platform.alert_receiver import safe_alert_projection
 from geo_platform.business_metrics import ADMISSION_REASONS, BusinessMetricsSnapshot
 
 
-def test_alert_receiver_projects_only_bounded_non_sensitive_labels() -> None:
+def test_alert_receiver_projects_only_whitelisted_fields_and_redacts_annotations() -> None:
     projected = safe_alert_projection(
         {
             "alerts": [
@@ -18,7 +18,10 @@ def test_alert_receiver_projects_only_bounded_non_sensitive_labels() -> None:
                         "authorization": "must-not-be-logged",
                     },
                     "annotations": {
-                        "description": "must-not-be-logged",
+                        "description": (
+                            "authorization=secret-token contact ops at "
+                            "https://internal.invalid/alert"
+                        ),
                     },
                 }
             ]
@@ -31,6 +34,7 @@ def test_alert_receiver_projects_only_bounded_non_sensitive_labels() -> None:
             "severity": "warning",
             "category": "analysis",
             "service": "s02-worker",
+            "description": "[credential redacted] contact ops at [link redacted]",
         }
     ]
 

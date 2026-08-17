@@ -3790,8 +3790,9 @@ def _mode_evidence(
     portal 对「请求了深度思考但证据中未检测到启用」的答案拒记深度态）。
 
     - ``requested``：任务请求的 mode（normal/deep_think）；
-    - ``ui_toggle_engaged``：发送前 picker 后置校验是否确认切换（None=本题
-      未请求 deep_think，无 toggle 环节；toggle 失败已诚实 raise，走不到这里）；
+    - ``ui_toggle_engaged``：发送前 picker 后置校验是否确认目标态；已处于目标态
+      也记 True，None 仅表示旧版 normal UI 没有可观察 picker；toggle 失败已诚实
+      raise，走不到这里；
     - ``sse_deep_think_active``：SSE 流证据（thinking root block_type=10040
       是否出现；None=无 SSE 可判——DOM 兜底/解析失败）；
     - ``actual``：仅当 SSE 证据为正才标 deep_think；证据缺失或为负一律如实
