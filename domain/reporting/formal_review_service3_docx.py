@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from io import BytesIO
 from typing import Any
 
@@ -20,6 +21,7 @@ from domain.reporting.formal_review_docx import (
     build_report_code,
     is_formal_document,
 )
+from domain.reporting.service1_governance import release_state_label
 
 STATUS_LABELS = {
     "confirmed": "可确认直接内容复用（采纳下界）",
@@ -27,6 +29,16 @@ STATUS_LABELS = {
     "no_direct_evidence": "未见直接文本复用",
     "not_evaluated": "未覆盖（缺官网正文快照）",
 }
+_MODE_LABELS = {"deep_think": "深度思考", "normal": "快速", "web": "联网检索"}
+_CLIENT_FORBIDDEN = (
+    "分子/分母",
+    "live_valid",
+    "opened_pages",
+    "未扇出",
+    "历史证据退级",
+    "manifest",
+    "工作表",
+)
 
 
 def _ratio(numerator: object, denominator: object) -> str:
@@ -36,6 +48,18 @@ def _ratio(numerator: object, denominator: object) -> str:
 def _clip(value: object, limit: int) -> str:
     text = " ".join(str(value or "").split())
     return text if len(text) <= limit else f"{text[: limit - 1]}…"
+
+
+def _clean_excerpt(value: object) -> str:
+    """Strip answer markup so excerpts never carry raw markdown into the report."""
+
+    text = str(value or "")
+    text = re.sub(r"(?m)^\s{0,3}#{1,6}\s*", "", text)
+    text = text.replace("**", "").replace("__", "").replace("`", "")
+    text = re.sub(r"(?m)^\s*[-*+]\s+", "• ", text)
+    text = re.sub(r"(?m)^\s*[-*_]{3,}\s*$", "", text)
+    text = re.sub(r"[ \t]+", " ", text)
+    return text.strip()
 
 
 def _pct_ratio(value: object) -> str:
@@ -176,7 +200,11 @@ def _evidence_case(
     doc.table(
         ["字段", "实测事实"],
         [
-            ("AI 平台", f"{case['model_label']} · {case['region']} · {case['mode']}"),
+            (
+                "AI 平台",
+                f"{case['model_label']} · {case['region']} · "
+                f"{_MODE_LABELS.get(str(case['mode']), str(case['mode'] or '—'))}",
+            ),
             ("采集时间", _fmt_datetime(case["capture_time"])),
             (
                 "全部信源",
@@ -191,7 +219,9 @@ def _evidence_case(
                 "证据关系",
                 {
                     "direct": "已直接绑定到该回答",
-                    "same_url_current_window_reuse": "同 URL 当前窗口快照复用（旧关系未扇出）",
+                    "same_url_current_window_reuse": (
+                        "复用同网址在当前窗口的网页快照（采集时未直接绑定到该回答）"
+                    ),
                     "missing": "缺当前窗口官网快照",
                 }.get(case["snapshot_relation"], case["snapshot_relation"]),
             ),
@@ -203,7 +233,7 @@ def _evidence_case(
     )
 
     doc.heading("AI 回答主文证据", level=2)
-    doc.paragraph(case["answer_excerpt"] or "当前无可展示的回答摘录。")
+    doc.paragraph(_clean_excerpt(case.get("answer_excerpt")) or "当前无可展示的回答摘录。")
     answer_asset = case.get("answer_screenshot") or {}
     answer_payload = assets.get(str(answer_asset.get("pub_id") or ""))
     if answer_payload:
@@ -216,7 +246,7 @@ def _evidence_case(
                 + (
                     "AI 回答正文干净证据图"
                     if answer_image_kind == "answer_excerpt_screenshot"
-                    else "AI 回答运行页截图（历史证据退级）"
+                    else "AI 回答运行页截图（较早批次的存证图）"
                 )
             ),
             max_height_cm=14.2,
@@ -225,7 +255,7 @@ def _evidence_case(
         doc.callout("回答截图", "当前证据关系中未能载入回答截图。", kind="warning")
 
     doc.heading("官网正文证据", level=2)
-    doc.paragraph(case["source_excerpt"] or "当前缺官网正文摘录。")
+    doc.paragraph(_clean_excerpt(case.get("source_excerpt")) or "当前缺官网正文摘录。")
     if case.get("best_official_url"):
         paragraph = doc.document.add_paragraph()
         lead = paragraph.add_run("官网原网页：")
@@ -304,7 +334,7 @@ def _evidence_case(
     )
     doc.heading("平台公开思考/检索摘要", level=2)
     if case.get("surface_reasoning"):
-        doc.paragraph(case["surface_reasoning"])
+        doc.paragraph(_clean_excerpt(case["surface_reasoning"]))
     else:
         doc.callout(
             "证据边界",
@@ -325,11 +355,12 @@ def render_service3_v2_docx(
     official_captures = official_captures or {}
     metrics = facts["metrics"]
     doc = FormalDocument(
-        title="官网内容 AI 引用能效评估报告 V2",
+        title="官网内容 AI 引用能效评估报告",
         subtitle="服务 3 · 回答—URL—官网正文证据链",
         facts=facts,
     )
-    doc.cover(report_code=build_report_code(facts, service_number=3, version="V2"))
+    version = str((facts.get("document_governance") or {}).get("version") or "V1.0")
+    doc.cover(report_code=build_report_code(facts, service_number=3, version=version))
     _toc(doc, facts)
 
     doc.heading("1. 执行摘要")
@@ -382,7 +413,7 @@ def render_service3_v2_docx(
 
     doc.heading("2. 指标、判定方法与证据边界")
     doc.table(
-        ["指标", "结果", "分子/分母", "定义"],
+        ["指标", "结果", "计算方式", "定义"],
         [
             (
                 "官网引用率",
@@ -448,9 +479,9 @@ def render_service3_v2_docx(
         widths=(27, 25, 18, 19, 24, 28, 31),
         font_size=7.5,
     )
-    doc.heading("3.1 当前系统究竟能观察哪些检索阶段", level=2)
+    doc.heading("3.1 当前能观察到哪些检索阶段", level=2)
     doc.table(
-        ["平台", "回答", "有 trace", "候选结果可见", "打开页面可见", "最终引用可见"],
+        ["平台", "回答", "有检索摘要", "候选结果可见", "打开页面可见", "最终引用可见"],
         [
             (
                 row["model_label"],
@@ -484,30 +515,35 @@ def render_service3_v2_docx(
             f"{row['answers']} 条保存最终引用阶段。{row['boundary']}。"
         )
         if model == "deepseek":
-            current_window += (
-                "新部署适配器会在公开数据流可解析时另外保存 opened_pages；"
-                "旧窗口没有该字段，不能倒推当时是否打开官网。"
-            )
+            if int(row["opened_stage_observed"]) < int(row["answers"]):
+                current_window += (
+                    "本批部分回答未保存页面打开事件，这些回答不能判断当时是否打开官网。"
+                )
         elif model == "doubao":
-            current_window += "新采集仍没有稳定的页面打开事件，不能区分候选后是否实际打开。"
+            if int(row["opened_stage_observed"]) < int(row["answers"]):
+                current_window += (
+                    "该平台当前没有可观察的页面打开事件，不能区分候选后是否实际打开。"
+                )
         elif model == "yiyan":
-            current_window += (
-                "新采集目前仍主要保存最终引用，不能完整区分“未进候选”和“候选后未选用”。"
-            )
+            if int(row["candidate_stage_observed"]) < int(row["answers"]):
+                current_window += (
+                    "该平台当前主要能观察到最终引用，不能完整区分“未进候选”和"
+                    "“候选后未选用”。"
+                )
         observability_notes.append(current_window)
     observability_notes.append(
-        "因此重新试采能验证 DeepSeek 的候选→打开→最终引用链，并验证豆包的候选→"
-        "最终引用链；它不能把平台未暴露的豆包打开阶段或文心候选/打开阶段凭空补齐。"
+        "因此后续补采可以验证 DeepSeek 的候选→打开→最终引用链，以及豆包的候选→"
+        "最终引用链；平台未暴露的阶段无法凭空补齐。"
     )
     doc.numbered(observability_notes)
 
     probe = facts.get("latest_cross_platform_probe")
     if isinstance(probe, dict) and probe.get("rows"):
-        doc.heading("3.2 新部署同题试点：实际能区分到哪一层", level=2)
+        doc.heading("3.2 同题补充实测：实际能区分到哪一层", level=2)
         doc.callout(
             "已完成实测",
             f"{probe['scope']}。采集时间为 {_fmt_datetime(probe['capture_start'])} 至 "
-            f"{_fmt_datetime(probe['capture_end'])}；三个回答均为 live_valid。",
+            f"{_fmt_datetime(probe['capture_end'])}；三个回答均成功采集且质检合格。",
             kind="success",
         )
 
@@ -644,7 +680,7 @@ def render_service3_v2_docx(
         f"当前只有 {metrics['direct_snapshot_bound_answers']} 条回答直接绑定官网快照；"
         f"按同 URL 复用当前窗口快照后，可覆盖 {metrics['same_url_snapshot_covered_answers']} 条。"
         f"其中 {metrics.get('usable_screenshot_covered_answers', 0)} 条有非空白官网截图。"
-        "这是原报告无法给出完整回答级证据链的根本原因。",
+        "这限制了回答级证据链的完整呈现，相关差距在附录限制中如实披露。",
         kind="warning",
     )
 
@@ -678,7 +714,7 @@ def render_service3_v2_docx(
         font_size=7.5,
     )
 
-    doc.heading("A. 全部官网 URL 与证据状态")
+    doc.heading("附录 A · 全部官网 URL 与证据状态")
     appendix_rows = []
     appendix_urls: list[str] = []
     for answer_index, row in enumerate(facts["evaluations"], 1):
@@ -717,7 +753,7 @@ def render_service3_v2_docx(
         paragraph = appendix_table.cell(row_index, 2).paragraphs[0]
         paragraph.clear()
         _hyperlink(paragraph, url, "打开官网页面")
-    doc.heading("B. 限制与正式签发前检查")
+    doc.heading("附录 B · 限制说明与版本记录")
     limitations = list(facts["limitations"])
     if is_formal_document(facts):
         limitations = [
@@ -728,4 +764,46 @@ def render_service3_v2_docx(
             "本报告基于已冻结的正式评估窗口事实生成；结论仅适用于披露的窗口与证据范围。",
         )
     doc.bullets(limitations)
-    return doc.save()
+    doc.heading("B.1 版本与审批", level=2)
+    governance = facts.get("document_governance") or {}
+    doc.table(
+        ["治理字段", "记录"],
+        [
+            (
+                "项目与服务",
+                f"{facts.get('project_name') or '—'} · 服务3 · 官网内容AI引用能效评估",
+            ),
+            (
+                "版本与状态",
+                f"{governance.get('version') or 'V1.0'} · "
+                f"{release_state_label(str(facts.get('document_status') or ''))}",
+            ),
+            (
+                "编制",
+                f"{governance.get('prepared_by') or 'GEO 项目组'} · "
+                f"{governance.get('prepared_date') or str(facts['generated_at'])[:10]}",
+            ),
+            (
+                "复核",
+                f"{governance.get('reviewed_by') or '待复核'} · "
+                f"{governance.get('reviewed_date') or '待定'}",
+            ),
+            (
+                "批准",
+                f"{governance.get('approved_by') or '待批准'} · "
+                f"{governance.get('approved_date') or '待定'}",
+            ),
+            ("保密级别", "客户机密—仅限指定项目组"),
+        ],
+        widths=(36, 136),
+        font_size=7.8,
+    )
+    payload = bytes(doc.save())
+    visible_values = " ".join(
+        [paragraph.text for paragraph in doc.document.paragraphs]
+        + [cell.text for table in doc.document.tables for row in table.rows for cell in row.cells]
+    )
+    found = [value for value in _CLIENT_FORBIDDEN if value in visible_values]
+    if found:
+        raise ValueError("customer_report_internal_language:" + ",".join(found))
+    return payload

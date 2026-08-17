@@ -1723,14 +1723,28 @@ class FormalReportProductionService:
         with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
             row = connection.execute(
                 """
-                SELECT project.name AS project_name,production.document_status,
+                SELECT COALESCE(
+                         jsonb_extract_path_text(
+                           production.fact_bundle,'services',%s::text,'project_name'
+                         ),
+                         jsonb_extract_path_text(
+                           production.fact_bundle,'services',%s::text,'account_name'
+                         ),
+                         '客户项目'
+                       ) AS project_name,
+                       production.document_status,
                        production.document_governance,production.frozen_at
                 FROM reporting.formal_report_production production
-                JOIN platform.project project ON project.pub_id=production.project_pub_id
                 WHERE production.tenant_pub_id=%s AND production.pub_id=%s
                   AND %s=ANY(production.services)
                 """,
-                (tenant_pub_id, production_pub_id, service_number),
+                (
+                    service_number,
+                    service_number,
+                    tenant_pub_id,
+                    production_pub_id,
+                    service_number,
+                ),
             ).fetchone()
         if row is None:
             raise FormalProductionNotFound("formal_artifact_not_found")

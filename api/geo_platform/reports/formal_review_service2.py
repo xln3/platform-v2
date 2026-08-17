@@ -343,7 +343,7 @@ def _group_cases(
                 ),
                 "platform_entry_url": "" if is_source else PLATFORM_ENTRY_URLS.get(platform, ""),
                 "platform_url_note": (
-                    "原始信源网页" if is_source else "平台入口（采集端未获得可复现的公开会话 URL）"
+                    "原始信源网页" if is_source else "平台入口（该回答没有可公开的会话链接）"
                 ),
                 "source_url": source_url,
                 "subject_brand": subject_brand,
@@ -873,7 +873,7 @@ def enrich_service2_v2_facts(
     delivery = {
         "schema_version": "service2-delivery-v2",
         "scope_definition": (
-            "窗内 eligible 且非 degraded 的独立 AI 回答，以及其采集到的公开引用 URL。"
+            "评估窗口内成功采集且质检合格的独立 AI 回答，以及这些回答列出的公开链接。"
         ),
         "citation_funnel": {
             "eligible_answers": len(answer_ids),
@@ -1002,17 +1002,17 @@ def enrich_service2_v2_facts(
         },
         "limitations": [
             (
-                "正文抓取已按回答规划并保存回答—文档关系；正式风险核查仍应披露"
-                "发现、抓取成功、品牌提及、段落判定和截图标注各级覆盖。"
+                "网页正文核查按回答逐一规划并保存了回答与网页的对应关系；本批实际完成"
+                "核查的网页数量以正文披露为准，未核查的网页不构成“无风险”结论。"
                 if answer_level_fetch_planner
-                else "本窗历史来源正文抓取被旧的全局截断逻辑严重漏抓；该实现属于"
-                "系统缺陷，不能把旧数据声称为已完成信源正文核查。"
+                else "本批历史数据只读取了少量被引用网页的正文，覆盖明显不足；"
+                "不能把“未发现信源风险”解释为全部网页都没有风险。"
             ),
-            "AI 平台未提供可分享的会话级公开 URL；原回答以采集截图、原文和时间戳存证。",
+            "AI 平台未提供可分享的公开会话链接；原回答以截图、原文和采集时间存证。",
             "“无法核验”表示缺少同口径比较证据，不表示原表述为真。",
             "现有证据只能确认 AI 回答中的表述，不能归因竞品或第三方作者。",
-            "新版采集会把回答正文的干净证据图和 DOM/OCR 文本坐标一起保存；"
-            "本窗口未具备原生坐标的历史截图仅使用已经人工复核的坐标，不自动猜框。",
+            "回答截图中的红框位置来自采集时保存的文本位置或人工复核；"
+            "没有任何截图使用自动推测的框选。",
         ],
     }
     facts["service2"]["delivery_v2"] = delivery

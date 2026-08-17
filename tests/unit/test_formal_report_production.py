@@ -131,6 +131,8 @@ def test_governed_release_contract_requires_preparation_and_candidate_review() -
 
 
 def test_signed_filename_uses_governed_approval_date(monkeypatch: pytest.MonkeyPatch) -> None:
+    statements: list[tuple[str, tuple[object, ...]]] = []
+
     class Result:
         def fetchone(self) -> dict[str, object]:
             return {
@@ -145,8 +147,8 @@ def test_signed_filename_uses_governed_approval_date(monkeypatch: pytest.MonkeyP
             }
 
     class Connection:
-        def execute(self, *args: object, **kwargs: object) -> Result:
-            del args, kwargs
+        def execute(self, statement: str, params: tuple[object, ...]) -> Result:
+            statements.append((statement, params))
             return Result()
 
     @contextmanager
@@ -165,6 +167,10 @@ def test_signed_filename_uses_governed_approval_date(monkeypatch: pytest.MonkeyP
         service_number=1,
         format_name="pdf",
     ) == "客户项目_服务1_V1.0_已批准签发版_20260815.pdf"
+    statement, params = statements[0]
+    assert "JOIN platform.project" not in statement
+    assert "jsonb_extract_path_text" in statement
+    assert params == (1, 1, "ten_unit", "frp_unit", 1)
 
 
 def test_worker_rejects_a_persisted_request_whose_contract_drifted() -> None:
@@ -445,7 +451,7 @@ def test_service2_ocr_anchor_has_customer_readable_label() -> None:
         },
     )
     assert crop is not None
-    assert note == "采集时 OCR 文本坐标；红框仅标命中原句"
+    assert note == "红框按采集时保存的文本位置绘制；红框仅标命中原句"
 
 
 def test_fact_builder_applies_requested_status_before_formal_render(

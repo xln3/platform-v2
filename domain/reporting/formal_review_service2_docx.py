@@ -21,6 +21,19 @@ from domain.reporting.formal_review_docx import (
     build_report_code,
     is_formal_document,
 )
+from domain.reporting.service1_governance import release_state_label
+
+_MODE_LABELS = {"deep_think": "深度思考", "normal": "快速", "web": "联网检索"}
+_CLIENT_FORBIDDEN = (
+    "执行行",
+    "采集批次",
+    "口径修正",
+    "系统缺陷",
+    "运营复核清单",
+    "deep_think",
+    "manifest",
+    "工作表",
+)
 
 
 def _caption(doc: FormalDocument, text: str) -> None:
@@ -120,12 +133,10 @@ def _answer_views(
     )
     draw.text((8 + padding, badge_y + padding // 2), label, font=font, fill="#991B1B")
     method = str(anchor.get("method") or "")
-    if method.startswith("dom_"):
-        anchor_note = "采集时 DOM 文本坐标"
-    elif method.startswith("ocr_"):
-        anchor_note = "采集时 OCR 文本坐标"
+    if method.startswith("dom_") or method.startswith("ocr_"):
+        anchor_note = "红框按采集时保存的文本位置绘制"
     else:
-        anchor_note = "历史截图人工复核坐标"
+        anchor_note = "红框按人工复核的位置绘制"
     return full_stream, _image_stream(crop), f"{anchor_note}；红框仅标命中原句"
 
 
@@ -223,8 +234,8 @@ def _add_source_capture(
     if "反证" in role:
         doc.callout(
             "如何使用本图",
-            "本图可核对公开页面中的具体数字和市场口径。应结合原回答口径阅读，"
-            "不能把网络安全硬件总体份额直接替换成 ASM 专项份额。",
+            "本图可核对公开页面中的具体数字和口径；引用时应注意网页口径与回答口径"
+            "是否一致，不能把不同口径的数字直接互相替换。",
             kind="success",
         )
     else:
@@ -261,7 +272,7 @@ def _case_page(
             str(case["customer_scope_note"]),
             kind="info",
         )
-    verdict_kind = "warning" if case["factcheck_verdict"] != "refuted" else "warning"
+    verdict_kind = "warning"
     doc.callout(
         str(case["expression_verdict"]),
         str(case["customer_conclusion"]),
@@ -272,18 +283,15 @@ def _case_page(
         [
             ("表述方向", case["direction"]),
             (
-                "采样环境",
-                f"{case['platform_label']} · {case['region']} · {case['mode']} · "
+                "采集环境",
+                f"{case['platform_label']} · {case['region']} · "
+                f"{_MODE_LABELS.get(str(case['mode']), str(case['mode'] or '—'))} · "
                 f"{_fmt_datetime(case['capture_time'])}",
             ),
             ("原始问题", case["question"]),
             ("表述类型", case["statement_type"]),
             ("表达判定", case["expression_verdict"]),
             ("事实判定", case["fact_verdict"]),
-            (
-                "重复执行",
-                f"同一回答/摘录经过 {case['judgment_executions']} 次复核；本报告合并为 1 案",
-            ),
         ],
         widths=(29, 143),
         font_size=8.1,
@@ -424,7 +432,6 @@ def render_service2_v2_docx(
     judgments = delivery["judgment_funnel"]
     cases = list(delivery["cases"])
     source_cases = list(delivery.get("source_cases") or [])
-    supplemental_cases = list(delivery.get("supplemental_factcheck_cases") or [])
     source_audit = delivery["source_content_audit"]
     verdicts = delivery["case_verdict_counts"]
 
@@ -433,13 +440,14 @@ def render_service2_v2_docx(
         subtitle="服务 2 · AI 拉踩表述、公开事实核查与可视证据",
         facts=facts,
     )
-    doc.cover(report_code=build_report_code(facts, service_number=2, version="V2"))
+    version = str((facts.get("document_governance") or {}).get("version") or "V1.0")
+    doc.cover(report_code=build_report_code(facts, service_number=2, version=version))
     _toc(doc, answer_cases=len(cases), source_cases=len(source_cases))
 
     doc.heading("1. 执行摘要")
     doc.kpis(
         [
-            ("独立合格回答", str(citations["eligible_answers"]), "不是判定执行次数"),
+            ("独立合格回答", str(citations["eligible_answers"]), "按独立回答去重"),
             (
                 "带引用回答",
                 str(citations["answers_with_citation"]),
@@ -453,16 +461,26 @@ def render_service2_v2_docx(
             ("公开证据冲突", str(verdicts.get("refuted", 0)), "其余为证据不足/未定案"),
         ]
     )
-    doc.callout(
-        "核心结论",
-        f"本报告只保留直接涉及{facts['target_brand']}的线索："
-        f"{len(cases)} 项来自 AI 回答，{len(source_cases)} 项来自公开信源正文。"
-        f"{verdicts.get('refuted', 0)} 项存在公开数据冲突，"
-        f"{verdicts.get('unverifiable', 0)} 项缺少同口径公开证据。"
-        "可以确认的是 AI 回答出现了无来源排序、贬低性比较或不完整负向标签；"
-        "没有证据证明这些内容由竞品或第三方撰写、投放。",
-        kind="warning",
-    )
+    total_cases = len(cases) + len(source_cases)
+    if total_cases:
+        core_text = (
+            f"本报告只保留直接涉及{facts['target_brand']}的线索："
+            f"{len(cases)} 项来自 AI 回答，{len(source_cases)} 项来自公开信源正文。"
+            f"{verdicts.get('refuted', 0)} 项存在公开数据冲突，"
+            f"{verdicts.get('unverifiable', 0)} 项缺少同口径公开证据。"
+            "可以确认的是 AI 回答出现了无来源排序、贬低性比较或不完整负向标签；"
+            "没有证据证明这些内容由竞品或第三方撰写、投放。"
+        )
+    else:
+        core_text = (
+            f"本批未发现直接涉及{facts['target_brand']}的拉踩式或负向比较线索："
+            "AI 回答 0 项、公开信源正文 0 项。"
+            "该结论只对应本批实际核查范围：完成表述判定的回答 "
+            f"{judgments['ok_distinct_answers']}/{citations['eligible_answers']} 条、"
+            f"完成正文核查的网页 {fetch['ok']}/{citations['unique_canonical_urls']:,} 个；"
+            "未覆盖部分不构成“没有风险”的证明，也不外推到全网。"
+        )
+    doc.callout("核心结论", core_text, kind="warning" if total_cases else "success")
     doc.paragraph(
         "本报告把三件事分开回答：第一，AI 回答是否出现拉踩式或负向比较表达；"
         f"第二，被引用的公开信源是否提及{facts['target_brand']}，以及品牌所在段落是否"
@@ -475,96 +493,97 @@ def render_service2_v2_docx(
         [
             ("立即纠正/平台反馈", "公开证据冲突", "原回答数字无来源且与公开数据冲突"),
             ("保留监测并补证", "拉踩表达成立、事实不足", "先保留截图与原句，不宣称虚假事实已坐实"),
-            ("重新采集完整上下文", "表头/比较维度缺失", "未形成完整语义前不进入确定风险清单"),
+            ("无需立即动作", "原句不完整、暂不定性", "由评测方补全上下文并复核后再判断"),
         ],
         widths=(40, 56, 76),
         font_size=8.2,
     )
 
     doc.page_break()
-    doc.heading("2. 数据与核查漏斗")
-    doc.callout(
-        (f"{judgments['ok_answer_executions']}/{judgments['ok_source_executions']} 口径修正"),
-        f"旧稿中的 {judgments['ok_answer_executions']} 和 "
-        f"{judgments['ok_source_executions']} 分别是成功的回答判定执行行与信源判定执行行；"
-        f"对应的独立对象只有 {judgments['ok_distinct_answers']} 份回答和 "
-        f"{judgments['ok_distinct_source_documents']} 份信源文档。"
-        "同一回答可能经过多次复核，因此绝不能写成"
-        f"‘{judgments['ok_answer_executions']} 条 AI 回答、"
-        f"{judgments['ok_source_executions']} 个信源文档’。",
-        kind="success",
+    doc.heading("2. 本次核查的数据范围")
+    doc.paragraph(
+        "本章说明风险线索的数据来源：多少条独立 AI 回答、其中多少条列出了公开链接、"
+        "多少网页完成了正文核查。所有数量均按独立回答、独立网页去重；同一回答经多轮"
+        "复核时只计一次。"
     )
     doc.table(
-        ["阶段", "实际数量", "去重/状态口径", "客户应如何理解"],
+        ["阶段", "实际数量", "口径", "客户应如何理解"],
         [
-            ("合格 AI 回答", citations["eligible_answers"], "独立回答", "本报告母体"),
+            ("合格 AI 回答", citations["eligible_answers"], "独立回答", "本批核查的对象"),
             (
                 "带引用回答",
                 citations["answers_with_citation"],
                 "独立回答",
-                "回答中至少捕获 1 个 URL",
+                "回答中至少列出 1 个链接",
             ),
             (
                 "回答引用记录",
                 f"{citations['citation_references']:,}",
-                "最新分析批次",
-                f"{citations['unique_canonical_urls']:,} 个唯一规范化 URL",
+                "按最新一轮分析结果",
+                f"{citations['unique_canonical_urls']:,} 个不同链接地址",
             ),
             (
-                "正文抓取立项",
+                "网页正文核查",
                 fetch["documents"],
-                f"{fetch['runs_with_documents']} 个采集批次",
-                f"成功 {fetch['ok']}；不是每回答全部抓取",
+                "独立网页",
+                f"成功读取正文 {fetch['ok']} 份；并非每条链接都核查了正文",
             ),
             (
                 "回答表述判定",
                 judgments["ok_distinct_answers"],
-                f"{judgments['ok_answer_executions']} 次成功执行",
-                "按独立回答报告覆盖",
+                "独立回答",
+                "完成拉踩表述检查的回答数",
             ),
             (
                 "信源正文判定",
                 judgments["ok_distinct_source_documents"],
-                f"{judgments['ok_source_executions']} 次成功执行",
+                "独立网页",
                 f"其中目标品牌段落风险线索 {len(source_cases)} 项",
             ),
             (
                 "风险线索",
                 judgments["unique_cases"],
-                f"{judgments['flagged_executions']} 次命中执行",
+                "按命中原句去重",
                 f"回答 {len(cases)} 项 / 信源正文 {len(source_cases)} 项",
             ),
         ],
         widths=(35, 28, 53, 56),
         font_size=7.8,
     )
-    doc.heading("2.1 为什么每份回答看起来有约 30 个 URL，却只抓了少量正文", level=2)
+    doc.numbered(
+        [
+            f"表述判定覆盖 {judgments['ok_distinct_answers']}/{citations['eligible_answers']} "
+            "条合格回答；未判定的回答不参与本报告结论，也不推断为无风险。",
+        ]
+    )
+    doc.heading("2.1 为什么回答中的链接多、实际核查的网页少", level=2)
     doc.paragraph(
-        f"分析层没有丢弃 URL：{citations['answers_with_citation']} 份带引用回答共保留 "
-        f"{citations['citation_references']:,} 条引用，平均每份带引用回答 "
-        f"{citations['avg_refs_cited_answers']:.2f} 条，单份最多 "
-        f"{citations['max_refs_one_answer']} 条。问题发生在正文抓取规划层。"
+        f"分析环节完整保留了全部链接：{citations['answers_with_citation']} 条带引用回答共 "
+        f"{citations['citation_references']:,} 条引用，平均每条带引用回答 "
+        f"{citations['avg_refs_cited_answers']:.2f} 条、"
+        f"最多 {citations['max_refs_one_answer']} 条。"
+        "正文核查则需要逐网页访问读取，本批只覆盖了其中一部分。"
     )
     doc.table(
-        ["来源正文漏斗", "当前值", "含义"],
+        ["来源正文核查环节", "当前值", "含义"],
         [
             (
-                "回答中发现 URL",
+                "回答中列出的链接",
                 f"{citations['citation_references']:,} 条 / "
-                f"{citations['unique_canonical_urls']:,} 个唯一 URL",
-                "分析层保留的引用母体",
+                f"{citations['unique_canonical_urls']:,} 个不同地址",
+                "分析环节完整保留",
             ),
             (
-                "正文抓取立项",
+                "进入正文核查的网页",
                 f"{fetch['documents']} 份",
-                "进入网页正文抓取的历史子集",
+                "本批实际读取了正文的网页",
             ),
-            ("正文抓取成功", f"{fetch['ok']} 份", "可进入品牌提及和段落风险检查"),
+            ("正文读取成功", f"{fetch['ok']} 份", "可进入品牌提及与段落风险检查"),
             (
-                "回答—文档关系",
+                "回答与网页的对应关系",
                 f"{fetch['answer_document_relations']} 条 / "
-                f"{fetch['answers_with_planned_documents']} 份回答",
-                "同一 URL 抓一次，但应关联全部引用它的回答",
+                f"{fetch['answers_with_planned_documents']} 条回答",
+                "同一网页只读取一次，但会关联到所有列出它的回答",
             ),
         ],
         widths=(39, 63, 70),
@@ -572,10 +591,9 @@ def render_service2_v2_docx(
     )
     doc.numbered(
         [
-            "本窗口的历史正文抓取存在覆盖截断，不能视为客户约定的完整服务口径。",
-            "当前规划按回答保留来源、跨回答 URL 去重，并关联全部引用回答；"
-            "实际报告仍必须披露发现、成功、品牌提及、判定和截图覆盖。",
-            "历史窗口尚未补齐的页面会明确标记为证据缺口，不追溯声称已经完成。",
+            "本批正文核查只覆盖了部分链接；未核查的网页不构成“无风险”结论。",
+            "正文核查按回答逐一规划：同一网页去重读取，并关联到所有列出它的回答。",
+            "各级覆盖数量以本表披露为准；未覆盖部分在附录的限制说明中列出。",
         ]
     )
 
@@ -583,11 +601,11 @@ def render_service2_v2_docx(
     doc.table(
         ["检查阶段", "当前数量", "判定规则"],
         [
-            ("正文抓取成功", source_audit["successful_documents"], "网页正文可读取"),
+            ("正文读取成功", source_audit["successful_documents"], "网页正文可读取"),
             (
                 "目标品牌可视提及",
                 source_audit["documents_with_target_brand_visual_anchor"],
-                f"正文与网页 DOM 均逐字出现{facts['target_brand']}，并保存像素锚点",
+                f"正文中逐字出现{facts['target_brand']}，并保存了页面位置标注",
             ),
             (
                 "完成信源段落判定",
@@ -606,24 +624,17 @@ def render_service2_v2_docx(
     doc.numbered(
         [
             source_audit["method"],
-            f"不含目标品牌的竞品间比较不会进入{facts['target_brand']}客户主报告，"
-            "但可留在运营复核清单。",
-            "本窗只抓取并成功解析了极小的信源子集，因此当前“没有信源正文风险线索”"
+            f"不直接涉及{facts['target_brand']}的竞品间比较不进入本报告。",
+            "本批只核查了部分被引用网页的正文，因此当前“没有信源正文风险线索”"
             "不能解释为全网没有风险。",
         ]
     )
 
-    doc.heading("2.3 截图与文本坐标覆盖", level=2)
+    doc.heading("2.3 截图与命中位置覆盖", level=2)
     doc.paragraph(
-        "每条客户案例都应同时具备可核对原句、回答截图和文本坐标；信源正文案例还应"
+        "每条客户案例都应同时具备可核对原句、回答截图和命中位置标注；信源正文案例还应"
         "具备网页截图及命中段落。缺少任一环节时，本报告明确披露证据缺口，不自动"
-        "推测命中位置，也不把抓取失败页当作证据。"
-    )
-    doc.callout(
-        "本次报告的处理",
-        "报告优先使用采集时保存的 DOM 或 OCR 文本坐标；历史回答仅使用已人工复核的"
-        "坐标。网页 404、抓取失败或未命中时只披露失败原因，旧截图不自动猜框。",
-        kind="success",
+        "推测命中位置，也不把读取失败的网页当作证据。"
     )
 
     doc.page_break()
@@ -645,35 +656,42 @@ def render_service2_v2_docx(
             "公开证据冲突：已有页面提供了相反数字或明确口径；仍需避免跨口径替换。",
             "无法核验：没有同指标、同场景、同时间、同样本的可靠比较；不代表原话真实。",
             "拉踩式表达成立：句子形式存在无依据的高低比较；不自动等同于事实虚假。",
-            "暂不定性：原句或表头不完整，无法说明负向词对应的维度，必须复采。",
+            "暂不定性：原句或表头不完整，无法说明负向词对应的维度，需在后续批次补采后再判断。",
         ]
     )
 
     doc.heading("4. 风险线索总表")
     doc.heading("4.1 AI 回答中直接涉及目标品牌的线索", level=2)
-    doc.table(
-        ["案例", "对象与比较方向", "命中原句", "表达判定", "事实判定"],
-        [
-            (
-                case["case_id"],
-                case["direction"],
-                str(case["evidence_quote"])[:78]
-                + ("…" if len(str(case["evidence_quote"])) > 78 else ""),
-                case["expression_verdict"],
-                case["fact_verdict"],
-            )
-            for case in cases
-        ],
-        widths=(14, 39, 57, 32, 30),
-        font_size=6.9,
-    )
+    if cases:
+        doc.table(
+            ["案例", "对象与比较方向", "命中原句", "表达判定", "事实判定"],
+            [
+                (
+                    case["case_id"],
+                    case["direction"],
+                    str(case["evidence_quote"])[:78]
+                    + ("…" if len(str(case["evidence_quote"])) > 78 else ""),
+                    case["expression_verdict"],
+                    case["fact_verdict"],
+                )
+                for case in cases
+            ],
+            widths=(14, 39, 57, 32, 30),
+            font_size=6.9,
+        )
+    else:
+        doc.callout(
+            "本批未发现回答侧线索",
+            f"在完成表述判定的回答中，没有出现直接涉及{facts['target_brand']}的拉踩式或"
+            "负向比较原句。",
+            kind="success",
+        )
     doc.numbered(
         [
-            f"主报告只呈现直接涉及{facts['target_brand']}的回答线索；"
+            f"本报告只呈现直接涉及{facts['target_brand']}的线索；"
             f"另有 {judgments['excluded_competitor_only_cases']} 项不直接涉及目标品牌的"
-            f"运营复核线索，其中 {len(supplemental_cases)} 项仅作为核查方法附例，其余"
-            "不在客户报告展示；这些线索均不计客户风险 KPI。",
-            "同一回答、同一摘录的重复复核会合并为一个客户案例。",
+            "比较类线索留在内部复核，不在本报告展示，也不计入风险数量。",
+            "同一回答、同一原句经多轮复核时，本报告合并为一个案例。",
         ]
     )
 
@@ -698,45 +716,23 @@ def render_service2_v2_docx(
     else:
         doc.callout(
             "当前没有可签发的信源正文案例",
-            "这只表示已抓取并完成判定的历史小样本中未形成目标品牌段落风险线索；"
-            "由于正文抓取覆盖严重不足，不能据此声称全部引用网页都没有风险。",
+            "这只表示本批已完成正文核查的网页中未形成目标品牌段落风险线索；"
+            "由于正文核查只覆盖了部分被引用网页，不能据此声称全部引用网页都没有风险。",
             kind="warning",
         )
 
-    doc.heading("4.3 扩展行业事实核查（不计客户主结论）", level=2)
-    if supplemental_cases:
-        doc.table(
-            ["案例", "比较对象", "命中原句", "事实判定", "与主报告关系"],
-            [
-                (
-                    case["case_id"],
-                    case["direction"],
-                    str(case["evidence_quote"])[:86]
-                    + ("…" if len(str(case["evidence_quote"])) > 86 else ""),
-                    case["fact_verdict"],
-                    f"仅展示核查方法，不计{facts['target_brand']}风险 KPI",
-                )
-                for case in supplemental_cases
-            ],
-            widths=(14, 44, 54, 31, 29),
-            font_size=6.8,
-        )
-        doc.numbered(
-            [
-                "该扩展案例保留，是因为其公开数据冲突证据完整，可帮助客户审阅事实核查"
-                "的写法与截图版式。",
-                f"案例不直接涉及{facts['target_brand']}，不进入执行摘要、风险线索数量或"
-                "客户处置建议。",
-            ]
+    doc.heading("5. 逐案可视证据")
+    if cases or source_cases:
+        doc.paragraph(
+            "每个案例均按同一顺序展示：谁对谁、问题与采集环境、AI 原句、原回答截图、"
+            "公开核查网址、网页截图/标注、证据为何充分或不足、客户可用结论。"
         )
     else:
-        doc.numbered(["当前没有证据完整且适合展示的扩展行业事实核查案例。"])
-
-    doc.heading("5. 逐案可视证据")
-    doc.paragraph(
-        "每个案例均按同一顺序展示：谁对谁、问题与采样环境、AI 原句、原回答截图、"
-        "公开核查网址、网页截图/标注、证据为何充分或不足、客户可用结论。"
-    )
+        doc.paragraph(
+            "本批没有进入逐案展示的案例。后续批次出现线索时，将按统一版式逐案展示："
+            "谁对谁、问题与采集环境、AI 原句、原回答截图、公开核查网址、网页截图/标注、"
+            "证据为何充分或不足、客户可用结论。"
+        )
     for case in cases:
         _case_page(
             doc,
@@ -754,58 +750,67 @@ def render_service2_v2_docx(
             case,
             source_case_screenshots.get(str(descriptor.get("pub_id") or "")),
         )
-    for index, case in enumerate(supplemental_cases, 1):
-        _case_page(
-            doc,
-            case,
-            answer_screenshot=answer_screenshots.get(str(case["answer_pub_id"])),
-            source_captures=source_captures,
-            page_break=False,
-            section_label=f"5.S{index}",
-        )
 
-    doc.heading("A. 审计限制与正式签发条件")
+    doc.page_break()
+    doc.heading("附录 A · 限制说明与版本记录")
     doc.bullets(delivery["limitations"])
-    doc.heading("A.1 证据完备状态与正式运行验收", level=2)
+    doc.heading("A.1 版本与审批", level=2)
+    governance = facts.get("document_governance") or {}
     doc.table(
-        ["状态", "证据能力", "验收标准"],
+        ["治理字段", "记录"],
         [
-            ("已具备", "按独立回答和案例统计", "不得把重复复核次数写成回答或文档数"),
             (
-                "新采集生效",
-                "按回答规划来源、跨回答去重并扇出关系",
-                "披露发现→唯一→计划→成功→关系漏斗",
+                "项目与服务",
+                f"{facts.get('project_name') or '—'} · 服务2 · 品牌GEO内容生态风险核查",
             ),
             (
-                "已具备",
-                "客户案例网页快照与逐字标注",
-                "每案可追溯回答图、原 URL、网页图和锚点",
+                "版本与状态",
+                f"{governance.get('version') or 'V1.0'} · "
+                f"{release_state_label(str(facts.get('document_status') or ''))}",
             ),
-            ("新采集生效", "风险证据优先抓取", "有引用原句的来源优先于普通引用"),
             (
-                "新采集生效",
-                "回答正文证据图与原生文本坐标",
-                "采集时保存文本区间和像素坐标；报告优先读取受控原图及原生框",
+                "编制",
+                f"{governance.get('prepared_by') or 'GEO 项目组'} · "
+                f"{governance.get('prepared_date') or str(facts['generated_at'])[:10]}",
             ),
+            (
+                "复核",
+                f"{governance.get('reviewed_by') or '待复核'} · "
+                f"{governance.get('reviewed_date') or '待定'}",
+            ),
+            (
+                "批准",
+                f"{governance.get('approved_by') or '待批准'} · "
+                f"{governance.get('approved_date') or '待定'}",
+            ),
+            ("保密级别", "客户机密—仅限指定项目组"),
         ],
-        widths=(30, 64, 78),
+        widths=(36, 136),
         font_size=7.8,
     )
     if is_formal_document(facts):
         doc.callout(
             "报告状态",
-            "本报告基于已冻结的正式评估窗口事实签发。来源抓取与截图锚点覆盖仍以"
+            "本报告基于已冻结的正式评估窗口事实签发。来源核查与截图标注覆盖仍以"
             "正文披露的实际数量为准，不将未覆盖页面解释为无风险。",
         )
     else:
         doc.callout(
             "本稿状态",
-            "本报告基于当前联调/试采样数据和历史证据修复，用于检查内容与版式。"
-            "在来源抓取覆盖和正式重复采样完成前，不应作为全网风险完备性结论；"
-            "历史回答是否具备原生框以本报告披露的实际覆盖为准。",
+            "本版为内部审核稿，用于完成内容、数据、证据和版式复核。"
+            "在网页正文核查覆盖与正式重复采样补齐前，本报告不作为全网风险完备性结论；"
+            "数据补齐与人工复核、批准完成后，方可成为客户交付候选稿。",
             kind="warning",
         )
-    return doc.save()
+    payload = bytes(doc.save())
+    visible_values = " ".join(
+        [paragraph.text for paragraph in doc.document.paragraphs]
+        + [cell.text for table in doc.document.tables for row in table.rows for cell in row.cells]
+    )
+    found = [value for value in _CLIENT_FORBIDDEN if value in visible_values]
+    if found:
+        raise ValueError("customer_report_internal_language:" + ",".join(found))
+    return payload
 
 
 __all__ = ["render_service2_v2_docx"]
