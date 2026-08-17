@@ -2213,8 +2213,11 @@ const strictIsoTimestampPattern =
  * impossible calendar dates. Browser-facing projections must reject both behaviours.
  */
 export const projectSafeIsoTimestamp = (value: unknown): string | null => {
-  const projected = safeBrowserString(value, 80);
-  if (!projected) return null;
+  // Fractional seconds commonly contain six digits. They are part of a strictly typed ISO
+  // timestamp, not an OTP, so applying the generic secret-value detector here would reject
+  // legitimate PostgreSQL timestamps and silently drop otherwise valid project rows.
+  if (typeof value !== 'string' || value.length === 0 || value.length > 80) return null;
+  const projected = value;
   const match = strictIsoTimestampPattern.exec(projected);
   if (!match) return null;
   const year = Number(match[1]);

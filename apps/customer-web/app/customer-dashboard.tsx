@@ -32,6 +32,7 @@ import './customer-dashboard.css';
 export type CustomerAnalyticsFocus =
   | 'overview'
   | 'visibility'
+  | 'answers'
   | 'competition'
   | 'sources'
   | 'reputation'
@@ -80,6 +81,7 @@ const dashboardDateWindow = (windowValue: string): { start: string; end: string 
 const customerDashboardAllowedSections = [
   'home',
   'monitoring',
+  'answers',
   'competition',
   'sources',
   'reputation',
@@ -146,6 +148,17 @@ const coreMetricCodes = [
   'positive_rate',
 ] as const;
 
+const visibilityMetricCodes = [
+  'mention_count',
+  'mention_rate',
+  'recommendation_rate',
+  'top1_rate',
+  'top3_rate',
+  'average_rank',
+  'ranked_answer_rate',
+  'citation_coverage',
+] as const;
+
 const metricGroups: Record<string, string> = {
   composite: '综合指数',
   visibility: '品牌可见度',
@@ -170,6 +183,11 @@ const focusCopy: Record<
     eyebrow: 'Visibility Analytics',
     title: '品牌可见度与模型表现',
     description: '拆解不同模型、地区、回答模式和日期下的提及、排名、推荐与引用表现。',
+  },
+  answers: {
+    eyebrow: 'Answer Intelligence',
+    title: '真实 AI 回答与模型语境',
+    description: '按 AI 平台、回答模式和地域分类查看真实问题、完整回答、品牌表现与引用证据。',
   },
   competition: {
     eyebrow: 'Competitive Intelligence',
@@ -256,6 +274,7 @@ const customerDashboardFixtureMetrics: CustomerMetricProjection[] = [
   ),
   fixtureMetric('average_rank', '平均排名', 'ranking', 'rank', 2.8, 'lower'),
   fixtureMetric('rank_stddev', '排名波动', 'ranking', 'decimal', 1.12, 'lower'),
+  fixtureMetric('ranked_answer_rate', '有效排名覆盖率', 'ranking', 'percentage', 0.642),
   fixtureMetric('top1_rate', 'Top1 率', 'ranking', 'percentage', 0.238),
   fixtureMetric('top3_rate', 'Top3 率', 'ranking', 'percentage', 0.571),
   fixtureMetric('top5_rate', 'Top5 率', 'ranking', 'percentage', 0.704),
@@ -278,6 +297,10 @@ const customerDashboardFixtureMetrics: CustomerMetricProjection[] = [
   ),
   fixtureMetric('source_accuracy_rate', '信源准确率', 'content', 'percentage', 0.875),
   fixtureMetric('source_audit_count', '已完成信源审计', 'content', 'count', 96),
+  fixtureMetric('source_unsupported_rate', '无依据信源率', 'content', 'percentage', 0.083, 'lower'),
+  fixtureMetric('source_unverifiable_rate', '无法核实率', 'content', 'percentage', 0.042, 'lower'),
+  fixtureMetric('cited_text_visibility_rate', '引用原文可见率', 'source', 'percentage', 0.91),
+  fixtureMetric('citation_title_visibility_rate', '引用标题可见率', 'source', 'percentage', 0.95),
   fixtureMetric('positive_rate', '正面回答率', 'reputation', 'percentage', 0.575),
   fixtureMetric('neutral_rate', '中性回答率', 'reputation', 'percentage', 0.35, 'neutral'),
   fixtureMetric('negative_rate', '负面回答率', 'reputation', 'percentage', 0.075, 'lower'),
@@ -537,10 +560,16 @@ function SectionHeading({
   );
 }
 
-function MetricCards({ dashboard }: { dashboard: CustomerDashboardProjection }) {
+function MetricCards({
+  dashboard,
+  codes = coreMetricCodes,
+}: {
+  dashboard: CustomerDashboardProjection;
+  codes?: readonly string[];
+}) {
   return (
     <div className="geo-kpi-grid">
-      {coreMetricCodes.map((code) => {
+      {codes.map((code) => {
         const metric = metricValue(dashboard.metrics, code);
         return (
           <article className="geo-kpi-card" key={code}>
@@ -824,6 +853,98 @@ function CompetitorPanel({
           </table>
         </div>
       ) : null}
+    </section>
+  );
+}
+
+const assetScaleMetrics = [
+  {
+    code: 'answer_count',
+    label: '真实 AI 回答',
+    unit: '条回答',
+    detail: '进入当前事实窗口的真实回答',
+    tone: 'answer',
+  },
+  {
+    code: 'unique_source_hosts',
+    label: '独立信源网站',
+    unit: '个网站',
+    detail: '按引用域名去重后的信源覆盖',
+    tone: 'website',
+  },
+  {
+    code: 'unique_source_pages',
+    label: '独立信源页面',
+    unit: '个页面',
+    detail: '按规范化 URL 去重后的页面资产',
+    tone: 'page',
+  },
+  {
+    code: 'citation_references',
+    label: '真实引用记录',
+    unit: '次引用',
+    detail: '回答正文中保留的引用关系',
+    tone: 'citation',
+  },
+] as const;
+
+function AssetScalePanel({ dashboard }: { dashboard: CustomerDashboardProjection }) {
+  return (
+    <section className="geo-asset-scale" aria-labelledby="geo-asset-scale-title">
+      <header>
+        <span>Business Data Scale</span>
+        <h3 id="geo-asset-scale-title">当前窗口沉淀的 AI 认知资产</h3>
+        <p>所有数字均直接来自已保存的回答与引用事实，可继续下钻到回答、网站和页面。</p>
+      </header>
+      <div className="geo-asset-scale__grid">
+        {assetScaleMetrics.map((item) => (
+          <article data-tone={item.tone} key={item.code}>
+            <span>{item.label}</span>
+            <strong>
+              <b>{formatMetric(metricValue(dashboard.metrics, item.code))}</b>
+              <small>{item.unit}</small>
+            </strong>
+            <p>{item.detail}</p>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+const contentReadinessMetrics = [
+  ['source_audit_count', '已审计事实', '已经完成事实核验的信源记录'],
+  ['source_accuracy_rate', '准确率', '审计结果中被判定准确的比例'],
+  ['source_unsupported_rate', '无依据率', '缺少事实支持、需要补证的比例'],
+  ['source_unverifiable_rate', '无法核实率', '当前材料不足以核实的比例'],
+  ['cited_text_visibility_rate', '引用原文可见率', '引用中保留可核验原文的比例'],
+  ['citation_title_visibility_rate', '引用标题可见率', '引用中保留页面标题的比例'],
+] as const;
+
+function ContentReadinessPanel({ dashboard }: { dashboard: CustomerDashboardProjection }) {
+  const readiness = metricValue(dashboard.metrics, 'content_readiness_index');
+  const auditMetric = (code: string) =>
+    metricValue(dashboard.source_audit.metrics, code) ?? metricValue(dashboard.metrics, code);
+  return (
+    <section className="geo-content-readiness" aria-labelledby="geo-content-readiness-title">
+      <div className="geo-content-readiness__score">
+        <span>Content Readiness</span>
+        <h3 id="geo-content-readiness-title">内容准备度与事实审计</h3>
+        <p>把“有多少内容”进一步拆成“是否准确、是否可核验、引用材料是否完整”。</p>
+        <strong>
+          {formatMetric(readiness, true)}
+          <small>/100</small>
+        </strong>
+      </div>
+      <div className="geo-content-readiness__metrics">
+        {contentReadinessMetrics.map(([code, label, detail]) => (
+          <article key={code}>
+            <span>{label}</span>
+            <strong>{formatMetric(auditMetric(code))}</strong>
+            <p>{detail}</p>
+          </article>
+        ))}
+      </div>
     </section>
   );
 }
@@ -1320,6 +1441,7 @@ export function CustomerAnalyticsWorkspace({
       'risk',
     ],
     visibility: ['composite', 'visibility', 'ranking'],
+    answers: ['visibility', 'ranking', 'source', 'reputation'],
     competition: ['competition', 'visibility', 'ranking'],
     sources: ['source', 'content'],
     reputation: ['reputation', 'risk'],
@@ -1352,8 +1474,9 @@ export function CustomerAnalyticsWorkspace({
       </section>
       <DashboardFilters options={visibleFilterOptions} urlState={urlState} setFilter={setFilter} />
 
-      {focus === 'overview' || focus === 'visibility' ? (
+      {focus === 'overview' ? (
         <DashboardSection>
+          <AssetScalePanel dashboard={dashboard} />
           <SectionHeading
             eyebrow="Executive Scores"
             title="六大经营指数"
@@ -1368,7 +1491,18 @@ export function CustomerAnalyticsWorkspace({
         </DashboardSection>
       ) : null}
 
-      {focus === 'overview' || focus === 'visibility' ? (
+      {focus === 'visibility' ? (
+        <DashboardSection>
+          <SectionHeading
+            eyebrow="Visibility Metrics"
+            title="品牌表现核心指标"
+            detail="聚焦提及、推荐、排名与引用结果；完整回答统一进入“真实 AI 回答”下钻。"
+          />
+          <MetricCards dashboard={dashboard} codes={visibilityMetricCodes} />
+        </DashboardSection>
+      ) : null}
+
+      {focus === 'answers' ? (
         <CustomerAnswerExplorer
           key={`${dashboard.project_pub_id}:${windowValue}:${urlState.model}:${urlState.region}:${urlState.mode}`}
           brandName={dashboard.brand_name}
@@ -1387,12 +1521,14 @@ export function CustomerAnalyticsWorkspace({
           <section className="geo-dashboard-panel">
             <TrendChart dashboard={dashboard} />
           </section>
-          <div className="geo-dashboard-columns">
-            <DimensionTable title="模型表现" rows={dashboard.models} />
-            <DimensionTable title="地区表现" rows={dashboard.regions} />
-          </div>
           {focus === 'visibility' ? (
-            <DimensionTable title="回答模式表现" rows={dashboard.modes} />
+            <>
+              <div className="geo-dashboard-columns">
+                <DimensionTable title="模型表现" rows={dashboard.models} />
+                <DimensionTable title="地区表现" rows={dashboard.regions} />
+              </div>
+              <DimensionTable title="回答模式表现" rows={dashboard.modes} />
+            </>
           ) : null}
         </DashboardSection>
       ) : null}
@@ -1403,7 +1539,6 @@ export function CustomerAnalyticsWorkspace({
             <CompetitorPanel dashboard={dashboard} />
             <ReputationPanel dashboard={dashboard} />
           </div>
-          <SourcePanel dashboard={dashboard} />
           <QuestionPanel dashboard={dashboard} />
         </DashboardSection>
       ) : null}
@@ -1416,6 +1551,7 @@ export function CustomerAnalyticsWorkspace({
       {focus === 'sources' ? (
         <DashboardSection>
           <SourcePanel dashboard={dashboard} />
+          <ContentReadinessPanel dashboard={dashboard} />
           <SourceDataExplorer sources={dashboard.sources} />
         </DashboardSection>
       ) : null}
@@ -1431,11 +1567,13 @@ export function CustomerAnalyticsWorkspace({
           <QuestionDataExplorer questions={dashboard.questions} />
         </DashboardSection>
       ) : null}
-      <MetricDirectory
-        dashboard={dashboard}
-        catalog={catalog}
-        groups={metricGroupsForFocus[focus]}
-      />
+      {focus !== 'overview' && focus !== 'answers' ? (
+        <MetricDirectory
+          dashboard={dashboard}
+          catalog={catalog}
+          groups={metricGroupsForFocus[focus]}
+        />
+      ) : null}
     </div>
   );
 }

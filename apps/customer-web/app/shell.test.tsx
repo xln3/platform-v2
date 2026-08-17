@@ -1196,7 +1196,7 @@ describe('Customer platform account lifecycle', () => {
         <Shell />
       </MemoryRouter>,
     );
-    await user.click(screen.getByRole('button', { name: '资料' }));
+    await user.click(screen.getByRole('button', { name: '客户资料' }));
     await user.click(screen.getByRole('button', { name: '保存并生成版本' }));
     expect(screen.getByText('提交前必须确认资料真实性')).toBeTruthy();
     await user.click(screen.getByRole('checkbox', { name: /我确认上述客户声明真实/ }));
@@ -1211,7 +1211,7 @@ describe('Customer platform account lifecycle', () => {
         <Shell />
       </MemoryRouter>,
     );
-    await user.click(screen.getByRole('button', { name: '品牌产品' }));
+    await user.click(screen.getByRole('button', { name: '品牌产品与竞品' }));
     await user.type(screen.getByLabelText('品牌名称'), '澄明云');
     await user.clear(screen.getByLabelText('官方 HTTPS 网站'));
     await user.type(screen.getByLabelText('官方 HTTPS 网站'), 'https://example.test');
@@ -1230,7 +1230,7 @@ describe('Customer platform account lifecycle', () => {
   it('validates and submits a configuration request without mutating scheduling truth', async () => {
     const user = userEvent.setup();
     render(<Shell />);
-    await user.click(screen.getByRole('button', { name: '问题目标' }));
+    await user.click(screen.getByRole('button', { name: '监测问题与目标' }));
     await user.click(screen.getByRole('button', { name: '提交审核' }));
     expect(screen.getByText('问题至少需要 8 个字')).toBeTruthy();
     expect(screen.getByText('请说明至少 10 个字的业务原因')).toBeTruthy();
@@ -1248,7 +1248,7 @@ describe('Customer platform account lifecycle', () => {
         <Shell />
       </MemoryRouter>,
     );
-    await user.click(screen.getByRole('button', { name: '回答明细' }));
+    await user.click(screen.getByRole('button', { name: '证据中心' }));
     expect(screen.getByText('企业知识库如何选择？')).toBeTruthy();
     expect(screen.getByText('Answer ans_01')).toBeTruthy();
     await user.click(screen.getAllByRole('button', { name: '查看回答截图' })[0]!);
@@ -1287,7 +1287,7 @@ describe('Customer platform account lifecycle', () => {
   it('invites a member and displays only a masked email', async () => {
     const user = userEvent.setup();
     const { container } = render(<Shell />);
-    await user.click(screen.getByRole('button', { name: '成员' }));
+    await user.click(screen.getByRole('button', { name: '项目成员' }));
     await user.type(screen.getByLabelText('姓名'), '周岚');
     await user.type(screen.getByLabelText('工作邮箱'), 'zhoulan@example.test');
     await user.selectOptions(screen.getByLabelText('项目角色'), 'member');
@@ -1358,7 +1358,7 @@ describe('Customer intake workspace', () => {
         <Shell />
       </MemoryRouter>,
     );
-    await user.click(screen.getByRole('button', { name: '信息表' }));
+    await user.click(screen.getByRole('button', { name: '客户信息表' }));
     expect(screen.getByRole('heading', { name: '客户信息收集表' })).toBeTruthy();
     expect(screen.getByLabelText(/联系人/)).toBeTruthy();
     expect(screen.getByText('提升AI搜索曝光')).toBeTruthy();
@@ -1400,7 +1400,7 @@ describe('Customer intake workspace', () => {
         <Shell />
       </MemoryRouter>,
     );
-    await user.click(screen.getByRole('button', { name: '信息表' }));
+    await user.click(screen.getByRole('button', { name: '客户信息表' }));
     await user.click(screen.getByRole('button', { name: '保存信息表' }));
     expect(screen.getByText(/请逐条勾选信息真实性确认/)).toBeTruthy();
     for (const item of INTAKE_TRUTH_CONFIRM_ITEMS) {
@@ -1434,7 +1434,7 @@ describe('Customer intake workspace', () => {
         <Shell />
       </MemoryRouter>,
     );
-    await user.click(screen.getByRole('button', { name: '信息表' }));
+    await user.click(screen.getByRole('button', { name: '客户信息表' }));
     const contact = screen.getByLabelText(/联系人/);
     await user.clear(contact);
     await user.type(contact, 'Cookie=SESSION=intake-canary');

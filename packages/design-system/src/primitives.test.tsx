@@ -811,6 +811,35 @@ describe('shared experience primitives', () => {
     expect(document.body.textContent).not.toMatch(/Cookie|session-health-probe-canary/i);
   });
 
+  it('renders safe navigation groups once and rejects items with unsafe group labels', () => {
+    render(
+      <ProductShell
+        product="Customer Web"
+        title="客户工作台"
+        description="分组导航"
+        nav={[
+          { id: 'home', label: '经营总览', group: '数据洞察' },
+          { id: 'answers', label: '真实 AI 回答', group: '数据洞察' },
+          { id: 'reports', label: '报告', group: '成果交付' },
+          {
+            id: 'unsafe-group',
+            label: '不安全入口',
+            group: 'Bearer navigation-group-canary',
+          },
+        ]}
+        probe={async () => ({ status: 'ok' })}
+      >
+        {() => <section>安全业务内容</section>}
+      </ProductShell>,
+    );
+
+    expect(screen.getAllByRole('heading', { name: '数据洞察' })).toHaveLength(1);
+    expect(screen.getAllByRole('heading', { name: '成果交付' })).toHaveLength(1);
+    expect(screen.getByRole('button', { name: '真实 AI 回答' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '不安全入口' })).toBeNull();
+    expect(document.body.textContent).not.toContain('navigation-group-canary');
+  });
+
   it('keeps internal href navigation outside section state and renders unsafe destinations disabled', () => {
     window.history.replaceState(null, '', '/platform/operations/?section=execution');
     render(

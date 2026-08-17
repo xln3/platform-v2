@@ -17,14 +17,21 @@ test('customer shell is keyboard reachable and WCAG AA clean', async ({ page }) 
   await page.getByRole('button', { name: '展开 AI 面板' }).click();
   await expectAccessible(page);
   await page.getByRole('button', { name: '收起 AI 面板' }).click();
-  for (const workspace of ['资料', '品牌产品', '问题目标', '信源与内容', '报告', '成员']) {
+  for (const workspace of [
+    '客户资料',
+    '品牌产品与竞品',
+    '监测问题与目标',
+    '信源与内容',
+    '报告',
+    '项目成员',
+  ]) {
     await page.getByRole('button', { name: workspace, exact: true }).click();
     if (workspace === '报告') {
       await page.getByRole('button', { name: '在线预览' }).click();
       await expectAccessible(page);
       await page.keyboard.press('Escape');
     }
-    if (workspace === '成员') {
+    if (workspace === '项目成员') {
       await page.getByRole('button', { name: '管理 林澄' }).click();
       await expectAccessible(page);
       await page.keyboard.press('Escape');
@@ -46,7 +53,14 @@ test('customer shell is keyboard reachable and WCAG AA clean', async ({ page }) 
   await page.getByRole('button', { name: '品牌可见度' }).click();
   await page.getByRole('heading', { name: '云岫智能 · 品牌可见度与模型表现' }).waitFor();
   await expectAccessible(page);
-  await page.getByRole('button', { name: '回答明细' }).click();
+  await page.getByRole('button', { name: '真实 AI 回答' }).click();
+  await page.getByRole('heading', { name: '云岫智能 · 真实 AI 回答与模型语境' }).waitFor();
+  await expect(page.getByRole('button', { name: '按 AI 平台' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expectAccessible(page);
+  await page.getByRole('button', { name: '证据中心' }).click();
   const evidenceTrigger = page.getByRole('button', { name: '查看回答截图' }).first();
   await evidenceTrigger.focus();
   await page.keyboard.press('Enter');

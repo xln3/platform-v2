@@ -189,7 +189,7 @@ test('customer live workspace retries locally after a transient read failure', a
     'preserved',
   );
 
-  await page.getByRole('button', { name: '回答明细', exact: true }).click();
+  await page.getByRole('button', { name: '证据中心', exact: true }).click();
   const evidenceRetry = page.getByRole('button', { name: '重试此区域', exact: true });
   await expect(evidenceRetry).toBeVisible();
   await evidenceRetry.click();

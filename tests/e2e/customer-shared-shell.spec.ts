@@ -14,7 +14,7 @@ verifyHostileUrlBoundary({
   path: '/platform/customer/',
   role: 'customer',
   heading: '客户工作台',
-  defaultSection: '首页',
+  defaultSection: '经营总览',
 });
 
 verifyOversizedJsonBoundary({

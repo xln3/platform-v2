@@ -642,6 +642,12 @@ describe('generated client', () => {
     expect(projectSafeIsoTimestamp('2026-07-25T22:10:00.123456789+08:00')).toBe(
       '2026-07-25T22:10:00.123456789+08:00',
     );
+    expect(projectSafeIsoTimestamp('2026-08-05T17:27:57.411449+00:00')).toBe(
+      '2026-08-05T17:27:57.411449+00:00',
+    );
+    expect(projectSafeIsoTimestamp('2026-08-05T17:27:57.824911Z')).toBe(
+      '2026-08-05T17:27:57.824911Z',
+    );
     expect(projectSafeIsoTimestamp('1')).toBeNull();
     expect(projectSafeIsoTimestamp('2026-07-25T22:10:00')).toBeNull();
     expect(projectSafeIsoTimestamp('2026-02-30T22:10:00Z')).toBeNull();
@@ -6462,8 +6468,8 @@ describe('fixed-field browser boundaries (Round170)', () => {
             tenant_pub_id: 'tnt_safe',
             name: '安全项目',
             state: 'active',
-            created_at: '2026-07-25T08:00:00Z',
-            updated_at: '2026-07-25T09:00:00Z',
+            created_at: '2026-08-05T17:27:57.411449+00:00',
+            updated_at: '2026-08-09T21:00:05.757883+00:00',
             ...hostileExtensions,
           },
         ],

@@ -67,8 +67,8 @@ test('validated customer reads mounted data and serializes every write without s
             tenant_pub_id: 'tnt_customer_product_live',
             name: '客户产品联调项目',
             state: 'active',
-            created_at: '2026-07-25T00:00:00Z',
-            updated_at: '2026-07-25T00:00:00Z',
+            created_at: '2026-08-05T17:27:57.411449+00:00',
+            updated_at: '2026-08-09T21:00:05.757883+00:00',
           },
         ],
         page: { next_cursor: null, has_more: false },
@@ -760,12 +760,42 @@ test('validated customer reads mounted data and serializes every write without s
     dashboardMetric('content_readiness_index', '内容准备度指数', 'composite', 'score', 64),
     dashboardMetric('reputation_index', 'AI 口碑指数', 'composite', 'score', 79),
     dashboardMetric('cognition_consistency_index', 'AI 认知一致性指数', 'composite', 'score', 73),
+    dashboardMetric('answer_count', '已分析回答', 'visibility', 'count', 1217, 'neutral'),
+    dashboardMetric('mention_count', '品牌提及回答', 'visibility', 'count', 913),
     ...dimensionMetrics,
+    dashboardMetric('top1_rate', 'Top1 率', 'ranking', 'percentage', 0.25),
+    dashboardMetric('ranked_answer_rate', '有效排名覆盖率', 'ranking', 'percentage', 0.75),
     dashboardMetric('share_of_voice', '竞争声量份额', 'competition', 'percentage', 0.4),
     dashboardMetric('own_source_answer_rate', '官网引用回答率', 'source', 'percentage', 0.25),
     dashboardMetric('unique_source_hosts', '独立信源网站', 'source', 'count', 1742),
     dashboardMetric('unique_source_pages', '独立信源页面', 'source', 'count', 12684),
     dashboardMetric('citation_references', '引用总次数', 'source', 'count', 18926),
+    dashboardMetric('cited_text_visibility_rate', '引用原文可见率', 'source', 'percentage', 0.88),
+    dashboardMetric(
+      'citation_title_visibility_rate',
+      '引用标题可见率',
+      'source',
+      'percentage',
+      0.94,
+    ),
+    dashboardMetric('source_audit_count', '已完成信源审计', 'content', 'count', 520),
+    dashboardMetric('source_accuracy_rate', '信源准确率', 'content', 'percentage', 0.92),
+    dashboardMetric(
+      'source_unsupported_rate',
+      '无依据信源率',
+      'content',
+      'percentage',
+      0.05,
+      'lower',
+    ),
+    dashboardMetric(
+      'source_unverifiable_rate',
+      '无法核实率',
+      'content',
+      'percentage',
+      0.03,
+      'lower',
+    ),
     dashboardMetric('positive_rate', '正面回答率', 'reputation', 'percentage', 0.75),
   ];
   await page.route('**/api/v2/customer-dashboard/metrics/catalog**', (route) =>
@@ -861,7 +891,10 @@ test('validated customer reads mounted data and serializes every write without s
           (date) => ({ date, metrics: dimensionMetrics }),
         ),
         risk: { metrics: [], by_model: [] },
-        source_audit: { metrics: [], verdicts: {} },
+        source_audit: {
+          metrics: [],
+          verdicts: { accurate: 478, unsupported: 26, unverifiable: 16 },
+        },
         snapshot_hash: 'a'.repeat(64),
       }),
     });
@@ -874,14 +907,26 @@ test('validated customer reads mounted data and serializes every write without s
   await expect(page.getByText('资料确认', { exact: true })).toHaveCount(0);
   await expect(page.getByText('Project stage', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: '六大经营指数' })).toBeVisible();
-  const sourceScale = page.getByLabel('AI 信源资产规模');
-  await expect(sourceScale.getByText('1,742', { exact: true })).toBeVisible();
-  await expect(sourceScale.getByText('12,684', { exact: true })).toBeVisible();
-  await expect(sourceScale.getByText('18,926', { exact: true })).toBeVisible();
+  const assetScale = page.getByLabel('当前窗口沉淀的 AI 认知资产');
+  await expect(assetScale.getByText('1,217', { exact: true })).toBeVisible();
+  await expect(assetScale.getByText('1,742', { exact: true })).toBeVisible();
+  await expect(assetScale.getByText('12,684', { exact: true })).toBeVisible();
+  await expect(assetScale.getByText('18,926', { exact: true })).toBeVisible();
   await expect(
     page.locator('.geo-kpi-card').filter({ hasText: '品牌提及率' }).getByText('75.0%'),
   ).toBeVisible();
-  await expect(page.getByRole('heading', { name: '真实客户品牌 · 真实 AI 回答' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '真实客户品牌 · 真实 AI 回答' })).toHaveCount(0);
+  await expectSafePageScreenshot(page, 'customer-live-home.png', {
+    fullPage: true,
+    animations: 'disabled',
+  });
+  await page.getByRole('button', { name: '真实 AI 回答' }).click();
+  await expect(
+    page.getByRole('heading', { name: '真实客户品牌 · 真实 AI 回答与模型语境' }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: '真实客户品牌 · 真实 AI 回答', exact: true }),
+  ).toBeVisible();
   await expect(
     page
       .locator('.geo-answer-row__lead')
@@ -897,7 +942,7 @@ test('validated customer reads mounted data and serializes every write without s
   await page.getByRole('button', { name: '按地域' }).click();
   await expect(page.getByRole('region', { name: 'east回答明细' })).toBeVisible();
   await page.getByRole('button', { name: '按 AI 平台' }).click();
-  await expectSafePageScreenshot(page, 'customer-live-home.png', {
+  await expectSafePageScreenshot(page, 'customer-live-answers.png', {
     fullPage: true,
     animations: 'disabled',
   });
@@ -945,7 +990,7 @@ test('validated customer reads mounted data and serializes every write without s
     fullPage: true,
     animations: 'disabled',
   });
-  await page.getByRole('button', { name: '问题目标' }).click();
+  await page.getByRole('button', { name: '监测问题与目标' }).click();
   await expect(page.getByText('真实目录中的客户关注问题')).toBeVisible();
   await expect(page.getByText('目标 80.0% · active')).toBeVisible();
   await expectSafePageScreenshot(page, 'customer-live-questions.png', {
@@ -965,11 +1010,21 @@ test('validated customer reads mounted data and serializes every write without s
   await expect(page.getByLabel('模型表现数据表')).toContainText('doubao');
   await expect(page.getByLabel('地区表现数据表')).toContainText('east');
   await expect(page.getByLabel('回答模式表现数据表')).toContainText('deep');
-  await expect(page.getByText('真实客户合同问题', { exact: true })).toBeVisible();
+  await expect(page.getByText('真实客户合同问题', { exact: true })).toHaveCount(0);
   await expectSafePageScreenshot(page, 'customer-live-monitoring.png', {
     fullPage: true,
     animations: 'disabled',
   });
+  await page.getByRole('button', { name: '信源与内容' }).click();
+  await expect(
+    page.getByRole('heading', { name: '真实客户品牌 · 信源权威与内容准备度' }),
+  ).toBeVisible();
+  const sourceScale = page.getByLabel('AI 信源资产规模');
+  await expect(sourceScale.getByText('1,742', { exact: true })).toBeVisible();
+  await expect(sourceScale.getByText('12,684', { exact: true })).toBeVisible();
+  const contentReadiness = page.getByLabel('内容准备度与事实审计');
+  await expect(contentReadiness.getByText('520', { exact: true })).toBeVisible();
+  await expect(contentReadiness.getByText('92.0%', { exact: true })).toBeVisible();
   await page.goto(
     '/platform/customer/?section=evidence&evidence_page=2&evidence_cursor=evd_Bearer%20evidence-cursor-canary',
   );

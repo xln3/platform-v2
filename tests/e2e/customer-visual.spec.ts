@@ -19,6 +19,11 @@ const workspaces = [
     ready: '云岫智能 · 品牌可见度与模型表现',
   },
   {
+    section: 'answers',
+    snapshot: 'customer-real-ai-answers.png',
+    ready: '云岫智能 · 真实 AI 回答与模型语境',
+  },
+  {
     section: 'competition',
     snapshot: 'customer-competition.png',
     ready: '云岫智能 · 竞品对标与心智份额',

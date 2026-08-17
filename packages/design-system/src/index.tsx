@@ -1,5 +1,6 @@
 import {
   Component,
+  Fragment,
   createContext,
   useContext,
   useEffect,
@@ -928,10 +929,17 @@ export type DataState =
   | 'forbidden'
   | 'ready';
 
-export type NavItem = { id: string; label: string; badge?: string; href?: string };
+export type NavItem = {
+  id: string;
+  label: string;
+  group?: string;
+  badge?: string;
+  href?: string;
+};
 export type SafeNavItem = {
   id: string;
   label: string;
+  group?: string;
   badge?: string;
   href?: string;
   disabledExternal?: true;
@@ -981,6 +989,8 @@ export function projectSafeProductNavigation(items: readonly NavItem[]): SafeNav
       safeNavigationText(item.id, 64) && /^[A-Za-z][A-Za-z0-9_-]*$/.test(item.id) ? item.id : null;
     const label = safeNavigationText(item.label, 60);
     if (!id || !label || seenIds.has(id)) continue;
+    const group = item.group === undefined ? null : safeNavigationText(item.group, 40);
+    if (item.group !== undefined && !group) continue;
     const badge = item.badge === undefined ? null : safeNavigationText(item.badge, 12);
     if (item.badge !== undefined && !badge) continue;
     seenIds.add(id);
@@ -989,12 +999,13 @@ export function projectSafeProductNavigation(items: readonly NavItem[]): SafeNav
       projected.push({
         id,
         label,
+        ...(group ? { group } : {}),
         ...(badge ? { badge } : {}),
         ...(href ? { href } : { disabledExternal: true as const }),
       });
       continue;
     }
-    projected.push({ id, label, ...(badge ? { badge } : {}) });
+    projected.push({ id, label, ...(group ? { group } : {}), ...(badge ? { badge } : {}) });
   }
   return projected;
 }
@@ -2499,40 +2510,38 @@ export function ProductShell({
           </div>
           <div className="workspace-label">{product}</div>
           <nav aria-label={`${product} 主导航`} id={navId}>
-            {safeNav.map((item) =>
-              item.href ? (
-                <a
-                  aria-label={item.label}
-                  aria-current={currentNavId === item.id ? 'page' : undefined}
-                  className={currentNavId === item.id ? 'nav-active' : undefined}
-                  href={projectAwareHref(item.href)}
-                  key={item.id}
-                >
-                  <span>{item.label}</span>
-                  {item.badge ? <em>{item.badge}</em> : null}
-                </a>
-              ) : item.disabledExternal ? (
-                <button
-                  aria-label={item.label}
-                  disabled
-                  key={item.id}
-                  title="导航地址未通过安全校验"
-                >
-                  <span>{item.label}</span>
-                </button>
-              ) : (
-                <button
-                  aria-label={item.label}
-                  aria-current={active === item.id ? 'page' : undefined}
-                  className={active === item.id ? 'nav-active' : ''}
-                  key={item.id}
-                  onClick={() => setActive(item.id)}
-                >
-                  <span>{item.label}</span>
-                  {item.badge ? <em>{item.badge}</em> : null}
-                </button>
-              ),
-            )}
+            {safeNav.map((item, index) => (
+              <Fragment key={item.id}>
+                {item.group && item.group !== safeNav[index - 1]?.group ? (
+                  <h2 className="nav-group">{item.group}</h2>
+                ) : null}
+                {item.href ? (
+                  <a
+                    aria-label={item.label}
+                    aria-current={currentNavId === item.id ? 'page' : undefined}
+                    className={currentNavId === item.id ? 'nav-active' : undefined}
+                    href={projectAwareHref(item.href)}
+                  >
+                    <span>{item.label}</span>
+                    {item.badge ? <em>{item.badge}</em> : null}
+                  </a>
+                ) : item.disabledExternal ? (
+                  <button aria-label={item.label} disabled title="导航地址未通过安全校验">
+                    <span>{item.label}</span>
+                  </button>
+                ) : (
+                  <button
+                    aria-label={item.label}
+                    aria-current={active === item.id ? 'page' : undefined}
+                    className={active === item.id ? 'nav-active' : ''}
+                    onClick={() => setActive(item.id)}
+                  >
+                    <span>{item.label}</span>
+                    {item.badge ? <em>{item.badge}</em> : null}
+                  </button>
+                )}
+              </Fragment>
+            ))}
           </nav>
           <div className="sidebar-foot" role="status" aria-live="polite">
             <span className="live-dot" />

@@ -143,23 +143,24 @@ import { CustomerAnalyticsWorkspace } from './customer-dashboard';
 import './ai-dock.css';
 
 const nav = [
-  { id: 'home', label: '经营概览' },
-  { id: 'monitoring', label: '品牌可见度' },
-  { id: 'evidence', label: '回答明细' },
-  { id: 'competition', label: '竞品对标' },
-  { id: 'sources', label: '信源与内容' },
-  { id: 'reputation', label: '口碑与风险' },
-  { id: 'opportunities', label: '问题机会' },
-  { id: 'reports', label: '报告' },
-  { id: 'profile', label: '资料' },
-  { id: 'intake', label: '信息表' },
-  { id: 'assets', label: '品牌产品' },
-  { id: 'questions', label: '问题目标' },
-  { id: 'members', label: '成员' },
-  { id: 'accounts', label: '平台账号', badge: '2' },
+  { id: 'home', label: '经营总览', group: '数据洞察' },
+  { id: 'monitoring', label: '品牌可见度', group: '数据洞察' },
+  { id: 'answers', label: '真实 AI 回答', group: '数据洞察' },
+  { id: 'competition', label: '竞品对标', group: '数据洞察' },
+  { id: 'sources', label: '信源与内容', group: '数据洞察' },
+  { id: 'reputation', label: '口碑与风险', group: '数据洞察' },
+  { id: 'opportunities', label: '增长机会', group: '数据洞察' },
+  { id: 'evidence', label: '证据中心', group: '成果交付' },
+  { id: 'reports', label: '报告', group: '成果交付' },
+  { id: 'profile', label: '客户资料', group: '项目配置' },
+  { id: 'intake', label: '客户信息表', group: '项目配置' },
+  { id: 'assets', label: '品牌产品与竞品', group: '项目配置' },
+  { id: 'questions', label: '监测问题与目标', group: '项目配置' },
+  { id: 'members', label: '项目成员', group: '项目配置' },
+  { id: 'accounts', label: 'AI 平台账号与授权', group: '项目配置', badge: '2' },
 ];
 const liveNav = nav.map((item) =>
-  item.id === 'accounts' ? { id: item.id, label: item.label } : item,
+  item.id === 'accounts' ? { id: item.id, label: item.label, group: item.group } : item,
 );
 const noClientSecret = (value: string): boolean => !containsClientSecret(value);
 const noClientSecretMessage =
@@ -10165,6 +10166,7 @@ export default function Shell() {
           experience?.source === 'live' &&
           ![
             'home',
+            'answers',
             'profile',
             'intake',
             'assets',
@@ -10184,6 +10186,8 @@ export default function Shell() {
             <CustomerAnalyticsWorkspace focus="overview" />
           ) : active === 'monitoring' ? (
             <CustomerAnalyticsWorkspace focus="visibility" />
+          ) : active === 'answers' ? (
+            <CustomerAnalyticsWorkspace focus="answers" />
           ) : active === 'competition' ? (
             <CustomerAnalyticsWorkspace focus="competition" />
           ) : active === 'sources' ? (

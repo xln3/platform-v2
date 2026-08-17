@@ -167,14 +167,14 @@ test('tenant member writes stay serialized and bound to the initiating member', 
   await expect(page.getByLabel('姓名')).toBeDisabled();
   await expect(page.getByRole('button', { name: '发送邀请' })).toBeDisabled();
 
-  await page.getByRole('button', { name: '首页' }).click();
+  await page.getByRole('button', { name: '经营总览' }).click();
   releaseBind?.();
   await expect.poll(() => writeResponseSent).toBe(true);
   await expect(page.getByText('成员甲 的 OIDC 标识已哈希绑定；原始 subject 未保留')).toHaveCount(0);
   expect(memberReads).toBe(1);
   expect(oidcReads).toBe(1);
 
-  await page.getByRole('button', { name: '成员', exact: true }).click();
+  await page.getByRole('button', { name: '项目成员', exact: true }).click();
   await expect(page.getByText('成员甲', { exact: true })).toBeVisible();
   expect(memberReads).toBe(2);
   expect(oidcReads).toBe(2);

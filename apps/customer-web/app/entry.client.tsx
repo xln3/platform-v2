@@ -10,6 +10,7 @@ installClientBrowserSecurity([
   'assets',
   'questions',
   'monitoring',
+  'answers',
   'competition',
   'sources',
   'reputation',

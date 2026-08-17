@@ -571,7 +571,7 @@ test('validated customer submits a project change request through the generated 
   );
 
   await page.goto('/platform/customer/');
-  await page.getByRole('button', { name: '问题目标' }).click();
+  await page.getByRole('button', { name: '监测问题与目标' }).click();
   await expect(page.getByText(/生成的 OpenAPI client/)).toBeVisible();
   await page.getByLabel('关注问题').fill('请使用验证码 824911 查询企业知识库');
   await page.getByLabel('业务原因').fill('需要覆盖客户采购决策阶段的真实比较问题。');
@@ -666,7 +666,7 @@ test('monitoring filters are URL-bound and restore through browser history', asy
   await expect.poll(() => new URL(page.url()).searchParams.get('window')).toBe('7d');
   await regionFilter.selectOption('华东');
   await expect.poll(() => new URL(page.url()).searchParams.get('region')).toBe('华东');
-  await expect(page.getByRole('heading', { name: '云岫智能 · 真实 AI 回答' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '云岫智能 · 真实 AI 回答' })).toHaveCount(0);
 
   await page.goBack();
   await expect(regionFilter).toHaveValue('all');
@@ -698,14 +698,14 @@ test('customer profile, brand assets and configuration requests validate and sub
   );
   await page.goto('/platform/customer/');
 
-  await page.getByRole('button', { name: '资料' }).click();
+  await page.getByRole('button', { name: '客户资料' }).click();
   await page.getByRole('button', { name: '保存并生成版本' }).click();
   await expect(page.getByText('提交前必须确认资料真实性')).toBeVisible();
   await page.getByRole('checkbox', { name: /我确认上述客户声明真实/ }).check();
   await page.getByRole('button', { name: '保存并生成版本' }).click();
   await expect(page.getByText(/客户声明 v3/)).toBeVisible();
 
-  await page.getByRole('button', { name: '品牌产品' }).click();
+  await page.getByRole('button', { name: '品牌产品与竞品' }).click();
   await page.getByLabel('品牌名称').fill('澄明云');
   await page.getByLabel('官方 HTTPS 网站').fill('https://example.test');
   await page.getByLabel('产品或服务').fill('可信知识助手');
@@ -715,7 +715,7 @@ test('customer profile, brand assets and configuration requests validate and sub
   await page.getByRole('button', { name: '登记资产' }).click();
   await expect(page.getByText('澄明云')).toBeVisible();
 
-  await page.getByRole('button', { name: '问题目标' }).click();
+  await page.getByRole('button', { name: '监测问题与目标' }).click();
   await page.getByRole('button', { name: '提交审核' }).click();
   await expect(page.getByText('问题至少需要 8 个字')).toBeVisible();
   await page.getByLabel('关注问题').fill('制造企业如何选择可信的私有化知识库？');
@@ -749,7 +749,7 @@ test('customer reviews evidence, exports, questions reports and manages members'
   await expect(page).toHaveURL(/section=reports/);
   await expect(page.getByRole('heading', { name: '2026 Q3 GEO 监测与优化建议' })).toBeVisible();
 
-  await page.getByRole('button', { name: '回答明细' }).click();
+  await page.getByRole('button', { name: '证据中心' }).click();
   await page.getByRole('button', { name: '下一页' }).click();
   await expect(page).toHaveURL(/answer_page=2/);
   await page.getByLabel('回答地域').selectOption('上海');
@@ -804,7 +804,7 @@ test('customer reviews evidence, exports, questions reports and manages members'
   await page.getByRole('button', { name: '确认收到 v1.2' }).click();
   await expect(page.getByText('已确认接收 v1.2')).toBeVisible();
 
-  await page.getByRole('button', { name: '成员' }).click();
+  await page.getByRole('button', { name: '项目成员' }).click();
   await page.getByLabel('姓名').fill('周岚');
   await page.getByLabel('工作邮箱').fill('zhoulan@example.test');
   await page.getByRole('button', { name: '发送邀请' }).click();
