@@ -5,6 +5,7 @@ import {
   accountGovApi,
   COLLECTION_PLATFORMS,
   PLATFORM_LABELS,
+  type AccountQuotaObservation,
   type CollectionAccountEvent,
   type CollectionAccountRow,
   type CollectionPlatform,
@@ -42,6 +43,7 @@ type QuotaEditRequest = {
 export function AccountsPage({ session }: { session: SessionContext }) {
   const [accounts, setAccounts] = useState<CollectionAccountRow[]>([]);
   const [regions, setRegions] = useState<CollectionRegionRow[]>([]);
+  const [quotaObservations, setQuotaObservations] = useState<AccountQuotaObservation[]>([]);
   const [state, setState] = useState<'loading' | 'ready' | 'failed'>('loading');
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [eventsOpenId, setEventsOpenId] = useState<string | null>(null);
@@ -62,12 +64,14 @@ export function AccountsPage({ session }: { session: SessionContext }) {
 
   const refresh = useCallback(async () => {
     try {
-      const [accountRows, regionRows] = await Promise.all([
+      const [accountRows, regionRows, quotaRows] = await Promise.all([
         accountGovApi.listAccounts(session),
         accountGovApi.listRegions(session),
+        accountGovApi.listQuotaObservations(session),
       ]);
       setAccounts(accountRows);
       setRegions(regionRows);
+      setQuotaObservations(quotaRows);
       setState('ready');
     } catch {
       setState('failed');
@@ -114,6 +118,7 @@ export function AccountsPage({ session }: { session: SessionContext }) {
           <button onClick={() => setAddRegionOpen(true)}>添加地域</button>
         </div>
       </header>
+      <QuotaObservationPanel observations={quotaObservations} regions={regions} now={now} />
       {state === 'loading' ? (
         <p className="acct-gov-empty">正在加载账号列表…</p>
       ) : state === 'failed' ? (
@@ -229,6 +234,148 @@ export function AccountsPage({ session }: { session: SessionContext }) {
       ) : null}
       <ToastStack toasts={toasts} />
     </main>
+  );
+}
+
+const QUOTA_MODE_LABELS: Record<AccountQuotaObservation['mode'], string> = {
+  normal: '快速模式',
+  deep_think: '专家模式',
+  unknown: '模式未知',
+};
+
+const QUOTA_TIER_LABELS: Record<AccountQuotaObservation['account_tier'], string> = {
+  free: '免费版',
+  subscriber: '专业版',
+  unknown: '档位未知',
+};
+
+const QUOTA_SOURCE_LABELS: Record<AccountQuotaObservation['source'], string> = {
+  platform: '平台响应',
+  platform_and_logs: '平台响应 + 采集日志',
+  manual: '人工记录',
+  unknown: '来源未知',
+};
+
+function QuotaObservationPanel({
+  observations,
+  regions,
+  now,
+}: {
+  observations: AccountQuotaObservation[];
+  regions: CollectionRegionRow[];
+  now: number;
+}) {
+  if (observations.length === 0) return null;
+  const regionNames = new Map(regions.map((region) => [region.region_gb, region.name]));
+  return (
+    <section className="acct-gov-quota-overview" aria-labelledby="account-quota-heading">
+      <div className="acct-gov-section-heading">
+        <div>
+          <h2 id="account-quota-heading">平台账号额度</h2>
+          <p>展示平台明确状态与日志估算；估算条数不会作为官方固定上限。</p>
+        </div>
+      </div>
+      <div className="acct-gov-quota-cards">
+        {observations.map((observation) => {
+          const regionName = observation.region_gb
+            ? (regionNames.get(observation.region_gb) ?? observation.region_gb)
+            : '地域未登记';
+          const roundedDaily =
+            observation.daily_equivalent === null
+              ? null
+              : Math.max(0, Math.round(observation.daily_equivalent));
+          const windowLabel =
+            observation.window_days === null
+              ? '周期未知'
+              : `${observation.window_type === 'rolling' ? '滚动' : '自然'} ${observation.window_days} 天`;
+          const resetCountdown = formatCountdown(observation.reset_at, now);
+          return (
+            <article
+              className="acct-gov-quota-card"
+              key={`${observation.browser_instance_key}-${observation.mode}`}
+            >
+              <header>
+                <div>
+                  <strong>
+                    {PLATFORM_LABELS[observation.platform]} · {regionName}
+                  </strong>
+                  <small>{observation.browser_instance_key}</small>
+                </div>
+                <span
+                  className={`acct-gov-badge ${
+                    observation.quota_state === 'exhausted'
+                      ? 'quota'
+                      : observation.quota_state === 'available'
+                        ? 'idle'
+                        : 'neutral'
+                  }`}
+                >
+                  {observation.quota_state === 'exhausted'
+                    ? '额度已用尽'
+                    : observation.quota_state === 'available'
+                      ? '额度可用'
+                      : '额度未知'}
+                </span>
+              </header>
+              <dl>
+                <div>
+                  <dt>档位 / 模式</dt>
+                  <dd>
+                    {QUOTA_TIER_LABELS[observation.account_tier]} ·{' '}
+                    {QUOTA_MODE_LABELS[observation.mode]}
+                  </dd>
+                </div>
+                <div>
+                  <dt>额度周期</dt>
+                  <dd>{windowLabel}</dd>
+                </div>
+                <div>
+                  <dt>日志折算</dt>
+                  <dd>
+                    {roundedDaily === null ? (
+                      '平台未公开固定条数'
+                    ) : (
+                      <>
+                        <strong>约 {roundedDaily} 条/天</strong>
+                        {observation.observed_window_count !== null &&
+                        observation.window_days !== null ? (
+                          <small>
+                            已确认 {observation.observed_window_count} 条 ÷{' '}
+                            {observation.window_days} 天 = {observation.daily_equivalent}；
+                            {observation.count_kind === 'lower_bound' ? '下限估算' : '估算值'}
+                          </small>
+                        ) : null}
+                      </>
+                    )}
+                  </dd>
+                </div>
+                <div>
+                  <dt>预计恢复</dt>
+                  <dd>
+                    {observation.reset_at ? (
+                      <>
+                        {new Date(observation.reset_at).toLocaleString('zh-CN', { hour12: false })}
+                        {resetCountdown ? <small>{resetCountdown}</small> : null}
+                      </>
+                    ) : (
+                      '未返回'
+                    )}
+                  </dd>
+                </div>
+              </dl>
+              <footer>
+                来源：{QUOTA_SOURCE_LABELS[observation.source]} · 观测于{' '}
+                <RelativeTime iso={observation.observed_at} now={now} />
+              </footer>
+            </article>
+          );
+        })}
+      </div>
+      <p className="acct-gov-note">
+        “约 N
+        条/天”由滚动窗口内已确认发送数折算；复杂任务可能加权。豆包快速模式不占用这里展示的专家模式额度。
+      </p>
+    </section>
   );
 }
 
@@ -659,7 +806,9 @@ function SmsTestDialog({
             {result.guidance ? <p className="acct-gov-note">{result.guidance}</p> : null}
             {remaining !== null ? (
               <p aria-live="polite">
-                {remaining > 0 ? `等待回执：剩余 ${remaining} 秒` : '等待窗口已结束，可关闭后重试。'}
+                {remaining > 0
+                  ? `等待回执：剩余 ${remaining} 秒`
+                  : '等待窗口已结束，可关闭后重试。'}
               </p>
             ) : null}
             {result.detail ? <p className="acct-gov-note">{result.detail}</p> : null}
@@ -722,9 +871,7 @@ function AccountEventsPanel({
           ) : null}
           {event.evidence !== null ? (
             <small>
-              {typeof event.evidence === 'string'
-                ? event.evidence
-                : JSON.stringify(event.evidence)}
+              {typeof event.evidence === 'string' ? event.evidence : JSON.stringify(event.evidence)}
             </small>
           ) : null}
           {event.run_pub_id ? <small>{event.run_pub_id}</small> : null}
@@ -848,8 +995,8 @@ function AddRegionDialog({
     <Dialog title="添加地域" closeLabel="关闭" onClose={onClose}>
       <div className="acct-gov-dialog-body">
         <p className="acct-gov-note">
-          新地域 = 悟空代理新购。提交后需运维配置 relay（proxy-relay@&lt;region&gt;
-          单元与代理凭证 env），巡检通过后才会出现在地域下拉框。
+          新地域 = 悟空代理新购。提交后需运维配置 relay（proxy-relay@&lt;region&gt; 单元与代理凭证
+          env），巡检通过后才会出现在地域下拉框。
         </p>
         <label className="acct-gov-field">
           <span>地域代码（region_gb，6 位数字）</span>

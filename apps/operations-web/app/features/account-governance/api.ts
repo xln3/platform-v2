@@ -86,13 +86,7 @@ async function govSend<T>(
 
 // ── 契约类型（字段逐字按后端契约，勿凭想象改） ──
 
-export const COLLECTION_PLATFORMS = [
-  'doubao',
-  'yiyan',
-  'deepseek',
-  'yuanbao',
-  'tongyi',
-] as const;
+export const COLLECTION_PLATFORMS = ['doubao', 'yiyan', 'deepseek', 'yuanbao', 'tongyi'] as const;
 export type CollectionPlatform = (typeof COLLECTION_PLATFORMS)[number];
 
 export const PLATFORM_LABELS: Record<CollectionPlatform, string> = {
@@ -133,6 +127,24 @@ export type CollectionAccountRow = {
   push_link_state: string;
   last_push_test_at: string | null;
   platforms: Record<CollectionPlatform, PlatformAccountCell | null>;
+};
+
+export type AccountQuotaObservation = {
+  observation_pub_id: string;
+  browser_instance_key: string;
+  platform: CollectionPlatform;
+  region_gb: string | null;
+  mode: 'normal' | 'deep_think' | 'unknown';
+  account_tier: 'free' | 'subscriber' | 'unknown';
+  quota_state: 'available' | 'exhausted' | 'unknown';
+  window_type: 'rolling' | 'calendar' | 'unknown';
+  window_days: number | null;
+  observed_window_count: number | null;
+  daily_equivalent: number | null;
+  count_kind: 'lower_bound' | 'estimate' | 'platform_exact' | 'unknown';
+  reset_at: string | null;
+  observed_at: string;
+  source: 'platform' | 'platform_and_logs' | 'manual' | 'unknown';
 };
 
 export type CollectionAccountEvent = {
@@ -213,6 +225,8 @@ export type PlatformAccountPatch = {
 export const accountGovApi = {
   listAccounts: (session: SessionContext) =>
     govGet<CollectionAccountRow[]>(session, '/api/v2/collection-accounts'),
+  listQuotaObservations: (session: SessionContext) =>
+    govGet<AccountQuotaObservation[]>(session, '/api/v2/collection-account-quota-observations'),
   createAccount: (session: SessionContext, input: { phone: string; owner_note?: string }) =>
     govSend<CollectionAccountRow>(
       session,
