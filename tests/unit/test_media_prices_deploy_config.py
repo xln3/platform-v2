@@ -19,8 +19,8 @@ def test_media_refresh_runs_in_a_dedicated_resource_controlled_service() -> None
     )
 
     assert "tools/media_prices_refresh_worker.py" in service
-    assert "MemoryHigh=1G" in service
-    assert "MemoryMax=1536M" in service
+    assert "MemoryHigh=2G" in service
+    assert "MemoryMax=3G" in service
     assert "ReadWritePaths=/home/xln/geo-system/platform-v2/.datasets" in service
     assert "media-prices.refresh.request.json" in path
     assert "Unit=geo-platform-v2-media-refresh.service" in path
