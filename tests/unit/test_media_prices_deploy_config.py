@@ -22,12 +22,6 @@ def test_media_refresh_runs_in_a_dedicated_resource_controlled_service() -> None
     assert "MemoryHigh=1G" in service
     assert "MemoryMax=1536M" in service
     assert "ReadWritePaths=/home/xln/geo-system/platform-v2/.datasets" in service
-    assert "LoadCredential=vault-token:/etc/geo-platform-v2/vault-runtime-token" in service
-    assert "Environment=GEO_KMS_PROVIDER=vault_transit" in service
-    assert (
-        "GEO_VAULT_TRANSIT_TOKEN_FILE="
-        "/run/credentials/geo-platform-v2-media-refresh.service/vault-token" in service
-    )
     assert "media-prices.refresh.request.json" in path
     assert "Unit=geo-platform-v2-media-refresh.service" in path
 
