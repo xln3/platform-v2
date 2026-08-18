@@ -1,3 +1,4 @@
+import os
 import stat
 
 from tools import media_prices_refresh as refresh
@@ -152,3 +153,22 @@ def test_browser_required_labels_match_client_secret_boundary() -> None:
     assert refresh._browser_safe_required_label("中国青年报（200-300字）", 500) is None
     assert refresh._browser_safe_required_label("账号202210", 500) is None
     assert refresh._browser_safe_required_label("联系电话13800138000", 500) is None
+
+
+def test_refresh_lock_does_not_expire_while_owner_is_alive(tmp_path, monkeypatch) -> None:
+    lock_file = tmp_path / "media-prices.refresh.lock"
+    lock_file.write_text(f"pid={os.getpid()} started=old\n", encoding="utf-8")
+    os.utime(lock_file, (1, 1))
+    monkeypatch.setattr(refresh, "LOCK_FILE", lock_file)
+
+    assert refresh._acquire_lock() is False
+    assert lock_file.read_text(encoding="utf-8").startswith(f"pid={os.getpid()}")
+
+
+def test_refresh_lock_immediately_recovers_dead_owner(tmp_path, monkeypatch) -> None:
+    lock_file = tmp_path / "media-prices.refresh.lock"
+    lock_file.write_text("pid=999999999 started=recent\n", encoding="utf-8")
+    monkeypatch.setattr(refresh, "LOCK_FILE", lock_file)
+
+    assert refresh._acquire_lock() is True
+    assert lock_file.read_text(encoding="utf-8").startswith(f"pid={os.getpid()}")

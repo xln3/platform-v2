@@ -1,0 +1,13 @@
+[Unit]
+Description=Watch for GEO Platform V2 media price refresh requests
+After=local-fs.target
+
+[Path]
+PathExists=/home/xln/geo-system/platform-v2/.datasets/media-prices.refresh.request.json
+PathExists=/home/xln/geo-system/platform-v2/.datasets/media-prices.refresh.request.running.json
+Unit=geo-platform-v2-media-refresh.service
+MakeDirectory=true
+DirectoryMode=0750
+
+[Install]
+WantedBy=multi-user.target

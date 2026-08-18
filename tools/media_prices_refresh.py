@@ -5,8 +5,8 @@
 分别合并重建 `.datasets/media-prices.json` 和 `.datasets/media-wemedia.json`
 （均带 `.sha256` sidecar），进度与结果落 `.datasets/media-prices.refresh.json`。
 
-由 `POST /api/v2/datasets/media-prices/refresh` 以子进程启动（仓库 .venv 解释器），
-也可手动执行：`.venv/bin/python tools/media_prices_refresh.py`。
+由 `POST /api/v2/datasets/media-prices/refresh` 写入持久化请求，再由独立 systemd
+服务启动；也可手动执行：`.venv/bin/python tools/media_prices_refresh.py`。
 
 - prfabu 需要 `.datasets/prfabu_session.txt`（Netscape 格式 PHPSESSID）；会话失效
   （响应 code=201 且 msg 含"登录"）不报错，标记 `stale: session_expired` 并沿用
@@ -16,7 +16,8 @@
 - meijiehezi 免登录但字段结构不同（kind='mjhz'），经 `_normalize_rows` 映射成标准字段。
 - pinda 复用 `.datasets/pinda_session.txt`，登录后以 pageSize=1000 单路分页抓取；
   单页失败优先沿用 `.datasets/raw/(wemedia/)pinda/` 缓存。
-- 单实例闸：`.datasets/media-prices.refresh.lock`（O_EXCL；>45min 视为僵死删除）。
+- 单实例闸：`.datasets/media-prices.refresh.lock`（O_EXCL；PID 存活时不按时长误删，
+  PID 已退出时立即回收；无法识别旧格式时才按 45 分钟兜底）。
 """
 
 from __future__ import annotations
@@ -73,6 +74,7 @@ TOUMEIW_FULL_COUNT = 16343
 PINDA_PAGE_SIZE = 1000
 PINDA_FETCH_WORKERS = 1
 _CLIENT_SECRET_INVISIBLE_PATTERN = re.compile(r"[\u200b-\u200d\u2060\ufeff]")
+_LOCK_PID_PATTERN = re.compile(r"(?:^|\s)pid=(\d+)(?:\s|$)")
 _CLIENT_SECRET_VALUE_PATTERN = re.compile(
     r"(?:bearer\s+|session\s*=|cookie(?:\s|=|:)|token(?:\s|=|:)|"
     r"otp(?:\s|=|:)|password(?:\s|=|:)|"
@@ -211,16 +213,39 @@ def _write_refresh(
     _atomic_write(REFRESH_JSON, json.dumps(payload, ensure_ascii=False, indent=1).encode("utf-8"))
 
 
+def _lock_owner_alive() -> bool | None:
+    try:
+        lock_text = LOCK_FILE.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    match = _LOCK_PID_PATTERN.search(lock_text)
+    if match is None:
+        return None
+    pid = int(match.group(1))
+    if pid <= 0:
+        return None
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
 def _acquire_lock() -> bool:
     for _attempt in range(2):
         try:
             fd = os.open(LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         except FileExistsError:
+            owner_alive = _lock_owner_alive()
+            if owner_alive is True:
+                return False
             try:
                 age = time.time() - LOCK_FILE.stat().st_mtime
             except OSError:
                 age = 0
-            if age > LOCK_TTL_SECONDS:
+            if owner_alive is False or age > LOCK_TTL_SECONDS:
                 LOCK_FILE.unlink(missing_ok=True)
                 continue
             return False

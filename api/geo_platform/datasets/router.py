@@ -1,12 +1,11 @@
 # ruff: noqa: B008
 
-import asyncio
 import hashlib
 import json
 import os
 import re
-import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Response
@@ -23,10 +22,11 @@ _WEMEDIA_DATASET_NAME = "media-wemedia.json"
 _WEMEDIA_SIDECAR_NAME = "media-wemedia.sha256"
 _REFRESH_STATUS_NAME = "media-prices.refresh.json"
 _REFRESH_LOCK_NAME = "media-prices.refresh.lock"
-_REFRESH_LOG_NAME = "media-prices.refresh.log"
+_REFRESH_REQUEST_NAME = "media-prices.refresh.request.json"
+_REFRESH_RUNNING_REQUEST_NAME = "media-prices.refresh.request.running.json"
 _REFRESH_LOCK_TTL_SECONDS = 45 * 60
-_REFRESH_SCRIPT = Path(__file__).resolve().parents[3] / "tools" / "media_prices_refresh.py"
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+_LOCK_PID_PATTERN = re.compile(r"(?:^|\s)pid=(\d+)(?:\s|$)")
 _REFRESH_STATES = frozenset({"running", "done", "failed"})
 _SOURCE_STATUSES = frozenset({"ok", "partial", "stale", "failed", "pending"})
 
@@ -37,8 +37,6 @@ _cache: dict[
     str,
     tuple[_FileSignature, _FileSignature | None, bytes, str],
 ] = {}
-# 仅用于收割子进程（作业状态一律落 refresh.json，不存内存）
-_refresh_processes: set[asyncio.subprocess.Process] = set()
 
 
 class StrictModel(BaseModel):
@@ -128,14 +126,66 @@ def _dataset_response(dataset_name: str, sidecar_name: str) -> Response:
 
 def _refresh_lock_active(lock: Path) -> bool:
     try:
+        lock_text = lock.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    match = _LOCK_PID_PATTERN.search(lock_text)
+    if match is not None:
+        pid = int(match.group(1))
+        if pid > 0:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return False
+            except PermissionError:
+                return True
+            return True
+    try:
         age = time.time() - lock.stat().st_mtime
     except OSError:
         return False
     return age <= _REFRESH_LOCK_TTL_SECONDS
 
 
+def _request_timestamp(path: Path) -> str | None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    requested_at = payload.get("requested_at")
+    return requested_at if isinstance(requested_at, str) else None
+
+
+def _queued_refresh_status(base: Path) -> RefreshStatusView | None:
+    queued = base / _REFRESH_REQUEST_NAME
+    if queued.is_file():
+        requested_at = _request_timestamp(queued)
+        return RefreshStatusView(
+            state="running",
+            started_at=requested_at,
+            updated_at=requested_at,
+            message="refresh_queued",
+        )
+    running = base / _REFRESH_RUNNING_REQUEST_NAME
+    if running.is_file() and not _refresh_lock_active(base / _REFRESH_LOCK_NAME):
+        requested_at = _request_timestamp(running)
+        return RefreshStatusView(
+            state="running",
+            started_at=requested_at,
+            updated_at=requested_at,
+            message="refresh_starting",
+        )
+    return None
+
+
 def _read_refresh_status() -> RefreshStatusView:
-    path = _datasets_dir() / _REFRESH_STATUS_NAME
+    base = _datasets_dir()
+    queued_status = _queued_refresh_status(base)
+    if queued_status is not None:
+        return queued_status
+    path = base / _REFRESH_STATUS_NAME
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -160,20 +210,57 @@ def _read_refresh_status() -> RefreshStatusView:
     started = payload.get("started_at")
     updated = payload.get("updated_at")
     message = payload.get("message")
-    return RefreshStatusView(
+    view = RefreshStatusView(
         state=state if state in _REFRESH_STATES else "never",
         started_at=started if isinstance(started, str) else None,
         updated_at=updated if isinstance(updated, str) else None,
         message=message if isinstance(message, str) else "",
         sources=sources,
     )
+    if view.state == "running" and not _refresh_lock_active(base / _REFRESH_LOCK_NAME):
+        return RefreshStatusView(
+            state="failed",
+            started_at=view.started_at,
+            updated_at=view.updated_at,
+            message="refresh_interrupted_published_dataset_unchanged",
+            sources=view.sources,
+        )
+    return view
 
 
-async def _reap_refresh(process: asyncio.subprocess.Process) -> None:
+def _fsync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
     try:
-        await process.wait()
+        os.fsync(descriptor)
     finally:
-        _refresh_processes.discard(process)
+        os.close(descriptor)
+
+
+def _enqueue_refresh(base: Path) -> str:
+    requested_at = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
+    request_path = base / _REFRESH_REQUEST_NAME
+    payload = json.dumps(
+        {"version": 1, "requested_at": requested_at},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    try:
+        descriptor = os.open(request_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o640)
+    except FileExistsError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "refresh_already_running"},
+        ) from exc
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        _fsync_directory(base)
+    except Exception:
+        request_path.unlink(missing_ok=True)
+        raise
+    return requested_at
 
 
 def _public_dataset_request_compatibility(
@@ -204,26 +291,21 @@ def media_wemedia_dataset(
 
 
 @router.post("/media-prices/refresh", status_code=202)
-async def media_prices_refresh(principal: Principal = Depends(get_principal)) -> RefreshStatusView:
+def media_prices_refresh(principal: Principal = Depends(get_principal)) -> RefreshStatusView:
     principal.require("account:operate")
     base = _datasets_dir()
-    if _refresh_lock_active(base / _REFRESH_LOCK_NAME):
-        raise HTTPException(status_code=409, detail={"code": "refresh_already_running"})
     base.mkdir(parents=True, exist_ok=True)
-    log_fd = os.open(base / _REFRESH_LOG_NAME, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o644)
-    try:
-        process = await asyncio.create_subprocess_exec(
-            sys.executable,
-            str(_REFRESH_SCRIPT),
-            stdout=log_fd,
-            stderr=log_fd,
-            cwd=str(Path(__file__).resolve().parents[3]),
-        )
-    finally:
-        os.close(log_fd)
-    _refresh_processes.add(process)
-    asyncio.get_running_loop().create_task(_reap_refresh(process))
-    return RefreshStatusView(state="running", started_at=None, message="refresh_started")
+    if _refresh_lock_active(base / _REFRESH_LOCK_NAME) or any(
+        (base / name).exists() for name in (_REFRESH_REQUEST_NAME, _REFRESH_RUNNING_REQUEST_NAME)
+    ):
+        raise HTTPException(status_code=409, detail={"code": "refresh_already_running"})
+    requested_at = _enqueue_refresh(base)
+    return RefreshStatusView(
+        state="running",
+        started_at=requested_at,
+        updated_at=requested_at,
+        message="refresh_queued",
+    )
 
 
 @router.get("/media-prices/refresh-status")
