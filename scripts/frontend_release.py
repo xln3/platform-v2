@@ -324,6 +324,11 @@ def sanitized_build_environment(source: Mapping[str, str] | None = None) -> dict
             "CI": "1",
             "GEO_FRONTEND_RELEASE_BUILD": "1",
             "NODE_ENV": "production",
+            # Vite cannot always fold an absent custom key. Supplying the one
+            # fixture gate as a fixed false literal guarantees that contract
+            # identities are removed from production bundles; every ambient
+            # VITE value remains excluded by the allowlist above.
+            "VITE_ALLOW_CONTRACT_FIXTURES": "false",
         }
     )
     return environment

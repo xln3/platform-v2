@@ -21,8 +21,9 @@ separate coordinated infrastructure decision.
 1. `GEO_FRONTEND_RELEASE_BUILD=1` selects `build-release/`. It is mutually exclusive with
    `GEO_E2E_BUILD=1`; ordinary builds retain `build/`.
 2. `scripts/frontend_release.py prepare` builds each application directly, outside Turbo's production output,
-   with an allowlisted environment that contains no `VITE_*`, database, Cookie, token or other ambient secret
-   variables.
+   with an allowlisted environment that contains no ambient `VITE_*`, database, Cookie, token or other secret
+   variables. The sole Vite key is the release-owned constant `VITE_ALLOW_CONTRACT_FIXTURES=false`, which lets
+   the bundler remove test identities rather than treating an absent custom key as a runtime lookup.
 3. A prepared release records a deterministic fingerprint of all four application inputs, shared frontend
    packages, the OpenAPI contract and generated-client manifest. Each output file is recorded by relative path,
    size and SHA-256. Symlinks, non-regular files, source maps, missing index references and contract identity

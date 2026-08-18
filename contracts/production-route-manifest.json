@@ -1,11 +1,11 @@
 {
   "deployment_template": {
     "path": "deploy/production/geo-platform-v2.conf",
-    "sha256": "fb6c4f22b2436d38a17d02113dacadd9e9dcf36ad21659e2869d2d7393e5e885"
+    "sha256": "c235df1bbbc84b80713065a84a9942eab310d34ba903d34f0646268d7076f84e"
   },
   "v2_include": {
     "path": "deploy/production/nginx-v2-locations.conf",
-    "sha256": "d2955d29c259779e9c17a3a2d490844a2ade39f2adbcc4e2363796ff3fa156db"
+    "sha256": "ea2152e3bf4061c15211dad22ae0f6c64aa2f040fdd4509136c256349d9ac82c"
   },
   "required_routes": [
     "/api/v2/",
