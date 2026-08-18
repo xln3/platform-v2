@@ -1548,7 +1548,7 @@ for fragment in (
     "expect(governanceWrites).toBe(0)",
     "validated customer reads mounted data and serializes every write without secret leakage",
     "synchronouslyActivateTwice",
-    "expect(exportBodies).toHaveLength(1)",
+    "expect(exportBodies).toHaveLength(0)",
     "expect(packageBodies).toHaveLength(1)",
     "expect(reportQuestionBodies).toEqual([",
     "expect(deliveryConfirmBodies).toEqual([",
@@ -1674,9 +1674,9 @@ for fragment in (
 ):
     if fragment not in api_client:
         errors.append(f"@geo/api-client browser identity type is missing {fragment}")
-if api_client.count("client: ProjectedApiClientOverride = apiClient") != 121:
+if api_client.count("client: ProjectedApiClientOverride = apiClient") != 124:
     errors.append(
-        "@geo/api-client must keep all 121 projected wrapper overrides free of the raw "
+        "@geo/api-client must keep all 124 projected wrapper overrides free of the raw "
         "generated client type"
     )
 projected_client_unwraps = len(
@@ -1685,7 +1685,7 @@ projected_client_unwraps = len(
         api_client,
     )
 ) + api_client.count("const api = projectedApiClient(client);")
-if projected_client_unwraps != 121:
+if projected_client_unwraps != 124:
     errors.append(
         "@geo/api-client must unwrap every projected wrapper override only inside its "
         "generated request implementation"
