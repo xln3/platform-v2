@@ -78,6 +78,11 @@ export const operationsNav = [
     href: '/platform/operations/media-prices',
   },
   {
+    id: 'posting',
+    label: '发帖',
+    href: '/platform/operations/posting',
+  },
+  {
     id: 'quotation-generator',
     label: '报价单生成',
     href: '/platform/operations/quotations',

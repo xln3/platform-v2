@@ -9024,6 +9024,8 @@ export type PostingApprovalState = 'draft' | 'pending' | 'approved' | 'rejected'
 export type PostingTargetInput = {
   catalogType: 'news' | 'wemedia';
   provider: MediaPricesPlatform;
+  catalogSha256: string;
+  providerMediaId: string;
   mediaName: string;
   mediaPlatform?: string;
 };
@@ -9432,6 +9434,216 @@ function classifyPostingFailure(status: number): PostingResourceResult<never> {
   return { kind: 'unavailable' };
 }
 
+export type ProviderSessionStatus =
+  | 'not_configured'
+  | 'needs_login'
+  | 'ready'
+  | 'expired'
+  | 'rejected'
+  | 'verification_required'
+  | 'interactive_required'
+  | 'unavailable';
+
+export type ProviderAccountStatus = {
+  provider: MediaPricesPlatform;
+  label: string;
+  configured: boolean;
+  accountMask: string;
+  sessionStatus: ProviderSessionStatus;
+  sessionMessage: string;
+  loginMode: 'image_captcha' | 'interactive';
+  postingSupported: boolean;
+  balance: number | null;
+  updatedAt: string | null;
+};
+
+export type ProviderCaptchaChallenge = {
+  provider: MediaPricesPlatform;
+  challengeId: string;
+  imageBase64: string;
+  imageMimeType: 'image/png' | 'image/jpeg' | 'image/gif';
+  expiresInSeconds: number;
+};
+
+const providerSessionStatuses = new Set<ProviderSessionStatus>([
+  'not_configured',
+  'needs_login',
+  'ready',
+  'expired',
+  'rejected',
+  'verification_required',
+  'interactive_required',
+  'unavailable',
+]);
+const providerLoginModes = new Set(['image_captcha', 'interactive']);
+const providerCaptchaMimeTypes = new Set(['image/png', 'image/jpeg', 'image/gif']);
+
+function projectProviderAccount(value: unknown): ProviderAccountStatus | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  const provider = mediaPricesPlatforms.find((candidate) => candidate === row.provider);
+  const label = safePostingText(row.label, 80, false);
+  const accountMask = safePostingText(row.account_mask, 120);
+  const message = safePostingText(row.session_message, 500, false);
+  const updatedAt = safePostingTimestamp(row.updated_at);
+  const balance = safePostingAmount(row.balance, true);
+  if (
+    provider === undefined ||
+    label === null ||
+    typeof row.configured !== 'boolean' ||
+    accountMask === null ||
+    typeof row.session_status !== 'string' ||
+    !providerSessionStatuses.has(row.session_status as ProviderSessionStatus) ||
+    message === null ||
+    typeof row.login_mode !== 'string' ||
+    !providerLoginModes.has(row.login_mode) ||
+    typeof row.posting_supported !== 'boolean' ||
+    balance === undefined ||
+    updatedAt === undefined
+  ) {
+    return null;
+  }
+  return {
+    provider,
+    label,
+    configured: row.configured,
+    accountMask,
+    sessionStatus: row.session_status as ProviderSessionStatus,
+    sessionMessage: message,
+    loginMode: row.login_mode as ProviderAccountStatus['loginMode'],
+    postingSupported: row.posting_supported,
+    balance,
+    updatedAt,
+  };
+}
+
+function projectProviderCaptcha(value: unknown): ProviderCaptchaChallenge | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  const provider = mediaPricesPlatforms.find((candidate) => candidate === row.provider);
+  if (
+    provider === undefined ||
+    typeof row.challenge_id !== 'string' ||
+    !/^[A-Za-z0-9_-]{32,64}$/u.test(row.challenge_id) ||
+    typeof row.image_base64 !== 'string' ||
+    row.image_base64.length <= 0 ||
+    row.image_base64.length > 350_000 ||
+    !/^[A-Za-z0-9+/]+={0,2}$/u.test(row.image_base64) ||
+    typeof row.image_mime_type !== 'string' ||
+    !providerCaptchaMimeTypes.has(row.image_mime_type) ||
+    !Number.isInteger(row.expires_in_seconds) ||
+    Number(row.expires_in_seconds) < 1 ||
+    Number(row.expires_in_seconds) > 600
+  ) {
+    return null;
+  }
+  return {
+    provider,
+    challengeId: row.challenge_id,
+    imageBase64: row.image_base64,
+    imageMimeType: row.image_mime_type as ProviderCaptchaChallenge['imageMimeType'],
+    expiresInSeconds: Number(row.expires_in_seconds),
+  };
+}
+
+export async function listProviderAccounts(
+  headers: IdentitySessionHeaders,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<PostingResourceResult<ProviderAccountStatus[]>> {
+  try {
+    const result = await projectedApiClient(client).GET('/api/v2/posting/provider-accounts', {
+      params: { header: headers },
+    });
+    if (!result.data) return classifyPostingFailure(result.response.status);
+    const projected = result.data.map(projectProviderAccount);
+    return projected.some((item) => item === null)
+      ? { kind: 'unavailable' }
+      : { kind: 'ready', data: projected as ProviderAccountStatus[] };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+export async function saveProviderAccount(
+  provider: MediaPricesPlatform,
+  credentials: { account: string; password: string },
+  headers: IdentitySessionHeaders,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<PostingResourceResult<ProviderAccountStatus>> {
+  try {
+    const result = await projectedApiClient(client).PUT(
+      '/api/v2/posting/provider-accounts/{provider}',
+      {
+        params: { path: { provider }, header: headers },
+        body: credentials,
+      },
+    );
+    if (!result.data) return classifyPostingFailure(result.response.status);
+    const projected = projectProviderAccount(result.data);
+    return projected ? { kind: 'ready', data: projected } : { kind: 'unavailable' };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+export async function deleteProviderAccount(
+  provider: MediaPricesPlatform,
+  headers: IdentitySessionHeaders,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<PostingResourceResult<null>> {
+  try {
+    const result = await projectedApiClient(client).DELETE(
+      '/api/v2/posting/provider-accounts/{provider}',
+      { params: { path: { provider }, header: headers } },
+    );
+    return result.response.status === 204
+      ? { kind: 'ready', data: null }
+      : classifyPostingFailure(result.response.status);
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+export async function startProviderAccountLogin(
+  provider: MediaPricesPlatform,
+  headers: IdentitySessionHeaders,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<PostingResourceResult<ProviderCaptchaChallenge>> {
+  try {
+    const result = await projectedApiClient(client).POST(
+      '/api/v2/posting/provider-accounts/{provider}/login/captcha',
+      { params: { path: { provider }, header: headers } },
+    );
+    if (!result.data) return classifyPostingFailure(result.response.status);
+    const projected = projectProviderCaptcha(result.data);
+    return projected ? { kind: 'ready', data: projected } : { kind: 'unavailable' };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+export async function completeProviderAccountLogin(
+  provider: MediaPricesPlatform,
+  input: { challengeId: string; captcha: string },
+  headers: IdentitySessionHeaders,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<PostingResourceResult<ProviderAccountStatus>> {
+  try {
+    const result = await projectedApiClient(client).POST(
+      '/api/v2/posting/provider-accounts/{provider}/login',
+      {
+        params: { path: { provider }, header: headers },
+        body: { challenge_id: input.challengeId, captcha: input.captcha },
+      },
+    );
+    if (!result.data) return classifyPostingFailure(result.response.status);
+    const projected = projectProviderAccount(result.data);
+    return projected ? { kind: 'ready', data: projected } : { kind: 'unavailable' };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
 export async function listPostingBatches(
   headers: IdentitySessionHeaders,
   client: ProjectedApiClientOverride = apiClient,
@@ -9480,6 +9692,8 @@ export async function createPostingBatch(
       input.targets.map((target) => ({
         catalog_type: target.catalogType,
         provider: target.provider,
+        catalog_sha256: target.catalogSha256,
+        provider_media_id: target.providerMediaId,
         media_name: target.mediaName,
         media_platform: target.mediaPlatform ?? '',
       })),

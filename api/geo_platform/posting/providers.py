@@ -5,16 +5,22 @@ import json
 import logging
 import os
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date
+from hashlib import sha256
 from pathlib import Path
 from typing import Any, Protocol
 
 import httpx
 
 from ..config import get_settings
+from .provider_credentials import (
+    ProviderCredentialNotConfigured,
+    ProviderCredentialStore,
+    ProviderCredentialUnavailable,
+)
 
 _PRFABU_BASE = "https://www.prfabu.com"
 _PRFABU_SESSION_FILE = "prfabu_session.txt"
@@ -84,8 +90,20 @@ def _client_prfabu_session(client: httpx.Client) -> str:
     return session_id
 
 
-def _new_prfabu_client(session_id: str = "") -> httpx.Client:
+def _client_cookies(client: httpx.Client) -> dict[str, str]:
+    return {
+        cookie.name: cookie.value for cookie in client.cookies.jar if cookie.name and cookie.value
+    }
+
+
+def _new_prfabu_client(
+    session_id: str = "",
+    *,
+    cookie_values: Mapping[str, str] | None = None,
+) -> httpx.Client:
     cookies = httpx.Cookies()
+    for name, value in (cookie_values or {}).items():
+        cookies.set(name, value, domain="www.prfabu.com", path="/")
     if session_id:
         cookies.set("PHPSESSID", session_id, domain="www.prfabu.com", path="/")
     return httpx.Client(
@@ -145,10 +163,11 @@ def _persist_prfabu_session(client: httpx.Client) -> bool:
 
 
 @contextmanager
-def _prfabu_session_lock() -> Iterator[None]:
+def _prfabu_session_lock(tenant_pub_id: str = "") -> Iterator[None]:
     """Serialize provider calls across API workers because each call may rotate the cookie."""
 
-    path = _datasets_dir() / _PRFABU_SESSION_LOCK_FILE
+    suffix = f".{sha256(tenant_pub_id.encode()).hexdigest()[:24]}" if tenant_pub_id else ""
+    path = _datasets_dir() / f"{_PRFABU_SESSION_LOCK_FILE}{suffix}"
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
     try:
@@ -209,20 +228,75 @@ def _map_order_status(value: Any, public_url: str) -> str:
 
 
 class PrfabuProvider:
+    def __init__(
+        self,
+        *,
+        tenant_pub_id: str = "",
+        credential_store: ProviderCredentialStore | None = None,
+    ) -> None:
+        self._tenant_pub_id = tenant_pub_id
+        self._credential_store = credential_store or ProviderCredentialStore()
+
     def _client(self) -> httpx.Client | None:
+        if self._tenant_pub_id:
+            try:
+                account = self._credential_store.load(
+                    tenant_pub_id=self._tenant_pub_id,
+                    provider="prfabu",
+                )
+            except (ProviderCredentialNotConfigured, ProviderCredentialUnavailable):
+                return None
+            if not account.cookies:
+                return None
+            return _new_prfabu_client(cookie_values=account.cookies)
         session_id = _load_prfabu_session()
         if not session_id:
             return None
         return _new_prfabu_client(session_id)
 
+    def _persist(self, client: httpx.Client) -> bool:
+        if not self._tenant_pub_id:
+            return _persist_prfabu_session(client)
+        cookies = _client_cookies(client)
+        if not cookies:
+            return False
+        try:
+            self._credential_store.update_session(
+                tenant_pub_id=self._tenant_pub_id,
+                provider="prfabu",
+                cookies=cookies,
+                status="ready",
+                message="会话有效，由系统自动维护",
+            )
+        except (ProviderCredentialNotConfigured, ProviderCredentialUnavailable):
+            return False
+        return True
+
+    def _mark_expired(self, message: str) -> None:
+        if not self._tenant_pub_id:
+            return
+        try:
+            self._credential_store.update_session(
+                tenant_pub_id=self._tenant_pub_id,
+                provider="prfabu",
+                cookies={},
+                status="expired",
+                message=message or "供应商会话已失效，请在发帖页重新登录",
+            )
+        except (ProviderCredentialNotConfigured, ProviderCredentialUnavailable):
+            return
+
     def submit(self, submission: ProviderSubmission) -> ProviderResult:
         if not submission.provider_media_id.isdigit():
             return ProviderResult("unsupported_provider", "当前目录快照缺少 prfabu 媒体 ID")
         try:
-            with _prfabu_session_lock():
+            with _prfabu_session_lock(self._tenant_pub_id):
                 client = self._client()
                 if client is None:
-                    return ProviderResult("provider_session_expired", "prfabu 会话文件缺失")
+                    return ProviderResult(
+                        "provider_session_expired",
+                        "prfabu 账号未配置或登录会话已失效",
+                    )
                 media_type = 1 if submission.catalog_type == "news" else 2
                 try:
                     response = client.post(
@@ -249,10 +323,12 @@ class PrfabuProvider:
                             code if isinstance(code, int) else -1,
                             message,
                         )
-                        if result.status != "provider_session_expired":
-                            _persist_prfabu_session(client)
+                        if result.status == "provider_session_expired":
+                            self._mark_expired(result.message)
+                        else:
+                            self._persist(client)
                         return result
-                    persisted = _persist_prfabu_session(client)
+                    persisted = self._persist(client)
                     result_message = message or "已提交至 prfabu"
                     if not persisted:
                         result_message += "；会话轮换保存失败，后续提交前请更新会话"
@@ -277,10 +353,13 @@ class PrfabuProvider:
         title: str,
     ) -> ProviderResult | None:
         try:
-            with _prfabu_session_lock():
+            with _prfabu_session_lock(self._tenant_pub_id):
                 client = self._client()
                 if client is None:
-                    return ProviderResult("provider_session_expired", "prfabu 会话文件缺失")
+                    return ProviderResult(
+                        "provider_session_expired",
+                        "prfabu 账号未配置或登录会话已失效",
+                    )
                 media_type = 1 if catalog_type == "news" else 2
                 try:
                     response = client.post(
@@ -294,10 +373,12 @@ class PrfabuProvider:
                         raw_code = payload.get("code")
                         code = raw_code if isinstance(raw_code, int) else -1
                         result = _classify_failure(code, message)
-                        if result.status != "provider_session_expired":
-                            _persist_prfabu_session(client)
+                        if result.status == "provider_session_expired":
+                            self._mark_expired(result.message)
+                        else:
+                            self._persist(client)
                         return result
-                    _persist_prfabu_session(client)
+                    self._persist(client)
                     rows = payload.get("data")
                     if not isinstance(rows, list):
                         return None
@@ -322,8 +403,7 @@ class PrfabuProvider:
                         )
                         return ProviderResult(
                             status,
-                            _text(row.get("status_str") or row.get("status"))
-                            or "供应商状态已同步",
+                            _text(row.get("status_str") or row.get("status")) or "供应商状态已同步",
                             external_order_id=row_id,
                             public_url=public_url,
                         )
@@ -362,5 +442,9 @@ class UnsupportedProvider:
         return None
 
 
-def provider_for(name: str) -> PostingProvider:
-    return PrfabuProvider() if name == "prfabu" else UnsupportedProvider(name)
+def provider_for(name: str, tenant_pub_id: str = "") -> PostingProvider:
+    return (
+        PrfabuProvider(tenant_pub_id=tenant_pub_id)
+        if name == "prfabu"
+        else UnsupportedProvider(name)
+    )

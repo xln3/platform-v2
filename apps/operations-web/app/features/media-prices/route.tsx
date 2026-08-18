@@ -15,7 +15,7 @@ export default function MediaPricesRoute() {
     <ProductShell
       product="Operations Web"
       title="媒体比价台"
-      description="多平台媒体比价、DOCX 自动发帖配置与逐媒体状态追踪。"
+      description="六平台新闻媒体与自媒体目录比价，并将精确选单交给发帖工作台。"
       nav={experience?.source === 'live' ? liveOperationsRouteNav : operationsRouteNav}
       currentNavId="media-prices"
       probe={getHealth}

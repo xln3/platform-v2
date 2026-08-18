@@ -13,7 +13,7 @@ import {
   TableRegion,
   downloadSafeGeneratedFile,
 } from '@geo/design-system';
-import { postingSelectionKey, type PostingSelection } from './PostingComposer';
+import { postingSelectionKey, type ComparisonPostingSelection } from '../posting/selection-handoff';
 
 const PLATFORMS: { key: MediaPricesPlatform; label: string }[] = [
   { key: 'prfabu', label: 'prfabu' },
@@ -208,8 +208,8 @@ export function WemediaPrices({
   session: Session | undefined;
   active: boolean;
   reloadRevision: number;
-  postingSelections: Record<string, PostingSelection>;
-  onTogglePosting: (row: MediaWemediaDatasetRow, checked: boolean) => void;
+  postingSelections: Record<string, ComparisonPostingSelection>;
+  onTogglePosting: (row: MediaWemediaDatasetRow, catalogSha256: string, checked: boolean) => void;
 }) {
   const canSelect = session !== undefined;
   const requestTenant = session?.headers['X-Tenant-Id'];
@@ -489,8 +489,17 @@ export function WemediaPrices({
                             postingSelectionKey('wemedia', row.name, row.platform)
                           ] !== undefined
                         }
-                        disabled={row.best_plat == null}
-                        onChange={(event) => onTogglePosting(row, event.target.checked)}
+                        disabled={
+                          !dataset.sha256 ||
+                          !PLATFORMS.some(
+                            ({ key }) => row.prices[key] != null && Boolean(row.ids?.[key]),
+                          )
+                        }
+                        onChange={(event) => {
+                          if (dataset.sha256) {
+                            onTogglePosting(row, dataset.sha256, event.target.checked);
+                          }
+                        }}
                       />
                     </td>
                   ) : null}

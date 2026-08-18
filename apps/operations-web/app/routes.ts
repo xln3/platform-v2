@@ -4,6 +4,7 @@ export default [
   route('login', 'features/login/route.tsx'),
   route('execution', 'features/execution/route.tsx'),
   route('media-prices', 'features/media-prices/route.tsx'),
+  route('posting', 'features/posting/route.tsx'),
   route('quotations', 'features/quotations/route.tsx'),
   route('onboarding', 'features/onboarding/route.tsx'),
   route('service-visibility', 'features/services/service-visibility/route.tsx'),

@@ -138,6 +138,13 @@ def _create_batch(
                     {
                         "catalog_type": "news",
                         "provider": "prfabu",
+                        "catalog_sha256": (
+                            Path(get_settings().datasets_dir)
+                            .joinpath("media-prices.sha256")
+                            .read_text(encoding="utf-8")
+                            .split()[0]
+                        ),
+                        "provider_media_id": "12345",
                         "media_name": "GEO测试媒体",
                         "media_platform": "",
                     }
@@ -159,7 +166,10 @@ def test_docx_batch_auto_submits_and_refreshes_per_media_status(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     del posting_dataset
-    monkeypatch.setattr("geo_platform.posting.service.provider_for", lambda _name: FakeProvider())
+    monkeypatch.setattr(
+        "geo_platform.posting.service.provider_for",
+        lambda _name, _tenant: FakeProvider(),
+    )
     client = TestClient(app)
     suffix = secrets.token_hex(6)
     _tenant, headers = _bootstrap(client, f"posting-admin-{suffix}")
@@ -217,7 +227,10 @@ def test_posting_enforces_budget_permission_and_tenant_isolation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     del posting_dataset
-    monkeypatch.setattr("geo_platform.posting.service.provider_for", lambda _name: FakeProvider())
+    monkeypatch.setattr(
+        "geo_platform.posting.service.provider_for",
+        lambda _name, _tenant: FakeProvider(),
+    )
     client = TestClient(app)
     suffix = secrets.token_hex(6)
     _tenant, headers = _bootstrap(client, f"posting-budget-admin-{suffix}")
@@ -253,12 +266,48 @@ def test_posting_enforces_budget_permission_and_tenant_isolation(
     assert hidden.status_code == 404
 
 
+def test_provider_credentials_are_managed_in_page_without_returning_secrets(
+    posting_dataset: Path,
+) -> None:
+    client = TestClient(app)
+    suffix = secrets.token_hex(6)
+    _tenant, headers = _bootstrap(client, f"posting-provider-account-{suffix}")
+
+    saved = client.put(
+        "/api/v2/posting/provider-accounts/toumeiw",
+        headers=headers,
+        json={"account": "supplier-account", "password": "supplier-password"},
+    )
+
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["configured"] is True
+    assert saved.json()["account_mask"] == "su***nt"
+    assert saved.json()["session_status"] == "needs_login"
+    assert "password" not in json.dumps(saved.json()).lower()
+    ciphertext = (
+        posting_dataset / ".provider-credentials" / headers["X-Tenant-Id"] / "toumeiw.json"
+    ).read_bytes()
+    assert b"supplier-account" not in ciphertext
+    assert b"supplier-password" not in ciphertext
+
+    listed = client.get("/api/v2/posting/provider-accounts", headers=headers)
+    assert listed.status_code == 200, listed.text
+    assert len(listed.json()) == 6
+    assert (
+        next(item for item in listed.json() if item["provider"] == "toumeiw")["account_mask"]
+        == "su***nt"
+    )
+
+
 def test_draft_starts_after_the_same_operator_confirms_spend(
     posting_dataset: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     del posting_dataset
-    monkeypatch.setattr("geo_platform.posting.service.provider_for", lambda _name: FakeProvider())
+    monkeypatch.setattr(
+        "geo_platform.posting.service.provider_for",
+        lambda _name, _tenant: FakeProvider(),
+    )
     client = TestClient(app)
     suffix = secrets.token_hex(6)
     _tenant, headers = _bootstrap(client, f"posting-draft-admin-{suffix}")
@@ -298,7 +347,7 @@ def test_posting_exposes_balance_insufficient_as_target_and_batch_status(
     del posting_dataset
     monkeypatch.setattr(
         "geo_platform.posting.service.provider_for",
-        lambda _name: BalanceInsufficientProvider(),
+        lambda _name, _tenant: BalanceInsufficientProvider(),
     )
     client = TestClient(app)
     suffix = secrets.token_hex(6)
@@ -314,7 +363,10 @@ def test_posting_exposes_balance_insufficient_as_target_and_batch_status(
     assert detail.json()["targets"][0]["status"] == "balance_insufficient"
     assert detail.json()["targets"][0]["provider_message"] == "余额不足，请充值"
 
-    monkeypatch.setattr("geo_platform.posting.service.provider_for", lambda _name: FakeProvider())
+    monkeypatch.setattr(
+        "geo_platform.posting.service.provider_for",
+        lambda _name, _tenant: FakeProvider(),
+    )
     retried = client.post(
         f"/api/v2/posting/batches/{created.json()['pub_id']}/submit",
         headers=headers,

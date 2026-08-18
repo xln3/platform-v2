@@ -15,6 +15,7 @@ from fastapi import (
     Header,
     HTTPException,
     Query,
+    Response,
     UploadFile,
 )
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, TypeAdapter, ValidationError
@@ -30,6 +31,16 @@ from .provider_auth import (
     login_prfabu,
     prfabu_session_state,
 )
+from .provider_credentials import ProviderCredentialStore, ProviderCredentialUnavailable
+from .provider_login import (
+    ProviderLoginChallengeInvalid,
+    ProviderLoginInteractiveRequired,
+    ProviderLoginUnavailable,
+    ProviderSessionStatus,
+    create_provider_captcha,
+    login_provider,
+    provider_session_state,
+)
 from .service import PostingInvalidState, PostingNotFound, PostingService
 
 router = APIRouter(prefix="/api/v2/posting", tags=["posting"])
@@ -42,6 +53,22 @@ ProviderName = Literal[
     "meijiehezi",
     "pinda",
 ]
+PROVIDER_NAMES: tuple[ProviderName, ...] = (
+    "prfabu",
+    "toumeiw",
+    "mtpfw",
+    "meititejia",
+    "meijiehezi",
+    "pinda",
+)
+PROVIDER_LABELS: dict[ProviderName, str] = {
+    "prfabu": "prfabu",
+    "toumeiw": "投媒网",
+    "mtpfw": "媒体批发网",
+    "meititejia": "媒体特价网",
+    "meijiehezi": "媒介盒子",
+    "pinda": "品达发稿",
+}
 BatchStatus = Literal[
     "draft",
     "queued",
@@ -102,9 +129,42 @@ class PrfabuLoginRequest(StrictModel):
     captcha: str = Field(min_length=1, max_length=12)
 
 
+class ProviderCredentialUpsert(StrictModel):
+    account: str = Field(min_length=1, max_length=120)
+    password: SecretStr = Field(min_length=1, max_length=256)
+
+
+class ProviderAccountView(StrictModel):
+    provider: ProviderName
+    label: str
+    configured: bool
+    account_mask: str
+    session_status: ProviderSessionStatus
+    session_message: str
+    login_mode: Literal["image_captcha", "interactive"]
+    posting_supported: bool
+    balance: Decimal | None = None
+    updated_at: str | None = Field(default=None, max_length=64)
+
+
+class ProviderCaptchaView(StrictModel):
+    provider: ProviderName
+    challenge_id: str = Field(pattern=r"^[A-Za-z0-9_-]{32,64}$")
+    image_base64: str
+    image_mime_type: Literal["image/png", "image/jpeg", "image/gif"]
+    expires_in_seconds: int
+
+
+class ProviderLoginRequest(StrictModel):
+    challenge_id: str = Field(pattern=r"^[A-Za-z0-9_-]{32,64}$")
+    captcha: str = Field(min_length=1, max_length=32)
+
+
 class TargetCreate(StrictModel):
     catalog_type: Literal["news", "wemedia"]
     provider: ProviderName
+    catalog_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    provider_media_id: str = Field(min_length=1, max_length=120, pattern=r"^[A-Za-z0-9_-]+$")
     media_name: str = Field(min_length=1, max_length=500)
     media_platform: str = Field(default="", max_length=160)
 
@@ -268,6 +328,182 @@ def _parse_targets(raw: str) -> list[TargetCreate]:
         ) from exc
 
 
+def _provider_account_view(
+    provider: ProviderName,
+    *,
+    tenant_pub_id: str,
+) -> ProviderAccountView:
+    summary = ProviderCredentialStore().summary(
+        tenant_pub_id=tenant_pub_id,
+        provider=provider,
+    )
+    state = provider_session_state(provider=provider, tenant_pub_id=tenant_pub_id)
+    return ProviderAccountView(
+        provider=provider,
+        label=PROVIDER_LABELS[provider],
+        configured=summary.configured,
+        account_mask=summary.account_mask,
+        session_status=state.status,
+        session_message=state.message,
+        login_mode="interactive" if provider == "meijiehezi" else "image_captcha",
+        posting_supported=provider == "prfabu",
+        balance=state.balance,
+        updated_at=summary.updated_at,
+    )
+
+
+def _provider_login_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, ProviderLoginChallengeInvalid):
+        return HTTPException(status_code=409, detail={"code": str(exc)})
+    if isinstance(exc, ProviderLoginInteractiveRequired):
+        return HTTPException(status_code=409, detail={"code": str(exc)})
+    code = str(exc)
+    if code == "provider_credential_not_configured":
+        return HTTPException(status_code=409, detail={"code": code})
+    if code in {
+        "provider_credential_input_invalid",
+        "provider_credential_provider_invalid",
+        "provider_credential_tenant_invalid",
+    }:
+        return HTTPException(status_code=422, detail={"code": code})
+    if code.startswith("provider_credential_"):
+        return HTTPException(status_code=503, detail={"code": code})
+    return HTTPException(status_code=502, detail={"code": code})
+
+
+@router.get("/provider-accounts", response_model=list[ProviderAccountView])
+def list_provider_accounts(
+    principal: Principal = Depends(get_principal),
+) -> list[ProviderAccountView]:
+    principal.require("account:operate")
+    try:
+        return [
+            _provider_account_view(provider, tenant_pub_id=principal.tenant_pub_id)
+            for provider in PROVIDER_NAMES
+        ]
+    except (ProviderCredentialUnavailable, ProviderLoginUnavailable) as exc:
+        raise _provider_login_error(exc) from exc
+
+
+@router.put(
+    "/provider-accounts/{provider}",
+    response_model=ProviderAccountView,
+)
+def save_provider_account(
+    provider: ProviderName,
+    body: ProviderCredentialUpsert,
+    principal: Principal = Depends(get_principal),
+) -> ProviderAccountView:
+    principal.require("account:operate")
+    account = body.account.strip()
+    if not account:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "provider_credential_input_invalid"},
+        )
+    try:
+        ProviderCredentialStore().save_credentials(
+            tenant_pub_id=principal.tenant_pub_id,
+            provider=provider,
+            account=account,
+            password=body.password.get_secret_value(),
+        )
+        return _provider_account_view(provider, tenant_pub_id=principal.tenant_pub_id)
+    except (ProviderCredentialUnavailable, ProviderLoginUnavailable) as exc:
+        raise _provider_login_error(exc) from exc
+
+
+@router.delete(
+    "/provider-accounts/{provider}",
+    status_code=204,
+    response_class=Response,
+)
+def delete_provider_account(
+    provider: ProviderName,
+    principal: Principal = Depends(get_principal),
+) -> Response:
+    principal.require("account:operate")
+    try:
+        ProviderCredentialStore().delete(
+            tenant_pub_id=principal.tenant_pub_id,
+            provider=provider,
+        )
+    except ProviderCredentialUnavailable as exc:
+        raise _provider_login_error(exc) from exc
+    return Response(status_code=204)
+
+
+@router.post(
+    "/provider-accounts/{provider}/login/captcha",
+    response_model=ProviderCaptchaView,
+    status_code=201,
+)
+def start_provider_account_login(
+    provider: ProviderName,
+    principal: Principal = Depends(get_principal),
+) -> ProviderCaptchaView:
+    principal.require("account:operate")
+    try:
+        challenge = create_provider_captcha(
+            provider=provider,
+            tenant_pub_id=principal.tenant_pub_id,
+            actor_pub_id=principal.actor_pub_id,
+        )
+    except (
+        ProviderLoginChallengeInvalid,
+        ProviderLoginInteractiveRequired,
+        ProviderLoginUnavailable,
+    ) as exc:
+        raise _provider_login_error(exc) from exc
+    return ProviderCaptchaView.model_validate(challenge, from_attributes=True)
+
+
+@router.post(
+    "/provider-accounts/{provider}/login",
+    response_model=ProviderAccountView,
+)
+def complete_provider_account_login(
+    provider: ProviderName,
+    body: ProviderLoginRequest,
+    principal: Principal = Depends(get_principal),
+) -> ProviderAccountView:
+    principal.require("account:operate")
+    captcha = body.captcha.strip()
+    if not captcha:
+        raise HTTPException(status_code=422, detail={"code": "provider_login_input_invalid"})
+    try:
+        state = login_provider(
+            provider=provider,
+            challenge_id=body.challenge_id,
+            tenant_pub_id=principal.tenant_pub_id,
+            actor_pub_id=principal.actor_pub_id,
+            captcha=captcha,
+        )
+        summary = ProviderCredentialStore().summary(
+            tenant_pub_id=principal.tenant_pub_id,
+            provider=provider,
+        )
+    except (
+        ProviderCredentialUnavailable,
+        ProviderLoginChallengeInvalid,
+        ProviderLoginInteractiveRequired,
+        ProviderLoginUnavailable,
+    ) as exc:
+        raise _provider_login_error(exc) from exc
+    return ProviderAccountView(
+        provider=provider,
+        label=PROVIDER_LABELS[provider],
+        configured=summary.configured,
+        account_mask=summary.account_mask,
+        session_status=state.status,
+        session_message=state.message,
+        login_mode="interactive" if provider == "meijiehezi" else "image_captcha",
+        posting_supported=provider == "prfabu",
+        balance=state.balance,
+        updated_at=summary.updated_at,
+    )
+
+
 @router.get("/providers/prfabu/session", response_model=PrfabuSessionView)
 def get_prfabu_session(
     principal: Principal = Depends(get_principal),
@@ -363,6 +599,8 @@ async def create_batch(
                 RequestedTarget(
                     catalog_type=item.catalog_type,
                     provider=item.provider,
+                    catalog_sha256=item.catalog_sha256,
+                    provider_media_id=item.provider_media_id,
                     media_name=item.media_name,
                     media_platform=item.media_platform,
                 )

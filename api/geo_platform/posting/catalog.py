@@ -42,6 +42,8 @@ class CatalogInvalid(RuntimeError):
 class RequestedTarget:
     catalog_type: CatalogType
     provider: ProviderName
+    catalog_sha256: str
+    provider_media_id: str
     media_name: str
     media_platform: str = ""
 
@@ -122,17 +124,16 @@ def resolve_targets(requested: list[RequestedTarget]) -> ResolvedCatalog:
     if not 1 <= len(requested) <= 50:
         raise CatalogInvalid("posting_target_count_invalid")
     grouped: dict[CatalogType, list[RequestedTarget]] = {"news": [], "wemedia": []}
-    seen: set[tuple[str, str, str, str]] = set()
+    seen: set[tuple[str, str, str]] = set()
     for target in requested:
-        identity = (
+        selection_identity = (
             target.catalog_type,
             target.provider,
-            target.media_name,
-            target.media_platform,
+            target.provider_media_id,
         )
-        if identity in seen:
+        if selection_identity in seen:
             raise CatalogInvalid("posting_target_duplicate")
-        seen.add(identity)
+        seen.add(selection_identity)
         grouped[target.catalog_type].append(target)
 
     resolved: list[ResolvedTarget] = []
@@ -141,26 +142,42 @@ def resolve_targets(requested: list[RequestedTarget]) -> ResolvedCatalog:
         if not targets:
             continue
         dataset, digest = _read_dataset(catalog_type)
+        if any(target.catalog_sha256 != digest for target in targets):
+            raise CatalogInvalid("catalog_snapshot_stale")
         snapshot_digests.append(f"{catalog_type}:{digest}")
-        rows: dict[tuple[str, str], dict[str, Any]] = {}
+        rows: dict[tuple[ProviderName, str], dict[str, Any]] = {}
+        ambiguous: set[tuple[ProviderName, str]] = set()
+        requested_providers = {target.provider for target in targets}
         for raw in dataset["rows"]:
             if not isinstance(raw, dict):
                 continue
-            name = raw.get("name")
-            platform = raw.get("platform", "") if catalog_type == "wemedia" else ""
-            if isinstance(name, str) and isinstance(platform, str):
-                rows[(name, platform)] = raw
+            for provider in requested_providers:
+                provider_media_id = _media_id(raw, provider)
+                if not provider_media_id:
+                    continue
+                provider_identity = (provider, provider_media_id)
+                if provider_identity in rows:
+                    ambiguous.add(provider_identity)
+                else:
+                    rows[provider_identity] = raw
         for target in targets:
-            row = rows.get((target.media_name, target.media_platform))
+            provider_identity = (target.provider, target.provider_media_id)
+            if provider_identity in ambiguous:
+                raise CatalogInvalid("catalog_provider_target_ambiguous")
+            row = rows.get(provider_identity)
             if row is None:
-                raise CatalogInvalid("catalog_media_not_found")
+                raise CatalogInvalid("catalog_provider_target_not_found")
+            name = row.get("name")
+            platform = row.get("platform", "") if catalog_type == "wemedia" else ""
+            if name != target.media_name or platform != target.media_platform:
+                raise CatalogInvalid("catalog_target_identity_mismatch")
             resolved.append(
                 ResolvedTarget(
                     catalog_type=target.catalog_type,
                     provider=target.provider,
                     media_name=target.media_name,
                     media_platform=target.media_platform,
-                    provider_media_id=_media_id(row, target.provider),
+                    provider_media_id=target.provider_media_id,
                     quoted_price=_price(row, target.provider),
                 )
             )

@@ -19,7 +19,12 @@ import {
   updateClientUrlParameters,
 } from '@geo/design-system';
 import { WemediaPrices } from './WemediaPrices';
-import { PostingComposer, postingSelectionKey, type PostingSelection } from './PostingComposer';
+import {
+  createPostingHandoff,
+  postingSelectionKey,
+  type ComparisonPostingSelection,
+  type PostingProviderOption,
+} from '../posting/selection-handoff';
 import './media-prices.css';
 
 const PLATFORMS: { key: MediaPricesPlatform; label: string }[] = [
@@ -422,7 +427,7 @@ export function buildRefreshDoneNotice(status: MediaPricesRefreshStatus): {
   const presentation = presentRefreshSources(status.sources);
   const warnings: string[] = [];
   for (const name of presentation.staleSession) {
-    warnings.push(`${name} 会话失效，沿用旧数据（需人工更新会话文件）`);
+    warnings.push(`${name} 会话失效，沿用旧数据（请到发帖页重新登录平台账号）`);
   }
   if (presentation.staleOther.length > 0) {
     warnings.push(`${presentation.staleOther.join('、')} 数据陈旧，沿用旧数据`);
@@ -484,7 +489,10 @@ export function MediaPrices({ session }: { session: Session | undefined }) {
   const initialUrlState = useMemo(() => readMediaPricesUrlState(), []);
   const [activeCatalog, setActiveCatalog] = useState<MediaCatalogTab>(() => readMediaCatalogTab());
   const [wemediaReloadRevision, setWemediaReloadRevision] = useState(0);
-  const [postingSelections, setPostingSelections] = useState<Record<string, PostingSelection>>({});
+  const [postingSelections, setPostingSelections] = useState<
+    Record<string, ComparisonPostingSelection>
+  >({});
+  const [handoffNotice, setHandoffNotice] = useState<string | null>(null);
   const canManage = session !== undefined;
   const requestTenant = session?.headers['X-Tenant-Id'];
   const requestActor = session?.headers['X-Actor-Id'];
@@ -589,18 +597,28 @@ export function MediaPrices({ session }: { session: Session | undefined }) {
         delete next[key];
         return next;
       }
+      const options = Object.fromEntries(
+        PLATFORMS.flatMap(({ key: provider }) => {
+          const quotedPrice = row.prices[provider];
+          const providerMediaId = row.ids?.[provider];
+          return quotedPrice != null && providerMediaId
+            ? [[provider, { quotedPrice, providerMediaId } satisfies PostingProviderOption]]
+            : [];
+        }),
+      ) as Partial<Record<MediaPricesPlatform, PostingProviderOption>>;
       const provider =
-        row.best_plat ??
-        PLATFORMS.map((item) => item.key).find((candidate) => row.prices[candidate] != null);
-      if (!provider) return current;
+        (row.best_plat && options[row.best_plat] ? row.best_plat : undefined) ??
+        PLATFORMS.map((item) => item.key).find((candidate) => options[candidate] !== undefined);
+      if (!provider || !dataset?.sha256) return current;
       return {
         ...current,
         [key]: {
           key,
           catalogType: 'news',
+          catalogSha256: dataset.sha256,
           mediaName: row.name,
           mediaPlatform: '',
-          prices: row.prices,
+          options,
           provider,
         },
       };
@@ -852,7 +870,25 @@ export function MediaPrices({ session }: { session: Session | undefined }) {
     return (
       <section className="media-prices" aria-label="媒体比价台">
         <div className="media-prices-state warning">
-          数据集尚未生成，请运行当前离线刷新脚本（tools/media_prices_refresh.py）后再访问本页。
+          <p>数据集尚未生成，可直接在本页启动首次生成。</p>
+          {canManage ? (
+            <button
+              type="button"
+              className="primary"
+              disabled={refreshRunning || refreshStatusReadState === 'forbidden'}
+              onClick={() => void startRefresh()}
+            >
+              {refreshRunning ? '生成中…' : '立即生成数据集'}
+            </button>
+          ) : (
+            <p>请登录 Operations Web 后生成数据集。</p>
+          )}
+          {refreshProgress ? <p role="status">{refreshProgress}</p> : null}
+          {refreshNotice ? (
+            <div className={`media-prices-notice ${refreshNotice.tone}`} role="alert">
+              {refreshNotice.text}
+            </div>
+          ) : null}
         </div>
       </section>
     );
@@ -1114,9 +1150,7 @@ export function MediaPrices({ session }: { session: Session | undefined }) {
           </FilterBar>
 
           <p className="media-prices-summary" aria-live="polite">
-            筛选 {summary.total} 条；其中 {summary.prfabuNotBest} 条 prfabu
-            非全网最低，按最低价采购平均可省{' '}
-            {summary.avgSavePct == null ? '—' : `${summary.avgSavePct.toFixed(1)}%`}
+            筛选 {summary.total} 条
           </p>
 
           {dataset.rows.length === 0 ? (
@@ -1156,7 +1190,12 @@ export function MediaPrices({ session }: { session: Session | undefined }) {
                             checked={
                               postingSelections[postingSelectionKey('news', row.name)] !== undefined
                             }
-                            disabled={row.best_plat == null}
+                            disabled={
+                              !dataset.sha256 ||
+                              !PLATFORMS.some(
+                                ({ key }) => row.prices[key] != null && Boolean(row.ids?.[key]),
+                              )
+                            }
                             onChange={(event) => selectNewsRow(row, event.target.checked)}
                           />
                         </td>
@@ -1249,7 +1288,7 @@ export function MediaPrices({ session }: { session: Session | undefined }) {
         active={activeCatalog === 'wemedia'}
         reloadRevision={wemediaReloadRevision}
         postingSelections={postingSelections}
-        onTogglePosting={(row, checked) => {
+        onTogglePosting={(row, catalogSha256, checked) => {
           const key = postingSelectionKey('wemedia', row.name, row.platform);
           setPostingSelections((current) => {
             if (!checked) {
@@ -1257,48 +1296,134 @@ export function MediaPrices({ session }: { session: Session | undefined }) {
               delete next[key];
               return next;
             }
+            const options = Object.fromEntries(
+              PLATFORMS.flatMap(({ key: provider }) => {
+                const quotedPrice = row.prices[provider];
+                const providerMediaId = row.ids?.[provider];
+                return quotedPrice != null && providerMediaId
+                  ? [[provider, { quotedPrice, providerMediaId } satisfies PostingProviderOption]]
+                  : [];
+              }),
+            ) as Partial<Record<MediaPricesPlatform, PostingProviderOption>>;
             const provider =
-              row.best_plat ??
-              PLATFORMS.map((item) => item.key).find((candidate) => row.prices[candidate] != null);
+              (row.best_plat && options[row.best_plat] ? row.best_plat : undefined) ??
+              PLATFORMS.map((item) => item.key).find(
+                (candidate) => options[candidate] !== undefined,
+              );
             if (!provider) return current;
             return {
               ...current,
               [key]: {
                 key,
                 catalogType: 'wemedia',
+                catalogSha256,
                 mediaName: row.name,
                 mediaPlatform: row.platform,
-                prices: row.prices,
+                options,
                 provider,
               },
             };
           });
         }}
       />
-      {session ? (
-        <PostingComposer
-          session={session}
-          selections={selectedPostingItems}
-          onProviderChange={(key, provider) =>
-            setPostingSelections((current) => {
-              const existing = current[key];
-              return existing ? { ...current, [key]: { ...existing, provider } } : current;
-            })
-          }
-          onRemove={(key) =>
-            setPostingSelections((current) => {
-              const next = { ...current };
-              delete next[key];
-              return next;
-            })
-          }
-          onClear={() => setPostingSelections({})}
-        />
+      {session && selectedPostingItems.length > 0 ? (
+        <section className="posting-handoff-tray" aria-labelledby="posting-handoff-tray-title">
+          <header>
+            <div>
+              <span className="eyebrow">posting selection</span>
+              <h3 id="posting-handoff-tray-title">已选 {selectedPostingItems.length} 个目标</h3>
+              <p>在这里确定每个媒体的采购平台，然后进入独立发帖页。</p>
+            </div>
+            <button type="button" onClick={() => setPostingSelections({})}>
+              清空
+            </button>
+          </header>
+          <div className="posting-selection-list">
+            {selectedPostingItems.map((selection) => (
+              <article key={selection.key}>
+                <div>
+                  <strong>{selection.mediaName}</strong>
+                  <small>
+                    {selection.catalogType === 'wemedia'
+                      ? `自媒体 · ${selection.mediaPlatform}`
+                      : '新闻媒体'}
+                  </small>
+                </div>
+                <label>
+                  采购平台
+                  <select
+                    aria-label={`${selection.mediaName}采购平台`}
+                    value={selection.provider}
+                    onChange={(event) => {
+                      const provider = event.target.value as MediaPricesPlatform;
+                      if (!selection.options[provider]) return;
+                      setPostingSelections((current) => ({
+                        ...current,
+                        [selection.key]: { ...selection, provider },
+                      }));
+                    }}
+                  >
+                    {PLATFORMS.flatMap(({ key, label }) => {
+                      const option = selection.options[key];
+                      return option ? (
+                        <option key={key} value={key}>
+                          {label} · ¥{option.quotedPrice}
+                          {key === 'prfabu' ? ' · 可自动' : ' · 下单待接入'}
+                        </option>
+                      ) : (
+                        []
+                      );
+                    })}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  aria-label={`移除${selection.mediaName}`}
+                  onClick={() =>
+                    setPostingSelections((current) => {
+                      const next = { ...current };
+                      delete next[selection.key];
+                      return next;
+                    })
+                  }
+                >
+                  移除
+                </button>
+              </article>
+            ))}
+          </div>
+          <div className="posting-handoff-actions">
+            <p>选单只在当前浏览器标签会话中保存两小时；发帖服务端仍会重新核验。</p>
+            <button
+              type="button"
+              className="primary"
+              onClick={() => {
+                const created = createPostingHandoff({
+                  tenantId: session.tenantId,
+                  actorId: session.actorId,
+                  selections: selectedPostingItems,
+                });
+                if (!created) {
+                  setHandoffNotice('选单保存失败，请确认浏览器允许会话存储后重试。');
+                  return;
+                }
+                window.location.assign(created.href);
+              }}
+            >
+              去发帖页配置内容
+            </button>
+          </div>
+          {handoffNotice ? (
+            <div className="media-prices-notice error" role="alert">
+              {handoffNotice}
+            </div>
+          ) : null}
+        </section>
       ) : null}
       <footer className="security-note">
         {canManage
-          ? '比价数据由离线脚本刷新；发帖只有在显式确认预算后才会提交，页面不展示平台账号或会话秘密。'
-          : '当前为公开只读视图；刷新数据与发帖操作仅对已登录的内部人员开放。'}
+          ? '比价数据由离线脚本刷新；本页只选择媒体和采购平台，账号及发帖内容统一在发帖页管理。'
+          : '当前为公开只读视图；刷新数据与选择投放目标仅对已登录的内部人员开放。'}
       </footer>
     </section>
   );

@@ -486,9 +486,7 @@ class PostingService:
                 from_status=prior,
                 to_status=next_status,
                 message=(
-                    "预算已确认；训练环境仅模拟提交"
-                    if training
-                    else "预算已确认，发帖已进入队列"
+                    "预算已确认；训练环境仅模拟提交" if training else "预算已确认，发帖已进入队列"
                 ),
                 payload={"max_total_amount": str(max_total_amount)},
             )
@@ -945,7 +943,7 @@ class PostingService:
             )
             if target is None:
                 break
-            provider = provider_for(str(target["provider"]))
+            provider = provider_for(str(target["provider"]), tenant_pub_id)
             result = provider.submit(
                 ProviderSubmission(
                     provider=str(target["provider"]),
@@ -996,7 +994,7 @@ class PostingService:
                 (tenant_pub_id, batch_pub_id),
             ).fetchall()
         for target in targets:
-            result = provider_for(str(target["provider"])).refresh(
+            result = provider_for(str(target["provider"]), tenant_pub_id).refresh(
                 catalog_type=str(target["catalog_type"]),
                 external_order_id=str(target["external_order_id"]),
                 media_name=str(target["media_name"]),

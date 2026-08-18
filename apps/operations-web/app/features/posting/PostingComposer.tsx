@@ -1,13 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   backfillPostingTarget,
-  completePrfabuLogin,
   createPostingBatch,
-  getPrfabuSessionStatus,
   getPostingBatch,
   listPostingBatches,
   refreshPostingBatch,
-  startPrfabuLogin,
   submitPostingBatch,
   type IdentitySessionHeaders,
   type MediaPricesPlatform,
@@ -15,26 +12,9 @@ import {
   type PostingBatchStatus,
   type PostingBatchSummary,
   type PostingTargetStatus,
-  type PrfabuCaptchaChallenge,
-  type PrfabuSessionStatus,
+  type ProviderAccountStatus,
 } from '@geo/api-client';
-
-export type PostingSelection = {
-  key: string;
-  catalogType: 'news' | 'wemedia';
-  mediaName: string;
-  mediaPlatform: string;
-  prices: Partial<Record<MediaPricesPlatform, number>>;
-  provider: MediaPricesPlatform;
-};
-
-export function postingSelectionKey(
-  catalogType: 'news' | 'wemedia',
-  mediaName: string,
-  mediaPlatform = '',
-): string {
-  return `${catalogType}\u0000${mediaPlatform}\u0000${mediaName}`;
-}
+import type { PostingHandoffTarget } from './selection-handoff';
 
 const PROVIDER_LABELS: Record<MediaPricesPlatform, string> = {
   prfabu: 'prfabu',
@@ -89,10 +69,6 @@ type Session = {
   headers: IdentitySessionHeaders;
 };
 
-function selectedPrice(selection: PostingSelection): number {
-  return selection.prices[selection.provider] ?? 0;
-}
-
 function newIdempotencyKey(): string {
   const random =
     typeof globalThis.crypto?.randomUUID === 'function'
@@ -125,15 +101,11 @@ export function statusTone(
 export function PostingComposer({
   session,
   selections,
-  onProviderChange,
-  onRemove,
-  onClear,
+  providerAccounts,
 }: {
   session: Session;
-  selections: PostingSelection[];
-  onProviderChange: (key: string, provider: MediaPricesPlatform) => void;
-  onRemove: (key: string) => void;
-  onClear: () => void;
+  selections: PostingHandoffTarget[];
+  providerAccounts: ProviderAccountStatus[];
 }) {
   const requestHeaders = useMemo<IdentitySessionHeaders>(
     () => ({ ...session.headers }),
@@ -150,7 +122,7 @@ export function PostingComposer({
   const [autoSubmit, setAutoSubmit] = useState(true);
   const [confirmSpend, setConfirmSpend] = useState(false);
   const quotedTotal = useMemo(
-    () => selections.reduce((total, selection) => total + selectedPrice(selection), 0),
+    () => selections.reduce((total, selection) => total + selection.quotedPrice, 0),
     [selections],
   );
   const [maxTotalAmount, setMaxTotalAmount] = useState('');
@@ -162,14 +134,6 @@ export function PostingComposer({
   const [recent, setRecent] = useState<PostingBatchSummary[]>([]);
   const [currentBatch, setCurrentBatch] = useState<PostingBatch | null>(null);
   const [backfillUrls, setBackfillUrls] = useState<Record<string, string>>({});
-  const [providerSession, setProviderSession] = useState<PrfabuSessionStatus | null>(null);
-  const [providerSessionLoading, setProviderSessionLoading] = useState(canOperate);
-  const [providerLoginOpen, setProviderLoginOpen] = useState(false);
-  const [providerChallenge, setProviderChallenge] = useState<PrfabuCaptchaChallenge | null>(null);
-  const [providerAccount, setProviderAccount] = useState('');
-  const [providerPassword, setProviderPassword] = useState('');
-  const [providerCaptcha, setProviderCaptcha] = useState('');
-  const [providerLoginSubmitting, setProviderLoginSubmitting] = useState(false);
   const [recentState, setRecentState] = useState<'loading' | 'ready' | 'forbidden' | 'failed'>(
     'loading',
   );
@@ -200,27 +164,6 @@ export function PostingComposer({
   }, [requestHeaders]);
 
   useEffect(() => {
-    let cancelled = false;
-    if (!canOperate) {
-      setProviderSessionLoading(false);
-      return;
-    }
-    setProviderSessionLoading(true);
-    void getPrfabuSessionStatus(requestHeaders).then((result) => {
-      if (cancelled) return;
-      setProviderSessionLoading(false);
-      setProviderSession(
-        result.kind === 'ready'
-          ? result.data
-          : { status: 'unavailable', message: '供应商会话状态暂不可用', balance: null },
-      );
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [canOperate, requestHeaders]);
-
-  useEffect(() => {
     if (
       !currentBatch ||
       (!ACTIVE_BATCH_STATUSES.has(currentBatch.status) &&
@@ -241,56 +184,6 @@ export function PostingComposer({
       window.clearTimeout(timer);
     };
   }, [currentBatch, requestHeaders]);
-
-  const beginProviderLogin = async () => {
-    setProviderLoginOpen(true);
-    setProviderLoginSubmitting(true);
-    setNotice({ tone: 'info', text: '正在获取 prfabu 图形验证码…' });
-    const result = await startPrfabuLogin(requestHeaders);
-    setProviderLoginSubmitting(false);
-    if (result.kind === 'ready') {
-      setProviderChallenge(result.data);
-      setProviderCaptcha('');
-      setNotice({ tone: 'info', text: '请输入账号、密码和图片中的验证码。' });
-      return;
-    }
-    setProviderChallenge(null);
-    setNotice({ tone: 'error', text: '验证码获取失败，请稍后重试。' });
-  };
-
-  const completeProviderLogin = async () => {
-    if (!providerChallenge || !providerAccount.trim() || !providerPassword || !providerCaptcha) {
-      setNotice({ tone: 'error', text: '请完整填写 prfabu 账号、密码和验证码。' });
-      return;
-    }
-    setProviderLoginSubmitting(true);
-    setNotice({ tone: 'info', text: '正在验证 prfabu 登录并安全保存会话…' });
-    const result = await completePrfabuLogin(
-      {
-        challengeId: providerChallenge.challengeId,
-        account: providerAccount.trim(),
-        password: providerPassword,
-        captcha: providerCaptcha.trim(),
-      },
-      requestHeaders,
-    );
-    setProviderPassword('');
-    setProviderCaptcha('');
-    setProviderChallenge(null);
-    setProviderLoginSubmitting(false);
-    if (result.kind === 'ready' && result.data.status === 'ready') {
-      setProviderSession(result.data);
-      setProviderLoginOpen(false);
-      setNotice({ tone: 'info', text: 'prfabu 登录成功，现在可以直接发帖。' });
-      return;
-    }
-    if (result.kind === 'ready' && result.data.status === 'rejected') {
-      setProviderSession(result.data);
-      setNotice({ tone: 'error', text: `${result.data.message}，请获取新验证码后重试。` });
-      return;
-    }
-    setNotice({ tone: 'error', text: '登录请求失败或验证码已过期，请重新获取验证码。' });
-  };
 
   const createBatch = async () => {
     const maximum = Number(maxTotalAmount);
@@ -316,10 +209,9 @@ export function PostingComposer({
     if (
       autoSubmit &&
       selections.some((selection) => selection.provider === 'prfabu') &&
-      providerSession?.status !== 'ready'
+      providerAccounts.find((account) => account.provider === 'prfabu')?.sessionStatus !== 'ready'
     ) {
-      setProviderLoginOpen(true);
-      setNotice({ tone: 'error', text: '请先在本页登录 prfabu，再开始自动发帖。' });
+      setNotice({ tone: 'error', text: '请先在上方平台账号区完成 prfabu 登录。' });
       return;
     }
     setSubmitting(true);
@@ -330,6 +222,8 @@ export function PostingComposer({
         targets: selections.map((selection) => ({
           catalogType: selection.catalogType,
           provider: selection.provider,
+          catalogSha256: selection.catalogSha256,
+          providerMediaId: selection.providerMediaId,
           mediaName: selection.mediaName,
           mediaPlatform: selection.mediaPlatform,
         })),
@@ -449,165 +343,34 @@ export function PostingComposer({
         <div>
           <span className="eyebrow">paid distribution</span>
           <h3 id="posting-composer-title">自动发帖配置</h3>
-          <p>选择媒体后上传上游图文 DOCX；系统冻结报价并逐媒体记录下单与发帖状态。</p>
+          <p>上传图文 DOCX 后按已冻结的供应商媒体 ID 创建任务，并逐媒体记录状态。</p>
         </div>
-        {selections.length > 0 ? (
-          <button type="button" onClick={onClear}>
-            清空已选
-          </button>
-        ) : null}
       </header>
 
-      <section className="posting-provider-login" aria-label="prfabu 供应商登录">
-        <div className="posting-provider-login-summary">
-          <div>
-            <strong>prfabu 登录态</strong>
-            <p>
-              {providerSessionLoading
-                ? '正在验证…'
-                : (providerSession?.message ?? '尚未验证供应商会话')}
-              {providerSession?.status === 'ready' && providerSession.balance !== null
-                ? ` · 可用余额 ¥${providerSession.balance.toFixed(2)}`
-                : ''}
-            </p>
-          </div>
-          <span
-            className={`posting-status ${providerSession?.status === 'ready' ? 'success' : 'warn'}`}
-          >
-            {providerSession?.status === 'ready' ? '可发帖' : '需要登录'}
-          </span>
-          {canOperate ? (
-            <button
-              type="button"
-              disabled={providerLoginSubmitting}
-              onClick={() => void beginProviderLogin()}
-            >
-              {providerChallenge ? '换一张验证码' : '网页登录 / 更新会话'}
-            </button>
-          ) : null}
-        </div>
-        {providerLoginOpen ? (
-          <form
-            className="posting-provider-login-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void completeProviderLogin();
-            }}
-          >
-            <p>账号和密码仅用于本次供应商登录请求，不会写入数据库或会话文件。</p>
-            <label>
-              prfabu 账号
-              <input
-                type="text"
-                autoComplete="username"
-                maxLength={120}
-                value={providerAccount}
-                onChange={(event) => setProviderAccount(event.target.value)}
-              />
-            </label>
-            <label>
-              prfabu 密码
-              <input
-                type="password"
-                autoComplete="current-password"
-                maxLength={256}
-                value={providerPassword}
-                onChange={(event) => setProviderPassword(event.target.value)}
-              />
-            </label>
-            {providerChallenge ? (
-              <div className="posting-provider-captcha">
-                <img
-                  src={`data:image/png;base64,${providerChallenge.imageBase64}`}
-                  alt="prfabu 图形验证码"
-                />
-                <label>
-                  图片验证码
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    autoComplete="off"
-                    maxLength={12}
-                    value={providerCaptcha}
-                    onChange={(event) => setProviderCaptcha(event.target.value)}
-                  />
-                </label>
-                <small>
-                  验证码 {providerChallenge.expiresInSeconds / 60} 分钟内有效且只能使用一次。
-                </small>
-              </div>
-            ) : (
-              <p>请点击“网页登录 / 更新会话”获取验证码。</p>
-            )}
-            <div className="posting-confirmation">
-              <button
-                type="submit"
-                className="primary"
-                disabled={!providerChallenge || providerLoginSubmitting}
-              >
-                {providerLoginSubmitting ? '正在登录…' : '登录并保存会话'}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setProviderLoginOpen(false);
-                  setProviderChallenge(null);
-                  setProviderPassword('');
-                  setProviderCaptcha('');
-                }}
-              >
-                取消
-              </button>
-            </div>
-          </form>
-        ) : null}
-      </section>
-
       {selections.length === 0 ? (
-        <div className="posting-empty">在新闻媒体或自媒体表格首列勾选媒体后，可继续配置。</div>
+        <div className="posting-empty">请先返回媒体比价台选择媒体和采购平台。</div>
       ) : (
         <div className="posting-selection-list" aria-label="已选媒体">
-          {selections.map((selection) => {
-            const providers = Object.entries(selection.prices).filter(
-              (entry): entry is [MediaPricesPlatform, number] => entry[1] != null,
-            );
-            return (
-              <article key={selection.key}>
-                <div>
-                  <strong>{selection.mediaName}</strong>
-                  <small>
-                    {selection.catalogType === 'wemedia'
-                      ? `自媒体 · ${selection.mediaPlatform}`
-                      : '新闻媒体'}
-                  </small>
-                </div>
-                <label>
-                  采购服务
-                  <select
-                    aria-label={`${selection.mediaName}采购服务`}
-                    value={selection.provider}
-                    onChange={(event) =>
-                      onProviderChange(selection.key, event.target.value as MediaPricesPlatform)
-                    }
-                  >
-                    {providers.map(([provider, price]) => (
-                      <option key={provider} value={provider}>
-                        {PROVIDER_LABELS[provider]} · ¥{price}
-                        {provider === 'prfabu' ? ' · 可自动' : ' · 待接入'}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  type="button"
-                  aria-label={`移除${selection.mediaName}`}
-                  onClick={() => onRemove(selection.key)}
-                >
-                  移除
-                </button>
-              </article>
-            );
-          })}
+          {selections.map((selection) => (
+            <article
+              key={`${selection.catalogType}\u0000${selection.provider}\u0000${selection.providerMediaId}`}
+            >
+              <div>
+                <strong>{selection.mediaName}</strong>
+                <small>
+                  {selection.catalogType === 'wemedia'
+                    ? `自媒体 · ${selection.mediaPlatform}`
+                    : '新闻媒体'}
+                </small>
+              </div>
+              <div className="posting-selection-provider">
+                <strong>{PROVIDER_LABELS[selection.provider]}</strong>
+                <small>
+                  ¥{selection.quotedPrice.toFixed(2)} · 媒体 ID {selection.providerMediaId}
+                </small>
+              </div>
+            </article>
+          ))}
         </div>
       )}
 

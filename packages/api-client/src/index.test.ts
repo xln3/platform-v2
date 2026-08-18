@@ -6,6 +6,7 @@ import {
   authorizeCustomerAccount,
   bindOidcIdentity,
   commentOnReport,
+  completeProviderAccountLogin,
   completePrfabuLogin,
   confirmReportDelivery,
   createCustomerPairing,
@@ -25,6 +26,7 @@ import {
   createReportDelivery,
   createReportEffectRetest,
   createReportRevision,
+  deleteProviderAccount,
   getAnalyticsCompetitors,
   getAnalyticsAnswerRelations,
   getAnalyticsBreakdown,
@@ -69,6 +71,7 @@ import {
   listOidcBindings,
   listPostAnalysisItems,
   listPostAnalysisTasks,
+  listProviderAccounts,
   listProjectResources,
   listReportDeliveries,
   listReports,
@@ -112,6 +115,8 @@ import {
   revokeIdentityMember,
   revokeOidcIdentity,
   runEvaluationDataset,
+  saveProviderAccount,
+  startProviderAccountLogin,
   startPrfabuLogin,
   type AnalyticsAnchorSafeView,
   type AnalyticsAnswerSafeView,
@@ -5834,6 +5839,109 @@ describe('wemedia dataset boundary', () => {
 });
 
 describe('posting batch browser boundary', () => {
+  it('manages every provider credential through bounded projections without echoing secrets', async () => {
+    const headers = {
+      'X-Tenant-Id': 'tnt_test',
+      'X-Actor-Id': 'usr_test',
+      'X-Actor-Role': 'operator',
+    } as const;
+    const challengeId = 'B'.repeat(32);
+    const providerRecord = {
+      provider: 'toumeiw',
+      label: '透明网',
+      configured: true,
+      account_mask: 'su***nt',
+      session_status: 'ready',
+      session_message: '会话有效',
+      login_mode: 'image_captcha',
+      posting_supported: false,
+      balance: '12.50',
+      updated_at: '2026-08-18T08:00:00Z',
+      password: 'response-must-not-cross-boundary',
+      cookies: { PHPSESSID: 'response-cookie-must-not-cross-boundary' },
+    };
+    const requests: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const path = new URL(request.url).pathname;
+      requests.push(`${request.method} ${path}`);
+      if (request.method === 'GET') {
+        return new Response(JSON.stringify([providerRecord]), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (request.method === 'PUT') {
+        expect(await request.json()).toEqual({
+          account: 'supplier-account',
+          password: 'supplier-password',
+        });
+        return new Response(JSON.stringify(providerRecord), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (request.method === 'DELETE') return new Response(null, { status: 204 });
+      if (path.endsWith('/login/captcha')) {
+        return new Response(
+          JSON.stringify({
+            provider: 'toumeiw',
+            challenge_id: challengeId,
+            image_base64: 'iVBORw0KGgo=',
+            image_mime_type: 'image/png',
+            expires_in_seconds: 300,
+          }),
+          { status: 201, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      expect(await request.json()).toEqual({ challenge_id: challengeId, captcha: '4821' });
+      return new Response(JSON.stringify(providerRecord), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const client = createGeoApiClient('https://geo.example');
+
+    const listed = await listProviderAccounts(headers, client);
+    const saved = await saveProviderAccount(
+      'toumeiw',
+      { account: 'supplier-account', password: 'supplier-password' },
+      headers,
+      client,
+    );
+    const challenge = await startProviderAccountLogin('toumeiw', headers, client);
+    expect(challenge).toMatchObject({ kind: 'ready', data: { challengeId } });
+    if (challenge.kind !== 'ready') throw new Error('challenge projection failed');
+    const loggedIn = await completeProviderAccountLogin(
+      'toumeiw',
+      { challengeId: challenge.data.challengeId, captcha: '4821' },
+      headers,
+      client,
+    );
+    expect(await deleteProviderAccount('toumeiw', headers, client)).toEqual({
+      kind: 'ready',
+      data: null,
+    });
+
+    expect(listed).toMatchObject({
+      kind: 'ready',
+      data: [{ provider: 'toumeiw', accountMask: 'su***nt', balance: 12.5 }],
+    });
+    expect(saved).toMatchObject({ kind: 'ready', data: { provider: 'toumeiw' } });
+    expect(loggedIn).toMatchObject({ kind: 'ready', data: { sessionStatus: 'ready' } });
+    expect(JSON.stringify({ listed, saved, loggedIn })).not.toMatch(
+      /response-must-not-cross-boundary|response-cookie-must-not-cross-boundary/u,
+    );
+    expect(requests).toEqual([
+      'GET /api/v2/posting/provider-accounts',
+      'PUT /api/v2/posting/provider-accounts/toumeiw',
+      'POST /api/v2/posting/provider-accounts/toumeiw/login/captcha',
+      'POST /api/v2/posting/provider-accounts/toumeiw/login',
+      'DELETE /api/v2/posting/provider-accounts/toumeiw',
+    ]);
+  });
+
   it('performs the one-time prfabu captcha login through generated contracts', async () => {
     const headers = {
       'X-Tenant-Id': 'tnt_test',
@@ -5977,6 +6085,8 @@ describe('posting batch browser boundary', () => {
       const form = await request.clone().formData();
       expect((form.get('document') as File).name).toBe('article.docx');
       expect(form.get('targets_json')).toContain('"provider":"prfabu"');
+      expect(form.get('targets_json')).toContain(`"catalog_sha256":"${'a'.repeat(64)}"`);
+      expect(form.get('targets_json')).toContain('"provider_media_id":"12345"');
       expect(form.get('confirm_spend')).toBe('true');
       return new Response(JSON.stringify(contract), {
         status: 201,
@@ -5993,6 +6103,8 @@ describe('posting batch browser boundary', () => {
           {
             catalogType: 'news',
             provider: 'prfabu',
+            catalogSha256: 'a'.repeat(64),
+            providerMediaId: '12345',
             mediaName: '测试媒体',
           },
         ],
