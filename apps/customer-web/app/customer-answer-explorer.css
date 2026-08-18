@@ -259,13 +259,32 @@
   font-size: 9px;
 }
 
-.geo-answer-dossier__official iframe {
-  display: block;
+.geo-answer-dossier__official-viewport {
+  --geo-official-action-guard: 88px;
+  position: relative;
   flex: 1 1 auto;
-  width: 100%;
   min-height: 0;
+  overflow: hidden;
+  background: #f8fafc;
+}
+
+.geo-answer-dossier__official-viewport iframe {
+  display: block;
+  width: 100%;
+  height: calc(100% + var(--geo-official-action-guard));
   border: 0;
   background: #f8fafc;
+}
+
+.geo-answer-dossier__official-viewport::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 7px;
+  background: linear-gradient(180deg, transparent, rgba(248, 250, 252, 0.96));
+  content: '';
+  pointer-events: none;
 }
 
 .geo-answer-dossier__official > footer {

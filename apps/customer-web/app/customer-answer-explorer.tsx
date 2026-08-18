@@ -560,7 +560,7 @@ function AnswerDossier({
             <header>
               <div>
                 <Badge tone={officialShareUrl ? 'positive' : 'warning'}>
-                  {officialShareUrl ? '官方域名直连' : '官方链接缺失'}
+                  {officialShareUrl ? '官方域名 · 只读' : '官方链接缺失'}
                 </Badge>
                 <strong>官方实时回答页</strong>
               </div>
@@ -574,16 +574,22 @@ function AnswerDossier({
               </div>
             ) : officialShareUrl ? (
               <>
-                <iframe
-                  src={officialShareUrl}
-                  title={`${row.model} 官方回答分享页`}
-                  sandbox="allow-scripts allow-same-origin"
-                  referrerPolicy="no-referrer"
-                />
+                <div
+                  className="geo-answer-dossier__official-viewport"
+                  role="region"
+                  aria-label="官方回答只读预览"
+                >
+                  <iframe
+                    src={officialShareUrl}
+                    title={`${row.model} 官方回答只读预览`}
+                    sandbox="allow-scripts allow-same-origin"
+                    referrerPolicy="no-referrer"
+                    tabIndex={-1}
+                  />
+                </div>
                 <footer>
                   <span>
-                    这里直接请求官方域名，不展示系统自渲染答案。平台若用 X-Frame-Options 或 CSP
-                    禁止嵌入，浏览器会拦截，系统不会绕过其安全策略。
+                    已裁掉平台底部的“继续问 / 登录”入口；预览禁止表单、弹窗和顶层跳转。平台若禁止嵌入，浏览器仍会拦截。
                   </span>
                   <a href={officialShareUrl} target="_blank" rel="noreferrer noopener">
                     无法显示？打开官方原页 ↗

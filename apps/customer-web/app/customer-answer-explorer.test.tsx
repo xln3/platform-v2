@@ -143,7 +143,16 @@ describe('CustomerAnswerExplorer classification', () => {
       }),
     );
 
-    expect(await screen.findByTitle('DeepSeek 官方回答分享页')).toBeTruthy();
+    const officialFrame = (await screen.findByTitle(
+      'DeepSeek 官方回答只读预览',
+    )) as HTMLIFrameElement;
+    expect(officialFrame.tabIndex).toBe(-1);
+    expect(officialFrame.getAttribute('sandbox')).toBe('allow-scripts allow-same-origin');
+    expect(officialFrame.getAttribute('sandbox')).not.toContain('allow-forms');
+    expect(officialFrame.getAttribute('sandbox')).not.toContain('allow-popups');
+    expect(officialFrame.getAttribute('sandbox')).not.toContain('allow-top-navigation');
+    expect(screen.getByRole('region', { name: '官方回答只读预览' })).toBeTruthy();
+    expect(screen.getByText(/已裁掉平台底部/u)).toBeTruthy();
     expect(
       within(screen.getByRole('region', { name: '引用信源分析表' })).getByRole('table'),
     ).toBeTruthy();
