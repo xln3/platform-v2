@@ -982,6 +982,48 @@ class _PostgresSourceLoader:
         )
 
 
+def exact_source_quote_matches(
+    context: RunSourceContext,
+    target: SourceTarget,
+    source_text: str,
+) -> list[dict[str, Any]]:
+    """Return only byte-for-byte source fragments; never infer semantic support."""
+
+    matches: list[dict[str, Any]] = []
+    linked_answers = set(target.task_pub_ids)
+    for answer_pub_id, citations in context.tasks:
+        if answer_pub_id not in linked_answers:
+            continue
+        for fallback_ordinal, citation in enumerate(citations, 1):
+            url = citation.get("url")
+            cited_text = citation.get("cited_text")
+            if (
+                not isinstance(url, str)
+                or url_dedupe_key(url) != target.key
+                or not isinstance(cited_text, str)
+                or not cited_text.strip()
+            ):
+                continue
+            quote = cited_text.strip()
+            start = source_text.find(quote)
+            if start < 0:
+                continue
+            ordinal = citation.get("ordinal", fallback_ordinal)
+            if isinstance(ordinal, bool) or not isinstance(ordinal, int) or ordinal < 1:
+                ordinal = fallback_ordinal
+            matches.append(
+                {
+                    "answer_pub_id": answer_pub_id,
+                    "ordinal": ordinal,
+                    "source_quote": source_text[start : start + len(quote)],
+                    "source_text_start": start,
+                    "source_text_end": start + len(quote),
+                    "source_quote_hash": sha256(quote.encode()).hexdigest(),
+                }
+            )
+    return matches
+
+
 class _EvidenceServiceSink:
     """生产存证：正文 bytes 进 CAS + source_document 行（单文档单事务）。
 
@@ -1113,6 +1155,12 @@ class _EvidenceServiceSink:
                 target=target,
                 source_document_pub_id=document_pub_id,
                 metadata=metadata,
+            )
+            self._sync_source_quote_matches_with_connection(
+                connection,
+                context=context,
+                source_document_pub_id=document_pub_id,
+                matches=exact_source_quote_matches(context, target, text),
             )
             if brand_mention is not None:
                 self._persist_brand_mention_with_connection(
@@ -1248,6 +1296,56 @@ class _EvidenceServiceSink:
                     answer_pub_id,
                     target.url,
                     list(canonical_candidates),
+                ),
+            )
+
+    @staticmethod
+    def _sync_source_quote_matches_with_connection(
+        connection: psycopg.Connection[Any],
+        *,
+        context: RunSourceContext,
+        source_document_pub_id: str,
+        matches: list[dict[str, Any]],
+    ) -> None:
+        for match in matches:
+            relation_pub_id = (
+                "acr_"
+                + sha256(
+                    (
+                        f"{context.tenant_pub_id}|{match['answer_pub_id']}|{match['ordinal']}"
+                    ).encode()
+                ).hexdigest()[:26]
+            )
+            connection.execute(
+                """
+                INSERT INTO analytics.answer_citation_relation
+                  (pub_id,tenant_pub_id,answer_pub_id,ordinal,source_document_pub_id,
+                   mapping_status,source_quote,source_text_start,source_text_end,
+                   source_quote_hash,source_match_status,source_match_version,relation,
+                   classifier_version,review_status)
+                VALUES
+                  (%s,%s,%s,%s,%s,'unmapped',%s,%s,%s,%s,'exact',
+                   'source-exact-match-v1','unverified','source-exact-match-v1','unreviewed')
+                ON CONFLICT (tenant_pub_id,answer_pub_id,ordinal) DO UPDATE SET
+                  source_document_pub_id=EXCLUDED.source_document_pub_id,
+                  source_quote=EXCLUDED.source_quote,
+                  source_text_start=EXCLUDED.source_text_start,
+                  source_text_end=EXCLUDED.source_text_end,
+                  source_quote_hash=EXCLUDED.source_quote_hash,
+                  source_match_status='exact',
+                  source_match_version='source-exact-match-v1',
+                  updated_at=now()
+                """,
+                (
+                    relation_pub_id,
+                    context.tenant_pub_id,
+                    match["answer_pub_id"],
+                    match["ordinal"],
+                    source_document_pub_id,
+                    match["source_quote"],
+                    match["source_text_start"],
+                    match["source_text_end"],
+                    match["source_quote_hash"],
                 ),
             )
 

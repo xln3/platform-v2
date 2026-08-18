@@ -274,6 +274,20 @@ def test_role_downgrade_denies_execution_control() -> None:
     Principal("worker", Role.WORKER, "tnt_test").require("profile:use")
 
 
+def test_internal_evidence_permission_never_leaks_to_customer() -> None:
+    for role in (Role.OPERATOR, Role.ANALYST, Role.REVIEWER, Role.ADMIN):
+        principal = Principal(role.value, role, "tnt_test")
+        assert principal.allows("evidence:read")
+        principal.require("evidence:read")
+
+    customer = Principal("customer", Role.CUSTOMER, "tnt_test")
+    assert not customer.allows("evidence:read")
+    with pytest.raises(HTTPException) as denied:
+        customer.require("evidence:read")
+    assert denied.value.status_code == 403
+
+
+
 def test_report_permissions_separate_authoring_review_publication_and_delivery() -> None:
     analyst = Principal("analyst", Role.ANALYST, "tnt_test")
     analyst.require("report:write")

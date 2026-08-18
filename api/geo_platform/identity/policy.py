@@ -52,6 +52,7 @@ ROLE_PERMISSIONS: dict[Role, frozenset[str]] = {
             "report:deliver",
             "formal_report:produce",
             "formal_report:read",
+            "evidence:read",
             "intake:read",
             "intake:write",
             "sop:read",
@@ -65,6 +66,7 @@ ROLE_PERMISSIONS: dict[Role, frozenset[str]] = {
             "report:write",
             "formal_report:produce",
             "formal_report:read",
+            "evidence:read",
             "schedule:read",
             "intelligence:read",
             "intelligence:write",
@@ -81,6 +83,7 @@ ROLE_PERMISSIONS: dict[Role, frozenset[str]] = {
             "break_glass:approve",
             "report:review",
             "formal_report:read",
+            "evidence:read",
             "report:publish",
             "report:deliver",
             "posting:approve",
@@ -103,9 +106,12 @@ class Principal:
     tenant_pub_id: str
     user_pub_id: str | None = None
 
-    def require(self, permission: str) -> None:
+    def allows(self, permission: str) -> bool:
         allowed = ROLE_PERMISSIONS[self.role]
-        if "*" not in allowed and permission not in allowed:
+        return "*" in allowed or permission in allowed
+
+    def require(self, permission: str) -> None:
+        if not self.allows(permission):
             raise HTTPException(status_code=403, detail={"code": "permission_denied"})
 
     @property

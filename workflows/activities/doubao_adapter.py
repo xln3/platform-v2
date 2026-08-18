@@ -180,7 +180,7 @@ from workflows.activities.human_like import (
     human_read_pause,
     human_type,
 )
-from workflows.activities.official_share import write_share_link_manifest
+from workflows.activities.official_share import probe_official_share_url, write_share_link_manifest
 from workflows.activities.raw_capture import dump_raw_evidence_refs, maybe_raw_capture
 from workflows.activities.resident_browser import (
     BrowserBusyError,
@@ -2101,6 +2101,10 @@ class _PlaywrightDoubaoSession:
                             str(share_link_audit.get("channel"))
                             if share_link_audit.get("channel")
                             else None
+                        ),
+                        verification=probe_official_share_url(
+                            share_url,
+                            allowed_hosts={"doubao.com", "www.doubao.com"},
                         ),
                     )
                 except OSError as exc:

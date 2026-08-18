@@ -43,6 +43,72 @@ class AnswerContentProjection:
     render_parser_version: str = RENDER_PARSER_VERSION
 
 
+def extract_answer_citation_anchors(
+    response_raw: str,
+    citations: list[dict[str, Any]] | tuple[dict[str, Any], ...],
+) -> dict[int, dict[str, Any]]:
+    """Map real platform markers to exact raw-answer sentences without inferring support."""
+
+    by_platform_ordinal: dict[int, list[int]] = {}
+    output: dict[int, dict[str, Any]] = {}
+    for citation in citations:
+        platform_ordinal = citation.get("platform_ordinal")
+        ordinal = citation.get("ordinal")
+        if (
+            isinstance(platform_ordinal, int)
+            and not isinstance(platform_ordinal, bool)
+            and platform_ordinal >= 0
+            and isinstance(ordinal, int)
+            and not isinstance(ordinal, bool)
+            and ordinal >= 1
+        ):
+            by_platform_ordinal.setdefault(platform_ordinal, []).append(ordinal)
+            output.setdefault(
+                ordinal,
+                {
+                    "mapping_status": "unmapped",
+                    "mapping_basis": None,
+                    "answer_text_start": None,
+                    "answer_text_end": None,
+                    "answer_ast_path": None,
+                    "answer_sentence": None,
+                },
+            )
+    for _platform_ordinal, ordinals in by_platform_ordinal.items():
+        if len(ordinals) > 1:
+            for ordinal in ordinals:
+                output[ordinal]["mapping_status"] = "ambiguous"
+
+    for match in _CITATION_MARKER_RE.finditer(response_raw):
+        ordinals = by_platform_ordinal.get(int(match.group(1)), [])
+        if len(ordinals) != 1:
+            continue
+        ordinal = ordinals[0]
+        if output[ordinal]["mapping_status"] == "mapped":
+            continue
+        prior_boundaries = [response_raw.rfind(mark, 0, match.start()) for mark in "。！？!?\n"]
+        start = max(prior_boundaries) + 1
+        following = [
+            position
+            for mark in "。！？!?\n"
+            if (position := response_raw.find(mark, match.end())) >= 0
+        ]
+        end = min(following) + 1 if following else len(response_raw)
+        while start < end and response_raw[start].isspace():
+            start += 1
+        while end > start and response_raw[end - 1].isspace():
+            end -= 1
+        output[ordinal] = {
+            "mapping_status": "mapped",
+            "mapping_basis": "platform_citation_marker",
+            "answer_text_start": start,
+            "answer_text_end": end,
+            "answer_ast_path": None,
+            "answer_sentence": response_raw[start:end],
+        }
+    return output
+
+
 def project_answer_content(
     response_raw: str,
     citations: list[dict[str, Any]] | tuple[dict[str, Any], ...] = (),

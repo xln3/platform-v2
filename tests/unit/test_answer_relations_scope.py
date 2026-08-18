@@ -2,6 +2,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 
 import geo_platform.analytics.router as analytics_router
+import pytest
 from geo_platform.identity.policy import Principal, Role
 
 
@@ -16,7 +17,13 @@ class _Result:
         return self._rows
 
 
-def test_answer_relations_bind_customer_project_and_latest_analysis(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("role", "expected_evidence"),
+    ((Role.CUSTOMER, []), (Role.OPERATOR, ["evd_test"])),
+)
+def test_answer_relations_bind_customer_project_and_latest_analysis(
+    monkeypatch, role: Role, expected_evidence: list[str]
+) -> None:
     calls: list[tuple[str, object]] = []
     captured_at = datetime(2026, 8, 17, 7, 42, tzinfo=UTC)
 
@@ -46,6 +53,24 @@ def test_answer_relations_bind_customer_project_and_latest_analysis(monkeypatch)
                             "published_at_precision": "date",
                             "published_at_source": "jsonld.datePublished",
                             "published_at_confidence": "structured_only",
+                        }
+                    ]
+                )
+            if "FROM evidence.answer_share_artifact" in sql:
+                return _Result(
+                    [
+                        {
+                            "platform": "deepseek",
+                            "status": "available",
+                            "share_url": "https://chat.deepseek.com/share/test",
+                            "final_url": "https://chat.deepseek.com/share/test",
+                            "allowlist_valid": True,
+                            "availability_status": "reachable",
+                            "http_status": 200,
+                            "checked_at": captured_at,
+                            "last_accessible_at": captured_at,
+                            "embed_status": "blocked",
+                            "embed_reason": "x_frame_options_restricts_embedding",
                         }
                     ]
                 )
@@ -85,7 +110,7 @@ def test_answer_relations_bind_customer_project_and_latest_analysis(monkeypatch)
         "prj_test",
         Principal(
             subject="customer-test",
-            role=Role.CUSTOMER,
+            role=role,
             tenant_pub_id="tnt_test",
             user_pub_id="usr_test",
         ),
@@ -93,7 +118,14 @@ def test_answer_relations_bind_customer_project_and_latest_analysis(monkeypatch)
 
     assert result.answer_pub_id == "ans_test"
     assert [citation.ordinal for citation in result.answer_citations] == [1]
-    assert [evidence.pub_id for evidence in result.evidence] == ["evd_test"]
+    assert [evidence.pub_id for evidence in result.evidence] == expected_evidence
+    assert result.share_artifact is not None
+    assert result.share_artifact.share_url == "https://chat.deepseek.com/share/test"
+    assert result.share_artifact.embed_status == "blocked"
+    if role is Role.CUSTOMER:
+        assert not any("FROM evidence.evidence_relation" in sql for sql, _ in calls)
+        assert not any("FROM evidence.evidence_anchor" in sql for sql, _ in calls)
+        assert not any("FROM evidence.evidence_diff" in sql for sql, _ in calls)
 
     answer_sql, answer_params = next(
         (sql, params)

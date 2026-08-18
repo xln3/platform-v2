@@ -145,6 +145,7 @@ from workflows.activities.human_like import (
 from workflows.activities.official_share import (
     OfficialShareExportError,
     capture_deepseek_official_share,
+    probe_official_share_url,
     write_share_link_manifest,
 )
 from workflows.activities.page_capture import capture_scoped_chat_tiles
@@ -1682,6 +1683,10 @@ class _PlaywrightDeepseekSession:
                     share_url=share.share_url,
                     platform="deepseek",
                     channel="create-and-copy",
+                    verification=probe_official_share_url(
+                        share.share_url,
+                        allowed_hosts={"chat.deepseek.com"},
+                    ),
                 )
             except (OfficialShareExportError, OSError) as exc:
                 raise _IncompleteCapture(

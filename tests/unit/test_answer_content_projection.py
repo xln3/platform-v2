@@ -1,4 +1,4 @@
-from domain.collection.answer_content import project_answer_content
+from domain.collection.answer_content import extract_answer_citation_anchors, project_answer_content
 from workflows.activities.collection import _normalize_citations
 
 
@@ -85,6 +85,27 @@ def test_repeated_answer_markers_map_to_the_same_real_relation() -> None:
     projected = project_answer_content("前文 [citation:0]，后文再次引用 [citation:0]。", citations)
 
     assert projected.response_markdown_normalized.count("(#citation-1)") == 2
+
+
+def test_answer_citation_anchor_preserves_exact_sentence_and_unmapped_gap() -> None:
+    raw = "前一句。权限边界需要核验 [citation:0]，并保留审计记录。后一段无引用。"
+    citations = [
+        {"ordinal": 1, "platform_ordinal": 0},
+        {"ordinal": 2, "platform_ordinal": 1},
+    ]
+
+    anchors = extract_answer_citation_anchors(raw, citations)
+
+    assert anchors[1] == {
+        "mapping_status": "mapped",
+        "mapping_basis": "platform_citation_marker",
+        "answer_text_start": 4,
+        "answer_text_end": 34,
+        "answer_ast_path": None,
+        "answer_sentence": "权限边界需要核验 [citation:0]，并保留审计记录。",
+    }
+    assert anchors[2]["mapping_status"] == "unmapped"
+    assert anchors[2]["answer_sentence"] is None
 
 
 def test_citation_normalization_rejects_duplicate_platform_ordinals() -> None:

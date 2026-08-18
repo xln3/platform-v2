@@ -9,14 +9,20 @@ import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urljoin, urlsplit
 
+import httpx
 from PIL import Image, UnidentifiedImageError
 
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 _MAX_SHARE_IMAGE_BYTES = 30 * 1024 * 1024
+_MAX_SHARE_VERIFICATION_BYTES = 2 * 1024 * 1024
+_MAX_SHARE_REDIRECTS = 5
+SHARE_PROBE_VERSION = "official-share-http-v1"
 _HTTP_URL_RE = re.compile(r"https://[^\s<>\]\[\"'，。；]+")
 
 
@@ -29,6 +35,252 @@ class OfficialShareArtifacts:
     image_path: Path
     share_url: str
     audit: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class ShareLinkVerification:
+    checked_at: datetime | None
+    availability_status: str
+    http_status: int | None
+    final_url: str | None
+    redirect_chain: tuple[dict[str, Any], ...]
+    allowlist_valid: bool
+    content_hash: str | None
+    embed_status: str
+    x_frame_options: str | None
+    csp_frame_ancestors: str | None
+    embed_reason: str | None
+    failure_reason: str | None
+    probe_version: str = SHARE_PROBE_VERSION
+
+    def as_manifest(self) -> dict[str, Any]:
+        return {
+            "allowlist_valid": self.allowlist_valid,
+            "availability_status": self.availability_status,
+            "checked_at": self.checked_at.isoformat() if self.checked_at else None,
+            "content_hash": self.content_hash,
+            "csp_frame_ancestors": self.csp_frame_ancestors,
+            "embed_reason": self.embed_reason,
+            "embed_status": self.embed_status,
+            "failure_reason": self.failure_reason,
+            "final_url": self.final_url,
+            "http_status": self.http_status,
+            "probe_version": self.probe_version,
+            "redirect_chain": list(self.redirect_chain),
+            "x_frame_options": self.x_frame_options,
+        }
+
+
+def unchecked_share_verification(share_url: str) -> ShareLinkVerification:
+    return ShareLinkVerification(
+        checked_at=None,
+        availability_status="unchecked",
+        http_status=None,
+        final_url=share_url,
+        redirect_chain=(),
+        allowlist_valid=False,
+        content_hash=None,
+        embed_status="unknown",
+        x_frame_options=None,
+        csp_frame_ancestors=None,
+        embed_reason="not_checked",
+        failure_reason=None,
+    )
+
+
+def _frame_policy(headers: httpx.Headers) -> tuple[str, str | None, str | None, str]:
+    x_frame_options = headers.get("x-frame-options")
+    if x_frame_options is not None:
+        x_frame_options = x_frame_options.strip()[:500] or None
+    csp = headers.get("content-security-policy", "")
+    frame_ancestors: str | None = None
+    for raw_directive in csp.split(";"):
+        directive = raw_directive.strip()
+        if directive.lower().startswith("frame-ancestors"):
+            frame_ancestors = directive[:1_000]
+            break
+    normalized_xfo = (x_frame_options or "").lower()
+    if any(token in normalized_xfo for token in ("deny", "sameorigin", "allow-from")):
+        return "blocked", x_frame_options, frame_ancestors, "x_frame_options_restricts_embedding"
+    if frame_ancestors is not None:
+        sources = frame_ancestors.split()[1:]
+        if "*" in sources:
+            return "allowed", x_frame_options, frame_ancestors, "csp_frame_ancestors_wildcard"
+        return (
+            "blocked",
+            x_frame_options,
+            frame_ancestors,
+            "csp_frame_ancestors_restricts_embedding",
+        )
+    if x_frame_options:
+        return "unknown", x_frame_options, None, "unrecognized_x_frame_options"
+    return "allowed", None, None, "no_restrictive_frame_policy"
+
+
+def probe_official_share_url(
+    share_url: str,
+    *,
+    allowed_hosts: set[str],
+    client: httpx.Client | None = None,
+) -> ShareLinkVerification:
+    """Verify one official URL without following a redirect outside its allowlist."""
+
+    checked_at = datetime.now(UTC)
+    normalized_hosts = {host.casefold() for host in allowed_hosts}
+
+    def allowed(value: str) -> str | None:
+        return _validated_share_url(value, hosts=normalized_hosts)
+
+    current_url = allowed(share_url)
+    if current_url is None:
+        return ShareLinkVerification(
+            checked_at=checked_at,
+            availability_status="unreachable",
+            http_status=None,
+            final_url=None,
+            redirect_chain=(),
+            allowlist_valid=False,
+            content_hash=None,
+            embed_status="unknown",
+            x_frame_options=None,
+            csp_frame_ancestors=None,
+            embed_reason="url_allowlist_rejected",
+            failure_reason="url_allowlist_rejected",
+        )
+
+    owned_client = client is None
+    active_client = client or httpx.Client(
+        follow_redirects=False,
+        timeout=httpx.Timeout(8.0, connect=5.0),
+        trust_env=False,
+        headers={"User-Agent": "GEO-Official-Share-Verifier/1.0"},
+    )
+    redirects: list[dict[str, Any]] = []
+    try:
+        for redirect_index in range(_MAX_SHARE_REDIRECTS + 1):
+            with active_client.stream("GET", current_url) as response:
+                status = response.status_code
+                if status in {301, 302, 303, 307, 308}:
+                    location = response.headers.get("location")
+                    if not location:
+                        return ShareLinkVerification(
+                            checked_at=checked_at,
+                            availability_status="unreachable",
+                            http_status=status,
+                            final_url=current_url,
+                            redirect_chain=tuple(redirects),
+                            allowlist_valid=True,
+                            content_hash=None,
+                            embed_status="unknown",
+                            x_frame_options=None,
+                            csp_frame_ancestors=None,
+                            embed_reason="redirect_location_missing",
+                            failure_reason="redirect_location_missing",
+                        )
+                    next_url = allowed(urljoin(current_url, location))
+                    if next_url is None:
+                        return ShareLinkVerification(
+                            checked_at=checked_at,
+                            availability_status="unreachable",
+                            http_status=status,
+                            final_url=current_url,
+                            redirect_chain=tuple(redirects),
+                            allowlist_valid=False,
+                            content_hash=None,
+                            embed_status="unknown",
+                            x_frame_options=None,
+                            csp_frame_ancestors=None,
+                            embed_reason="redirect_allowlist_rejected",
+                            failure_reason="redirect_allowlist_rejected",
+                        )
+                    redirects.append(
+                        {"from_url": current_url, "http_status": status, "to_url": next_url}
+                    )
+                    current_url = next_url
+                    if redirect_index == _MAX_SHARE_REDIRECTS:
+                        return ShareLinkVerification(
+                            checked_at=checked_at,
+                            availability_status="unreachable",
+                            http_status=status,
+                            final_url=current_url,
+                            redirect_chain=tuple(redirects),
+                            allowlist_valid=True,
+                            content_hash=None,
+                            embed_status="unknown",
+                            x_frame_options=None,
+                            csp_frame_ancestors=None,
+                            embed_reason="redirect_limit_exceeded",
+                            failure_reason="redirect_limit_exceeded",
+                        )
+                    continue
+
+                availability = (
+                    "redirected"
+                    if 200 <= status < 300 and redirects
+                    else "reachable"
+                    if 200 <= status < 300
+                    else "blocked"
+                    if status in {401, 403, 407, 429}
+                    else "unreachable"
+                )
+                if availability in {"reachable", "redirected"}:
+                    embed_status, xfo, frame_ancestors, embed_reason = _frame_policy(
+                        response.headers
+                    )
+                    digest = sha256()
+                    byte_count = 0
+                    complete = True
+                    for chunk in response.iter_bytes():
+                        byte_count += len(chunk)
+                        if byte_count > _MAX_SHARE_VERIFICATION_BYTES:
+                            complete = False
+                            break
+                        digest.update(chunk)
+                    content_hash = digest.hexdigest() if complete else None
+                else:
+                    embed_status, xfo, frame_ancestors, embed_reason = (
+                        "unknown",
+                        None,
+                        None,
+                        "share_page_not_reachable",
+                    )
+                    content_hash = None
+                return ShareLinkVerification(
+                    checked_at=checked_at,
+                    availability_status=availability,
+                    http_status=status,
+                    final_url=current_url,
+                    redirect_chain=tuple(redirects),
+                    allowlist_valid=True,
+                    content_hash=content_hash,
+                    embed_status=embed_status,
+                    x_frame_options=xfo,
+                    csp_frame_ancestors=frame_ancestors,
+                    embed_reason=embed_reason,
+                    failure_reason=(
+                        None if availability in {"reachable", "redirected"} else f"http_{status}"
+                    ),
+                )
+    except httpx.HTTPError as exc:
+        return ShareLinkVerification(
+            checked_at=checked_at,
+            availability_status="unreachable",
+            http_status=None,
+            final_url=current_url,
+            redirect_chain=tuple(redirects),
+            allowlist_valid=True,
+            content_hash=None,
+            embed_status="unknown",
+            x_frame_options=None,
+            csp_frame_ancestors=None,
+            embed_reason="http_probe_failed",
+            failure_reason=type(exc).__name__,
+        )
+    finally:
+        if owned_client:
+            active_client.close()
+
+    raise AssertionError("official share probe exhausted without a result")
 
 
 def valid_png(path: Path) -> bool:
@@ -79,10 +331,18 @@ def write_share_link_manifest(
     share_url: str,
     platform: str,
     channel: str | None = None,
+    verification: ShareLinkVerification | None = None,
 ) -> None:
+    verification = verification or unchecked_share_verification(share_url)
     path.write_text(
         json.dumps(
-            {"channel": channel, "platform": platform, "url": share_url},
+            {
+                "channel": channel,
+                "platform": platform,
+                "schema_version": "official-share-link-v2",
+                "url": share_url,
+                "verification": verification.as_manifest(),
+            },
             ensure_ascii=False,
             sort_keys=True,
             separators=(",", ":"),

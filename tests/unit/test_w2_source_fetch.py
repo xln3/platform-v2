@@ -32,6 +32,7 @@ from workflows.activities.source_fetch import (
     classify_attempt,
     derive_document_pub_id,
     derive_evidence_pub_id,
+    exact_source_quote_matches,
     execute_source_fetch,
     extract_text_from_html,
     find_brand_term,
@@ -516,6 +517,43 @@ def test_source_link_and_analysis_share_a_stable_answer_metadata_lock() -> None:
         f"answer-source-metadata:{_TENANT}:ans_b",
     ]
     assert analysis_connection.calls[0][1][0] == source_lock_keys[0]
+
+
+def test_exact_source_quote_match_preserves_position_and_hash_without_claiming_support() -> None:
+    target = SourceTarget(
+        url="https://example.com/source",
+        key="https://example.com/source",
+        url_hash="a" * 64,
+        host="example.com",
+        task_pub_ids=("ans_a",),
+    )
+    context = _context(
+        tasks=[
+            (
+                "ans_a",
+                [
+                    {
+                        "url": "https://example.com/source",
+                        "ordinal": 2,
+                        "cited_text": "可复核的来源原句",
+                    }
+                ],
+            )
+        ]
+    )
+
+    matches = exact_source_quote_matches(context, target, "前文。可复核的来源原句。后文。")
+
+    assert matches == [
+        {
+            "answer_pub_id": "ans_a",
+            "ordinal": 2,
+            "source_quote": "可复核的来源原句",
+            "source_text_start": 3,
+            "source_text_end": 11,
+            "source_quote_hash": sha256("可复核的来源原句".encode()).hexdigest(),
+        }
+    ]
 
 
 # ---------------------------------------------------------------------------

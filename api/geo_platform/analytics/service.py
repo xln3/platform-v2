@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 import psycopg
 from psycopg.rows import dict_row
 
-from domain.collection.answer_content import project_answer_content
+from domain.collection.answer_content import extract_answer_citation_anchors, project_answer_content
 from domain.evidence.provenance import RedactedProvenance
 from domain.metrics.core import MetricRegistry
 from domain.scoring.analyzer import CitationInput, analyze_answer, canonicalize_url
@@ -203,6 +203,7 @@ class AnalyticsService:
             own_domains=own_domains,
         )
         answer_content = project_answer_content(answer_text, list(result.citations))
+        citation_anchors = extract_answer_citation_anchors(answer_text, list(result.citations))
         registry = MetricRegistry(metric_version=metric_version, scorer_version=scorer_version)
         metrics = tuple(
             registry.compute(name, [result.fact], filters={})
@@ -357,13 +358,16 @@ class AnalyticsService:
             ).fetchone()
             source_metadata = _answer_source_metadata(connection, answer_pub_id)
             for citation in result.citations:
+                citation_ordinal = citation["ordinal"]
+                if isinstance(citation_ordinal, bool) or not isinstance(citation_ordinal, int):
+                    raise ValueError("analyzed citation ordinal is invalid")
                 citation_pub_id = new_pub_id("cit")
                 cited_text = (
                     str(citation["cited_text"]) if citation["cited_text"] is not None else None
                 )
                 source = source_metadata.get(str(citation["canonical_url"]))
                 candidates = source.get("published_at_candidates", []) if source else []
-                connection.execute(
+                persisted_citation = connection.execute(
                     """
                     INSERT INTO analytics.citation_fact
                       (pub_id,tenant_pub_id,answer_pub_id,analysis_run_pub_id,ordinal,
@@ -374,14 +378,15 @@ class AnalyticsService:
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
                             %s,%s::jsonb)
                     ON CONFLICT (tenant_pub_id,answer_pub_id,ordinal,analysis_run_pub_id)
-                    DO NOTHING
+                    DO UPDATE SET pub_id=analytics.citation_fact.pub_id
+                    RETURNING pub_id
                     """,
                     (
                         citation_pub_id,
                         tenant_pub_id,
                         answer_pub_id,
                         analysis_run_pub_id,
-                        citation["ordinal"],
+                        citation_ordinal,
                         citation["platform_ordinal"],
                         citation["ordinal_base"],
                         citation["original_url"],
@@ -399,6 +404,71 @@ class AnalyticsService:
                         source.get("published_at_source") if source else None,
                         (source.get("published_at_confidence") if source else None) or "unknown",
                         json.dumps(candidates, ensure_ascii=False, separators=(",", ":")),
+                    ),
+                ).fetchone()
+                assert persisted_citation is not None
+                citation_pub_id = str(persisted_citation["pub_id"])
+                anchor = citation_anchors.get(citation_ordinal) or {
+                    "mapping_status": "unmapped",
+                    "mapping_basis": None,
+                    "answer_text_start": None,
+                    "answer_text_end": None,
+                    "answer_ast_path": None,
+                    "answer_sentence": None,
+                }
+                relation_pub_id = (
+                    "acr_"
+                    + sha256(
+                        f"{tenant_pub_id}|{answer_pub_id}|{citation_ordinal}".encode()
+                    ).hexdigest()[:26]
+                )
+                connection.execute(
+                    """
+                    INSERT INTO analytics.answer_citation_relation
+                      (pub_id,tenant_pub_id,answer_pub_id,citation_pub_id,ordinal,
+                       source_document_pub_id,mapping_status,mapping_basis,
+                       answer_text_start,answer_text_end,answer_ast_path,answer_sentence,
+                       source_match_status,relation,classifier_version,review_status,
+                       first_cited_at,last_cited_at)
+                    VALUES
+                      (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,
+                       'not_checked','unverified','answer-marker-v1','unreviewed',%s,%s)
+                    ON CONFLICT (tenant_pub_id,answer_pub_id,ordinal) DO UPDATE SET
+                      citation_pub_id=EXCLUDED.citation_pub_id,
+                      source_document_pub_id=COALESCE(
+                        EXCLUDED.source_document_pub_id,
+                        analytics.answer_citation_relation.source_document_pub_id),
+                      mapping_status=EXCLUDED.mapping_status,
+                      mapping_basis=EXCLUDED.mapping_basis,
+                      answer_text_start=EXCLUDED.answer_text_start,
+                      answer_text_end=EXCLUDED.answer_text_end,
+                      answer_ast_path=EXCLUDED.answer_ast_path,
+                      answer_sentence=EXCLUDED.answer_sentence,
+                      first_cited_at=LEAST(
+                        analytics.answer_citation_relation.first_cited_at,
+                        EXCLUDED.first_cited_at),
+                      last_cited_at=GREATEST(
+                        analytics.answer_citation_relation.last_cited_at,
+                        EXCLUDED.last_cited_at),
+                      updated_at=now()
+                    """,
+                    (
+                        relation_pub_id,
+                        tenant_pub_id,
+                        answer_pub_id,
+                        citation_pub_id,
+                        citation_ordinal,
+                        source.get("pub_id") if source else None,
+                        anchor["mapping_status"],
+                        anchor["mapping_basis"],
+                        anchor["answer_text_start"],
+                        anchor["answer_text_end"],
+                        json.dumps(anchor["answer_ast_path"])
+                        if anchor["answer_ast_path"] is not None
+                        else None,
+                        anchor["answer_sentence"],
+                        provenance.capture_time,
+                        provenance.capture_time,
                     ),
                 )
             metric_date = provenance.capture_time.astimezone(UTC).date()

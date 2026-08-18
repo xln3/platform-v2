@@ -709,9 +709,9 @@ def _persist_evidence_assets(
     business_key: str,
     adapter_version: str,
     evidence: list[CollectionEvidenceRef],
-) -> None:
+) -> dict[str, str]:
     if not evidence:
-        return
+        return {}
     settings = get_settings()
     store = ContentAddressedObjectStore(
         endpoint=settings.minio_endpoint,
@@ -720,6 +720,7 @@ def _persist_evidence_assets(
     )
     store.ensure_bucket()
     capture_time = datetime.now(UTC)
+    evidence_ids_by_relation: dict[str, str] = {}
     for index, item in enumerate(evidence, 1):
         stable_key = "|".join(
             (
@@ -741,12 +742,13 @@ def _persist_evidence_assets(
                 INSERT INTO evidence.evidence_asset
                   (pub_id,tenant_pub_id,project_pub_id,kind,access_class,sha256,object_key,
                    mime_type,byte_size,source_url,dlp_findings,channel,authorization_scope,
-                   adapter_version,capture_time,authorized_session_capture,image_width,image_height)
+                   adapter_version,capture_time,authorized_session_capture,image_width,
+                   image_height,customer_visible)
                 VALUES
                   (:pub_id,:tenant_pub_id,:project_pub_id,:kind,'customer_private',:sha256,
                    :object_key,:mime_type,:byte_size,:source_url,:dlp_findings,'web',
                    CAST(:authorization_scope AS text[]),:adapter_version,:capture_time,false,
-                   :image_width,:image_height)
+                   :image_width,:image_height,false)
                 ON CONFLICT (pub_id) DO NOTHING
                 """
             ),
@@ -773,7 +775,7 @@ def _persist_evidence_assets(
                 text(
                     """
                 SELECT tenant_pub_id,project_pub_id,kind,sha256,object_key,mime_type,byte_size,
-                       source_url,adapter_version,image_width,image_height
+                       source_url,adapter_version,image_width,image_height,customer_visible
                 FROM evidence.evidence_asset WHERE pub_id=:pub_id
                 """
                 ),
@@ -794,6 +796,7 @@ def _persist_evidence_assets(
             "adapter_version": adapter_version,
             "image_width": image_width,
             "image_height": image_height,
+            "customer_visible": False,
         }
         if dict(persisted) != expected:
             raise ApplicationError(
@@ -881,6 +884,325 @@ def _persist_evidence_assets(
                 "relation_type": item.relation_type,
             },
         )
+        evidence_ids_by_relation[item.relation_type] = evidence_pub_id
+
+    return evidence_ids_by_relation
+
+
+_OFFICIAL_SHARE_HOSTS: dict[str, frozenset[str]] = {
+    "deepseek": frozenset({"chat.deepseek.com"}),
+    "doubao": frozenset({"doubao.com", "www.doubao.com"}),
+    "yiyan": frozenset({"mr.baidu.com", "wenxin.baidu.com"}),
+}
+_OFFICIAL_SHARE_UNSUPPORTED = frozenset({"tongyi", "yuanbao"})
+_SHARE_AVAILABILITY = frozenset({"reachable", "redirected", "blocked", "unreachable", "unchecked"})
+_SHARE_EMBED_STATUSES = frozenset({"allowed", "blocked", "unknown"})
+
+
+def _official_share_url(value: object, platform: str) -> str | None:
+    if not isinstance(value, str):
+        return None
+    url = _safe_http_url(value)
+    if url is None:
+        return None
+    parsed = urlsplit(url)
+    if parsed.scheme != "https" or parsed.hostname not in _OFFICIAL_SHARE_HOSTS.get(
+        platform, frozenset()
+    ):
+        return None
+    if platform == "deepseek" and not parsed.path.startswith("/share/"):
+        return None
+    if platform == "doubao" and not parsed.path.startswith("/thread/"):
+        return None
+    return url
+
+
+def _share_optional_text(value: object, limit: int) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("official share verification text is invalid")
+    return value[:limit]
+
+
+def _share_checked_at(value: object) -> datetime | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or len(value) > 80:
+        raise ValueError("official share checked_at is invalid")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("official share checked_at is invalid") from exc
+    if parsed.tzinfo is None:
+        raise ValueError("official share checked_at must include timezone")
+    return parsed
+
+
+def _load_answer_share_manifest(
+    evidence: list[CollectionEvidenceRef], platform: str
+) -> dict[str, Any] | None:
+    links = [item for item in evidence if item.relation_type == "official_share_link"]
+    if not links:
+        return None
+    if len(links) != 1:
+        raise ValueError("answer must have exactly one official share link")
+    item = links[0]
+    try:
+        payload = json.loads(Path(item.path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError("official share manifest is invalid") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("official share manifest is invalid")
+    manifest_platform = str(payload.get("platform") or "").strip().lower()
+    if manifest_platform != platform:
+        raise ValueError("official share manifest platform mismatch")
+    share_url = _official_share_url(payload.get("url"), platform)
+    if share_url is None or share_url != item.source_url:
+        raise ValueError("official share manifest URL is invalid")
+
+    raw_verification = payload.get("verification")
+    if raw_verification is None:
+        raw_verification = {}
+    if not isinstance(raw_verification, dict):
+        raise ValueError("official share verification is invalid")
+    availability = raw_verification.get("availability_status", "unchecked")
+    embed_status = raw_verification.get("embed_status", "unknown")
+    if availability not in _SHARE_AVAILABILITY or embed_status not in _SHARE_EMBED_STATUSES:
+        raise ValueError("official share verification status is invalid")
+    checked_at = _share_checked_at(raw_verification.get("checked_at"))
+    http_status = raw_verification.get("http_status")
+    if http_status is not None and (
+        isinstance(http_status, bool)
+        or not isinstance(http_status, int)
+        or not 100 <= http_status <= 599
+    ):
+        raise ValueError("official share HTTP status is invalid")
+    final_url_value = raw_verification.get("final_url", share_url)
+    final_url = _official_share_url(final_url_value, platform) if final_url_value else None
+    raw_redirects = raw_verification.get("redirect_chain", [])
+    if not isinstance(raw_redirects, list) or len(raw_redirects) > 5:
+        raise ValueError("official share redirect chain is invalid")
+    redirects: list[dict[str, Any]] = []
+    for raw in raw_redirects:
+        if not isinstance(raw, dict):
+            raise ValueError("official share redirect chain is invalid")
+        from_url = _official_share_url(raw.get("from_url"), platform)
+        to_url = _official_share_url(raw.get("to_url"), platform)
+        redirect_status = raw.get("http_status")
+        if (
+            from_url is None
+            or to_url is None
+            or isinstance(redirect_status, bool)
+            or redirect_status not in {301, 302, 303, 307, 308}
+        ):
+            raise ValueError("official share redirect chain is invalid")
+        redirects.append({"from_url": from_url, "http_status": redirect_status, "to_url": to_url})
+    content_hash = raw_verification.get("content_hash")
+    if content_hash is not None and (
+        not isinstance(content_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", content_hash)
+    ):
+        raise ValueError("official share content hash is invalid")
+    raw_allowlist = raw_verification.get("allowlist_valid")
+    if raw_allowlist is not None and not isinstance(raw_allowlist, bool):
+        raise ValueError("official share allowlist result is invalid")
+    allowlist_valid = bool(final_url) and (checked_at is None or raw_allowlist is True)
+    return {
+        "availability_status": availability,
+        "allowlist_valid": allowlist_valid,
+        "checked_at": checked_at,
+        "content_hash": content_hash,
+        "csp_frame_ancestors": _share_optional_text(
+            raw_verification.get("csp_frame_ancestors"), 1_000
+        ),
+        "embed_reason": _share_optional_text(raw_verification.get("embed_reason"), 1_000),
+        "embed_status": embed_status,
+        "failure_reason": _share_optional_text(raw_verification.get("failure_reason"), 1_000),
+        "final_url": final_url,
+        "http_status": http_status,
+        "probe_version": _share_optional_text(raw_verification.get("probe_version"), 80)
+        or "legacy-manifest-v1",
+        "redirect_chain": redirects,
+        "share_url": share_url,
+        "x_frame_options": _share_optional_text(raw_verification.get("x_frame_options"), 500),
+    }
+
+
+def _persist_answer_share_artifact(
+    *,
+    session: Any,
+    tenant_pub_id: str,
+    project_pub_id: str,
+    answer_pub_id: str,
+    platform: str,
+    evidence: list[CollectionEvidenceRef],
+    evidence_ids_by_relation: dict[str, str],
+) -> None:
+    platform = platform.strip().lower()[:40]
+    manifest = _load_answer_share_manifest(evidence, platform)
+    if manifest is None:
+        manifest = {
+            "availability_status": "unchecked",
+            "allowlist_valid": False,
+            "checked_at": None,
+            "content_hash": None,
+            "csp_frame_ancestors": None,
+            "embed_reason": "platform_share_unsupported"
+            if platform in _OFFICIAL_SHARE_UNSUPPORTED
+            else "official_share_missing",
+            "embed_status": "unknown",
+            "failure_reason": None,
+            "final_url": None,
+            "http_status": None,
+            "probe_version": "unsupported-v1"
+            if platform in _OFFICIAL_SHARE_UNSUPPORTED
+            else "missing-v1",
+            "redirect_chain": [],
+            "share_url": None,
+            "x_frame_options": None,
+        }
+    status = (
+        "available"
+        if manifest["share_url"] and manifest["allowlist_valid"]
+        else "invalid"
+        if manifest["share_url"]
+        else "unsupported"
+        if platform in _OFFICIAL_SHARE_UNSUPPORTED
+        else "missing"
+    )
+    artifact_pub_id = "ash_" + sha256(f"{tenant_pub_id}|{answer_pub_id}".encode()).hexdigest()[:26]
+    checked_at = manifest["checked_at"]
+    last_accessible_at = (
+        checked_at if manifest["availability_status"] in {"reachable", "redirected"} else None
+    )
+    session.execute(
+        text(
+            """
+            INSERT INTO evidence.answer_share_artifact
+              (pub_id,tenant_pub_id,project_pub_id,answer_pub_id,platform,status,share_url,
+               final_url,redirect_chain,allowlist_valid,share_created_at,
+               availability_status,http_status,checked_at,last_accessible_at,content_hash,
+               embed_status,x_frame_options,csp_frame_ancestors,embed_reason,failure_reason,
+               probe_version,share_link_evidence_pub_id,share_image_evidence_pub_id)
+            VALUES
+              (:pub_id,:tenant_pub_id,:project_pub_id,:answer_pub_id,:platform,:status,
+               :share_url,:final_url,CAST(:redirect_chain AS jsonb),:allowlist_valid,
+               :share_created_at,:availability_status,:http_status,:checked_at,
+               :last_accessible_at,:content_hash,:embed_status,:x_frame_options,
+               :csp_frame_ancestors,:embed_reason,:failure_reason,:probe_version,
+               :share_link_evidence_pub_id,:share_image_evidence_pub_id)
+            ON CONFLICT (tenant_pub_id,answer_pub_id) DO UPDATE SET
+              project_pub_id=EXCLUDED.project_pub_id,
+              platform=EXCLUDED.platform,
+              status=EXCLUDED.status,
+              share_url=EXCLUDED.share_url,
+              final_url=EXCLUDED.final_url,
+              redirect_chain=EXCLUDED.redirect_chain,
+              allowlist_valid=EXCLUDED.allowlist_valid,
+              share_created_at=COALESCE(
+                evidence.answer_share_artifact.share_created_at,EXCLUDED.share_created_at),
+              availability_status=EXCLUDED.availability_status,
+              http_status=EXCLUDED.http_status,
+              checked_at=EXCLUDED.checked_at,
+              last_accessible_at=COALESCE(
+                EXCLUDED.last_accessible_at,
+                evidence.answer_share_artifact.last_accessible_at),
+              content_hash=EXCLUDED.content_hash,
+              embed_status=EXCLUDED.embed_status,
+              x_frame_options=EXCLUDED.x_frame_options,
+              csp_frame_ancestors=EXCLUDED.csp_frame_ancestors,
+              embed_reason=EXCLUDED.embed_reason,
+              failure_reason=EXCLUDED.failure_reason,
+              probe_version=EXCLUDED.probe_version,
+              share_link_evidence_pub_id=EXCLUDED.share_link_evidence_pub_id,
+              share_image_evidence_pub_id=EXCLUDED.share_image_evidence_pub_id,
+              updated_at=now()
+            WHERE
+              (EXCLUDED.share_url IS NOT NULL AND
+               (evidence.answer_share_artifact.checked_at IS NULL OR
+                (EXCLUDED.checked_at IS NOT NULL AND
+                 EXCLUDED.checked_at >= evidence.answer_share_artifact.checked_at))) OR
+              (evidence.answer_share_artifact.probe_version='legacy-backfill-v1' AND
+               evidence.answer_share_artifact.share_url IS NULL)
+            """
+        ),
+        {
+            "pub_id": artifact_pub_id,
+            "tenant_pub_id": tenant_pub_id,
+            "project_pub_id": project_pub_id,
+            "answer_pub_id": answer_pub_id,
+            "platform": platform or "unknown",
+            "status": status,
+            "share_url": manifest["share_url"],
+            "final_url": manifest["final_url"],
+            "redirect_chain": json.dumps(
+                manifest["redirect_chain"], sort_keys=True, separators=(",", ":")
+            ),
+            "allowlist_valid": manifest["allowlist_valid"],
+            "share_created_at": checked_at,
+            "availability_status": manifest["availability_status"],
+            "http_status": manifest["http_status"],
+            "checked_at": checked_at,
+            "last_accessible_at": last_accessible_at,
+            "content_hash": manifest["content_hash"],
+            "embed_status": manifest["embed_status"],
+            "x_frame_options": manifest["x_frame_options"],
+            "csp_frame_ancestors": manifest["csp_frame_ancestors"],
+            "embed_reason": manifest["embed_reason"],
+            "failure_reason": manifest["failure_reason"],
+            "probe_version": manifest["probe_version"],
+            "share_link_evidence_pub_id": evidence_ids_by_relation.get("official_share_link"),
+            "share_image_evidence_pub_id": evidence_ids_by_relation.get("official_share_image"),
+        },
+    )
+    if checked_at is None:
+        return
+    event_key = "|".join(
+        (
+            artifact_pub_id,
+            checked_at.isoformat(),
+            manifest["availability_status"],
+            manifest["final_url"] or "",
+        )
+    )
+    event_pub_id = "sve_" + sha256(event_key.encode()).hexdigest()[:26]
+    session.execute(
+        text(
+            """
+            INSERT INTO evidence.answer_share_verification_event
+              (pub_id,tenant_pub_id,artifact_pub_id,checked_at,availability_status,
+               http_status,final_url,redirect_chain,allowlist_valid,content_hash,
+               embed_status,x_frame_options,csp_frame_ancestors,embed_reason,
+               failure_reason,probe_version)
+            VALUES
+              (:pub_id,:tenant_pub_id,:artifact_pub_id,:checked_at,:availability_status,
+               :http_status,:final_url,CAST(:redirect_chain AS jsonb),:allowlist_valid,
+               :content_hash,:embed_status,:x_frame_options,:csp_frame_ancestors,
+               :embed_reason,:failure_reason,:probe_version)
+            ON CONFLICT (pub_id) DO NOTHING
+            """
+        ),
+        {
+            "pub_id": event_pub_id,
+            "tenant_pub_id": tenant_pub_id,
+            "artifact_pub_id": artifact_pub_id,
+            "checked_at": checked_at,
+            "availability_status": manifest["availability_status"],
+            "http_status": manifest["http_status"],
+            "final_url": manifest["final_url"],
+            "redirect_chain": json.dumps(
+                manifest["redirect_chain"], sort_keys=True, separators=(",", ":")
+            ),
+            "allowlist_valid": manifest["allowlist_valid"],
+            "content_hash": manifest["content_hash"],
+            "embed_status": manifest["embed_status"],
+            "x_frame_options": manifest["x_frame_options"],
+            "csp_frame_ancestors": manifest["csp_frame_ancestors"],
+            "embed_reason": manifest["embed_reason"],
+            "failure_reason": manifest["failure_reason"],
+            "probe_version": manifest["probe_version"],
+        },
+    )
 
 
 def _destroy_production_account_key(
@@ -1531,7 +1853,7 @@ def persist_collection_result(
         project = session.get(Project, run.project_id)
         if project is None:
             raise ApplicationError("collection project not found", type="project_not_found")
-        _persist_evidence_assets(
+        evidence_ids_by_relation = _persist_evidence_assets(
             session=session,
             tenant_pub_id=tenant_pub_id,
             project_pub_id=project.pub_id,
@@ -1540,6 +1862,15 @@ def persist_collection_result(
             business_key=result.business_key,
             adapter_version=task_input.adapter if task_input is not None else "fixed",
             evidence=evidence,
+        )
+        _persist_answer_share_artifact(
+            session=session,
+            tenant_pub_id=tenant_pub_id,
+            project_pub_id=project.pub_id,
+            answer_pub_id=task.pub_id,
+            platform=task_input.adapter if task_input is not None else "fixed",
+            evidence=evidence,
+            evidence_ids_by_relation=evidence_ids_by_relation,
         )
         run.state = _derive_run_state(run)
         session.commit()
