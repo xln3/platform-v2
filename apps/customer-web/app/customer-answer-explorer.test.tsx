@@ -152,7 +152,11 @@ describe('CustomerAnswerExplorer classification', () => {
     expect(officialFrame.getAttribute('sandbox')).not.toContain('allow-popups');
     expect(officialFrame.getAttribute('sandbox')).not.toContain('allow-top-navigation');
     expect(screen.getByRole('region', { name: '官方回答只读预览' })).toBeTruthy();
-    expect(screen.getByText(/已裁掉平台底部/u)).toBeTruthy();
+    expect(screen.queryByText(/已裁掉平台底部/u)).toBeNull();
+    expect(screen.queryByRole('link', { name: /无法显示.*打开官方原页/u })).toBeNull();
+    expect(screen.getByRole('link', { name: '打开官方原页 ↗' }).getAttribute('href')).toBe(
+      'https://chat.deepseek.com/share/detail-safe',
+    );
     expect(
       within(screen.getByRole('region', { name: '引用信源分析表' })).getByRole('table'),
     ).toBeTruthy();
@@ -179,12 +183,28 @@ describe('CustomerAnswerExplorer classification', () => {
           ...answerPage.data[1]!,
           query_pub_id: answerPage.data[0]!.query_pub_id,
           query_text: answerPage.data[0]!.query_text,
+          response_text:
+            '## 第二条采集结论\n\n第二条测试回答原文。[citation:0]\n\n- 仅在没有官方链接时安全排版\n\n| 项目 | 状态 |\n| --- | --- |\n| 官方链接 | 未保存 |\n\n![不应显示](https://assets.example/answer.png)\n\n[危险链接](javascript:alert(1))\n\n<script>window.leaked = true</script>',
+          citation_count: 1,
         },
       ],
     };
     const loadDetail = vi.fn(
       async (): Promise<CustomerAnswerDetail> => ({
-        citations: [],
+        citations: [
+          {
+            id: 'cit_fallback_01',
+            ordinal: 1,
+            url: 'https://source.example/fallback',
+            host: 'source.example',
+            title: '退阶答案引用来源',
+            citedText: '可核验的历史引用片段。',
+            ownSource: false,
+            contentHash: 'c'.repeat(64),
+            publishedAt: null,
+            publishedAtSource: null,
+          },
+        ],
         evidence: [],
         projectionComplete: true,
       }),
@@ -215,7 +235,24 @@ describe('CustomerAnswerExplorer classification', () => {
     expect(
       screen.getByRole('button', { name: /豆包，快速回答/u }).getAttribute('aria-pressed'),
     ).toBe('true');
-    expect(screen.getByText('本次采集没有官方分享链接')).toBeTruthy();
-    expect(screen.queryByText('第二条测试回答原文。')).toBeNull();
+    const fallback = screen.getByRole('region', { name: '历史采集答案退阶阅读版' });
+    expect(within(fallback).getByRole('heading', { name: '第二条采集结论' })).toBeTruthy();
+    expect(within(fallback).getByText(/第二条测试回答原文/u)).toBeTruthy();
+    expect(screen.getByText('历史采集 · 退阶')).toBeTruthy();
+    expect(within(fallback).getByText('退阶说明')).toBeTruthy();
+    expect(within(fallback).getByRole('table')).toBeTruthy();
+    expect(within(fallback).queryByText(/\[citation:0\]/u)).toBeNull();
+    expect(within(fallback).getByRole('link', { name: '1' }).getAttribute('href')).toBe(
+      '#citation-1',
+    );
+    expect(within(fallback).queryByRole('img')).toBeNull();
+    expect(within(fallback).queryByText('不应显示')).toBeNull();
+    expect(within(fallback).queryByRole('link', { name: '危险链接' })).toBeNull();
+    expect(within(fallback).queryByText(/window\.leaked/u)).toBeNull();
+    expect(screen.queryByTitle('豆包 官方回答只读预览')).toBeNull();
+    expect(screen.queryByRole('link', { name: '打开官方原页 ↗' })).toBeNull();
+    expect(screen.getByRole('button', { name: '复制分享链接' }).hasAttribute('disabled')).toBe(
+      true,
+    );
   });
 });

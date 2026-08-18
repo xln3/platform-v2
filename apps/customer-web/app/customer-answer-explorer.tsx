@@ -1,5 +1,7 @@
 import { Badge, Dialog } from '@geo/design-system';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import './customer-answer-explorer.css';
 
 export type CustomerAnswerSentiment = 'positive' | 'neutral' | 'negative' | 'unknown';
@@ -208,6 +210,87 @@ function DetailEmpty({ title, children }: { title: string; children: ReactNode }
   );
 }
 
+const readableFallbackMarkdown = (
+  source: string,
+  citations: readonly CustomerAnswerCitationDetail[],
+): string => {
+  const markers = [...source.matchAll(/\[citation:(\d+)\]/giu)];
+  const zeroBased = markers.some((marker) => marker[1] === '0');
+  const ordinals = new Set(citations.map((citation) => citation.ordinal));
+  return source.replace(/\[citation:(\d+)\]/giu, (_marker, captured: string) => {
+    const rawOrdinal = Number.parseInt(captured, 10);
+    const ordinal = zeroBased ? rawOrdinal + 1 : rawOrdinal;
+    return ordinals.has(ordinal)
+      ? `[${ordinal}](#citation-${ordinal})`
+      : `〔引用 ${ordinal} 未映射〕`;
+  });
+};
+
+const safeFallbackLink = (href: string | undefined): string | null => {
+  if (!href) return null;
+  if (/^#citation-\d+$/u.test(href)) return href;
+  try {
+    const parsed = new URL(href);
+    return ['http:', 'https:'].includes(parsed.protocol) ? parsed.toString() : null;
+  } catch {
+    return null;
+  }
+};
+
+function FallbackAnswer({
+  row,
+  citations,
+}: {
+  row: CustomerAnswerExplorerRow;
+  citations: readonly CustomerAnswerCitationDetail[];
+}) {
+  const markdown = readableFallbackMarkdown(row.response_text, citations);
+  return (
+    <div className="geo-answer-dossier__fallback" role="region" aria-label="历史采集答案退阶阅读版">
+      <div className="geo-answer-dossier__fallback-notice" role="note">
+        <strong>退阶说明</strong>
+        <span>未保存官方分享链接；以下为采集时保留的答案，不等同于官方实时页。</span>
+      </div>
+      <article className="geo-answer-dossier__markdown geo-answer-dossier__fallback-markdown">
+        <ReactMarkdown
+          skipHtml
+          remarkPlugins={[remarkGfm]}
+          components={{
+            a: ({ href, children }) => {
+              const safeHref = safeFallbackLink(href);
+              if (!safeHref) return <span>{children}</span>;
+              const citationAnchor = safeHref.startsWith('#citation-');
+              return (
+                <a
+                  href={safeHref}
+                  target={citationAnchor ? undefined : '_blank'}
+                  rel={citationAnchor ? undefined : 'noreferrer noopener'}
+                >
+                  {children}
+                </a>
+              );
+            },
+            img: () => null,
+            table: ({ children }) => (
+              <div className="geo-answer-dossier__table-scroll">
+                <table>{children}</table>
+              </div>
+            ),
+          }}
+        >
+          {markdown}
+        </ReactMarkdown>
+      </article>
+      <footer>
+        <span>
+          {row.model} · 采集于 {formatCaptureTime(row.capture_time)}
+        </span>
+        <strong>已保留采集证据</strong>
+      </footer>
+    </div>
+  );
+}
+
 function CitationRail({
   state,
   detail,
@@ -394,7 +477,7 @@ function AnswerRunRail({
           );
         })}
       </div>
-      <footer>选择平台后，官方实时页与引用信源表会同步切换。</footer>
+      <footer>选择平台后，答案证据与引用信源表会同步切换。</footer>
     </aside>
   );
 }
@@ -422,6 +505,7 @@ function AnswerDossier({
     (evidence) => evidence.kind === 'share_link' && evidence.relation === 'official_share_link',
   );
   const officialShareUrl = safeOfficialShareUrl(officialLinkEvidence?.sourceUrl ?? null, row.model);
+  const hasStoredAnswer = row.response_text.trim().length > 0;
   const publishedCount = detail?.citations.filter((citation) => citation.publishedAt).length ?? 0;
   const uniqueDomains = new Set(detail?.citations.map((citation) => citation.host) ?? []).size;
   const sameQuestionRuns = useMemo(() => {
@@ -457,13 +541,20 @@ function AnswerDossier({
   };
 
   useEffect(() => {
+    setCopyState('idle');
     setMobilePane('official');
   }, [row.answer_pub_id]);
 
   return (
     <Dialog
       title={row.query_text?.trim() || '未关联原始问题'}
-      eyebrow={`${row.model} · 官方回答与引用信源`}
+      eyebrow={`${row.model} · ${
+        officialShareUrl
+          ? '官方回答与引用信源'
+          : hasStoredAnswer
+            ? '历史答案与引用信源'
+            : '答案证据与引用信源'
+      }`}
       size="wide"
       closeLabel="关闭官方回答详情"
       onClose={onClose}
@@ -484,7 +575,12 @@ function AnswerDossier({
           </div>
           <div className="geo-answer-dossier__identity-actions">
             {officialShareUrl ? (
-              <a href={officialShareUrl} target="_blank" rel="noreferrer noopener">
+              <a
+                href={officialShareUrl}
+                target="_blank"
+                rel="noreferrer noopener"
+                title="官方页无法嵌入时，请在新窗口打开"
+              >
                 打开官方原页 ↗
               </a>
             ) : null}
@@ -525,11 +621,21 @@ function AnswerDossier({
           />
           <DetailMetric
             label="官方回答页"
-            value={officialShareUrl ? '已获取' : detailState === 'loading' ? '核对中' : '未获取'}
+            value={
+              officialShareUrl
+                ? '已获取'
+                : detailState === 'loading'
+                  ? '核对中'
+                  : hasStoredAnswer
+                    ? '退阶展示'
+                    : '未获取'
+            }
             note={
               officialShareUrl
                 ? `直接加载 ${new URL(officialShareUrl).hostname}`
-                : '客户视图不以自渲染文本或截图替代'
+                : hasStoredAnswer
+                  ? '无官方链接，仅安全排版已采集正文'
+                  : '没有可展示的官方链接或已采集正文'
             }
           />
         </section>
@@ -546,7 +652,7 @@ function AnswerDossier({
               aria-pressed={mobilePane === 'official'}
               onClick={() => setMobilePane('official')}
             >
-              官方回答
+              {officialShareUrl ? '官方回答' : '采集答案'}
             </button>
             <button
               type="button"
@@ -556,15 +662,30 @@ function AnswerDossier({
               引用信源（{detail?.citations.length ?? row.citation_count}）
             </button>
           </nav>
-          <section className="geo-answer-dossier__official" aria-label="官方实时回答页">
+          <section
+            className="geo-answer-dossier__official"
+            aria-label={
+              officialShareUrl
+                ? '官方实时回答页'
+                : hasStoredAnswer
+                  ? '已采集答案阅读版'
+                  : '回答证据状态'
+            }
+          >
             <header>
               <div>
                 <Badge tone={officialShareUrl ? 'positive' : 'warning'}>
-                  {officialShareUrl ? '官方域名 · 只读' : '官方链接缺失'}
+                  {officialShareUrl
+                    ? '官方域名 · 只读'
+                    : hasStoredAnswer
+                      ? '历史采集 · 退阶'
+                      : '回答证据缺失'}
                 </Badge>
-                <strong>官方实时回答页</strong>
+                <strong>{officialShareUrl ? '官方实时回答页' : '已采集答案阅读版'}</strong>
               </div>
-              {officialShareUrl ? <span>{new URL(officialShareUrl).hostname}</span> : null}
+              <span>
+                {officialShareUrl ? new URL(officialShareUrl).hostname : '无官方分享链接'}
+              </span>
             </header>
             {detailState === 'loading' ? (
               <div className="geo-answer-dossier__official-loading" role="status">
@@ -587,18 +708,12 @@ function AnswerDossier({
                     tabIndex={-1}
                   />
                 </div>
-                <footer>
-                  <span>
-                    已裁掉平台底部的“继续问 / 登录”入口；预览禁止表单、弹窗和顶层跳转。平台若禁止嵌入，浏览器仍会拦截。
-                  </span>
-                  <a href={officialShareUrl} target="_blank" rel="noreferrer noopener">
-                    无法显示？打开官方原页 ↗
-                  </a>
-                </footer>
               </>
+            ) : hasStoredAnswer ? (
+              <FallbackAnswer row={row} citations={detail?.citations ?? []} />
             ) : (
-              <DetailEmpty title="本次采集没有官方分享链接">
-                客户视图不会用自渲染答案、截图或分享图片代替官方页面。请由采集端补齐平台分享链接。
+              <DetailEmpty title="本次采集没有可展示的回答">
+                当前记录既没有官方分享链接，也没有保留可安全排版的答案正文，请由采集端补齐证据。
               </DetailEmpty>
             )}
           </section>
