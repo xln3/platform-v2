@@ -514,8 +514,12 @@ const customerAnswerFixtureDetails: Readonly<Record<string, CustomerAnswerDetail
         citedText: '敏感知识应同时实施最小权限、身份校验和访问审计。',
         ownSource: false,
         contentHash: 'a'.repeat(64),
+        publishedAtRaw: '2026-06-18T09:00:00+08:00',
         publishedAt: '2026-06-18T09:00:00+08:00',
+        publishedAtTimezone: '+08:00',
+        publishedAtPrecision: 'second',
         publishedAtSource: '页面 JSON-LD datePublished',
+        publishedAtConfidence: 'verified_structured',
       },
       {
         id: 'cit_fixture_02',
@@ -526,8 +530,12 @@ const customerAnswerFixtureDetails: Readonly<Record<string, CustomerAnswerDetail
         citedText: '上线前应使用真实业务问题评估召回率、回答相关性与引用可追溯性。',
         ownSource: false,
         contentHash: 'b'.repeat(64),
+        publishedAtRaw: '2026-07-03',
         publishedAt: '2026-07-03T00:00:00+08:00',
+        publishedAtTimezone: 'unknown',
+        publishedAtPrecision: 'date',
         publishedAtSource: '页面可见 time 元素（仅日期）',
+        publishedAtConfidence: 'visible_only',
       },
       {
         id: 'cit_fixture_03',
@@ -566,6 +574,18 @@ const customerAnswerFixtureDetails: Readonly<Record<string, CustomerAnswerDetail
         captureTime: '2026-08-17T07:42:00Z',
       },
     ],
+    shareArtifact: {
+      platform: 'deepseek',
+      status: 'available',
+      shareUrl: 'https://chat.deepseek.com/share/fixture-answer-01',
+      finalUrl: 'https://chat.deepseek.com/share/fixture-answer-01',
+      availabilityStatus: 'reachable',
+      httpStatus: 200,
+      checkedAt: '2026-08-17T07:42:00Z',
+      lastAccessibleAt: '2026-08-17T07:42:00Z',
+      embedStatus: 'allowed',
+      embedReason: 'no_restrictive_frame_policy',
+    },
     projectionComplete: true,
   },
 };
@@ -1582,8 +1602,27 @@ export function CustomerAnalyticsWorkspace({
           citedText: citation.cited_text,
           ownSource: citation.own_source,
           contentHash: citation.content_hash,
+          publishedAtRaw: citation.published_at_raw ?? null,
           publishedAt: citation.published_at ?? null,
+          publishedAtTimezone: citation.published_at_timezone ?? null,
+          publishedAtPrecision:
+            citation.published_at_precision === 'date' ||
+            citation.published_at_precision === 'minute' ||
+            citation.published_at_precision === 'second'
+              ? citation.published_at_precision
+              : null,
           publishedAtSource: citation.published_at_source ?? null,
+          publishedAtConfidence: citation.published_at_confidence,
+          support: {
+            mappingStatus: citation.support.mapping_status,
+            answerSentence: citation.support.answer_sentence ?? null,
+            sourceQuote: citation.support.source_quote ?? null,
+            sourceQuoteHash: citation.support.source_quote_hash ?? null,
+            sourceMatchStatus: citation.support.source_match_status,
+            relation: citation.support.relation,
+            relevanceConfidence: citation.support.relevance_confidence ?? null,
+            reviewStatus: citation.support.review_status,
+          },
         })),
         evidence: result.data.evidence.map((evidence) => ({
           id: evidence.pub_id,
@@ -1595,6 +1634,20 @@ export function CustomerAnalyticsWorkspace({
           sourceUrl: evidence.source_url,
           captureTime: evidence.capture_time,
         })),
+        shareArtifact: result.data.share_artifact
+          ? {
+              platform: result.data.share_artifact.platform,
+              status: result.data.share_artifact.status,
+              shareUrl: result.data.share_artifact.share_url ?? null,
+              finalUrl: result.data.share_artifact.final_url ?? null,
+              availabilityStatus: result.data.share_artifact.availability_status,
+              httpStatus: result.data.share_artifact.http_status ?? null,
+              checkedAt: result.data.share_artifact.checked_at ?? null,
+              lastAccessibleAt: result.data.share_artifact.last_accessible_at ?? null,
+              embedStatus: result.data.share_artifact.embed_status,
+              embedReason: result.data.share_artifact.embed_reason ?? null,
+            }
+          : null,
         projectionComplete: collections.every(
           (collection) => !collection.invalid && collection.total === collection.shown,
         ),

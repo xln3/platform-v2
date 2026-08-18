@@ -126,6 +126,18 @@ describe('CustomerAnswerExplorer classification', () => {
           captureTime: '2026-08-17T08:00:00Z',
         },
       ],
+      shareArtifact: {
+        platform: 'deepseek',
+        status: 'available',
+        shareUrl: 'https://chat.deepseek.com/share/detail-safe',
+        finalUrl: 'https://chat.deepseek.com/share/detail-safe',
+        availabilityStatus: 'reachable',
+        httpStatus: 200,
+        checkedAt: '2026-08-17T08:00:00Z',
+        lastAccessibleAt: '2026-08-17T08:00:00Z',
+        embedStatus: 'allowed',
+        embedReason: 'no_restrictive_frame_policy',
+      },
       projectionComplete: true,
     };
     render(

@@ -43,8 +43,27 @@ export type CustomerAnswerCitationDetail = {
   citedText: string | null;
   ownSource: boolean;
   contentHash: string | null;
+  publishedAtRaw?: string | null;
   publishedAt: string | null;
+  publishedAtTimezone?: string | null;
+  publishedAtPrecision?: 'date' | 'minute' | 'second' | null;
   publishedAtSource: string | null;
+  publishedAtConfidence?:
+    | 'verified_structured'
+    | 'structured_only'
+    | 'visible_only'
+    | 'inferred_low'
+    | 'unknown';
+  support?: {
+    mappingStatus: 'mapped' | 'unmapped' | 'ambiguous';
+    answerSentence: string | null;
+    sourceQuote: string | null;
+    sourceQuoteHash: string | null;
+    sourceMatchStatus: 'exact' | 'normalized' | 'not_found' | 'not_checked';
+    relation: 'supports' | 'contradicts' | 'background' | 'unverified';
+    relevanceConfidence: number | null;
+    reviewStatus: 'unreviewed' | 'approved' | 'rejected' | 'needs_review';
+  };
 };
 
 export type CustomerAnswerEvidenceDetail = {
@@ -61,6 +80,18 @@ export type CustomerAnswerEvidenceDetail = {
 export type CustomerAnswerDetail = {
   citations: readonly CustomerAnswerCitationDetail[];
   evidence: readonly CustomerAnswerEvidenceDetail[];
+  shareArtifact?: {
+    platform: string;
+    status: 'available' | 'missing' | 'unsupported' | 'invalid';
+    shareUrl: string | null;
+    finalUrl: string | null;
+    availabilityStatus: 'reachable' | 'redirected' | 'blocked' | 'unreachable' | 'unchecked';
+    httpStatus: number | null;
+    checkedAt: string | null;
+    lastAccessibleAt: string | null;
+    embedStatus: 'allowed' | 'blocked' | 'unknown';
+    embedReason: string | null;
+  } | null;
   projectionComplete: boolean;
 };
 
@@ -132,8 +163,15 @@ const formatCaptureTime = (value: string): string => {
   }).format(date);
 };
 
-const formatPublishedTime = (value: string | null): string | null => {
-  if (!value) return null;
+const formatPublishedTime = (
+  value: string | null,
+  precision: CustomerAnswerCitationDetail['publishedAtPrecision'],
+): string | null => {
+  if (!value || !precision) return null;
+  if (precision === 'date') {
+    const match = /^(\d{4})-(\d{2})-(\d{2})/u.exec(value);
+    return match ? `${match[1]}年${match[2]}月${match[3]}日` : null;
+  }
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
   return new Intl.DateTimeFormat('zh-CN', {
@@ -142,9 +180,28 @@ const formatPublishedTime = (value: string | null): string | null => {
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
+    second: precision === 'second' ? '2-digit' : undefined,
     hour12: false,
   }).format(date);
 };
+
+const publicationPrecisionLabel = (
+  precision: CustomerAnswerCitationDetail['publishedAtPrecision'],
+): string => {
+  if (!precision) return '精度未知';
+  return { date: '仅日期', minute: '精确到分钟', second: '精确到秒' }[precision];
+};
+
+const publicationConfidenceLabel = (
+  confidence: CustomerAnswerCitationDetail['publishedAtConfidence'],
+): string =>
+  ({
+    verified_structured: '结构化与可见时间一致',
+    structured_only: '仅结构化字段',
+    visible_only: '仅页面可见时间',
+    inferred_low: '低置信推断',
+    unknown: '置信度未知',
+  })[confidence ?? 'unknown'];
 
 const safeHttpUrl = (value: string | null | undefined): string | null => {
   if (!value || value.length > 2_000) return null;
@@ -304,7 +361,9 @@ function CitationRail({
 }) {
   const citations = detail?.citations ?? [];
   const domainCount = new Set(citations.map((citation) => citation.host)).size;
-  const publishedCount = citations.filter((citation) => citation.publishedAt).length;
+  const publishedCount = citations.filter(
+    (citation) => citation.publishedAt && citation.publishedAtPrecision,
+  ).length;
   return (
     <aside className="geo-answer-dossier__citations" aria-label="引用来源">
       <header>
@@ -361,7 +420,10 @@ function CitationRail({
               </thead>
               <tbody>
                 {citations.map((citation) => {
-                  const publishedAt = formatPublishedTime(citation.publishedAt);
+                  const publishedAt = formatPublishedTime(
+                    citation.publishedAt,
+                    citation.publishedAtPrecision,
+                  );
                   return (
                     <tr key={citation.id} id={`citation-${citation.ordinal}`}>
                       <td>
@@ -397,10 +459,20 @@ function CitationRail({
                           {citation.title ?? citation.host}
                         </a>
                         {citation.citedText ? <blockquote>{citation.citedText}</blockquote> : null}
+                        {citation.support?.answerSentence ? (
+                          <small>对应回答句：{citation.support.answerSentence}</small>
+                        ) : (
+                          <small>回答中的引用编号尚未映射到准确句子</small>
+                        )}
+                        {citation.support?.sourceQuote ? (
+                          <blockquote>来源原文：{citation.support.sourceQuote}</blockquote>
+                        ) : null}
                         <small>
-                          {citation.contentHash
-                            ? `引用片段已登记 · ${citation.contentHash.slice(0, 8)}…`
-                            : '引用片段哈希未形成'}
+                          {citation.support?.sourceQuoteHash
+                            ? `来源原文已精确匹配 · ${citation.support.sourceQuoteHash.slice(0, 8)}…`
+                            : citation.contentHash
+                              ? `AI 返回引用片段已登记 · ${citation.contentHash.slice(0, 8)}…；尚未冒充来源支持片段`
+                              : '来源支持片段尚未核对'}
                         </small>
                       </td>
                       <td>
@@ -409,7 +481,13 @@ function CitationRail({
                         ) : (
                           <span className="geo-answer-dossier__missing-time">待采集</span>
                         )}
-                        <small>{citation.publishedAtSource ?? '不以抓取时间冒充发布时间'}</small>
+                        <small>
+                          {citation.publishedAtRaw ? `原文：${citation.publishedAtRaw} · ` : ''}
+                          {publicationPrecisionLabel(citation.publishedAtPrecision)} · 时区：
+                          {citation.publishedAtTimezone ?? '未知'} ·
+                          {citation.publishedAtSource ?? ' 无提取依据'} ·
+                          {publicationConfidenceLabel(citation.publishedAtConfidence)}
+                        </small>
                       </td>
                     </tr>
                   );
@@ -501,12 +579,20 @@ function AnswerDossier({
 }) {
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
   const [mobilePane, setMobilePane] = useState<'official' | 'citations'>('official');
-  const officialLinkEvidence = detail?.evidence.find(
-    (evidence) => evidence.kind === 'share_link' && evidence.relation === 'official_share_link',
-  );
-  const officialShareUrl = safeOfficialShareUrl(officialLinkEvidence?.sourceUrl ?? null, row.model);
+  const officialShareArtifact = detail?.shareArtifact ?? null;
+  const officialShareUrl = safeOfficialShareUrl(officialShareArtifact?.shareUrl ?? null, row.model);
+  const officialShareReachable =
+    officialShareArtifact?.availabilityStatus === 'reachable' ||
+    officialShareArtifact?.availabilityStatus === 'redirected';
+  const officialShareEmbeddable =
+    Boolean(officialShareUrl) &&
+    officialShareReachable &&
+    officialShareArtifact?.embedStatus === 'allowed';
   const hasStoredAnswer = row.response_text.trim().length > 0;
-  const publishedCount = detail?.citations.filter((citation) => citation.publishedAt).length ?? 0;
+  const publishedCount =
+    detail?.citations.filter(
+      (citation) => citation.publishedAt && citation.publishedAtPrecision,
+    ).length ?? 0;
   const uniqueDomains = new Set(detail?.citations.map((citation) => citation.host) ?? []).size;
   const sameQuestionRuns = useMemo(() => {
     const matching = runs.filter((candidate) =>
@@ -623,7 +709,11 @@ function AnswerDossier({
             label="官方回答页"
             value={
               officialShareUrl
-                ? '已获取'
+                ? officialShareReachable
+                  ? '已验证'
+                  : officialShareArtifact?.availabilityStatus === 'unchecked'
+                    ? '待验证'
+                    : '暂不可访问'
                 : detailState === 'loading'
                   ? '核对中'
                   : hasStoredAnswer
@@ -632,7 +722,9 @@ function AnswerDossier({
             }
             note={
               officialShareUrl
-                ? `直接加载 ${new URL(officialShareUrl).hostname}`
+                ? officialShareEmbeddable
+                  ? `允许嵌入 ${new URL(officialShareUrl).hostname}`
+                  : '遵循平台嵌入策略，请在官方原页查看'
                 : hasStoredAnswer
                   ? '无官方链接，仅安全排版已采集正文'
                   : '没有可展示的官方链接或已采集正文'
@@ -693,7 +785,7 @@ function AnswerDossier({
                 <span />
                 <strong>正在核对官方分享链接…</strong>
               </div>
-            ) : officialShareUrl ? (
+            ) : officialShareUrl && officialShareEmbeddable ? (
               <>
                 <div
                   className="geo-answer-dossier__official-viewport"
@@ -709,6 +801,11 @@ function AnswerDossier({
                   />
                 </div>
               </>
+            ) : officialShareUrl ? (
+              <DetailEmpty title="平台不允许在工作台内嵌此回答">
+                官方分享链接仍可通过上方“打开官方原页”访问；系统不会绕过 X-Frame-Options 或 CSP
+                frame-ancestors 安全策略。
+              </DetailEmpty>
             ) : hasStoredAnswer ? (
               <FallbackAnswer row={row} citations={detail?.citations ?? []} />
             ) : (
