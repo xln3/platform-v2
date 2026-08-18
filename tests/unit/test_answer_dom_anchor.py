@@ -347,6 +347,8 @@ class _PersistenceSession:
                 "byte_size",
                 "source_url",
                 "adapter_version",
+                "image_width",
+                "image_height",
             )
             return _Mappings({key: self.asset[key] for key in keys})
         if "INSERT INTO evidence.evidence_anchor" in sql:
@@ -439,6 +441,8 @@ def test_persistence_writes_cas_asset_quote_hash_and_ocr_geometry(
     assert store.payload == image_path.read_bytes()
     assert store.mime_type == "image/png"
     assert session.asset is not None
+    assert session.asset["image_width"] == 100
+    assert session.asset["image_height"] == 100
     assert session.asset["sha256"] == sha256(store.payload).hexdigest()
     assert session.anchor is not None
     assert session.anchor["text_start"] == 0
@@ -448,6 +452,14 @@ def test_persistence_writes_cas_asset_quote_hash_and_ocr_geometry(
     assert session.relation is not None
     assert session.relation["relation_type"] == "answer_evidence_excerpt"
     assert session.relation["from_pub_id"] == "ans_test"
+
+
+def test_evidence_image_dimensions_reject_declared_mime_mismatch(tmp_path: Path) -> None:
+    image_path = tmp_path / "answer.png"
+    Image.new("RGB", (10, 20), "white").save(image_path, format="PNG")
+
+    with pytest.raises(ValueError, match="does not match"):
+        collection._evidence_image_dimensions(image_path, "image/jpeg")
 
 
 class _Rows:

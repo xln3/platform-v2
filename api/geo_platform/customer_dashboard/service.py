@@ -10,6 +10,7 @@ from typing import Any
 import psycopg
 from psycopg.rows import dict_row
 
+from domain.collection.answer_content import project_answer_content
 from domain.metrics.customer import (
     CustomerAnswerFact,
     CustomerCitationFact,
@@ -386,7 +387,7 @@ class CustomerDashboardService:
                 ), customer_answer AS (
                   SELECT a.pub_id,a.query_pub_id,
                          COALESCE(NULLIF(BTRIM(a.query_text),''),qd.text) AS query_text,
-                         a.response_text,a.model,a.region,a.mode,a.capture_time,
+                         a.response_text,a.response_raw,a.model,a.region,a.mode,a.capture_time,
                          aa.analysis_run_pub_id,aa.mentioned,aa.rank,aa.sentiment,aa.recommended
                   FROM analytics.answer a
                   JOIN LATERAL (
@@ -408,7 +409,8 @@ class CustomerDashboardService:
                       %s::text IS NULL
                       OR STRPOS(LOWER(COALESCE(NULLIF(BTRIM(a.query_text),''),qd.text,'')),
                                 LOWER(%s::text)) > 0
-                      OR STRPOS(LOWER(a.response_text),LOWER(%s::text)) > 0
+                      OR STRPOS(LOWER(COALESCE(a.response_plain_text,a.response_text)),
+                                LOWER(%s::text)) > 0
                     )
                 )
             """
@@ -432,11 +434,42 @@ class CustomerDashboardService:
                 """,
                 common_parameters + (tenant_pub_id, offset, limit),
             ).fetchall()
+            analysis_by_answer = {
+                str(row["pub_id"]): str(row["analysis_run_pub_id"]) for row in rows
+            }
+            citation_rows = (
+                connection.execute(
+                    """
+                    SELECT answer_pub_id,analysis_run_pub_id,ordinal,platform_ordinal,ordinal_base
+                    FROM analytics.citation_fact
+                    WHERE tenant_pub_id=%s AND answer_pub_id=ANY(%s::text[])
+                    ORDER BY answer_pub_id,ordinal
+                    """,
+                    (tenant_pub_id, list(analysis_by_answer)),
+                ).fetchall()
+                if analysis_by_answer
+                else []
+            )
 
+        citations_by_answer: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for citation in citation_rows:
+            answer_id = str(citation["answer_pub_id"])
+            if str(citation["analysis_run_pub_id"]) != analysis_by_answer.get(answer_id):
+                continue
+            citations_by_answer[answer_id].append(
+                {
+                    "ordinal": int(citation["ordinal"]),
+                    "platform_ordinal": int(citation["platform_ordinal"]),
+                    "ordinal_base": int(citation["ordinal_base"]),
+                }
+            )
         data: list[dict[str, Any]] = []
         for row in rows:
             query_text = str(row["query_text"]) if row["query_text"] is not None else None
-            response_text = str(row["response_text"] or "")
+            raw_response = str(row.get("response_raw") or row["response_text"] or "")
+            response_text = project_answer_content(
+                raw_response, citations_by_answer.get(str(row["pub_id"]), [])
+            ).response_markdown_normalized
             rank = int(row["rank"]) if row["rank"] is not None else None
             mentioned_value = bool(row["mentioned"])
             recommended = (

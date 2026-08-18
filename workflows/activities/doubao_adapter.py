@@ -1298,20 +1298,9 @@ def _safe_stem(business_key: str) -> str:
 
 
 def _compose_answer_text(answer_text: str, references: list[dict[str, Any]]) -> str:
-    """正文 + 参考来源追加段（沿用旧链 render_transcript 的参考资料口径）。"""
-    text = answer_text.strip()
-    if not references:
-        return text
-    lines = [f"{text}", "", "参考来源："]
-    for i, ref in enumerate(references, 1):
-        title = str(ref.get("title") or "(无标题)").strip()
-        site = str(ref.get("sitename") or "").strip()
-        head = f"{i}. {title}" + (f" — {site}" if site else "")
-        lines.append(head)
-        url = str(ref.get("url") or "").strip()
-        if url:
-            lines.append(f"   {url}")
-    return "\n".join(lines)
+    """Keep the platform answer separate from its structured source relations."""
+    del references
+    return answer_text.strip()
 
 
 def _external_http_url(value: object) -> str | None:

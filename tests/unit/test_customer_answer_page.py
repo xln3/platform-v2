@@ -154,6 +154,18 @@ class _Connection:
             return _Result(one={"id": "project-uuid", "name": "项目", "brand_name": "盛邦安全"})
         if "SELECT count(*) AS total" in sql:
             return _Result(one={"total": 3})
+        if "SELECT answer_pub_id,analysis_run_pub_id,ordinal" in sql:
+            return _Result(
+                many=[
+                    {
+                        "answer_pub_id": "ans_20260817",
+                        "analysis_run_pub_id": "ana_latest",
+                        "ordinal": 1,
+                        "platform_ordinal": 1,
+                        "ordinal_base": 1,
+                    }
+                ]
+            )
         return _Result(
             many=[
                 {
@@ -161,6 +173,10 @@ class _Connection:
                     "query_pub_id": "qry_hash_b5855173086854844b54",
                     "query_text": "网络安全品牌推荐",
                     "response_text": "推荐盛邦安全，综合能力突出。",
+                    "response_raw": (
+                        "推荐盛邦安全，综合能力突出。[citation:1]\n\n"
+                        "参考来源：\n1. 示例来源\nhttps://example.com/article"
+                    ),
                     "model": "DeepSeek",
                     "region": "CN",
                     "mode": "web",
@@ -206,6 +222,8 @@ def test_answer_page_maps_real_facts_and_infers_missing_recommendation(
     result = CustomerAnswerPageView.model_validate(document)
     assert result.data[0].recommended is True
     assert result.data[0].citation_count == 4
+    assert result.data[0].response_text == "推荐盛邦安全，综合能力突出。[1](#citation-1)"
+    assert "参考来源" not in result.data[0].response_text
     assert result.page.total == 3
     assert result.page.offset == 1
     assert result.page.has_more is True

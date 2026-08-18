@@ -42,6 +42,7 @@ from sqlalchemy import select, text
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from domain.collection.answer_content import project_answer_content
 from domain.evidence.dlp import assert_secret_free
 from workflows.activities.browser_router import account_governance_enabled
 
@@ -343,20 +344,32 @@ def _safe_http_url(value: str | None) -> str | None:
     return value
 
 
-def _normalize_citations(items: list[dict[str, Any]]) -> list[dict[str, str | None]]:
-    """引用规范化：结构校验（URL/长度/去重）；文本为公开内容，原文存储不脱敏。"""
+def _normalize_citations(
+    items: list[dict[str, Any]], *, answer_text: str = ""
+) -> list[dict[str, Any]]:
+    """Validate citations while preserving their real platform ordinals.
+
+    Repeated URLs are not discarded here: two platform ordinals may point to
+    the same source and are still two answer→source relations.  W2 performs its
+    own URL-level fetch deduplication without destroying those relations.
+    """
     if len(items) > 500:  # deep_think 检索流实测引用卡片可破百（20260810）
         raise ValueError("collection result has too many citations")
-    normalized: list[dict[str, str | None]] = []
-    seen: set[str] = set()
-    for item in items:
+    markers = [int(value) for value in re.findall(r"\[citation:(\d+)\]", answer_text, re.I)]
+    declared_ordinals = [
+        item.get("platform_ordinal", item.get("ordinal"))
+        for item in items
+        if isinstance(item, dict)
+    ]
+    inferred_base = 0 if 0 in markers or 0 in declared_ordinals else 1
+    normalized: list[dict[str, Any]] = []
+    seen_ordinals: set[int] = set()
+    seen_bases: set[int] = set()
+    for index, item in enumerate(items, 1):
         if not isinstance(item, dict):
             raise ValueError("collection citation must be an object")
         url = _safe_http_url(item.get("url"))
         assert url is not None
-        if url in seen:
-            continue
-        seen.add(url)
         title = item.get("title")
         cited_text = item.get("cited_text")
         if title is not None:
@@ -370,7 +383,37 @@ def _normalize_citations(items: list[dict[str, Any]]) -> list[dict[str, str | No
                 cited_text = cited_text[:2_000]
             if cited_text:
                 cited_text = cited_text.strip()
-        normalized.append({"url": url, "title": title, "cited_text": cited_text})
+        raw_base = item.get("ordinal_base", inferred_base)
+        if not isinstance(raw_base, int) or isinstance(raw_base, bool) or raw_base not in {0, 1}:
+            raise ValueError("collection citation ordinal base is invalid")
+        seen_bases.add(raw_base)
+        if len(seen_bases) > 1:
+            raise ValueError("collection citation ordinal bases are inconsistent")
+        raw_platform_ordinal = item.get("platform_ordinal", item.get("ordinal"))
+        if raw_platform_ordinal is None:
+            platform_ordinal = index - 1 if raw_base == 0 else index
+        elif (
+            not isinstance(raw_platform_ordinal, int)
+            or isinstance(raw_platform_ordinal, bool)
+            or raw_platform_ordinal < raw_base
+        ):
+            raise ValueError("collection citation platform ordinal is invalid")
+        else:
+            platform_ordinal = raw_platform_ordinal
+        ordinal = platform_ordinal + 1 if raw_base == 0 else platform_ordinal
+        if ordinal < 1 or ordinal in seen_ordinals:
+            raise ValueError("collection citation ordinal is duplicate or invalid")
+        seen_ordinals.add(ordinal)
+        normalized.append(
+            {
+                "url": url,
+                "title": title,
+                "cited_text": cited_text,
+                "ordinal": ordinal,
+                "platform_ordinal": platform_ordinal,
+                "ordinal_base": raw_base,
+            }
+        )
     return normalized
 
 
@@ -534,6 +577,36 @@ def _verify_answer_evidence_dimensions(path: Path, anchors: list[dict[str, Any]]
             raise ValueError("answer evidence anchor dimensions do not match the image")
 
 
+def _evidence_image_dimensions(path: Path, mime_type: str) -> tuple[int | None, int | None]:
+    if not mime_type.startswith("image/"):
+        return None, None
+    expected_formats = {
+        "image/png": {"PNG"},
+        "image/jpeg": {"JPEG"},
+        "image/jpg": {"JPEG"},
+        "image/webp": {"WEBP"},
+        "image/gif": {"GIF"},
+        "image/bmp": {"BMP"},
+        "image/tiff": {"TIFF"},
+    }.get(mime_type.lower())
+    if expected_formats is None:
+        raise ValueError("collection image evidence MIME type is unsupported")
+    try:
+        with Image.open(path) as image:
+            width, height = image.size
+            decoded_format = image.format
+            image.verify()
+    except (OSError, UnidentifiedImageError, Image.DecompressionBombError) as error:
+        raise ValueError("collection image evidence is invalid") from error
+    if decoded_format not in expected_formats:
+        raise ValueError("collection image evidence MIME type does not match decoded bytes")
+    if width <= 0 or height <= 0 or width > 100_000 or height > 100_000:
+        raise ValueError("collection image evidence dimensions are invalid")
+    if width * height > 150_000_000:
+        raise ValueError("collection image evidence pixel count is too large")
+    return width, height
+
+
 def _normalize_evidence_anchors(
     raw_items: list[Any] | None, *, answer_text: str | None = None
 ) -> list[dict[str, Any]]:
@@ -659,18 +732,21 @@ def _persist_evidence_assets(
             )
         )
         evidence_pub_id = f"evd_{sha256(stable_key.encode()).hexdigest()[:26]}"
-        stored = store.put_redacted(Path(item.path).read_bytes(), mime_type=item.mime_type)
+        evidence_path = Path(item.path)
+        image_width, image_height = _evidence_image_dimensions(evidence_path, item.mime_type)
+        stored = store.put_redacted(evidence_path.read_bytes(), mime_type=item.mime_type)
         session.execute(
             text(
                 """
                 INSERT INTO evidence.evidence_asset
                   (pub_id,tenant_pub_id,project_pub_id,kind,access_class,sha256,object_key,
                    mime_type,byte_size,source_url,dlp_findings,channel,authorization_scope,
-                   adapter_version,capture_time,authorized_session_capture)
+                   adapter_version,capture_time,authorized_session_capture,image_width,image_height)
                 VALUES
                   (:pub_id,:tenant_pub_id,:project_pub_id,:kind,'customer_private',:sha256,
                    :object_key,:mime_type,:byte_size,:source_url,:dlp_findings,'web',
-                   CAST(:authorization_scope AS text[]),:adapter_version,:capture_time,false)
+                   CAST(:authorization_scope AS text[]),:adapter_version,:capture_time,false,
+                   :image_width,:image_height)
                 ON CONFLICT (pub_id) DO NOTHING
                 """
             ),
@@ -688,6 +764,8 @@ def _persist_evidence_assets(
                 "authorization_scope": [],
                 "adapter_version": adapter_version,
                 "capture_time": capture_time,
+                "image_width": image_width,
+                "image_height": image_height,
             },
         )
         persisted = (
@@ -695,7 +773,7 @@ def _persist_evidence_assets(
                 text(
                     """
                 SELECT tenant_pub_id,project_pub_id,kind,sha256,object_key,mime_type,byte_size,
-                       source_url,adapter_version
+                       source_url,adapter_version,image_width,image_height
                 FROM evidence.evidence_asset WHERE pub_id=:pub_id
                 """
                 ),
@@ -714,6 +792,8 @@ def _persist_evidence_assets(
             "byte_size": stored.byte_size,
             "source_url": item.source_url,
             "adapter_version": adapter_version,
+            "image_width": image_width,
+            "image_height": image_height,
         }
         if dict(persisted) != expected:
             raise ApplicationError(
@@ -1327,7 +1407,11 @@ def persist_collection_result(
             non_retryable=True,
         ) from error
     try:
-        citations = _normalize_citations(list(getattr(result, "citations", []) or []))
+        raw_answer = result.answer_text if isinstance(result.answer_text, str) else ""
+        citations = _normalize_citations(
+            list(getattr(result, "citations", []) or []), answer_text=raw_answer
+        )
+        answer_content = project_answer_content(raw_answer, citations)
         evidence = _normalize_evidence_refs(result)
         search_queries = _normalize_search_queries(
             list(getattr(result, "search_queries", []) or [])
@@ -1383,7 +1467,18 @@ def persist_collection_result(
                 matrix_json=matrix_json,
                 state="completed",
                 attempt_count=1,
-                answer_text=result.answer_text,
+                answer_text=answer_content.response_raw,
+                response_markdown_normalized=answer_content.response_markdown_normalized,
+                response_ast_json=json.dumps(
+                    answer_content.response_ast,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+                response_html_sanitized=answer_content.response_html_sanitized,
+                response_plain_text=answer_content.response_plain_text,
+                response_hash=answer_content.response_hash,
+                render_parser_version=answer_content.render_parser_version,
                 screenshot_ref=result.screenshot_ref,
                 quality_state=result.quality_state,
                 citations_json=citations_json,
@@ -1396,6 +1491,12 @@ def persist_collection_result(
             task = prior
             if (
                 prior.answer_text,
+                prior.response_markdown_normalized,
+                prior.response_ast_json,
+                prior.response_html_sanitized,
+                prior.response_plain_text,
+                prior.response_hash,
+                prior.render_parser_version,
                 prior.screenshot_ref,
                 prior.quality_state,
                 prior.matrix_json,
@@ -1403,7 +1504,18 @@ def persist_collection_result(
                 prior.evidence_json,
                 prior.search_queries_json,
             ) != (
-                result.answer_text,
+                answer_content.response_raw,
+                answer_content.response_markdown_normalized,
+                json.dumps(
+                    answer_content.response_ast,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+                answer_content.response_html_sanitized,
+                answer_content.response_plain_text,
+                answer_content.response_hash,
+                answer_content.render_parser_version,
                 result.screenshot_ref,
                 result.quality_state,
                 matrix_json,

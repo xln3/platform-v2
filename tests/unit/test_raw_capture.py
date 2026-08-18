@@ -666,6 +666,8 @@ class _FakeSession:
                 "byte_size",
                 "source_url",
                 "adapter_version",
+                "image_width",
+                "image_height",
             )
             return _FakeMappings({key: inserted[key] for key in keys})
         if "INSERT INTO evidence.evidence_relation" in sql:

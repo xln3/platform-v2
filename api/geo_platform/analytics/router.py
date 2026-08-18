@@ -143,12 +143,23 @@ class BreakdownView(StrictModel):
 class CitationRelationView(StrictModel):
     pub_id: str
     ordinal: int
+    platform_ordinal: int = 1
+    ordinal_base: Literal[0, 1] = 1
     canonical_url: str
     host: str
     title: str | None
     cited_text: str | None
     own_source: bool
     content_hash: str | None
+    source_document_pub_id: str | None = None
+    published_at_raw: str | None = None
+    published_at: datetime | None = None
+    published_at_timezone: str | None = None
+    published_at_precision: str | None = None
+    published_at_source: str | None = None
+    published_at_confidence: Literal[
+        "verified_structured", "structured_only", "visible_only", "inferred_low", "unknown"
+    ] = "unknown"
 
 
 class DisparagementRateView(StrictModel):
@@ -298,6 +309,8 @@ class AnswerEvidenceView(StrictModel):
     sha256: str
     mime_type: str
     byte_size: int
+    image_width: int | None = None
+    image_height: int | None = None
     source_url: str | None
     capture_time: datetime
     anchors: list[EvidenceAnchorView]
@@ -705,32 +718,54 @@ def answers(
 @router.get("/answers/{answer_pub_id}/relations", response_model=AnswerRelationsView)
 def answer_relations(
     answer_pub_id: str,
+    project_pub_id: str | None = Query(
+        default=None,
+        pattern=r"^prj_[A-Za-z0-9_-]{1,116}$",
+        description="Optional project binding for customer answer-detail reads.",
+    ),
     principal: Principal = Depends(get_principal),
 ) -> AnswerRelationsView:
     principal.require("project:read")
     with tenant_connection(_dsn(), principal.tenant_pub_id, row_factory=dict_row) as connection:
         answer = connection.execute(
             """
-            SELECT pub_id FROM analytics.answer
+            SELECT pub_id,project_pub_id FROM analytics.answer
             WHERE tenant_pub_id=%s AND pub_id=%s
+              AND (%s::text IS NULL OR project_pub_id=%s::text)
             """,
-            (principal.tenant_pub_id, answer_pub_id),
+            (principal.tenant_pub_id, answer_pub_id, project_pub_id, project_pub_id),
         ).fetchone()
         if answer is None:
             raise HTTPException(status_code=404, detail={"code": "answer_not_found"})
         citations = connection.execute(
             """
-            SELECT pub_id,ordinal,canonical_url,host,title,cited_text,own_source,content_hash
+            SELECT pub_id,ordinal,platform_ordinal,ordinal_base,canonical_url,host,title,
+                   cited_text,own_source,content_hash,source_document_pub_id,published_at_raw,
+                   published_at,published_at_timezone,published_at_precision,
+                   published_at_source,published_at_confidence
             FROM analytics.citation_fact
             WHERE tenant_pub_id=%s AND answer_pub_id=%s
+              AND analysis_run_pub_id=(
+                SELECT aa.analysis_run_pub_id
+                FROM analytics.answer_analysis aa
+                WHERE aa.tenant_pub_id=%s AND aa.answer_pub_id=%s
+                ORDER BY aa.created_at DESC,aa.id DESC
+                LIMIT 1
+              )
             ORDER BY ordinal,created_at,pub_id
             """,
-            (principal.tenant_pub_id, answer_pub_id),
+            (
+                principal.tenant_pub_id,
+                answer_pub_id,
+                principal.tenant_pub_id,
+                answer_pub_id,
+            ),
         ).fetchall()
         evidence_rows = connection.execute(
             """
             SELECT ea.pub_id,er.relation_type,ea.kind,ea.access_class,ea.sha256,
-                   ea.mime_type,ea.byte_size,ea.source_url,ea.capture_time
+                   ea.mime_type,ea.byte_size,ea.image_width,ea.image_height,
+                   ea.source_url,ea.capture_time
             FROM evidence.evidence_relation er
             JOIN evidence.evidence_asset ea
               ON ea.tenant_pub_id=er.tenant_pub_id AND ea.pub_id=er.to_pub_id
@@ -787,11 +822,20 @@ def answer_relations(
             **{
                 key: value
                 for key, value in dict(row).items()
-                if key not in {"canonical_url", "title", "cited_text"}
+                if key
+                not in {
+                    "canonical_url",
+                    "title",
+                    "cited_text",
+                    "published_at_raw",
+                    "published_at_source",
+                }
             },
             canonical_url=_safe_source_url(row["canonical_url"]) or "",
             title=_safe_optional_text(row["title"], 300),
             cited_text=_safe_optional_text(row["cited_text"], 2000),
+            published_at_raw=_safe_optional_text(row["published_at_raw"], 500),
+            published_at_source=_safe_optional_text(row["published_at_source"], 120),
         )
         for row in citations
     ]
