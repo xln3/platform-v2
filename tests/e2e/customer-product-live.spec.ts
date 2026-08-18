@@ -1030,7 +1030,36 @@ test('validated customer reads mounted data and serializes every write without s
   const answerDossier = page.getByRole('dialog', { name: '真实客户合同问题' });
   const narrowAnswerDossier = (page.viewportSize()?.width ?? 0) <= 780;
   await expect(answerDossier).toBeVisible();
-  await expect(answerDossier.getByTitle('doubao 官方回答分享页')).toBeVisible();
+  const officialFrame = answerDossier.getByTitle('doubao 官方回答只读预览');
+  const officialViewport = answerDossier.getByRole('region', { name: '官方回答只读预览' });
+  await expect(officialFrame).toBeVisible();
+  await expect(officialFrame).toHaveAttribute('tabindex', '-1');
+  await expect(officialFrame).toHaveAttribute('sandbox', 'allow-scripts allow-same-origin');
+  await expect(officialViewport).toBeVisible();
+  await expect(answerDossier.getByText(/已裁掉平台底部/u)).toBeVisible();
+  const officialViewportBox = await officialViewport.boundingBox();
+  const platformCtaBox = await page
+    .frameLocator('iframe[title="doubao 官方回答只读预览"]')
+    .locator('.platform-cta')
+    .boundingBox();
+  expect(officialViewportBox).not.toBeNull();
+  expect(platformCtaBox).not.toBeNull();
+  expect(platformCtaBox!.y).toBeGreaterThanOrEqual(
+    officialViewportBox!.y + officialViewportBox!.height - 1,
+  );
+  const officialScrollTop = await page
+    .frameLocator('iframe[title="doubao 官方回答只读预览"]')
+    .locator('body')
+    .evaluate((body) => {
+      const frameWindow = body.ownerDocument.defaultView;
+      frameWindow?.scrollTo(0, 320);
+      return frameWindow?.scrollY ?? 0;
+    });
+  expect(officialScrollTop).toBeGreaterThan(0);
+  await page
+    .frameLocator('iframe[title="doubao 官方回答只读预览"]')
+    .locator('body')
+    .evaluate((body) => body.ownerDocument.defaultView?.scrollTo(0, 0));
   await expect(answerDossier.getByRole('heading', { name: '核验建议' })).toHaveCount(0);
   await expect(answerDossier.getByText('## 核验建议', { exact: true })).toHaveCount(0);
   if (narrowAnswerDossier) {
