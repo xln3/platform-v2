@@ -20,6 +20,7 @@ page_coverage = {
             "assets",
             "questions",
             "monitoring",
+            "answers",
             "competition",
             "sources",
             "reputation",

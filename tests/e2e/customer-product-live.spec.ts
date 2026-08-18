@@ -1,5 +1,8 @@
 import { expect, test } from './runtime-fixture';
 import type { Locator } from '@playwright/test';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { expectAccessible } from './accessibility';
 import { expectSafeLocatorScreenshot, expectSafePageScreenshot } from './screenshot-safety';
 import { installSyntheticHttpResponses, syntheticHttpResponseCount } from './synthetic-http';
@@ -9,6 +12,16 @@ const customerReportHtml =
 const customerReportPdf = '%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF';
 const customerReportHtmlSha256 = '40eb6105778ec6e9ab98b518801d34fb4aad2f0ee2a931e3694a040e392cd4bb';
 const customerReportPdfSha256 = '5685e2d63d2a3b750e0850b8654c06f87fe9a1b138525deef264166e4152efbc';
+const customerPlatformSharePng = readFileSync(
+  resolve(process.cwd(), 'tests/e2e/fixtures/customer-platform-share.png'),
+);
+const customerPlatformShareHtml = readFileSync(
+  resolve(process.cwd(), 'tests/e2e/fixtures/customer-platform-share.html'),
+  'utf8',
+);
+const customerPlatformSharePngSha256 = createHash('sha256')
+  .update(customerPlatformSharePng)
+  .digest('hex');
 
 const synchronouslyActivateTwice = async (button: Locator) => {
   await button.evaluate((element) => {
@@ -28,6 +41,7 @@ test('validated customer reads mounted data and serializes every write without s
   let deliveryConfirmed = false;
   let reportQuestionAccepted = false;
   let reportQuestionAuthorityReads = 0;
+  let shareImageContentReads = 0;
   let releaseDelayedReportQuestion: (() => void) | null = null;
   const delayedReportQuestionResponse = new Promise<void>((resolve) => {
     releaseDelayedReportQuestion = resolve;
@@ -44,6 +58,9 @@ test('validated customer reads mounted data and serializes every write without s
     localStorage.setItem('geo.session.actor', 'customer-product-live');
     localStorage.setItem('geo.session.role', 'customer');
   });
+  await page.route('https://www.doubao.com/thread/customer-live-safe', (route) =>
+    route.fulfill({ status: 200, contentType: 'text/html', body: customerPlatformShareHtml }),
+  );
   await page.route('**/api/v2/identity/session', (route) =>
     route.fulfill({
       status: 200,
@@ -403,12 +420,14 @@ test('validated customer reads mounted data and serializes every write without s
       }),
     }),
   );
-  await page.route('**/api/v2/analytics/answers/*/relations', (route) =>
-    route.fulfill({
+  await page.route('**/api/v2/analytics/answers/*/relations**', (route) => {
+    const pathParts = new URL(route.request().url()).pathname.split('/');
+    const answerPubId = pathParts.at(-2) ?? 'ans_live_safe';
+    return route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        answer_pub_id: 'ans_live_safe',
+        answer_pub_id: answerPubId,
         citations: [
           {
             pub_id: 'cit_live_safe',
@@ -434,6 +453,30 @@ test('validated customer reads mounted data and serializes every write without s
           },
         ],
         evidence: [
+          {
+            pub_id: 'evd_live_share_link',
+            relation_type: 'official_share_link',
+            kind: 'share_link',
+            access_class: 'customer_private',
+            sha256: 'e'.repeat(64),
+            mime_type: 'application/json',
+            byte_size: 256,
+            source_url: 'https://www.doubao.com/thread/customer-live-safe',
+            capture_time: '2026-07-25T01:00:00Z',
+            anchors: [],
+          },
+          {
+            pub_id: 'evd_live_share_image',
+            relation_type: 'official_share_image',
+            kind: 'share_image',
+            access_class: 'customer_private',
+            sha256: customerPlatformSharePngSha256,
+            mime_type: 'image/png',
+            byte_size: customerPlatformSharePng.byteLength,
+            source_url: null,
+            capture_time: '2026-07-25T01:00:00Z',
+            anchors: [],
+          },
           {
             pub_id: 'evd_live_safe',
             relation_type: 'visualizes',
@@ -469,8 +512,8 @@ test('validated customer reads mounted data and serializes every write without s
           },
         ],
       }),
-    }),
-  );
+    });
+  });
   await page.route('**/api/v2/exports/metrics', async (route) => {
     exportBodies.push(route.request().postDataJSON());
     await route.fulfill({
@@ -518,16 +561,19 @@ test('validated customer reads mounted data and serializes every write without s
   // 证据画廊逐资产拉取 content（VerifiedBlobImage）；上方 `assets**` 通配会 shadow 该
   // 路径并返回 JSON，加载器因 MIME 不符中止请求（request-failed）。补一个合法 PNG 响应；
   // 尺寸/哈希与夹具元数据不符时加载器 fail-closed 为占位态，不产生运行时告警。
-  await page.route('**/api/v2/evidence/assets/*/content', (route) =>
-    route.fulfill({
+  await page.route('**/api/v2/evidence/assets/*/content', (route) => {
+    const isShareImage = route.request().url().includes('/evd_live_share_image/');
+    if (isShareImage) shareImageContentReads += 1;
+    return route.fulfill({
       status: 200,
       contentType: 'image/png',
-      body: Buffer.from(
-        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
-        'base64',
-      ),
-    }),
-  );
+      // 客户答案页不再读取图片；证据中心仍用合法首读与不匹配后续读取验证 fail-closed。
+      body:
+        !isShareImage || shareImageContentReads === 1
+          ? customerPlatformSharePng
+          : Buffer.from('integrity-mismatch'),
+    });
+  });
   await page.route('**/api/v2/evidence/packages', async (route) => {
     const packageBody = route.request().postDataJSON() as { package_pub_id: string };
     packageBodies.push(packageBody);
@@ -829,7 +875,8 @@ test('validated customer reads mounted data and serializes every write without s
                     answer_pub_id: 'ans_customer_product_live_01',
                     query_pub_id: 'qry_customer_product_live_01',
                     query_text: '真实客户合同问题',
-                    response_text: '真实客户回答原文，完整展示品牌提及、推荐语境与引用信息。',
+                    response_text:
+                      '真实客户回答原文，完整展示品牌提及、推荐语境与引用信息。[citation:1]\n\n## 核验建议\n\n- 打开官方分享页交叉核对\n- 检查引用原文与发布时间',
                     model: 'doubao',
                     region: 'east',
                     mode: 'deep',
@@ -840,9 +887,39 @@ test('validated customer reads mounted data and serializes every write without s
                     recommended: true,
                     citation_count: 2,
                   },
+                  {
+                    answer_pub_id: 'ans_customer_product_live_02',
+                    query_pub_id: 'qry_customer_product_live_01',
+                    query_text: '真实客户合同问题',
+                    response_text: 'DeepSeek 对同一问题的完整回答，用于跨平台对照。[citation:1]',
+                    model: 'DeepSeek',
+                    region: 'east',
+                    mode: 'deep',
+                    capture_time: '2026-07-24T23:30:00Z',
+                    mentioned: true,
+                    rank: 2,
+                    sentiment: 'positive',
+                    recommended: true,
+                    citation_count: 1,
+                  },
+                  {
+                    answer_pub_id: 'ans_customer_product_live_03',
+                    query_pub_id: 'qry_customer_product_live_01',
+                    query_text: '真实客户合同问题',
+                    response_text: '文心一言对同一问题的采集回答，用于验证平台差异与信源变化。',
+                    model: '文心一言',
+                    region: 'north',
+                    mode: 'fast',
+                    capture_time: '2026-07-24T23:00:00Z',
+                    mentioned: false,
+                    rank: null,
+                    sentiment: 'neutral',
+                    recommended: false,
+                    citation_count: 0,
+                  },
                 ]
               : [],
-          page: { total: 1, offset, limit, has_more: false },
+          page: { total: 3, offset, limit, has_more: false },
         }),
       });
     }
@@ -908,7 +985,7 @@ test('validated customer reads mounted data and serializes every write without s
   await expect(page.getByText('资料确认', { exact: true })).toHaveCount(0);
   await expect(page.getByText('Project stage', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: '六大经营指数' })).toBeVisible();
-  const assetScale = page.getByLabel('当前窗口沉淀的 AI 认知资产');
+  const assetScale = page.getByLabel('所选统计区间沉淀的 AI 认知资产');
   await expect(assetScale.getByText('1,217', { exact: true })).toBeVisible();
   await expect(assetScale.getByText('1,742', { exact: true })).toBeVisible();
   await expect(assetScale.getByText('12,684', { exact: true })).toBeVisible();
@@ -926,24 +1003,78 @@ test('validated customer reads mounted data and serializes every write without s
     page.getByRole('heading', { name: '真实客户品牌 · 真实 AI 回答与模型语境' }),
   ).toBeVisible();
   await expect(page.getByLabel('AI 操作面板')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: '回答证据库', exact: true })).toBeVisible();
+  await expect(page.getByText('查看该平台官方实时回答页及逐条引用信源。')).toBeVisible();
   await expect(
-    page.getByRole('heading', { name: '真实客户品牌 · 真实 AI 回答', exact: true }),
-  ).toBeVisible();
-  await expect(
-    page
-      .locator('.geo-answer-row__lead')
-      .filter({ hasText: '真实客户回答原文，完整展示品牌提及、推荐语境与引用信息。' }),
-  ).toBeVisible();
+    page.getByText('真实客户回答原文，完整展示品牌提及、推荐语境与引用信息。'),
+  ).toHaveCount(0);
   await expect(page.getByRole('button', { name: '按 AI 平台' })).toHaveAttribute(
     'aria-pressed',
     'true',
   );
+  const answerDirectory = page.getByRole('complementary', { name: '回答分类导航' });
+  await answerDirectory.getByRole('button', { name: /doubao/u }).click();
   await expect(page.getByRole('region', { name: 'doubao回答明细' })).toBeVisible();
   await page.getByRole('button', { name: '按回答模式' }).click();
+  await answerDirectory.getByRole('button', { name: /deep/u }).click();
   await expect(page.getByRole('region', { name: 'deep回答明细' })).toBeVisible();
   await page.getByRole('button', { name: '按地域' }).click();
+  await answerDirectory.getByRole('button', { name: /east/u }).click();
   await expect(page.getByRole('region', { name: 'east回答明细' })).toBeVisible();
   await page.getByRole('button', { name: '按 AI 平台' }).click();
+  await answerDirectory.getByRole('button', { name: /doubao/u }).click();
+  await page
+    .getByRole('region', { name: 'doubao回答明细' })
+    .getByRole('button', { name: '查看官方回答与信源' })
+    .click();
+  const answerDossier = page.getByRole('dialog', { name: '真实客户合同问题' });
+  const narrowAnswerDossier = (page.viewportSize()?.width ?? 0) <= 780;
+  await expect(answerDossier).toBeVisible();
+  await expect(answerDossier.getByTitle('doubao 官方回答分享页')).toBeVisible();
+  await expect(answerDossier.getByRole('heading', { name: '核验建议' })).toHaveCount(0);
+  await expect(answerDossier.getByText('## 核验建议', { exact: true })).toHaveCount(0);
+  if (narrowAnswerDossier) {
+    await expect(answerDossier.getByText('待采集', { exact: true })).toHaveCount(1);
+  } else {
+    await expect(answerDossier.getByText('待采集', { exact: true })).toBeVisible();
+  }
+  await expect(answerDossier.getByRole('button', { name: '复制分享链接' })).toBeEnabled();
+  await expect(answerDossier.getByRole('complementary', { name: '同题回答运行' })).toContainText(
+    'DeepSeek',
+  );
+  await expect(answerDossier.getByRole('complementary', { name: '同题回答运行' })).toContainText(
+    '文心一言',
+  );
+  if (!narrowAnswerDossier) {
+    await expect(answerDossier.getByRole('region', { name: '引用信源分析表' })).toContainText(
+      '真实独立来源',
+    );
+  }
+  await expect(answerDossier.getByRole('img')).toHaveCount(0);
+  await expect(answerDossier.getByText(/官方分享图片|采集现场截图/u)).toHaveCount(0);
+  expect(
+    await answerDossier.evaluate(
+      (element) => element.scrollWidth <= Math.ceil(element.clientWidth) + 1,
+    ),
+  ).toBe(true);
+  if (narrowAnswerDossier) {
+    await answerDossier.getByRole('button', { name: /引用信源/u }).click();
+    await expect(answerDossier.getByRole('region', { name: '引用信源分析表' })).toBeVisible();
+    await expect(answerDossier.getByRole('region', { name: '引用信源分析表' })).toContainText(
+      '真实独立来源',
+    );
+    await expect(answerDossier.getByText('待采集', { exact: true })).toBeVisible();
+    await expectSafePageScreenshot(page, 'customer-live-answer-citations.png', {
+      animations: 'disabled',
+    });
+    await answerDossier.getByRole('button', { name: '官方回答', exact: true }).click();
+  }
+  await expectSafePageScreenshot(page, 'customer-live-answer-dossier.png', {
+    animations: 'disabled',
+  });
+  await answerDossier.getByRole('button', { name: '复制分享链接' }).click();
+  await expect(answerDossier.getByRole('button', { name: '分享链接已复制' })).toBeVisible();
+  await answerDossier.getByRole('button', { name: '关闭官方回答详情' }).click();
   await expectSafePageScreenshot(page, 'customer-live-answers.png', {
     fullPage: true,
     animations: 'disabled',
@@ -1007,9 +1138,7 @@ test('validated customer reads mounted data and serializes every write without s
   await expect(
     page.locator('.geo-kpi-card').filter({ hasText: '品牌提及率' }).getByText('75.0%'),
   ).toBeVisible();
-  await expect(
-    page.getByRole('img', { name: '品牌提及率、Top3 率和引用覆盖率趋势' }),
-  ).toBeVisible();
+  await expect(page.getByRole('img', { name: '真实客户品牌提及率趋势' })).toBeVisible();
   await expect(page.getByLabel('模型表现数据表')).toContainText('doubao');
   await expect(page.getByLabel('地区表现数据表')).toContainText('east');
   await expect(page.getByLabel('回答模式表现数据表')).toContainText('deep');

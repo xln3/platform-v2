@@ -1,5 +1,5 @@
-import { Badge } from '@geo/design-system';
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { Badge, Dialog } from '@geo/design-system';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import './customer-answer-explorer.css';
 
 export type CustomerAnswerSentiment = 'positive' | 'neutral' | 'negative' | 'unknown';
@@ -32,6 +32,36 @@ export type CustomerAnswerExplorerPage = {
   };
 };
 
+export type CustomerAnswerCitationDetail = {
+  id: string;
+  ordinal: number;
+  url: string;
+  host: string;
+  title: string | null;
+  citedText: string | null;
+  ownSource: boolean;
+  contentHash: string | null;
+  publishedAt: string | null;
+  publishedAtSource: string | null;
+};
+
+export type CustomerAnswerEvidenceDetail = {
+  id: string;
+  relation: string;
+  kind: string;
+  mimeType: string;
+  byteSize: number;
+  sha256: string;
+  sourceUrl: string | null;
+  captureTime: string;
+};
+
+export type CustomerAnswerDetail = {
+  citations: readonly CustomerAnswerCitationDetail[];
+  evidence: readonly CustomerAnswerEvidenceDetail[];
+  projectionComplete: boolean;
+};
+
 export type CustomerAnswerMentionFilter = 'all' | 'true' | 'false';
 export type CustomerAnswerSentimentFilter = 'all' | CustomerAnswerSentiment;
 export type CustomerAnswerPageSize = 10 | 20 | 50;
@@ -48,11 +78,12 @@ export type CustomerAnswerExplorerQuery = {
 export type CustomerAnswerExplorerProps = {
   brandName: string;
   loadPage: (query: CustomerAnswerExplorerQuery) => Promise<CustomerAnswerExplorerPage>;
+  loadDetail?: (answerPubId: string) => Promise<CustomerAnswerDetail>;
   fixturePage?: CustomerAnswerExplorerPage;
 };
 
 type LoadState = 'loading' | 'ready' | 'failed';
-
+type DetailState = 'idle' | 'loading' | 'ready' | 'failed';
 const pageSizes: readonly CustomerAnswerPageSize[] = [10, 20, 50];
 
 const sentimentPresentation: Record<
@@ -86,14 +117,6 @@ const groupByPresentation: Record<
   },
 };
 
-const firstParagraph = (response: string): string => {
-  const paragraph = response
-    .split(/(?:\r?\n){2,}|\r?\n/u)
-    .map((item) => item.trim())
-    .find(Boolean);
-  return paragraph ?? '该回答没有可显示的正文。';
-};
-
 const formatCaptureTime = (value: string): string => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -106,6 +129,504 @@ const formatCaptureTime = (value: string): string => {
     hour12: false,
   }).format(date);
 };
+
+const formatPublishedTime = (value: string | null): string | null => {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date);
+};
+
+const safeHttpUrl = (value: string | null | undefined): string | null => {
+  if (!value || value.length > 2_000) return null;
+  try {
+    const parsed = new URL(value);
+    return ['http:', 'https:'].includes(parsed.protocol) && !parsed.username && !parsed.password
+      ? parsed.toString()
+      : null;
+  } catch {
+    return null;
+  }
+};
+
+const safeOfficialShareUrl = (value: string | null, model: string): string | null => {
+  const safe = safeHttpUrl(value);
+  if (!safe) return null;
+  const parsed = new URL(safe);
+  if (parsed.protocol !== 'https:') return null;
+  const normalizedModel = model.trim().toLocaleLowerCase('zh-CN');
+  if (normalizedModel === 'doubao' || normalizedModel === '豆包') {
+    return ['doubao.com', 'www.doubao.com'].includes(parsed.hostname) &&
+      parsed.pathname.startsWith('/thread/')
+      ? parsed.toString()
+      : null;
+  }
+  if (normalizedModel === 'deepseek') {
+    return parsed.hostname === 'chat.deepseek.com' && parsed.pathname.startsWith('/share/')
+      ? parsed.toString()
+      : null;
+  }
+  if (['yiyan', '文心一言', '文心'].includes(normalizedModel)) {
+    return ['mr.baidu.com', 'wenxin.baidu.com'].includes(parsed.hostname)
+      ? parsed.toString()
+      : null;
+  }
+  return null;
+};
+
+const platformMonogram = (model: string): string => {
+  const normalized = model.trim();
+  if (!normalized) return 'AI';
+  if (/^[\x00-\x7F]+$/u.test(normalized)) return normalized.slice(0, 2).toLocaleUpperCase();
+  return normalized.slice(0, 1);
+};
+
+function DetailMetric({ label, value, note }: { label: string; value: string; note: string }) {
+  return (
+    <div className="geo-answer-dossier__metric">
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{note}</small>
+    </div>
+  );
+}
+
+function DetailEmpty({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="geo-answer-dossier__empty" role="status">
+      <span aria-hidden="true">◇</span>
+      <strong>{title}</strong>
+      <p>{children}</p>
+    </div>
+  );
+}
+
+function CitationRail({
+  state,
+  detail,
+  answerCaptureTime,
+  expectedCount,
+}: {
+  state: DetailState;
+  detail: CustomerAnswerDetail | null;
+  answerCaptureTime: string;
+  expectedCount: number;
+}) {
+  const citations = detail?.citations ?? [];
+  const domainCount = new Set(citations.map((citation) => citation.host)).size;
+  const publishedCount = citations.filter((citation) => citation.publishedAt).length;
+  return (
+    <aside className="geo-answer-dossier__citations" aria-label="引用来源">
+      <header>
+        <div>
+          <span>Source analysis</span>
+          <h3>引用信源</h3>
+        </div>
+        <Badge tone={citations.length > 0 ? 'info' : 'neutral'}>
+          {citations.length || expectedCount} 条
+        </Badge>
+      </header>
+      {state === 'loading' ? (
+        <div className="geo-answer-dossier__citation-loading" role="status">
+          <span />
+          <span />
+          <span />
+          正在核对引用关系与证据资产…
+        </div>
+      ) : null}
+      {state === 'failed' ? (
+        <DetailEmpty title="引用证据暂未载入">
+          官方页面仍可打开，但当前不能把引用清单声称为完整记录。
+        </DetailEmpty>
+      ) : null}
+      {state === 'ready' && !detail?.projectionComplete ? (
+        <p className="geo-answer-dossier__integrity-warning" role="alert">
+          部分引用或证据未通过安全投影，当前列表不声明为完整记录。
+        </p>
+      ) : null}
+      {state === 'ready' && citations.length > 0 ? (
+        <>
+          <div className="geo-answer-dossier__citation-summary">
+            <span>{domainCount} 个独立域名</span>
+            <span>
+              发布时间 {publishedCount}/{citations.length}
+            </span>
+            <span>回答采集 {formatCaptureTime(answerCaptureTime)}</span>
+          </div>
+          <div
+            className="geo-answer-dossier__citation-table-wrap"
+            role="region"
+            aria-label="引用信源分析表"
+            tabIndex={0}
+          >
+            <table className="geo-answer-dossier__citation-table">
+              <thead>
+                <tr>
+                  <th>序号</th>
+                  <th>站点</th>
+                  <th>站点类型</th>
+                  <th>标题与引用依据</th>
+                  <th>发布时间</th>
+                </tr>
+              </thead>
+              <tbody>
+                {citations.map((citation) => {
+                  const publishedAt = formatPublishedTime(citation.publishedAt);
+                  return (
+                    <tr key={citation.id} id={`citation-${citation.ordinal}`}>
+                      <td>
+                        <span className="geo-answer-dossier__citation-order">
+                          {citation.ordinal}
+                        </span>
+                      </td>
+                      <td>
+                        <a
+                          className="geo-answer-dossier__citation-host"
+                          href={citation.url}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                        >
+                          {citation.host}
+                        </a>
+                      </td>
+                      <td>
+                        <span
+                          className="geo-answer-dossier__source-type"
+                          data-tone={citation.ownSource ? 'owned' : 'independent'}
+                        >
+                          {citation.ownSource ? '品牌自有' : '第三方'}
+                        </span>
+                      </td>
+                      <td>
+                        <a
+                          className="geo-answer-dossier__citation-article"
+                          href={citation.url}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                        >
+                          {citation.title ?? citation.host}
+                        </a>
+                        {citation.citedText ? <blockquote>{citation.citedText}</blockquote> : null}
+                        <small>
+                          {citation.contentHash
+                            ? `引用片段已登记 · ${citation.contentHash.slice(0, 8)}…`
+                            : '引用片段哈希未形成'}
+                        </small>
+                      </td>
+                      <td>
+                        {publishedAt ? (
+                          <time dateTime={citation.publishedAt ?? undefined}>{publishedAt}</time>
+                        ) : (
+                          <span className="geo-answer-dossier__missing-time">待采集</span>
+                        )}
+                        <small>{citation.publishedAtSource ?? '不以抓取时间冒充发布时间'}</small>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      ) : null}
+      {state === 'ready' && citations.length === 0 ? (
+        <DetailEmpty title="本回答没有可展示的引用">
+          这表示当前记录未形成规范化引用，不等于回答内容已经过外部信源验证。
+        </DetailEmpty>
+      ) : null}
+      <p className="geo-answer-dossier__method-note">
+        引用表示 AI 回答关联了该页面；不自动等于该页面提及品牌，也不自动证明回答结论正确。
+      </p>
+    </aside>
+  );
+}
+
+function AnswerRunRail({
+  rows,
+  selectedAnswerId,
+  onSelect,
+}: {
+  rows: readonly CustomerAnswerExplorerRow[];
+  selectedAnswerId: string;
+  onSelect: (row: CustomerAnswerExplorerRow) => void;
+}) {
+  return (
+    <aside className="geo-answer-dossier__run-rail" aria-label="同题回答运行">
+      <header>
+        <div>
+          <span>Conversation runs</span>
+          <h3>对话平台</h3>
+        </div>
+        <strong>{rows.length}</strong>
+      </header>
+      <div className="geo-answer-dossier__run-list">
+        {rows.map((candidate, index) => {
+          const selected = candidate.answer_pub_id === selectedAnswerId;
+          return (
+            <button
+              key={candidate.answer_pub_id}
+              type="button"
+              aria-pressed={selected}
+              aria-label={`${candidate.model}，${candidate.mode || '模式未标注'}，${formatCaptureTime(candidate.capture_time)}`}
+              onClick={() => onSelect(candidate)}
+            >
+              <span className="geo-answer-dossier__run-platform" aria-hidden="true">
+                {platformMonogram(candidate.model)}
+              </span>
+              <span className="geo-answer-dossier__run-copy">
+                <strong>{candidate.model}</strong>
+                <small>{candidate.mode || '模式未标注'}</small>
+                <time dateTime={candidate.capture_time}>
+                  {formatCaptureTime(candidate.capture_time)}
+                </time>
+              </span>
+              <span className="geo-answer-dossier__run-index" aria-hidden="true">
+                {index + 1}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <footer>选择平台后，官方实时页与引用信源表会同步切换。</footer>
+    </aside>
+  );
+}
+
+function AnswerDossier({
+  brandName,
+  row,
+  runs,
+  detailState,
+  detail,
+  onSelectRun,
+  onClose,
+}: {
+  brandName: string;
+  row: CustomerAnswerExplorerRow;
+  runs: readonly CustomerAnswerExplorerRow[];
+  detailState: DetailState;
+  detail: CustomerAnswerDetail | null;
+  onSelectRun: (row: CustomerAnswerExplorerRow) => void;
+  onClose: () => void;
+}) {
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const [mobilePane, setMobilePane] = useState<'official' | 'citations'>('official');
+  const officialLinkEvidence = detail?.evidence.find(
+    (evidence) => evidence.kind === 'share_link' && evidence.relation === 'official_share_link',
+  );
+  const officialShareUrl = safeOfficialShareUrl(officialLinkEvidence?.sourceUrl ?? null, row.model);
+  const publishedCount = detail?.citations.filter((citation) => citation.publishedAt).length ?? 0;
+  const uniqueDomains = new Set(detail?.citations.map((citation) => citation.host) ?? []).size;
+  const sameQuestionRuns = useMemo(() => {
+    const matching = runs.filter((candidate) =>
+      row.query_pub_id
+        ? candidate.query_pub_id === row.query_pub_id
+        : candidate.query_text?.trim() === row.query_text?.trim(),
+    );
+    return matching.some((candidate) => candidate.answer_pub_id === row.answer_pub_id)
+      ? matching
+      : [row, ...matching];
+  }, [row, runs]);
+  const selectedRunIndex = Math.max(
+    0,
+    sameQuestionRuns.findIndex((candidate) => candidate.answer_pub_id === row.answer_pub_id),
+  );
+  const copyShareLink = async () => {
+    if (!officialShareUrl || !navigator.clipboard?.writeText) {
+      setCopyState('failed');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(officialShareUrl);
+      setCopyState('copied');
+      window.setTimeout(() => setCopyState('idle'), 1_500);
+    } catch {
+      setCopyState('failed');
+    }
+  };
+  const selectRunAt = (index: number) => {
+    const candidate = sameQuestionRuns[index];
+    if (candidate) onSelectRun(candidate);
+  };
+
+  useEffect(() => {
+    setMobilePane('official');
+  }, [row.answer_pub_id]);
+
+  return (
+    <Dialog
+      title={row.query_text?.trim() || '未关联原始问题'}
+      eyebrow={`${row.model} · 官方回答与引用信源`}
+      size="wide"
+      closeLabel="关闭官方回答详情"
+      onClose={onClose}
+    >
+      <div className="geo-answer-dossier">
+        <section className="geo-answer-dossier__identity" aria-label="回答身份与分析摘要">
+          <div className="geo-answer-dossier__platform" aria-hidden="true">
+            {platformMonogram(row.model)}
+          </div>
+          <div className="geo-answer-dossier__identity-main">
+            <div className="geo-answer-dossier__identity-tags">
+              <span>{row.model}</span>
+              <span>{row.mode || '模式未标注'}</span>
+              <span>{row.region || '地域未标注'}</span>
+              <time dateTime={row.capture_time}>{formatCaptureTime(row.capture_time)}</time>
+            </div>
+            <AnswerResultBadges brandName={brandName} row={row} />
+          </div>
+          <div className="geo-answer-dossier__identity-actions">
+            {officialShareUrl ? (
+              <a href={officialShareUrl} target="_blank" rel="noreferrer noopener">
+                打开官方原页 ↗
+              </a>
+            ) : null}
+            <button
+              type="button"
+              disabled={!officialShareUrl}
+              title={officialShareUrl ? '复制官方分享链接' : '本次采集尚无官方分享链接'}
+              onClick={() => void copyShareLink()}
+            >
+              {copyState === 'copied'
+                ? '分享链接已复制'
+                : copyState === 'failed'
+                  ? '复制失败'
+                  : '复制分享链接'}
+            </button>
+          </div>
+        </section>
+
+        <section className="geo-answer-dossier__metrics" aria-label="回答证据摘要">
+          <DetailMetric
+            label="品牌位置"
+            value={row.rank === null ? '未进入排名' : `第 ${row.rank} 位`}
+            note={row.mentioned ? `回答中已识别 ${brandName}` : '回答中未识别目标品牌'}
+          />
+          <DetailMetric
+            label="独立信源"
+            value={detailState === 'ready' ? `${uniqueDomains} 个域名` : '核对中'}
+            note={`${detail?.citations.length ?? row.citation_count} 条规范化引用`}
+          />
+          <DetailMetric
+            label="发布时间完整度"
+            value={
+              detailState === 'ready' && detail?.citations.length
+                ? `${publishedCount}/${detail.citations.length}`
+                : '待核对'
+            }
+            note="缺失会如实标注，不以抓取时间替代"
+          />
+          <DetailMetric
+            label="官方回答页"
+            value={officialShareUrl ? '已获取' : detailState === 'loading' ? '核对中' : '未获取'}
+            note={
+              officialShareUrl
+                ? `直接加载 ${new URL(officialShareUrl).hostname}`
+                : '客户视图不以自渲染文本或截图替代'
+            }
+          />
+        </section>
+
+        <div className="geo-answer-dossier__reading-layout" data-mobile-pane={mobilePane}>
+          <AnswerRunRail
+            rows={sameQuestionRuns}
+            selectedAnswerId={row.answer_pub_id}
+            onSelect={onSelectRun}
+          />
+          <nav className="geo-answer-dossier__mobile-pane-switch" aria-label="回答详情内容切换">
+            <button
+              type="button"
+              aria-pressed={mobilePane === 'official'}
+              onClick={() => setMobilePane('official')}
+            >
+              官方回答
+            </button>
+            <button
+              type="button"
+              aria-pressed={mobilePane === 'citations'}
+              onClick={() => setMobilePane('citations')}
+            >
+              引用信源（{detail?.citations.length ?? row.citation_count}）
+            </button>
+          </nav>
+          <section className="geo-answer-dossier__official" aria-label="官方实时回答页">
+            <header>
+              <div>
+                <Badge tone={officialShareUrl ? 'positive' : 'warning'}>
+                  {officialShareUrl ? '官方域名直连' : '官方链接缺失'}
+                </Badge>
+                <strong>官方实时回答页</strong>
+              </div>
+              {officialShareUrl ? <span>{new URL(officialShareUrl).hostname}</span> : null}
+            </header>
+            {detailState === 'loading' ? (
+              <div className="geo-answer-dossier__official-loading" role="status">
+                <span />
+                <span />
+                <strong>正在核对官方分享链接…</strong>
+              </div>
+            ) : officialShareUrl ? (
+              <>
+                <iframe
+                  src={officialShareUrl}
+                  title={`${row.model} 官方回答分享页`}
+                  sandbox="allow-scripts allow-same-origin"
+                  referrerPolicy="no-referrer"
+                />
+                <footer>
+                  <span>
+                    这里直接请求官方域名，不展示系统自渲染答案。平台若用 X-Frame-Options 或 CSP
+                    禁止嵌入，浏览器会拦截，系统不会绕过其安全策略。
+                  </span>
+                  <a href={officialShareUrl} target="_blank" rel="noreferrer noopener">
+                    无法显示？打开官方原页 ↗
+                  </a>
+                </footer>
+              </>
+            ) : (
+              <DetailEmpty title="本次采集没有官方分享链接">
+                客户视图不会用自渲染答案、截图或分享图片代替官方页面。请由采集端补齐平台分享链接。
+              </DetailEmpty>
+            )}
+          </section>
+          <CitationRail
+            state={detailState}
+            detail={detail}
+            answerCaptureTime={row.capture_time}
+            expectedCount={row.citation_count}
+          />
+        </div>
+
+        <nav className="geo-answer-dossier__run-pager" aria-label="同题回答分页">
+          <button
+            type="button"
+            disabled={selectedRunIndex === 0}
+            onClick={() => selectRunAt(selectedRunIndex - 1)}
+          >
+            ← 上一条
+          </button>
+          <span>
+            第 {selectedRunIndex + 1} / {sameQuestionRuns.length} 条 · {row.model}
+          </span>
+          <button
+            type="button"
+            disabled={selectedRunIndex >= sameQuestionRuns.length - 1}
+            onClick={() => selectRunAt(selectedRunIndex + 1)}
+          >
+            下一条 →
+          </button>
+        </nav>
+      </div>
+    </Dialog>
+  );
+}
 
 function SummaryTile({
   label,
@@ -171,18 +692,34 @@ const answerGroupValue = (
   return rawValue.trim() || '未标注';
 };
 
+const platformGroupPriority = (label: string): number => {
+  const normalized = label.trim().toLocaleLowerCase('zh-CN');
+  const groups = [
+    ['doubao', '豆包'],
+    ['deepseek'],
+    ['文心一言', '文心', 'yiyan'],
+    ['通义千问', '千问', 'qwen'],
+    ['腾讯元宝', '元宝'],
+    ['kimi'],
+  ];
+  const index = groups.findIndex((aliases) => aliases.includes(normalized));
+  return index < 0 ? groups.length : index;
+};
+
 function AnswerGroup({
   brandName,
   groupBy,
   groupIndex,
   label,
   rows,
+  onOpen,
 }: {
   brandName: string;
   groupBy: CustomerAnswerGroupBy;
   groupIndex: number;
   label: string;
   rows: readonly CustomerAnswerExplorerRow[];
+  onOpen: (row: CustomerAnswerExplorerRow) => void;
 }) {
   const headingId = `geo-answer-group-${groupBy}-${groupIndex}`;
   const mentionCount = rows.filter((row) => row.mentioned).length;
@@ -202,70 +739,46 @@ function AnswerGroup({
         </div>
       </header>
 
-      <div
-        className="geo-answer-group__table-wrap"
-        role="region"
-        aria-label={`${label}回答明细`}
-        tabIndex={0}
-      >
-        <table className="geo-answer-group__table">
-          <caption>
-            {groupByPresentation[groupBy].groupLabel}“{label}”回答明细
-          </caption>
-          <thead>
-            <tr>
-              <th scope="col">用户问题与 AI 回答</th>
-              {groupBy !== 'platform' ? <th scope="col">AI 平台</th> : null}
-              {groupBy !== 'mode' ? <th scope="col">回答模式</th> : null}
-              {groupBy !== 'region' ? <th scope="col">地域</th> : null}
-              <th scope="col">品牌表现</th>
-              <th scope="col">采集时间</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => {
-              const queryLabel = row.query_text?.trim() || '未关联原始问题';
-              return (
-                <tr key={row.answer_pub_id}>
-                  <td className="geo-answer-row__answer">
-                    <span>用户问题</span>
-                    <strong>{queryLabel}</strong>
-                    <p className="geo-answer-row__lead">{firstParagraph(row.response_text)}</p>
-                    <details className="geo-answer-row__details">
-                      <summary>查看完整回答</summary>
-                      <div>{row.response_text || '该回答没有可显示的正文。'}</div>
-                      <footer>
-                        <span>回答记录 {row.answer_pub_id}</span>
-                        {row.query_pub_id ? <span>问题记录 {row.query_pub_id}</span> : null}
-                      </footer>
-                    </details>
-                  </td>
-                  {groupBy !== 'platform' ? (
-                    <td className="geo-answer-row__dimension" data-dimension="platform">
-                      {row.model || '未标注'}
-                    </td>
-                  ) : null}
-                  {groupBy !== 'mode' ? (
-                    <td className="geo-answer-row__dimension" data-dimension="mode">
-                      {row.mode || '未标注'}
-                    </td>
-                  ) : null}
-                  {groupBy !== 'region' ? (
-                    <td className="geo-answer-row__dimension" data-dimension="region">
-                      {row.region || '未标注'}
-                    </td>
-                  ) : null}
-                  <td className="geo-answer-row__result">
-                    <AnswerResultBadges brandName={brandName} row={row} />
-                  </td>
-                  <td className="geo-answer-row__time">
-                    <time dateTime={row.capture_time}>{formatCaptureTime(row.capture_time)}</time>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+      <div className="geo-answer-group__rows" role="region" aria-label={`${label}回答明细`}>
+        {rows.map((row, index) => {
+          const queryLabel = row.query_text?.trim() || '未关联原始问题';
+          const secondaryDimensions = [
+            ...(groupBy === 'platform' ? [] : [{ label: '平台', value: row.model }]),
+            ...(groupBy === 'mode' ? [] : [{ label: '模式', value: row.mode }]),
+            ...(groupBy === 'region' ? [] : [{ label: '地域', value: row.region }]),
+          ];
+          return (
+            <article className="geo-answer-row" key={row.answer_pub_id}>
+              <div className="geo-answer-row__index" aria-hidden="true">
+                <span>{String(index + 1).padStart(2, '0')}</span>
+              </div>
+              <div className="geo-answer-row__body">
+                <header>
+                  <span>用户真实问题</span>
+                  <time dateTime={row.capture_time}>{formatCaptureTime(row.capture_time)}</time>
+                </header>
+                <h4>{queryLabel}</h4>
+                <p className="geo-answer-row__lead">查看该平台官方实时回答页及逐条引用信源。</p>
+                <div className="geo-answer-row__dimensions" aria-label="回答采集条件">
+                  {secondaryDimensions.map((dimension) => (
+                    <span key={dimension.label}>
+                      <small>{dimension.label}</small>
+                      {dimension.value || '未标注'}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div className="geo-answer-row__result">
+                <AnswerResultBadges brandName={brandName} row={row} />
+                <button type="button" onClick={() => onOpen(row)}>
+                  <span>查看官方回答与信源</span>
+                  <span aria-hidden="true">→</span>
+                </button>
+                <small>官方实时页 · 引用信源表 · 分享链接</small>
+              </div>
+            </article>
+          );
+        })}
       </div>
     </section>
   );
@@ -290,6 +803,7 @@ function LoadingPanel() {
 export function CustomerAnswerExplorer({
   brandName,
   loadPage,
+  loadDetail,
   fixturePage,
 }: CustomerAnswerExplorerProps) {
   const [searchDraft, setSearchDraft] = useState('');
@@ -302,7 +816,12 @@ export function CustomerAnswerExplorer({
   const [state, setState] = useState<LoadState>(fixturePage ? 'ready' : 'loading');
   const [result, setResult] = useState<CustomerAnswerExplorerPage | null>(fixturePage ?? null);
   const [retryKey, setRetryKey] = useState(0);
+  const [selectedAnswer, setSelectedAnswer] = useState<CustomerAnswerExplorerRow | null>(null);
+  const [detailState, setDetailState] = useState<DetailState>('idle');
+  const [detail, setDetail] = useState<CustomerAnswerDetail | null>(null);
+  const [activeGroupLabel, setActiveGroupLabel] = useState<string | null>(null);
   const requestSequence = useRef(0);
+  const detailRequestSequence = useRef(0);
 
   const query = useMemo<CustomerAnswerExplorerQuery>(
     () => ({ search, mentioned, sentiment, offset, limit }),
@@ -333,6 +852,35 @@ export function CustomerAnswerExplorer({
       cancelled = true;
     };
   }, [fixturePage, loadPage, query, retryKey]);
+
+  const openAnswer = (row: CustomerAnswerExplorerRow) => {
+    const requestId = ++detailRequestSequence.current;
+    setSelectedAnswer(row);
+    setDetail(null);
+    if (!loadDetail) {
+      setDetailState('failed');
+      return;
+    }
+    setDetailState('loading');
+    void loadDetail(row.answer_pub_id).then(
+      (nextDetail) => {
+        if (requestId !== detailRequestSequence.current) return;
+        setDetail(nextDetail);
+        setDetailState('ready');
+      },
+      () => {
+        if (requestId !== detailRequestSequence.current) return;
+        setDetailState('failed');
+      },
+    );
+  };
+
+  const closeAnswer = () => {
+    detailRequestSequence.current += 1;
+    setSelectedAnswer(null);
+    setDetail(null);
+    setDetailState('idle');
+  };
 
   const submitSearch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -389,19 +937,41 @@ export function CustomerAnswerExplorer({
     }
     return [...groups.entries()]
       .map(([label, group]) => ({ label, rows: group }))
-      .sort(
-        (left, right) =>
-          right.rows.length - left.rows.length || left.label.localeCompare(right.label, 'zh-CN'),
-      );
+      .sort((left, right) => {
+        if (groupBy === 'platform') {
+          return (
+            platformGroupPriority(left.label) - platformGroupPriority(right.label) ||
+            left.label.localeCompare(right.label, 'zh-CN')
+          );
+        }
+        return (
+          right.rows.length - left.rows.length || left.label.localeCompare(right.label, 'zh-CN')
+        );
+      });
   }, [groupBy, rows]);
+  const activeGroupIndex = Math.max(
+    0,
+    groupedRows.findIndex((group) => group.label === activeGroupLabel),
+  );
+  const activeGroup = groupedRows[activeGroupIndex];
+
+  useEffect(() => {
+    if (groupedRows.length === 0) {
+      setActiveGroupLabel(null);
+      return;
+    }
+    if (!groupedRows.some((group) => group.label === activeGroupLabel)) {
+      setActiveGroupLabel(groupedRows[0]?.label ?? null);
+    }
+  }, [activeGroupLabel, groupedRows]);
 
   return (
     <section className="geo-answer-explorer" aria-labelledby="geo-answer-explorer-title">
       <header className="geo-answer-explorer__hero">
         <div>
-          <span>Answer Intelligence</span>
-          <h2 id="geo-answer-explorer-title">{brandName} · 真实 AI 回答</h2>
-          <p>直接查看用户问题、模型原文、品牌提及、排名、推荐语境与引用证据。</p>
+          <span>VERIFIED ANSWER LIBRARY</span>
+          <h2 id="geo-answer-explorer-title">回答证据库</h2>
+          <p>按平台逐条查看 {brandName} 的官方实时回答页，并在同一屏核对结构化引用信源。</p>
         </div>
         <div className="geo-answer-explorer__hero-total">
           <span>匹配回答</span>
@@ -469,7 +1039,7 @@ export function CustomerAnswerExplorer({
           tone="blue"
           label="匹配回答总数"
           value={total.toLocaleString('zh-CN')}
-          detail={hasFilters ? '已应用搜索或筛选' : '当前观察窗口'}
+          detail={hasFilters ? '已应用搜索或筛选' : '所选统计区间'}
         />
         <SummaryTile
           tone="violet"
@@ -508,7 +1078,10 @@ export function CustomerAnswerExplorer({
                 key={value}
                 type="button"
                 aria-pressed={groupBy === value}
-                onClick={() => setGroupBy(value)}
+                onClick={() => {
+                  setGroupBy(value);
+                  setActiveGroupLabel(null);
+                }}
               >
                 {groupByPresentation[value].label}
               </button>
@@ -536,11 +1109,11 @@ export function CustomerAnswerExplorer({
         <div className="geo-answer-explorer__state" role="status">
           <span aria-hidden="true">0</span>
           <div>
-            <strong>{hasFilters ? '没有匹配的回答' : '当前窗口暂无回答'}</strong>
+            <strong>{hasFilters ? '没有匹配的回答' : '所选统计区间暂无回答'}</strong>
             <p>
               {hasFilters
                 ? '更换关键词或清除筛选条件，查看其他真实回答。'
-                : '当前观察窗口尚无可展示的 AI 回答。'}
+                : '所选统计区间尚无可展示的 AI 回答。'}
             </p>
           </div>
           {hasFilters ? (
@@ -561,17 +1134,67 @@ export function CustomerAnswerExplorer({
       ) : null}
 
       {state === 'ready' && rows.length > 0 ? (
-        <div className="geo-answer-explorer__groups">
-          {groupedRows.map((group, index) => (
-            <AnswerGroup
-              key={`${groupBy}-${group.label}`}
-              brandName={brandName}
-              groupBy={groupBy}
-              groupIndex={index}
-              label={group.label}
-              rows={group.rows}
-            />
-          ))}
+        <div className="geo-answer-explorer__group-browser">
+          <aside className="geo-answer-explorer__group-directory" aria-label="回答分类导航">
+            <header>
+              <span>{groupByPresentation[groupBy].groupLabel}</span>
+              <strong>{groupedRows.length} 组</strong>
+            </header>
+            <div>
+              {groupedRows.map((group, index) => (
+                <button
+                  key={`${groupBy}-${group.label}`}
+                  type="button"
+                  aria-pressed={index === activeGroupIndex}
+                  onClick={() => setActiveGroupLabel(group.label)}
+                >
+                  <span className="geo-answer-explorer__group-monogram" aria-hidden="true">
+                    {platformMonogram(group.label)}
+                  </span>
+                  <span>
+                    <strong>{group.label}</strong>
+                    <small>{group.rows.length} 条回答</small>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </aside>
+          <div className="geo-answer-explorer__group-stage">
+            {activeGroup ? (
+              <AnswerGroup
+                key={`${groupBy}-${activeGroup.label}`}
+                brandName={brandName}
+                groupBy={groupBy}
+                groupIndex={activeGroupIndex}
+                label={activeGroup.label}
+                rows={activeGroup.rows}
+                onOpen={openAnswer}
+              />
+            ) : null}
+            <nav className="geo-answer-explorer__group-pager" aria-label="回答分类分页">
+              <button
+                type="button"
+                disabled={activeGroupIndex === 0}
+                onClick={() =>
+                  setActiveGroupLabel(groupedRows[activeGroupIndex - 1]?.label ?? null)
+                }
+              >
+                ← 上一组
+              </button>
+              <span>
+                第 {activeGroupIndex + 1} / {groupedRows.length} 组
+              </span>
+              <button
+                type="button"
+                disabled={activeGroupIndex >= groupedRows.length - 1}
+                onClick={() =>
+                  setActiveGroupLabel(groupedRows[activeGroupIndex + 1]?.label ?? null)
+                }
+              >
+                下一组 →
+              </button>
+            </nav>
+          </div>
         </div>
       ) : null}
 
@@ -617,6 +1240,19 @@ export function CustomerAnswerExplorer({
           </button>
         </nav>
       </footer>
+
+      {selectedAnswer ? (
+        <AnswerDossier
+          key={selectedAnswer.answer_pub_id}
+          brandName={brandName}
+          row={selectedAnswer}
+          runs={rows}
+          detailState={detailState}
+          detail={detail}
+          onSelectRun={openAnswer}
+          onClose={closeAnswer}
+        />
+      ) : null}
     </section>
   );
 }

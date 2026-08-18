@@ -4,9 +4,12 @@
       "/home/xln/.config/nvm/versions/node/v24.6.0/bin/node",
       "/home/xln/geo-system/platform-v2/node_modules/@playwright/test/cli.js",
       "test",
-      "tests/e2e/customer-visual.spec.ts",
+      "tests/e2e/customer-product-live.spec.ts",
+      "--project=customer-desktop",
+      "--project=customer-tablet",
+      "--project=customer-mobile",
       "--grep",
-      "customer (home|monitoring) visual baseline"
+      "validated customer reads"
     ],
     "configFile": "/home/xln/geo-system/platform-v2/playwright.config.ts",
     "rootDir": "/home/xln/geo-system/platform-v2/tests/e2e",
@@ -294,9 +297,9 @@
       "env": {
         "PYTHON_BASIC_REPL": "1",
         "LESSOPEN": "| /usr/bin/lesspipe %s",
-        "TMUX": "/tmp/tmux-1000/default,4013479,71",
+        "TMUX": "/tmp/tmux-1000/default,4013479,73",
         "CODEX_CI": "1",
-        "HTTPS_PROXY": "",
+        "no_proxy": "127.0.0.1,localhost",
         "USER": "xln",
         "SSH_CLIENT": "117.133.64.159 8015 2222",
         "npm_config_user_agent": "pnpm/11.17.0 npm/? node/v24.6.0 linux x64",
@@ -306,10 +309,10 @@
         "BROWSER": "/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/bin/helpers/browser.sh",
         "MOTD_SHOWN": "pam",
         "HOME": "/home/xln",
+        "NO_PROXY": "127.0.0.1,localhost",
         "TERM_PROGRAM_VERSION": "3.2a",
         "NVM_BIN": "/home/xln/.config/nvm/versions/node/v24.6.0/bin",
         "VSCODE_IPC_HOOK_CLI": "/run/user/1000/vscode-ipc-19a833ff-7b40-43ab-9744-1d6bf8bcdc83.sock",
-        "NO_PROXY": "*",
         "NVM_INC": "/home/xln/.config/nvm/versions/node/v24.6.0/include/node",
         "COREPACK_ROOT": "/home/xln/.config/nvm/versions/node/v24.6.0/lib/node_modules/corepack",
         "PAGER": "cat",
@@ -328,15 +331,14 @@
         "CODEX_PERMISSION_PROFILE": ":danger-full-access",
         "COREPACK_ENABLE_DOWNLOAD_PROMPT": "1",
         "LOGNAME": "xln",
-        "ALL_PROXY": "",
         "pnpm_config_verify_deps_before_run": "false",
         "http_proxy": "http://127.0.0.1:7890",
-        "_": "/usr/bin/env",
+        "_": "/home/xln/.config/nvm/versions/node/v24.6.0/bin/pnpm",
         "CLAUDE_CODE_SSE_PORT": "31479",
         "XDG_SESSION_CLASS": "user",
         "TERM": "dumb",
         "XDG_SESSION_ID": "5582",
-        "PATH": "./node_modules/.bin:/home/xln/geo-system/platform-v2/node_modules/.bin:/home/xln/.local/bin:/home/xln/.config/nvm/versions/node/v24.6.0/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/codex-path:/home/xln/.codex/tmp/arg0/codex-arg04aG9US:/home/xln/.local/bin:/home/xln/.kimi-code/bin:/home/xln/.deno/bin:/home/xln/.local/bin:/home/xln/.kimi-code/bin:/home/xln/.deno/bin:/home/xln/.local/bin:/home/xln/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand:/home/xln/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli:/home/xln/.vscode-server/cli/servers/Stable-df53daabb18cd157bdb08c7f01c34df936cf12f4/server/bin/remote-cli:/home/xln/.local/bin:/home/xln/.kimi-code/bin:/home/xln/google-cloud-sdk/bin:/home/xln/.deno/bin:/home/xln/.config/nvm/versions/node/v24.6.0/bin:/home/xln/.local/bin:/home/xln/.deno/bin:/home/xln/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/home/xln/.vscode-server/extensions/ms-python.debugpy-2026.6.0-linux-x64/bundled/scripts/noConfigScripts",
+        "PATH": "./node_modules/.bin:/home/xln/geo-system/platform-v2/node_modules/.bin:/home/xln/.local/bin:/home/xln/.config/nvm/versions/node/v24.6.0/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/codex-path:/home/xln/.codex/tmp/arg0/codex-arg0vZ1BDe:/home/xln/.local/bin:/home/xln/.kimi-code/bin:/home/xln/.deno/bin:/home/xln/.local/bin:/home/xln/.kimi-code/bin:/home/xln/.deno/bin:/home/xln/.local/bin:/home/xln/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand:/home/xln/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli:/home/xln/.vscode-server/cli/servers/Stable-df53daabb18cd157bdb08c7f01c34df936cf12f4/server/bin/remote-cli:/home/xln/.local/bin:/home/xln/.kimi-code/bin:/home/xln/google-cloud-sdk/bin:/home/xln/.deno/bin:/home/xln/.config/nvm/versions/node/v24.6.0/bin:/home/xln/.local/bin:/home/xln/.deno/bin:/home/xln/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/home/xln/.vscode-server/extensions/ms-python.debugpy-2026.6.0-linux-x64/bundled/scripts/noConfigScripts",
         "XDG_RUNTIME_DIR": "/run/user/1000",
         "VSCODE_DEBUGPY_ADAPTER_ENDPOINTS": "/home/xln/.vscode-server/extensions/ms-python.debugpy-2026.6.0-linux-x64/.noConfigDebugAdapterEndpoints/endpoint-70a46e768030bfa5.txt",
         "LANG": "C.UTF-8",
@@ -349,7 +351,7 @@
         "SHELL": "/bin/bash",
         "NODE_PATH": "/home/xln/geo-system/platform-v2/node_modules/.pnpm/@playwright+test@1.61.1/node_modules/@playwright/test/node_modules:/home/xln/geo-system/platform-v2/node_modules/.pnpm/@playwright+test@1.61.1/node_modules:/home/xln/geo-system/platform-v2/node_modules/.pnpm/node_modules",
         "LESSCLOSE": "/usr/bin/lesspipe %s %s",
-        "CODEX_THREAD_ID": "01a00e81-ba7a-77a3-b0b1-5a2a50dcafb3",
+        "CODEX_THREAD_ID": "01a012f4-2b94-7a12-999f-cf539ce4902a",
         "PNPM_PACKAGE_NAME": "geo-platform-v2",
         "VSCODE_GIT_ASKPASS_EXTRA_ARGS": "",
         "GIT_PAGER": "cat",
@@ -358,13 +360,12 @@
         "LC_ALL": "C.UTF-8",
         "CODEX_MANAGED_PACKAGE_ROOT": "/home/xln/.config/nvm/versions/node/v24.6.0/lib/node_modules/@openai/codex",
         "COPILOT_DEBUG_NONCE": "9abf7f5d3e8c784e97955dcc9fdda180",
-        "SSH_CONNECTION": "114.248.4.235 59999 172.16.1.190 2222",
+        "SSH_CONNECTION": "114.248.4.235 57824 172.16.1.190 2222",
         "NVM_CD_FLAGS": "",
         "XDG_DATA_DIRS": "/usr/share/gnome:/usr/local/share:/usr/share:/var/lib/snapd/desktop",
-        "HTTP_PROXY": "",
         "npm_command": "exec",
         "CODEX_MANAGED_BY_NPM": "1",
-        "TMUX_PANE": "%71",
+        "TMUX_PANE": "%73",
         "GEO_VITE_NO_WATCH": "1",
         "GEO_E2E_BUILD": "1",
         "VITE_ALLOW_CONTRACT_FIXTURES": "true",
@@ -376,13 +377,13 @@
   },
   "suites": [
     {
-      "title": "customer-visual.spec.ts",
-      "file": "customer-visual.spec.ts",
+      "title": "customer-product-live.spec.ts",
+      "file": "customer-product-live.spec.ts",
       "column": 0,
       "line": 0,
       "specs": [
         {
-          "title": "customer home visual baseline has no page overflow",
+          "title": "validated customer reads mounted data and serializes every write without secret leakage",
           "ok": true,
           "tags": [],
           "tests": [
@@ -397,12 +398,12 @@
                   "workerIndex": 0,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 2010,
+                  "duration": 6209,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-08-17T11:38:42.656Z",
+                  "startTime": "2026-08-18T06:20:08.665Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -410,47 +411,13 @@
               "status": "expected"
             }
           ],
-          "id": "e1a80a90cc14ec58051f-88d33941dafb09f9f9a8",
-          "file": "customer-visual.spec.ts",
-          "line": 56,
-          "column": 7
+          "id": "77e20af114bd24fe2de3-eef288ab98a4735ac702",
+          "file": "customer-product-live.spec.ts",
+          "line": 33,
+          "column": 5
         },
         {
-          "title": "customer monitoring visual baseline has no page overflow",
-          "ok": true,
-          "tags": [],
-          "tests": [
-            {
-              "timeout": 30000,
-              "annotations": [],
-              "expectedStatus": "passed",
-              "projectId": "customer-desktop",
-              "projectName": "customer-desktop",
-              "results": [
-                {
-                  "workerIndex": 0,
-                  "parallelIndex": 0,
-                  "status": "passed",
-                  "duration": 1358,
-                  "errors": [],
-                  "stdout": [],
-                  "stderr": [],
-                  "retry": 0,
-                  "startTime": "2026-08-17T11:38:44.918Z",
-                  "annotations": [],
-                  "attachments": []
-                }
-              ],
-              "status": "expected"
-            }
-          ],
-          "id": "e1a80a90cc14ec58051f-d1a4a439452485ac7a22",
-          "file": "customer-visual.spec.ts",
-          "line": 56,
-          "column": 7
-        },
-        {
-          "title": "customer home visual baseline has no page overflow",
+          "title": "validated customer reads mounted data and serializes every write without secret leakage",
           "ok": true,
           "tags": [],
           "tests": [
@@ -465,12 +432,12 @@
                   "workerIndex": 1,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 1834,
+                  "duration": 5787,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-08-17T11:38:46.798Z",
+                  "startTime": "2026-08-18T06:20:15.712Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -478,47 +445,13 @@
               "status": "expected"
             }
           ],
-          "id": "e1a80a90cc14ec58051f-ef207ee0f51396339285",
-          "file": "customer-visual.spec.ts",
-          "line": 56,
-          "column": 7
+          "id": "77e20af114bd24fe2de3-0c4d0c0ab88bf2d36dd8",
+          "file": "customer-product-live.spec.ts",
+          "line": 33,
+          "column": 5
         },
         {
-          "title": "customer monitoring visual baseline has no page overflow",
-          "ok": true,
-          "tags": [],
-          "tests": [
-            {
-              "timeout": 30000,
-              "annotations": [],
-              "expectedStatus": "passed",
-              "projectId": "customer-tablet",
-              "projectName": "customer-tablet",
-              "results": [
-                {
-                  "workerIndex": 1,
-                  "parallelIndex": 0,
-                  "status": "passed",
-                  "duration": 1198,
-                  "errors": [],
-                  "stdout": [],
-                  "stderr": [],
-                  "retry": 0,
-                  "startTime": "2026-08-17T11:38:48.876Z",
-                  "annotations": [],
-                  "attachments": []
-                }
-              ],
-              "status": "expected"
-            }
-          ],
-          "id": "e1a80a90cc14ec58051f-1a49e883abefde82458a",
-          "file": "customer-visual.spec.ts",
-          "line": 56,
-          "column": 7
-        },
-        {
-          "title": "customer home visual baseline has no page overflow",
+          "title": "validated customer reads mounted data and serializes every write without secret leakage",
           "ok": true,
           "tags": [],
           "tests": [
@@ -533,12 +466,12 @@
                   "workerIndex": 2,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 1524,
+                  "duration": 5019,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-08-17T11:38:50.596Z",
+                  "startTime": "2026-08-18T06:20:22.294Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -546,53 +479,19 @@
               "status": "expected"
             }
           ],
-          "id": "e1a80a90cc14ec58051f-47cfe387b8ad8e7a639d",
-          "file": "customer-visual.spec.ts",
-          "line": 56,
-          "column": 7
-        },
-        {
-          "title": "customer monitoring visual baseline has no page overflow",
-          "ok": true,
-          "tags": [],
-          "tests": [
-            {
-              "timeout": 30000,
-              "annotations": [],
-              "expectedStatus": "passed",
-              "projectId": "customer-mobile",
-              "projectName": "customer-mobile",
-              "results": [
-                {
-                  "workerIndex": 2,
-                  "parallelIndex": 0,
-                  "status": "passed",
-                  "duration": 977,
-                  "errors": [],
-                  "stdout": [],
-                  "stderr": [],
-                  "retry": 0,
-                  "startTime": "2026-08-17T11:38:52.334Z",
-                  "annotations": [],
-                  "attachments": []
-                }
-              ],
-              "status": "expected"
-            }
-          ],
-          "id": "e1a80a90cc14ec58051f-f329281d9ed96f09a6d6",
-          "file": "customer-visual.spec.ts",
-          "line": 56,
-          "column": 7
+          "id": "77e20af114bd24fe2de3-56b951abf2f4ecde568d",
+          "file": "customer-product-live.spec.ts",
+          "line": 33,
+          "column": 5
         }
       ]
     }
   ],
   "errors": [],
   "stats": {
-    "startTime": "2026-08-17T11:38:10.340Z",
-    "duration": 43128.729,
-    "expected": 6,
+    "startTime": "2026-08-18T06:19:35.207Z",
+    "duration": 52578.772,
+    "expected": 3,
     "skipped": 0,
     "unexpected": 0,
     "flaky": 0

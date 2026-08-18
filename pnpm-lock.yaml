@@ -43,7 +43,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: 3.2.4
-        version: 3.2.4(@types/node@24.1.0)(jsdom@29.1.1)(lightningcss@1.33.0)(supports-color@10.2.2)
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@24.1.0)(jsdom@29.1.1)(lightningcss@1.33.0)(supports-color@10.2.2)
 
   apps/customer-web:
     dependencies:
@@ -107,7 +107,7 @@ importers:
         version: 8.1.5(@types/node@24.1.0)(esbuild@0.28.1)
       vitest:
         specifier: 3.2.4
-        version: 3.2.4(@types/node@24.1.0)(jsdom@29.1.1)(lightningcss@1.33.0)(supports-color@10.2.2)
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@24.1.0)(jsdom@29.1.1)(lightningcss@1.33.0)(supports-color@10.2.2)
 
   apps/intake-form:
     dependencies:
@@ -144,7 +144,7 @@ importers:
         version: 8.1.5(@types/node@24.1.0)(esbuild@0.28.1)
       vitest:
         specifier: 3.2.4
-        version: 3.2.4(@types/node@24.1.0)(jsdom@29.1.1)(lightningcss@1.33.0)(supports-color@10.2.2)
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@24.1.0)(jsdom@29.1.1)(lightningcss@1.33.0)(supports-color@10.2.2)
 
   apps/intelligence-web:
     dependencies:
@@ -199,7 +199,7 @@ importers:
         version: 8.1.5(@types/node@24.1.0)(esbuild@0.28.1)
       vitest:
         specifier: 3.2.4
-        version: 3.2.4(@types/node@24.1.0)(jsdom@29.1.1)(lightningcss@1.33.0)(supports-color@10.2.2)
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@24.1.0)(jsdom@29.1.1)(lightningcss@1.33.0)(supports-color@10.2.2)
 
   apps/operations-web:
     dependencies:
@@ -242,7 +242,7 @@ importers:
         version: 8.1.5(@types/node@24.1.0)(esbuild@0.28.1)
       vitest:
         specifier: 3.2.4
-        version: 3.2.4(@types/node@24.1.0)(jsdom@29.1.1)(lightningcss@1.33.0)(supports-color@10.2.2)
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@24.1.0)(jsdom@29.1.1)(lightningcss@1.33.0)(supports-color@10.2.2)
 
   apps/report-studio:
     dependencies:
@@ -303,7 +303,7 @@ importers:
         version: 8.1.5(@types/node@24.1.0)(esbuild@0.28.1)
       vitest:
         specifier: 3.2.4
-        version: 3.2.4(@types/node@24.1.0)(jsdom@29.1.1)(lightningcss@1.33.0)(supports-color@10.2.2)
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@24.1.0)(jsdom@29.1.1)(lightningcss@1.33.0)(supports-color@10.2.2)
 
   packages/api-client:
     dependencies:
@@ -313,7 +313,7 @@ importers:
     devDependencies:
       vitest:
         specifier: 3.2.4
-        version: 3.2.4(@types/node@24.1.0)(jsdom@29.1.1)(lightningcss@1.33.0)(supports-color@10.2.2)
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@24.1.0)(jsdom@29.1.1)(lightningcss@1.33.0)(supports-color@10.2.2)
 
   packages/auth:
     dependencies:
@@ -326,7 +326,7 @@ importers:
     devDependencies:
       vitest:
         specifier: 3.2.4
-        version: 3.2.4(@types/node@24.1.0)(jsdom@29.1.1)(lightningcss@1.33.0)(supports-color@10.2.2)
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@24.1.0)(jsdom@29.1.1)(lightningcss@1.33.0)(supports-color@10.2.2)
 
   packages/charts:
     dependencies:
@@ -342,7 +342,7 @@ importers:
         version: 19.1.8
       vitest:
         specifier: 3.2.4
-        version: 3.2.4(@types/node@24.1.0)(jsdom@29.1.1)(lightningcss@1.33.0)(supports-color@10.2.2)
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@24.1.0)(jsdom@29.1.1)(lightningcss@1.33.0)(supports-color@10.2.2)
 
   packages/customer-terminal-extension:
     dependencies:
@@ -383,13 +383,13 @@ importers:
         version: 19.2.8(react@19.2.8)
       vitest:
         specifier: 3.2.4
-        version: 3.2.4(@types/node@24.1.0)(jsdom@26.1.0(supports-color@10.2.2))(lightningcss@1.33.0)(supports-color@10.2.2)
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@24.1.0)(jsdom@26.1.0(supports-color@10.2.2))(lightningcss@1.33.0)(supports-color@10.2.2)
 
   packages/domain-types:
     devDependencies:
       vitest:
         specifier: 3.2.4
-        version: 3.2.4(@types/node@24.1.0)(jsdom@29.1.1)(lightningcss@1.33.0)(supports-color@10.2.2)
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@24.1.0)(jsdom@29.1.1)(lightningcss@1.33.0)(supports-color@10.2.2)
 
   packages/evidence-viewer:
     dependencies:
@@ -402,7 +402,7 @@ importers:
         version: 19.1.8
       vitest:
         specifier: 3.2.4
-        version: 3.2.4(@types/node@24.1.0)(jsdom@29.1.1)(lightningcss@1.33.0)(supports-color@10.2.2)
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@24.1.0)(jsdom@29.1.1)(lightningcss@1.33.0)(supports-color@10.2.2)
 
   packages/workflow-ui:
     dependencies:
@@ -415,7 +415,7 @@ importers:
         version: 19.1.8
       vitest:
         specifier: 3.2.4
-        version: 3.2.4(@types/node@24.1.0)(jsdom@29.1.1)(lightningcss@1.33.0)(supports-color@10.2.2)
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@24.1.0)(jsdom@29.1.1)(lightningcss@1.33.0)(supports-color@10.2.2)
 
 packages:
 
@@ -1323,11 +1323,17 @@ packages:
   '@types/d3-zoom@3.0.8':
     resolution: {integrity: sha512-iqMC4/YlFCSlO8+2Ii1GGGliCAY4XdeG748w5vQUbevlbDu0zSjH/+jojorQVBK/se0j6DUFNPBGSqD3YWYnDw==}
 
+  '@types/debug@4.1.13':
+    resolution: {integrity: sha512-KSVgmQmzMwPlmtljOomayoR89W4FynCAi3E8PPs7vmDVPe84hT+vGPKkJfThkmXs0x0jAaa9U8uW8bbfyS2fWw==}
+
   '@types/deep-eql@4.0.2':
     resolution: {integrity: sha512-c9h9dVVMigMPc4bwTvC5dxqtqJZwQPePsWjPlpSOnojbor6pGqdk541lfA7AqFQr5pB1BRdq0juY9db81BwyFw==}
 
   '@types/estree@1.0.9':
     resolution: {integrity: sha512-GhdPgy1el4/ImP05X05Uw4cw2/M93BCUmnEvWZNStlCzEKME4Fkk+YpoA5OiHNQmoS7Cafb8Xa3Pya8m1Qrzeg==}
+
+  '@types/ms@2.1.0':
+    resolution: {integrity: sha512-GsCCIZDE/p3i96vtEqx+7dBUGXrc7zeSK3wwPHIaRThS+9OhWIXRqzs4d6k1SVU8g91DrNRWxWUGhp5KXQb2VA==}
 
   '@types/node@24.1.0':
     resolution: {integrity: sha512-ut5FthK5moxFKH2T1CUOC6ctR67rQRvvHdFLCD2Ql6KXmMuCrjsSsRI9UsLCm9M18BMwClv4pn327UvB7eeO1w==}
@@ -3251,9 +3257,17 @@ snapshots:
       '@types/d3-interpolate': 3.0.4
       '@types/d3-selection': 3.0.11
 
+  '@types/debug@4.1.13':
+    dependencies:
+      '@types/ms': 2.1.0
+    optional: true
+
   '@types/deep-eql@4.0.2': {}
 
   '@types/estree@1.0.9': {}
+
+  '@types/ms@2.1.0':
+    optional: true
 
   '@types/node@24.1.0':
     dependencies:
@@ -4199,7 +4213,7 @@ snapshots:
       esbuild: 0.28.1
       fsevents: 2.3.3
 
-  vitest@3.2.4(@types/node@24.1.0)(jsdom@26.1.0(supports-color@10.2.2))(lightningcss@1.33.0)(supports-color@10.2.2):
+  vitest@3.2.4(@types/debug@4.1.13)(@types/node@24.1.0)(jsdom@26.1.0(supports-color@10.2.2))(lightningcss@1.33.0)(supports-color@10.2.2):
     dependencies:
       '@types/chai': 5.2.3
       '@vitest/expect': 3.2.4
@@ -4225,6 +4239,7 @@ snapshots:
       vite-node: 3.2.4(@types/node@24.1.0)(lightningcss@1.33.0)(supports-color@10.2.2)
       why-is-node-running: 2.3.0
     optionalDependencies:
+      '@types/debug': 4.1.13
       '@types/node': 24.1.0
       jsdom: 26.1.0(supports-color@10.2.2)
     transitivePeerDependencies:
@@ -4241,7 +4256,7 @@ snapshots:
       - tsx
       - yaml
 
-  vitest@3.2.4(@types/node@24.1.0)(jsdom@29.1.1)(lightningcss@1.33.0)(supports-color@10.2.2):
+  vitest@3.2.4(@types/debug@4.1.13)(@types/node@24.1.0)(jsdom@29.1.1)(lightningcss@1.33.0)(supports-color@10.2.2):
     dependencies:
       '@types/chai': 5.2.3
       '@vitest/expect': 3.2.4
@@ -4267,6 +4282,7 @@ snapshots:
       vite-node: 3.2.4(@types/node@24.1.0)(lightningcss@1.33.0)(supports-color@10.2.2)
       why-is-node-running: 2.3.0
     optionalDependencies:
+      '@types/debug': 4.1.13
       '@types/node': 24.1.0
       jsdom: 29.1.1
     transitivePeerDependencies:

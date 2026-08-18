@@ -1,4 +1,5 @@
 import {
+  getAnalyticsAnswerRelations,
   getCustomerAnswerPage,
   getCustomerDashboard,
   getCustomerMetricCatalog,
@@ -23,6 +24,7 @@ import {
 } from 'react';
 import {
   CustomerAnswerExplorer,
+  type CustomerAnswerDetail,
   type CustomerAnswerExplorerPage,
   type CustomerAnswerExplorerQuery,
 } from './customer-answer-explorer';
@@ -159,17 +161,6 @@ const visibilityMetricCodes = [
   'citation_coverage',
 ] as const;
 
-const metricGroups: Record<string, string> = {
-  composite: '综合指数',
-  visibility: '品牌可见度',
-  ranking: '排名表现',
-  competition: '竞争表现',
-  source: '信源结构',
-  content: '内容准备度',
-  reputation: 'AI 口碑',
-  risk: '品牌风险',
-};
-
 const focusCopy: Record<
   CustomerAnalyticsFocus,
   { eyebrow: string; title: string; description: string }
@@ -206,8 +197,8 @@ const focusCopy: Record<
   },
   opportunities: {
     eyebrow: 'Query Opportunities',
-    title: '问题机会与增长缺口',
-    description: '按问题识别品牌未提及、排名落后、缺少引用和缺少推荐的增长机会。',
+    title: '问题覆盖明细',
+    description: '逐题查看品牌是否出现、出现位置、推荐情况与引用覆盖，不替客户推断增长优先级。',
   },
 };
 
@@ -448,7 +439,7 @@ const customerAnswerFixturePage: CustomerAnswerExplorerPage = {
       query_pub_id: 'qry_fixture_1',
       query_text: '制造企业如何选择可信的私有化知识库？',
       response_text:
-        '选择私有化知识库时，应重点比较权限隔离、知识更新效率、检索准确率和实施服务。云岫智能在本地部署、权限治理与行业知识工程方面具备完整方案。\n\n采购阶段还应通过真实业务问题验证回答质量，并确认引用来源是否可追溯。',
+        '选择私有化知识库时，应把“能否回答”与“是否可信”分开评估。云岫智能在本地部署、权限治理与行业知识工程方面具备完整方案。[citation:0]\n\n## 建议重点核验四项能力\n\n1. **权限与数据边界**：确认租户隔离、细粒度授权、操作审计和模型调用边界。\n2. **知识更新效率**：验证增量同步、失效内容下线和版本回溯能力。[citation:2]\n3. **检索与引用质量**：用真实业务问题测试召回、答案相关性，以及引用能否落到原始页面。\n4. **实施与持续运营**：明确上线周期、数据治理责任和后续质量复盘机制。\n\n| 评估环节 | 客户应看到的证据 |\n| --- | --- |\n| 权限验证 | 不同角色的访问结果与审计记录 |\n| 回答验收 | 完整答案、引用原文与平台分享凭证 |\n| 持续运营 | 知识变更、答案变化与引用采纳时间轴 |\n\n采购阶段应使用企业自己的数据集完成对比测试，不应仅依据厂商演示结论。[citation:1]',
       model: 'DeepSeek',
       region: '华东',
       mode: '深度回答',
@@ -511,7 +502,117 @@ const customerAnswerFixturePage: CustomerAnswerExplorerPage = {
   page: { total: 4, offset: 0, limit: 20, has_more: false },
 };
 
-function ScoreCard({ metric }: { metric: CustomerMetricProjection | undefined }) {
+const customerAnswerFixtureDetails: Readonly<Record<string, CustomerAnswerDetail>> = {
+  ans_fixture_01: {
+    citations: [
+      {
+        id: 'cit_fixture_01',
+        ordinal: 1,
+        url: 'https://example.org/security/zero-trust',
+        host: 'example.org',
+        title: '企业知识系统的零信任访问实践',
+        citedText: '敏感知识应同时实施最小权限、身份校验和访问审计。',
+        ownSource: false,
+        contentHash: 'a'.repeat(64),
+        publishedAt: '2026-06-18T09:00:00+08:00',
+        publishedAtSource: '页面 JSON-LD datePublished',
+      },
+      {
+        id: 'cit_fixture_02',
+        ordinal: 2,
+        url: 'https://research.example.com/enterprise-rag',
+        host: 'research.example.com',
+        title: '企业级检索增强生成质量评估',
+        citedText: '上线前应使用真实业务问题评估召回率、回答相关性与引用可追溯性。',
+        ownSource: false,
+        contentHash: 'b'.repeat(64),
+        publishedAt: '2026-07-03T00:00:00+08:00',
+        publishedAtSource: '页面可见 time 元素（仅日期）',
+      },
+      {
+        id: 'cit_fixture_03',
+        ordinal: 3,
+        url: 'https://docs.example.net/knowledge-governance',
+        host: 'docs.example.net',
+        title: '知识更新与权限治理指南',
+        citedText: '知识更新频率和权限策略需要纳入持续运营，而不是一次性交付。',
+        ownSource: false,
+        contentHash: 'c'.repeat(64),
+        publishedAt: null,
+        publishedAtSource: null,
+      },
+      {
+        id: 'cit_fixture_04',
+        ordinal: 4,
+        url: 'https://example.com/case-study',
+        host: 'example.com',
+        title: '制造企业知识助手实施案例',
+        citedText: null,
+        ownSource: true,
+        contentHash: null,
+        publishedAt: null,
+        publishedAtSource: null,
+      },
+    ],
+    evidence: [
+      {
+        id: 'evd_fixture_share_link_01',
+        relation: 'official_share_link',
+        kind: 'share_link',
+        mimeType: 'application/json',
+        byteSize: 256,
+        sha256: 'd'.repeat(64),
+        sourceUrl: 'https://chat.deepseek.com/share/fixture-answer-01',
+        captureTime: '2026-08-17T07:42:00Z',
+      },
+    ],
+    projectionComplete: true,
+  },
+};
+
+const fallbackMetricHelp: Readonly<Record<string, string>> = {
+  mention_rate: '在所选统计区间和筛选条件内，提及目标品牌的回答数 ÷ 有效回答总数。',
+  top3_rate: '目标品牌进入回答前三位的回答数 ÷ 有效回答总数。',
+  average_rank: '仅对识别到品牌排名的回答计算平均位置；数值越小越靠前。',
+  recommendation_rate: '明确推荐目标品牌的回答数 ÷ 可判定推荐倾向的有效回答数。',
+  share_of_voice: '目标品牌在目标品牌与配置竞品全部有效提及中的占比。',
+  citation_coverage: '至少含一条规范化引用的回答数 ÷ 有效回答总数。',
+  own_source_answer_rate: '引用过品牌自有网站的回答数 ÷ 有效回答总数。',
+  positive_rate: '正面回答数 ÷ 已完成情感判定的有效回答数。',
+};
+
+function HelpTip({ label, children }: { label: string; children: string }) {
+  return (
+    <span
+      className="geo-help-tip"
+      tabIndex={0}
+      aria-label={`${label}说明：${children}`}
+      onClick={(event) => event.stopPropagation()}
+    >
+      <span aria-hidden="true">?</span>
+      <span className="geo-help-tip__content" role="tooltip">
+        <strong>{label}</strong>
+        {children}
+      </span>
+    </span>
+  );
+}
+
+const metricHelpText = (
+  metric: CustomerMetricProjection | undefined,
+  catalog: ReadonlyMap<string, CustomerMetricSpecProjection>,
+): string =>
+  (metric ? catalog.get(metric.code)?.description : undefined) ??
+  (metric ? fallbackMetricHelp[metric.code] : undefined) ??
+  '该值来自版本化客户事实快照，并受页面所选统计区间、模型、地区和回答模式影响。';
+
+function ScoreCard({
+  metric,
+  catalog,
+}: {
+  metric: CustomerMetricProjection | undefined;
+  catalog: ReadonlyMap<string, CustomerMetricSpecProjection>;
+}) {
   const score = metric?.value ?? 0;
   const ready = metric?.state === 'ready' && metric.value !== null;
   return (
@@ -525,16 +626,11 @@ function ScoreCard({ metric }: { metric: CustomerMetricProjection | undefined })
         <small>/100</small>
       </div>
       <div>
-        <span>{metric?.label ?? '指标未配置'}</span>
-        <small>
-          {ready
-            ? score >= 75
-              ? '表现领先'
-              : score >= 55
-                ? '仍有提升空间'
-                : '优先优化'
-            : '等待数据'}
-        </small>
+        <span className="geo-metric-label-with-help">
+          {metric?.label ?? '指标未配置'}
+          <HelpTip label={metric?.label ?? '指标'}>{metricHelpText(metric, catalog)}</HelpTip>
+        </span>
+        <small>{ready ? '0–100 综合评分' : '等待数据'}</small>
       </div>
     </article>
   );
@@ -544,16 +640,21 @@ function SectionHeading({
   eyebrow,
   title,
   detail,
+  help,
 }: {
   eyebrow: string;
   title: string;
   detail: string;
+  help?: string;
 }) {
   return (
     <div className="geo-section-heading">
       <div>
         <span>{eyebrow}</span>
-        <h2>{title}</h2>
+        <h2>
+          {title}
+          {help ? <HelpTip label={title}>{help}</HelpTip> : null}
+        </h2>
       </div>
       <p>{detail}</p>
     </div>
@@ -562,9 +663,11 @@ function SectionHeading({
 
 function MetricCards({
   dashboard,
+  catalog,
   codes = coreMetricCodes,
 }: {
   dashboard: CustomerDashboardProjection;
+  catalog: ReadonlyMap<string, CustomerMetricSpecProjection>;
   codes?: readonly string[];
 }) {
   return (
@@ -574,10 +677,11 @@ function MetricCards({
         return (
           <article className="geo-kpi-card" key={code}>
             <div className="geo-kpi-label">
-              <span>{metric?.label ?? code}</span>
-              <Badge tone={metric?.state === 'ready' ? 'positive' : 'warning'}>
-                {metric?.state === 'ready' ? '当前窗口' : '待计算'}
-              </Badge>
+              <span className="geo-metric-label-with-help">
+                {metric?.label ?? code}
+                <HelpTip label={metric?.label ?? code}>{metricHelpText(metric, catalog)}</HelpTip>
+              </span>
+              {metric?.state !== 'ready' ? <Badge tone="warning">待计算</Badge> : null}
             </div>
             <strong>{formatMetric(metric)}</strong>
             <div className="geo-kpi-track" aria-hidden="true">
@@ -604,12 +708,6 @@ function MetricCards({
   );
 }
 
-const trendSeries = [
-  { code: 'mention_rate', label: '提及率', color: '#176b51' },
-  { code: 'top3_rate', label: 'Top3 率', color: '#6f8b2f' },
-  { code: 'citation_coverage', label: '引用覆盖率', color: '#b36b22' },
-] as const;
-
 function TrendChart({ dashboard }: { dashboard: CustomerDashboardProjection }) {
   const rows = dashboard.trends;
   if (!rows.length) return <StatePanel state="insufficient" />;
@@ -622,20 +720,22 @@ function TrendChart({ dashboard }: { dashboard: CustomerDashboardProjection }) {
   const x = (index: number) =>
     left + (rows.length === 1 ? plotWidth / 2 : (index / (rows.length - 1)) * plotWidth);
   const y = (value: number) => top + plotHeight - Math.max(0, Math.min(1, value)) * plotHeight;
+  const points = rows.flatMap((row, index) => {
+    const value = numericMetric(row.metrics, 'mention_rate');
+    return value === null ? [] : [`${x(index)},${y(value)}`];
+  });
   return (
     <div className="geo-trend-wrap">
       <div className="geo-chart-legend">
-        {trendSeries.map((series) => (
-          <span key={series.code}>
-            <i style={{ background: series.color }} /> {series.label}
-          </span>
-        ))}
+        <span>
+          <i style={{ background: '#2563eb' }} /> {dashboard.brand_name} · 提及率
+        </span>
       </div>
       <svg
         className="geo-trend-chart"
         viewBox={`0 0 ${width} ${height}`}
         role="img"
-        aria-label="品牌提及率、Top3 率和引用覆盖率趋势"
+        aria-label={`${dashboard.brand_name}提及率趋势`}
       >
         {[0, 0.25, 0.5, 0.75, 1].map((tick) => (
           <g key={tick}>
@@ -645,30 +745,15 @@ function TrendChart({ dashboard }: { dashboard: CustomerDashboardProjection }) {
             </text>
           </g>
         ))}
-        {trendSeries.map((series) => {
-          const points = rows.flatMap((row, index) => {
-            const value = numericMetric(row.metrics, series.code);
-            return value === null ? [] : [`${x(index)},${y(value)}`];
-          });
-          return (
-            <g key={series.code}>
-              {points.length > 1 ? (
-                <polyline
-                  points={points.join(' ')}
-                  fill="none"
-                  stroke={series.color}
-                  strokeWidth="3"
-                />
-              ) : null}
-              {rows.map((row, index) => {
-                const value = numericMetric(row.metrics, series.code);
-                return value === null ? null : (
-                  <circle key={row.date} cx={x(index)} cy={y(value)} r="4" fill={series.color}>
-                    <title>{`${row.date} · ${series.label} ${(value * 100).toFixed(1)}%`}</title>
-                  </circle>
-                );
-              })}
-            </g>
+        {points.length > 1 ? (
+          <polyline points={points.join(' ')} fill="none" stroke="#2563eb" strokeWidth="3" />
+        ) : null}
+        {rows.map((row, index) => {
+          const value = numericMetric(row.metrics, 'mention_rate');
+          return value === null ? null : (
+            <circle key={row.date} cx={x(index)} cy={y(value)} r="4" fill="#2563eb">
+              <title>{`${row.date} · 提及率 ${(value * 100).toFixed(1)}%`}</title>
+            </circle>
           );
         })}
         {rows.map((row, index) => (
@@ -678,6 +763,82 @@ function TrendChart({ dashboard }: { dashboard: CustomerDashboardProjection }) {
         ))}
       </svg>
     </div>
+  );
+}
+
+function VisibilityBenchmark({ dashboard }: { dashboard: CustomerDashboardProjection }) {
+  const hasCompetitorMentionRate = dashboard.competitors.some(
+    (competitor) => numericMetric(competitor.metrics, 'mention_rate') !== null,
+  );
+  const metricCode = hasCompetitorMentionRate ? 'mention_rate' : 'share_of_voice';
+  const metricLabel = hasCompetitorMentionRate ? '提及率' : '心智份额';
+  const brandValue = numericMetric(dashboard.metrics, metricCode);
+  const competitors = dashboard.competitors.flatMap((competitor) => {
+    const value = numericMetric(competitor.metrics, metricCode);
+    return value === null ? [] : [{ name: competitor.name, value }];
+  });
+  if (brandValue === null || competitors.length === 0) return <StatePanel state="insufficient" />;
+  const ranked = [
+    { name: dashboard.brand_name, value: brandValue, brand: true },
+    ...competitors.map((row) => ({ ...row, brand: false })),
+  ].sort((left, right) => right.value - left.value);
+  const brandRank = ranked.findIndex((row) => row.brand) + 1;
+  const bestCompetitor = competitors.reduce((best, row) => (row.value > best.value ? row : best));
+  const gap = brandValue - bestCompetitor.value;
+  return (
+    <div className="geo-visibility-benchmark">
+      <header>
+        <div>
+          <span>COMPETITOR BENCHMARK</span>
+          <h3>
+            同期竞品基准
+            <HelpTip label="同期竞品基准">
+              {hasCompetitorMentionRate
+                ? '目标品牌与配置竞品使用相同统计区间和筛选条件比较提及率。'
+                : '竞品暂未提供逐日提及率序列，因此使用同一统计区间的心智份额做横向基准，不把聚合值伪装成趋势。'}
+            </HelpTip>
+          </h3>
+        </div>
+        <Badge tone="info">{metricLabel}</Badge>
+      </header>
+      <div className="geo-visibility-benchmark__verdict">
+        <strong>
+          第 {brandRank} / {ranked.length} 名
+        </strong>
+        <span>
+          {gap >= 0 ? '领先' : '低于'}最高竞品 {Math.abs(gap * 100).toFixed(1)} 个百分点
+        </span>
+      </div>
+      <div className="geo-visibility-benchmark__rows">
+        {ranked.map((item) => (
+          <div key={item.name} data-brand={item.brand ? 'true' : 'false'}>
+            <span>
+              <strong>{item.name}</strong>
+              <small>{item.brand ? '目标品牌' : '配置竞品'}</small>
+            </span>
+            <i>
+              <b style={{ width: `${Math.max(0, Math.min(100, item.value * 100))}%` }} />
+            </i>
+            <em>{(item.value * 100).toFixed(1)}%</em>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function VisibilityAnalysis({ dashboard }: { dashboard: CustomerDashboardProjection }) {
+  return (
+    <section className="geo-dashboard-panel geo-visibility-analysis">
+      <div className="geo-visibility-analysis__trend">
+        <header>
+          <span>BRAND TREND</span>
+          <h3>品牌提及率趋势</h3>
+        </header>
+        <TrendChart dashboard={dashboard} />
+      </div>
+      <VisibilityBenchmark dashboard={dashboard} />
+    </section>
   );
 }
 
@@ -785,7 +946,7 @@ function CompetitorPanel({
           <span>Share of Voice</span>
           <h3>竞品心智份额</h3>
         </div>
-        <Badge tone="info">同一观察窗口</Badge>
+        <Badge tone="info">同一统计区间</Badge>
       </div>
       <div className="geo-competitor-list">
         <div className="geo-competitor-row geo-brand-row">
@@ -893,7 +1054,7 @@ function AssetScalePanel({ dashboard }: { dashboard: CustomerDashboardProjection
     <section className="geo-asset-scale" aria-labelledby="geo-asset-scale-title">
       <header>
         <span>Business Data Scale</span>
-        <h3 id="geo-asset-scale-title">当前窗口沉淀的 AI 认知资产</h3>
+        <h3 id="geo-asset-scale-title">所选统计区间沉淀的 AI 认知资产</h3>
         <p>所有数字均直接来自已保存的回答与引用事实，可继续下钻到回答、网站和页面。</p>
       </header>
       <div className="geo-asset-scale__grid">
@@ -1073,10 +1234,15 @@ function QuestionPanel({
     <section className="geo-dashboard-panel geo-question-panel">
       <div className="geo-panel-title">
         <div>
-          <span>Opportunity Map</span>
-          <h3>优先增长问题</h3>
+          <span>Question coverage</span>
+          <h3>
+            低提及问题清单
+            <HelpTip label="低提及问题清单">
+              仅按所选统计区间内的品牌提及率从低到高排列，表示品牌较少进入这些回答；不自动等于商业优先级或增长机会。
+            </HelpTip>
+          </h3>
         </div>
-        <Badge tone="warning">低提及优先</Badge>
+        <Badge tone="warning">按提及率升序</Badge>
       </div>
       {rows.length ? (
         <div className="geo-table-scroll" tabIndex={0} aria-label="问题机会数据表">
@@ -1156,54 +1322,6 @@ function ReputationPanel({ dashboard }: { dashboard: CustomerDashboardProjection
   );
 }
 
-function MetricDirectory({
-  dashboard,
-  catalog,
-  groups,
-}: {
-  dashboard: CustomerDashboardProjection;
-  catalog: ReadonlyMap<string, CustomerMetricSpecProjection>;
-  groups?: readonly string[];
-}) {
-  const grouped = useMemo(() => {
-    const result = new Map<string, CustomerMetricProjection[]>();
-    for (const metric of dashboard.metrics) {
-      if (groups && !groups.includes(metric.group)) continue;
-      const list = result.get(metric.group) ?? [];
-      list.push(metric);
-      result.set(metric.group, list);
-    }
-    return result;
-  }, [catalog, dashboard.metrics, groups]);
-  return (
-    <section className="geo-dashboard-panel geo-metric-directory">
-      <SectionHeading
-        eyebrow="Metric Dictionary"
-        title="全部指标"
-        detail="每个指标均来自版本化客户事实快照；未就绪与真实 0 分开显示。"
-      />
-      {[...grouped.entries()].map(([group, metrics]) => (
-        <div className="geo-metric-group" key={group}>
-          <h3>{metricGroups[group] ?? group}</h3>
-          <div>
-            {metrics.map((metric) => (
-              <article key={metric.code} title={catalog.get(metric.code)?.description}>
-                <span>{metric.label}</span>
-                <strong>{formatMetric(metric)}</strong>
-                <small>
-                  {metric.state === 'ready'
-                    ? (catalog.get(metric.code)?.description ?? '当前窗口已计算')
-                    : '当前事实不足，暂不生成数值'}
-                </small>
-              </article>
-            ))}
-          </div>
-        </div>
-      ))}
-    </section>
-  );
-}
-
 function DashboardFilters({
   options,
   urlState,
@@ -1216,7 +1334,12 @@ function DashboardFilters({
   return (
     <div className="geo-dashboard-filters" aria-label="分析筛选">
       <label>
-        观察窗口
+        <span className="geo-filter-label">
+          统计区间
+          <HelpTip label="统计区间">
+            页面所有指标只统计所选日期范围内、且符合模型、地区和回答模式筛选条件的有效回答；它不是实时瞬时值。
+          </HelpTip>
+        </span>
         <select
           value={urlState.window}
           onChange={(event) => setFilter('window', event.target.value)}
@@ -1243,6 +1366,28 @@ function DashboardFilters({
           </select>
         </label>
       ))}
+    </div>
+  );
+}
+
+function DashboardScope({ dashboard }: { dashboard: CustomerDashboardProjection }) {
+  const activeFilters = Object.entries(dashboard.window.filters).filter(
+    ([, value]) => value !== null && value !== undefined && String(value).trim() !== '',
+  );
+  return (
+    <div className="geo-dashboard-scope" aria-label="当前统计口径">
+      <span>统计区间</span>
+      <strong>
+        {dashboard.window.start} 至 {dashboard.window.end}
+      </strong>
+      <HelpTip label="本页统计口径">
+        所有经营指标、趋势与竞品基准均来自这个日期范围内的有效回答，并继续受右侧模型、地区和回答模式筛选影响。
+      </HelpTip>
+      <small>
+        {activeFilters.length
+          ? `已应用 ${activeFilters.map(([key, value]) => `${key}=${String(value)}`).join(' · ')}`
+          : '全部模型 · 全部地区 · 全部回答模式'}
+      </small>
     </div>
   );
 }
@@ -1406,6 +1551,58 @@ export function CustomerAnalyticsWorkspace({
     ],
   );
 
+  const loadAnswerDetail = useCallback(
+    async (answerPubId: string): Promise<CustomerAnswerDetail> => {
+      if (experience?.source !== 'live') {
+        return (
+          customerAnswerFixtureDetails[answerPubId] ?? {
+            citations: [],
+            evidence: [],
+            projectionComplete: true,
+          }
+        );
+      }
+      const headers = getValidatedIdentityHeaders();
+      if (!headers) throw new Error('customer answer detail identity unavailable');
+      const result = await getAnalyticsAnswerRelations(
+        answerPubId,
+        headers,
+        undefined,
+        experience.projectPubId,
+      );
+      if (result.kind !== 'ready') throw new Error(`customer answer detail ${result.kind}`);
+      const collections = Object.values(result.data.projection);
+      return {
+        citations: result.data.answer_citations.map((citation) => ({
+          id: citation.pub_id,
+          ordinal: citation.ordinal,
+          url: citation.canonical_url,
+          host: citation.host,
+          title: citation.title,
+          citedText: citation.cited_text,
+          ownSource: citation.own_source,
+          contentHash: citation.content_hash,
+          publishedAt: citation.published_at ?? null,
+          publishedAtSource: citation.published_at_source ?? null,
+        })),
+        evidence: result.data.evidence.map((evidence) => ({
+          id: evidence.pub_id,
+          relation: evidence.relation_type,
+          kind: evidence.kind,
+          mimeType: evidence.mime_type,
+          byteSize: evidence.byte_size,
+          sha256: evidence.sha256,
+          sourceUrl: evidence.source_url,
+          captureTime: evidence.capture_time,
+        })),
+        projectionComplete: collections.every(
+          (collection) => !collection.invalid && collection.total === collection.shown,
+        ),
+      };
+    },
+    [experience?.projectPubId, experience?.source],
+  );
+
   const setFilter = (key: string, value: string) => {
     const nextValue = value === 'all' || (key === 'window' && value === '30d') ? null : value;
     updateClientUrlParameters({ [key]: nextValue }, customerDashboardAllowedSections);
@@ -1429,24 +1626,6 @@ export function CustomerAnalyticsWorkspace({
         }
       : filterOptions;
 
-  const metricGroupsForFocus: Record<CustomerAnalyticsFocus, readonly string[]> = {
-    overview: [
-      'composite',
-      'visibility',
-      'ranking',
-      'competition',
-      'source',
-      'content',
-      'reputation',
-      'risk',
-    ],
-    visibility: ['composite', 'visibility', 'ranking'],
-    answers: ['visibility', 'ranking', 'source', 'reputation'],
-    competition: ['competition', 'visibility', 'ranking'],
-    sources: ['source', 'content'],
-    reputation: ['reputation', 'risk'],
-    opportunities: ['visibility', 'ranking', 'competition', 'source'],
-  };
   return (
     <div className="geo-customer-dashboard">
       <section className="geo-dashboard-hero">
@@ -1473,6 +1652,7 @@ export function CustomerAnalyticsWorkspace({
         </div>
       </section>
       <DashboardFilters options={visibleFilterOptions} urlState={urlState} setFilter={setFilter} />
+      <DashboardScope dashboard={dashboard} />
 
       {focus === 'overview' ? (
         <DashboardSection>
@@ -1481,13 +1661,18 @@ export function CustomerAnalyticsWorkspace({
             eyebrow="Executive Scores"
             title="六大经营指数"
             detail="从多个基础指标合成 0–100 分，便于管理层快速定位增长短板。"
+            help="六项指数按已发布的指标版本由多项基础事实合成，0–100 只表示内部统一量尺；是否高于同行应结合下方竞品基准判断。"
           />
           <div className="geo-score-grid">
             {compositeCodes.map((code) => (
-              <ScoreCard metric={metricValue(dashboard.metrics, code)} key={code} />
+              <ScoreCard
+                metric={metricValue(dashboard.metrics, code)}
+                catalog={catalog}
+                key={code}
+              />
             ))}
           </div>
-          <MetricCards dashboard={dashboard} />
+          <MetricCards dashboard={dashboard} catalog={catalog} />
         </DashboardSection>
       ) : null}
 
@@ -1497,8 +1682,9 @@ export function CustomerAnalyticsWorkspace({
             eyebrow="Visibility Metrics"
             title="品牌表现核心指标"
             detail="聚焦提及、推荐、排名与引用结果；完整回答统一进入“真实 AI 回答”下钻。"
+            help="每项指标右侧的问号说明计算含义；所有数值都受当前统计区间、模型、地区和回答模式筛选影响。"
           />
-          <MetricCards dashboard={dashboard} codes={visibilityMetricCodes} />
+          <MetricCards dashboard={dashboard} catalog={catalog} codes={visibilityMetricCodes} />
         </DashboardSection>
       ) : null}
 
@@ -1507,6 +1693,7 @@ export function CustomerAnalyticsWorkspace({
           key={`${dashboard.project_pub_id}:${windowValue}:${urlState.model}:${urlState.region}:${urlState.mode}`}
           brandName={dashboard.brand_name}
           loadPage={loadAnswerPage}
+          loadDetail={loadAnswerDetail}
           {...(experience?.source === 'live' ? {} : { fixturePage: customerAnswerFixturePage })}
         />
       ) : null}
@@ -1515,12 +1702,11 @@ export function CustomerAnalyticsWorkspace({
         <DashboardSection>
           <SectionHeading
             eyebrow="Time Series"
-            title="可见度趋势"
-            detail="只连接真实存在的观察日期；没有数据的日期不会伪造成 0。"
+            title="品牌可见度与竞品基准"
+            detail="左侧看品牌自身随时间的变化，右侧立即给出同一统计区间的竞品位置，避免孤立解读一个百分比。"
+            help="品牌折线只连接真实存在的观察日期；竞品若没有逐日序列，就明确使用同期聚合心智份额做横向基准，不伪造竞品趋势。"
           />
-          <section className="geo-dashboard-panel">
-            <TrendChart dashboard={dashboard} />
-          </section>
+          <VisibilityAnalysis dashboard={dashboard} />
           {focus === 'visibility' ? (
             <>
               <div className="geo-dashboard-columns">
@@ -1566,13 +1752,6 @@ export function CustomerAnalyticsWorkspace({
           <QuestionPanel dashboard={dashboard} />
           <QuestionDataExplorer questions={dashboard.questions} />
         </DashboardSection>
-      ) : null}
-      {focus !== 'overview' && focus !== 'answers' ? (
-        <MetricDirectory
-          dashboard={dashboard}
-          catalog={catalog}
-          groups={metricGroupsForFocus[focus]}
-        />
       ) : null}
     </div>
   );
