@@ -1166,6 +1166,27 @@ export type AnalyticsRelationCollection = 'citations' | 'evidence' | 'anchors' |
 type AnalyticsCitationContractView = AnalyticsAnswerRelations['citations'][number];
 type AnalyticsEvidenceContractView = AnalyticsAnswerRelations['evidence'][number];
 type AnalyticsAnchorContractView = AnalyticsEvidenceContractView['anchors'][number];
+type AnalyticsCitationSupportContractView = AnalyticsCitationContractView['support'];
+type AnalyticsShareArtifactContractView = NonNullable<AnalyticsAnswerRelations['share_artifact']>;
+export type AnalyticsCitationSupportSafeView = Pick<
+  AnalyticsCitationSupportContractView,
+  | 'mapping_status'
+  | 'mapping_basis'
+  | 'answer_text_start'
+  | 'answer_text_end'
+  | 'answer_ast_path'
+  | 'answer_sentence'
+  | 'source_quote'
+  | 'source_text_start'
+  | 'source_text_end'
+  | 'source_quote_hash'
+  | 'source_match_status'
+  | 'source_match_version'
+  | 'relation'
+  | 'relevance_confidence'
+  | 'classifier_version'
+  | 'review_status'
+>;
 export type AnalyticsCitationSafeView = Pick<
   AnalyticsCitationContractView,
   | 'pub_id'
@@ -1185,6 +1206,19 @@ export type AnalyticsCitationSafeView = Pick<
   | 'published_at_precision'
   | 'published_at_source'
   | 'published_at_confidence'
+> & { support: AnalyticsCitationSupportSafeView };
+export type AnalyticsAnswerShareArtifactSafeView = Pick<
+  AnalyticsShareArtifactContractView,
+  | 'platform'
+  | 'status'
+  | 'share_url'
+  | 'final_url'
+  | 'availability_status'
+  | 'http_status'
+  | 'checked_at'
+  | 'last_accessible_at'
+  | 'embed_status'
+  | 'embed_reason'
 >;
 export type AnalyticsBoundingBoxSafeView = {
   x: number;
@@ -1223,6 +1257,7 @@ export type AnalyticsHistorySafeView = {
 };
 export type AnalyticsAnswerRelationsProjection = {
   answer_pub_id: string;
+  share_artifact: AnalyticsAnswerShareArtifactSafeView | null;
   answer_citations: AnalyticsCitationSafeView[];
   brand_mention_evidence: AnalyticsEvidenceSafeView[];
   opened_source_previews: AnalyticsEvidenceSafeView[];
@@ -3226,6 +3261,188 @@ const projectSafeRelationUrl = (value: unknown): string | null => {
   }
 };
 
+const projectAnalyticsCitationSupportBoundary = (
+  value: unknown,
+): AnalyticsCitationSupportSafeView | null => {
+  if (!isBrowserRecord(value)) return null;
+  const mappingStatus = safeBrowserEnum(value.mapping_status, [
+    'mapped',
+    'unmapped',
+    'ambiguous',
+  ] as const);
+  const mappingBasis = projectNullableAnalyticsText(value.mapping_basis, 80);
+  const answerTextStart =
+    value.answer_text_start === null ? null : safeCount(value.answer_text_start);
+  const answerTextEnd = value.answer_text_end === null ? null : safeCount(value.answer_text_end);
+  const answerAstPath =
+    value.answer_ast_path === null
+      ? null
+      : Array.isArray(value.answer_ast_path) &&
+          value.answer_ast_path.every(
+            (item) =>
+              (typeof item === 'string' && safeBrowserString(item, 120) !== null) ||
+              (typeof item === 'number' && Number.isSafeInteger(item) && item >= 0),
+          )
+        ? (value.answer_ast_path as (string | number)[])
+        : undefined;
+  const answerSentence = projectNullableAnalyticsText(value.answer_sentence, 4_000);
+  const sourceQuote = projectNullableAnalyticsText(value.source_quote, 2_000);
+  const sourceTextStart =
+    value.source_text_start === null ? null : safeCount(value.source_text_start);
+  const sourceTextEnd = value.source_text_end === null ? null : safeCount(value.source_text_end);
+  const sourceQuoteHash =
+    value.source_quote_hash === null ? null : (safeHash(value.source_quote_hash) ?? undefined);
+  const sourceMatchStatus = safeBrowserEnum(value.source_match_status, [
+    'exact',
+    'normalized',
+    'not_found',
+    'not_checked',
+  ] as const);
+  const sourceMatchVersion = projectNullableAnalyticsText(value.source_match_version, 80);
+  const relation = safeBrowserEnum(value.relation, [
+    'supports',
+    'contradicts',
+    'background',
+    'unverified',
+  ] as const);
+  const relevanceConfidence = projectNullableAnalyticsNumber(value.relevance_confidence);
+  const classifierVersion = projectNullableAnalyticsText(value.classifier_version, 80);
+  const reviewStatus = safeBrowserEnum(value.review_status, [
+    'unreviewed',
+    'approved',
+    'rejected',
+    'needs_review',
+  ] as const);
+  if (
+    !mappingStatus ||
+    mappingBasis === undefined ||
+    (answerTextStart === null) !== (answerTextEnd === null) ||
+    answerTextStart === undefined ||
+    answerTextEnd === undefined ||
+    (answerTextStart !== null && answerTextEnd !== null && answerTextEnd <= answerTextStart) ||
+    answerAstPath === undefined ||
+    answerSentence === undefined ||
+    sourceQuote === undefined ||
+    (sourceTextStart === null) !== (sourceTextEnd === null) ||
+    sourceTextStart === undefined ||
+    sourceTextEnd === undefined ||
+    (sourceTextStart !== null && sourceTextEnd !== null && sourceTextEnd <= sourceTextStart) ||
+    sourceQuoteHash === undefined ||
+    !sourceMatchStatus ||
+    sourceMatchVersion === undefined ||
+    !relation ||
+    relevanceConfidence === undefined ||
+    (relevanceConfidence !== null && (relevanceConfidence < 0 || relevanceConfidence > 1)) ||
+    classifierVersion === undefined ||
+    !reviewStatus
+  ) {
+    return null;
+  }
+  return {
+    mapping_status: mappingStatus,
+    mapping_basis: mappingBasis,
+    answer_text_start: answerTextStart,
+    answer_text_end: answerTextEnd,
+    answer_ast_path: answerAstPath,
+    answer_sentence: answerSentence,
+    source_quote: sourceQuote,
+    source_text_start: sourceTextStart,
+    source_text_end: sourceTextEnd,
+    source_quote_hash: sourceQuoteHash,
+    source_match_status: sourceMatchStatus,
+    source_match_version: sourceMatchVersion,
+    relation,
+    relevance_confidence: relevanceConfidence,
+    classifier_version: classifierVersion,
+    review_status: reviewStatus,
+  };
+};
+
+const projectOfficialShareUrl = (value: unknown, platform: string): string | null | undefined => {
+  if (value === null) return null;
+  const projected = projectSafeRelationUrl(value);
+  if (!projected) return undefined;
+  const parsed = new URL(projected);
+  const hostAllowed =
+    (platform === 'deepseek' && parsed.hostname === 'chat.deepseek.com') ||
+    (platform === 'doubao' && ['doubao.com', 'www.doubao.com'].includes(parsed.hostname)) ||
+    (platform === 'yiyan' && ['mr.baidu.com', 'wenxin.baidu.com'].includes(parsed.hostname));
+  const pathAllowed =
+    (platform === 'deepseek' && parsed.pathname.startsWith('/share/')) ||
+    (platform === 'doubao' && parsed.pathname.startsWith('/thread/')) ||
+    platform === 'yiyan';
+  return parsed.protocol === 'https:' && hostAllowed && pathAllowed ? parsed.toString() : undefined;
+};
+
+const projectAnalyticsShareArtifactBoundary = (
+  value: unknown,
+): AnalyticsAnswerShareArtifactSafeView | null => {
+  if (!isBrowserRecord(value)) return null;
+  const platform = safeBrowserEnum(value.platform, [
+    'deepseek',
+    'doubao',
+    'yiyan',
+    'tongyi',
+    'yuanbao',
+  ] as const);
+  if (!platform) return null;
+  const status = safeBrowserEnum(value.status, [
+    'available',
+    'missing',
+    'unsupported',
+    'invalid',
+  ] as const);
+  const shareUrl = projectOfficialShareUrl(value.share_url, platform);
+  const finalUrl = projectOfficialShareUrl(value.final_url, platform);
+  const availabilityStatus = safeBrowserEnum(value.availability_status, [
+    'reachable',
+    'redirected',
+    'blocked',
+    'unreachable',
+    'unchecked',
+  ] as const);
+  const httpStatus = value.http_status === null ? null : safeCount(value.http_status);
+  const checkedAt =
+    value.checked_at === null ? null : (projectSafeIsoTimestamp(value.checked_at) ?? undefined);
+  const lastAccessibleAt =
+    value.last_accessible_at === null
+      ? null
+      : (projectSafeIsoTimestamp(value.last_accessible_at) ?? undefined);
+  const embedStatus = safeBrowserEnum(value.embed_status, [
+    'allowed',
+    'blocked',
+    'unknown',
+  ] as const);
+  const embedReason = projectNullableAnalyticsText(value.embed_reason, 1_000);
+  if (
+    !status ||
+    shareUrl === undefined ||
+    finalUrl === undefined ||
+    !availabilityStatus ||
+    (httpStatus === null) !== (value.http_status === null) ||
+    checkedAt === undefined ||
+    lastAccessibleAt === undefined ||
+    !embedStatus ||
+    embedReason === undefined ||
+    (status === 'available' && shareUrl === null) ||
+    (status !== 'available' && shareUrl !== null)
+  ) {
+    return null;
+  }
+  return {
+    platform,
+    status,
+    share_url: shareUrl,
+    final_url: finalUrl,
+    availability_status: availabilityStatus,
+    http_status: httpStatus,
+    checked_at: checkedAt,
+    last_accessible_at: lastAccessibleAt,
+    embed_status: embedStatus,
+    embed_reason: embedReason,
+  };
+};
+
 const projectAnalyticsCitationBoundary = (value: unknown): AnalyticsCitationSafeView | null => {
   if (!isBrowserRecord(value)) return null;
   const pubId = projectAnalyticsPubId(value.pub_id, 'cit_');
@@ -3279,6 +3496,27 @@ const projectAnalyticsCitationBoundary = (value: unknown): AnalyticsCitationSafe
           'inferred_low',
           'unknown',
         ] as const);
+  const support =
+    value.support === undefined
+      ? {
+          mapping_status: 'unmapped' as const,
+          mapping_basis: null,
+          answer_text_start: null,
+          answer_text_end: null,
+          answer_ast_path: null,
+          answer_sentence: null,
+          source_quote: null,
+          source_text_start: null,
+          source_text_end: null,
+          source_quote_hash: null,
+          source_match_status: 'not_checked' as const,
+          source_match_version: null,
+          relation: 'unverified' as const,
+          relevance_confidence: null,
+          classifier_version: null,
+          review_status: 'unreviewed' as const,
+        }
+      : projectAnalyticsCitationSupportBoundary(value.support);
   if (
     !pubId ||
     !canonicalUrl ||
@@ -3296,7 +3534,8 @@ const projectAnalyticsCitationBoundary = (value: unknown): AnalyticsCitationSafe
     publishedAtTimezone === undefined ||
     publishedAtPrecision === undefined ||
     publishedAtSource === undefined ||
-    !publishedAtConfidence
+    !publishedAtConfidence ||
+    !support
   ) {
     return null;
   }
@@ -3318,6 +3557,7 @@ const projectAnalyticsCitationBoundary = (value: unknown): AnalyticsCitationSafe
     published_at_precision: publishedAtPrecision,
     published_at_source: publishedAtSource,
     published_at_confidence: publishedAtConfidence,
+    support,
   };
 };
 
@@ -3518,6 +3758,13 @@ const projectAnalyticsAnswerRelationsBoundary = (
     customerEvidenceReadProjectionLimits.history,
     projectAnalyticsHistoryBoundary,
   );
+  const shareArtifact =
+    value.share_artifact === null || value.share_artifact === undefined
+      ? null
+      : projectAnalyticsShareArtifactBoundary(value.share_artifact);
+  if (value.share_artifact !== null && value.share_artifact !== undefined && !shareArtifact) {
+    return null;
+  }
   const answerCitations = citations.data;
   const brandMentionEvidence = evidence.data.filter(
     (item) =>
@@ -3550,6 +3797,7 @@ const projectAnalyticsAnswerRelationsBoundary = (
   }
   return {
     answer_pub_id: expectedAnswerPubId,
+    share_artifact: shareArtifact,
     answer_citations: answerCitations,
     brand_mention_evidence: brandMentionEvidence,
     opened_source_previews: openedSourcePreviews,

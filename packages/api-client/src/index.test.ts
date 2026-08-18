@@ -400,6 +400,7 @@ const analyticsCitationSafeViewHasFixedKeys: Expect<
     | 'published_at_precision'
     | 'published_at_source'
     | 'published_at_confidence'
+    | 'support'
   >
 > = true;
 const analyticsAnchorSafeViewHasFixedKeys: Expect<
@@ -7423,6 +7424,18 @@ describe('fixed-field browser boundaries (Round170)', () => {
         const body = url.pathname.endsWith('/relations')
           ? {
               answer_pub_id: 'ans_safe',
+              share_artifact: {
+                platform: 'deepseek',
+                status: 'available',
+                share_url: 'https://chat.deepseek.com/share/round170',
+                final_url: 'https://chat.deepseek.com/share/round170',
+                availability_status: 'reachable',
+                http_status: 200,
+                checked_at: '2026-07-25T08:00:00Z',
+                last_accessible_at: '2026-07-25T08:00:00Z',
+                embed_status: 'blocked',
+                embed_reason: 'x_frame_options_restricts_embedding',
+              },
               citations: [citation],
               evidence: [evidence],
               history: [history],
@@ -7483,9 +7496,40 @@ describe('fixed-field browser boundaries (Round170)', () => {
       'published_at_source',
       'published_at_timezone',
       'source_document_pub_id',
+      'support',
       'title',
     ]);
+    expect(sortedKeys(projectedCitation.support)).toEqual([
+      'answer_ast_path',
+      'answer_sentence',
+      'answer_text_end',
+      'answer_text_start',
+      'classifier_version',
+      'mapping_basis',
+      'mapping_status',
+      'relation',
+      'relevance_confidence',
+      'review_status',
+      'source_match_status',
+      'source_match_version',
+      'source_quote',
+      'source_quote_hash',
+      'source_text_end',
+      'source_text_start',
+    ]);
     expect(projectedCitation.cited_text).toBe('round170-cited-prose-canary');
+    expect(relations.data.share_artifact).toEqual({
+      platform: 'deepseek',
+      status: 'available',
+      share_url: 'https://chat.deepseek.com/share/round170',
+      final_url: 'https://chat.deepseek.com/share/round170',
+      availability_status: 'reachable',
+      http_status: 200,
+      checked_at: '2026-07-25T08:00:00Z',
+      last_accessible_at: '2026-07-25T08:00:00Z',
+      embed_status: 'blocked',
+      embed_reason: 'x_frame_options_restricts_embedding',
+    });
     const projectedEvidence = relations.data.evidence[0]!;
     expect(sortedKeys(projectedEvidence)).toEqual([
       'access_class',

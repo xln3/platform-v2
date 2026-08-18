@@ -11957,7 +11957,7 @@
           "collection-account-governance"
         ],
         "summary": "List Collection Account Quota Observations",
-        "description": "返回每个浏览器账号 × mode 最新一条额度观测。\n\n浏览器实例在账号尚未登记为 ``phone × platform`` 时仍是有效的独立登录账号，\n因而额度观测以 browser 为最小安全锚点。接口最多扫描最近 200 条审计事件，按\n``(instance_key, mode)`` 去重；不返回 ``new_value`` 原文。",
+        "description": "返回每个手机号 × 平台 × mode 最新一条额度观测。\n\n额度属于登录账号而不是出口地域，因此事件必须显式关联 ``phone_account_id``；\nbrowser/region 仅作为最近观测来源。接口最多扫描最近 200 条审计事件，按\n``(phone, platform, mode)`` 去重；不返回 ``new_value`` 原文，也不再把没有\n手机号归属的历史 browser-only 事件展示成账号额度。",
         "operationId": "list_collection_account_quota_observations_api_v2_collection_account_quota_observations_get",
         "parameters": [
           {
@@ -15079,7 +15079,7 @@
           "otp"
         ],
         "summary": "Otp Setup Info",
-        "description": "装机配置（operator 门内）：推送地址/relay token/Body 模板/白名单正则/卡槽备注。\nURL 从请求 origin 派生（供工具消费；**装机页展示不用它**——页面以浏览器\nlocation.origin 拼地址，反代 Host $host 丢端口时页面依然正确）。",
+        "description": "装机配置（operator 门内）：推送地址/relay token/Body 模板/白名单正则/卡槽备注。\nURL 优先来自显式 ``GEO_PUBLIC_BASE_URL``；生产缺失时 fail-closed，避免反代\n``Host`` 丢端口后向操作员下发不可用地址。",
         "operationId": "otp_setup_info_api_v2_otp_setup_info_get",
         "responses": {
           "200": {
@@ -57812,15 +57812,23 @@
             "type": "string",
             "title": "Observation Pub Id"
           },
-          "browser_instance_key": {
+          "phone_account_pub_id": {
             "type": "string",
-            "title": "Browser Instance Key"
+            "title": "Phone Account Pub Id"
+          },
+          "phone_masked": {
+            "type": "string",
+            "title": "Phone Masked"
           },
           "platform": {
             "type": "string",
             "title": "Platform"
           },
-          "region_gb": {
+          "observed_browser_instance_key": {
+            "type": "string",
+            "title": "Observed Browser Instance Key"
+          },
+          "observed_region_gb": {
             "anyOf": [
               {
                 "type": "string"
@@ -57829,7 +57837,7 @@
                 "type": "null"
               }
             ],
-            "title": "Region Gb"
+            "title": "Observed Region Gb"
           },
           "mode": {
             "type": "string",
@@ -57942,9 +57950,11 @@
         "type": "object",
         "required": [
           "observation_pub_id",
-          "browser_instance_key",
+          "phone_account_pub_id",
+          "phone_masked",
           "platform",
-          "region_gb",
+          "observed_browser_instance_key",
+          "observed_region_gb",
           "mode",
           "account_tier",
           "quota_state",
@@ -57958,7 +57968,7 @@
           "source"
         ],
         "title": "AccountQuotaObservationView",
-        "description": "账号管理页的平台额度安全投影。\n\n真源是 ``collection_account_event(event_type='quota_observation')``；响应只暴露\n白名单字段，绝不透传平台原始响应、账号标识或探测证据。``observed_window_count``\n可以是日志下限/估算值，精度由 ``count_kind`` 明示，不能冒充官方固定额度。"
+        "description": "账号管理页的平台额度安全投影。\n\n真源是 ``collection_account_event(event_type='quota_observation')``；响应只暴露\n白名单字段，绝不透传平台原始响应、完整手机号、平台用户标识或探测证据。\n``observed_window_count`` 可以是日志下限/估算值，精度由 ``count_kind`` 明示，\n不能冒充官方固定额度。"
       },
       "AccountView": {
         "properties": {
@@ -58424,6 +58434,16 @@
             "type": "string",
             "title": "Answer Pub Id"
           },
+          "share_artifact": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnswerShareArtifactView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "answer_citations": {
             "items": {
               "$ref": "#/components/schemas/CitationRelationView"
@@ -58471,6 +58491,7 @@
         "type": "object",
         "required": [
           "answer_pub_id",
+          "share_artifact",
           "answer_citations",
           "brand_mention_evidence",
           "opened_source_previews",
@@ -58479,6 +58500,121 @@
           "history"
         ],
         "title": "AnswerRelationsView"
+      },
+      "AnswerShareArtifactView": {
+        "properties": {
+          "platform": {
+            "type": "string",
+            "title": "Platform"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "available",
+              "missing",
+              "unsupported",
+              "invalid"
+            ],
+            "title": "Status"
+          },
+          "share_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Share Url"
+          },
+          "final_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Final Url"
+          },
+          "availability_status": {
+            "type": "string",
+            "enum": [
+              "reachable",
+              "redirected",
+              "blocked",
+              "unreachable",
+              "unchecked"
+            ],
+            "title": "Availability Status"
+          },
+          "http_status": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Http Status"
+          },
+          "checked_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked At"
+          },
+          "last_accessible_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Accessible At"
+          },
+          "embed_status": {
+            "type": "string",
+            "enum": [
+              "allowed",
+              "blocked",
+              "unknown"
+            ],
+            "title": "Embed Status"
+          },
+          "embed_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Embed Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "platform",
+          "status",
+          "availability_status",
+          "embed_status"
+        ],
+        "title": "AnswerShareArtifactView"
       },
       "AnswerView": {
         "properties": {
@@ -61382,6 +61518,9 @@
             ],
             "title": "Published At Confidence",
             "default": "unknown"
+          },
+          "support": {
+            "$ref": "#/components/schemas/CitationSupportView"
           }
         },
         "additionalProperties": false,
@@ -61394,9 +61533,204 @@
           "title",
           "cited_text",
           "own_source",
-          "content_hash"
+          "content_hash",
+          "support"
         ],
         "title": "CitationRelationView"
+      },
+      "CitationSupportView": {
+        "properties": {
+          "mapping_status": {
+            "type": "string",
+            "enum": [
+              "mapped",
+              "unmapped",
+              "ambiguous"
+            ],
+            "title": "Mapping Status"
+          },
+          "mapping_basis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mapping Basis"
+          },
+          "answer_text_start": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Text Start"
+          },
+          "answer_text_end": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Text End"
+          },
+          "answer_ast_path": {
+            "anyOf": [
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Ast Path"
+          },
+          "answer_sentence": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Sentence"
+          },
+          "source_quote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Quote"
+          },
+          "source_text_start": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Text Start"
+          },
+          "source_text_end": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Text End"
+          },
+          "source_quote_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Quote Hash"
+          },
+          "source_match_status": {
+            "type": "string",
+            "enum": [
+              "exact",
+              "normalized",
+              "not_found",
+              "not_checked"
+            ],
+            "title": "Source Match Status"
+          },
+          "source_match_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Match Version"
+          },
+          "relation": {
+            "type": "string",
+            "enum": [
+              "supports",
+              "contradicts",
+              "background",
+              "unverified"
+            ],
+            "title": "Relation"
+          },
+          "relevance_confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relevance Confidence"
+          },
+          "classifier_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Classifier Version"
+          },
+          "review_status": {
+            "type": "string",
+            "enum": [
+              "unreviewed",
+              "approved",
+              "rejected",
+              "needs_review"
+            ],
+            "title": "Review Status"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "mapping_status",
+          "source_match_status",
+          "relation",
+          "review_status"
+        ],
+        "title": "CitationSupportView"
       },
       "ClaimEvidenceCreate": {
         "properties": {

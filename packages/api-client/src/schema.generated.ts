@@ -818,11 +818,12 @@ export interface paths {
         };
         /**
          * List Collection Account Quota Observations
-         * @description 返回每个浏览器账号 × mode 最新一条额度观测。
+         * @description 返回每个手机号 × 平台 × mode 最新一条额度观测。
          *
-         *     浏览器实例在账号尚未登记为 ``phone × platform`` 时仍是有效的独立登录账号，
-         *     因而额度观测以 browser 为最小安全锚点。接口最多扫描最近 200 条审计事件，按
-         *     ``(instance_key, mode)`` 去重；不返回 ``new_value`` 原文。
+         *     额度属于登录账号而不是出口地域，因此事件必须显式关联 ``phone_account_id``；
+         *     browser/region 仅作为最近观测来源。接口最多扫描最近 200 条审计事件，按
+         *     ``(phone, platform, mode)`` 去重；不返回 ``new_value`` 原文，也不再把没有
+         *     手机号归属的历史 browser-only 事件展示成账号额度。
          */
         get: operations["list_collection_account_quota_observations_api_v2_collection_account_quota_observations_get"];
         put?: never;
@@ -1279,8 +1280,8 @@ export interface paths {
         /**
          * Otp Setup Info
          * @description 装机配置（operator 门内）：推送地址/relay token/Body 模板/白名单正则/卡槽备注。
-         *     URL 从请求 origin 派生（供工具消费；**装机页展示不用它**——页面以浏览器
-         *     location.origin 拼地址，反代 Host $host 丢端口时页面依然正确）。
+         *     URL 优先来自显式 ``GEO_PUBLIC_BASE_URL``；生产缺失时 fail-closed，避免反代
+         *     ``Host`` 丢端口后向操作员下发不可用地址。
          */
         get: operations["otp_setup_info_api_v2_otp_setup_info_get"];
         put?: never;
@@ -4408,18 +4409,23 @@ export interface components {
          * @description 账号管理页的平台额度安全投影。
          *
          *     真源是 ``collection_account_event(event_type='quota_observation')``；响应只暴露
-         *     白名单字段，绝不透传平台原始响应、账号标识或探测证据。``observed_window_count``
-         *     可以是日志下限/估算值，精度由 ``count_kind`` 明示，不能冒充官方固定额度。
+         *     白名单字段，绝不透传平台原始响应、完整手机号、平台用户标识或探测证据。
+         *     ``observed_window_count`` 可以是日志下限/估算值，精度由 ``count_kind`` 明示，
+         *     不能冒充官方固定额度。
          */
         AccountQuotaObservationView: {
             /** Observation Pub Id */
             observation_pub_id: string;
-            /** Browser Instance Key */
-            browser_instance_key: string;
+            /** Phone Account Pub Id */
+            phone_account_pub_id: string;
+            /** Phone Masked */
+            phone_masked: string;
             /** Platform */
             platform: string;
-            /** Region Gb */
-            region_gb: string | null;
+            /** Observed Browser Instance Key */
+            observed_browser_instance_key: string;
+            /** Observed Region Gb */
+            observed_region_gb: string | null;
             /**
              * Mode
              * @enum {string}
@@ -4599,6 +4605,7 @@ export interface components {
         AnswerRelationsView: {
             /** Answer Pub Id */
             answer_pub_id: string;
+            share_artifact: components["schemas"]["AnswerShareArtifactView"] | null;
             /** Answer Citations */
             answer_citations: components["schemas"]["CitationRelationView"][];
             /** Brand Mention Evidence */
@@ -4611,6 +4618,38 @@ export interface components {
             evidence: components["schemas"]["AnswerEvidenceView"][];
             /** History */
             history: components["schemas"]["EvidenceHistoryView"][];
+        };
+        /** AnswerShareArtifactView */
+        AnswerShareArtifactView: {
+            /** Platform */
+            platform: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "available" | "missing" | "unsupported" | "invalid";
+            /** Share Url */
+            share_url?: string | null;
+            /** Final Url */
+            final_url?: string | null;
+            /**
+             * Availability Status
+             * @enum {string}
+             */
+            availability_status: "reachable" | "redirected" | "blocked" | "unreachable" | "unchecked";
+            /** Http Status */
+            http_status?: number | null;
+            /** Checked At */
+            checked_at?: string | null;
+            /** Last Accessible At */
+            last_accessible_at?: string | null;
+            /**
+             * Embed Status
+             * @enum {string}
+             */
+            embed_status: "allowed" | "blocked" | "unknown";
+            /** Embed Reason */
+            embed_reason?: string | null;
         };
         /** AnswerView */
         AnswerView: {
@@ -5649,6 +5688,54 @@ export interface components {
              * @enum {string}
              */
             published_at_confidence: "verified_structured" | "structured_only" | "visible_only" | "inferred_low" | "unknown";
+            support: components["schemas"]["CitationSupportView"];
+        };
+        /** CitationSupportView */
+        CitationSupportView: {
+            /**
+             * Mapping Status
+             * @enum {string}
+             */
+            mapping_status: "mapped" | "unmapped" | "ambiguous";
+            /** Mapping Basis */
+            mapping_basis?: string | null;
+            /** Answer Text Start */
+            answer_text_start?: number | null;
+            /** Answer Text End */
+            answer_text_end?: number | null;
+            /** Answer Ast Path */
+            answer_ast_path?: (string | number)[] | null;
+            /** Answer Sentence */
+            answer_sentence?: string | null;
+            /** Source Quote */
+            source_quote?: string | null;
+            /** Source Text Start */
+            source_text_start?: number | null;
+            /** Source Text End */
+            source_text_end?: number | null;
+            /** Source Quote Hash */
+            source_quote_hash?: string | null;
+            /**
+             * Source Match Status
+             * @enum {string}
+             */
+            source_match_status: "exact" | "normalized" | "not_found" | "not_checked";
+            /** Source Match Version */
+            source_match_version?: string | null;
+            /**
+             * Relation
+             * @enum {string}
+             */
+            relation: "supports" | "contradicts" | "background" | "unverified";
+            /** Relevance Confidence */
+            relevance_confidence?: number | null;
+            /** Classifier Version */
+            classifier_version?: string | null;
+            /**
+             * Review Status
+             * @enum {string}
+             */
+            review_status: "unreviewed" | "approved" | "rejected" | "needs_review";
         };
         /** ClaimEvidenceCreate */
         ClaimEvidenceCreate: {
