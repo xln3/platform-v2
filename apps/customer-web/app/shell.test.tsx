@@ -1376,7 +1376,9 @@ describe('Customer intake workspace', () => {
         <Shell />
       </MemoryRouter>,
     );
-    // 首访默认收起，避免覆盖仪表盘；用户主动展开后可见模型清单。
+    // 客户成果页不挂载内部 AI 操作；只在其唯一相关的客户信息表中就地提供。
+    expect(screen.queryByLabelText('AI 操作面板')).toBeNull();
+    await user.click(screen.getByRole('button', { name: '客户信息表' }));
     expect(screen.getByLabelText('AI 操作面板')).toBeTruthy();
     expect(screen.queryByText('AI 操作')).toBeNull();
     await user.click(screen.getByRole('button', { name: '展开 AI 面板' }));
@@ -1391,6 +1393,8 @@ describe('Customer intake workspace', () => {
     expect(localStorage.getItem('geo.ai.dock.expanded')).toBe('0');
     await user.click(screen.getByRole('button', { name: '展开 AI 面板' }));
     expect(screen.getByText('AI 操作')).toBeTruthy();
+    await user.click(screen.getByRole('button', { name: '经营总览' }));
+    expect(screen.queryByLabelText('AI 操作面板')).toBeNull();
   });
 
   it('gates saving on the five truth confirmations and then saves explicitly', async () => {

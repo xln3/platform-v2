@@ -89,18 +89,15 @@ main:has(> .geo-customer-dashboard) > .page-heading {
   font-family: ui-monospace, monospace;
 }
 .geo-dashboard-filters {
-  position: sticky;
-  top: 78px;
-  z-index: 5;
+  position: static;
   display: grid;
   grid-template-columns: repeat(4, minmax(145px, 1fr));
   gap: 10px;
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.92);
+  background: #fff;
   box-shadow: 0 10px 32px rgba(21, 47, 38, 0.06);
-  backdrop-filter: blur(12px);
 }
 .geo-dashboard-filters label {
   display: grid;

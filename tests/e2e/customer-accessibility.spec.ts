@@ -13,7 +13,9 @@ test('customer shell is keyboard reachable and WCAG AA clean', async ({ page }) 
   await page.keyboard.press('Enter');
   await expect(page.locator('main')).toBeFocused();
   await expectSharedInteractionAccessibility(page);
-  // fixture 缺省为「已收起」回访态；展开 AI 操作面板也过一次可访问性闸（覆盖抽屉 summary 等控件）。
+  // 客户成果页不展示内部 AI 操作；该入口只在真正使用它的客户信息表中出现。
+  await expect(page.getByLabel('AI 操作面板')).toHaveCount(0);
+  await page.getByRole('button', { name: '客户信息表' }).click();
   await page.getByRole('button', { name: '展开 AI 面板' }).click();
   await expectAccessible(page);
   await page.getByRole('button', { name: '收起 AI 面板' }).click();
@@ -52,6 +54,7 @@ test('customer shell is keyboard reachable and WCAG AA clean', async ({ page }) 
   await expectAccessible(page);
   await page.getByRole('button', { name: '品牌可见度' }).click();
   await page.getByRole('heading', { name: '云岫智能 · 品牌可见度与模型表现' }).waitFor();
+  await expect(page.getByLabel('AI 操作面板')).toHaveCount(0);
   await expectAccessible(page);
   await page.getByRole('button', { name: '真实 AI 回答' }).click();
   await page.getByRole('heading', { name: '云岫智能 · 真实 AI 回答与模型语境' }).waitFor();

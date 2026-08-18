@@ -617,7 +617,9 @@ test('validated customer submits a project change request through the generated 
   );
 });
 
-test('monitoring filters are URL-bound and restore through browser history', async ({ page }) => {
+test('monitoring filters stay in content flow, are URL-bound and restore through history', async ({
+  page,
+}) => {
   await page.route('**/api/v2/health', (route) =>
     route.fulfill({
       status: 200,
@@ -679,6 +681,11 @@ test('monitoring filters are URL-bound and restore through browser history', asy
   await expect(modelFilter).toHaveValue('DeepSeek');
   await page.goBack();
   await expect(modelFilter).toHaveValue('all');
+  await expect(analysisFilters).toHaveCSS('position', 'static');
+  await page.getByLabel('回答模式表现数据表').scrollIntoViewIfNeeded();
+  await expect
+    .poll(() => analysisFilters.evaluate((element) => element.getBoundingClientRect().bottom <= 0))
+    .toBe(true);
 });
 
 test('customer profile, brand assets and configuration requests validate and submit', async ({

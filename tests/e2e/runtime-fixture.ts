@@ -194,10 +194,8 @@ export const test = base.extend<{ browserRuntimeGuard: void }>({
     async ({ page }, use, testInfo) => {
       const collector = collectBrowserRuntimeIssues(page);
       try {
-        // AI 操作面板（AiOpsDock）缺省展开是有意的首访发现性设计，且会记忆用户选择；
-        // e2e 每次都是全新上下文，若保持缺省展开，悬浮面板会遮挡内容区右上角的动作按钮
-        // （真实用户收起一次后即持久化）。这里把每个用例统一置为「已收起」的回访用户态，
-        // 需要审计展开态的用例（如可访问性 spec）自行展开。
+        // AI 操作面板只在客户信息表挂载，并会记忆用户的展开选择。E2E 统一使用已收起
+        // 的回访态；需要审计展开交互的用例（如可访问性 spec）自行进入信息表后展开。
         await page.addInitScript(() => {
           try {
             if (localStorage.getItem('geo.ai.dock.expanded') === null) {

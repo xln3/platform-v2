@@ -902,6 +902,7 @@ test('validated customer reads mounted data and serializes every write without s
 
   await page.goto('/platform/customer/');
   await expect(page.getByRole('heading', { name: '真实客户品牌 · AI 认知资产总览' })).toBeVisible();
+  await expect(page.getByLabel('AI 操作面板')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: '监测运行中' })).toHaveCount(0);
   await expect(page.getByRole('progressbar', { name: '项目进度' })).toHaveCount(0);
   await expect(page.getByText('资料确认', { exact: true })).toHaveCount(0);
@@ -924,6 +925,7 @@ test('validated customer reads mounted data and serializes every write without s
   await expect(
     page.getByRole('heading', { name: '真实客户品牌 · 真实 AI 回答与模型语境' }),
   ).toBeVisible();
+  await expect(page.getByLabel('AI 操作面板')).toHaveCount(0);
   await expect(
     page.getByRole('heading', { name: '真实客户品牌 · 真实 AI 回答', exact: true }),
   ).toBeVisible();
@@ -1001,6 +1003,7 @@ test('validated customer reads mounted data and serializes every write without s
   await expect(
     page.getByRole('heading', { name: '真实客户品牌 · 品牌可见度与模型表现' }),
   ).toBeVisible();
+  await expect(page.getByLabel('AI 操作面板')).toHaveCount(0);
   await expect(
     page.locator('.geo-kpi-card').filter({ hasText: '品牌提及率' }).getByText('75.0%'),
   ).toBeVisible();

@@ -61,6 +61,9 @@ for (const workspace of workspaces) {
   test(`customer ${workspace.section} visual baseline has no page overflow`, async ({ page }) => {
     await prepareVisualPage(page, `/platform/customer/?section=${workspace.section}`);
     await page.getByRole('heading', { name: workspace.ready, exact: true }).first().waitFor();
+    await expect(page.getByLabel('AI 操作面板')).toHaveCount(
+      workspace.section === 'intake' ? 1 : 0,
+    );
     await expect
       .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1))
       .toBe(true);

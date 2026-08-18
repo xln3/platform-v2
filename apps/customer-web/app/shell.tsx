@@ -10162,62 +10162,64 @@ export default function Shell() {
         nav={experience?.source === 'live' ? liveNav : nav}
         probe={getHealth}
       >
-        {(active) =>
-          experience?.source === 'live' &&
-          ![
-            'home',
-            'answers',
-            'profile',
-            'intake',
-            'assets',
-            'monitoring',
-            'competition',
-            'sources',
-            'reputation',
-            'opportunities',
-            'accounts',
-            'questions',
-            'evidence',
-            'reports',
-            'members',
-          ].includes(active) ? (
-            <StatePanel state="insufficient" />
-          ) : active === 'home' ? (
-            <CustomerAnalyticsWorkspace focus="overview" />
-          ) : active === 'monitoring' ? (
-            <CustomerAnalyticsWorkspace focus="visibility" />
-          ) : active === 'answers' ? (
-            <CustomerAnalyticsWorkspace focus="answers" />
-          ) : active === 'competition' ? (
-            <CustomerAnalyticsWorkspace focus="competition" />
-          ) : active === 'sources' ? (
-            <CustomerAnalyticsWorkspace focus="sources" />
-          ) : active === 'reputation' ? (
-            <CustomerAnalyticsWorkspace focus="reputation" />
-          ) : active === 'opportunities' ? (
-            <CustomerAnalyticsWorkspace focus="opportunities" />
-          ) : active === 'accounts' ? (
-            <Accounts />
-          ) : active === 'profile' ? (
-            <ProfileWorkspace />
-          ) : active === 'intake' ? (
-            <IntakeWorkspace />
-          ) : active === 'assets' ? (
-            <AssetsWorkspace />
-          ) : active === 'questions' ? (
-            <QuestionsWorkspace />
-          ) : active === 'evidence' ? (
-            <EvidenceWorkspace />
-          ) : active === 'reports' ? (
-            <ReportsWorkspace />
-          ) : active === 'members' ? (
-            <MembersWorkspace />
-          ) : (
-            <Placeholder active={active} />
-          )
-        }
+        {(active) => (
+          <>
+            {experience?.source === 'live' &&
+            ![
+              'home',
+              'answers',
+              'profile',
+              'intake',
+              'assets',
+              'monitoring',
+              'competition',
+              'sources',
+              'reputation',
+              'opportunities',
+              'accounts',
+              'questions',
+              'evidence',
+              'reports',
+              'members',
+            ].includes(active) ? (
+              <StatePanel state="insufficient" />
+            ) : active === 'home' ? (
+              <CustomerAnalyticsWorkspace focus="overview" />
+            ) : active === 'monitoring' ? (
+              <CustomerAnalyticsWorkspace focus="visibility" />
+            ) : active === 'answers' ? (
+              <CustomerAnalyticsWorkspace focus="answers" />
+            ) : active === 'competition' ? (
+              <CustomerAnalyticsWorkspace focus="competition" />
+            ) : active === 'sources' ? (
+              <CustomerAnalyticsWorkspace focus="sources" />
+            ) : active === 'reputation' ? (
+              <CustomerAnalyticsWorkspace focus="reputation" />
+            ) : active === 'opportunities' ? (
+              <CustomerAnalyticsWorkspace focus="opportunities" />
+            ) : active === 'accounts' ? (
+              <Accounts />
+            ) : active === 'profile' ? (
+              <ProfileWorkspace />
+            ) : active === 'intake' ? (
+              <IntakeWorkspace />
+            ) : active === 'assets' ? (
+              <AssetsWorkspace />
+            ) : active === 'questions' ? (
+              <QuestionsWorkspace />
+            ) : active === 'evidence' ? (
+              <EvidenceWorkspace />
+            ) : active === 'reports' ? (
+              <ReportsWorkspace />
+            ) : active === 'members' ? (
+              <MembersWorkspace />
+            ) : (
+              <Placeholder active={active} />
+            )}
+            {active === 'intake' ? <AiOpsDock /> : null}
+          </>
+        )}
       </ProductShell>
-      <AiOpsDock />
     </>
   );
 }
