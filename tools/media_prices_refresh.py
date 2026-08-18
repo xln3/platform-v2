@@ -38,7 +38,15 @@ from urllib.parse import unquote
 import httpx
 
 ROOT = Path(__file__).resolve().parents[1]
-DATASETS = ROOT / ".datasets"
+
+
+def _configured_datasets_dir() -> Path:
+    """Use the same persistent artifact directory as the API process."""
+    configured = os.environ.get("GEO_DATASETS_DIR", "")
+    return Path(configured) if configured else ROOT / ".datasets"
+
+
+DATASETS = _configured_datasets_dir()
 RAW = DATASETS / "raw"
 REFRESH_JSON = DATASETS / "media-prices.refresh.json"
 LOCK_FILE = DATASETS / "media-prices.refresh.lock"

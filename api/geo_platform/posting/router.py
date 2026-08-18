@@ -17,12 +17,19 @@ from fastapi import (
     Query,
     UploadFile,
 )
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, TypeAdapter, ValidationError
 
 from ..config import get_settings
 from ..identity.policy import Principal, get_principal
 from .catalog import CatalogInvalid, RequestedTarget, resolve_targets
 from .docx import DOCX_MIME, DocxInvalid, parse_docx
+from .provider_auth import (
+    PrfabuAuthUnavailable,
+    PrfabuChallengeInvalid,
+    create_prfabu_captcha,
+    login_prfabu,
+    prfabu_session_state,
+)
 from .service import PostingInvalidState, PostingNotFound, PostingService
 
 router = APIRouter(prefix="/api/v2/posting", tags=["posting"])
@@ -74,6 +81,25 @@ IdempotencyKey = Annotated[
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class PrfabuSessionView(StrictModel):
+    status: Literal["ready", "missing", "expired", "unavailable", "rejected"]
+    message: str
+    balance: Decimal | None = None
+
+
+class PrfabuCaptchaView(StrictModel):
+    challenge_id: str = Field(pattern=r"^[A-Za-z0-9_-]{32,64}$")
+    image_base64: str
+    expires_in_seconds: int
+
+
+class PrfabuLoginRequest(StrictModel):
+    challenge_id: str = Field(pattern=r"^[A-Za-z0-9_-]{32,64}$")
+    account: str = Field(min_length=1, max_length=120)
+    password: SecretStr = Field(min_length=1, max_length=256)
+    captcha: str = Field(min_length=1, max_length=12)
 
 
 class TargetCreate(StrictModel):
@@ -242,11 +268,75 @@ def _parse_targets(raw: str) -> list[TargetCreate]:
         ) from exc
 
 
+@router.get("/providers/prfabu/session", response_model=PrfabuSessionView)
+def get_prfabu_session(
+    principal: Principal = Depends(get_principal),
+) -> PrfabuSessionView:
+    principal.require("account:operate")
+    state = prfabu_session_state()
+    return PrfabuSessionView.model_validate(state, from_attributes=True)
+
+
+@router.post(
+    "/providers/prfabu/login/captcha",
+    response_model=PrfabuCaptchaView,
+    status_code=201,
+)
+def start_prfabu_login(
+    principal: Principal = Depends(get_principal),
+) -> PrfabuCaptchaView:
+    principal.require("account:operate")
+    try:
+        challenge = create_prfabu_captcha(
+            tenant_pub_id=principal.tenant_pub_id,
+            actor_pub_id=principal.actor_pub_id,
+        )
+    except PrfabuAuthUnavailable as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={"code": str(exc)},
+        ) from exc
+    return PrfabuCaptchaView.model_validate(challenge, from_attributes=True)
+
+
+@router.post("/providers/prfabu/login", response_model=PrfabuSessionView)
+def complete_prfabu_login(
+    body: PrfabuLoginRequest,
+    principal: Principal = Depends(get_principal),
+) -> PrfabuSessionView:
+    principal.require("account:operate")
+    account = body.account.strip()
+    captcha = body.captcha.strip()
+    if not account or not captcha:
+        raise HTTPException(status_code=422, detail={"code": "provider_login_input_invalid"})
+    try:
+        state = login_prfabu(
+            challenge_id=body.challenge_id,
+            tenant_pub_id=principal.tenant_pub_id,
+            actor_pub_id=principal.actor_pub_id,
+            account=account,
+            password=body.password.get_secret_value(),
+            captcha=captcha,
+        )
+    except PrfabuChallengeInvalid as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "provider_login_challenge_invalid"},
+        ) from exc
+    except PrfabuAuthUnavailable as exc:
+        raise HTTPException(
+            status_code=502,
+            detail={"code": str(exc)},
+        ) from exc
+    return PrfabuSessionView.model_validate(state, from_attributes=True)
+
+
 @router.post("/batches", response_model=BatchView, status_code=201)
 async def create_batch(
     idempotency_key: IdempotencyKey,
     document: Annotated[UploadFile, File(description="上游产出的图文 DOCX")],
     targets_json: Annotated[str, Form(min_length=2, max_length=50_000)],
+    background_tasks: BackgroundTasks,
     title: Annotated[str, Form(max_length=300)] = "",
     customer_name: Annotated[str, Form(max_length=300)] = "",
     release_time: Annotated[date | None, Form()] = None,
@@ -298,6 +388,13 @@ async def create_batch(
         )
     except (DocxInvalid, CatalogInvalid, PostingInvalidState, PostingNotFound) as exc:
         raise _posting_error(exc) from exc
+    if batch["status"] == "queued":
+        background_tasks.add_task(
+            service.execute_batch,
+            tenant_pub_id=principal.tenant_pub_id,
+            batch_pub_id=str(batch["pub_id"]),
+            actor_pub_id=principal.actor_pub_id,
+        )
     return BatchView.model_validate(batch)
 
 
@@ -336,6 +433,7 @@ def get_batch(
 def submit_batch(
     batch_pub_id: str,
     body: SubmitRequest,
+    background_tasks: BackgroundTasks,
     principal: Principal = Depends(get_principal),
 ) -> BatchView:
     principal.require("account:operate")
@@ -349,6 +447,13 @@ def submit_batch(
         )
     except (PostingNotFound, PostingInvalidState) as exc:
         raise _posting_error(exc) from exc
+    if row["status"] == "queued":
+        background_tasks.add_task(
+            service.execute_batch,
+            tenant_pub_id=principal.tenant_pub_id,
+            batch_pub_id=batch_pub_id,
+            actor_pub_id=principal.actor_pub_id,
+        )
     return BatchView.model_validate(row)
 
 

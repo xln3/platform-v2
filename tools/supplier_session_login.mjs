@@ -5,10 +5,11 @@
  *
  * 用法：
  *   SUPPLIER_ACCOUNT=... SUPPLIER_PASSWORD=... \
- *     DISPLAY=:1 node tools/supplier_session_login.mjs pinda|nichuanbo
+ *     node tools/supplier_session_login.mjs prfabu|pinda|nichuanbo
  *
+ * 媒体管家会把四位图形验证码保存到 .datasets/prfabu_captcha.png，并在终端读取；
  * 品达当前无验证码，会自动更新 Netscape Cookie 文件；逆传播以 headed 模式打开，
- * 便于通过现有 noVNC 转发人工完成验证码。
+ * 便于通过现有 noVNC 转发人工完成验证码（需设置 DISPLAY）。
  * 终端命令：
  *   shot                         保存当前截图
  *   click <x> <y>                点击页面坐标
@@ -35,9 +36,13 @@ const DATASET_DIR = new URL('../.datasets/', import.meta.url);
 const STATE_PATH = new URL('nichuanbo_storage.json', DATASET_DIR);
 const SCREENSHOT_PATH = new URL('nichuanbo_login.png', DATASET_DIR);
 const PINDA_COOKIE_PATH = new URL('pinda_session.txt', DATASET_DIR);
+const PRFABU_CAPTCHA_PATH = new URL('prfabu_captcha.png', DATASET_DIR);
+const PRFABU_COOKIE_PATH = new URL('prfabu_session.txt', DATASET_DIR);
 const statePath = fileURLToPath(STATE_PATH);
 const screenshotPath = fileURLToPath(SCREENSHOT_PATH);
 const pindaCookiePath = fileURLToPath(PINDA_COOKIE_PATH);
+const prfabuCaptchaPath = fileURLToPath(PRFABU_CAPTCHA_PATH);
+const prfabuCookiePath = fileURLToPath(PRFABU_COOKIE_PATH);
 
 function requiredEnvironment(name) {
   const value = process.env[name]?.trim();
@@ -120,10 +125,102 @@ async function loginPinda(context, page, account, password) {
   await saveNetscapeCookies(context);
 }
 
+async function savePrfabuSession(context) {
+  const cookies = await context.cookies('https://www.prfabu.com');
+  const session = cookies.find((cookie) => cookie.name === 'PHPSESSID' && cookie.value);
+  if (!session) throw new Error('媒体管家未返回 PHPSESSID');
+  const domain = session.httpOnly ? `#HttpOnly_${session.domain}` : session.domain;
+  const line = [
+    domain,
+    session.domain.startsWith('.') ? 'TRUE' : 'FALSE',
+    session.path || '/',
+    session.secure ? 'TRUE' : 'FALSE',
+    session.expires > 0 ? Math.floor(session.expires) : 0,
+    session.name,
+    session.value,
+  ].join('\t');
+  await writeFile(prfabuCookiePath, `# Netscape HTTP Cookie File\n${line}\n`, { mode: 0o600 });
+  await chmod(prfabuCookiePath, 0o600);
+  process.stdout.write(`会话已保存：${prfabuCookiePath}\n`);
+}
+
+async function responseObject(response) {
+  const responseText = await response.text().catch(() => '');
+  if (!responseText) return null;
+  try {
+    const body = JSON.parse(responseText);
+    if (typeof body !== 'string') return body;
+    return JSON.parse(body);
+  } catch {
+    return null;
+  }
+}
+
+async function promptCaptcha() {
+  const input = createInterface({ input: process.stdin, output: process.stdout, terminal: true });
+  try {
+    return await new Promise((resolve) => input.question('prfabu captcha> ', resolve));
+  } finally {
+    input.close();
+  }
+}
+
+async function loginPrfabu(context, account, password) {
+  const headers = { 'x-requested-with': 'XMLHttpRequest' };
+  let lastMessage = '';
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    const captchaResponse = await context.request.get(
+      `https://www.prfabu.com/captcha.html?seed=0.${Date.now()}`,
+      { headers, timeout: 20_000 },
+    );
+    if (!captchaResponse.ok()) {
+      throw new Error(`媒体管家验证码读取失败：HTTP ${captchaResponse.status()}`);
+    }
+    await writeFile(prfabuCaptchaPath, await captchaResponse.body(), { mode: 0o600 });
+    await chmod(prfabuCaptchaPath, 0o600);
+    process.stdout.write(`验证码已保存：${prfabuCaptchaPath}（第 ${attempt}/5 次）\n`);
+    const captcha = String(await promptCaptcha()).trim();
+    if (!captcha) {
+      lastMessage = '验证码不能为空';
+      continue;
+    }
+    const loginResponse = await context.request.post('https://www.prfabu.com/', {
+      form: { username: account, password, captcha },
+      headers,
+      timeout: 20_000,
+    });
+    const body = await responseObject(loginResponse);
+    const code = body && typeof body === 'object' ? Number(body.code) : Number.NaN;
+    const message =
+      body && typeof body === 'object' && typeof body.msg === 'string'
+        ? body.msg.slice(0, 120)
+        : `响应格式异常（HTTP ${loginResponse.status()}）`;
+    if (code !== 200) {
+      lastMessage = message;
+      if (!message.includes('验证码')) break;
+      process.stderr.write(`验证码未通过：${message}\n`);
+      continue;
+    }
+
+    const verifyResponse = await context.request.post(
+      'https://www.prfabu.com/index/user/wallet.html',
+      { form: {}, headers, timeout: 20_000 },
+    );
+    const verifyBody = await responseObject(verifyResponse);
+    if (!verifyBody || typeof verifyBody !== 'object' || Number(verifyBody.code) !== 200) {
+      throw new Error('媒体管家登录响应成功，但会话验证失败');
+    }
+    await savePrfabuSession(context);
+    process.stdout.write('媒体管家登录态验证通过。\n');
+    return;
+  }
+  throw new Error(`媒体管家登录失败：${lastMessage || '验证码重试次数已用尽'}`);
+}
+
 async function main() {
   const supplier = process.argv[2];
-  if (supplier !== 'nichuanbo' && supplier !== 'pinda') {
-    throw new Error('支持的供应商：pinda / nichuanbo');
+  if (supplier !== 'nichuanbo' && supplier !== 'pinda' && supplier !== 'prfabu') {
+    throw new Error('支持的供应商：prfabu / pinda / nichuanbo');
   }
   const account = requiredEnvironment('SUPPLIER_ACCOUNT');
   const password = requiredEnvironment('SUPPLIER_PASSWORD');
@@ -131,7 +228,7 @@ async function main() {
 
   const proxyServer = process.env.https_proxy || process.env.http_proxy;
   const browser = await chromium.launch({
-    headless: false,
+    headless: supplier === 'prfabu',
     args: ['--disable-blink-features=AutomationControlled'],
     ignoreDefaultArgs: ['--enable-automation'],
     ...(proxyServer ? { proxy: { server: proxyServer } } : {}),
@@ -141,6 +238,14 @@ async function main() {
     Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
   });
   const page = await context.newPage();
+  if (supplier === 'prfabu') {
+    try {
+      await loginPrfabu(context, account, password);
+    } finally {
+      await browser.close();
+    }
+    return;
+  }
   if (supplier === 'pinda') {
     try {
       await loginPinda(context, page, account, password);

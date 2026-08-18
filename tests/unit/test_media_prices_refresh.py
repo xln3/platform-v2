@@ -3,6 +3,20 @@ import stat
 from tools import media_prices_refresh as refresh
 
 
+def test_dataset_directory_follows_api_configuration(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("GEO_DATASETS_DIR", str(tmp_path))
+
+    assert refresh._configured_datasets_dir() == tmp_path
+
+    monkeypatch.delenv("GEO_DATASETS_DIR")
+
+    assert refresh._configured_datasets_dir() == refresh.ROOT / ".datasets"
+
+    monkeypatch.setenv("GEO_DATASETS_DIR", "")
+
+    assert refresh._configured_datasets_dir() == refresh.ROOT / ".datasets"
+
+
 def test_refreshed_prfabu_session_is_replaced_with_owner_only_permissions(
     tmp_path, monkeypatch
 ) -> None:

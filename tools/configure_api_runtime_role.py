@@ -27,6 +27,7 @@ SCHEMAS = (
     "intelligence",
     "integration",
     "sop",
+    "posting",
 )
 
 

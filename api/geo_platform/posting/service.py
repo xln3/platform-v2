@@ -168,9 +168,18 @@ class PostingService:
                     ),
                     False,
                 )
+            training = False
+            if auto_submit:
+                tenant = self._required(
+                    connection.execute(
+                        "SELECT environment FROM platform.tenant WHERE pub_id=%s",
+                        (tenant_pub_id,),
+                    ).fetchone()
+                )
+                training = str(tenant["environment"]) == "training"
             batch_pub_id = new_pub_id("pbt")
-            batch_status = "draft"
-            approval_state = "pending" if auto_submit else "draft"
+            batch_status = "submitted" if training else ("queued" if auto_submit else "draft")
+            approval_state = "approved" if auto_submit else "draft"
             connection.execute(
                 """
                 INSERT INTO posting.batch
@@ -179,11 +188,11 @@ class PostingService:
                    customer_name,release_time,auto_submit,spend_confirmed_at,
                    max_total_amount,quoted_total_amount,status,note,created_by_pub_id,
                    sop_project_pub_id,article_version_pub_id,approval_state,
-                   approval_requested_by_pub_id)
+                   approval_requested_by_pub_id,approved_by_pub_id,approved_at)
                 VALUES (
                   %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
                   CASE WHEN %s THEN now() ELSE NULL END,%s,%s,%s,%s,%s,%s,%s,%s,
-                  CASE WHEN %s THEN %s ELSE NULL END
+                  %s,%s,CASE WHEN %s THEN now() ELSE NULL END
                 )
                 """,
                 (
@@ -209,19 +218,23 @@ class PostingService:
                     sop_project_pub_id,
                     article_version_pub_id,
                     approval_state,
+                    actor_pub_id if auto_submit else None,
+                    actor_pub_id if auto_submit else None,
                     auto_submit,
-                    actor_pub_id,
                 ),
             )
-            target_status = "selected"
+            target_status = "submitted" if training else ("queued" if auto_submit else "selected")
+            training_message = "训练环境模拟提交：未调用供应商、未产生费用" if training else ""
             for target in catalog.targets:
                 target_pub_id = new_pub_id("ptg")
                 connection.execute(
                     """
                     INSERT INTO posting.target
                       (pub_id,tenant_pub_id,batch_pub_id,catalog_type,provider,
-                       media_name,media_platform,provider_media_id,quoted_price,status)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                       media_name,media_platform,provider_media_id,quoted_price,status,
+                       provider_message,submitted_at)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+                            CASE WHEN %s THEN now() ELSE NULL END)
                     """,
                     (
                         target_pub_id,
@@ -234,6 +247,8 @@ class PostingService:
                         target.provider_media_id,
                         target.quoted_price,
                         target_status,
+                        training_message,
+                        training,
                     ),
                 )
                 self._event(
@@ -242,9 +257,9 @@ class PostingService:
                     batch_pub_id=batch_pub_id,
                     target_pub_id=target_pub_id,
                     actor_pub_id=actor_pub_id,
-                    event_type="target.selected",
+                    event_type=f"target.{target_status}",
                     to_status=target_status,
-                    message=f"{target.provider} / {target.media_name}",
+                    message=training_message or f"{target.provider} / {target.media_name}",
                     payload={
                         "catalog_type": target.catalog_type,
                         "quoted_price": str(target.quoted_price),
@@ -272,10 +287,14 @@ class PostingService:
                     tenant_pub_id=tenant_pub_id,
                     batch_pub_id=batch_pub_id,
                     actor_pub_id=actor_pub_id,
-                    event_type="approval.requested",
+                    event_type="spend.confirmed",
                     from_status="draft",
-                    to_status="pending",
-                    message="预算已确认，等待独立审核后提交",
+                    to_status=batch_status,
+                    message=(
+                        "预算已确认；训练环境仅模拟提交"
+                        if training
+                        else "预算已确认，发帖已进入队列"
+                    ),
                     payload={"max_total_amount": str(max_total_amount)},
                 )
             return (
@@ -355,32 +374,122 @@ class PostingService:
             )
             if str(batch["status"]) in {"published", "canceled"}:
                 raise PostingInvalidState("posting batch is terminal")
-            if str(batch.get("approval_state", "draft")) == "approved":
-                raise PostingInvalidState("posting batch is already approved")
             quoted_total = Decimal(str(batch["quoted_total_amount"]))
             if max_total_amount < quoted_total:
                 raise PostingInvalidState("spend limit is below the quoted total")
+            if str(batch.get("approval_state", "draft")) == "approved":
+                retryable = connection.execute(
+                    """
+                    SELECT pub_id FROM posting.target
+                    WHERE tenant_pub_id=%s AND batch_pub_id=%s
+                      AND status IN (
+                        'balance_insufficient','provider_session_expired','unsupported_provider'
+                      )
+                    FOR UPDATE
+                    """,
+                    (tenant_pub_id, batch_pub_id),
+                ).fetchall()
+                if retryable:
+                    connection.execute(
+                        """
+                        UPDATE posting.target
+                        SET status='queued',provider_message='等待重新提交供应商',updated_at=now()
+                        WHERE tenant_pub_id=%s AND batch_pub_id=%s
+                          AND status IN (
+                            'balance_insufficient','provider_session_expired',
+                            'unsupported_provider'
+                          )
+                        """,
+                        (tenant_pub_id, batch_pub_id),
+                    )
+                    prior = str(batch["status"])
+                    connection.execute(
+                        """
+                        UPDATE posting.batch
+                        SET status='queued',spend_confirmed_at=now(),max_total_amount=%s,
+                            updated_at=now()
+                        WHERE tenant_pub_id=%s AND pub_id=%s
+                        """,
+                        (max_total_amount, tenant_pub_id, batch_pub_id),
+                    )
+                    self._event(
+                        connection,
+                        tenant_pub_id=tenant_pub_id,
+                        batch_pub_id=batch_pub_id,
+                        actor_pub_id=actor_pub_id,
+                        event_type="batch.retry_requested",
+                        from_status=prior,
+                        to_status="queued",
+                        message="会话或余额恢复后重新提交受阻目标",
+                        payload={
+                            "target_pub_ids": [str(row["pub_id"]) for row in retryable],
+                            "max_total_amount": str(max_total_amount),
+                        },
+                    )
+                return self._detail(
+                    connection,
+                    tenant_pub_id=tenant_pub_id,
+                    batch_pub_id=batch_pub_id,
+                )
+            tenant = self._required(
+                connection.execute(
+                    "SELECT environment FROM platform.tenant WHERE pub_id=%s",
+                    (tenant_pub_id,),
+                ).fetchone()
+            )
+            training = str(tenant["environment"]) == "training"
             prior = str(batch["status"])
+            if training:
+                connection.execute(
+                    """
+                    UPDATE posting.target
+                    SET status='submitted',submitted_at=COALESCE(submitted_at,now()),
+                        provider_message='训练环境模拟提交：未调用供应商、未产生费用',
+                        updated_at=now()
+                    WHERE tenant_pub_id=%s AND batch_pub_id=%s AND status='selected'
+                    """,
+                    (tenant_pub_id, batch_pub_id),
+                )
+            else:
+                connection.execute(
+                    """
+                    UPDATE posting.target SET status='queued',updated_at=now()
+                    WHERE tenant_pub_id=%s AND batch_pub_id=%s AND status='selected'
+                    """,
+                    (tenant_pub_id, batch_pub_id),
+                )
+            next_status = "submitted" if training else "queued"
             connection.execute(
                 """
                 UPDATE posting.batch
                 SET auto_submit=true,spend_confirmed_at=now(),max_total_amount=%s,
-                    status='draft',approval_state='pending',
-                    approval_requested_by_pub_id=%s,approved_by_pub_id=NULL,
-                    approved_at=NULL,updated_at=now()
+                    status=%s,approval_state='approved',
+                    approval_requested_by_pub_id=%s,approved_by_pub_id=%s,
+                    approved_at=now(),updated_at=now()
                 WHERE tenant_pub_id=%s AND pub_id=%s
                 """,
-                (max_total_amount, actor_pub_id, tenant_pub_id, batch_pub_id),
+                (
+                    max_total_amount,
+                    next_status,
+                    actor_pub_id,
+                    actor_pub_id,
+                    tenant_pub_id,
+                    batch_pub_id,
+                ),
             )
             self._event(
                 connection,
                 tenant_pub_id=tenant_pub_id,
                 batch_pub_id=batch_pub_id,
                 actor_pub_id=actor_pub_id,
-                event_type="approval.requested",
+                event_type="spend.confirmed",
                 from_status=prior,
-                to_status="pending",
-                message="已确认预算，等待独立审核后提交",
+                to_status=next_status,
+                message=(
+                    "预算已确认；训练环境仅模拟提交"
+                    if training
+                    else "预算已确认，发帖已进入队列"
+                ),
                 payload={"max_total_amount": str(max_total_amount)},
             )
             return self._detail(
@@ -410,9 +519,6 @@ class PostingService:
             )
             if str(batch["approval_state"]) != "pending":
                 raise PostingInvalidState("posting approval is not pending")
-            requester = str(batch["approval_requested_by_pub_id"] or "")
-            if requester == actor_pub_id:
-                raise PostingInvalidState("posting creator cannot approve their own request")
             if approve:
                 if batch["spend_confirmed_at"] is None or batch["max_total_amount"] is None:
                     raise PostingInvalidState("spend confirmation is required")

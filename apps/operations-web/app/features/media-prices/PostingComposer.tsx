@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   backfillPostingTarget,
+  completePrfabuLogin,
   createPostingBatch,
-  decidePostingApproval,
+  getPrfabuSessionStatus,
   getPostingBatch,
   listPostingBatches,
   refreshPostingBatch,
+  startPrfabuLogin,
   submitPostingBatch,
   type IdentitySessionHeaders,
   type MediaPricesPlatform,
@@ -13,6 +15,8 @@ import {
   type PostingBatchStatus,
   type PostingBatchSummary,
   type PostingTargetStatus,
+  type PrfabuCaptchaChallenge,
+  type PrfabuSessionStatus,
 } from '@geo/api-client';
 
 export type PostingSelection = {
@@ -70,6 +74,12 @@ const TARGET_STATUS_LABELS: Record<PostingTargetStatus, string> = {
 };
 
 const ACTIVE_BATCH_STATUSES = new Set<PostingBatchStatus>(['queued', 'processing']);
+const ACTIVE_TARGET_STATUSES = new Set<PostingTargetStatus>(['queued', 'submitting']);
+const RETRYABLE_TARGET_STATUSES = new Set<PostingTargetStatus>([
+  'balance_insufficient',
+  'provider_session_expired',
+  'unsupported_provider',
+]);
 const POLL_INTERVAL_MS = 4_000;
 
 type Session = {
@@ -130,7 +140,6 @@ export function PostingComposer({
     [session.headers],
   );
   const canOperate = session.role === 'operator' || session.role === 'admin';
-  const canReview = session.role === 'reviewer' || session.role === 'admin';
   const [document, setDocument] = useState<File | null>(null);
   const [title, setTitle] = useState('');
   const [customerName, setCustomerName] = useState('');
@@ -152,8 +161,15 @@ export function PostingComposer({
   } | null>(null);
   const [recent, setRecent] = useState<PostingBatchSummary[]>([]);
   const [currentBatch, setCurrentBatch] = useState<PostingBatch | null>(null);
-  const [approvalRationale, setApprovalRationale] = useState('内容、媒体与预算已复核。');
   const [backfillUrls, setBackfillUrls] = useState<Record<string, string>>({});
+  const [providerSession, setProviderSession] = useState<PrfabuSessionStatus | null>(null);
+  const [providerSessionLoading, setProviderSessionLoading] = useState(canOperate);
+  const [providerLoginOpen, setProviderLoginOpen] = useState(false);
+  const [providerChallenge, setProviderChallenge] = useState<PrfabuCaptchaChallenge | null>(null);
+  const [providerAccount, setProviderAccount] = useState('');
+  const [providerPassword, setProviderPassword] = useState('');
+  const [providerCaptcha, setProviderCaptcha] = useState('');
+  const [providerLoginSubmitting, setProviderLoginSubmitting] = useState(false);
   const [recentState, setRecentState] = useState<'loading' | 'ready' | 'forbidden' | 'failed'>(
     'loading',
   );
@@ -184,7 +200,34 @@ export function PostingComposer({
   }, [requestHeaders]);
 
   useEffect(() => {
-    if (!currentBatch || !ACTIVE_BATCH_STATUSES.has(currentBatch.status)) return;
+    let cancelled = false;
+    if (!canOperate) {
+      setProviderSessionLoading(false);
+      return;
+    }
+    setProviderSessionLoading(true);
+    void getPrfabuSessionStatus(requestHeaders).then((result) => {
+      if (cancelled) return;
+      setProviderSessionLoading(false);
+      setProviderSession(
+        result.kind === 'ready'
+          ? result.data
+          : { status: 'unavailable', message: '供应商会话状态暂不可用', balance: null },
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [canOperate, requestHeaders]);
+
+  useEffect(() => {
+    if (
+      !currentBatch ||
+      (!ACTIVE_BATCH_STATUSES.has(currentBatch.status) &&
+        !currentBatch.targets.some((target) => ACTIVE_TARGET_STATUSES.has(target.status)))
+    ) {
+      return;
+    }
     let cancelled = false;
     const timer = window.setTimeout(() => {
       void getPostingBatch(currentBatch.pubId, requestHeaders).then((result) => {
@@ -198,6 +241,56 @@ export function PostingComposer({
       window.clearTimeout(timer);
     };
   }, [currentBatch, requestHeaders]);
+
+  const beginProviderLogin = async () => {
+    setProviderLoginOpen(true);
+    setProviderLoginSubmitting(true);
+    setNotice({ tone: 'info', text: '正在获取 prfabu 图形验证码…' });
+    const result = await startPrfabuLogin(requestHeaders);
+    setProviderLoginSubmitting(false);
+    if (result.kind === 'ready') {
+      setProviderChallenge(result.data);
+      setProviderCaptcha('');
+      setNotice({ tone: 'info', text: '请输入账号、密码和图片中的验证码。' });
+      return;
+    }
+    setProviderChallenge(null);
+    setNotice({ tone: 'error', text: '验证码获取失败，请稍后重试。' });
+  };
+
+  const completeProviderLogin = async () => {
+    if (!providerChallenge || !providerAccount.trim() || !providerPassword || !providerCaptcha) {
+      setNotice({ tone: 'error', text: '请完整填写 prfabu 账号、密码和验证码。' });
+      return;
+    }
+    setProviderLoginSubmitting(true);
+    setNotice({ tone: 'info', text: '正在验证 prfabu 登录并安全保存会话…' });
+    const result = await completePrfabuLogin(
+      {
+        challengeId: providerChallenge.challengeId,
+        account: providerAccount.trim(),
+        password: providerPassword,
+        captcha: providerCaptcha.trim(),
+      },
+      requestHeaders,
+    );
+    setProviderPassword('');
+    setProviderCaptcha('');
+    setProviderChallenge(null);
+    setProviderLoginSubmitting(false);
+    if (result.kind === 'ready' && result.data.status === 'ready') {
+      setProviderSession(result.data);
+      setProviderLoginOpen(false);
+      setNotice({ tone: 'info', text: 'prfabu 登录成功，现在可以直接发帖。' });
+      return;
+    }
+    if (result.kind === 'ready' && result.data.status === 'rejected') {
+      setProviderSession(result.data);
+      setNotice({ tone: 'error', text: `${result.data.message}，请获取新验证码后重试。` });
+      return;
+    }
+    setNotice({ tone: 'error', text: '登录请求失败或验证码已过期，请重新获取验证码。' });
+  };
 
   const createBatch = async () => {
     const maximum = Number(maxTotalAmount);
@@ -218,6 +311,15 @@ export function PostingComposer({
     }
     if (autoSubmit && !confirmSpend) {
       setNotice({ tone: 'error', text: '自动发帖会产生真实费用，请先确认扣费授权。' });
+      return;
+    }
+    if (
+      autoSubmit &&
+      selections.some((selection) => selection.provider === 'prfabu') &&
+      providerSession?.status !== 'ready'
+    ) {
+      setProviderLoginOpen(true);
+      setNotice({ tone: 'error', text: '请先在本页登录 prfabu，再开始自动发帖。' });
       return;
     }
     setSubmitting(true);
@@ -250,8 +352,8 @@ export function PostingComposer({
       setNotice({
         tone: 'info',
         text: autoSubmit
-          ? '发帖批次已创建，预算已锁定，正在等待独立审核。'
-          : '发帖批次草稿已保存，可稍后确认预算后提交。',
+          ? '预算已确认，发帖任务已直接进入队列。'
+          : '发帖批次草稿已保存，可稍后确认预算并开始发帖。',
       });
       idempotencyKeyRef.current = newIdempotencyKey();
       setConfirmSpend(false);
@@ -298,37 +400,24 @@ export function PostingComposer({
     }
   };
 
-  const requestApproval = async () => {
+  const startBatch = async () => {
     if (!currentBatch) return;
-    const maximum = Number(maxTotalAmount || currentBatch.maxTotalAmount || 0);
-    const result = await submitPostingBatch(currentBatch.pubId, maximum, requestHeaders);
-    if (result.kind === 'ready') {
-      setCurrentBatch(result.data);
-      setNotice({ tone: 'info', text: '预算已确认，等待另一位审核人批准。' });
-      void reloadRecent();
-    } else {
-      setNotice({ tone: 'error', text: '提交审核失败，请核对预算和批次状态。' });
-    }
-  };
-
-  const decideApproval = async (decision: 'approve' | 'reject') => {
-    if (!currentBatch || approvalRationale.trim().length < 4) return;
-    const result = await decidePostingApproval(
-      currentBatch.pubId,
-      decision,
-      approvalRationale.trim(),
-      requestHeaders,
+    const retrying = currentBatch.targets.some((target) =>
+      RETRYABLE_TARGET_STATUSES.has(target.status),
     );
+    const maximum = Number(
+      maxTotalAmount || currentBatch.maxTotalAmount || currentBatch.quotedTotalAmount,
+    );
+    const result = await submitPostingBatch(currentBatch.pubId, maximum, requestHeaders);
     if (result.kind === 'ready') {
       setCurrentBatch(result.data);
       setNotice({
         tone: 'info',
-        text:
-          decision === 'approve' ? '审核已通过，发帖任务已进入队列。' : '已驳回并保留审计记录。',
+        text: retrying ? '受阻目标已重新排队。' : '预算已确认，发帖任务已直接进入队列。',
       });
       void reloadRecent();
     } else {
-      setNotice({ tone: 'error', text: '审核操作失败；申请人与审核人必须为不同账号。' });
+      setNotice({ tone: 'error', text: '开始发帖失败，请核对预算、登录态和批次状态。' });
     }
   };
 
@@ -368,6 +457,111 @@ export function PostingComposer({
           </button>
         ) : null}
       </header>
+
+      <section className="posting-provider-login" aria-label="prfabu 供应商登录">
+        <div className="posting-provider-login-summary">
+          <div>
+            <strong>prfabu 登录态</strong>
+            <p>
+              {providerSessionLoading
+                ? '正在验证…'
+                : (providerSession?.message ?? '尚未验证供应商会话')}
+              {providerSession?.status === 'ready' && providerSession.balance !== null
+                ? ` · 可用余额 ¥${providerSession.balance.toFixed(2)}`
+                : ''}
+            </p>
+          </div>
+          <span
+            className={`posting-status ${providerSession?.status === 'ready' ? 'success' : 'warn'}`}
+          >
+            {providerSession?.status === 'ready' ? '可发帖' : '需要登录'}
+          </span>
+          {canOperate ? (
+            <button
+              type="button"
+              disabled={providerLoginSubmitting}
+              onClick={() => void beginProviderLogin()}
+            >
+              {providerChallenge ? '换一张验证码' : '网页登录 / 更新会话'}
+            </button>
+          ) : null}
+        </div>
+        {providerLoginOpen ? (
+          <form
+            className="posting-provider-login-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void completeProviderLogin();
+            }}
+          >
+            <p>账号和密码仅用于本次供应商登录请求，不会写入数据库或会话文件。</p>
+            <label>
+              prfabu 账号
+              <input
+                type="text"
+                autoComplete="username"
+                maxLength={120}
+                value={providerAccount}
+                onChange={(event) => setProviderAccount(event.target.value)}
+              />
+            </label>
+            <label>
+              prfabu 密码
+              <input
+                type="password"
+                autoComplete="current-password"
+                maxLength={256}
+                value={providerPassword}
+                onChange={(event) => setProviderPassword(event.target.value)}
+              />
+            </label>
+            {providerChallenge ? (
+              <div className="posting-provider-captcha">
+                <img
+                  src={`data:image/png;base64,${providerChallenge.imageBase64}`}
+                  alt="prfabu 图形验证码"
+                />
+                <label>
+                  图片验证码
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    maxLength={12}
+                    value={providerCaptcha}
+                    onChange={(event) => setProviderCaptcha(event.target.value)}
+                  />
+                </label>
+                <small>
+                  验证码 {providerChallenge.expiresInSeconds / 60} 分钟内有效且只能使用一次。
+                </small>
+              </div>
+            ) : (
+              <p>请点击“网页登录 / 更新会话”获取验证码。</p>
+            )}
+            <div className="posting-confirmation">
+              <button
+                type="submit"
+                className="primary"
+                disabled={!providerChallenge || providerLoginSubmitting}
+              >
+                {providerLoginSubmitting ? '正在登录…' : '登录并保存会话'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setProviderLoginOpen(false);
+                  setProviderChallenge(null);
+                  setProviderPassword('');
+                  setProviderCaptcha('');
+                }}
+              >
+                取消
+              </button>
+            </div>
+          </form>
+        ) : null}
+      </section>
 
       {selections.length === 0 ? (
         <div className="posting-empty">在新闻媒体或自媒体表格首列勾选媒体后，可继续配置。</div>
@@ -506,7 +700,7 @@ export function PostingComposer({
               if (!event.target.checked) setConfirmSpend(false);
             }}
           />
-          创建后申请审核
+          确认后自动提交供应商
         </label>
         {autoSubmit ? (
           <label className="spend-confirm">
@@ -529,7 +723,7 @@ export function PostingComposer({
             : submitting
               ? '正在创建…'
               : autoSubmit
-                ? '创建并申请审核'
+                ? '确认预算并开始发帖'
                 : '保存发帖草稿'}
         </button>
       </div>
@@ -551,7 +745,7 @@ export function PostingComposer({
                 {BATCH_STATUS_LABELS[currentBatch.status]}
               </span>
               <span className={`posting-status ${currentBatch.approvalState}`}>
-                审核：{currentBatch.approvalState}
+                扣费确认：{currentBatch.approvalState === 'approved' ? '已确认' : '未确认'}
               </span>
               <h4>{currentBatch.title}</h4>
               <p>
@@ -563,39 +757,18 @@ export function PostingComposer({
               同步供应商状态
             </button>
           </header>
-          <div className="posting-confirmation" aria-label="发帖审核控制">
+          <div className="posting-confirmation" aria-label="发帖提交控制">
             {canOperate && ['draft', 'rejected'].includes(currentBatch.approvalState) ? (
-              <button type="button" className="primary" onClick={() => void requestApproval()}>
-                确认预算并提交审核
+              <button type="button" className="primary" onClick={() => void startBatch()}>
+                确认预算并开始发帖
               </button>
             ) : null}
-            {currentBatch.approvalState === 'pending' ? (
-              <>
-                <label>
-                  审核意见
-                  <input
-                    value={approvalRationale}
-                    maxLength={1_000}
-                    onChange={(event) => setApprovalRationale(event.target.value)}
-                  />
-                </label>
-                {canReview && currentBatch.approvalRequestedByPubId !== session.actorId ? (
-                  <>
-                    <button
-                      type="button"
-                      className="primary"
-                      onClick={() => void decideApproval('approve')}
-                    >
-                      审核通过并提交
-                    </button>
-                    <button type="button" onClick={() => void decideApproval('reject')}>
-                      驳回
-                    </button>
-                  </>
-                ) : (
-                  <span>等待另一位具备审核权限的成员处理。</span>
-                )}
-              </>
+            {canOperate &&
+            currentBatch.approvalState === 'approved' &&
+            currentBatch.targets.some((target) => RETRYABLE_TARGET_STATUSES.has(target.status)) ? (
+              <button type="button" className="primary" onClick={() => void startBatch()}>
+                会话或余额恢复后重试
+              </button>
             ) : null}
           </div>
           <details>

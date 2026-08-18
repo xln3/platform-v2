@@ -120,6 +120,7 @@ def _create_batch(
     *,
     key: str,
     maximum: str = "88.00",
+    auto_submit: bool = True,
 ) -> object:
     return client.post(
         "/api/v2/posting/batches",
@@ -145,8 +146,8 @@ def _create_batch(
             ),
             "title": "",
             "customer_name": "测试品牌",
-            "auto_submit": "true",
-            "confirm_spend": "true",
+            "auto_submit": str(auto_submit).lower(),
+            "confirm_spend": str(auto_submit).lower(),
             "max_total_amount": maximum,
             "note": "测试发稿",
         },
@@ -162,12 +163,6 @@ def test_docx_batch_auto_submits_and_refreshes_per_media_status(
     client = TestClient(app)
     suffix = secrets.token_hex(6)
     _tenant, headers = _bootstrap(client, f"posting-admin-{suffix}")
-    reviewer_headers = _member_headers(
-        client,
-        headers,
-        f"posting-reviewer-{suffix}",
-        "reviewer",
-    )
     key = f"posting-test-{suffix}-0001"
 
     created = _create_batch(client, headers, key=key)
@@ -177,14 +172,9 @@ def test_docx_batch_auto_submits_and_refreshes_per_media_status(
     assert batch["content_text"].startswith("自动发帖测试标题\n\n图文正文")
     assert batch["image_count"] == 1
     assert batch["quoted_total_amount"] == "88.00"
-    assert batch["status"] == "draft"
-    assert batch["approval_state"] == "pending"
-    approved = client.post(
-        f"/api/v2/posting/batches/{batch['pub_id']}/approve",
-        headers=reviewer_headers,
-        json={"rationale": "预算、素材与媒体均已复核"},
-    )
-    assert approved.status_code == 202, approved.text
+    assert batch["status"] == "queued"
+    assert batch["approval_state"] == "approved"
+    assert batch["approval_requested_by_pub_id"] == batch["approved_by_pub_id"]
     completed = client.get(
         f"/api/v2/posting/batches/{batch['pub_id']}",
         headers=headers,
@@ -263,6 +253,44 @@ def test_posting_enforces_budget_permission_and_tenant_isolation(
     assert hidden.status_code == 404
 
 
+def test_draft_starts_after_the_same_operator_confirms_spend(
+    posting_dataset: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    del posting_dataset
+    monkeypatch.setattr("geo_platform.posting.service.provider_for", lambda _name: FakeProvider())
+    client = TestClient(app)
+    suffix = secrets.token_hex(6)
+    _tenant, headers = _bootstrap(client, f"posting-draft-admin-{suffix}")
+    created = _create_batch(
+        client,
+        headers,
+        key=f"posting-test-{suffix}-draft",
+        auto_submit=False,
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["status"] == "draft"
+    assert created.json()["approval_state"] == "draft"
+
+    started = client.post(
+        f"/api/v2/posting/batches/{created.json()['pub_id']}/submit",
+        headers=headers,
+        json={"confirm_spend": True, "max_total_amount": "88.00"},
+    )
+    assert started.status_code == 202, started.text
+    assert started.json()["status"] == "queued"
+    assert started.json()["approval_state"] == "approved"
+    assert started.json()["approved_by_pub_id"] == started.json()["created_by_pub_id"]
+
+    completed = client.get(
+        f"/api/v2/posting/batches/{created.json()['pub_id']}",
+        headers=headers,
+    )
+    assert completed.status_code == 200
+    assert completed.json()["status"] == "submitted"
+    assert completed.json()["targets"][0]["external_order_id"] == "order-001"
+
+
 def test_posting_exposes_balance_insufficient_as_target_and_batch_status(
     posting_dataset: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -275,20 +303,8 @@ def test_posting_exposes_balance_insufficient_as_target_and_batch_status(
     client = TestClient(app)
     suffix = secrets.token_hex(6)
     _tenant, headers = _bootstrap(client, f"posting-balance-admin-{suffix}")
-    reviewer_headers = _member_headers(
-        client,
-        headers,
-        f"posting-balance-reviewer-{suffix}",
-        "reviewer",
-    )
     created = _create_batch(client, headers, key=f"posting-test-{suffix}-balance")
     assert created.status_code == 201
-    approved = client.post(
-        f"/api/v2/posting/batches/{created.json()['pub_id']}/approve",
-        headers=reviewer_headers,
-        json={"rationale": "预算与发布目标已复核"},
-    )
-    assert approved.status_code == 202, approved.text
     detail = client.get(
         f"/api/v2/posting/batches/{created.json()['pub_id']}",
         headers=headers,
@@ -297,3 +313,19 @@ def test_posting_exposes_balance_insufficient_as_target_and_batch_status(
     assert detail.json()["status"] == "blocked"
     assert detail.json()["targets"][0]["status"] == "balance_insufficient"
     assert detail.json()["targets"][0]["provider_message"] == "余额不足，请充值"
+
+    monkeypatch.setattr("geo_platform.posting.service.provider_for", lambda _name: FakeProvider())
+    retried = client.post(
+        f"/api/v2/posting/batches/{created.json()['pub_id']}/submit",
+        headers=headers,
+        json={"confirm_spend": True, "max_total_amount": "88.00"},
+    )
+    assert retried.status_code == 202, retried.text
+    assert retried.json()["status"] == "queued"
+    recovered = client.get(
+        f"/api/v2/posting/batches/{created.json()['pub_id']}",
+        headers=headers,
+    )
+    assert recovered.status_code == 200
+    assert recovered.json()["status"] == "submitted"
+    assert recovered.json()["targets"][0]["status"] == "submitted"

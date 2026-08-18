@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+import fcntl
 import json
+import logging
+import os
+import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -11,6 +17,10 @@ import httpx
 from ..config import get_settings
 
 _PRFABU_BASE = "https://www.prfabu.com"
+_PRFABU_SESSION_FILE = "prfabu_session.txt"
+_PRFABU_SESSION_LOCK_FILE = ".prfabu_session.lock"
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,7 +62,7 @@ def _datasets_dir() -> Path:
 
 
 def _load_prfabu_session() -> str:
-    path = _datasets_dir() / "prfabu_session.txt"
+    path = _datasets_dir() / _PRFABU_SESSION_FILE
     try:
         lines = path.read_text(encoding="utf-8").splitlines()
     except OSError:
@@ -64,6 +74,90 @@ def _load_prfabu_session() -> str:
         if len(parts) >= 7 and parts[5] == "PHPSESSID" and parts[6]:
             return parts[6]
     return ""
+
+
+def _client_prfabu_session(client: httpx.Client) -> str:
+    session_id = ""
+    for cookie in client.cookies.jar:
+        if cookie.name == "PHPSESSID" and cookie.value:
+            session_id = cookie.value
+    return session_id
+
+
+def _new_prfabu_client(session_id: str = "") -> httpx.Client:
+    cookies = httpx.Cookies()
+    if session_id:
+        cookies.set("PHPSESSID", session_id, domain="www.prfabu.com", path="/")
+    return httpx.Client(
+        base_url=_PRFABU_BASE,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+            ),
+            "X-Requested-With": "XMLHttpRequest",
+        },
+        cookies=cookies,
+        timeout=30,
+        follow_redirects=False,
+        trust_env=False,
+    )
+
+
+def _persist_prfabu_session(client: httpx.Client) -> bool:
+    """Atomically persist the cookie rotated by an authenticated provider response."""
+
+    session_id = _client_prfabu_session(client)
+    if not session_id:
+        return False
+    path = _datasets_dir() / _PRFABU_SESSION_FILE
+    temporary_path: str | None = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            prefix=f".{path.name}.",
+            dir=path.parent,
+            delete=False,
+        ) as temporary:
+            temporary_path = temporary.name
+            temporary.write(
+                "# Netscape HTTP Cookie File\n"
+                "#HttpOnly_.prfabu.com\tTRUE\t/\tTRUE\t0\tPHPSESSID\t"
+                f"{session_id}\n"
+            )
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.chmod(temporary_path, 0o600)
+        os.replace(temporary_path, path)
+        temporary_path = None
+        return True
+    except OSError as exc:
+        logger.warning("prfabu_session_persist_failed", extra={"error_type": type(exc).__name__})
+        return False
+    finally:
+        if temporary_path is not None:
+            try:
+                os.unlink(temporary_path)
+            except OSError:
+                pass
+
+
+@contextmanager
+def _prfabu_session_lock() -> Iterator[None]:
+    """Serialize provider calls across API workers because each call may rotate the cookie."""
+
+    path = _datasets_dir() / _PRFABU_SESSION_LOCK_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        os.fchmod(descriptor, 0o600)
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
 
 
 def _json_object(response: httpx.Response) -> dict[str, Any]:
@@ -119,58 +213,60 @@ class PrfabuProvider:
         session_id = _load_prfabu_session()
         if not session_id:
             return None
-        return httpx.Client(
-            base_url=_PRFABU_BASE,
-            headers={
-                "User-Agent": (
-                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
-                ),
-                "X-Requested-With": "XMLHttpRequest",
-            },
-            cookies={"PHPSESSID": session_id},
-            timeout=30,
-            follow_redirects=False,
-            trust_env=False,
-        )
+        return _new_prfabu_client(session_id)
 
     def submit(self, submission: ProviderSubmission) -> ProviderResult:
-        client = self._client()
-        if client is None:
-            return ProviderResult("provider_session_expired", "prfabu 会话文件缺失")
         if not submission.provider_media_id.isdigit():
-            client.close()
             return ProviderResult("unsupported_provider", "当前目录快照缺少 prfabu 媒体 ID")
-        media_type = 1 if submission.catalog_type == "news" else 2
         try:
-            response = client.post(
-                f"/index/media/article.html?type={media_type}",
-                data={
-                    "title": submission.title,
-                    "content": submission.content_html,
-                    "medias": submission.provider_media_id,
-                    "customer": submission.customer_name,
-                    "remark": "",
-                    "release_time": (
-                        submission.release_time.isoformat() if submission.release_time else ""
-                    ),
-                },
-            )
-            response.raise_for_status()
-            payload = _json_object(response)
-        except (httpx.HTTPError, ValueError) as exc:
-            return ProviderResult("failed", f"prfabu 请求失败：{type(exc).__name__}")
-        finally:
-            client.close()
-        code = payload.get("code")
-        message = _text(payload.get("msg")) or _text(payload.get("message"))
-        if code != 200:
-            return _classify_failure(code if isinstance(code, int) else -1, message)
-        return ProviderResult(
-            "submitted",
-            message or "已提交至 prfabu",
-            external_order_id=_external_id(payload),
-        )
+            with _prfabu_session_lock():
+                client = self._client()
+                if client is None:
+                    return ProviderResult("provider_session_expired", "prfabu 会话文件缺失")
+                media_type = 1 if submission.catalog_type == "news" else 2
+                try:
+                    response = client.post(
+                        f"/index/media/article.html?type={media_type}",
+                        data={
+                            "title": submission.title,
+                            "content": submission.content_html,
+                            "medias": submission.provider_media_id,
+                            "customer": submission.customer_name,
+                            "remark": "",
+                            "release_time": (
+                                submission.release_time.isoformat()
+                                if submission.release_time
+                                else ""
+                            ),
+                        },
+                    )
+                    response.raise_for_status()
+                    payload = _json_object(response)
+                    code = payload.get("code")
+                    message = _text(payload.get("msg")) or _text(payload.get("message"))
+                    if code != 200:
+                        result = _classify_failure(
+                            code if isinstance(code, int) else -1,
+                            message,
+                        )
+                        if result.status != "provider_session_expired":
+                            _persist_prfabu_session(client)
+                        return result
+                    persisted = _persist_prfabu_session(client)
+                    result_message = message or "已提交至 prfabu"
+                    if not persisted:
+                        result_message += "；会话轮换保存失败，后续提交前请更新会话"
+                    return ProviderResult(
+                        "submitted",
+                        result_message,
+                        external_order_id=_external_id(payload),
+                    )
+                except (httpx.HTTPError, ValueError) as exc:
+                    return ProviderResult("failed", f"prfabu 请求失败：{type(exc).__name__}")
+                finally:
+                    client.close()
+        except OSError as exc:
+            return ProviderResult("failed", f"prfabu 会话锁失败：{type(exc).__name__}")
 
     def refresh(
         self,
@@ -180,50 +276,67 @@ class PrfabuProvider:
         media_name: str,
         title: str,
     ) -> ProviderResult | None:
-        client = self._client()
-        if client is None:
-            return ProviderResult("provider_session_expired", "prfabu 会话文件缺失")
-        media_type = 1 if catalog_type == "news" else 2
         try:
-            response = client.post(
-                f"/index/media/order.html?type={media_type}",
-                data={"page": 1, "limit": 100, "title": title},
-            )
-            response.raise_for_status()
-            payload = _json_object(response)
-        except (httpx.HTTPError, ValueError) as exc:
-            return ProviderResult("failed", f"prfabu 状态读取失败：{type(exc).__name__}")
-        finally:
-            client.close()
-        if payload.get("code") != 200:
-            message = _text(payload.get("msg")) or _text(payload.get("message"))
-            raw_code = payload.get("code")
-            code = raw_code if isinstance(raw_code, int) else -1
-            return _classify_failure(code, message)
-        rows = payload.get("data")
-        if not isinstance(rows, list):
-            return None
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-            row_id = _external_id(row)
-            row_title = _text(row.get("title"), 300)
-            row_media = _text(row.get("media_name"), 500)
-            if external_order_id:
-                matches = row_id == external_order_id
-            else:
-                matches = row_title == title and (not row_media or row_media == media_name)
-            if not matches:
-                continue
-            public_url = _text(row.get("url") or row.get("public_url"), 1_000)
-            status = _map_order_status(row.get("status") or row.get("status_str"), public_url)
-            return ProviderResult(
-                status,
-                _text(row.get("status_str") or row.get("status")) or "供应商状态已同步",
-                external_order_id=row_id,
-                public_url=public_url,
-            )
-        return None
+            with _prfabu_session_lock():
+                client = self._client()
+                if client is None:
+                    return ProviderResult("provider_session_expired", "prfabu 会话文件缺失")
+                media_type = 1 if catalog_type == "news" else 2
+                try:
+                    response = client.post(
+                        f"/index/media/order.html?type={media_type}",
+                        data={"page": 1, "limit": 100, "title": title},
+                    )
+                    response.raise_for_status()
+                    payload = _json_object(response)
+                    if payload.get("code") != 200:
+                        message = _text(payload.get("msg")) or _text(payload.get("message"))
+                        raw_code = payload.get("code")
+                        code = raw_code if isinstance(raw_code, int) else -1
+                        result = _classify_failure(code, message)
+                        if result.status != "provider_session_expired":
+                            _persist_prfabu_session(client)
+                        return result
+                    _persist_prfabu_session(client)
+                    rows = payload.get("data")
+                    if not isinstance(rows, list):
+                        return None
+                    for row in rows:
+                        if not isinstance(row, dict):
+                            continue
+                        row_id = _external_id(row)
+                        row_title = _text(row.get("title"), 300)
+                        row_media = _text(row.get("media_name"), 500)
+                        if external_order_id:
+                            matches = row_id == external_order_id
+                        else:
+                            matches = row_title == title and (
+                                not row_media or row_media == media_name
+                            )
+                        if not matches:
+                            continue
+                        public_url = _text(row.get("url") or row.get("public_url"), 1_000)
+                        status = _map_order_status(
+                            row.get("status") or row.get("status_str"),
+                            public_url,
+                        )
+                        return ProviderResult(
+                            status,
+                            _text(row.get("status_str") or row.get("status"))
+                            or "供应商状态已同步",
+                            external_order_id=row_id,
+                            public_url=public_url,
+                        )
+                    return None
+                except (httpx.HTTPError, ValueError) as exc:
+                    return ProviderResult(
+                        "failed",
+                        f"prfabu 状态读取失败：{type(exc).__name__}",
+                    )
+                finally:
+                    client.close()
+        except OSError as exc:
+            return ProviderResult("failed", f"prfabu 会话锁失败：{type(exc).__name__}")
 
 
 class UnsupportedProvider:

@@ -852,7 +852,7 @@ export function MediaPrices({ session }: { session: Session | undefined }) {
     return (
       <section className="media-prices" aria-label="媒体比价台">
         <div className="media-prices-state warning">
-          数据集未生成，请先运行离线刷新脚本（build_data.py）后再访问本页。
+          数据集尚未生成，请运行当前离线刷新脚本（tools/media_prices_refresh.py）后再访问本页。
         </div>
       </section>
     );

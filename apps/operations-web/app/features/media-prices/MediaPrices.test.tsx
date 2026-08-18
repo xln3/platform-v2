@@ -8,10 +8,14 @@ import type {
   MediaWemediaDataset,
 } from '@geo/api-client';
 import {
+  completePrfabuLogin,
   getMediaPricesDataset,
   getMediaPricesRefreshStatus,
   getMediaWemediaDataset,
+  getPrfabuSessionStatus,
+  listPostingBatches,
   requestMediaPricesRefresh,
+  startPrfabuLogin,
 } from '@geo/api-client';
 import { downloadSafeGeneratedFile } from '@geo/design-system';
 import {
@@ -38,7 +42,11 @@ vi.mock('@geo/api-client', async (importOriginal) => {
     getMediaPricesDataset: vi.fn(),
     getMediaWemediaDataset: vi.fn(),
     getMediaPricesRefreshStatus: vi.fn(),
+    getPrfabuSessionStatus: vi.fn(),
+    listPostingBatches: vi.fn(),
     requestMediaPricesRefresh: vi.fn(),
+    startPrfabuLogin: vi.fn(),
+    completePrfabuLogin: vi.fn(),
   };
 });
 vi.mock('@geo/design-system', async (importOriginal) => {
@@ -358,6 +366,23 @@ describe('MediaPrices', () => {
       data: neverRefresh,
     });
     vi.mocked(requestMediaPricesRefresh).mockResolvedValue({ kind: 'started' });
+    vi.mocked(listPostingBatches).mockResolvedValue({ kind: 'ready', data: [] });
+    vi.mocked(getPrfabuSessionStatus).mockResolvedValue({
+      kind: 'ready',
+      data: { status: 'ready', message: 'prfabu 会话有效', balance: 128.5 },
+    });
+    vi.mocked(startPrfabuLogin).mockResolvedValue({
+      kind: 'ready',
+      data: {
+        challengeId: 'A'.repeat(32),
+        imageBase64: 'iVBORw0KGgo=',
+        expiresInSeconds: 300,
+      },
+    });
+    vi.mocked(completePrfabuLogin).mockResolvedValue({
+      kind: 'ready',
+      data: { status: 'ready', message: 'prfabu 登录成功', balance: 128.5 },
+    });
   });
   afterEach(() => {
     cleanup();
@@ -424,6 +449,39 @@ describe('MediaPrices', () => {
     fireEvent.click(screen.getByLabelText('选择融媒观察发帖'));
     expect(screen.getByLabelText('融媒观察采购服务')).toBeTruthy();
     expect(screen.getAllByText(/供应商尚未接入/u).length).toBeGreaterThan(0);
+  });
+
+  it('renews the prfabu session inside the posting UI without retaining the password', async () => {
+    vi.mocked(getPrfabuSessionStatus).mockResolvedValue({
+      kind: 'ready',
+      data: { status: 'expired', message: '登录已失效', balance: null },
+    });
+    render(<MediaPrices session={session} />);
+    await screen.findByText('登录已失效');
+    fireEvent.click(screen.getByRole('button', { name: '网页登录 / 更新会话' }));
+    expect(await screen.findByAltText('prfabu 图形验证码')).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText('prfabu 账号'), {
+      target: { value: 'supplier-account' },
+    });
+    fireEvent.change(screen.getByLabelText('prfabu 密码'), {
+      target: { value: 'temporary-password' },
+    });
+    fireEvent.change(screen.getByLabelText('图片验证码'), { target: { value: '1234' } });
+    fireEvent.click(screen.getByRole('button', { name: '登录并保存会话' }));
+
+    await screen.findByText('prfabu 登录成功，现在可以直接发帖。');
+    expect(completePrfabuLogin).toHaveBeenCalledWith(
+      {
+        challengeId: 'A'.repeat(32),
+        account: 'supplier-account',
+        password: 'temporary-password',
+        captcha: '1234',
+      },
+      session.headers,
+    );
+    expect(screen.queryByLabelText('prfabu 密码')).toBeNull();
+    expect(screen.getByText(/可用余额 ¥128\.50/)).toBeTruthy();
   });
 
   it('loads the separate self-media dataset only when its tab is first opened and retains it', async () => {
@@ -495,7 +553,7 @@ describe('MediaPrices', () => {
   it('shows the missing-dataset guidance when the artifact is not built', async () => {
     vi.mocked(getMediaPricesDataset).mockResolvedValue({ kind: 'missing' });
     render(<MediaPrices session={session} />);
-    await screen.findByText(/数据集未生成，请先运行离线刷新脚本/);
+    await screen.findByText(/数据集尚未生成，请运行当前离线刷新脚本/);
   });
 
   it('shows the forbidden state for unauthorized roles', async () => {
