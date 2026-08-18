@@ -236,11 +236,15 @@ def _fsync_directory(path: Path) -> None:
         os.close(descriptor)
 
 
-def _enqueue_refresh(base: Path) -> str:
+def _enqueue_refresh(base: Path, *, tenant_pub_id: str) -> str:
     requested_at = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
     request_path = base / _REFRESH_REQUEST_NAME
     payload = json.dumps(
-        {"version": 1, "requested_at": requested_at},
+        {
+            "version": 1,
+            "requested_at": requested_at,
+            "tenant_pub_id": tenant_pub_id,
+        },
         ensure_ascii=False,
         separators=(",", ":"),
     ).encode("utf-8")
@@ -299,7 +303,7 @@ def media_prices_refresh(principal: Principal = Depends(get_principal)) -> Refre
         (base / name).exists() for name in (_REFRESH_REQUEST_NAME, _REFRESH_RUNNING_REQUEST_NAME)
     ):
         raise HTTPException(status_code=409, detail={"code": "refresh_already_running"})
-    requested_at = _enqueue_refresh(base)
+    requested_at = _enqueue_refresh(base, tenant_pub_id=principal.tenant_pub_id)
     return RefreshStatusView(
         state="running",
         started_at=requested_at,

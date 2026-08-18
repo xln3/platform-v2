@@ -11,6 +11,11 @@ WorkingDirectory=/home/xln/geo-system/platform-v2
 EnvironmentFile=/etc/geo-platform-v2/platform.env
 Environment=GEO_DATASETS_DIR=/home/xln/geo-system/platform-v2/.datasets
 Environment=PYTHONDONTWRITEBYTECODE=1
+LoadCredential=vault-token:/etc/geo-platform-v2/vault-runtime-token
+Environment=GEO_KMS_PROVIDER=vault_transit
+Environment=GEO_VAULT_TRANSIT_ADDRESS=https://127.0.0.1:18200
+Environment=GEO_VAULT_TRANSIT_TOKEN_FILE=/run/credentials/geo-platform-v2-media-refresh.service/vault-token
+Environment=GEO_VAULT_TRANSIT_KEY_NAME=geo-platform-profile
 ExecStart=/home/xln/geo-system/platform-v2/.venv/bin/python tools/media_prices_refresh_worker.py
 Restart=on-failure
 RestartSec=10

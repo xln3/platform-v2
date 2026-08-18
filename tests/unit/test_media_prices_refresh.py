@@ -1,6 +1,9 @@
 import os
 import stat
 
+from geo_platform.config import get_settings
+from geo_platform.posting.provider_credentials import ProviderCredentialStore
+
 from tools import media_prices_refresh as refresh
 
 
@@ -33,6 +36,51 @@ def test_refreshed_prfabu_session_is_replaced_with_owner_only_permissions(
     assert stat.S_IMODE(session_file.stat().st_mode) == 0o600
     assert "refreshed-session" in session_file.read_text(encoding="utf-8")
     assert list(tmp_path.glob(".prfabu_session.txt.*.tmp")) == []
+
+
+def test_web_refresh_uses_and_rotates_requesting_tenant_encrypted_session(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("GEO_ENV", "test")
+    monkeypatch.setenv("GEO_DATASETS_DIR", str(tmp_path))
+    monkeypatch.setenv("GEO_KMS_MASTER_KEY", "refresh-provider-session-test-key")
+    monkeypatch.setattr(refresh, "CREDENTIAL_TENANT_ID", "tnt_refresh_owner")
+    get_settings.cache_clear()
+    store = ProviderCredentialStore()
+    store.save_credentials(
+        tenant_pub_id="tnt_refresh_owner",
+        provider="prfabu",
+        account="supplier-account",
+        password="supplier-password",
+    )
+    store.update_session(
+        tenant_pub_id="tnt_refresh_owner",
+        provider="prfabu",
+        cookies={"PHPSESSID": "encrypted-old-session"},
+        status="ready",
+        message="会话有效",
+    )
+    legacy = tmp_path / "legacy-session.txt"
+    legacy.write_text(
+        "# Netscape HTTP Cookie File\n"
+        "www.prfabu.com\tFALSE\t/\tFALSE\t0\tPHPSESSID\tlegacy-must-not-win\n",
+        encoding="utf-8",
+    )
+
+    assert refresh._provider_session_cookies("prfabu", legacy) == {
+        "PHPSESSID": "encrypted-old-session"
+    }
+    with refresh.httpx.Client() as client:
+        client.cookies.set("PHPSESSID", "encrypted-rotated-session", domain="www.prfabu.com")
+        refresh._persist_provider_session("prfabu", client)
+
+    account = store.load(tenant_pub_id="tnt_refresh_owner", provider="prfabu")
+    assert account.cookies == {"PHPSESSID": "encrypted-rotated-session"}
+    encrypted_record = (
+        tmp_path / ".provider-credentials" / "tnt_refresh_owner" / "prfabu.json"
+    ).read_bytes()
+    assert b"encrypted-rotated-session" not in encrypted_record
+    get_settings.cache_clear()
 
 
 def test_pinda_news_row_maps_to_common_price_schema() -> None:

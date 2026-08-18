@@ -9,16 +9,27 @@ from tools import media_prices_refresh_worker as worker
 _SUCCESS_SCRIPT = """\
 import json, os, pathlib
 base = pathlib.Path(os.environ["GEO_DATASETS_DIR"])
-(base / "worker-result.json").write_text(json.dumps({"state": "done"}), encoding="utf-8")
+(base / "worker-result.json").write_text(json.dumps({
+    "state": "done",
+    "tenant_pub_id": os.environ["GEO_MEDIA_PRICES_TENANT_ID"],
+    "pythonpath": os.environ["PYTHONPATH"],
+}), encoding="utf-8")
 print("worker completed")
 """
 
 
 def _write_request(path: Path) -> None:
     path.write_text(
-        json.dumps({"version": 1, "requested_at": "2026-08-18 17:00:00"}),
+        json.dumps(
+            {
+                "version": 1,
+                "requested_at": "2026-08-18 17:00:00",
+                "tenant_pub_id": "tnt_refresh_owner",
+            }
+        ),
         encoding="utf-8",
     )
+    path.chmod(0o640)
 
 
 def test_worker_claims_and_consumes_durable_request(tmp_path: Path) -> None:
@@ -31,9 +42,10 @@ def test_worker_claims_and_consumes_durable_request(tmp_path: Path) -> None:
     assert result == 0
     assert not (tmp_path / worker.REQUEST_NAME).exists()
     assert not (tmp_path / worker.RUNNING_REQUEST_NAME).exists()
-    assert json.loads((tmp_path / "worker-result.json").read_text(encoding="utf-8")) == {
-        "state": "done"
-    }
+    worker_result = json.loads((tmp_path / "worker-result.json").read_text(encoding="utf-8"))
+    assert worker_result["state"] == "done"
+    assert worker_result["tenant_pub_id"] == "tnt_refresh_owner"
+    assert str(worker.ROOT / "api") in worker_result["pythonpath"]
     assert "worker completed" in (tmp_path / worker.REFRESH_LOG_NAME).read_text(encoding="utf-8")
 
 
@@ -61,3 +73,26 @@ def test_worker_retains_claim_when_pipeline_cannot_launch(tmp_path: Path, monkey
     status = json.loads((tmp_path / worker.REFRESH_STATUS_NAME).read_text(encoding="utf-8"))
     assert status["state"] == "failed"
     assert status["message"].startswith("refresh_worker_launch_failed")
+
+
+def test_worker_consumes_invalid_request_without_launching_pipeline(
+    tmp_path: Path, monkeypatch
+) -> None:
+    (tmp_path / worker.REQUEST_NAME).write_text(
+        json.dumps({"version": 1, "tenant_pub_id": "../other-tenant"}),
+        encoding="utf-8",
+    )
+    launched = False
+
+    def unexpected_launch(*args, **kwargs):
+        nonlocal launched
+        launched = True
+        raise AssertionError("invalid refresh request must not launch")
+
+    monkeypatch.setattr(subprocess, "run", unexpected_launch)
+
+    assert worker.run_once(datasets_dir=tmp_path, refresh_script=tmp_path / "refresh.py") == 0
+    assert launched is False
+    assert not (tmp_path / worker.RUNNING_REQUEST_NAME).exists()
+    status = json.loads((tmp_path / worker.REFRESH_STATUS_NAME).read_text(encoding="utf-8"))
+    assert status["message"] == "refresh_worker_request_invalid"

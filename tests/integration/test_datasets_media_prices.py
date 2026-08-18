@@ -310,6 +310,7 @@ def test_media_prices_refresh_queues_durable_worker_request(datasets_dir: Path) 
     request = json.loads(request_file.read_text(encoding="utf-8"))
     assert request["version"] == 1
     assert request["requested_at"] == response.json()["started_at"]
+    assert request["tenant_pub_id"] == operator["X-Tenant-Id"]
 
     status = client.get("/api/v2/datasets/media-prices/refresh-status", headers=operator)
     assert status.status_code == 200

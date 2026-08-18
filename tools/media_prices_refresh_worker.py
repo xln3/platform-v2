@@ -11,6 +11,8 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import re
+import stat
 import subprocess
 import sys
 import tempfile
@@ -26,6 +28,8 @@ RUNNING_REQUEST_NAME = "media-prices.refresh.request.running.json"
 WORKER_MUTEX_NAME = "media-prices.refresh.worker.lock"
 REFRESH_STATUS_NAME = "media-prices.refresh.json"
 REFRESH_LOG_NAME = "media-prices.refresh.log"
+_TENANT_ID = re.compile(r"^tnt_[A-Za-z0-9_-]{1,116}$")
+_MAX_REQUEST_BYTES = 4 * 1024
 
 
 def _configured_datasets_dir() -> Path:
@@ -127,6 +131,35 @@ def _claim_request(base: Path) -> Path | None:
     return running
 
 
+def _request_tenant(path: Path) -> str | None:
+    try:
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        try:
+            metadata = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_size <= 0
+                or metadata.st_size > _MAX_REQUEST_BYTES
+                or metadata.st_mode & 0o022
+            ):
+                return None
+            payload = os.read(descriptor, _MAX_REQUEST_BYTES + 1)
+        finally:
+            os.close(descriptor)
+        document = json.loads(payload)
+    except (OSError, UnicodeError, ValueError):
+        return None
+    tenant_pub_id = document.get("tenant_pub_id") if isinstance(document, dict) else None
+    if (
+        not isinstance(document, dict)
+        or document.get("version") != 1
+        or not isinstance(tenant_pub_id, str)
+        or _TENANT_ID.fullmatch(tenant_pub_id) is None
+    ):
+        return None
+    return tenant_pub_id
+
+
 def run_once(*, datasets_dir: Path | None = None, refresh_script: Path | None = None) -> int:
     base = datasets_dir or _configured_datasets_dir()
     script = refresh_script or _configured_refresh_script()
@@ -137,8 +170,19 @@ def run_once(*, datasets_dir: Path | None = None, refresh_script: Path | None = 
         claim = _claim_request(base)
         if claim is None:
             return 0
+        tenant_pub_id = _request_tenant(claim)
+        if tenant_pub_id is None:
+            _write_launch_failure(base, "refresh_worker_request_invalid")
+            claim.unlink(missing_ok=True)
+            _fsync_directory(base)
+            return 0
         environment = os.environ.copy()
         environment["GEO_DATASETS_DIR"] = str(base)
+        environment["GEO_MEDIA_PRICES_TENANT_ID"] = tenant_pub_id
+        python_paths = [str(ROOT / "api"), str(ROOT)]
+        if environment.get("PYTHONPATH"):
+            python_paths.append(environment["PYTHONPATH"])
+        environment["PYTHONPATH"] = os.pathsep.join(python_paths)
         try:
             log_path = base / REFRESH_LOG_NAME
             with log_path.open("ab") as log:
