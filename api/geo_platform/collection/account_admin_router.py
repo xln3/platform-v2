@@ -162,6 +162,31 @@ class AccountEventView(StrictModel):
     created_at: datetime
 
 
+class AccountQuotaObservationView(StrictModel):
+    """账号管理页的平台额度安全投影。
+
+    真源是 ``collection_account_event(event_type='quota_observation')``；响应只暴露
+    白名单字段，绝不透传平台原始响应、账号标识或探测证据。``observed_window_count``
+    可以是日志下限/估算值，精度由 ``count_kind`` 明示，不能冒充官方固定额度。
+    """
+
+    observation_pub_id: str
+    browser_instance_key: str
+    platform: str
+    region_gb: str | None
+    mode: Literal["normal", "deep_think", "unknown"]
+    account_tier: Literal["free", "subscriber", "unknown"]
+    quota_state: Literal["available", "exhausted", "unknown"]
+    window_type: Literal["rolling", "calendar", "unknown"]
+    window_days: int | None
+    observed_window_count: int | None
+    daily_equivalent: float | None
+    count_kind: Literal["lower_bound", "estimate", "platform_exact", "unknown"]
+    reset_at: datetime | None
+    observed_at: datetime
+    source: Literal["platform", "platform_and_logs", "manual", "unknown"]
+
+
 class CollectionBrowserView(StrictModel):
     """浏览器管理页行 = 常驻实例（bindings：平台 → 手机号行 pub_id，稀疏）。"""
 
@@ -258,6 +283,69 @@ def _platform_cell(row: CollectionPlatformAccount) -> PlatformAccountCell:
         muted_until=row.muted_until,
         state_reason=row.state_reason,
         browser_instance_key=row.browser_instance_key,
+    )
+
+
+def _quota_enum(value: object, allowed: set[str], default: str = "unknown") -> str:
+    return value if isinstance(value, str) and value in allowed else default
+
+
+def _quota_bounded_int(value: object, *, minimum: int, maximum: int) -> int | None:
+    # bool 是 int 子类，但额度协议不接受 true/false 冒充数字。
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if minimum <= value <= maximum else None
+
+
+def _quota_datetime(value: object) -> datetime | None:
+    if not isinstance(value, str) or len(value) > 64:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else None
+
+
+def _quota_observation_view(
+    event: CollectionAccountEvent, browser: CollectionBrowser
+) -> AccountQuotaObservationView | None:
+    payload = event.new_value
+    if not isinstance(payload, dict) or payload.get("schema_version") != 1:
+        return None
+    mode = _quota_enum(payload.get("mode"), {"normal", "deep_think"})
+    tier = _quota_enum(payload.get("account_tier"), {"free", "subscriber"})
+    state = _quota_enum(payload.get("quota_state"), {"available", "exhausted"})
+    window_type = _quota_enum(payload.get("window_type"), {"rolling", "calendar"})
+    count_kind = _quota_enum(
+        payload.get("count_kind"), {"lower_bound", "estimate", "platform_exact"}
+    )
+    source = _quota_enum(payload.get("source"), {"platform", "platform_and_logs", "manual"})
+    window_days = _quota_bounded_int(payload.get("window_days"), minimum=1, maximum=366)
+    observed_count = _quota_bounded_int(
+        payload.get("observed_window_count"), minimum=0, maximum=1_000_000
+    )
+    daily_equivalent = (
+        round(observed_count / window_days, 1)
+        if observed_count is not None and window_days is not None
+        else None
+    )
+    return AccountQuotaObservationView(
+        observation_pub_id=event.pub_id,
+        browser_instance_key=browser.instance_key,
+        platform=browser.platform,
+        region_gb=browser.region_gb,
+        mode=mode,  # type: ignore[arg-type]
+        account_tier=tier,  # type: ignore[arg-type]
+        quota_state=state,  # type: ignore[arg-type]
+        window_type=window_type,  # type: ignore[arg-type]
+        window_days=window_days,
+        observed_window_count=observed_count,
+        daily_equivalent=daily_equivalent,
+        count_kind=count_kind,  # type: ignore[arg-type]
+        reset_at=_quota_datetime(payload.get("reset_at")),
+        observed_at=event.created_at,
+        source=source,  # type: ignore[arg-type]
     )
 
 
@@ -395,6 +483,60 @@ def list_collection_accounts(
         )
         rows.append(_phone_row(phone, platform_rows))
     return rows
+
+
+@router.get(
+    "/collection-account-quota-observations",
+    response_model=list[AccountQuotaObservationView],
+)
+def list_collection_account_quota_observations(
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db),
+) -> list[AccountQuotaObservationView]:
+    """返回每个浏览器账号 × mode 最新一条额度观测。
+
+    浏览器实例在账号尚未登记为 ``phone × platform`` 时仍是有效的独立登录账号，
+    因而额度观测以 browser 为最小安全锚点。接口最多扫描最近 200 条审计事件，按
+    ``(instance_key, mode)`` 去重；不返回 ``new_value`` 原文。
+    """
+
+    principal.require("account:read")
+    events = list(
+        session.scalars(
+            select(CollectionAccountEvent)
+            .where(CollectionAccountEvent.event_type == "quota_observation")
+            .order_by(CollectionAccountEvent.created_at.desc())
+            .limit(200)
+        )
+    )
+    browser_cache: dict[int, CollectionBrowser | None] = {}
+    views: list[AccountQuotaObservationView] = []
+    seen: set[tuple[str, str]] = set()
+    for event in events:
+        if event.browser_id is None:
+            continue
+        if event.browser_id not in browser_cache:
+            browser_cache[event.browser_id] = session.get(CollectionBrowser, event.browser_id)
+        browser = browser_cache[event.browser_id]
+        if browser is None:
+            continue
+        view = _quota_observation_view(event, browser)
+        if view is None:
+            continue
+        key = (view.browser_instance_key, view.mode)
+        if key in seen:
+            continue
+        seen.add(key)
+        views.append(view)
+    return sorted(
+        views,
+        key=lambda view: (
+            view.platform,
+            view.region_gb or "",
+            view.browser_instance_key,
+            view.mode,
+        ),
+    )
 
 
 @router.post("/collection-accounts", response_model=PhoneAccountRow, status_code=201)
