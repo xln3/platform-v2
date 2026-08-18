@@ -423,6 +423,10 @@ test('validated customer reads mounted data and serializes every write without s
   await page.route('**/api/v2/analytics/answers/*/relations**', (route) => {
     const pathParts = new URL(route.request().url()).pathname.split('/');
     const answerPubId = pathParts.at(-2) ?? 'ans_live_safe';
+    const hasOfficialShareEvidence = ![
+      'ans_customer_product_live_02',
+      'ans_customer_product_live_03',
+    ].includes(answerPubId);
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -452,54 +456,56 @@ test('validated customer reads mounted data and serializes every write without s
             content_hash: 'c'.repeat(64),
           },
         ],
-        evidence: [
-          {
-            pub_id: 'evd_live_share_link',
-            relation_type: 'official_share_link',
-            kind: 'share_link',
-            access_class: 'customer_private',
-            sha256: 'e'.repeat(64),
-            mime_type: 'application/json',
-            byte_size: 256,
-            source_url: 'https://www.doubao.com/thread/customer-live-safe',
-            capture_time: '2026-07-25T01:00:00Z',
-            anchors: [],
-          },
-          {
-            pub_id: 'evd_live_share_image',
-            relation_type: 'official_share_image',
-            kind: 'share_image',
-            access_class: 'customer_private',
-            sha256: customerPlatformSharePngSha256,
-            mime_type: 'image/png',
-            byte_size: customerPlatformSharePng.byteLength,
-            source_url: null,
-            capture_time: '2026-07-25T01:00:00Z',
-            anchors: [],
-          },
-          {
-            pub_id: 'evd_live_safe',
-            relation_type: 'visualizes',
-            kind: 'answer_screenshot',
-            access_class: 'customer_private',
-            sha256: 'a'.repeat(64),
-            mime_type: 'image/png',
-            byte_size: 1024,
-            source_url: 'https://capture.example/answer',
-            capture_time: '2026-07-25T01:00:00Z',
-            anchors: [
+        evidence: hasOfficialShareEvidence
+          ? [
               {
-                pub_id: 'anch_live_safe',
-                text_start: 0,
-                text_end: 4,
-                bbox: { x: 1, y: 2, width: 3, height: 4 },
-                page_number: null,
-                quote_hash: 'd'.repeat(64),
+                pub_id: 'evd_live_share_link',
+                relation_type: 'official_share_link',
+                kind: 'share_link',
+                access_class: 'customer_private',
+                sha256: 'e'.repeat(64),
+                mime_type: 'application/json',
+                byte_size: 256,
+                source_url: 'https://www.doubao.com/thread/customer-live-safe',
+                capture_time: '2026-07-25T01:00:00Z',
+                anchors: [],
               },
-            ],
-            object_key: 'Cookie=relation-object-key-canary',
-          },
-        ],
+              {
+                pub_id: 'evd_live_share_image',
+                relation_type: 'official_share_image',
+                kind: 'share_image',
+                access_class: 'customer_private',
+                sha256: customerPlatformSharePngSha256,
+                mime_type: 'image/png',
+                byte_size: customerPlatformSharePng.byteLength,
+                source_url: null,
+                capture_time: '2026-07-25T01:00:00Z',
+                anchors: [],
+              },
+              {
+                pub_id: 'evd_live_safe',
+                relation_type: 'visualizes',
+                kind: 'answer_screenshot',
+                access_class: 'customer_private',
+                sha256: 'a'.repeat(64),
+                mime_type: 'image/png',
+                byte_size: 1024,
+                source_url: 'https://capture.example/answer',
+                capture_time: '2026-07-25T01:00:00Z',
+                anchors: [
+                  {
+                    pub_id: 'anch_live_safe',
+                    text_start: 0,
+                    text_end: 4,
+                    bbox: { x: 1, y: 2, width: 3, height: 4 },
+                    page_number: null,
+                    quote_hash: 'd'.repeat(64),
+                  },
+                ],
+                object_key: 'Cookie=relation-object-key-canary',
+              },
+            ]
+          : [],
         history: [
           {
             pub_id: 'diff_live_safe',
@@ -891,7 +897,8 @@ test('validated customer reads mounted data and serializes every write without s
                     answer_pub_id: 'ans_customer_product_live_02',
                     query_pub_id: 'qry_customer_product_live_01',
                     query_text: '真实客户合同问题',
-                    response_text: 'DeepSeek 对同一问题的完整回答，用于跨平台对照。[citation:1]',
+                    response_text:
+                      '## DeepSeek 采集结论\n\nDeepSeek 对同一问题的完整回答，用于跨平台对照。[citation:1]\n\n- 该记录保留了答案正文\n- 该记录没有保存官方分享链接\n\n| 证据项 | 状态 |\n| --- | --- |\n| 答案正文 | 已采集 |\n| 官方链接 | 未保存 |',
                     model: 'DeepSeek',
                     region: 'east',
                     mode: 'deep',
@@ -1036,7 +1043,19 @@ test('validated customer reads mounted data and serializes every write without s
   await expect(officialFrame).toHaveAttribute('tabindex', '-1');
   await expect(officialFrame).toHaveAttribute('sandbox', 'allow-scripts allow-same-origin');
   await expect(officialViewport).toBeVisible();
-  await expect(answerDossier.getByText(/已裁掉平台底部/u)).toBeVisible();
+  await expect(answerDossier.getByText(/已裁掉平台底部/u)).toHaveCount(0);
+  await expect(answerDossier.getByRole('link', { name: /无法显示.*打开官方原页/u })).toHaveCount(0);
+  const externalOfficialLink = answerDossier.getByRole('link', { name: '打开官方原页 ↗' });
+  await expect(externalOfficialLink).toBeVisible();
+  await expect(externalOfficialLink).toHaveAttribute(
+    'href',
+    'https://www.doubao.com/thread/customer-live-safe',
+  );
+  await expect(
+    answerDossier
+      .getByRole('region', { name: '官方实时回答页' })
+      .getByRole('link', { name: '打开官方原页 ↗' }),
+  ).toHaveCount(0);
   const officialViewportBox = await officialViewport.boundingBox();
   const platformCtaBox = await page
     .frameLocator('iframe[title="doubao 官方回答只读预览"]')
@@ -1103,6 +1122,31 @@ test('validated customer reads mounted data and serializes every write without s
   });
   await answerDossier.getByRole('button', { name: '复制分享链接' }).click();
   await expect(answerDossier.getByRole('button', { name: '分享链接已复制' })).toBeVisible();
+  await answerDossier.getByRole('button', { name: /DeepSeek，deep/u }).click();
+  const fallbackAnswer = answerDossier.getByRole('region', {
+    name: '历史采集答案退阶阅读版',
+  });
+  await expect(fallbackAnswer).toBeVisible();
+  await expect(fallbackAnswer.getByRole('heading', { name: 'DeepSeek 采集结论' })).toBeVisible();
+  await expect(fallbackAnswer.getByText('该记录保留了答案正文')).toBeVisible();
+  await expect(fallbackAnswer.getByRole('table')).toBeVisible();
+  expect(
+    await fallbackAnswer
+      .getByRole('note')
+      .evaluate((element) => element.scrollWidth <= Math.ceil(element.clientWidth) + 1),
+  ).toBe(true);
+  await expect(fallbackAnswer.getByText(/\[citation:1\]/u)).toHaveCount(0);
+  await expect(fallbackAnswer.getByRole('link', { name: '1' })).toHaveAttribute(
+    'href',
+    '#citation-1',
+  );
+  await expect(answerDossier.getByTitle('DeepSeek 官方回答只读预览')).toHaveCount(0);
+  await expect(answerDossier.getByRole('link', { name: '打开官方原页 ↗' })).toHaveCount(0);
+  await expect(answerDossier.getByRole('button', { name: '复制分享链接' })).toBeDisabled();
+  await expect(fallbackAnswer.getByRole('img')).toHaveCount(0);
+  await expectSafePageScreenshot(page, 'customer-live-answer-fallback.png', {
+    animations: 'disabled',
+  });
   await answerDossier.getByRole('button', { name: '关闭官方回答详情' }).click();
   await expectSafePageScreenshot(page, 'customer-live-answers.png', {
     fullPage: true,
