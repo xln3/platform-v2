@@ -11957,7 +11957,7 @@
           "collection-account-governance"
         ],
         "summary": "List Collection Account Quota Observations",
-        "description": "返回每个手机号 × 平台 × mode 最新一条额度观测。\n\n额度属于登录账号而不是出口地域，因此事件必须显式关联 ``phone_account_id``；\nbrowser/region 仅作为最近观测来源。接口最多扫描最近 200 条审计事件，按\n``(phone, platform, mode)`` 去重；不返回 ``new_value`` 原文，也不再把没有\n手机号归属的历史 browser-only 事件展示成账号额度。",
+        "description": "返回每个浏览器账号 × mode 最新一条额度观测。\n\n浏览器实例在账号尚未登记为 ``phone × platform`` 时仍是有效的独立登录账号，\n因而额度观测以 browser 为最小安全锚点。接口最多扫描最近 200 条审计事件，按\n``(instance_key, mode)`` 去重；不返回 ``new_value`` 原文。",
         "operationId": "list_collection_account_quota_observations_api_v2_collection_account_quota_observations_get",
         "parameters": [
           {
@@ -15079,7 +15079,7 @@
           "otp"
         ],
         "summary": "Otp Setup Info",
-        "description": "装机配置（operator 门内）：推送地址/relay token/Body 模板/白名单正则/卡槽备注。\nURL 优先来自显式 ``GEO_PUBLIC_BASE_URL``；生产缺失时 fail-closed，避免反代\n``Host`` 丢端口后向操作员下发不可用地址。",
+        "description": "装机配置（operator 门内）：推送地址/relay token/Body 模板/白名单正则/卡槽备注。\nURL 从请求 origin 派生（供工具消费；**装机页展示不用它**——页面以浏览器\nlocation.origin 拼地址，反代 Host $host 丢端口时页面依然正确）。",
         "operationId": "otp_setup_info_api_v2_otp_setup_info_get",
         "responses": {
           "200": {
@@ -57812,23 +57812,15 @@
             "type": "string",
             "title": "Observation Pub Id"
           },
-          "phone_account_pub_id": {
+          "browser_instance_key": {
             "type": "string",
-            "title": "Phone Account Pub Id"
-          },
-          "phone_masked": {
-            "type": "string",
-            "title": "Phone Masked"
+            "title": "Browser Instance Key"
           },
           "platform": {
             "type": "string",
             "title": "Platform"
           },
-          "observed_browser_instance_key": {
-            "type": "string",
-            "title": "Observed Browser Instance Key"
-          },
-          "observed_region_gb": {
+          "region_gb": {
             "anyOf": [
               {
                 "type": "string"
@@ -57837,7 +57829,7 @@
                 "type": "null"
               }
             ],
-            "title": "Observed Region Gb"
+            "title": "Region Gb"
           },
           "mode": {
             "type": "string",
@@ -57950,11 +57942,9 @@
         "type": "object",
         "required": [
           "observation_pub_id",
-          "phone_account_pub_id",
-          "phone_masked",
+          "browser_instance_key",
           "platform",
-          "observed_browser_instance_key",
-          "observed_region_gb",
+          "region_gb",
           "mode",
           "account_tier",
           "quota_state",
@@ -57968,7 +57958,7 @@
           "source"
         ],
         "title": "AccountQuotaObservationView",
-        "description": "账号管理页的平台额度安全投影。\n\n真源是 ``collection_account_event(event_type='quota_observation')``；响应只暴露\n白名单字段，绝不透传平台原始响应、完整手机号、平台用户标识或探测证据。\n``observed_window_count`` 可以是日志下限/估算值，精度由 ``count_kind`` 明示，\n不能冒充官方固定额度。"
+        "description": "账号管理页的平台额度安全投影。\n\n真源是 ``collection_account_event(event_type='quota_observation')``；响应只暴露\n白名单字段，绝不透传平台原始响应、账号标识或探测证据。``observed_window_count``\n可以是日志下限/估算值，精度由 ``count_kind`` 明示，不能冒充官方固定额度。"
       },
       "AccountView": {
         "properties": {

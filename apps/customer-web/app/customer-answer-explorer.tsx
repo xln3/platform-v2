@@ -590,9 +590,8 @@ function AnswerDossier({
     officialShareArtifact?.embedStatus === 'allowed';
   const hasStoredAnswer = row.response_text.trim().length > 0;
   const publishedCount =
-    detail?.citations.filter(
-      (citation) => citation.publishedAt && citation.publishedAtPrecision,
-    ).length ?? 0;
+    detail?.citations.filter((citation) => citation.publishedAt && citation.publishedAtPrecision)
+      .length ?? 0;
   const uniqueDomains = new Set(detail?.citations.map((citation) => citation.host) ?? []).size;
   const sameQuestionRuns = useMemo(() => {
     const matching = runs.filter((candidate) =>

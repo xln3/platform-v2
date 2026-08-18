@@ -287,7 +287,6 @@ def test_internal_evidence_permission_never_leaks_to_customer() -> None:
     assert denied.value.status_code == 403
 
 
-
 def test_report_permissions_separate_authoring_review_publication_and_delivery() -> None:
     analyst = Principal("analyst", Role.ANALYST, "tnt_test")
     analyst.require("report:write")

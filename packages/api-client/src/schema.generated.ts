@@ -818,12 +818,11 @@ export interface paths {
         };
         /**
          * List Collection Account Quota Observations
-         * @description 返回每个手机号 × 平台 × mode 最新一条额度观测。
+         * @description 返回每个浏览器账号 × mode 最新一条额度观测。
          *
-         *     额度属于登录账号而不是出口地域，因此事件必须显式关联 ``phone_account_id``；
-         *     browser/region 仅作为最近观测来源。接口最多扫描最近 200 条审计事件，按
-         *     ``(phone, platform, mode)`` 去重；不返回 ``new_value`` 原文，也不再把没有
-         *     手机号归属的历史 browser-only 事件展示成账号额度。
+         *     浏览器实例在账号尚未登记为 ``phone × platform`` 时仍是有效的独立登录账号，
+         *     因而额度观测以 browser 为最小安全锚点。接口最多扫描最近 200 条审计事件，按
+         *     ``(instance_key, mode)`` 去重；不返回 ``new_value`` 原文。
          */
         get: operations["list_collection_account_quota_observations_api_v2_collection_account_quota_observations_get"];
         put?: never;
@@ -1280,8 +1279,8 @@ export interface paths {
         /**
          * Otp Setup Info
          * @description 装机配置（operator 门内）：推送地址/relay token/Body 模板/白名单正则/卡槽备注。
-         *     URL 优先来自显式 ``GEO_PUBLIC_BASE_URL``；生产缺失时 fail-closed，避免反代
-         *     ``Host`` 丢端口后向操作员下发不可用地址。
+         *     URL 从请求 origin 派生（供工具消费；**装机页展示不用它**——页面以浏览器
+         *     location.origin 拼地址，反代 Host $host 丢端口时页面依然正确）。
          */
         get: operations["otp_setup_info_api_v2_otp_setup_info_get"];
         put?: never;
@@ -4409,23 +4408,18 @@ export interface components {
          * @description 账号管理页的平台额度安全投影。
          *
          *     真源是 ``collection_account_event(event_type='quota_observation')``；响应只暴露
-         *     白名单字段，绝不透传平台原始响应、完整手机号、平台用户标识或探测证据。
-         *     ``observed_window_count`` 可以是日志下限/估算值，精度由 ``count_kind`` 明示，
-         *     不能冒充官方固定额度。
+         *     白名单字段，绝不透传平台原始响应、账号标识或探测证据。``observed_window_count``
+         *     可以是日志下限/估算值，精度由 ``count_kind`` 明示，不能冒充官方固定额度。
          */
         AccountQuotaObservationView: {
             /** Observation Pub Id */
             observation_pub_id: string;
-            /** Phone Account Pub Id */
-            phone_account_pub_id: string;
-            /** Phone Masked */
-            phone_masked: string;
+            /** Browser Instance Key */
+            browser_instance_key: string;
             /** Platform */
             platform: string;
-            /** Observed Browser Instance Key */
-            observed_browser_instance_key: string;
-            /** Observed Region Gb */
-            observed_region_gb: string | null;
+            /** Region Gb */
+            region_gb: string | null;
             /**
              * Mode
              * @enum {string}
