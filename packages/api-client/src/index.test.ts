@@ -6,6 +6,7 @@ import {
   authorizeCustomerAccount,
   bindOidcIdentity,
   commentOnReport,
+  completePrfabuLogin,
   confirmReportDelivery,
   createCustomerPairing,
   createAssetConfirmation,
@@ -44,6 +45,7 @@ import {
   getMediaWemediaDataset,
   getMediaPricesRefreshStatus,
   getOperationsLifecycle,
+  getPrfabuSessionStatus,
   getPostAnalysisItem,
   getPostAnalysisItemAsset,
   getPostAnalysisTask,
@@ -110,6 +112,7 @@ import {
   revokeIdentityMember,
   revokeOidcIdentity,
   runEvaluationDataset,
+  startPrfabuLogin,
   type AnalyticsAnchorSafeView,
   type AnalyticsAnswerSafeView,
   type AnalyticsCitationSafeView,
@@ -377,12 +380,21 @@ const analyticsCitationSafeViewHasFixedKeys: Expect<
     keyof AnalyticsCitationSafeView,
     | 'pub_id'
     | 'ordinal'
+    | 'platform_ordinal'
+    | 'ordinal_base'
     | 'canonical_url'
     | 'host'
     | 'title'
     | 'cited_text'
     | 'own_source'
     | 'content_hash'
+    | 'source_document_pub_id'
+    | 'published_at_raw'
+    | 'published_at'
+    | 'published_at_timezone'
+    | 'published_at_precision'
+    | 'published_at_source'
+    | 'published_at_confidence'
   >
 > = true;
 const analyticsAnchorSafeViewHasFixedKeys: Expect<
@@ -5822,6 +5834,78 @@ describe('wemedia dataset boundary', () => {
 });
 
 describe('posting batch browser boundary', () => {
+  it('performs the one-time prfabu captcha login through generated contracts', async () => {
+    const headers = {
+      'X-Tenant-Id': 'tnt_test',
+      'X-Actor-Id': 'usr_test',
+      'X-Actor-Role': 'operator',
+    } as const;
+    const challengeId = 'A'.repeat(32);
+    const requests: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const path = new URL(request.url).pathname;
+      requests.push(`${request.method} ${path}`);
+      if (path.endsWith('/session')) {
+        return new Response(
+          JSON.stringify({ status: 'expired', message: '登录已失效', balance: null }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      if (path.endsWith('/captcha')) {
+        return new Response(
+          JSON.stringify({
+            challenge_id: challengeId,
+            image_base64: 'iVBORw0KGgo=',
+            expires_in_seconds: 300,
+          }),
+          { status: 201, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      const body = JSON.parse(await request.text()) as Record<string, unknown>;
+      expect(body).toEqual({
+        challenge_id: challengeId,
+        account: 'supplier-account',
+        password: 'one-time-password',
+        captcha: '1234',
+      });
+      return new Response(
+        JSON.stringify({ status: 'ready', message: '登录成功', balance: '128.50' }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const client = createGeoApiClient('https://geo.example');
+
+    expect(await getPrfabuSessionStatus(headers, client)).toMatchObject({
+      kind: 'ready',
+      data: { status: 'expired' },
+    });
+    const challenge = await startPrfabuLogin(headers, client);
+    expect(challenge).toMatchObject({ kind: 'ready', data: { challengeId } });
+    if (challenge.kind !== 'ready') throw new Error('challenge projection failed');
+    expect(
+      await completePrfabuLogin(
+        {
+          challengeId: challenge.data.challengeId,
+          account: 'supplier-account',
+          password: 'one-time-password',
+          captcha: '1234',
+        },
+        headers,
+        client,
+      ),
+    ).toEqual({
+      kind: 'ready',
+      data: { status: 'ready', message: '登录成功', balance: 128.5 },
+    });
+    expect(requests).toEqual([
+      'GET /api/v2/posting/providers/prfabu/session',
+      'POST /api/v2/posting/providers/prfabu/login/captcha',
+      'POST /api/v2/posting/providers/prfabu/login',
+    ]);
+  });
+
   it('sends the DOCX as multipart data and projects per-media posting status', async () => {
     const contract = {
       pub_id: 'pbt_test',
@@ -7276,8 +7360,17 @@ describe('fixed-field browser boundaries (Round170)', () => {
       'content_hash',
       'host',
       'ordinal',
+      'ordinal_base',
       'own_source',
+      'platform_ordinal',
       'pub_id',
+      'published_at',
+      'published_at_confidence',
+      'published_at_precision',
+      'published_at_raw',
+      'published_at_source',
+      'published_at_timezone',
+      'source_document_pub_id',
       'title',
     ]);
     expect(projectedCitation.cited_text).toBe('round170-cited-prose-canary');

@@ -809,6 +809,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/collection-account-quota-observations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Collection Account Quota Observations
+         * @description 返回每个浏览器账号 × mode 最新一条额度观测。
+         *
+         *     浏览器实例在账号尚未登记为 ``phone × platform`` 时仍是有效的独立登录账号，
+         *     因而额度观测以 browser 为最小安全锚点。接口最多扫描最近 200 条审计事件，按
+         *     ``(instance_key, mode)`` 去重；不返回 ``new_value`` 原文。
+         */
+        get: operations["list_collection_account_quota_observations_api_v2_collection_account_quota_observations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/collection-platform-accounts/{pub_id}": {
         parameters: {
             query?: never;
@@ -3355,6 +3379,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/posting/providers/prfabu/session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Prfabu Session */
+        get: operations["get_prfabu_session_api_v2_posting_providers_prfabu_session_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/posting/providers/prfabu/login/captcha": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start Prfabu Login */
+        post: operations["start_prfabu_login_api_v2_posting_providers_prfabu_login_captcha_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/posting/providers/prfabu/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Complete Prfabu Login */
+        post: operations["complete_prfabu_login_api_v2_posting_providers_prfabu_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/posting/batches": {
         parameters: {
             query?: never;
@@ -4259,6 +4334,67 @@ export interface components {
              */
             created_at: string;
         };
+        /**
+         * AccountQuotaObservationView
+         * @description 账号管理页的平台额度安全投影。
+         *
+         *     真源是 ``collection_account_event(event_type='quota_observation')``；响应只暴露
+         *     白名单字段，绝不透传平台原始响应、账号标识或探测证据。``observed_window_count``
+         *     可以是日志下限/估算值，精度由 ``count_kind`` 明示，不能冒充官方固定额度。
+         */
+        AccountQuotaObservationView: {
+            /** Observation Pub Id */
+            observation_pub_id: string;
+            /** Browser Instance Key */
+            browser_instance_key: string;
+            /** Platform */
+            platform: string;
+            /** Region Gb */
+            region_gb: string | null;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "normal" | "deep_think" | "unknown";
+            /**
+             * Account Tier
+             * @enum {string}
+             */
+            account_tier: "free" | "subscriber" | "unknown";
+            /**
+             * Quota State
+             * @enum {string}
+             */
+            quota_state: "available" | "exhausted" | "unknown";
+            /**
+             * Window Type
+             * @enum {string}
+             */
+            window_type: "rolling" | "calendar" | "unknown";
+            /** Window Days */
+            window_days: number | null;
+            /** Observed Window Count */
+            observed_window_count: number | null;
+            /** Daily Equivalent */
+            daily_equivalent: number | null;
+            /**
+             * Count Kind
+             * @enum {string}
+             */
+            count_kind: "lower_bound" | "estimate" | "platform_exact" | "unknown";
+            /** Reset At */
+            reset_at: string | null;
+            /**
+             * Observed At
+             * Format: date-time
+             */
+            observed_at: string;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "platform" | "platform_and_logs" | "manual" | "unknown";
+        };
         /** AccountView */
         AccountView: {
             /** Pub Id */
@@ -4367,6 +4503,10 @@ export interface components {
             mime_type: string;
             /** Byte Size */
             byte_size: number;
+            /** Image Width */
+            image_width?: number | null;
+            /** Image Height */
+            image_height?: number | null;
             /** Source Url */
             source_url: string | null;
             /**
@@ -5399,6 +5539,17 @@ export interface components {
             pub_id: string;
             /** Ordinal */
             ordinal: number;
+            /**
+             * Platform Ordinal
+             * @default 1
+             */
+            platform_ordinal: number;
+            /**
+             * Ordinal Base
+             * @default 1
+             * @enum {integer}
+             */
+            ordinal_base: 0 | 1;
             /** Canonical Url */
             canonical_url: string;
             /** Host */
@@ -5411,6 +5562,24 @@ export interface components {
             own_source: boolean;
             /** Content Hash */
             content_hash: string | null;
+            /** Source Document Pub Id */
+            source_document_pub_id?: string | null;
+            /** Published At Raw */
+            published_at_raw?: string | null;
+            /** Published At */
+            published_at?: string | null;
+            /** Published At Timezone */
+            published_at_timezone?: string | null;
+            /** Published At Precision */
+            published_at_precision?: string | null;
+            /** Published At Source */
+            published_at_source?: string | null;
+            /**
+             * Published At Confidence
+             * @default unknown
+             * @enum {string}
+             */
+            published_at_confidence: "verified_structured" | "structured_only" | "visible_only" | "inferred_low" | "unknown";
         };
         /** ClaimEvidenceCreate */
         ClaimEvidenceCreate: {
@@ -8152,6 +8321,41 @@ export interface components {
             /** Data */
             data: components["schemas"]["TaskView"][];
             page: components["schemas"]["PageMeta"];
+        };
+        /** PrfabuCaptchaView */
+        PrfabuCaptchaView: {
+            /** Challenge Id */
+            challenge_id: string;
+            /** Image Base64 */
+            image_base64: string;
+            /** Expires In Seconds */
+            expires_in_seconds: number;
+        };
+        /** PrfabuLoginRequest */
+        PrfabuLoginRequest: {
+            /** Challenge Id */
+            challenge_id: string;
+            /** Account */
+            account: string;
+            /**
+             * Password
+             * Format: password
+             */
+            password: string;
+            /** Captcha */
+            captcha: string;
+        };
+        /** PrfabuSessionView */
+        PrfabuSessionView: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ready" | "missing" | "expired" | "unavailable" | "rejected";
+            /** Message */
+            message: string;
+            /** Balance */
+            balance?: string | null;
         };
         /** ProfileEnroll */
         ProfileEnroll: {
@@ -14627,6 +14831,72 @@ export interface operations {
             };
         };
     };
+    list_collection_account_quota_observations_api_v2_collection_account_quota_observations_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountQuotaObservationView"][];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     patch_platform_account_api_v2_collection_platform_accounts__pub_id__patch: {
         parameters: {
             query?: never;
@@ -18364,7 +18634,10 @@ export interface operations {
     };
     answer_relations_api_v2_analytics_answers__answer_pub_id__relations_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Optional project binding for customer answer-detail reads. */
+                project_pub_id?: string | null;
+            };
             header?: {
                 "X-Tenant-Id"?: string | null;
                 "X-Actor-Id"?: string | null;
@@ -26222,6 +26495,208 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RefreshStatusView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_prfabu_session_api_v2_posting_providers_prfabu_session_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrfabuSessionView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_prfabu_login_api_v2_posting_providers_prfabu_login_captcha_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrfabuCaptchaView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    complete_prfabu_login_api_v2_posting_providers_prfabu_login_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PrfabuLoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrfabuSessionView"];
                 };
             };
             /** @description Bad Request */

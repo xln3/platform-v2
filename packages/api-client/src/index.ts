@@ -1170,12 +1170,21 @@ export type AnalyticsCitationSafeView = Pick<
   AnalyticsCitationContractView,
   | 'pub_id'
   | 'ordinal'
+  | 'platform_ordinal'
+  | 'ordinal_base'
   | 'canonical_url'
   | 'host'
   | 'title'
   | 'cited_text'
   | 'own_source'
   | 'content_hash'
+  | 'source_document_pub_id'
+  | 'published_at_raw'
+  | 'published_at'
+  | 'published_at_timezone'
+  | 'published_at_precision'
+  | 'published_at_source'
+  | 'published_at_confidence'
 >;
 export type AnalyticsBoundingBoxSafeView = {
   x: number;
@@ -2019,6 +2028,7 @@ export async function getAnalyticsAnswerRelations(
   answerPubId: string,
   headers: IdentitySessionHeaders,
   client: ProjectedApiClientOverride = apiClient,
+  projectPubId?: string,
 ): Promise<ProjectResourceResult<AnalyticsAnswerRelationsProjection>> {
   try {
     const result = await projectedApiClient(client).GET(
@@ -2026,6 +2036,7 @@ export async function getAnalyticsAnswerRelations(
       {
         params: {
           path: { answer_pub_id: answerPubId },
+          query: projectPubId ? { project_pub_id: projectPubId } : {},
           header: headers,
         },
       },
@@ -3220,32 +3231,93 @@ const projectAnalyticsCitationBoundary = (value: unknown): AnalyticsCitationSafe
   const pubId = projectAnalyticsPubId(value.pub_id, 'cit_');
   const canonicalUrl = projectSafeRelationUrl(value.canonical_url);
   const ordinal = safeCount(value.ordinal);
+  const platformOrdinal =
+    value.platform_ordinal === undefined ? ordinal : safeCount(value.platform_ordinal);
+  const ordinalBase =
+    value.ordinal_base === undefined
+      ? 1
+      : value.ordinal_base === 0 || value.ordinal_base === 1
+        ? value.ordinal_base
+        : null;
   const title = value.title === null ? null : (safeBrowserString(value.title, 300) ?? undefined);
   const citedText =
     value.cited_text === null ? null : (safeBrowserString(value.cited_text, 2_000) ?? undefined);
   const contentHash =
     value.content_hash === null ? null : (safeHash(value.content_hash) ?? undefined);
+  const sourceDocumentPubId =
+    value.source_document_pub_id === null || value.source_document_pub_id === undefined
+      ? null
+      : (projectAnalyticsPubId(value.source_document_pub_id, 'srd_') ?? undefined);
+  const publishedAtRaw =
+    value.published_at_raw === null || value.published_at_raw === undefined
+      ? null
+      : (safeBrowserString(value.published_at_raw, 500) ?? undefined);
+  const publishedAt =
+    value.published_at === null || value.published_at === undefined
+      ? null
+      : (projectSafeIsoTimestamp(value.published_at) ?? undefined);
+  const publishedAtTimezone =
+    value.published_at_timezone === null || value.published_at_timezone === undefined
+      ? null
+      : (safeBrowserString(value.published_at_timezone, 80) ?? undefined);
+  const publishedAtPrecision =
+    value.published_at_precision === null || value.published_at_precision === undefined
+      ? null
+      : (safeBrowserEnum(value.published_at_precision, ['date', 'minute', 'second'] as const) ??
+        undefined);
+  const publishedAtSource =
+    value.published_at_source === null || value.published_at_source === undefined
+      ? null
+      : (safeBrowserString(value.published_at_source, 120) ?? undefined);
+  const publishedAtConfidence =
+    value.published_at_confidence === undefined
+      ? 'unknown'
+      : safeBrowserEnum(value.published_at_confidence, [
+          'verified_structured',
+          'structured_only',
+          'visible_only',
+          'inferred_low',
+          'unknown',
+        ] as const);
   if (
     !pubId ||
     !canonicalUrl ||
     ordinal === null ||
     ordinal <= 0 ||
+    platformOrdinal === null ||
+    ordinalBase === null ||
     title === undefined ||
     citedText === undefined ||
     typeof value.own_source !== 'boolean' ||
-    contentHash === undefined
+    contentHash === undefined ||
+    sourceDocumentPubId === undefined ||
+    publishedAtRaw === undefined ||
+    publishedAt === undefined ||
+    publishedAtTimezone === undefined ||
+    publishedAtPrecision === undefined ||
+    publishedAtSource === undefined ||
+    !publishedAtConfidence
   ) {
     return null;
   }
   return {
     pub_id: pubId,
     ordinal,
+    platform_ordinal: platformOrdinal,
+    ordinal_base: ordinalBase,
     canonical_url: canonicalUrl,
     host: new URL(canonicalUrl).hostname,
     title,
     cited_text: citedText,
     own_source: value.own_source,
     content_hash: contentHash,
+    source_document_pub_id: sourceDocumentPubId,
+    published_at_raw: publishedAtRaw,
+    published_at: publishedAt,
+    published_at_timezone: publishedAtTimezone,
+    published_at_precision: publishedAtPrecision,
+    published_at_source: publishedAtSource,
+    published_at_confidence: publishedAtConfidence,
   };
 };
 
@@ -8801,6 +8873,125 @@ export async function requestMediaPricesRefresh(
 }
 
 // -- Paid media posting batches safe browser boundary ------------------------
+
+type PrfabuSessionContract =
+  paths['/api/v2/posting/providers/prfabu/session']['get']['responses']['200']['content']['application/json'];
+type PrfabuCaptchaContract =
+  paths['/api/v2/posting/providers/prfabu/login/captcha']['post']['responses']['201']['content']['application/json'];
+
+export type PrfabuSessionStatus = {
+  status: PrfabuSessionContract['status'];
+  message: string;
+  balance: number | null;
+};
+
+export type PrfabuCaptchaChallenge = {
+  challengeId: string;
+  imageBase64: string;
+  expiresInSeconds: number;
+};
+
+function projectPrfabuSession(value: unknown): PrfabuSessionStatus | null {
+  if (!value || typeof value !== 'object') return null;
+  const row = value as Record<string, unknown>;
+  const statuses = new Set(['ready', 'missing', 'expired', 'unavailable', 'rejected']);
+  const message = safePostingText(row.message, 500, false);
+  if (typeof row.status !== 'string' || !statuses.has(row.status) || message === null) return null;
+  const balance = row.balance === null || row.balance === undefined ? null : Number(row.balance);
+  if (balance !== null && (!Number.isFinite(balance) || balance < 0 || balance > 1_000_000_000)) {
+    return null;
+  }
+  return {
+    status: row.status as PrfabuSessionStatus['status'],
+    message,
+    balance,
+  };
+}
+
+function projectPrfabuCaptcha(value: unknown): PrfabuCaptchaChallenge | null {
+  if (!value || typeof value !== 'object') return null;
+  const row = value as Record<string, unknown>;
+  if (
+    typeof row.challenge_id !== 'string' ||
+    !/^[A-Za-z0-9_-]{32,64}$/.test(row.challenge_id) ||
+    typeof row.image_base64 !== 'string' ||
+    row.image_base64.length === 0 ||
+    row.image_base64.length > 350_000 ||
+    !/^[A-Za-z0-9+/]+={0,2}$/.test(row.image_base64) ||
+    !Number.isInteger(row.expires_in_seconds) ||
+    Number(row.expires_in_seconds) < 1 ||
+    Number(row.expires_in_seconds) > 600
+  ) {
+    return null;
+  }
+  return {
+    challengeId: row.challenge_id,
+    imageBase64: row.image_base64,
+    expiresInSeconds: Number(row.expires_in_seconds),
+  };
+}
+
+export async function getPrfabuSessionStatus(
+  headers: IdentitySessionHeaders,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<PostingResourceResult<PrfabuSessionStatus>> {
+  try {
+    const result = await projectedApiClient(client).GET(
+      '/api/v2/posting/providers/prfabu/session',
+      { params: { header: headers } },
+    );
+    if (!result.data) return classifyPostingFailure(result.response.status);
+    const projected = projectPrfabuSession(result.data);
+    return projected ? { kind: 'ready', data: projected } : { kind: 'unavailable' };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+export async function startPrfabuLogin(
+  headers: IdentitySessionHeaders,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<PostingResourceResult<PrfabuCaptchaChallenge>> {
+  try {
+    const result = await projectedApiClient(client).POST(
+      '/api/v2/posting/providers/prfabu/login/captcha',
+      { params: { header: headers } },
+    );
+    if (!result.data) return classifyPostingFailure(result.response.status);
+    const projected = projectPrfabuCaptcha(result.data as PrfabuCaptchaContract);
+    return projected ? { kind: 'ready', data: projected } : { kind: 'unavailable' };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+export async function completePrfabuLogin(
+  input: {
+    challengeId: string;
+    account: string;
+    password: string;
+    captcha: string;
+  },
+  headers: IdentitySessionHeaders,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<PostingResourceResult<PrfabuSessionStatus>> {
+  try {
+    const result = await projectedApiClient(client).POST('/api/v2/posting/providers/prfabu/login', {
+      params: { header: headers },
+      body: {
+        challenge_id: input.challengeId,
+        account: input.account,
+        password: input.password,
+        captcha: input.captcha,
+      },
+    });
+    if (!result.data) return classifyPostingFailure(result.response.status);
+    const projected = projectPrfabuSession(result.data);
+    return projected ? { kind: 'ready', data: projected } : { kind: 'unavailable' };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
 
 export type PostingBatchStatus =
   | 'draft'
