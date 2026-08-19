@@ -1,7 +1,7 @@
 """Expose official share images while retaining ordinary screenshots internally.
 
 Revision ID: s06_0030
-Revises: s06_catalog_0001
+Revises: s06_0029
 """
 
 from collections.abc import Sequence
@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from alembic import op
 
 revision: str = "s06_0030"
-down_revision: str | Sequence[str] | None = "s06_catalog_0001"
+down_revision: str | Sequence[str] | None = "s06_0029"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

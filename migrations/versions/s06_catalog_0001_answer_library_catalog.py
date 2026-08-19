@@ -1,7 +1,7 @@
 """Add an explicit customer answer-library catalog boundary.
 
 Revision ID: s06_catalog_0001
-Revises: s06_0029
+Revises: s06_0030
 """
 
 from collections.abc import Sequence
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "s06_catalog_0001"
-down_revision: str | Sequence[str] | None = "s06_0029"
+down_revision: str | Sequence[str] | None = "s06_0030"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -93,9 +93,11 @@ def upgrade() -> None:
             GRANT SELECT,INSERT,UPDATE ON platform.answer_library_catalog TO geo;
           END IF;
           IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='geo_api') THEN
+            REVOKE ALL PRIVILEGES ON platform.answer_library_catalog FROM geo_api;
             GRANT SELECT ON platform.answer_library_catalog TO geo_api;
           END IF;
           IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='geo_worker') THEN
+            REVOKE ALL PRIVILEGES ON platform.answer_library_catalog FROM geo_worker;
             GRANT SELECT ON platform.answer_library_catalog TO geo_worker;
           END IF;
         END $$
