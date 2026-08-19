@@ -61,10 +61,10 @@ def test_answer_relations_bind_customer_project_and_latest_analysis(
                 return _Result(
                     [
                         {
-                            "platform": "deepseek",
+                            "platform": "yiyan",
                             "status": "available",
-                            "share_url": "https://chat.deepseek.com/share/test",
-                            "final_url": "https://chat.deepseek.com/share/test",
+                            "share_url": "https://mr.baidu.com/r/test",
+                            "final_url": "https://mr.baidu.com/r/test",
                             "allowlist_valid": True,
                             "availability_status": "reachable",
                             "http_status": 200,
@@ -133,7 +133,7 @@ def test_answer_relations_bind_customer_project_and_latest_analysis(
     assert [citation.ordinal for citation in result.answer_citations] == [1]
     assert [evidence.pub_id for evidence in result.evidence] == expected_evidence
     assert result.share_artifact is not None
-    assert result.share_artifact.share_url == "https://chat.deepseek.com/share/test"
+    assert result.share_artifact.share_url == "https://mr.baidu.com/r/test"
     assert result.share_artifact.embed_status == "blocked"
     assert result.share_image is not None
     assert result.share_image.pub_id == "evd_testshareimage1234"
@@ -175,5 +175,7 @@ def test_answer_relations_bind_customer_project_and_latest_analysis(
     share_sql = next(sql for sql, _ in calls if "FROM evidence.answer_share_artifact" in sql)
     assert "updated_at<=%s::timestamptz" in share_sql
     assert "relation.relation_type='official_share_image'" in share_sql
+    assert "artifact.platform IN ('doubao','yiyan')" in share_sql
     assert "asset.kind='share_image'" in share_sql
     assert "asset.customer_visible=true" in share_sql
+    assert "asset.source_url IN (artifact.share_url,artifact.final_url)" in share_sql

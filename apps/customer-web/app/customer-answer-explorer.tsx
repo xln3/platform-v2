@@ -441,12 +441,6 @@ function FallbackAnswer({
           {markdown}
         </ReactMarkdown>
       </article>
-      <footer>
-        <span>
-          {row.model} · 采集于 {formatCaptureTime(row.capture_time)}
-        </span>
-        <strong>已保留采集证据</strong>
-      </footer>
     </div>
   );
 }
@@ -461,18 +455,24 @@ const answerDisplayModeLabel: Readonly<Record<AnswerDisplayMode, string>> = {
 
 const officialShareImageEvidence = (
   detail: CustomerAnswerDetail | null,
-): CustomerAnswerEvidenceDetail | null =>
-  detail?.shareImage ??
-  detail?.evidence.find(
-    (evidence) =>
-      evidence.relation === 'official_share_image' &&
-      evidence.kind === 'share_image' &&
-      evidence.mimeType === 'image/png' &&
-      evidence.byteSize > 0 &&
-      evidence.byteSize <= 30 * 1024 * 1024 &&
-      /^[a-f0-9]{64}$/iu.test(evidence.sha256),
-  ) ??
-  null;
+): CustomerAnswerEvidenceDetail | null => {
+  // Customer answer pages accept only the server's dedicated share-image projection.
+  // The generic evidence collection can contain runtime/browser screenshots and must
+  // never be used as a presentation fallback, even if a historical row was mislabeled.
+  const evidence = detail?.shareImage;
+  if (
+    !evidence ||
+    evidence.relation !== 'official_share_image' ||
+    evidence.kind !== 'share_image' ||
+    evidence.mimeType !== 'image/png' ||
+    evidence.byteSize <= 0 ||
+    evidence.byteSize > 30 * 1024 * 1024 ||
+    !/^[a-f0-9]{64}$/iu.test(evidence.sha256)
+  ) {
+    return null;
+  }
+  return evidence;
+};
 
 function AnswerDisplay({
   row,

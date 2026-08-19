@@ -2677,22 +2677,6 @@
   font-size: 14px;
 }
 
-.geo-answer-dossier__fallback > footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 9px 14px;
-  border-top: 1px solid #e2e8f0;
-  background: #f8fafc;
-  color: #64748b;
-  font-size: 8px;
-}
-
-.geo-answer-dossier__fallback > footer strong {
-  color: #475569;
-}
-
 @media (max-width: 560px) {
   .geo-answer-dossier__fallback-notice {
     display: grid;

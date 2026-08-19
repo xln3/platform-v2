@@ -447,6 +447,17 @@ test('validated customer reads mounted data and serializes every write without s
               embed_reason: null,
             }
           : null,
+        share_image: hasOfficialShareEvidence
+          ? {
+              pub_id: 'evd_live_share_image',
+              sha256: customerPlatformSharePngSha256,
+              mime_type: 'image/png',
+              byte_size: customerPlatformSharePng.byteLength,
+              image_width: 698,
+              image_height: 4863,
+              capture_time: '2026-07-25T01:00:00Z',
+            }
+          : null,
         citations: [
           {
             pub_id: 'cit_live_safe',
@@ -1218,6 +1229,9 @@ test('validated customer reads mounted data and serializes every write without s
     'true',
   );
   await expect(answerDossier.getByRole('heading', { name: '核验建议' })).toBeVisible();
+  await expect(answerDossier.getByText('已保留采集证据', { exact: true })).toHaveCount(0);
+  await expect(answerDossier.getByText(/doubao · 采集于/u)).toHaveCount(0);
+  await expect(answerDossier.locator('.geo-answer-dossier__fallback > footer')).toHaveCount(0);
   expect(shareImageContentReads).toBe(0);
   const answerStage = answerDossier.locator('.geo-answer-display__stage');
   const textStageBox = await answerStage.boundingBox();

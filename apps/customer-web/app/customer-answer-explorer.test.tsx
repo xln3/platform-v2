@@ -358,6 +358,9 @@ describe('CustomerAnswerExplorer four-level library', () => {
     expect(within(fallback).queryByText('不应显示')).toBeNull();
     expect(within(fallback).queryByRole('link', { name: '危险链接' })).toBeNull();
     expect(within(fallback).queryByText(/window\.leaked/u)).toBeNull();
+    expect(within(fallback).queryByText(/采集于/u)).toBeNull();
+    expect(within(fallback).queryByText('已保留采集证据')).toBeNull();
+    expect(fallback.querySelector('footer')).toBeNull();
 
     await user.click(screen.getByRole('button', { name: '复制分享链接' }));
     expect(screen.getByRole('button', { name: '分享链接已复制' })).toBeTruthy();
@@ -407,6 +410,25 @@ describe('CustomerAnswerExplorer four-level library', () => {
     expect(screen.queryByRole('tab', { name: '官方实时页' })).toBeNull();
     expect(screen.queryByRole('tab', { name: '分享图片' })).toBeNull();
     expect(screen.getByRole('region', { name: '历史采集答案退阶阅读版' })).toBeTruthy();
+  });
+
+  it('never promotes a generic evidence image into the official share-image mode', async () => {
+    const genericLookalike = relationDetail.shareImage;
+    if (!genericLookalike) throw new Error('share image fixture unavailable');
+    const loaders = renderLibrary({
+      loadDetail: async () => ({
+        ...relationDetail,
+        evidence: [genericLookalike],
+        shareImage: null,
+      }),
+    });
+    await enterFirstAnswer();
+
+    const modeTabs = screen.getByRole('tablist', { name: '答案展示方式' });
+    expect(within(modeTabs).getByRole('tab', { name: '文本回答' })).toBeTruthy();
+    expect(within(modeTabs).getByRole('tab', { name: '官方实时页' })).toBeTruthy();
+    expect(within(modeTabs).queryByRole('tab', { name: '分享图片' })).toBeNull();
+    expect(loaders.loadEvidenceImage).not.toHaveBeenCalled();
   });
 
   it('uses the path controls for backward navigation instead of opening a modal', async () => {

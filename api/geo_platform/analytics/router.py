@@ -916,11 +916,14 @@ def answer_relations(
               WHERE asset.tenant_pub_id=artifact.tenant_pub_id
                 AND asset.project_pub_id=artifact.project_pub_id
                 AND asset.pub_id=artifact.share_image_evidence_pub_id
+                AND artifact.platform IN ('doubao','yiyan')
                 AND asset.kind='share_image'
                 AND asset.customer_visible=true
                 AND asset.deleted_at IS NULL
                 AND asset.mime_type='image/png'
                 AND asset.byte_size BETWEEN 1 AND 31457280
+                AND asset.source_url IS NOT NULL
+                AND asset.source_url IN (artifact.share_url,artifact.final_url)
               LIMIT 1
             ) share_image ON true
             WHERE artifact.tenant_pub_id=%s AND artifact.answer_pub_id=%s
