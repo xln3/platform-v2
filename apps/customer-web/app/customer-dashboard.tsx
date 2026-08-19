@@ -1,8 +1,12 @@
 import {
   getAnalyticsAnswerRelations,
-  getCustomerAnswerPage,
+  getCustomerAnswerLibraryDetail,
+  getCustomerAnswerLibraryMetaQuery,
+  getCustomerAnswerLibraryPage,
+  getCustomerAnswerLibraryQuestionRuns,
   getCustomerDashboard,
   getCustomerMetricCatalog,
+  getEvidenceAssetContent,
   type CustomerDashboardProjection,
   type CustomerMetricProjection,
   type CustomerMetricSpecProjection,
@@ -23,10 +27,19 @@ import {
   type ReactNode,
 } from 'react';
 import {
+  CustomerAnswerLoadError,
   CustomerAnswerExplorer,
   type CustomerAnswerDetail,
+  type CustomerAnswerEvidenceImageLoader,
   type CustomerAnswerExplorerPage,
-  type CustomerAnswerExplorerQuery,
+  type CustomerAnswerLibraryAnswer,
+  type CustomerAnswerLibraryMetaDetail,
+  type CustomerAnswerLibraryPage,
+  type CustomerAnswerLibraryRootQuery,
+  type CustomerAnswerLibraryRun,
+  type CustomerAnswerLibraryRunQuery,
+  type CustomerAnswerLibraryRuns,
+  type CustomerAnswerLibrarySnapshot,
 } from './customer-answer-explorer';
 import { QuestionDataExplorer, SourceDataExplorer } from './customer-data-explorer';
 import './customer-dashboard.css';
@@ -240,6 +253,14 @@ const fixtureDimensionMetrics = (
   fixtureMetric('citation_coverage', '引用覆盖率', 'source', 'percentage', citationCoverage),
 ];
 
+// Keep the contract identity out of release bundles. The fixture data remains available to
+// Vitest/dev and explicitly opted-in contract builds, while production has no synthetic project
+// identity that could accidentally cross the browser boundary.
+const customerFixtureProjectPubId =
+  import.meta.env.DEV || import.meta.env.VITE_ALLOW_CONTRACT_FIXTURES === 'true'
+    ? 'prj_01K0CONTRACTFIXTURE0000000'
+    : 'prj_fixture_disabled';
+
 const customerDashboardFixtureMetrics: CustomerMetricProjection[] = [
   fixtureMetric('geo_visibility_index', 'GEO 可见度指数', 'composite', 'score', 68.4),
   fixtureMetric('competitive_power_index', '竞争力指数', 'composite', 'score', 61.8),
@@ -304,7 +325,7 @@ const customerDashboardFixtureMetrics: CustomerMetricProjection[] = [
 const customerDashboardFixture: CustomerDashboardProjection = {
   schema_version: 'customer-dashboard-v1',
   metric_version: 'customer-metrics-v1',
-  project_pub_id: 'prj_01K0CONTRACTFIXTURE0000000',
+  project_pub_id: customerFixtureProjectPubId,
   brand_name: '云岫智能',
   state: 'ready',
   generated_at: '2026-08-17T08:00:00Z',
@@ -588,6 +609,231 @@ const customerAnswerFixtureDetails: Readonly<Record<string, CustomerAnswerDetail
     },
     projectionComplete: true,
   },
+};
+
+const customerAnswerLibraryFixtureSnapshot: CustomerAnswerLibrarySnapshot = {
+  snapshotId: `als_${'1'.repeat(24)}`,
+  snapshotAt: '2026-08-17T08:00:00Z',
+};
+
+const fixtureLibraryHex = (value: number): string => value.toString(16).padStart(24, '0');
+const fixtureLibraryLabels = [
+  '制造企业私有化知识库选型',
+  '企业 AI 知识助手数据安全',
+  '知识库产品实施服务比较',
+  '行业知识治理与权限设计',
+  '大模型回答可追溯性',
+  '企业 RAG 检索质量评估',
+  '私有化部署成本与周期',
+  '多模型接入与统一治理',
+] as const;
+
+const fixtureLibraryQuestionTexts = (metaIndex: number, label: string): string[] => {
+  if (metaIndex === 0) {
+    return [
+      '制造企业如何选择可信的私有化知识库？',
+      '私有化知识库选型需要关注哪些指标？',
+      '哪些企业知识库方案适合制造业？',
+      '如何验证企业知识助手的安全性与可追溯性？',
+    ];
+  }
+  return [
+    `${label}应该如何评估？`,
+    `选择${label}时需要核验哪些能力？`,
+    `${label}有哪些常见方案与风险？`,
+    `企业如何对比${label}的实际效果？`,
+  ];
+};
+
+const customerAnswerLibraryFixtureMetas: CustomerAnswerLibraryPage['data'] = Array.from(
+  { length: 34 },
+  (_, metaIndex) => {
+    const ordinal = metaIndex + 1;
+    const label =
+      fixtureLibraryLabels[metaIndex] ?? `企业 GEO 监测主题 ${String(ordinal).padStart(2, '0')}`;
+    const answerCount = 28 + (metaIndex % 7) * 4;
+    const questionTexts = fixtureLibraryQuestionTexts(metaIndex, label);
+    return {
+      meta_query_id: `amq_${fixtureLibraryHex(ordinal)}`,
+      ordinal,
+      label,
+      question_count: 4,
+      answer_count: answerCount,
+      cited_answer_count: Math.floor(answerCount * 0.78),
+      citation_count: answerCount * 3 + (metaIndex % 5),
+      mentioned_answer_count: Math.floor(answerCount * 0.69),
+      latest_capture_time: '2026-08-17T07:42:00Z',
+      models: [
+        { label: 'DeepSeek', answer_count: Math.ceil(answerCount / 3) },
+        { label: '豆包', answer_count: Math.floor(answerCount / 3) },
+        {
+          label: '通义千问',
+          answer_count: answerCount - Math.ceil(answerCount / 3) - Math.floor(answerCount / 3),
+        },
+      ],
+      regions: [
+        { label: '华东', answer_count: Math.ceil(answerCount / 2) },
+        { label: '华北', answer_count: Math.floor(answerCount / 4) },
+        {
+          label: '华南',
+          answer_count: answerCount - Math.ceil(answerCount / 2) - Math.floor(answerCount / 4),
+        },
+      ],
+      modes: [
+        { label: '深度回答', answer_count: Math.ceil(answerCount * 0.65) },
+        { label: '快速回答', answer_count: answerCount - Math.ceil(answerCount * 0.65) },
+      ],
+      questions: questionTexts.map((text, questionIndex) => ({
+        question_id: `aq_${fixtureLibraryHex(metaIndex * 4 + questionIndex + 101)}`,
+        ordinal: questionIndex + 1,
+        variant_label:
+          ['原问题', '变体 A', '变体 B', '变体 C'][questionIndex] ?? `变体 ${questionIndex}`,
+        text,
+        answer_count: Math.floor(answerCount / 4) + (questionIndex < answerCount % 4 ? 1 : 0),
+      })),
+    };
+  },
+);
+
+const customerAnswerLibraryFixtureTotals = customerAnswerLibraryFixtureMetas.reduce(
+  (totals, meta) => ({
+    answer_count: totals.answer_count + meta.answer_count,
+    cited_answer_count: totals.cited_answer_count + meta.cited_answer_count,
+    citation_count: totals.citation_count + meta.citation_count,
+    mentioned_answer_count: totals.mentioned_answer_count + meta.mentioned_answer_count,
+  }),
+  { answer_count: 0, cited_answer_count: 0, citation_count: 0, mentioned_answer_count: 0 },
+);
+
+const customerAnswerLibraryFixturePage: CustomerAnswerLibraryPage = {
+  schema_version: 'customer-answer-library-v1',
+  project_pub_id: customerDashboardFixture.project_pub_id,
+  snapshot_id: customerAnswerLibraryFixtureSnapshot.snapshotId,
+  snapshot_at: customerAnswerLibraryFixtureSnapshot.snapshotAt,
+  totals: {
+    meta_query_count: customerAnswerLibraryFixtureMetas.length,
+    question_count: customerAnswerLibraryFixtureMetas.length * 4,
+    ...customerAnswerLibraryFixtureTotals,
+    unmapped_answer_count: 3,
+  },
+  models: [
+    { label: 'DeepSeek', answer_count: 449 },
+    { label: '豆包', answer_count: 438 },
+    { label: '通义千问', answer_count: 425 },
+  ],
+  regions: [
+    { label: '华东', answer_count: 656 },
+    { label: '华北', answer_count: 328 },
+    { label: '华南', answer_count: 328 },
+  ],
+  modes: [
+    { label: '深度回答', answer_count: 853 },
+    { label: '快速回答', answer_count: 459 },
+  ],
+  data: customerAnswerLibraryFixtureMetas.slice(0, 8),
+  page: { total: 34, offset: 0, limit: 8, has_more: true },
+};
+
+const fixtureLibraryMetaDetail = (metaQueryId: string): CustomerAnswerLibraryMetaDetail | null => {
+  const meta = customerAnswerLibraryFixtureMetas.find((item) => item.meta_query_id === metaQueryId);
+  if (!meta) return null;
+  return {
+    schema_version: 'customer-answer-library-meta-v1',
+    project_pub_id: customerDashboardFixture.project_pub_id,
+    snapshot_id: customerAnswerLibraryFixtureSnapshot.snapshotId,
+    snapshot_at: customerAnswerLibraryFixtureSnapshot.snapshotAt,
+    meta_query_id: meta.meta_query_id,
+    ordinal: meta.ordinal,
+    label: meta.label,
+    answer_count: meta.answer_count,
+    cited_answer_count: meta.cited_answer_count,
+    citation_count: meta.citation_count,
+    mentioned_answer_count: meta.mentioned_answer_count,
+    latest_capture_time: meta.latest_capture_time,
+    questions: meta.questions.map((question) => ({
+      ...question,
+      cited_answer_count: Math.floor(question.answer_count * 0.78),
+      citation_count: question.answer_count * 3,
+      mentioned_answer_count: Math.floor(question.answer_count * 0.69),
+      latest_capture_time: meta.latest_capture_time,
+      models: meta.models,
+      regions: meta.regions,
+      modes: meta.modes,
+    })),
+  };
+};
+
+const fixtureLibraryQuestion = (questionId: string) => {
+  for (const meta of customerAnswerLibraryFixtureMetas) {
+    const detail = fixtureLibraryMetaDetail(meta.meta_query_id);
+    const question = detail?.questions.find((item) => item.question_id === questionId);
+    if (question && detail) return { meta: detail, question };
+  }
+  return null;
+};
+
+const fixtureLibraryRuns = (questionId: string): CustomerAnswerLibraryRun[] => {
+  const selected = fixtureLibraryQuestion(questionId);
+  if (!selected) return [];
+  const models = ['DeepSeek', '豆包', '通义千问'] as const;
+  const regions = ['华东', '华北', '华南'] as const;
+  const modes = ['深度回答', '快速回答'] as const;
+  return Array.from({ length: selected.question.answer_count }, (_, index) => ({
+    answer_pub_id:
+      questionId === customerAnswerLibraryFixtureMetas[0]?.questions[0]?.question_id && index === 0
+        ? 'ans_fixture_01'
+        : `ans_fixture_${questionId.slice(-6)}_${String(index + 1).padStart(2, '0')}`,
+    repeat_index: Math.floor(index / (models.length * regions.length * modes.length)) + 1,
+    model: models[index % models.length] ?? 'DeepSeek',
+    region: regions[Math.floor(index / models.length) % regions.length] ?? '华东',
+    mode: modes[Math.floor(index / (models.length * regions.length)) % modes.length] ?? '深度回答',
+    capture_time: new Date(Date.parse('2026-08-17T07:42:00Z') - index * 3_600_000).toISOString(),
+    analysis_state: index === selected.question.answer_count - 1 ? 'pending' : 'ready',
+    mentioned: index === selected.question.answer_count - 1 ? null : index % 4 !== 0,
+    rank: index % 4 === 0 ? null : (index % 5) + 1,
+    sentiment:
+      index === selected.question.answer_count - 1
+        ? null
+        : index % 3 === 0
+          ? 'neutral'
+          : 'positive',
+    recommended: index === selected.question.answer_count - 1 ? null : index % 3 !== 0,
+    citation_count: index % 5,
+  }));
+};
+
+const fixtureLibraryAnswer = (answerPubId: string): CustomerAnswerLibraryAnswer | null => {
+  for (const meta of customerAnswerLibraryFixtureMetas) {
+    const metaDetail = fixtureLibraryMetaDetail(meta.meta_query_id);
+    if (!metaDetail) continue;
+    for (const question of metaDetail.questions) {
+      const run = fixtureLibraryRuns(question.question_id).find(
+        (candidate) => candidate.answer_pub_id === answerPubId,
+      );
+      if (!run) continue;
+      const original = customerAnswerFixturePage.data.find(
+        (candidate) => candidate.answer_pub_id === answerPubId,
+      );
+      return {
+        schema_version: 'customer-answer-library-detail-v1',
+        project_pub_id: customerDashboardFixture.project_pub_id,
+        snapshot_id: customerAnswerLibraryFixtureSnapshot.snapshotId,
+        snapshot_at: customerAnswerLibraryFixtureSnapshot.snapshotAt,
+        meta_query_id: meta.meta_query_id,
+        meta_query_ordinal: meta.ordinal,
+        meta_query_label: meta.label,
+        question_id: question.question_id,
+        question_ordinal: question.ordinal,
+        variant_label: question.variant_label,
+        question_text: question.text,
+        answer: run,
+        response_text:
+          original?.response_text ??
+          `# ${question.variant_label}\n\n这是采集后仅在第四层按需读取的完整答案。\n\n针对“${question.text}”，建议从数据边界、权限治理、回答可追溯性与持续运营四个方面进行验证。`,
+      };
+    }
+  }
+  return null;
 };
 
 const fallbackMetricHelp: Readonly<Record<string, string>> = {
@@ -1443,10 +1689,13 @@ export function CustomerAnalyticsWorkspace({
   const activeDateWindow = useMemo(() => dashboardDateWindow(windowValue), [windowValue]);
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
-    const sync = () => setUrlState(readDashboardUrlState());
+    const sync = () => {
+      if (experience?.source === 'live') setState('loading');
+      setUrlState(readDashboardUrlState());
+    };
     window.addEventListener('popstate', sync);
     return () => window.removeEventListener('popstate', sync);
-  }, []);
+  }, [experience?.source]);
   useEffect(() => {
     setFilterOptions(emptyDashboardFilterOptions());
   }, [experience?.projectPubId]);
@@ -1512,26 +1761,20 @@ export function CustomerAnalyticsWorkspace({
     activeDateWindow.end,
   ]);
 
-  const loadAnswerPage = useCallback(
-    async (query: CustomerAnswerExplorerQuery): Promise<CustomerAnswerExplorerPage> => {
+  const loadAnswerLibraryPage = useCallback(
+    async (query: CustomerAnswerLibraryRootQuery): Promise<CustomerAnswerLibraryPage> => {
       if (experience?.source !== 'live' || !experience.projectPubId) {
         const needle = query.search.trim().toLocaleLowerCase('zh-CN');
-        const matches = customerAnswerFixturePage.data.filter((row) => {
-          if (query.mentioned !== 'all' && row.mentioned !== (query.mentioned === 'true')) {
-            return false;
-          }
-          if (query.sentiment !== 'all' && row.sentiment !== query.sentiment) return false;
-          return (
-            needle.length === 0 ||
-            `${row.query_text ?? ''}\n${row.response_text}`
-              .toLocaleLowerCase('zh-CN')
-              .includes(needle)
-          );
-        });
+        const matches = customerAnswerLibraryFixtureMetas.filter((meta) =>
+          needle.length === 0
+            ? true
+            : `${meta.label}\n${meta.questions.map((question) => question.text).join('\n')}`
+                .toLocaleLowerCase('zh-CN')
+                .includes(needle),
+        );
         const data = matches.slice(query.offset, query.offset + query.limit);
         return {
-          schema_version: 'customer-answer-page-v1',
-          project_pub_id: customerAnswerFixturePage.project_pub_id,
+          ...customerAnswerLibraryFixturePage,
           data,
           page: {
             total: matches.length,
@@ -1542,22 +1785,23 @@ export function CustomerAnalyticsWorkspace({
         };
       }
       const headers = getValidatedIdentityHeaders();
-      if (!headers) throw new Error('customer answer identity unavailable');
-      const result = await getCustomerAnswerPage(
+      if (!headers) throw new CustomerAnswerLoadError('forbidden');
+      const result = await getCustomerAnswerLibraryPage(
         experience.projectPubId,
         activeDateWindow.start,
         activeDateWindow.end,
         {
           ...activeFilters,
           ...(query.search ? { search: query.search } : {}),
-          ...(query.mentioned === 'all' ? {} : { mentioned: query.mentioned === 'true' }),
-          ...(query.sentiment === 'all' ? {} : { sentiment: query.sentiment }),
+          ...(query.snapshotId && query.snapshotAt
+            ? { snapshot_id: query.snapshotId, snapshot_at: query.snapshotAt }
+            : {}),
           offset: query.offset,
           limit: query.limit,
         },
         headers,
       );
-      if (result.kind !== 'ready') throw new Error(`customer answer page ${result.kind}`);
+      if (result.kind !== 'ready') throw new CustomerAnswerLoadError(result.kind);
       return result.data;
     },
     [
@@ -1571,8 +1815,155 @@ export function CustomerAnalyticsWorkspace({
     ],
   );
 
+  const loadAnswerMetaQuery = useCallback(
+    async (
+      metaQueryId: string,
+      snapshot: CustomerAnswerLibrarySnapshot,
+    ): Promise<CustomerAnswerLibraryMetaDetail> => {
+      if (experience?.source !== 'live' || !experience.projectPubId) {
+        const fixture = fixtureLibraryMetaDetail(metaQueryId);
+        if (!fixture) throw new CustomerAnswerLoadError('unavailable');
+        return fixture;
+      }
+      const headers = getValidatedIdentityHeaders();
+      if (!headers) throw new CustomerAnswerLoadError('forbidden');
+      const result = await getCustomerAnswerLibraryMetaQuery(
+        experience.projectPubId,
+        metaQueryId,
+        activeDateWindow.start,
+        activeDateWindow.end,
+        {
+          snapshot_id: snapshot.snapshotId,
+          snapshot_at: snapshot.snapshotAt,
+          ...activeFilters,
+        },
+        headers,
+      );
+      if (result.kind !== 'ready') throw new CustomerAnswerLoadError(result.kind);
+      return result.data;
+    },
+    [
+      experience?.projectPubId,
+      experience?.source,
+      activeDateWindow.start,
+      activeDateWindow.end,
+      activeFilters.model,
+      activeFilters.region,
+      activeFilters.mode,
+    ],
+  );
+
+  const loadAnswerQuestionRuns = useCallback(
+    async (
+      questionId: string,
+      query: CustomerAnswerLibraryRunQuery,
+    ): Promise<CustomerAnswerLibraryRuns> => {
+      if (experience?.source !== 'live' || !experience.projectPubId) {
+        const selected = fixtureLibraryQuestion(questionId);
+        if (!selected) throw new CustomerAnswerLoadError('unavailable');
+        const matches = fixtureLibraryRuns(questionId).filter(
+          (run) =>
+            (query.model === 'all' || run.model === query.model) &&
+            (query.region === 'all' || run.region === query.region) &&
+            (query.mode === 'all' || run.mode === query.mode),
+        );
+        const data = matches.slice(query.offset, query.offset + query.limit);
+        return {
+          schema_version: 'customer-answer-library-runs-v1',
+          project_pub_id: customerDashboardFixture.project_pub_id,
+          snapshot_id: customerAnswerLibraryFixtureSnapshot.snapshotId,
+          snapshot_at: customerAnswerLibraryFixtureSnapshot.snapshotAt,
+          meta_query_id: selected.meta.meta_query_id,
+          meta_query_ordinal: selected.meta.ordinal,
+          meta_query_label: selected.meta.label,
+          question: selected.question,
+          models: selected.question.models,
+          regions: selected.question.regions,
+          modes: selected.question.modes,
+          data,
+          page: {
+            total: matches.length,
+            offset: query.offset,
+            limit: query.limit,
+            has_more: query.offset + data.length < matches.length,
+          },
+        };
+      }
+      const headers = getValidatedIdentityHeaders();
+      if (!headers) throw new CustomerAnswerLoadError('forbidden');
+      const result = await getCustomerAnswerLibraryQuestionRuns(
+        experience.projectPubId,
+        questionId,
+        activeDateWindow.start,
+        activeDateWindow.end,
+        {
+          snapshot_id: query.snapshotId,
+          snapshot_at: query.snapshotAt,
+          ...(query.model !== 'all'
+            ? { model: query.model }
+            : activeFilters.model
+              ? { model: activeFilters.model }
+              : {}),
+          ...(query.region !== 'all'
+            ? { region: query.region }
+            : activeFilters.region
+              ? { region: activeFilters.region }
+              : {}),
+          ...(query.mode !== 'all'
+            ? { mode: query.mode }
+            : activeFilters.mode
+              ? { mode: activeFilters.mode }
+              : {}),
+          offset: query.offset,
+          limit: query.limit,
+        },
+        headers,
+      );
+      if (result.kind !== 'ready') throw new CustomerAnswerLoadError(result.kind);
+      return result.data;
+    },
+    [
+      experience?.projectPubId,
+      experience?.source,
+      activeDateWindow.start,
+      activeDateWindow.end,
+      activeFilters.model,
+      activeFilters.region,
+      activeFilters.mode,
+    ],
+  );
+
+  const loadAnswerContent = useCallback(
+    async (
+      answerPubId: string,
+      snapshot: CustomerAnswerLibrarySnapshot,
+    ): Promise<CustomerAnswerLibraryAnswer> => {
+      if (experience?.source !== 'live' || !experience.projectPubId) {
+        const fixture = fixtureLibraryAnswer(answerPubId);
+        if (!fixture) throw new CustomerAnswerLoadError('unavailable');
+        return fixture;
+      }
+      const headers = getValidatedIdentityHeaders();
+      if (!headers) throw new CustomerAnswerLoadError('forbidden');
+      const result = await getCustomerAnswerLibraryDetail(
+        experience.projectPubId,
+        answerPubId,
+        activeDateWindow.start,
+        activeDateWindow.end,
+        { snapshot_id: snapshot.snapshotId, snapshot_at: snapshot.snapshotAt },
+        headers,
+      );
+      if (result.kind !== 'ready') throw new CustomerAnswerLoadError(result.kind);
+      return result.data;
+    },
+    [activeDateWindow.end, activeDateWindow.start, experience?.projectPubId, experience?.source],
+  );
+
   const loadAnswerDetail = useCallback(
-    async (answerPubId: string): Promise<CustomerAnswerDetail> => {
+    async (
+      answerPubId: string,
+      snapshot: CustomerAnswerLibrarySnapshot,
+    ): Promise<CustomerAnswerDetail> => {
       if (experience?.source !== 'live') {
         return (
           customerAnswerFixtureDetails[answerPubId] ?? {
@@ -1583,12 +1974,13 @@ export function CustomerAnalyticsWorkspace({
         );
       }
       const headers = getValidatedIdentityHeaders();
-      if (!headers) throw new Error('customer answer detail identity unavailable');
+      if (!headers) throw new CustomerAnswerLoadError('forbidden');
       const result = await getAnalyticsAnswerRelations(
         answerPubId,
         headers,
         undefined,
         experience.projectPubId,
+        snapshot.snapshotAt,
       );
       if (result.kind !== 'ready') throw new Error(`customer answer detail ${result.kind}`);
       const collections = Object.values(result.data.projection);
@@ -1634,6 +2026,18 @@ export function CustomerAnalyticsWorkspace({
           sourceUrl: evidence.source_url,
           captureTime: evidence.capture_time,
         })),
+        shareImage: result.data.share_image
+          ? {
+              id: result.data.share_image.pub_id,
+              relation: 'official_share_image',
+              kind: 'share_image',
+              mimeType: result.data.share_image.mime_type,
+              byteSize: result.data.share_image.byte_size,
+              sha256: result.data.share_image.sha256,
+              sourceUrl: null,
+              captureTime: result.data.share_image.capture_time,
+            }
+          : null,
         shareArtifact: result.data.share_artifact
           ? {
               platform: result.data.share_artifact.platform,
@@ -1656,8 +2060,32 @@ export function CustomerAnalyticsWorkspace({
     [experience?.projectPubId, experience?.source],
   );
 
+  const loadAnswerEvidenceImage = useCallback<CustomerAnswerEvidenceImageLoader>(
+    async (evidence) => {
+      const headers = getValidatedIdentityHeaders();
+      if (!headers) return { kind: 'forbidden' };
+      const result = await getEvidenceAssetContent(
+        evidence.id,
+        {
+          byteSize: evidence.byteSize,
+          mimeType: evidence.mimeType,
+          sha256: evidence.sha256,
+        },
+        headers,
+      );
+      return result.kind === 'ready'
+        ? { kind: 'ready', blob: result.data.blob }
+        : { kind: result.kind };
+    },
+    [],
+  );
+
   const setFilter = (key: string, value: string) => {
     const nextValue = value === 'all' || (key === 'window' && value === '30d') ? null : value;
+    // Unmount the old answer explorer in the same event update. Otherwise its loadPage callback
+    // changes before the dashboard effect marks this workspace as loading, which sends one request
+    // for the outgoing view and then an identical request after the refreshed dashboard mounts.
+    if (experience?.source === 'live') setState('loading');
     updateClientUrlParameters({ [key]: nextValue }, customerDashboardAllowedSections);
     setUrlState((current) => ({ ...current, [key]: value }));
   };
@@ -1745,9 +2173,15 @@ export function CustomerAnalyticsWorkspace({
         <CustomerAnswerExplorer
           key={`${dashboard.project_pub_id}:${windowValue}:${urlState.model}:${urlState.region}:${urlState.mode}`}
           brandName={dashboard.brand_name}
-          loadPage={loadAnswerPage}
+          loadLibraryPage={loadAnswerLibraryPage}
+          loadMetaQuery={loadAnswerMetaQuery}
+          loadQuestionRuns={loadAnswerQuestionRuns}
+          loadAnswer={loadAnswerContent}
           loadDetail={loadAnswerDetail}
-          {...(experience?.source === 'live' ? {} : { fixturePage: customerAnswerFixturePage })}
+          {...(experience?.source === 'live' ? { loadEvidenceImage: loadAnswerEvidenceImage } : {})}
+          {...(experience?.source === 'live'
+            ? {}
+            : { fixturePage: customerAnswerLibraryFixturePage })}
         />
       ) : null}
 

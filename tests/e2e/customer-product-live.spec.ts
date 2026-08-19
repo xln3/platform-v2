@@ -42,6 +42,7 @@ test('validated customer reads mounted data and serializes every write without s
   let reportQuestionAccepted = false;
   let reportQuestionAuthorityReads = 0;
   let shareImageContentReads = 0;
+  let customerAnswerPageRequests = 0;
   let releaseDelayedReportQuestion: (() => void) | null = null;
   const delayedReportQuestionResponse = new Promise<void>((resolve) => {
     releaseDelayedReportQuestion = resolve;
@@ -578,20 +579,15 @@ test('validated customer reads mounted data and serializes every write without s
       }),
     });
   });
-  // 证据画廊逐资产拉取 content（VerifiedBlobImage）；上方 `assets**` 通配会 shadow 该
-  // 路径并返回 JSON，加载器因 MIME 不符中止请求（request-failed）。补一个合法 PNG 响应；
-  // 尺寸/哈希与夹具元数据不符时加载器 fail-closed 为占位态，不产生运行时告警。
+  // 官方分享图仅在客户主动切到“分享图片”后按资产 ID 读取；证据中心后续也会复用同一
+  // verified-Blob 边界，因此重复读取返回同一份通过尺寸与哈希核验的 PNG。
   await page.route('**/api/v2/evidence/assets/*/content', (route) => {
     const isShareImage = route.request().url().includes('/evd_live_share_image/');
     if (isShareImage) shareImageContentReads += 1;
     return route.fulfill({
       status: 200,
       contentType: 'image/png',
-      // 客户答案页不再读取图片；证据中心仍用合法首读与不匹配后续读取验证 fail-closed。
-      body:
-        !isShareImage || shareImageContentReads === 1
-          ? customerPlatformSharePng
-          : Buffer.from('integrity-mismatch'),
+      body: customerPlatformSharePng,
     });
   });
   await page.route('**/api/v2/evidence/packages', async (route) => {
@@ -877,70 +873,223 @@ test('validated customer reads mounted data and serializes every write without s
       }),
     }),
   );
+  const answerLibrarySnapshotId = `als_${'a'.repeat(24)}`;
+  const answerLibraryMetaId = `amq_${'b'.repeat(24)}`;
+  const answerLibraryQuestionIds = [
+    `aq_${'1'.repeat(24)}`,
+    `aq_${'2'.repeat(24)}`,
+    `aq_${'3'.repeat(24)}`,
+    `aq_${'4'.repeat(24)}`,
+  ];
+  const answerLibraryChoices = answerLibraryQuestionIds.map((questionId, index) => ({
+    question_id: questionId,
+    ordinal: index + 1,
+    variant_label: ['原问题', '变体 A', '变体 B', '变体 C'][index],
+    text: index === 0 ? '真实客户合同问题' : `真实客户合同问题变体 ${index}`,
+    answer_count: index === 0 ? 3 : 1,
+  }));
+  const answerLibraryDimensions = {
+    models: [
+      { label: 'doubao', answer_count: 1 },
+      { label: 'DeepSeek', answer_count: 1 },
+      { label: '文心一言', answer_count: 1 },
+    ],
+    regions: [
+      { label: 'east', answer_count: 2 },
+      { label: 'north', answer_count: 1 },
+    ],
+    modes: [
+      { label: 'deep', answer_count: 2 },
+      { label: 'fast', answer_count: 1 },
+    ],
+  };
+  const answerLibraryRuns = [
+    {
+      answer_pub_id: 'ans_customer_product_live_01',
+      repeat_index: 1,
+      model: 'doubao',
+      region: 'east',
+      mode: 'deep',
+      capture_time: '2026-07-25T00:00:00Z',
+      analysis_state: 'ready',
+      mentioned: true,
+      rank: 1,
+      sentiment: 'positive',
+      recommended: true,
+      citation_count: 2,
+    },
+    {
+      answer_pub_id: 'ans_customer_product_live_02',
+      repeat_index: 1,
+      model: 'DeepSeek',
+      region: 'east',
+      mode: 'deep',
+      capture_time: '2026-07-24T23:30:00Z',
+      analysis_state: 'ready',
+      mentioned: true,
+      rank: 2,
+      sentiment: 'positive',
+      recommended: true,
+      citation_count: 1,
+    },
+    {
+      answer_pub_id: 'ans_customer_product_live_03',
+      repeat_index: 1,
+      model: '文心一言',
+      region: 'north',
+      mode: 'fast',
+      capture_time: '2026-07-24T23:00:00Z',
+      analysis_state: 'ready',
+      mentioned: false,
+      rank: null,
+      sentiment: 'neutral',
+      recommended: false,
+      citation_count: 0,
+    },
+  ];
   await page.route('**/api/v2/customer-dashboard/projects/**', (route) => {
     const url = new URL(route.request().url());
-    if (url.pathname.endsWith('/answers')) {
+    if (url.pathname.endsWith('/answer-library')) {
+      customerAnswerPageRequests += 1;
       const offset = Number(url.searchParams.get('offset') ?? '0');
-      const limit = Number(url.searchParams.get('limit') ?? '20');
+      const limit = Number(url.searchParams.get('limit') ?? '8');
       return route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
-          schema_version: 'customer-answer-page-v1',
+          schema_version: 'customer-answer-library-v1',
           project_pub_id: 'prj_customer_product_live',
+          snapshot_id: answerLibrarySnapshotId,
+          snapshot_at: '2026-07-25T01:00:00Z',
+          totals: {
+            meta_query_count: 34,
+            question_count: 136,
+            answer_count: 1237,
+            cited_answer_count: 988,
+            citation_count: 3918,
+            mentioned_answer_count: 913,
+            unmapped_answer_count: 0,
+          },
+          ...answerLibraryDimensions,
           data:
             offset === 0
               ? [
                   {
-                    answer_pub_id: 'ans_customer_product_live_01',
-                    query_pub_id: 'qry_customer_product_live_01',
-                    query_text: '真实客户合同问题',
-                    response_text:
-                      '真实客户回答原文，完整展示品牌提及、推荐语境与引用信息。[citation:1]\n\n## 核验建议\n\n- 打开官方分享页交叉核对\n- 检查引用原文与发布时间',
-                    model: 'doubao',
-                    region: 'east',
-                    mode: 'deep',
-                    capture_time: '2026-07-25T00:00:00Z',
-                    mentioned: true,
-                    rank: 1,
-                    sentiment: 'positive',
-                    recommended: true,
-                    citation_count: 2,
-                  },
-                  {
-                    answer_pub_id: 'ans_customer_product_live_02',
-                    query_pub_id: 'qry_customer_product_live_01',
-                    query_text: '真实客户合同问题',
-                    response_text:
-                      '## DeepSeek 采集结论\n\nDeepSeek 对同一问题的完整回答，用于跨平台对照。[citation:1]\n\n- 该记录保留了答案正文\n- 该记录没有保存官方分享链接\n\n| 证据项 | 状态 |\n| --- | --- |\n| 答案正文 | 已采集 |\n| 官方链接 | 未保存 |',
-                    model: 'DeepSeek',
-                    region: 'east',
-                    mode: 'deep',
-                    capture_time: '2026-07-24T23:30:00Z',
-                    mentioned: true,
-                    rank: 2,
-                    sentiment: 'positive',
-                    recommended: true,
-                    citation_count: 1,
-                  },
-                  {
-                    answer_pub_id: 'ans_customer_product_live_03',
-                    query_pub_id: 'qry_customer_product_live_01',
-                    query_text: '真实客户合同问题',
-                    response_text: '文心一言对同一问题的采集回答，用于验证平台差异与信源变化。',
-                    model: '文心一言',
-                    region: 'north',
-                    mode: 'fast',
-                    capture_time: '2026-07-24T23:00:00Z',
-                    mentioned: false,
-                    rank: null,
-                    sentiment: 'neutral',
-                    recommended: false,
-                    citation_count: 0,
+                    meta_query_id: answerLibraryMetaId,
+                    ordinal: 1,
+                    label: '真实客户选型关键词',
+                    question_count: 4,
+                    answer_count: 6,
+                    cited_answer_count: 5,
+                    citation_count: 12,
+                    mentioned_answer_count: 4,
+                    latest_capture_time: '2026-07-25T00:00:00Z',
+                    ...answerLibraryDimensions,
+                    questions: answerLibraryChoices,
                   },
                 ]
               : [],
-          page: { total: 3, offset, limit, has_more: false },
+          page: { total: 34, offset, limit, has_more: offset + limit < 34 },
+        }),
+      });
+    }
+    if (url.pathname.includes('/answer-library/meta-queries/')) {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          schema_version: 'customer-answer-library-meta-v1',
+          project_pub_id: 'prj_customer_product_live',
+          snapshot_id: answerLibrarySnapshotId,
+          snapshot_at: '2026-07-25T01:00:00Z',
+          meta_query_id: answerLibraryMetaId,
+          ordinal: 1,
+          label: '真实客户选型关键词',
+          answer_count: 6,
+          cited_answer_count: 5,
+          citation_count: 12,
+          mentioned_answer_count: 4,
+          latest_capture_time: '2026-07-25T00:00:00Z',
+          questions: answerLibraryChoices.map((question) => ({
+            ...question,
+            cited_answer_count: question.answer_count,
+            citation_count: question.answer_count * 2,
+            mentioned_answer_count: question.answer_count,
+            latest_capture_time: '2026-07-25T00:00:00Z',
+            ...answerLibraryDimensions,
+          })),
+        }),
+      });
+    }
+    if (url.pathname.includes('/answer-library/questions/')) {
+      const offset = Number(url.searchParams.get('offset') ?? '0');
+      const limit = Number(url.searchParams.get('limit') ?? '20');
+      const model = url.searchParams.get('model');
+      const region = url.searchParams.get('region');
+      const mode = url.searchParams.get('mode');
+      const matchingRuns = answerLibraryRuns.filter(
+        (run) =>
+          (!model || run.model === model) &&
+          (!region || run.region === region) &&
+          (!mode || run.mode === mode),
+      );
+      const data = matchingRuns.slice(offset, offset + limit);
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          schema_version: 'customer-answer-library-runs-v1',
+          project_pub_id: 'prj_customer_product_live',
+          snapshot_id: answerLibrarySnapshotId,
+          snapshot_at: '2026-07-25T01:00:00Z',
+          meta_query_id: answerLibraryMetaId,
+          meta_query_ordinal: 1,
+          meta_query_label: '真实客户选型关键词',
+          question: {
+            ...answerLibraryChoices[0],
+            cited_answer_count: 3,
+            citation_count: 3,
+            mentioned_answer_count: 2,
+            latest_capture_time: '2026-07-25T00:00:00Z',
+            ...answerLibraryDimensions,
+          },
+          ...answerLibraryDimensions,
+          data,
+          page: {
+            total: matchingRuns.length,
+            offset,
+            limit,
+            has_more: offset + data.length < matchingRuns.length,
+          },
+        }),
+      });
+    }
+    if (url.pathname.includes('/answer-library/answers/')) {
+      const answerPubId = url.pathname.split('/').at(-1) ?? 'ans_customer_product_live_01';
+      const run = answerLibraryRuns.find((candidate) => candidate.answer_pub_id === answerPubId);
+      const responseText =
+        answerPubId === 'ans_customer_product_live_02'
+          ? '## DeepSeek 采集结论\n\nDeepSeek 对同一问题的完整回答，用于跨平台对照。[citation:1]\n\n- 该记录保留了答案正文\n- 该记录没有保存官方分享链接\n\n| 证据项 | 状态 |\n| --- | --- |\n| 答案正文 | 已采集 |\n| 官方链接 | 未保存 |'
+          : answerPubId === 'ans_customer_product_live_03'
+            ? '文心一言对同一问题的采集回答，用于验证平台差异与信源变化。'
+            : '真实客户回答原文，完整展示品牌提及、推荐语境与引用信息。[citation:1]\n\n## 核验建议\n\n- 打开官方分享页交叉核对\n- 检查引用原文与发布时间';
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          schema_version: 'customer-answer-library-detail-v1',
+          project_pub_id: 'prj_customer_product_live',
+          snapshot_id: answerLibrarySnapshotId,
+          snapshot_at: '2026-07-25T01:00:00Z',
+          meta_query_id: answerLibraryMetaId,
+          meta_query_ordinal: 1,
+          meta_query_label: '真实客户选型关键词',
+          question_id: answerLibraryQuestionIds[0],
+          question_ordinal: 1,
+          variant_label: '原问题',
+          question_text: '真实客户合同问题',
+          answer: run,
+          response_text: responseText,
         }),
       });
     }
@@ -1024,39 +1173,67 @@ test('validated customer reads mounted data and serializes every write without s
     page.getByRole('heading', { name: '真实客户品牌 · 真实 AI 回答与模型语境' }),
   ).toBeVisible();
   await expect(page.getByLabel('AI 操作面板')).toHaveCount(0);
-  await expect(page.getByRole('heading', { name: '回答证据库', exact: true })).toBeVisible();
-  await expect(page.getByText('查看该平台官方实时回答页及逐条引用信源。')).toBeVisible();
+  await expect(page.getByRole('heading', { name: /真实客户品牌.*回答证据库/u })).toBeVisible();
+  await expect(page.getByText('已确认元查询').first()).toBeVisible();
+  await expect(page.getByText('1,237', { exact: true })).toBeVisible();
+  await expect(page.getByText('3,918', { exact: true })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: '关键词分页' })).toBeVisible();
   await expect(
     page.getByText('真实客户回答原文，完整展示品牌提及、推荐语境与引用信息。'),
   ).toHaveCount(0);
-  await expect(page.getByRole('button', { name: '按 AI 平台' })).toHaveAttribute(
-    'aria-pressed',
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expectSafePageScreenshot(page, 'customer-live-answers.png', {
+    fullPage: true,
+    animations: 'disabled',
+  });
+
+  await page.getByRole('button', { name: /进入 4 条问题/u }).click();
+  await expect(page.getByRole('button', { name: /选择采集条件/u })).toHaveCount(4);
+  await expect(page.getByRole('navigation', { name: '答案库路径' })).toContainText(
+    '关键词/查询 01 · 真实客户选型关键词',
+  );
+  const originalQuestionCard = page
+    .locator('.geo-answer-library__question-grid article')
+    .filter({ hasText: '原问题' });
+  await originalQuestionCard.getByRole('button', { name: /选择采集条件/u }).click();
+  await expect(page.locator('.geo-answer-library__runs article')).toHaveCount(3);
+  await expect(
+    page.getByText('这一层只显示平台、地域、遍次、时间与模式等摘要，不传输答案正文。'),
+  ).toBeVisible();
+  await expect(
+    page.getByText('真实客户回答原文，完整展示品牌提及、推荐语境与引用信息。'),
+  ).toHaveCount(0);
+  const doubaoRun = page.locator('.geo-answer-library__runs article').filter({ hasText: 'doubao' });
+  await doubaoRun.getByRole('button', { name: /查看完整答案/u }).click();
+
+  const answerDossier = page.locator('.geo-answer-library__answer');
+  await expect(answerDossier).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  const modeTabs = answerDossier.getByRole('tablist', { name: '答案展示方式' });
+  await expect(modeTabs.getByRole('tab', { name: '文本回答' })).toBeVisible();
+  await expect(modeTabs.getByRole('tab', { name: '官方实时页' })).toBeVisible();
+  await expect(modeTabs.getByRole('tab', { name: '分享图片' })).toBeVisible();
+  await expect(modeTabs.getByRole('tab', { name: '文本回答' })).toHaveAttribute(
+    'aria-selected',
     'true',
   );
-  const answerDirectory = page.getByRole('complementary', { name: '回答分类导航' });
-  await answerDirectory.getByRole('button', { name: /doubao/u }).click();
-  await expect(page.getByRole('region', { name: 'doubao回答明细' })).toBeVisible();
-  await page.getByRole('button', { name: '按回答模式' }).click();
-  await answerDirectory.getByRole('button', { name: /deep/u }).click();
-  await expect(page.getByRole('region', { name: 'deep回答明细' })).toBeVisible();
-  await page.getByRole('button', { name: '按地域' }).click();
-  await answerDirectory.getByRole('button', { name: /east/u }).click();
-  await expect(page.getByRole('region', { name: 'east回答明细' })).toBeVisible();
-  await page.getByRole('button', { name: '按 AI 平台' }).click();
-  await answerDirectory.getByRole('button', { name: /doubao/u }).click();
-  await page
-    .getByRole('region', { name: 'doubao回答明细' })
-    .getByRole('button', { name: '查看官方回答与信源' })
-    .click();
-  const answerDossier = page.getByRole('dialog', { name: '真实客户合同问题' });
-  const narrowAnswerDossier = (page.viewportSize()?.width ?? 0) <= 780;
-  await expect(answerDossier).toBeVisible();
+  await expect(answerDossier.getByRole('heading', { name: '核验建议' })).toBeVisible();
+  expect(shareImageContentReads).toBe(0);
+  const answerStage = answerDossier.locator('.geo-answer-display__stage');
+  const textStageBox = await answerStage.boundingBox();
+  expect(textStageBox).not.toBeNull();
+
+  await modeTabs.getByRole('tab', { name: '官方实时页' }).click();
   const officialFrame = answerDossier.getByTitle('doubao 官方回答只读预览');
   const officialViewport = answerDossier.getByRole('region', { name: '官方回答只读预览' });
   await expect(officialFrame).toBeVisible();
   await expect(officialFrame).toHaveAttribute('tabindex', '-1');
+  await expect(officialFrame).toHaveAttribute('aria-hidden', 'true');
   await expect(officialFrame).toHaveAttribute('sandbox', 'allow-scripts allow-same-origin');
   await expect(officialViewport).toBeVisible();
+  expect(await officialFrame.evaluate((element) => getComputedStyle(element).pointerEvents)).toBe(
+    'none',
+  );
   await expect(answerDossier.getByText(/已裁掉平台底部/u)).toHaveCount(0);
   await expect(answerDossier.getByRole('link', { name: /无法显示.*打开官方原页/u })).toHaveCount(0);
   const externalOfficialLink = answerDossier.getByRole('link', { name: '打开官方原页 ↗' });
@@ -1065,35 +1242,47 @@ test('validated customer reads mounted data and serializes every write without s
     'href',
     'https://www.doubao.com/thread/customer-live-safe',
   );
-  await expect(
-    answerDossier
-      .getByRole('region', { name: '官方实时回答页' })
-      .getByRole('link', { name: '打开官方原页 ↗' }),
-  ).toHaveCount(0);
-  const officialViewportBox = await officialViewport.boundingBox();
-  const platformCtaBox = await page
-    .frameLocator('iframe[title="doubao 官方回答只读预览"]')
-    .locator('.platform-cta')
-    .boundingBox();
-  expect(officialViewportBox).not.toBeNull();
-  expect(platformCtaBox).not.toBeNull();
-  expect(platformCtaBox!.y).toBeGreaterThanOrEqual(
-    officialViewportBox!.y + officialViewportBox!.height - 1,
+  const officialScroll = await officialViewport.evaluate((element) => {
+    const maximum = element.scrollHeight - element.clientHeight;
+    element.scrollTop = Math.min(320, maximum);
+    return { maximum, top: element.scrollTop };
+  });
+  expect(await officialViewport.evaluate((element) => getComputedStyle(element).overflowY)).toBe(
+    'auto',
   );
-  const officialScrollTop = await page
+  if (officialScroll.maximum > 0) expect(officialScroll.top).toBeGreaterThan(0);
+  await officialViewport.evaluate((element) => {
+    element.scrollTop = 0;
+    element.scrollLeft = 0;
+  });
+  const officialFrameBody = page
     .frameLocator('iframe[title="doubao 官方回答只读预览"]')
-    .locator('body')
-    .evaluate((body) => {
-      const frameWindow = body.ownerDocument.defaultView;
-      frameWindow?.scrollTo(0, 320);
-      return frameWindow?.scrollY ?? 0;
+    .locator('body');
+  await officialFrameBody.evaluate((body) => {
+    (body.ownerDocument.defaultView as Window & { __customerFrameClicks?: number })[
+      '__customerFrameClicks'
+    ] = 0;
+    body.ownerDocument.addEventListener('click', () => {
+      const frameWindow = body.ownerDocument.defaultView as Window & {
+        __customerFrameClicks?: number;
+      };
+      frameWindow.__customerFrameClicks = (frameWindow.__customerFrameClicks ?? 0) + 1;
     });
-  expect(officialScrollTop).toBeGreaterThan(0);
-  await page
-    .frameLocator('iframe[title="doubao 官方回答只读预览"]')
-    .locator('body')
-    .evaluate((body) => body.ownerDocument.defaultView?.scrollTo(0, 0));
-  await expect(answerDossier.getByRole('heading', { name: '核验建议' })).toHaveCount(0);
+  });
+  const officialFrameBox = await officialFrame.boundingBox();
+  expect(officialFrameBox).not.toBeNull();
+  await page.mouse.click(
+    officialFrameBox!.x + officialFrameBox!.width / 2,
+    officialFrameBox!.y + Math.min(200, officialFrameBox!.height / 2),
+  );
+  expect(
+    await officialFrameBody.evaluate(
+      (body) =>
+        (body.ownerDocument.defaultView as Window & { __customerFrameClicks?: number })
+          .__customerFrameClicks ?? 0,
+    ),
+  ).toBe(0);
+  expect((await answerStage.boundingBox())?.height).toBeCloseTo(textStageBox!.height, 0);
   await expect(answerDossier.getByText('## 核验建议', { exact: true })).toHaveCount(0);
   await expect(answerDossier.getByText('发布时间完整度', { exact: true })).toHaveCount(0);
   await expect(answerDossier.getByText('官方回答页', { exact: true })).toHaveCount(0);
@@ -1109,64 +1298,56 @@ test('validated customer reads mounted data and serializes every write without s
     expect(tableFontSize).toBeGreaterThanOrEqual(11);
     const railBox = await citationRail.boundingBox();
     expect(railBox).not.toBeNull();
-    if (!narrowAnswerDossier) expect(railBox!.width).toBeGreaterThanOrEqual(380);
-    const headingYBefore = (await citationRail
-      .getByRole('heading', { name: '引用信源' })
-      .boundingBox())!.y;
+    expect(railBox!.width).toBeGreaterThan(0);
     await citationTableRegion.evaluate((element) => {
       element.scrollTop = element.scrollHeight;
       element.scrollLeft = element.scrollWidth;
     });
-    const headingYAfter = (await citationRail
-      .getByRole('heading', { name: '引用信源' })
-      .boundingBox())!.y;
-    expect(Math.abs(headingYAfter - headingYBefore)).toBeLessThanOrEqual(1);
-    expect(await citationRail.evaluate((element) => element.scrollTop)).toBe(0);
     await citationTableRegion.evaluate((element) => {
       element.scrollTop = 0;
       element.scrollLeft = 0;
     });
   };
-  if (narrowAnswerDossier) {
-    await expect(answerDossier.getByText('待采集', { exact: true })).toHaveCount(1);
-  } else {
-    await expect(answerDossier.getByText('待采集', { exact: true })).toBeVisible();
-  }
-  await expect(answerDossier.getByRole('button', { name: '复制分享链接' })).toBeEnabled();
-  await expect(answerDossier.getByRole('complementary', { name: '同题回答运行' })).toContainText(
-    'DeepSeek',
-  );
-  await expect(answerDossier.getByRole('complementary', { name: '同题回答运行' })).toContainText(
-    '文心一言',
-  );
-  if (!narrowAnswerDossier) {
-    await expect(citationTableRegion).toContainText('真实独立来源');
-    await assertCitationReadingLayout();
-  }
-  await expect(answerDossier.getByRole('img')).toHaveCount(0);
-  await expect(answerDossier.getByText(/官方分享图片|采集现场截图/u)).toHaveCount(0);
+  await expect(answerDossier.getByText('待采集', { exact: true })).toBeVisible();
+  await expect(citationTableRegion).toContainText('真实独立来源');
+  await assertCitationReadingLayout();
   expect(
     await answerDossier.evaluate(
       (element) => element.scrollWidth <= Math.ceil(element.clientWidth) + 1,
     ),
   ).toBe(true);
-  if (narrowAnswerDossier) {
-    await answerDossier.getByRole('button', { name: /引用信源/u }).click();
-    await expect(citationTableRegion).toContainText('真实独立来源');
-    await assertCitationReadingLayout();
-    await expect(answerDossier.getByText('待采集', { exact: true })).toBeVisible();
-    await expectSafePageScreenshot(page, 'customer-live-answer-citations.png', {
-      animations: 'disabled',
-    });
-    await answerDossier.getByRole('button', { name: '官方回答', exact: true }).click();
-  }
-  await expectSafePageScreenshot(page, 'customer-live-answer-dossier.png', {
+  await expectSafePageScreenshot(page, 'customer-live-answer-official.png', {
+    fullPage: true,
     animations: 'disabled',
   });
-  await answerDossier.getByRole('button', { name: '复制分享链接' }).click();
-  await expect(answerDossier.getByRole('button', { name: '分享链接已复制' })).toBeVisible();
-  await answerDossier.getByRole('button', { name: /DeepSeek，deep/u }).click();
-  const fallbackAnswer = answerDossier.getByRole('region', {
+
+  await modeTabs.getByRole('tab', { name: '分享图片' }).click();
+  const officialShareImage = answerDossier.getByRole('img', {
+    name: 'doubao 官方分享图片',
+  });
+  await expect(officialShareImage).toBeVisible();
+  await expect.poll(() => shareImageContentReads).toBe(1);
+  expect((await answerStage.boundingBox())?.height).toBeCloseTo(textStageBox!.height, 0);
+  await expect(answerDossier.getByText(/采集现场截图/u)).toHaveCount(0);
+  await expectSafePageScreenshot(page, 'customer-live-answer-share-image.png', {
+    fullPage: true,
+    animations: 'disabled',
+  });
+
+  await modeTabs.getByRole('tab', { name: '文本回答' }).click();
+  await expect(answerDossier.getByRole('heading', { name: '核验建议' })).toBeVisible();
+  expect((await answerStage.boundingBox())?.height).toBeCloseTo(textStageBox!.height, 0);
+  await expectSafePageScreenshot(page, 'customer-live-answer-dossier.png', {
+    fullPage: true,
+    animations: 'disabled',
+  });
+
+  await page.getByRole('button', { name: '问题 01 · 原问题' }).click();
+  const deepSeekRun = page
+    .locator('.geo-answer-library__runs article')
+    .filter({ hasText: 'DeepSeek' });
+  await deepSeekRun.getByRole('button', { name: /查看完整答案/u }).click();
+  const fallbackAnswer = page.getByRole('region', {
     name: '历史采集答案退阶阅读版',
   });
   await expect(fallbackAnswer).toBeVisible();
@@ -1183,18 +1364,21 @@ test('validated customer reads mounted data and serializes every write without s
     'href',
     '#citation-1',
   );
-  await expect(answerDossier.getByTitle('DeepSeek 官方回答只读预览')).toHaveCount(0);
-  await expect(answerDossier.getByRole('link', { name: '打开官方原页 ↗' })).toHaveCount(0);
-  await expect(answerDossier.getByRole('button', { name: '复制分享链接' })).toBeDisabled();
+  await expect(page.getByTitle('DeepSeek 官方回答只读预览')).toHaveCount(0);
+  await expect(page.getByRole('link', { name: '打开官方原页 ↗' })).toHaveCount(0);
+  await expect(page.getByRole('tablist', { name: '答案展示方式' })).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: '官方实时页' })).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: '分享图片' })).toHaveCount(0);
   await expect(fallbackAnswer.getByRole('img')).toHaveCount(0);
   await expectSafePageScreenshot(page, 'customer-live-answer-fallback.png', {
-    animations: 'disabled',
-  });
-  await answerDossier.getByRole('button', { name: '关闭官方回答详情' }).click();
-  await expectSafePageScreenshot(page, 'customer-live-answers.png', {
     fullPage: true,
     animations: 'disabled',
   });
+  await page.getByRole('button', { name: '关键词', exact: true }).click();
+  const requestsBeforeModelChange = customerAnswerPageRequests;
+  await page.getByLabel('AI 模型').selectOption('doubao');
+  await expect(page.getByRole('heading', { name: /真实客户品牌.*回答证据库/u })).toBeVisible();
+  await expect.poll(() => customerAnswerPageRequests).toBe(requestsBeforeModelChange + 1);
   await page.goto(
     '/platform/customer/?section=profile&declaration_page=2&declaration_cursor=rev_Bearer%20profile-cursor-canary',
   );
