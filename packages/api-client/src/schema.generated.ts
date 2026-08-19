@@ -406,6 +406,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/customer-dashboard/projects/{project_pub_id}/answer-library": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Customer Answer Library */
+        get: operations["getCustomerAnswerLibraryPage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/customer-dashboard/projects/{project_pub_id}/answer-library/meta-queries/{meta_query_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Customer Answer Library Meta Query */
+        get: operations["getCustomerAnswerLibraryMetaQuery"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/customer-dashboard/projects/{project_pub_id}/answer-library/questions/{question_id}/answers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Customer Answer Library Question Runs */
+        get: operations["getCustomerAnswerLibraryQuestionRuns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/customer-dashboard/projects/{project_pub_id}/answer-library/answers/{answer_pub_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Customer Answer Library Detail */
+        get: operations["getCustomerAnswerLibraryDetail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/onboarding": {
         parameters: {
             query?: never;
@@ -4600,6 +4668,7 @@ export interface components {
             /** Answer Pub Id */
             answer_pub_id: string;
             share_artifact: components["schemas"]["AnswerShareArtifactView"] | null;
+            share_image: components["schemas"]["AnswerShareImageView"] | null;
             /** Answer Citations */
             answer_citations: components["schemas"]["CitationRelationView"][];
             /** Brand Mention Evidence */
@@ -4644,6 +4713,29 @@ export interface components {
             embed_status: "allowed" | "blocked" | "unknown";
             /** Embed Reason */
             embed_reason?: string | null;
+        };
+        /** AnswerShareImageView */
+        AnswerShareImageView: {
+            /** Pub Id */
+            pub_id: string;
+            /** Sha256 */
+            sha256: string;
+            /**
+             * Mime Type
+             * @constant
+             */
+            mime_type: "image/png";
+            /** Byte Size */
+            byte_size: number;
+            /** Image Width */
+            image_width?: number | null;
+            /** Image Height */
+            image_height?: number | null;
+            /**
+             * Capture Time
+             * Format: date-time
+             */
+            capture_time: string;
         };
         /** AnswerView */
         AnswerView: {
@@ -6130,6 +6222,272 @@ export interface components {
             revocation_receipt_pub_id: string | null;
             /** Revoked At */
             revoked_at: string | null;
+        };
+        /** CustomerAnswerLibraryChoiceView */
+        CustomerAnswerLibraryChoiceView: {
+            /** Question Id */
+            question_id: string;
+            /** Ordinal */
+            ordinal: number;
+            /** Variant Label */
+            variant_label: string;
+            /** Text */
+            text: string;
+            /** Answer Count */
+            answer_count: number;
+        };
+        /** CustomerAnswerLibraryDetailView */
+        CustomerAnswerLibraryDetailView: {
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "customer-answer-library-detail-v1";
+            /** Project Pub Id */
+            project_pub_id: string;
+            /** Snapshot Id */
+            snapshot_id: string;
+            /**
+             * Snapshot At
+             * Format: date-time
+             */
+            snapshot_at: string;
+            /** Meta Query Id */
+            meta_query_id: string;
+            /** Meta Query Ordinal */
+            meta_query_ordinal: number;
+            /** Meta Query Label */
+            meta_query_label: string;
+            /** Question Id */
+            question_id: string;
+            /** Question Ordinal */
+            question_ordinal: number;
+            /** Variant Label */
+            variant_label: string;
+            /** Question Text */
+            question_text: string;
+            answer: components["schemas"]["CustomerAnswerLibraryRunView"];
+            /** Response Text */
+            response_text: string;
+        };
+        /** CustomerAnswerLibraryDimensionView */
+        CustomerAnswerLibraryDimensionView: {
+            /** Label */
+            label: string;
+            /** Answer Count */
+            answer_count: number;
+        };
+        /** CustomerAnswerLibraryMetaDetailView */
+        CustomerAnswerLibraryMetaDetailView: {
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "customer-answer-library-meta-v1";
+            /** Project Pub Id */
+            project_pub_id: string;
+            /** Snapshot Id */
+            snapshot_id: string;
+            /**
+             * Snapshot At
+             * Format: date-time
+             */
+            snapshot_at: string;
+            /** Meta Query Id */
+            meta_query_id: string;
+            /** Ordinal */
+            ordinal: number;
+            /** Label */
+            label: string;
+            /** Answer Count */
+            answer_count: number;
+            /** Cited Answer Count */
+            cited_answer_count: number;
+            /** Citation Count */
+            citation_count: number;
+            /** Mentioned Answer Count */
+            mentioned_answer_count: number;
+            /** Latest Capture Time */
+            latest_capture_time?: string | null;
+            /** Questions */
+            questions: components["schemas"]["CustomerAnswerLibraryQuestionView"][];
+        };
+        /** CustomerAnswerLibraryMetaQueryView */
+        CustomerAnswerLibraryMetaQueryView: {
+            /** Meta Query Id */
+            meta_query_id: string;
+            /** Ordinal */
+            ordinal: number;
+            /** Label */
+            label: string;
+            /** Question Count */
+            question_count: number;
+            /** Answer Count */
+            answer_count: number;
+            /** Cited Answer Count */
+            cited_answer_count: number;
+            /** Citation Count */
+            citation_count: number;
+            /** Mentioned Answer Count */
+            mentioned_answer_count: number;
+            /** Latest Capture Time */
+            latest_capture_time?: string | null;
+            /** Models */
+            models: components["schemas"]["CustomerAnswerLibraryDimensionView"][];
+            /** Regions */
+            regions: components["schemas"]["CustomerAnswerLibraryDimensionView"][];
+            /** Modes */
+            modes: components["schemas"]["CustomerAnswerLibraryDimensionView"][];
+            /** Questions */
+            questions: components["schemas"]["CustomerAnswerLibraryChoiceView"][];
+        };
+        /** CustomerAnswerLibraryPageMetaView */
+        CustomerAnswerLibraryPageMetaView: {
+            /** Total */
+            total: number;
+            /** Offset */
+            offset: number;
+            /** Limit */
+            limit: number;
+            /** Has More */
+            has_more: boolean;
+        };
+        /** CustomerAnswerLibraryPageView */
+        CustomerAnswerLibraryPageView: {
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "customer-answer-library-v1";
+            /** Project Pub Id */
+            project_pub_id: string;
+            /** Snapshot Id */
+            snapshot_id: string;
+            /**
+             * Snapshot At
+             * Format: date-time
+             */
+            snapshot_at: string;
+            totals: components["schemas"]["CustomerAnswerLibraryTotalsView"];
+            /** Models */
+            models: components["schemas"]["CustomerAnswerLibraryDimensionView"][];
+            /** Regions */
+            regions: components["schemas"]["CustomerAnswerLibraryDimensionView"][];
+            /** Modes */
+            modes: components["schemas"]["CustomerAnswerLibraryDimensionView"][];
+            /** Data */
+            data: components["schemas"]["CustomerAnswerLibraryMetaQueryView"][];
+            page: components["schemas"]["CustomerAnswerLibraryPageMetaView"];
+        };
+        /** CustomerAnswerLibraryQuestionRunsView */
+        CustomerAnswerLibraryQuestionRunsView: {
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "customer-answer-library-runs-v1";
+            /** Project Pub Id */
+            project_pub_id: string;
+            /** Snapshot Id */
+            snapshot_id: string;
+            /**
+             * Snapshot At
+             * Format: date-time
+             */
+            snapshot_at: string;
+            /** Meta Query Id */
+            meta_query_id: string;
+            /** Meta Query Ordinal */
+            meta_query_ordinal: number;
+            /** Meta Query Label */
+            meta_query_label: string;
+            question: components["schemas"]["CustomerAnswerLibraryQuestionView"];
+            /** Models */
+            models: components["schemas"]["CustomerAnswerLibraryDimensionView"][];
+            /** Regions */
+            regions: components["schemas"]["CustomerAnswerLibraryDimensionView"][];
+            /** Modes */
+            modes: components["schemas"]["CustomerAnswerLibraryDimensionView"][];
+            /** Data */
+            data: components["schemas"]["CustomerAnswerLibraryRunView"][];
+            page: components["schemas"]["CustomerAnswerLibraryPageMetaView"];
+        };
+        /** CustomerAnswerLibraryQuestionView */
+        CustomerAnswerLibraryQuestionView: {
+            /** Question Id */
+            question_id: string;
+            /** Ordinal */
+            ordinal: number;
+            /** Variant Label */
+            variant_label: string;
+            /** Text */
+            text: string;
+            /** Answer Count */
+            answer_count: number;
+            /** Cited Answer Count */
+            cited_answer_count: number;
+            /** Citation Count */
+            citation_count: number;
+            /** Mentioned Answer Count */
+            mentioned_answer_count: number;
+            /** Latest Capture Time */
+            latest_capture_time?: string | null;
+            /** Models */
+            models: components["schemas"]["CustomerAnswerLibraryDimensionView"][];
+            /** Regions */
+            regions: components["schemas"]["CustomerAnswerLibraryDimensionView"][];
+            /** Modes */
+            modes: components["schemas"]["CustomerAnswerLibraryDimensionView"][];
+        };
+        /** CustomerAnswerLibraryRunView */
+        CustomerAnswerLibraryRunView: {
+            /** Answer Pub Id */
+            answer_pub_id: string;
+            /** Repeat Index */
+            repeat_index: number;
+            /** Model */
+            model: string;
+            /** Region */
+            region: string;
+            /** Mode */
+            mode: string;
+            /**
+             * Capture Time
+             * Format: date-time
+             */
+            capture_time: string;
+            /**
+             * Analysis State
+             * @enum {string}
+             */
+            analysis_state: "ready" | "pending";
+            /** Mentioned */
+            mentioned?: boolean | null;
+            /** Rank */
+            rank?: number | null;
+            /** Sentiment */
+            sentiment?: ("positive" | "neutral" | "negative" | "unknown") | null;
+            /** Recommended */
+            recommended?: boolean | null;
+            /** Citation Count */
+            citation_count: number;
+        };
+        /** CustomerAnswerLibraryTotalsView */
+        CustomerAnswerLibraryTotalsView: {
+            /** Meta Query Count */
+            meta_query_count: number;
+            /** Question Count */
+            question_count: number;
+            /** Answer Count */
+            answer_count: number;
+            /** Cited Answer Count */
+            cited_answer_count: number;
+            /** Citation Count */
+            citation_count: number;
+            /** Mentioned Answer Count */
+            mentioned_answer_count: number;
+            /** Unmapped Answer Count */
+            unmapped_answer_count: number;
         };
         /** CustomerAnswerPageMetaView */
         CustomerAnswerPageMetaView: {
@@ -13229,6 +13587,315 @@ export interface operations {
             };
         };
     };
+    getCustomerAnswerLibraryPage: {
+        parameters: {
+            query?: {
+                start?: string | null;
+                end?: string | null;
+                search?: string | null;
+                model?: string | null;
+                region?: string | null;
+                mode?: string | null;
+                snapshot_id?: string | null;
+                snapshot_at?: string | null;
+                offset?: number;
+                limit?: number;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerAnswerLibraryPageView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getCustomerAnswerLibraryMetaQuery: {
+        parameters: {
+            query: {
+                snapshot_id: string;
+                snapshot_at: string;
+                start?: string | null;
+                end?: string | null;
+                model?: string | null;
+                region?: string | null;
+                mode?: string | null;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+                meta_query_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerAnswerLibraryMetaDetailView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getCustomerAnswerLibraryQuestionRuns: {
+        parameters: {
+            query: {
+                snapshot_id: string;
+                snapshot_at: string;
+                start?: string | null;
+                end?: string | null;
+                model?: string | null;
+                region?: string | null;
+                mode?: string | null;
+                offset?: number;
+                limit?: number;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+                question_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerAnswerLibraryQuestionRunsView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getCustomerAnswerLibraryDetail: {
+        parameters: {
+            query: {
+                snapshot_id: string;
+                snapshot_at: string;
+                start?: string | null;
+                end?: string | null;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+                answer_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerAnswerLibraryDetailView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     create_onboarding_api_v2_onboarding_post: {
         parameters: {
             query?: never;
@@ -18855,6 +19522,8 @@ export interface operations {
             query?: {
                 /** @description Optional project binding for customer answer-detail reads. */
                 project_pub_id?: string | null;
+                /** @description Optional immutable customer-library cutoff for related evidence. */
+                snapshot_at?: string | null;
             };
             header?: {
                 "X-Tenant-Id"?: string | null;

@@ -365,6 +365,146 @@ export type CustomerAnswerPageQuery = {
   offset?: number;
   limit?: number;
 };
+type CustomerAnswerLibraryPageContractResponse =
+  paths['/api/v2/customer-dashboard/projects/{project_pub_id}/answer-library']['get']['responses']['200']['content']['application/json'];
+type CustomerAnswerLibraryMetaContractResponse =
+  paths['/api/v2/customer-dashboard/projects/{project_pub_id}/answer-library/meta-queries/{meta_query_id}']['get']['responses']['200']['content']['application/json'];
+type CustomerAnswerLibraryRunsContractResponse =
+  paths['/api/v2/customer-dashboard/projects/{project_pub_id}/answer-library/questions/{question_id}/answers']['get']['responses']['200']['content']['application/json'];
+type CustomerAnswerLibraryDetailContractResponse =
+  paths['/api/v2/customer-dashboard/projects/{project_pub_id}/answer-library/answers/{answer_pub_id}']['get']['responses']['200']['content']['application/json'];
+export type CustomerAnswerLibraryDimensionProjection = Pick<
+  CustomerAnswerLibraryPageContractResponse['models'][number],
+  'label' | 'answer_count'
+>;
+export type CustomerAnswerLibraryChoiceProjection = Pick<
+  CustomerAnswerLibraryPageContractResponse['data'][number]['questions'][number],
+  'question_id' | 'ordinal' | 'variant_label' | 'text' | 'answer_count'
+>;
+export type CustomerAnswerLibraryQuestionProjection = CustomerAnswerLibraryChoiceProjection & {
+  cited_answer_count: number;
+  citation_count: number;
+  mentioned_answer_count: number;
+  latest_capture_time: string | null;
+  models: CustomerAnswerLibraryDimensionProjection[];
+  regions: CustomerAnswerLibraryDimensionProjection[];
+  modes: CustomerAnswerLibraryDimensionProjection[];
+};
+export type CustomerAnswerLibraryMetaProjection = {
+  meta_query_id: string;
+  ordinal: number;
+  label: string;
+  question_count: number;
+  answer_count: number;
+  cited_answer_count: number;
+  citation_count: number;
+  mentioned_answer_count: number;
+  latest_capture_time: string | null;
+  models: CustomerAnswerLibraryDimensionProjection[];
+  regions: CustomerAnswerLibraryDimensionProjection[];
+  modes: CustomerAnswerLibraryDimensionProjection[];
+  questions: CustomerAnswerLibraryChoiceProjection[];
+};
+export type CustomerAnswerLibraryPageProjection = {
+  schema_version: CustomerAnswerLibraryPageContractResponse['schema_version'];
+  project_pub_id: string;
+  snapshot_id: string;
+  snapshot_at: string;
+  totals: {
+    meta_query_count: number;
+    question_count: number;
+    answer_count: number;
+    cited_answer_count: number;
+    citation_count: number;
+    mentioned_answer_count: number;
+    unmapped_answer_count: number;
+  };
+  models: CustomerAnswerLibraryDimensionProjection[];
+  regions: CustomerAnswerLibraryDimensionProjection[];
+  modes: CustomerAnswerLibraryDimensionProjection[];
+  data: CustomerAnswerLibraryMetaProjection[];
+  page: { total: number; offset: number; limit: number; has_more: boolean };
+};
+export type CustomerAnswerLibraryMetaDetailProjection = {
+  schema_version: CustomerAnswerLibraryMetaContractResponse['schema_version'];
+  project_pub_id: string;
+  snapshot_id: string;
+  snapshot_at: string;
+  meta_query_id: string;
+  ordinal: number;
+  label: string;
+  answer_count: number;
+  cited_answer_count: number;
+  citation_count: number;
+  mentioned_answer_count: number;
+  latest_capture_time: string | null;
+  questions: CustomerAnswerLibraryQuestionProjection[];
+};
+export type CustomerAnswerLibraryRunProjection = {
+  answer_pub_id: string;
+  repeat_index: number;
+  model: string;
+  region: string;
+  mode: string;
+  capture_time: string;
+  analysis_state: CustomerAnswerLibraryRunsContractResponse['data'][number]['analysis_state'];
+  mentioned: boolean | null;
+  rank: number | null;
+  sentiment: CustomerAnswerSentiment | null;
+  recommended: boolean | null;
+  citation_count: number;
+};
+export type CustomerAnswerLibraryRunsProjection = {
+  schema_version: CustomerAnswerLibraryRunsContractResponse['schema_version'];
+  project_pub_id: string;
+  snapshot_id: string;
+  snapshot_at: string;
+  meta_query_id: string;
+  meta_query_ordinal: number;
+  meta_query_label: string;
+  question: CustomerAnswerLibraryQuestionProjection;
+  models: CustomerAnswerLibraryDimensionProjection[];
+  regions: CustomerAnswerLibraryDimensionProjection[];
+  modes: CustomerAnswerLibraryDimensionProjection[];
+  data: CustomerAnswerLibraryRunProjection[];
+  page: { total: number; offset: number; limit: number; has_more: boolean };
+};
+export type CustomerAnswerLibraryDetailProjection = {
+  schema_version: CustomerAnswerLibraryDetailContractResponse['schema_version'];
+  project_pub_id: string;
+  snapshot_id: string;
+  snapshot_at: string;
+  meta_query_id: string;
+  meta_query_ordinal: number;
+  meta_query_label: string;
+  question_id: string;
+  question_ordinal: number;
+  variant_label: string;
+  question_text: string;
+  answer: CustomerAnswerLibraryRunProjection;
+  response_text: string;
+};
+export type CustomerAnswerLibraryPageQuery = {
+  search?: string;
+  model?: string;
+  region?: string;
+  mode?: string;
+  snapshot_id?: string;
+  snapshot_at?: string;
+  offset?: number;
+  limit?: number;
+};
+export type CustomerAnswerLibrarySnapshotQuery = {
+  snapshot_id: string;
+  snapshot_at: string;
+  model?: string;
+  region?: string;
+  mode?: string;
+};
+export type CustomerAnswerLibraryRunsQuery = CustomerAnswerLibrarySnapshotQuery & {
+  offset?: number;
+  limit?: number;
+};
 type CustomerMetricCatalogContractResponse =
   paths['/api/v2/customer-dashboard/metrics/catalog']['get']['responses']['200']['content']['application/json'];
 type CustomerMetricSpecContractView = CustomerMetricCatalogContractResponse['metrics'][number];
@@ -1220,6 +1360,15 @@ export type AnalyticsAnswerShareArtifactSafeView = Pick<
   | 'embed_status'
   | 'embed_reason'
 >;
+export type AnalyticsAnswerShareImageSafeView = {
+  pub_id: string;
+  sha256: string;
+  mime_type: 'image/png';
+  byte_size: number;
+  image_width: number | null;
+  image_height: number | null;
+  capture_time: string;
+};
 export type AnalyticsBoundingBoxSafeView = {
   x: number;
   y: number;
@@ -1258,6 +1407,7 @@ export type AnalyticsHistorySafeView = {
 export type AnalyticsAnswerRelationsProjection = {
   answer_pub_id: string;
   share_artifact: AnalyticsAnswerShareArtifactSafeView | null;
+  share_image: AnalyticsAnswerShareImageSafeView | null;
   answer_citations: AnalyticsCitationSafeView[];
   brand_mention_evidence: AnalyticsEvidenceSafeView[];
   opened_source_previews: AnalyticsEvidenceSafeView[];
@@ -1960,6 +2110,228 @@ export async function getCustomerAnswerPage(
   }
 }
 
+export async function getCustomerAnswerLibraryPage(
+  projectPubId: string,
+  start: string,
+  end: string,
+  query: CustomerAnswerLibraryPageQuery,
+  headers: IdentitySessionHeaders,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<ProjectResourceResult<CustomerAnswerLibraryPageProjection>> {
+  const offset = query.offset ?? 0;
+  const limit = query.limit ?? 8;
+  const snapshotAt = query.snapshot_at
+    ? (projectSafeIsoTimestamp(query.snapshot_at) ?? undefined)
+    : undefined;
+  if (
+    !Number.isSafeInteger(offset) ||
+    offset < 0 ||
+    !Number.isSafeInteger(limit) ||
+    limit < 1 ||
+    limit > 20 ||
+    (query.snapshot_id === undefined) !== (query.snapshot_at === undefined) ||
+    (query.snapshot_id !== undefined &&
+      !customerAnswerLibrarySnapshotPattern.test(query.snapshot_id)) ||
+    (query.snapshot_at !== undefined && !snapshotAt)
+  ) {
+    return { kind: 'unavailable' };
+  }
+  try {
+    const result = await projectedApiClient(client).GET(
+      '/api/v2/customer-dashboard/projects/{project_pub_id}/answer-library',
+      {
+        params: {
+          path: { project_pub_id: projectPubId },
+          query: {
+            start,
+            end,
+            ...(query.search ? { search: query.search } : {}),
+            ...(query.model ? { model: query.model } : {}),
+            ...(query.region ? { region: query.region } : {}),
+            ...(query.mode ? { mode: query.mode } : {}),
+            ...(query.snapshot_id && snapshotAt
+              ? { snapshot_id: query.snapshot_id, snapshot_at: snapshotAt }
+              : {}),
+            offset,
+            limit,
+          },
+          header: headers,
+        },
+      },
+    );
+    if (!result.data) return classifyResourceFailure(result.response.status);
+    const projected = projectCustomerAnswerLibraryPageBoundary(
+      result.data,
+      projectPubId,
+      offset,
+      limit,
+      query.snapshot_id,
+      snapshotAt,
+    );
+    return projected ? { kind: 'ready', data: projected } : { kind: 'unavailable' };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+export async function getCustomerAnswerLibraryMetaQuery(
+  projectPubId: string,
+  metaQueryId: string,
+  start: string,
+  end: string,
+  query: CustomerAnswerLibrarySnapshotQuery,
+  headers: IdentitySessionHeaders,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<ProjectResourceResult<CustomerAnswerLibraryMetaDetailProjection>> {
+  const snapshotAt = projectSafeIsoTimestamp(query.snapshot_at);
+  if (
+    !customerAnswerLibraryMetaPattern.test(metaQueryId) ||
+    !customerAnswerLibrarySnapshotPattern.test(query.snapshot_id) ||
+    !snapshotAt
+  ) {
+    return { kind: 'unavailable' };
+  }
+  try {
+    const result = await projectedApiClient(client).GET(
+      '/api/v2/customer-dashboard/projects/{project_pub_id}/answer-library/meta-queries/{meta_query_id}',
+      {
+        params: {
+          path: { project_pub_id: projectPubId, meta_query_id: metaQueryId },
+          query: {
+            snapshot_id: query.snapshot_id,
+            snapshot_at: snapshotAt,
+            start,
+            end,
+            ...(query.model ? { model: query.model } : {}),
+            ...(query.region ? { region: query.region } : {}),
+            ...(query.mode ? { mode: query.mode } : {}),
+          },
+          header: headers,
+        },
+      },
+    );
+    if (!result.data) return classifyResourceFailure(result.response.status);
+    const projected = projectCustomerAnswerLibraryMetaBoundary(
+      result.data,
+      projectPubId,
+      metaQueryId,
+      query.snapshot_id,
+      snapshotAt,
+    );
+    return projected ? { kind: 'ready', data: projected } : { kind: 'unavailable' };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+export async function getCustomerAnswerLibraryQuestionRuns(
+  projectPubId: string,
+  questionId: string,
+  start: string,
+  end: string,
+  query: CustomerAnswerLibraryRunsQuery,
+  headers: IdentitySessionHeaders,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<ProjectResourceResult<CustomerAnswerLibraryRunsProjection>> {
+  const offset = query.offset ?? 0;
+  const limit = query.limit ?? 20;
+  const snapshotAt = projectSafeIsoTimestamp(query.snapshot_at);
+  if (
+    !customerAnswerLibraryQuestionPattern.test(questionId) ||
+    !customerAnswerLibrarySnapshotPattern.test(query.snapshot_id) ||
+    !snapshotAt ||
+    !Number.isSafeInteger(offset) ||
+    offset < 0 ||
+    !Number.isSafeInteger(limit) ||
+    limit < 1 ||
+    limit > 50
+  ) {
+    return { kind: 'unavailable' };
+  }
+  try {
+    const result = await projectedApiClient(client).GET(
+      '/api/v2/customer-dashboard/projects/{project_pub_id}/answer-library/questions/{question_id}/answers',
+      {
+        params: {
+          path: { project_pub_id: projectPubId, question_id: questionId },
+          query: {
+            snapshot_id: query.snapshot_id,
+            snapshot_at: snapshotAt,
+            start,
+            end,
+            ...(query.model ? { model: query.model } : {}),
+            ...(query.region ? { region: query.region } : {}),
+            ...(query.mode ? { mode: query.mode } : {}),
+            offset,
+            limit,
+          },
+          header: headers,
+        },
+      },
+    );
+    if (!result.data) return classifyResourceFailure(result.response.status);
+    const projected = projectCustomerAnswerLibraryRunsBoundary(
+      result.data,
+      projectPubId,
+      questionId,
+      query.snapshot_id,
+      snapshotAt,
+      offset,
+      limit,
+    );
+    return projected ? { kind: 'ready', data: projected } : { kind: 'unavailable' };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+export async function getCustomerAnswerLibraryDetail(
+  projectPubId: string,
+  answerPubId: string,
+  start: string,
+  end: string,
+  query: Pick<CustomerAnswerLibrarySnapshotQuery, 'snapshot_id' | 'snapshot_at'>,
+  headers: IdentitySessionHeaders,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<ProjectResourceResult<CustomerAnswerLibraryDetailProjection>> {
+  const snapshotAt = projectSafeIsoTimestamp(query.snapshot_at);
+  if (
+    !safeCustomerAnswerPubId(answerPubId) ||
+    !customerAnswerLibrarySnapshotPattern.test(query.snapshot_id) ||
+    !snapshotAt
+  ) {
+    return { kind: 'unavailable' };
+  }
+  try {
+    const result = await projectedApiClient(client).GET(
+      '/api/v2/customer-dashboard/projects/{project_pub_id}/answer-library/answers/{answer_pub_id}',
+      {
+        params: {
+          path: { project_pub_id: projectPubId, answer_pub_id: answerPubId },
+          query: {
+            snapshot_id: query.snapshot_id,
+            snapshot_at: snapshotAt,
+            start,
+            end,
+          },
+          header: headers,
+        },
+      },
+    );
+    if (!result.data) return classifyResourceFailure(result.response.status);
+    const projected = projectCustomerAnswerLibraryDetailBoundary(
+      result.data,
+      projectPubId,
+      answerPubId,
+      query.snapshot_id,
+      snapshotAt,
+    );
+    return projected ? { kind: 'ready', data: projected } : { kind: 'unavailable' };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
 export async function getCustomerMetricCatalog(
   headers: IdentitySessionHeaders,
   client: ProjectedApiClientOverride = apiClient,
@@ -2064,14 +2436,20 @@ export async function getAnalyticsAnswerRelations(
   headers: IdentitySessionHeaders,
   client: ProjectedApiClientOverride = apiClient,
   projectPubId?: string,
+  snapshotAt?: string,
 ): Promise<ProjectResourceResult<AnalyticsAnswerRelationsProjection>> {
+  const safeSnapshotAt = snapshotAt ? projectSafeIsoTimestamp(snapshotAt) : null;
+  if (snapshotAt && !safeSnapshotAt) return { kind: 'unavailable' };
   try {
     const result = await projectedApiClient(client).GET(
       '/api/v2/analytics/answers/{answer_pub_id}/relations',
       {
         params: {
           path: { answer_pub_id: answerPubId },
-          query: projectPubId ? { project_pub_id: projectPubId } : {},
+          query: {
+            ...(projectPubId ? { project_pub_id: projectPubId } : {}),
+            ...(safeSnapshotAt ? { snapshot_at: safeSnapshotAt } : {}),
+          },
           header: headers,
         },
       },
@@ -2817,6 +3195,605 @@ export function projectCustomerAnswerPageBoundary(
   };
 }
 
+const customerAnswerLibrarySnapshotPattern = /^als_[0-9a-f]{24}$/u;
+const customerAnswerLibraryMetaPattern = /^amq_[0-9a-f]{24}$/u;
+const customerAnswerLibraryQuestionPattern = /^aq_[0-9a-f]{24}$/u;
+const customerAnswerLibraryBodyFields = new Set([
+  'responsetext',
+  'responseraw',
+  'responseplaintext',
+  'responsehtmlsanitized',
+  'responseast',
+]);
+
+const customerAnswerLibraryContainsBody = (value: unknown): boolean => {
+  const pending: unknown[] = [value];
+  let visited = 0;
+  while (pending.length) {
+    const candidate = pending.pop();
+    visited += 1;
+    if (visited > 50_000) return true;
+    if (Array.isArray(candidate)) {
+      pending.push(...candidate);
+      continue;
+    }
+    if (!isBrowserRecord(candidate)) continue;
+    for (const [key, child] of Object.entries(candidate)) {
+      if (customerAnswerLibraryBodyFields.has(key.toLowerCase().replace(/[^a-z0-9]/gu, ''))) {
+        return true;
+      }
+      pending.push(child);
+    }
+  }
+  return false;
+};
+
+const projectCustomerAnswerLibraryDimensions = (
+  value: unknown,
+): CustomerAnswerLibraryDimensionProjection[] | null => {
+  if (!Array.isArray(value) || value.length > 100) return null;
+  const projected: CustomerAnswerLibraryDimensionProjection[] = [];
+  const labels = new Set<string>();
+  for (const candidate of value) {
+    if (!isBrowserRecord(candidate)) return null;
+    const label = safeBrowserString(candidate.label, 120);
+    const answerCount = safeCount(candidate.answer_count);
+    if (!label || answerCount === null || labels.has(label)) return null;
+    labels.add(label);
+    projected.push({ label, answer_count: answerCount });
+  }
+  return projected;
+};
+
+const projectCustomerAnswerLibraryChoice = (
+  value: unknown,
+): CustomerAnswerLibraryChoiceProjection | null => {
+  if (!isBrowserRecord(value)) return null;
+  const questionId = safeBrowserString(value.question_id, 27);
+  const ordinal = safeCount(value.ordinal);
+  const variantLabel = safeBrowserString(value.variant_label, 40);
+  const text = safeCustomerAnswerText(value.text, 2_000);
+  const answerCount = safeCount(value.answer_count);
+  if (
+    !questionId ||
+    !customerAnswerLibraryQuestionPattern.test(questionId) ||
+    ordinal === null ||
+    ordinal < 1 ||
+    ordinal > 500 ||
+    !variantLabel ||
+    !text ||
+    answerCount === null
+  ) {
+    return null;
+  }
+  return {
+    question_id: questionId,
+    ordinal,
+    variant_label: variantLabel,
+    text,
+    answer_count: answerCount,
+  };
+};
+
+const projectCustomerAnswerLibraryQuestion = (
+  value: unknown,
+): CustomerAnswerLibraryQuestionProjection | null => {
+  const choice = projectCustomerAnswerLibraryChoice(value);
+  if (!choice || !isBrowserRecord(value)) return null;
+  const citedAnswerCount = safeCount(value.cited_answer_count);
+  const citationCount = safeCount(value.citation_count);
+  const mentionedAnswerCount = safeCount(value.mentioned_answer_count);
+  const latestCaptureTime =
+    value.latest_capture_time === null || value.latest_capture_time === undefined
+      ? null
+      : projectSafeIsoTimestamp(value.latest_capture_time);
+  const models = projectCustomerAnswerLibraryDimensions(value.models);
+  const regions = projectCustomerAnswerLibraryDimensions(value.regions);
+  const modes = projectCustomerAnswerLibraryDimensions(value.modes);
+  if (
+    citedAnswerCount === null ||
+    citedAnswerCount > choice.answer_count ||
+    citationCount === null ||
+    mentionedAnswerCount === null ||
+    mentionedAnswerCount > choice.answer_count ||
+    (value.latest_capture_time !== null &&
+      value.latest_capture_time !== undefined &&
+      !latestCaptureTime) ||
+    !models ||
+    !regions ||
+    !modes
+  ) {
+    return null;
+  }
+  return {
+    ...choice,
+    cited_answer_count: citedAnswerCount,
+    citation_count: citationCount,
+    mentioned_answer_count: mentionedAnswerCount,
+    latest_capture_time: latestCaptureTime,
+    models,
+    regions,
+    modes,
+  };
+};
+
+const projectCustomerAnswerLibraryMeta = (
+  value: unknown,
+): CustomerAnswerLibraryMetaProjection | null => {
+  if (!isBrowserRecord(value)) return null;
+  const metaQueryId = safeBrowserString(value.meta_query_id, 28);
+  const ordinal = safeCount(value.ordinal);
+  const label = safeCustomerAnswerText(value.label, 2_000);
+  const questionCount = safeCount(value.question_count);
+  const answerCount = safeCount(value.answer_count);
+  const citedAnswerCount = safeCount(value.cited_answer_count);
+  const citationCount = safeCount(value.citation_count);
+  const mentionedAnswerCount = safeCount(value.mentioned_answer_count);
+  const latestCaptureTime =
+    value.latest_capture_time === null || value.latest_capture_time === undefined
+      ? null
+      : projectSafeIsoTimestamp(value.latest_capture_time);
+  const models = projectCustomerAnswerLibraryDimensions(value.models);
+  const regions = projectCustomerAnswerLibraryDimensions(value.regions);
+  const modes = projectCustomerAnswerLibraryDimensions(value.modes);
+  if (
+    !metaQueryId ||
+    !customerAnswerLibraryMetaPattern.test(metaQueryId) ||
+    ordinal === null ||
+    ordinal < 1 ||
+    !label ||
+    questionCount === null ||
+    questionCount < 1 ||
+    questionCount > 500 ||
+    answerCount === null ||
+    citedAnswerCount === null ||
+    citedAnswerCount > answerCount ||
+    citationCount === null ||
+    mentionedAnswerCount === null ||
+    mentionedAnswerCount > answerCount ||
+    (value.latest_capture_time !== null &&
+      value.latest_capture_time !== undefined &&
+      !latestCaptureTime) ||
+    !models ||
+    !regions ||
+    !modes ||
+    !Array.isArray(value.questions) ||
+    value.questions.length !== questionCount
+  ) {
+    return null;
+  }
+  const questions: CustomerAnswerLibraryChoiceProjection[] = [];
+  const questionIds = new Set<string>();
+  for (const candidate of value.questions) {
+    const question = projectCustomerAnswerLibraryChoice(candidate);
+    if (!question || questionIds.has(question.question_id)) return null;
+    questionIds.add(question.question_id);
+    questions.push(question);
+  }
+  if (questions.reduce((total, question) => total + question.answer_count, 0) !== answerCount) {
+    return null;
+  }
+  return {
+    meta_query_id: metaQueryId,
+    ordinal,
+    label,
+    question_count: questionCount,
+    answer_count: answerCount,
+    cited_answer_count: citedAnswerCount,
+    citation_count: citationCount,
+    mentioned_answer_count: mentionedAnswerCount,
+    latest_capture_time: latestCaptureTime,
+    models,
+    regions,
+    modes,
+    questions,
+  };
+};
+
+const projectCustomerAnswerLibraryPageMeta = (
+  value: unknown,
+  expectedOffset: number,
+  expectedLimit: number,
+  dataLength: number,
+): CustomerAnswerLibraryPageProjection['page'] | null => {
+  if (!isBrowserRecord(value)) return null;
+  const total = safeCount(value.total);
+  const offset = safeCount(value.offset);
+  const limit = safeCount(value.limit);
+  if (
+    total === null ||
+    offset !== expectedOffset ||
+    limit !== expectedLimit ||
+    typeof value.has_more !== 'boolean' ||
+    value.has_more !== offset + dataLength < total ||
+    (dataLength > 0 && offset + dataLength > total)
+  ) {
+    return null;
+  }
+  return { total, offset, limit, has_more: value.has_more };
+};
+
+const projectCustomerAnswerLibraryCommon = (
+  value: unknown,
+  schemaVersion:
+    | 'customer-answer-library-v1'
+    | 'customer-answer-library-meta-v1'
+    | 'customer-answer-library-runs-v1'
+    | 'customer-answer-library-detail-v1',
+  expectedProjectPubId: string,
+  expectedSnapshotId?: string,
+  expectedSnapshotAt?: string,
+): { snapshot_id: string; snapshot_at: string } | null => {
+  if (
+    !isBrowserRecord(value) ||
+    customerDashboardContainsOperationalField(value) ||
+    (schemaVersion !== 'customer-answer-library-detail-v1' &&
+      customerAnswerLibraryContainsBody(value)) ||
+    value.schema_version !== schemaVersion ||
+    value.project_pub_id !== expectedProjectPubId ||
+    !/^prj_[A-Za-z0-9_-]{1,116}$/u.test(expectedProjectPubId)
+  ) {
+    return null;
+  }
+  const snapshotId = safeBrowserString(value.snapshot_id, 28);
+  const snapshotAt = projectSafeIsoTimestamp(value.snapshot_at);
+  if (
+    !snapshotId ||
+    !customerAnswerLibrarySnapshotPattern.test(snapshotId) ||
+    !snapshotAt ||
+    (expectedSnapshotId !== undefined && snapshotId !== expectedSnapshotId) ||
+    (expectedSnapshotAt !== undefined && snapshotAt !== expectedSnapshotAt)
+  ) {
+    return null;
+  }
+  return { snapshot_id: snapshotId, snapshot_at: snapshotAt };
+};
+
+export function projectCustomerAnswerLibraryPageBoundary(
+  value: unknown,
+  expectedProjectPubId: string,
+  expectedOffset: number,
+  expectedLimit: number,
+  expectedSnapshotId?: string,
+  expectedSnapshotAt?: string,
+): CustomerAnswerLibraryPageProjection | null {
+  const common = projectCustomerAnswerLibraryCommon(
+    value,
+    'customer-answer-library-v1',
+    expectedProjectPubId,
+    expectedSnapshotId,
+    expectedSnapshotAt,
+  );
+  if (
+    !common ||
+    !isBrowserRecord(value) ||
+    !isBrowserRecord(value.totals) ||
+    !Array.isArray(value.data) ||
+    value.data.length > 20 ||
+    value.data.length > expectedLimit
+  ) {
+    return null;
+  }
+  const totalKeys = [
+    'meta_query_count',
+    'question_count',
+    'answer_count',
+    'cited_answer_count',
+    'citation_count',
+    'mentioned_answer_count',
+    'unmapped_answer_count',
+  ] as const;
+  const totalSource = value.totals as Record<string, unknown>;
+  const totals = Object.fromEntries(
+    totalKeys.map((key) => [key, safeCount(totalSource[key])]),
+  ) as Record<(typeof totalKeys)[number], number | null>;
+  if (
+    totalKeys.some((key) => totals[key] === null) ||
+    totals.cited_answer_count! > totals.answer_count! ||
+    totals.mentioned_answer_count! > totals.answer_count!
+  ) {
+    return null;
+  }
+  const models = projectCustomerAnswerLibraryDimensions(value.models);
+  const regions = projectCustomerAnswerLibraryDimensions(value.regions);
+  const modes = projectCustomerAnswerLibraryDimensions(value.modes);
+  const data: CustomerAnswerLibraryMetaProjection[] = [];
+  const metaIds = new Set<string>();
+  for (const candidate of value.data) {
+    const meta = projectCustomerAnswerLibraryMeta(candidate);
+    if (!meta || metaIds.has(meta.meta_query_id)) return null;
+    metaIds.add(meta.meta_query_id);
+    data.push(meta);
+  }
+  const page = projectCustomerAnswerLibraryPageMeta(
+    value.page,
+    expectedOffset,
+    expectedLimit,
+    data.length,
+  );
+  if (!models || !regions || !modes || !page) return null;
+  return {
+    schema_version: 'customer-answer-library-v1',
+    project_pub_id: expectedProjectPubId,
+    ...common,
+    totals: {
+      meta_query_count: totals.meta_query_count!,
+      question_count: totals.question_count!,
+      answer_count: totals.answer_count!,
+      cited_answer_count: totals.cited_answer_count!,
+      citation_count: totals.citation_count!,
+      mentioned_answer_count: totals.mentioned_answer_count!,
+      unmapped_answer_count: totals.unmapped_answer_count!,
+    },
+    models,
+    regions,
+    modes,
+    data,
+    page,
+  };
+}
+
+export function projectCustomerAnswerLibraryMetaBoundary(
+  value: unknown,
+  expectedProjectPubId: string,
+  expectedMetaQueryId: string,
+  expectedSnapshotId: string,
+  expectedSnapshotAt: string,
+): CustomerAnswerLibraryMetaDetailProjection | null {
+  const common = projectCustomerAnswerLibraryCommon(
+    value,
+    'customer-answer-library-meta-v1',
+    expectedProjectPubId,
+    expectedSnapshotId,
+    expectedSnapshotAt,
+  );
+  if (!common || !isBrowserRecord(value) || value.meta_query_id !== expectedMetaQueryId)
+    return null;
+  const metaQueryId = safeBrowserString(value.meta_query_id, 28);
+  const ordinal = safeCount(value.ordinal);
+  const label = safeCustomerAnswerText(value.label, 2_000);
+  const answerCount = safeCount(value.answer_count);
+  const citedAnswerCount = safeCount(value.cited_answer_count);
+  const citationCount = safeCount(value.citation_count);
+  const mentionedAnswerCount = safeCount(value.mentioned_answer_count);
+  const latestCaptureTime =
+    value.latest_capture_time === null || value.latest_capture_time === undefined
+      ? null
+      : projectSafeIsoTimestamp(value.latest_capture_time);
+  if (
+    !metaQueryId ||
+    !customerAnswerLibraryMetaPattern.test(metaQueryId) ||
+    ordinal === null ||
+    ordinal < 1 ||
+    !label ||
+    answerCount === null ||
+    citedAnswerCount === null ||
+    citedAnswerCount > answerCount ||
+    citationCount === null ||
+    mentionedAnswerCount === null ||
+    mentionedAnswerCount > answerCount ||
+    (value.latest_capture_time !== null &&
+      value.latest_capture_time !== undefined &&
+      !latestCaptureTime) ||
+    !Array.isArray(value.questions) ||
+    value.questions.length < 1 ||
+    value.questions.length > 500
+  ) {
+    return null;
+  }
+  const questions: CustomerAnswerLibraryQuestionProjection[] = [];
+  const ids = new Set<string>();
+  for (const candidate of value.questions) {
+    const question = projectCustomerAnswerLibraryQuestion(candidate);
+    if (!question || ids.has(question.question_id)) return null;
+    ids.add(question.question_id);
+    questions.push(question);
+  }
+  if (questions.reduce((total, question) => total + question.answer_count, 0) !== answerCount) {
+    return null;
+  }
+  return {
+    schema_version: 'customer-answer-library-meta-v1',
+    project_pub_id: expectedProjectPubId,
+    ...common,
+    meta_query_id: metaQueryId,
+    ordinal,
+    label,
+    answer_count: answerCount,
+    cited_answer_count: citedAnswerCount,
+    citation_count: citationCount,
+    mentioned_answer_count: mentionedAnswerCount,
+    latest_capture_time: latestCaptureTime,
+    questions,
+  };
+}
+
+const projectCustomerAnswerLibraryRun = (
+  value: unknown,
+): CustomerAnswerLibraryRunProjection | null => {
+  if (!isBrowserRecord(value)) return null;
+  const answerPubId = safeCustomerAnswerPubId(value.answer_pub_id);
+  const repeatIndex = safeCount(value.repeat_index);
+  const model = safeBrowserString(value.model, 120);
+  const region = safeBrowserString(value.region, 120);
+  const mode = safeBrowserString(value.mode, 80);
+  const captureTime = projectSafeIsoTimestamp(value.capture_time);
+  const analysisState = safeBrowserEnum(value.analysis_state, ['ready', 'pending'] as const);
+  const mentioned =
+    value.mentioned === null || value.mentioned === undefined ? null : value.mentioned;
+  const rank = value.rank === null || value.rank === undefined ? null : safeCount(value.rank);
+  const sentiment =
+    value.sentiment === null || value.sentiment === undefined
+      ? null
+      : safeBrowserEnum(value.sentiment, ['positive', 'neutral', 'negative', 'unknown'] as const);
+  const recommended =
+    value.recommended === null || value.recommended === undefined ? null : value.recommended;
+  const citationCount = safeCount(value.citation_count);
+  if (
+    !answerPubId ||
+    repeatIndex === null ||
+    repeatIndex < 1 ||
+    !model ||
+    !region ||
+    !mode ||
+    !captureTime ||
+    !analysisState ||
+    (mentioned !== null && typeof mentioned !== 'boolean') ||
+    (rank !== null && rank < 1) ||
+    (value.sentiment !== null && value.sentiment !== undefined && !sentiment) ||
+    (recommended !== null && typeof recommended !== 'boolean') ||
+    citationCount === null ||
+    (analysisState === 'ready' && typeof mentioned !== 'boolean')
+  ) {
+    return null;
+  }
+  return {
+    answer_pub_id: answerPubId,
+    repeat_index: repeatIndex,
+    model,
+    region,
+    mode,
+    capture_time: captureTime,
+    analysis_state: analysisState,
+    mentioned,
+    rank,
+    sentiment,
+    recommended,
+    citation_count: citationCount,
+  };
+};
+
+export function projectCustomerAnswerLibraryRunsBoundary(
+  value: unknown,
+  expectedProjectPubId: string,
+  expectedQuestionId: string,
+  expectedSnapshotId: string,
+  expectedSnapshotAt: string,
+  expectedOffset: number,
+  expectedLimit: number,
+): CustomerAnswerLibraryRunsProjection | null {
+  const common = projectCustomerAnswerLibraryCommon(
+    value,
+    'customer-answer-library-runs-v1',
+    expectedProjectPubId,
+    expectedSnapshotId,
+    expectedSnapshotAt,
+  );
+  if (!common || !isBrowserRecord(value)) return null;
+  const metaQueryId = safeBrowserString(value.meta_query_id, 28);
+  const metaQueryOrdinal = safeCount(value.meta_query_ordinal);
+  const metaQueryLabel = safeCustomerAnswerText(value.meta_query_label, 2_000);
+  const question = projectCustomerAnswerLibraryQuestion(value.question);
+  const models = projectCustomerAnswerLibraryDimensions(value.models);
+  const regions = projectCustomerAnswerLibraryDimensions(value.regions);
+  const modes = projectCustomerAnswerLibraryDimensions(value.modes);
+  if (
+    !metaQueryId ||
+    !customerAnswerLibraryMetaPattern.test(metaQueryId) ||
+    metaQueryOrdinal === null ||
+    metaQueryOrdinal < 1 ||
+    !metaQueryLabel ||
+    !question ||
+    question.question_id !== expectedQuestionId ||
+    !models ||
+    !regions ||
+    !modes ||
+    !Array.isArray(value.data) ||
+    value.data.length > 50 ||
+    value.data.length > expectedLimit
+  ) {
+    return null;
+  }
+  const data: CustomerAnswerLibraryRunProjection[] = [];
+  const answerIds = new Set<string>();
+  for (const candidate of value.data) {
+    const run = projectCustomerAnswerLibraryRun(candidate);
+    if (!run || answerIds.has(run.answer_pub_id)) return null;
+    answerIds.add(run.answer_pub_id);
+    data.push(run);
+  }
+  const page = projectCustomerAnswerLibraryPageMeta(
+    value.page,
+    expectedOffset,
+    expectedLimit,
+    data.length,
+  );
+  if (!page || page.total !== question.answer_count) return null;
+  return {
+    schema_version: 'customer-answer-library-runs-v1',
+    project_pub_id: expectedProjectPubId,
+    ...common,
+    meta_query_id: metaQueryId,
+    meta_query_ordinal: metaQueryOrdinal,
+    meta_query_label: metaQueryLabel,
+    question,
+    models,
+    regions,
+    modes,
+    data,
+    page,
+  };
+}
+
+export function projectCustomerAnswerLibraryDetailBoundary(
+  value: unknown,
+  expectedProjectPubId: string,
+  expectedAnswerPubId: string,
+  expectedSnapshotId: string,
+  expectedSnapshotAt: string,
+): CustomerAnswerLibraryDetailProjection | null {
+  const common = projectCustomerAnswerLibraryCommon(
+    value,
+    'customer-answer-library-detail-v1',
+    expectedProjectPubId,
+    expectedSnapshotId,
+    expectedSnapshotAt,
+  );
+  if (!common || !isBrowserRecord(value)) return null;
+  const metaQueryId = safeBrowserString(value.meta_query_id, 28);
+  const metaQueryOrdinal = safeCount(value.meta_query_ordinal);
+  const metaQueryLabel = safeCustomerAnswerText(value.meta_query_label, 2_000);
+  const questionId = safeBrowserString(value.question_id, 27);
+  const questionOrdinal = safeCount(value.question_ordinal);
+  const variantLabel = safeBrowserString(value.variant_label, 40);
+  const questionText = safeCustomerAnswerText(value.question_text, 2_000);
+  const answer = projectCustomerAnswerLibraryRun(value.answer);
+  const responseText = safeCustomerAnswerText(value.response_text, 200_000);
+  if (
+    !metaQueryId ||
+    !customerAnswerLibraryMetaPattern.test(metaQueryId) ||
+    metaQueryOrdinal === null ||
+    metaQueryOrdinal < 1 ||
+    !metaQueryLabel ||
+    !questionId ||
+    !customerAnswerLibraryQuestionPattern.test(questionId) ||
+    questionOrdinal === null ||
+    questionOrdinal < 1 ||
+    questionOrdinal > 500 ||
+    !variantLabel ||
+    !questionText ||
+    !answer ||
+    answer.answer_pub_id !== expectedAnswerPubId ||
+    responseText === null
+  ) {
+    return null;
+  }
+  return {
+    schema_version: 'customer-answer-library-detail-v1',
+    project_pub_id: expectedProjectPubId,
+    ...common,
+    meta_query_id: metaQueryId,
+    meta_query_ordinal: metaQueryOrdinal,
+    meta_query_label: metaQueryLabel,
+    question_id: questionId,
+    question_ordinal: questionOrdinal,
+    variant_label: variantLabel,
+    question_text: questionText,
+    answer,
+    response_text: responseText,
+  };
+}
+
 export function projectCustomerMetricCatalogBoundary(
   value: unknown,
 ): CustomerMetricCatalogProjection | null {
@@ -3443,6 +4420,40 @@ const projectAnalyticsShareArtifactBoundary = (
   };
 };
 
+const projectAnalyticsShareImageBoundary = (
+  value: unknown,
+): AnalyticsAnswerShareImageSafeView | null => {
+  if (!isBrowserRecord(value)) return null;
+  const pubId = projectAnalyticsPubId(value.pub_id, 'evd_');
+  const digest = safeHash(value.sha256);
+  const byteSize = safeCount(value.byte_size);
+  const width = value.image_width === null ? null : safeCount(value.image_width);
+  const height = value.image_height === null ? null : safeCount(value.image_height);
+  const captureTime = projectSafeIsoTimestamp(value.capture_time);
+  if (
+    !pubId ||
+    !digest ||
+    value.mime_type !== 'image/png' ||
+    byteSize === null ||
+    byteSize < 1 ||
+    byteSize > 30 * 1024 * 1024 ||
+    (width !== null && (width < 1 || width > 100_000)) ||
+    (height !== null && (height < 1 || height > 100_000)) ||
+    !captureTime
+  ) {
+    return null;
+  }
+  return {
+    pub_id: pubId,
+    sha256: digest,
+    mime_type: 'image/png',
+    byte_size: byteSize,
+    image_width: width,
+    image_height: height,
+    capture_time: captureTime,
+  };
+};
+
 const projectAnalyticsCitationBoundary = (value: unknown): AnalyticsCitationSafeView | null => {
   if (!isBrowserRecord(value)) return null;
   const pubId = projectAnalyticsPubId(value.pub_id, 'cit_');
@@ -3765,6 +4776,11 @@ const projectAnalyticsAnswerRelationsBoundary = (
   if (value.share_artifact !== null && value.share_artifact !== undefined && !shareArtifact) {
     return null;
   }
+  const shareImage =
+    value.share_image === null || value.share_image === undefined
+      ? null
+      : projectAnalyticsShareImageBoundary(value.share_image);
+  if (value.share_image !== null && value.share_image !== undefined && !shareImage) return null;
   const answerCitations = citations.data;
   const brandMentionEvidence = evidence.data.filter(
     (item) =>
@@ -3798,6 +4814,7 @@ const projectAnalyticsAnswerRelationsBoundary = (
   return {
     answer_pub_id: expectedAnswerPubId,
     share_artifact: shareArtifact,
+    share_image: shareImage,
     answer_citations: answerCitations,
     brand_mention_evidence: brandMentionEvidence,
     opened_source_previews: openedSourcePreviews,

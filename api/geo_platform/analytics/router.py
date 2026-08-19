@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import math
 import re
-from datetime import date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Annotated, Any, Literal
 from urllib.parse import urlsplit, urlunsplit
 
@@ -195,6 +195,16 @@ class AnswerShareArtifactView(StrictModel):
     embed_reason: str | None = None
 
 
+class AnswerShareImageView(StrictModel):
+    pub_id: str = Field(pattern=r"^evd_[A-Za-z0-9]{16,64}$")
+    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    mime_type: Literal["image/png"]
+    byte_size: int = Field(gt=0, le=30 * 1024 * 1024)
+    image_width: int | None = Field(default=None, gt=0, le=100_000)
+    image_height: int | None = Field(default=None, gt=0, le=100_000)
+    capture_time: datetime
+
+
 class DisparagementRateView(StrictModel):
     dimension: Literal["target_brand", "subject_brand", "platform"]
     value: str
@@ -361,6 +371,7 @@ class EvidenceHistoryView(StrictModel):
 class AnswerRelationsView(StrictModel):
     answer_pub_id: str
     share_artifact: AnswerShareArtifactView | None
+    share_image: AnswerShareImageView | None
     # Explicit semantic collections. ``citations``/``evidence`` remain for
     # compatibility, but consumers no longer need to guess whether a reference
     # organized the answer or actually contains the target brand.
@@ -780,22 +791,46 @@ def answers(
 @router.get("/answers/{answer_pub_id}/relations", response_model=AnswerRelationsView)
 def answer_relations(
     answer_pub_id: str,
+    response: Response,
     project_pub_id: str | None = Query(
         default=None,
         pattern=r"^prj_[A-Za-z0-9_-]{1,116}$",
         description="Optional project binding for customer answer-detail reads.",
     ),
+    snapshot_at: datetime | None = Query(
+        default=None,
+        description="Optional immutable customer-library cutoff for related evidence.",
+    ),
     principal: Principal = Depends(get_principal),
 ) -> AnswerRelationsView:
     principal.require("project:read")
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Vary"] = "Cookie, Authorization"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    cutoff = snapshot_at.astimezone(UTC) if snapshot_at and snapshot_at.tzinfo else snapshot_at
+    if snapshot_at is not None and (
+        snapshot_at.tzinfo is None
+        or cutoff is None
+        or cutoff > datetime.now(UTC) + timedelta(minutes=1)
+    ):
+        raise HTTPException(status_code=422, detail={"code": "invalid_answer_snapshot"})
     with tenant_connection(_dsn(), principal.tenant_pub_id, row_factory=dict_row) as connection:
         answer = connection.execute(
             """
             SELECT pub_id,project_pub_id FROM analytics.answer
             WHERE tenant_pub_id=%s AND pub_id=%s
               AND (%s::text IS NULL OR project_pub_id=%s::text)
+              AND (%s::timestamptz IS NULL OR created_at<=%s::timestamptz)
             """,
-            (principal.tenant_pub_id, answer_pub_id, project_pub_id, project_pub_id),
+            (
+                principal.tenant_pub_id,
+                answer_pub_id,
+                project_pub_id,
+                project_pub_id,
+                cutoff,
+                cutoff,
+            ),
         ).fetchone()
         if answer is None:
             raise HTTPException(status_code=404, detail={"code": "answer_not_found"})
@@ -823,35 +858,77 @@ def answer_relations(
                    relation.review_status AS support_review_status
             FROM analytics.citation_fact c
             LEFT JOIN analytics.answer_citation_relation relation
-              ON relation.tenant_pub_id=c.tenant_pub_id
+             ON relation.tenant_pub_id=c.tenant_pub_id
              AND relation.answer_pub_id=c.answer_pub_id
              AND relation.ordinal=c.ordinal
+             AND (%s::timestamptz IS NULL OR (
+                   relation.created_at<=%s::timestamptz
+                   AND relation.updated_at<=%s::timestamptz
+                 ))
             WHERE c.tenant_pub_id=%s AND c.answer_pub_id=%s
+              AND (%s::timestamptz IS NULL OR c.created_at<=%s::timestamptz)
               AND c.analysis_run_pub_id=(
                 SELECT aa.analysis_run_pub_id
                 FROM analytics.answer_analysis aa
                 WHERE aa.tenant_pub_id=%s AND aa.answer_pub_id=%s
+                  AND (%s::timestamptz IS NULL OR aa.created_at<=%s::timestamptz)
                 ORDER BY aa.created_at DESC,aa.id DESC
                 LIMIT 1
               )
             ORDER BY c.ordinal,c.created_at,c.pub_id
             """,
             (
+                cutoff,
+                cutoff,
+                cutoff,
                 principal.tenant_pub_id,
                 answer_pub_id,
+                cutoff,
+                cutoff,
                 principal.tenant_pub_id,
                 answer_pub_id,
+                cutoff,
+                cutoff,
             ),
         ).fetchall()
         share_artifact = connection.execute(
             """
             SELECT platform,status,share_url,final_url,allowlist_valid,
                    availability_status,http_status,checked_at,last_accessible_at,
-                   embed_status,embed_reason
-            FROM evidence.answer_share_artifact
-            WHERE tenant_pub_id=%s AND answer_pub_id=%s
+                   embed_status,embed_reason,
+                   share_image.pub_id AS share_image_pub_id,
+                   share_image.sha256 AS share_image_sha256,
+                   share_image.mime_type AS share_image_mime_type,
+                   share_image.byte_size AS share_image_byte_size,
+                   share_image.image_width AS share_image_width,
+                   share_image.image_height AS share_image_height,
+                   share_image.capture_time AS share_image_capture_time
+            FROM evidence.answer_share_artifact artifact
+            LEFT JOIN LATERAL (
+              SELECT asset.pub_id,asset.sha256,asset.mime_type,asset.byte_size,
+                     asset.image_width,asset.image_height,asset.capture_time
+              FROM evidence.evidence_asset asset
+              JOIN evidence.evidence_relation relation
+                ON relation.tenant_pub_id=asset.tenant_pub_id
+               AND relation.to_pub_id=asset.pub_id
+               AND relation.from_pub_id=artifact.answer_pub_id
+               AND relation.relation_type='official_share_image'
+              WHERE asset.tenant_pub_id=artifact.tenant_pub_id
+                AND asset.project_pub_id=artifact.project_pub_id
+                AND asset.pub_id=artifact.share_image_evidence_pub_id
+                AND asset.kind='share_image'
+                AND asset.customer_visible=true
+                AND asset.deleted_at IS NULL
+                AND asset.mime_type='image/png'
+                AND asset.byte_size BETWEEN 1 AND 31457280
+              LIMIT 1
+            ) share_image ON true
+            WHERE artifact.tenant_pub_id=%s AND artifact.answer_pub_id=%s
+              AND (%s::timestamptz IS NULL OR (
+                    created_at<=%s::timestamptz AND updated_at<=%s::timestamptz
+                  ))
             """,
-            (principal.tenant_pub_id, answer_pub_id),
+            (principal.tenant_pub_id, answer_pub_id, cutoff, cutoff, cutoff),
         ).fetchone()
         evidence_rows = (
             connection.execute(
@@ -863,9 +940,13 @@ def answer_relations(
                 JOIN evidence.evidence_asset ea
                   ON ea.tenant_pub_id=er.tenant_pub_id AND ea.pub_id=er.to_pub_id
                 WHERE er.tenant_pub_id=%s AND er.from_pub_id=%s AND ea.deleted_at IS NULL
+                  AND (%s::timestamptz IS NULL OR (
+                        er.created_at<=%s::timestamptz
+                        AND ea.created_at<=%s::timestamptz
+                      ))
                 ORDER BY ea.capture_time,ea.pub_id
                 """,
-                (principal.tenant_pub_id, answer_pub_id),
+                (principal.tenant_pub_id, answer_pub_id, cutoff, cutoff, cutoff),
             ).fetchall()
             if principal.allows("evidence:read")
             else []
@@ -877,9 +958,10 @@ def answer_relations(
                 SELECT pub_id,evidence_pub_id,text_start,text_end,bbox,page_number,quote_hash
                 FROM evidence.evidence_anchor
                 WHERE tenant_pub_id=%s AND evidence_pub_id=ANY(%s::text[])
+                  AND (%s::timestamptz IS NULL OR created_at<=%s::timestamptz)
                 ORDER BY evidence_pub_id,page_number,text_start,pub_id
                 """,
-                (principal.tenant_pub_id, evidence_ids),
+                (principal.tenant_pub_id, evidence_ids, cutoff, cutoff),
             ).fetchall()
             if evidence_ids
             else []
@@ -893,9 +975,10 @@ def answer_relations(
                 WHERE tenant_pub_id=%s
                   AND (before_evidence_pub_id=ANY(%s::text[])
                        OR after_evidence_pub_id=ANY(%s::text[]))
+                  AND (%s::timestamptz IS NULL OR created_at<=%s::timestamptz)
                 ORDER BY created_at,pub_id
                 """,
-                (principal.tenant_pub_id, evidence_ids, evidence_ids),
+                (principal.tenant_pub_id, evidence_ids, evidence_ids, cutoff, cutoff),
             ).fetchall()
             if evidence_ids
             else []
@@ -1017,6 +1100,19 @@ def answer_relations(
                 embed_reason=_safe_optional_text(share_artifact["embed_reason"], 1_000),
             )
             if share_artifact is not None
+            else None
+        ),
+        share_image=(
+            AnswerShareImageView(
+                pub_id=share_artifact["share_image_pub_id"],
+                sha256=share_artifact["share_image_sha256"],
+                mime_type=share_artifact["share_image_mime_type"],
+                byte_size=share_artifact["share_image_byte_size"],
+                image_width=share_artifact["share_image_width"],
+                image_height=share_artifact["share_image_height"],
+                capture_time=share_artifact["share_image_capture_time"],
+            )
+            if share_artifact is not None and share_artifact["share_image_pub_id"] is not None
             else None
         ),
         answer_citations=citation_views,

@@ -705,8 +705,8 @@ if "location.reload()" in (root / "packages/design-system/src/index.tsx").read_t
 
 local_retry_specs = {
     "tests/e2e/customer-local-retry.spec.ts": (
-        "customer-overview-transient",
-        "successfulOverviewRequests",
+        "customer-dashboard-transient",
+        "successfulDashboardRequests",
     ),
     "tests/e2e/reports-local-retry.spec.ts": (
         "report-catalog-transient",
@@ -763,8 +763,8 @@ for fragment in (
     "SESSION=local-retry-evidence-canary",
     "Bearer local-retry-page-canary",
     "证据中心",
-    "真实 0",
-    "暂无数据",
+    "page.getByText('evd_customer_retry_safe')",
+    "page.locator('body').innerText()",
 ):
     if fragment not in customer_retry_e2e:
         errors.append(
@@ -1675,9 +1675,9 @@ for fragment in (
 ):
     if fragment not in api_client:
         errors.append(f"@geo/api-client browser identity type is missing {fragment}")
-if api_client.count("client: ProjectedApiClientOverride = apiClient") != 129:
+if api_client.count("client: ProjectedApiClientOverride = apiClient") != 133:
     errors.append(
-        "@geo/api-client must keep all 129 projected wrapper overrides free of the raw "
+        "@geo/api-client must keep all 133 projected wrapper overrides free of the raw "
         "generated client type"
     )
 projected_client_unwraps = len(
@@ -1686,7 +1686,7 @@ projected_client_unwraps = len(
         api_client,
     )
 ) + api_client.count("const api = projectedApiClient(client);")
-if projected_client_unwraps != 129:
+if projected_client_unwraps != 133:
     errors.append(
         "@geo/api-client must unwrap every projected wrapper override only inside its "
         "generated request implementation"
@@ -2397,8 +2397,8 @@ for fragment in (
     "expect(writes).toHaveLength(1)",
     "'x-actor-id': 'tenant-admin-integrity'",
     "'x-actor-role': 'admin'",
-    "await page.getByRole('button', { name: '首页' }).click()",
-    "getByRole('button', { name: '成员', exact: true })",
+    "await page.getByRole('button', { name: '经营总览' }).click()",
+    "getByRole('button', { name: '项目成员', exact: true })",
     "expect(memberReads).toBe(1)",
     "expect(oidcReads).toBe(1)",
     "await expect.poll(() => writeResponseSent).toBe(true)",

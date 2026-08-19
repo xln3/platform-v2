@@ -32,6 +32,10 @@ import {
   getAnalyticsBreakdown,
   getAnalyticsDelta,
   getAnalyticsOverview,
+  getCustomerAnswerLibraryDetail,
+  getCustomerAnswerLibraryMetaQuery,
+  getCustomerAnswerLibraryPage,
+  getCustomerAnswerLibraryQuestionRuns,
   getCustomerAnswerPage,
   getCustomerDashboard,
   getCustomerMetricCatalog,
@@ -81,6 +85,10 @@ import {
   logoutIdentitySession,
   publishReport,
   projectCustomerAccountView,
+  projectCustomerAnswerLibraryDetailBoundary,
+  projectCustomerAnswerLibraryMetaBoundary,
+  projectCustomerAnswerLibraryPageBoundary,
+  projectCustomerAnswerLibraryRunsBoundary,
   projectCustomerAnswerPageBoundary,
   projectCustomerDashboardBoundary,
   projectCustomerMetricCatalogBoundary,
@@ -2160,7 +2168,13 @@ describe('generated client', () => {
     };
 
     const page = await listAnalyticsAnswers('prj_safe', { limit: 2 }, headers, client);
-    const relations = await getAnalyticsAnswerRelations('ans_boundary_safe', headers, client);
+    const relations = await getAnalyticsAnswerRelations(
+      'ans_boundary_safe',
+      headers,
+      client,
+      'prj_safe',
+      '2026-08-19T03:00:00Z',
+    );
 
     expect(page).toMatchObject({
       kind: 'ready',
@@ -2188,6 +2202,10 @@ describe('generated client', () => {
       expect(relations.data.evidence[0]?.anchors).toHaveLength(200);
       expect(relations.data.history).toHaveLength(199);
     }
+    const relationRequest = request.mock.calls.at(-1)?.[0] as Request;
+    const relationUrl = new URL(relationRequest.url);
+    expect(relationUrl.searchParams.get('project_pub_id')).toBe('prj_safe');
+    expect(relationUrl.searchParams.get('snapshot_at')).toBe('2026-08-19T03:00:00Z');
     expect(JSON.stringify({ page, relations })).not.toMatch(
       /proxy-password|Bearer|Cookie|canary|profile_path|SESSION=/i,
     );
@@ -5357,6 +5375,290 @@ describe('generated client', () => {
     });
     expect(outbound.headers.get('X-Tenant-Id')).toBe('tnt_safe');
   });
+
+  it('keeps the four-level customer answer library snapshot-bound and body-lazy', async () => {
+    const snapshotId = `als_${'a'.repeat(24)}`;
+    const metaQueryId = `amq_${'b'.repeat(24)}`;
+    const questionIds = Array.from(
+      { length: 4 },
+      (_, index) => `aq_${String(index + 1).repeat(24)}`,
+    );
+    const snapshotAt = '2026-08-19T03:00:00Z';
+    const dimensions = [{ label: 'DeepSeek', answer_count: 2 }];
+    const choices = questionIds.map((question_id, index) => ({
+      question_id,
+      ordinal: index + 1,
+      variant_label: index === 0 ? '原问题' : `变体 ${String.fromCharCode(64 + index)}`,
+      text: `第 ${index + 1} 个具体问题`,
+      answer_count: index === 0 ? 2 : 0,
+    }));
+    const questions = choices.map((choice) => ({
+      ...choice,
+      cited_answer_count: choice.answer_count ? 1 : 0,
+      citation_count: choice.answer_count ? 3 : 0,
+      mentioned_answer_count: choice.answer_count ? 1 : 0,
+      latest_capture_time: choice.answer_count ? '2026-08-18T09:00:00Z' : null,
+      models: choice.answer_count ? dimensions : [],
+      regions: choice.answer_count ? [{ label: '上海', answer_count: 2 }] : [],
+      modes: choice.answer_count ? [{ label: 'deep_think', answer_count: 2 }] : [],
+    }));
+    const rootPayload = {
+      schema_version: 'customer-answer-library-v1',
+      project_pub_id: 'prj_safe',
+      snapshot_id: snapshotId,
+      snapshot_at: snapshotAt,
+      totals: {
+        meta_query_count: 34,
+        question_count: 136,
+        answer_count: 2,
+        cited_answer_count: 1,
+        citation_count: 3,
+        mentioned_answer_count: 1,
+        unmapped_answer_count: 0,
+      },
+      models: dimensions,
+      regions: [{ label: '上海', answer_count: 2 }],
+      modes: [{ label: 'deep_think', answer_count: 2 }],
+      data: [
+        {
+          meta_query_id: metaQueryId,
+          ordinal: 1,
+          label: '高校双非资产排查',
+          question_count: 4,
+          answer_count: 2,
+          cited_answer_count: 1,
+          citation_count: 3,
+          mentioned_answer_count: 1,
+          latest_capture_time: '2026-08-18T09:00:00Z',
+          models: dimensions,
+          regions: [{ label: '上海', answer_count: 2 }],
+          modes: [{ label: 'deep_think', answer_count: 2 }],
+          questions: choices,
+        },
+      ],
+      page: { total: 34, offset: 0, limit: 8, has_more: true },
+    };
+    const metaPayload = {
+      schema_version: 'customer-answer-library-meta-v1',
+      project_pub_id: 'prj_safe',
+      snapshot_id: snapshotId,
+      snapshot_at: snapshotAt,
+      meta_query_id: metaQueryId,
+      ordinal: 1,
+      label: '高校双非资产排查',
+      answer_count: 2,
+      cited_answer_count: 1,
+      citation_count: 3,
+      mentioned_answer_count: 1,
+      latest_capture_time: '2026-08-18T09:00:00Z',
+      questions,
+    };
+    const runs = [
+      {
+        answer_pub_id: 'ans_library_02',
+        repeat_index: 2,
+        model: 'DeepSeek',
+        region: '上海',
+        mode: 'deep_think',
+        capture_time: '2026-08-18T09:00:00Z',
+        analysis_state: 'ready',
+        mentioned: true,
+        rank: 1,
+        sentiment: 'positive',
+        recommended: true,
+        citation_count: 3,
+      },
+      {
+        answer_pub_id: 'ans_library_01',
+        repeat_index: 1,
+        model: 'DeepSeek',
+        region: '上海',
+        mode: 'deep_think',
+        capture_time: '2026-08-18T08:00:00Z',
+        analysis_state: 'ready',
+        mentioned: false,
+        rank: null,
+        sentiment: 'neutral',
+        recommended: false,
+        citation_count: 0,
+      },
+    ];
+    const runsPayload = {
+      schema_version: 'customer-answer-library-runs-v1',
+      project_pub_id: 'prj_safe',
+      snapshot_id: snapshotId,
+      snapshot_at: snapshotAt,
+      meta_query_id: metaQueryId,
+      meta_query_ordinal: 1,
+      meta_query_label: '高校双非资产排查',
+      question: questions[0],
+      models: dimensions,
+      regions: [{ label: '上海', answer_count: 2 }],
+      modes: [{ label: 'deep_think', answer_count: 2 }],
+      data: runs,
+      page: { total: 2, offset: 0, limit: 20, has_more: false },
+    };
+    const detailPayload = {
+      schema_version: 'customer-answer-library-detail-v1',
+      project_pub_id: 'prj_safe',
+      snapshot_id: snapshotId,
+      snapshot_at: snapshotAt,
+      meta_query_id: metaQueryId,
+      meta_query_ordinal: 1,
+      meta_query_label: '高校双非资产排查',
+      question_id: questionIds[0],
+      question_ordinal: 1,
+      variant_label: '原问题',
+      question_text: '第 1 个具体问题',
+      answer: runs[0],
+      response_text: '只在第四层传输的完整回答正文。',
+    };
+
+    const projectedRoot = projectCustomerAnswerLibraryPageBoundary(rootPayload, 'prj_safe', 0, 8);
+    expect(projectedRoot).toMatchObject({
+      totals: { meta_query_count: 34, question_count: 136 },
+    });
+    expect(projectedRoot?.data[0]?.questions[0]).toMatchObject({ variant_label: '原问题' });
+    expect(
+      projectCustomerAnswerLibraryPageBoundary(
+        {
+          ...rootPayload,
+          data: [{ ...rootPayload.data[0], response_text: '列表不应接受正文' }],
+        },
+        'prj_safe',
+        0,
+        8,
+      ),
+    ).toBeNull();
+    const projectedMeta = projectCustomerAnswerLibraryMetaBoundary(
+      metaPayload,
+      'prj_safe',
+      metaQueryId,
+      snapshotId,
+      snapshotAt,
+    );
+    expect(projectedMeta?.questions[0]).toMatchObject({ answer_count: 2 });
+    expect(
+      projectCustomerAnswerLibraryRunsBoundary(
+        runsPayload,
+        'prj_safe',
+        questionIds[0]!,
+        snapshotId,
+        snapshotAt,
+        0,
+        20,
+      ),
+    ).toMatchObject({ data: [{ repeat_index: 2 }, { repeat_index: 1 }] });
+    expect(
+      projectCustomerAnswerLibraryDetailBoundary(
+        detailPayload,
+        'prj_safe',
+        'ans_library_02',
+        snapshotId,
+        snapshotAt,
+      ),
+    ).toMatchObject({ response_text: '只在第四层传输的完整回答正文。' });
+
+    const request = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL((input as Request).url);
+      const path = url.pathname;
+      const payload = path.endsWith('/answer-library')
+        ? {
+            ...rootPayload,
+            page: {
+              total: 34,
+              offset: Number(url.searchParams.get('offset') ?? 0),
+              limit: Number(url.searchParams.get('limit') ?? 8),
+              has_more: Number(url.searchParams.get('offset') ?? 0) + 1 < 34,
+            },
+          }
+        : path.includes('/meta-queries/')
+          ? metaPayload
+          : path.includes('/questions/')
+            ? runsPayload
+            : detailPayload;
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    vi.stubGlobal('fetch', request);
+    const client = createGeoApiClient('http://127.0.0.1:45200');
+    const headers = {
+      'X-Tenant-Id': 'tnt_safe',
+      'X-Actor-Id': 'customer-safe',
+      'X-Actor-Role': 'customer' as const,
+    };
+    await expect(
+      getCustomerAnswerLibraryPage(
+        'prj_safe',
+        '2026-08-01',
+        '2026-08-19',
+        { offset: 0, limit: 8 },
+        headers,
+        client,
+      ),
+    ).resolves.toMatchObject({ kind: 'ready', data: { snapshot_id: snapshotId } });
+    await expect(
+      getCustomerAnswerLibraryPage(
+        'prj_safe',
+        '2026-08-01',
+        '2026-08-19',
+        {
+          snapshot_id: snapshotId,
+          snapshot_at: snapshotAt,
+          offset: 8,
+          limit: 8,
+        },
+        headers,
+        client,
+      ),
+    ).resolves.toMatchObject({
+      kind: 'ready',
+      data: { snapshot_id: snapshotId, snapshot_at: snapshotAt, page: { offset: 8 } },
+    });
+    await expect(
+      getCustomerAnswerLibraryMetaQuery(
+        'prj_safe',
+        metaQueryId,
+        '2026-08-01',
+        '2026-08-19',
+        { snapshot_id: snapshotId, snapshot_at: snapshotAt },
+        headers,
+        client,
+      ),
+    ).resolves.toMatchObject({ kind: 'ready', data: { meta_query_id: metaQueryId } });
+    await expect(
+      getCustomerAnswerLibraryQuestionRuns(
+        'prj_safe',
+        questionIds[0]!,
+        '2026-08-01',
+        '2026-08-19',
+        { snapshot_id: snapshotId, snapshot_at: snapshotAt, offset: 0, limit: 20 },
+        headers,
+        client,
+      ),
+    ).resolves.toMatchObject({ kind: 'ready', data: { page: { total: 2 } } });
+    await expect(
+      getCustomerAnswerLibraryDetail(
+        'prj_safe',
+        'ans_library_02',
+        '2026-08-01',
+        '2026-08-19',
+        { snapshot_id: snapshotId, snapshot_at: snapshotAt },
+        headers,
+        client,
+      ),
+    ).resolves.toMatchObject({ kind: 'ready', data: { response_text: expect.any(String) } });
+
+    const urls = request.mock.calls.map((call) => new URL((call[0] as Request).url));
+    expect(urls[0]!.pathname).toBe('/api/v2/customer-dashboard/projects/prj_safe/answer-library');
+    expect(urls[1]!.searchParams.get('snapshot_id')).toBe(snapshotId);
+    expect(urls[1]!.searchParams.get('snapshot_at')).toBe(snapshotAt);
+    expect(urls[2]!.searchParams.get('snapshot_id')).toBe(snapshotId);
+    expect(urls[3]!.searchParams.get('snapshot_at')).toBe(snapshotAt);
+    expect(urls[4]!.pathname).toContain('/answer-library/answers/ans_library_02');
+  });
 });
 
 describe('media prices dataset boundary', () => {
@@ -7436,6 +7738,16 @@ describe('fixed-field browser boundaries (Round170)', () => {
                 embed_status: 'blocked',
                 embed_reason: 'x_frame_options_restricts_embedding',
               },
+              share_image: {
+                pub_id: 'evd_aaaaaaaaaaaaaaaaaaaa',
+                sha256: 'f'.repeat(64),
+                mime_type: 'image/png',
+                byte_size: 4096,
+                image_width: 1200,
+                image_height: 6400,
+                capture_time: '2026-07-25T08:00:00Z',
+                object_key: 'must-not-cross-browser-boundary',
+              },
               citations: [citation],
               evidence: [evidence],
               history: [history],
@@ -7529,6 +7841,15 @@ describe('fixed-field browser boundaries (Round170)', () => {
       last_accessible_at: '2026-07-25T08:00:00Z',
       embed_status: 'blocked',
       embed_reason: 'x_frame_options_restricts_embedding',
+    });
+    expect(relations.data.share_image).toEqual({
+      pub_id: 'evd_aaaaaaaaaaaaaaaaaaaa',
+      sha256: 'f'.repeat(64),
+      mime_type: 'image/png',
+      byte_size: 4096,
+      image_width: 1200,
+      image_height: 6400,
+      capture_time: '2026-07-25T08:00:00Z',
     });
     const projectedEvidence = relations.data.evidence[0]!;
     expect(sortedKeys(projectedEvidence)).toEqual([

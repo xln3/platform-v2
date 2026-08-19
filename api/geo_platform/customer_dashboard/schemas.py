@@ -116,6 +116,143 @@ class CustomerAnswerPageView(StrictModel):
     page: CustomerAnswerPageMetaView
 
 
+class CustomerAnswerLibraryDimensionView(StrictModel):
+    label: str = Field(min_length=1, max_length=120)
+    answer_count: int = Field(ge=0)
+
+
+class CustomerAnswerLibraryTotalsView(StrictModel):
+    meta_query_count: int = Field(ge=0)
+    question_count: int = Field(ge=0)
+    answer_count: int = Field(ge=0)
+    cited_answer_count: int = Field(ge=0)
+    citation_count: int = Field(ge=0)
+    mentioned_answer_count: int = Field(ge=0)
+    unmapped_answer_count: int = Field(ge=0)
+
+
+class CustomerAnswerLibraryChoiceView(StrictModel):
+    question_id: str = Field(pattern=r"^aq_[0-9a-f]{24}$")
+    ordinal: int = Field(ge=1, le=500)
+    variant_label: str = Field(min_length=1, max_length=40)
+    text: str = Field(min_length=1, max_length=2_000)
+    answer_count: int = Field(ge=0)
+
+
+class CustomerAnswerLibraryMetaQueryView(StrictModel):
+    meta_query_id: str = Field(pattern=r"^amq_[0-9a-f]{24}$")
+    ordinal: int = Field(ge=1)
+    label: str = Field(min_length=1, max_length=2_000)
+    question_count: int = Field(ge=1, le=500)
+    answer_count: int = Field(ge=0)
+    cited_answer_count: int = Field(ge=0)
+    citation_count: int = Field(ge=0)
+    mentioned_answer_count: int = Field(ge=0)
+    latest_capture_time: datetime | None = None
+    models: list[CustomerAnswerLibraryDimensionView] = Field(max_length=100)
+    regions: list[CustomerAnswerLibraryDimensionView] = Field(max_length=100)
+    modes: list[CustomerAnswerLibraryDimensionView] = Field(max_length=100)
+    questions: list[CustomerAnswerLibraryChoiceView] = Field(min_length=1, max_length=500)
+
+
+class CustomerAnswerLibraryPageMetaView(StrictModel):
+    total: int = Field(ge=0)
+    offset: int = Field(ge=0)
+    limit: int = Field(ge=1, le=50)
+    has_more: bool
+
+
+class CustomerAnswerLibraryPageView(StrictModel):
+    schema_version: Literal["customer-answer-library-v1"]
+    project_pub_id: str = Field(pattern=r"^prj_[A-Za-z0-9_-]{1,116}$")
+    snapshot_id: str = Field(pattern=r"^als_[0-9a-f]{24}$")
+    snapshot_at: datetime
+    totals: CustomerAnswerLibraryTotalsView
+    models: list[CustomerAnswerLibraryDimensionView] = Field(max_length=100)
+    regions: list[CustomerAnswerLibraryDimensionView] = Field(max_length=100)
+    modes: list[CustomerAnswerLibraryDimensionView] = Field(max_length=100)
+    data: list[CustomerAnswerLibraryMetaQueryView] = Field(max_length=20)
+    page: CustomerAnswerLibraryPageMetaView
+
+
+class CustomerAnswerLibraryQuestionView(StrictModel):
+    question_id: str = Field(pattern=r"^aq_[0-9a-f]{24}$")
+    ordinal: int = Field(ge=1, le=500)
+    variant_label: str = Field(min_length=1, max_length=40)
+    text: str = Field(min_length=1, max_length=2_000)
+    answer_count: int = Field(ge=0)
+    cited_answer_count: int = Field(ge=0)
+    citation_count: int = Field(ge=0)
+    mentioned_answer_count: int = Field(ge=0)
+    latest_capture_time: datetime | None = None
+    models: list[CustomerAnswerLibraryDimensionView] = Field(max_length=100)
+    regions: list[CustomerAnswerLibraryDimensionView] = Field(max_length=100)
+    modes: list[CustomerAnswerLibraryDimensionView] = Field(max_length=100)
+
+
+class CustomerAnswerLibraryMetaDetailView(StrictModel):
+    schema_version: Literal["customer-answer-library-meta-v1"]
+    project_pub_id: str = Field(pattern=r"^prj_[A-Za-z0-9_-]{1,116}$")
+    snapshot_id: str = Field(pattern=r"^als_[0-9a-f]{24}$")
+    snapshot_at: datetime
+    meta_query_id: str = Field(pattern=r"^amq_[0-9a-f]{24}$")
+    ordinal: int = Field(ge=1)
+    label: str = Field(min_length=1, max_length=2_000)
+    answer_count: int = Field(ge=0)
+    cited_answer_count: int = Field(ge=0)
+    citation_count: int = Field(ge=0)
+    mentioned_answer_count: int = Field(ge=0)
+    latest_capture_time: datetime | None = None
+    questions: list[CustomerAnswerLibraryQuestionView] = Field(min_length=1, max_length=500)
+
+
+class CustomerAnswerLibraryRunView(StrictModel):
+    answer_pub_id: str = Field(pattern=r"^ans_[A-Za-z0-9_-]{1,116}$")
+    repeat_index: int = Field(ge=1)
+    model: str = Field(min_length=1, max_length=120)
+    region: str = Field(min_length=1, max_length=120)
+    mode: str = Field(min_length=1, max_length=80)
+    capture_time: datetime
+    analysis_state: Literal["ready", "pending"]
+    mentioned: bool | None = None
+    rank: int | None = Field(default=None, ge=1)
+    sentiment: Literal["positive", "neutral", "negative", "unknown"] | None = None
+    recommended: bool | None = None
+    citation_count: int = Field(ge=0)
+
+
+class CustomerAnswerLibraryQuestionRunsView(StrictModel):
+    schema_version: Literal["customer-answer-library-runs-v1"]
+    project_pub_id: str = Field(pattern=r"^prj_[A-Za-z0-9_-]{1,116}$")
+    snapshot_id: str = Field(pattern=r"^als_[0-9a-f]{24}$")
+    snapshot_at: datetime
+    meta_query_id: str = Field(pattern=r"^amq_[0-9a-f]{24}$")
+    meta_query_ordinal: int = Field(ge=1)
+    meta_query_label: str = Field(min_length=1, max_length=2_000)
+    question: CustomerAnswerLibraryQuestionView
+    models: list[CustomerAnswerLibraryDimensionView] = Field(max_length=100)
+    regions: list[CustomerAnswerLibraryDimensionView] = Field(max_length=100)
+    modes: list[CustomerAnswerLibraryDimensionView] = Field(max_length=100)
+    data: list[CustomerAnswerLibraryRunView] = Field(max_length=50)
+    page: CustomerAnswerLibraryPageMetaView
+
+
+class CustomerAnswerLibraryDetailView(StrictModel):
+    schema_version: Literal["customer-answer-library-detail-v1"]
+    project_pub_id: str = Field(pattern=r"^prj_[A-Za-z0-9_-]{1,116}$")
+    snapshot_id: str = Field(pattern=r"^als_[0-9a-f]{24}$")
+    snapshot_at: datetime
+    meta_query_id: str = Field(pattern=r"^amq_[0-9a-f]{24}$")
+    meta_query_ordinal: int = Field(ge=1)
+    meta_query_label: str = Field(min_length=1, max_length=2_000)
+    question_id: str = Field(pattern=r"^aq_[0-9a-f]{24}$")
+    question_ordinal: int = Field(ge=1, le=500)
+    variant_label: str = Field(min_length=1, max_length=40)
+    question_text: str = Field(min_length=1, max_length=2_000)
+    answer: CustomerAnswerLibraryRunView
+    response_text: str = Field(max_length=200_000)
+
+
 class CustomerDashboardView(StrictModel):
     schema_version: Literal["customer-dashboard-v1"]
     metric_version: Literal["customer-metrics-v1"]

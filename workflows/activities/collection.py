@@ -722,6 +722,9 @@ def _persist_evidence_assets(
     capture_time = datetime.now(UTC)
     evidence_ids_by_relation: dict[str, str] = {}
     for index, item in enumerate(evidence, 1):
+        customer_visible = (
+            item.kind == "share_image" and item.relation_type == "official_share_image"
+        )
         stable_key = "|".join(
             (
                 tenant_pub_id,
@@ -748,7 +751,7 @@ def _persist_evidence_assets(
                   (:pub_id,:tenant_pub_id,:project_pub_id,:kind,'customer_private',:sha256,
                    :object_key,:mime_type,:byte_size,:source_url,:dlp_findings,'web',
                    CAST(:authorization_scope AS text[]),:adapter_version,:capture_time,false,
-                   :image_width,:image_height,false)
+                   :image_width,:image_height,:customer_visible)
                 ON CONFLICT (pub_id) DO NOTHING
                 """
             ),
@@ -768,6 +771,7 @@ def _persist_evidence_assets(
                 "capture_time": capture_time,
                 "image_width": image_width,
                 "image_height": image_height,
+                "customer_visible": customer_visible,
             },
         )
         persisted = (
@@ -796,7 +800,7 @@ def _persist_evidence_assets(
             "adapter_version": adapter_version,
             "image_width": image_width,
             "image_height": image_height,
-            "customer_visible": False,
+            "customer_visible": customer_visible,
         }
         if dict(persisted) != expected:
             raise ApplicationError(

@@ -143,7 +143,8 @@ def test_answer_anchor_and_clean_image_round_trip_through_postgres_and_cas(
         row = connection.execute(
             """
             SELECT task.answer_text,asset.object_key,asset.sha256,asset.mime_type,
-                   anchor.text_start,anchor.text_end,anchor.bbox,anchor.quote_hash
+                   anchor.text_start,anchor.text_end,anchor.bbox,anchor.quote_hash,
+                   asset.customer_visible
             FROM platform.collection_task task
             JOIN evidence.evidence_relation relation
               ON relation.tenant_pub_id=%s AND relation.from_pub_id=task.pub_id
@@ -164,6 +165,7 @@ def test_answer_anchor_and_clean_image_round_trip_through_postgres_and_cas(
     assert row[4:6] == (0, len(answer_text))
     assert row[6] == bbox
     assert row[7] == sha256(answer_text.encode()).hexdigest()
+    assert row[8] is False
 
     settings = get_settings()
     store = ContentAddressedObjectStore(
@@ -217,7 +219,7 @@ def test_answer_anchor_and_clean_image_round_trip_through_postgres_and_cas(
     assert persisted_ref["anchors"][0]["bbox"] == bbox
 
 
-def test_official_share_verification_is_persisted_without_exposing_image_contract(
+def test_official_share_verification_exposes_only_the_share_image(
     tmp_path: Path,
 ) -> None:
     with TestClient(app) as client:
@@ -226,6 +228,8 @@ def test_official_share_verification_is_persisted_without_exposing_image_contrac
     checked_at = datetime(2026, 8, 18, 9, 30, tzinfo=UTC)
     share_url = "https://chat.deepseek.com/share/integration-safe"
     manifest_path = tmp_path / "answer-share-link.json"
+    share_image_path = tmp_path / "official-share.png"
+    Image.new("RGB", (1200, 2400), "white").save(share_image_path, format="PNG")
     write_share_link_manifest(
         manifest_path,
         share_url=share_url,
@@ -261,7 +265,14 @@ def test_official_share_verification_is_persisted_without_exposing_image_contrac
                     relation_type="official_share_link",
                     mime_type="application/json",
                     source_url=share_url,
-                )
+                ),
+                CollectionEvidenceRef(
+                    kind="share_image",
+                    path=str(share_image_path),
+                    relation_type="official_share_image",
+                    mime_type="image/png",
+                    source_url=share_url,
+                ),
             ],
         ),
         CollectionTaskInput(
@@ -298,6 +309,23 @@ def test_official_share_verification_is_persisted_without_exposing_image_contrac
             """,
             (tenant_pub_id, share_url),
         ).fetchone()[0]
+        visibility = connection.execute(
+            """
+            SELECT relation.relation_type,asset.kind,asset.customer_visible
+            FROM evidence.evidence_relation relation
+            JOIN evidence.evidence_asset asset
+              ON asset.tenant_pub_id=relation.tenant_pub_id
+             AND asset.pub_id=relation.to_pub_id
+            WHERE relation.tenant_pub_id=%s AND relation.from_pub_id=(
+              SELECT task.pub_id FROM platform.collection_task task
+              WHERE task.run_id=(SELECT id FROM platform.collection_run WHERE pub_id=%s)
+                AND task.business_key='answer-share-1'
+            )
+              AND relation.relation_type IN ('official_share_link','official_share_image')
+            ORDER BY relation.relation_type
+            """,
+            (tenant_pub_id, run_pub_id),
+        ).fetchall()
     assert artifact is not None
     assert artifact[:7] == (
         "available",
@@ -309,5 +337,9 @@ def test_official_share_verification_is_persisted_without_exposing_image_contrac
         "DENY",
     )
     assert artifact[7] is not None
-    assert artifact[8] is None
+    assert artifact[8] is not None
     assert event_count == 1
+    assert visibility == [
+        ("official_share_image", "share_image", True),
+        ("official_share_link", "share_link", False),
+    ]

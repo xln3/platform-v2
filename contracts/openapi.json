@@ -6565,6 +6565,1296 @@
         }
       }
     },
+    "/api/v2/customer-dashboard/projects/{project_pub_id}/answer-library": {
+      "get": {
+        "tags": [
+          "customer-dashboard"
+        ],
+        "summary": "Customer Answer Library",
+        "operationId": "getCustomerAnswerLibraryPage",
+        "parameters": [
+          {
+            "name": "project_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^prj_[A-Za-z0-9_-]{1,116}$",
+              "title": "Project Pub Id"
+            }
+          },
+          {
+            "name": "start",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start"
+            }
+          },
+          {
+            "name": "end",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Search"
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Model"
+            }
+          },
+          {
+            "name": "region",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Region"
+            }
+          },
+          {
+            "name": "mode",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Mode"
+            }
+          },
+          {
+            "name": "snapshot_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^als_[0-9a-f]{24}$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Snapshot Id"
+            }
+          },
+          {
+            "name": "snapshot_at",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Snapshot At"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 20,
+              "minimum": 1,
+              "default": 8,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerAnswerLibraryPageView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/customer-dashboard/projects/{project_pub_id}/answer-library/meta-queries/{meta_query_id}": {
+      "get": {
+        "tags": [
+          "customer-dashboard"
+        ],
+        "summary": "Customer Answer Library Meta Query",
+        "operationId": "getCustomerAnswerLibraryMetaQuery",
+        "parameters": [
+          {
+            "name": "project_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^prj_[A-Za-z0-9_-]{1,116}$",
+              "title": "Project Pub Id"
+            }
+          },
+          {
+            "name": "meta_query_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^amq_[0-9a-f]{24}$",
+              "title": "Meta Query Id"
+            }
+          },
+          {
+            "name": "snapshot_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^als_[0-9a-f]{24}$",
+              "title": "Snapshot Id"
+            }
+          },
+          {
+            "name": "snapshot_at",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "title": "Snapshot At"
+            }
+          },
+          {
+            "name": "start",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start"
+            }
+          },
+          {
+            "name": "end",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End"
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Model"
+            }
+          },
+          {
+            "name": "region",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Region"
+            }
+          },
+          {
+            "name": "mode",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Mode"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerAnswerLibraryMetaDetailView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/customer-dashboard/projects/{project_pub_id}/answer-library/questions/{question_id}/answers": {
+      "get": {
+        "tags": [
+          "customer-dashboard"
+        ],
+        "summary": "Customer Answer Library Question Runs",
+        "operationId": "getCustomerAnswerLibraryQuestionRuns",
+        "parameters": [
+          {
+            "name": "project_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^prj_[A-Za-z0-9_-]{1,116}$",
+              "title": "Project Pub Id"
+            }
+          },
+          {
+            "name": "question_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^aq_[0-9a-f]{24}$",
+              "title": "Question Id"
+            }
+          },
+          {
+            "name": "snapshot_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^als_[0-9a-f]{24}$",
+              "title": "Snapshot Id"
+            }
+          },
+          {
+            "name": "snapshot_at",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "title": "Snapshot At"
+            }
+          },
+          {
+            "name": "start",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start"
+            }
+          },
+          {
+            "name": "end",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End"
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Model"
+            }
+          },
+          {
+            "name": "region",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Region"
+            }
+          },
+          {
+            "name": "mode",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Mode"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerAnswerLibraryQuestionRunsView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/customer-dashboard/projects/{project_pub_id}/answer-library/answers/{answer_pub_id}": {
+      "get": {
+        "tags": [
+          "customer-dashboard"
+        ],
+        "summary": "Customer Answer Library Detail",
+        "operationId": "getCustomerAnswerLibraryDetail",
+        "parameters": [
+          {
+            "name": "project_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^prj_[A-Za-z0-9_-]{1,116}$",
+              "title": "Project Pub Id"
+            }
+          },
+          {
+            "name": "answer_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^ans_[A-Za-z0-9_-]{1,116}$",
+              "title": "Answer Pub Id"
+            }
+          },
+          {
+            "name": "snapshot_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^als_[0-9a-f]{24}$",
+              "title": "Snapshot Id"
+            }
+          },
+          {
+            "name": "snapshot_at",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "title": "Snapshot At"
+            }
+          },
+          {
+            "name": "start",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start"
+            }
+          },
+          {
+            "name": "end",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerAnswerLibraryDetailView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/onboarding": {
       "post": {
         "tags": [
@@ -21392,6 +22682,25 @@
               "title": "Project Pub Id"
             },
             "description": "Optional project binding for customer answer-detail reads."
+          },
+          {
+            "name": "snapshot_at",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional immutable customer-library cutoff for related evidence.",
+              "title": "Snapshot At"
+            },
+            "description": "Optional immutable customer-library cutoff for related evidence."
           },
           {
             "name": "X-Tenant-Id",
@@ -58434,6 +59743,16 @@
               }
             ]
           },
+          "share_image": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnswerShareImageView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "answer_citations": {
             "items": {
               "$ref": "#/components/schemas/CitationRelationView"
@@ -58482,6 +59801,7 @@
         "required": [
           "answer_pub_id",
           "share_artifact",
+          "share_image",
           "answer_citations",
           "brand_mention_evidence",
           "opened_source_previews",
@@ -58605,6 +59925,72 @@
           "embed_status"
         ],
         "title": "AnswerShareArtifactView"
+      },
+      "AnswerShareImageView": {
+        "properties": {
+          "pub_id": {
+            "type": "string",
+            "pattern": "^evd_[A-Za-z0-9]{16,64}$",
+            "title": "Pub Id"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Sha256"
+          },
+          "mime_type": {
+            "type": "string",
+            "const": "image/png",
+            "title": "Mime Type"
+          },
+          "byte_size": {
+            "type": "integer",
+            "maximum": 31457280.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Byte Size"
+          },
+          "image_width": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100000.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Width"
+          },
+          "image_height": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100000.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Height"
+          },
+          "capture_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Capture Time"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "pub_id",
+          "sha256",
+          "mime_type",
+          "byte_size",
+          "capture_time"
+        ],
+        "title": "AnswerShareImageView"
       },
       "AnswerView": {
         "properties": {
@@ -62997,6 +64383,835 @@
           "revoked_at"
         ],
         "title": "CustomerAccountView"
+      },
+      "CustomerAnswerLibraryChoiceView": {
+        "properties": {
+          "question_id": {
+            "type": "string",
+            "pattern": "^aq_[0-9a-f]{24}$",
+            "title": "Question Id"
+          },
+          "ordinal": {
+            "type": "integer",
+            "maximum": 500.0,
+            "minimum": 1.0,
+            "title": "Ordinal"
+          },
+          "variant_label": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Variant Label"
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Text"
+          },
+          "answer_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Answer Count"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "question_id",
+          "ordinal",
+          "variant_label",
+          "text",
+          "answer_count"
+        ],
+        "title": "CustomerAnswerLibraryChoiceView"
+      },
+      "CustomerAnswerLibraryDetailView": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "customer-answer-library-detail-v1",
+            "title": "Schema Version"
+          },
+          "project_pub_id": {
+            "type": "string",
+            "pattern": "^prj_[A-Za-z0-9_-]{1,116}$",
+            "title": "Project Pub Id"
+          },
+          "snapshot_id": {
+            "type": "string",
+            "pattern": "^als_[0-9a-f]{24}$",
+            "title": "Snapshot Id"
+          },
+          "snapshot_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Snapshot At"
+          },
+          "meta_query_id": {
+            "type": "string",
+            "pattern": "^amq_[0-9a-f]{24}$",
+            "title": "Meta Query Id"
+          },
+          "meta_query_ordinal": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Meta Query Ordinal"
+          },
+          "meta_query_label": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Meta Query Label"
+          },
+          "question_id": {
+            "type": "string",
+            "pattern": "^aq_[0-9a-f]{24}$",
+            "title": "Question Id"
+          },
+          "question_ordinal": {
+            "type": "integer",
+            "maximum": 500.0,
+            "minimum": 1.0,
+            "title": "Question Ordinal"
+          },
+          "variant_label": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Variant Label"
+          },
+          "question_text": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Question Text"
+          },
+          "answer": {
+            "$ref": "#/components/schemas/CustomerAnswerLibraryRunView"
+          },
+          "response_text": {
+            "type": "string",
+            "maxLength": 200000,
+            "title": "Response Text"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "schema_version",
+          "project_pub_id",
+          "snapshot_id",
+          "snapshot_at",
+          "meta_query_id",
+          "meta_query_ordinal",
+          "meta_query_label",
+          "question_id",
+          "question_ordinal",
+          "variant_label",
+          "question_text",
+          "answer",
+          "response_text"
+        ],
+        "title": "CustomerAnswerLibraryDetailView"
+      },
+      "CustomerAnswerLibraryDimensionView": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Label"
+          },
+          "answer_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Answer Count"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "label",
+          "answer_count"
+        ],
+        "title": "CustomerAnswerLibraryDimensionView"
+      },
+      "CustomerAnswerLibraryMetaDetailView": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "customer-answer-library-meta-v1",
+            "title": "Schema Version"
+          },
+          "project_pub_id": {
+            "type": "string",
+            "pattern": "^prj_[A-Za-z0-9_-]{1,116}$",
+            "title": "Project Pub Id"
+          },
+          "snapshot_id": {
+            "type": "string",
+            "pattern": "^als_[0-9a-f]{24}$",
+            "title": "Snapshot Id"
+          },
+          "snapshot_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Snapshot At"
+          },
+          "meta_query_id": {
+            "type": "string",
+            "pattern": "^amq_[0-9a-f]{24}$",
+            "title": "Meta Query Id"
+          },
+          "ordinal": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Ordinal"
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Label"
+          },
+          "answer_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Answer Count"
+          },
+          "cited_answer_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Cited Answer Count"
+          },
+          "citation_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Citation Count"
+          },
+          "mentioned_answer_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Mentioned Answer Count"
+          },
+          "latest_capture_time": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Capture Time"
+          },
+          "questions": {
+            "items": {
+              "$ref": "#/components/schemas/CustomerAnswerLibraryQuestionView"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Questions"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "schema_version",
+          "project_pub_id",
+          "snapshot_id",
+          "snapshot_at",
+          "meta_query_id",
+          "ordinal",
+          "label",
+          "answer_count",
+          "cited_answer_count",
+          "citation_count",
+          "mentioned_answer_count",
+          "questions"
+        ],
+        "title": "CustomerAnswerLibraryMetaDetailView"
+      },
+      "CustomerAnswerLibraryMetaQueryView": {
+        "properties": {
+          "meta_query_id": {
+            "type": "string",
+            "pattern": "^amq_[0-9a-f]{24}$",
+            "title": "Meta Query Id"
+          },
+          "ordinal": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Ordinal"
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Label"
+          },
+          "question_count": {
+            "type": "integer",
+            "maximum": 500.0,
+            "minimum": 1.0,
+            "title": "Question Count"
+          },
+          "answer_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Answer Count"
+          },
+          "cited_answer_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Cited Answer Count"
+          },
+          "citation_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Citation Count"
+          },
+          "mentioned_answer_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Mentioned Answer Count"
+          },
+          "latest_capture_time": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Capture Time"
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/CustomerAnswerLibraryDimensionView"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Models"
+          },
+          "regions": {
+            "items": {
+              "$ref": "#/components/schemas/CustomerAnswerLibraryDimensionView"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Regions"
+          },
+          "modes": {
+            "items": {
+              "$ref": "#/components/schemas/CustomerAnswerLibraryDimensionView"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Modes"
+          },
+          "questions": {
+            "items": {
+              "$ref": "#/components/schemas/CustomerAnswerLibraryChoiceView"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Questions"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "meta_query_id",
+          "ordinal",
+          "label",
+          "question_count",
+          "answer_count",
+          "cited_answer_count",
+          "citation_count",
+          "mentioned_answer_count",
+          "models",
+          "regions",
+          "modes",
+          "questions"
+        ],
+        "title": "CustomerAnswerLibraryMetaQueryView"
+      },
+      "CustomerAnswerLibraryPageMetaView": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Offset"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Limit"
+          },
+          "has_more": {
+            "type": "boolean",
+            "title": "Has More"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "total",
+          "offset",
+          "limit",
+          "has_more"
+        ],
+        "title": "CustomerAnswerLibraryPageMetaView"
+      },
+      "CustomerAnswerLibraryPageView": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "customer-answer-library-v1",
+            "title": "Schema Version"
+          },
+          "project_pub_id": {
+            "type": "string",
+            "pattern": "^prj_[A-Za-z0-9_-]{1,116}$",
+            "title": "Project Pub Id"
+          },
+          "snapshot_id": {
+            "type": "string",
+            "pattern": "^als_[0-9a-f]{24}$",
+            "title": "Snapshot Id"
+          },
+          "snapshot_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Snapshot At"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/CustomerAnswerLibraryTotalsView"
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/CustomerAnswerLibraryDimensionView"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Models"
+          },
+          "regions": {
+            "items": {
+              "$ref": "#/components/schemas/CustomerAnswerLibraryDimensionView"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Regions"
+          },
+          "modes": {
+            "items": {
+              "$ref": "#/components/schemas/CustomerAnswerLibraryDimensionView"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Modes"
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/CustomerAnswerLibraryMetaQueryView"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Data"
+          },
+          "page": {
+            "$ref": "#/components/schemas/CustomerAnswerLibraryPageMetaView"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "schema_version",
+          "project_pub_id",
+          "snapshot_id",
+          "snapshot_at",
+          "totals",
+          "models",
+          "regions",
+          "modes",
+          "data",
+          "page"
+        ],
+        "title": "CustomerAnswerLibraryPageView"
+      },
+      "CustomerAnswerLibraryQuestionRunsView": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "customer-answer-library-runs-v1",
+            "title": "Schema Version"
+          },
+          "project_pub_id": {
+            "type": "string",
+            "pattern": "^prj_[A-Za-z0-9_-]{1,116}$",
+            "title": "Project Pub Id"
+          },
+          "snapshot_id": {
+            "type": "string",
+            "pattern": "^als_[0-9a-f]{24}$",
+            "title": "Snapshot Id"
+          },
+          "snapshot_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Snapshot At"
+          },
+          "meta_query_id": {
+            "type": "string",
+            "pattern": "^amq_[0-9a-f]{24}$",
+            "title": "Meta Query Id"
+          },
+          "meta_query_ordinal": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Meta Query Ordinal"
+          },
+          "meta_query_label": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Meta Query Label"
+          },
+          "question": {
+            "$ref": "#/components/schemas/CustomerAnswerLibraryQuestionView"
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/CustomerAnswerLibraryDimensionView"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Models"
+          },
+          "regions": {
+            "items": {
+              "$ref": "#/components/schemas/CustomerAnswerLibraryDimensionView"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Regions"
+          },
+          "modes": {
+            "items": {
+              "$ref": "#/components/schemas/CustomerAnswerLibraryDimensionView"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Modes"
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/CustomerAnswerLibraryRunView"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "title": "Data"
+          },
+          "page": {
+            "$ref": "#/components/schemas/CustomerAnswerLibraryPageMetaView"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "schema_version",
+          "project_pub_id",
+          "snapshot_id",
+          "snapshot_at",
+          "meta_query_id",
+          "meta_query_ordinal",
+          "meta_query_label",
+          "question",
+          "models",
+          "regions",
+          "modes",
+          "data",
+          "page"
+        ],
+        "title": "CustomerAnswerLibraryQuestionRunsView"
+      },
+      "CustomerAnswerLibraryQuestionView": {
+        "properties": {
+          "question_id": {
+            "type": "string",
+            "pattern": "^aq_[0-9a-f]{24}$",
+            "title": "Question Id"
+          },
+          "ordinal": {
+            "type": "integer",
+            "maximum": 500.0,
+            "minimum": 1.0,
+            "title": "Ordinal"
+          },
+          "variant_label": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Variant Label"
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Text"
+          },
+          "answer_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Answer Count"
+          },
+          "cited_answer_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Cited Answer Count"
+          },
+          "citation_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Citation Count"
+          },
+          "mentioned_answer_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Mentioned Answer Count"
+          },
+          "latest_capture_time": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Capture Time"
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/CustomerAnswerLibraryDimensionView"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Models"
+          },
+          "regions": {
+            "items": {
+              "$ref": "#/components/schemas/CustomerAnswerLibraryDimensionView"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Regions"
+          },
+          "modes": {
+            "items": {
+              "$ref": "#/components/schemas/CustomerAnswerLibraryDimensionView"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Modes"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "question_id",
+          "ordinal",
+          "variant_label",
+          "text",
+          "answer_count",
+          "cited_answer_count",
+          "citation_count",
+          "mentioned_answer_count",
+          "models",
+          "regions",
+          "modes"
+        ],
+        "title": "CustomerAnswerLibraryQuestionView"
+      },
+      "CustomerAnswerLibraryRunView": {
+        "properties": {
+          "answer_pub_id": {
+            "type": "string",
+            "pattern": "^ans_[A-Za-z0-9_-]{1,116}$",
+            "title": "Answer Pub Id"
+          },
+          "repeat_index": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Repeat Index"
+          },
+          "model": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Model"
+          },
+          "region": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Region"
+          },
+          "mode": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Mode"
+          },
+          "capture_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Capture Time"
+          },
+          "analysis_state": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "pending"
+            ],
+            "title": "Analysis State"
+          },
+          "mentioned": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mentioned"
+          },
+          "rank": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank"
+          },
+          "sentiment": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "positive",
+                  "neutral",
+                  "negative",
+                  "unknown"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sentiment"
+          },
+          "recommended": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recommended"
+          },
+          "citation_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Citation Count"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "answer_pub_id",
+          "repeat_index",
+          "model",
+          "region",
+          "mode",
+          "capture_time",
+          "analysis_state",
+          "citation_count"
+        ],
+        "title": "CustomerAnswerLibraryRunView"
+      },
+      "CustomerAnswerLibraryTotalsView": {
+        "properties": {
+          "meta_query_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Meta Query Count"
+          },
+          "question_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Question Count"
+          },
+          "answer_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Answer Count"
+          },
+          "cited_answer_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Cited Answer Count"
+          },
+          "citation_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Citation Count"
+          },
+          "mentioned_answer_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Mentioned Answer Count"
+          },
+          "unmapped_answer_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Unmapped Answer Count"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "meta_query_count",
+          "question_count",
+          "answer_count",
+          "cited_answer_count",
+          "citation_count",
+          "mentioned_answer_count",
+          "unmapped_answer_count"
+        ],
+        "title": "CustomerAnswerLibraryTotalsView"
       },
       "CustomerAnswerPageMetaView": {
         "properties": {
