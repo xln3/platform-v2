@@ -432,6 +432,20 @@ test('validated customer reads mounted data and serializes every write without s
       contentType: 'application/json',
       body: JSON.stringify({
         answer_pub_id: answerPubId,
+        share_artifact: hasOfficialShareEvidence
+          ? {
+              platform: 'doubao',
+              status: 'available',
+              share_url: 'https://www.doubao.com/thread/customer-live-safe',
+              final_url: 'https://www.doubao.com/thread/customer-live-safe',
+              availability_status: 'reachable',
+              http_status: 200,
+              checked_at: '2026-07-25T01:00:00Z',
+              last_accessible_at: '2026-07-25T01:00:00Z',
+              embed_status: 'allowed',
+              embed_reason: null,
+            }
+          : null,
         citations: [
           {
             pub_id: 'cit_live_safe',
@@ -1081,6 +1095,38 @@ test('validated customer reads mounted data and serializes every write without s
     .evaluate((body) => body.ownerDocument.defaultView?.scrollTo(0, 0));
   await expect(answerDossier.getByRole('heading', { name: '核验建议' })).toHaveCount(0);
   await expect(answerDossier.getByText('## 核验建议', { exact: true })).toHaveCount(0);
+  await expect(answerDossier.getByText('发布时间完整度', { exact: true })).toHaveCount(0);
+  await expect(answerDossier.getByText('官方回答页', { exact: true })).toHaveCount(0);
+  const citationRail = answerDossier.getByRole('complementary', { name: '引用来源' });
+  const citationTableRegion = answerDossier.getByRole('region', { name: '引用信源分析表' });
+  const assertCitationReadingLayout = async () => {
+    await expect(citationRail.getByRole('heading', { name: '引用信源' })).toBeVisible();
+    await expect(citationTableRegion).toBeVisible();
+    const tableFontSize = await citationTableRegion
+      .locator('tbody td')
+      .first()
+      .evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize));
+    expect(tableFontSize).toBeGreaterThanOrEqual(11);
+    const railBox = await citationRail.boundingBox();
+    expect(railBox).not.toBeNull();
+    if (!narrowAnswerDossier) expect(railBox!.width).toBeGreaterThanOrEqual(380);
+    const headingYBefore = (await citationRail
+      .getByRole('heading', { name: '引用信源' })
+      .boundingBox())!.y;
+    await citationTableRegion.evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+      element.scrollLeft = element.scrollWidth;
+    });
+    const headingYAfter = (await citationRail
+      .getByRole('heading', { name: '引用信源' })
+      .boundingBox())!.y;
+    expect(Math.abs(headingYAfter - headingYBefore)).toBeLessThanOrEqual(1);
+    expect(await citationRail.evaluate((element) => element.scrollTop)).toBe(0);
+    await citationTableRegion.evaluate((element) => {
+      element.scrollTop = 0;
+      element.scrollLeft = 0;
+    });
+  };
   if (narrowAnswerDossier) {
     await expect(answerDossier.getByText('待采集', { exact: true })).toHaveCount(1);
   } else {
@@ -1094,9 +1140,8 @@ test('validated customer reads mounted data and serializes every write without s
     '文心一言',
   );
   if (!narrowAnswerDossier) {
-    await expect(answerDossier.getByRole('region', { name: '引用信源分析表' })).toContainText(
-      '真实独立来源',
-    );
+    await expect(citationTableRegion).toContainText('真实独立来源');
+    await assertCitationReadingLayout();
   }
   await expect(answerDossier.getByRole('img')).toHaveCount(0);
   await expect(answerDossier.getByText(/官方分享图片|采集现场截图/u)).toHaveCount(0);
@@ -1107,10 +1152,8 @@ test('validated customer reads mounted data and serializes every write without s
   ).toBe(true);
   if (narrowAnswerDossier) {
     await answerDossier.getByRole('button', { name: /引用信源/u }).click();
-    await expect(answerDossier.getByRole('region', { name: '引用信源分析表' })).toBeVisible();
-    await expect(answerDossier.getByRole('region', { name: '引用信源分析表' })).toContainText(
-      '真实独立来源',
-    );
+    await expect(citationTableRegion).toContainText('真实独立来源');
+    await assertCitationReadingLayout();
     await expect(answerDossier.getByText('待采集', { exact: true })).toBeVisible();
     await expectSafePageScreenshot(page, 'customer-live-answer-citations.png', {
       animations: 'disabled',

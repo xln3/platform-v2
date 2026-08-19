@@ -192,17 +192,6 @@ const publicationPrecisionLabel = (
   return { date: '仅日期', minute: '精确到分钟', second: '精确到秒' }[precision];
 };
 
-const publicationConfidenceLabel = (
-  confidence: CustomerAnswerCitationDetail['publishedAtConfidence'],
-): string =>
-  ({
-    verified_structured: '结构化与可见时间一致',
-    structured_only: '仅结构化字段',
-    visible_only: '仅页面可见时间',
-    inferred_low: '低置信推断',
-    unknown: '置信度未知',
-  })[confidence ?? 'unknown'];
-
 const safeHttpUrl = (value: string | null | undefined): string | null => {
   if (!value || value.length > 2_000) return null;
   try {
@@ -361,9 +350,10 @@ function CitationRail({
 }) {
   const citations = detail?.citations ?? [];
   const domainCount = new Set(citations.map((citation) => citation.host)).size;
-  const publishedCount = citations.filter(
-    (citation) => citation.publishedAt && citation.publishedAtPrecision,
-  ).length;
+  const sourceCountLabel =
+    state === 'ready' && detail?.projectionComplete === false && expectedCount > citations.length
+      ? `${citations.length}/${expectedCount} 条可展示`
+      : `${citations.length || expectedCount} 条`;
   return (
     <aside className="geo-answer-dossier__citations" aria-label="引用来源">
       <header>
@@ -371,9 +361,7 @@ function CitationRail({
           <span>Source analysis</span>
           <h3>引用信源</h3>
         </div>
-        <Badge tone={citations.length > 0 ? 'info' : 'neutral'}>
-          {citations.length || expectedCount} 条
-        </Badge>
+        <Badge tone={citations.length > 0 ? 'info' : 'neutral'}>{sourceCountLabel}</Badge>
       </header>
       {state === 'loading' ? (
         <div className="geo-answer-dossier__citation-loading" role="status">
@@ -388,18 +376,11 @@ function CitationRail({
           官方页面仍可打开，但当前不能把引用清单声称为完整记录。
         </DetailEmpty>
       ) : null}
-      {state === 'ready' && !detail?.projectionComplete ? (
-        <p className="geo-answer-dossier__integrity-warning" role="alert">
-          部分引用或证据未通过安全投影，当前列表不声明为完整记录。
-        </p>
-      ) : null}
       {state === 'ready' && citations.length > 0 ? (
         <>
           <div className="geo-answer-dossier__citation-summary">
             <span>{domainCount} 个独立域名</span>
-            <span>
-              发布时间 {publishedCount}/{citations.length}
-            </span>
+            <span>{citations.length} 条规范化引用</span>
             <span>回答采集 {formatCaptureTime(answerCaptureTime)}</span>
           </div>
           <div
@@ -458,22 +439,19 @@ function CitationRail({
                         >
                           {citation.title ?? citation.host}
                         </a>
-                        {citation.citedText ? <blockquote>{citation.citedText}</blockquote> : null}
-                        {citation.support?.answerSentence ? (
-                          <small>对应回答句：{citation.support.answerSentence}</small>
-                        ) : (
-                          <small>回答中的引用编号尚未映射到准确句子</small>
-                        )}
                         {citation.support?.sourceQuote ? (
                           <blockquote>来源原文：{citation.support.sourceQuote}</blockquote>
+                        ) : citation.citedText ? (
+                          <blockquote>引用片段：{citation.citedText}</blockquote>
                         ) : null}
-                        <small>
-                          {citation.support?.sourceQuoteHash
-                            ? `来源原文已精确匹配 · ${citation.support.sourceQuoteHash.slice(0, 8)}…`
-                            : citation.contentHash
-                              ? `AI 返回引用片段已登记 · ${citation.contentHash.slice(0, 8)}…；尚未冒充来源支持片段`
-                              : '来源支持片段尚未核对'}
-                        </small>
+                        {citation.support?.answerSentence ? (
+                          <small>对应回答：{citation.support.answerSentence}</small>
+                        ) : null}
+                        {!citation.support?.sourceQuote &&
+                        !citation.citedText &&
+                        !citation.support?.answerSentence ? (
+                          <small>引用依据待补齐</small>
+                        ) : null}
                       </td>
                       <td>
                         {publishedAt ? (
@@ -481,13 +459,9 @@ function CitationRail({
                         ) : (
                           <span className="geo-answer-dossier__missing-time">待采集</span>
                         )}
-                        <small>
-                          {citation.publishedAtRaw ? `原文：${citation.publishedAtRaw} · ` : ''}
-                          {publicationPrecisionLabel(citation.publishedAtPrecision)} · 时区：
-                          {citation.publishedAtTimezone ?? '未知'} ·
-                          {citation.publishedAtSource ?? ' 无提取依据'} ·
-                          {publicationConfidenceLabel(citation.publishedAtConfidence)}
-                        </small>
+                        {publishedAt ? (
+                          <small>{publicationPrecisionLabel(citation.publishedAtPrecision)}</small>
+                        ) : null}
                       </td>
                     </tr>
                   );
@@ -589,9 +563,6 @@ function AnswerDossier({
     officialShareReachable &&
     officialShareArtifact?.embedStatus === 'allowed';
   const hasStoredAnswer = row.response_text.trim().length > 0;
-  const publishedCount =
-    detail?.citations.filter((citation) => citation.publishedAt && citation.publishedAtPrecision)
-      .length ?? 0;
   const uniqueDomains = new Set(detail?.citations.map((citation) => citation.host) ?? []).size;
   const sameQuestionRuns = useMemo(() => {
     const matching = runs.filter((candidate) =>
@@ -694,40 +665,6 @@ function AnswerDossier({
             label="独立信源"
             value={detailState === 'ready' ? `${uniqueDomains} 个域名` : '核对中'}
             note={`${detail?.citations.length ?? row.citation_count} 条规范化引用`}
-          />
-          <DetailMetric
-            label="发布时间完整度"
-            value={
-              detailState === 'ready' && detail?.citations.length
-                ? `${publishedCount}/${detail.citations.length}`
-                : '待核对'
-            }
-            note="缺失会如实标注，不以抓取时间替代"
-          />
-          <DetailMetric
-            label="官方回答页"
-            value={
-              officialShareUrl
-                ? officialShareReachable
-                  ? '已验证'
-                  : officialShareArtifact?.availabilityStatus === 'unchecked'
-                    ? '待验证'
-                    : '暂不可访问'
-                : detailState === 'loading'
-                  ? '核对中'
-                  : hasStoredAnswer
-                    ? '退阶展示'
-                    : '未获取'
-            }
-            note={
-              officialShareUrl
-                ? officialShareEmbeddable
-                  ? `允许嵌入 ${new URL(officialShareUrl).hostname}`
-                  : '遵循平台嵌入策略，请在官方原页查看'
-                : hasStoredAnswer
-                  ? '无官方链接，仅安全排版已采集正文'
-                  : '没有可展示的官方链接或已采集正文'
-            }
           />
         </section>
 

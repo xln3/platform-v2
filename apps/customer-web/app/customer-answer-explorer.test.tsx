@@ -172,6 +172,10 @@ describe('CustomerAnswerExplorer classification', () => {
     expect(
       within(screen.getByRole('region', { name: '引用信源分析表' })).getByRole('table'),
     ).toBeTruthy();
+    expect(screen.queryByText('发布时间完整度')).toBeNull();
+    expect(screen.queryByText('官方回答页')).toBeNull();
+    expect(screen.queryByText(/AI 返回引用片段已登记/u)).toBeNull();
+    expect(screen.getByText('引用片段：权限边界需要独立验证。')).toBeTruthy();
     expect(screen.queryByText('# 选型结论')).toBeNull();
     expect(screen.queryByRole('heading', { name: '选型结论' })).toBeNull();
     expect(screen.getByText('待采集')).toBeTruthy();
