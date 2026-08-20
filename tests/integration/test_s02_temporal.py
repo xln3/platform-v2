@@ -126,7 +126,9 @@ async def test_answer_analysis_workflow_runs_on_real_temporal(
 ) -> None:
     client, queue = temporal
     suffix = uuid4().hex
-    tenant_pub_id = f"tnt_{suffix}"
+    # platform.tenant.pub_id is VARCHAR(30): keep the standard tnt_ prefix and
+    # retain 104 random bits without relying on database-side truncation.
+    tenant_pub_id = f"tnt_{suffix[:26]}"
     _seed_platform_tenant(tenant_pub_id)
     answer_pub_id = f"ans_{suffix}"
     result = await client.execute_workflow(
