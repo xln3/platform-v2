@@ -1,10 +1,25 @@
 name: geo-platform-v2-production
 
+# Docker may inject the workstation proxy from ~/.docker/config.json even when
+# a service does not mention proxy variables.  GEO talks mainly to domestic
+# services and must never inherit that circumvention proxy.  Components that
+# need geographic egress receive an explicit GEO_* regional relay instead.
+x-no-host-proxy: &no-host-proxy
+  HTTP_PROXY: ''
+  HTTPS_PROXY: ''
+  ALL_PROXY: ''
+  NO_PROXY: '*'
+  http_proxy: ''
+  https_proxy: ''
+  all_proxy: ''
+  no_proxy: '*'
+
 services:
   postgres:
     image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
+      <<: *no-host-proxy
       POSTGRES_USER: geo
       POSTGRES_PASSWORD: ${GEO_PROD_POSTGRES_PASSWORD:?required}
       POSTGRES_DB: geo_platform
@@ -22,6 +37,7 @@ services:
     image: clickhouse/clickhouse-server:24.8-alpine
     restart: unless-stopped
     environment:
+      <<: *no-host-proxy
       CLICKHOUSE_DB: geo_analytics
       CLICKHOUSE_USER: geo
       CLICKHOUSE_PASSWORD: ${GEO_PROD_CLICKHOUSE_PASSWORD:?required}
@@ -47,6 +63,7 @@ services:
     image: postgres:16.9-alpine
     restart: unless-stopped
     environment:
+      <<: *no-host-proxy
       POSTGRES_USER: temporal
       POSTGRES_PASSWORD: ${GEO_PROD_TEMPORAL_POSTGRES_PASSWORD:?required}
     volumes: [temporal-postgres-data:/var/lib/postgresql/data]
@@ -62,20 +79,12 @@ services:
     depends_on:
       temporal-postgres: { condition: service_healthy }
     environment:
+      <<: *no-host-proxy
       DB: postgres12
       DB_PORT: 5432
       POSTGRES_USER: temporal
       POSTGRES_PWD: ${GEO_PROD_TEMPORAL_POSTGRES_PASSWORD:?required}
       POSTGRES_SEEDS: temporal-postgres
-      # Temporal's internal gRPC clients must never inherit the host HTTP proxy.
-      # grpc-go does not reliably honour CIDR entries in NO_PROXY, which can
-      # otherwise route intra-container calls through the workstation proxy.
-      HTTP_PROXY: ''
-      HTTPS_PROXY: ''
-      NO_PROXY: '*'
-      http_proxy: ''
-      https_proxy: ''
-      no_proxy: '*'
     ports: ['127.0.0.1:17234:7233']
     healthcheck:
       test: ['CMD', 'temporal', 'operator', 'cluster', 'health', '--address', 'temporal:7233']
@@ -88,6 +97,7 @@ services:
     restart: unless-stopped
     command: server /data --console-address :9001
     environment:
+      <<: *no-host-proxy
       MINIO_ROOT_USER: ${GEO_PROD_MINIO_ROOT_USER:?required}
       MINIO_ROOT_PASSWORD: ${GEO_PROD_MINIO_ROOT_PASSWORD:?required}
     ports: ['127.0.0.1:19002:9000', '127.0.0.1:19003:9001']
@@ -117,6 +127,7 @@ services:
       timeout: 3s
       retries: 30
     environment:
+      <<: *no-host-proxy
       GEO_PROD_REDIS_PASSWORD: ${GEO_PROD_REDIS_PASSWORD:?required}
 
   vault:
@@ -129,6 +140,7 @@ services:
         hard: -1
     command: ['server']
     environment:
+      <<: *no-host-proxy
       VAULT_ADDR: https://127.0.0.1:8200
       VAULT_SKIP_VERIFY: 'true'
     ports: ['127.0.0.1:18200:8200']
@@ -148,6 +160,8 @@ services:
     restart: unless-stopped
     network_mode: host
     command: ['--config=/etc/otelcol-contrib/config.yaml']
+    environment:
+      <<: *no-host-proxy
     volumes:
       - ./observability/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
       - otel-data:/var/lib/otel
@@ -162,6 +176,8 @@ services:
         '--storage.tsdb.path=/prometheus',
         '--web.listen-address=127.0.0.1:19090',
       ]
+    environment:
+      <<: *no-host-proxy
     volumes:
       - ./observability/prometheus.yaml:/etc/prometheus/prometheus.yml:ro
       - ./observability/business-alerts.yaml:/etc/prometheus/rules/business-alerts.yaml:ro
@@ -177,6 +193,8 @@ services:
         '--path.rootfs=/rootfs',
         '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)',
       ]
+    environment:
+      <<: *no-host-proxy
     ports: ['127.0.0.1:19100:9100']
     volumes:
       - /proc:/host/proc:ro
@@ -193,6 +211,8 @@ services:
         '--storage.path=/alertmanager',
         '--web.listen-address=127.0.0.1:19093',
       ]
+    environment:
+      <<: *no-host-proxy
     volumes:
       - ./observability/alertmanager.yaml:/etc/alertmanager/alertmanager.yml:ro
       - alertmanager-data:/alertmanager
@@ -202,6 +222,8 @@ services:
     restart: unless-stopped
     network_mode: host
     command: ['-config.file=/etc/loki/config.yaml']
+    environment:
+      <<: *no-host-proxy
     volumes:
       - ./observability/loki.yaml:/etc/loki/config.yaml:ro
       - loki-data:/loki
@@ -211,6 +233,8 @@ services:
     restart: unless-stopped
     network_mode: host
     command: ['run', '/etc/alloy/config.alloy', '--server.http.listen-addr=127.0.0.1:12345']
+    environment:
+      <<: *no-host-proxy
     volumes:
       - ./observability/config.alloy:/etc/alloy/config.alloy:ro
       - /var/log/journal:/var/log/journal:ro
@@ -223,6 +247,7 @@ services:
     restart: unless-stopped
     network_mode: host
     environment:
+      <<: *no-host-proxy
       GF_SERVER_HTTP_ADDR: 127.0.0.1
       GF_SERVER_HTTP_PORT: 13000
       GF_SECURITY_ADMIN_USER: geo-admin

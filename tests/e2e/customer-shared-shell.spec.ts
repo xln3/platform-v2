@@ -13,13 +13,13 @@ verifyHostileUrlBoundary({
   product: 'Customer Web',
   path: '/platform/customer/',
   role: 'customer',
-  heading: '客户工作台',
-  defaultSection: '首页',
+  heading: '云岫智能 · AI 认知资产总览',
+  defaultSection: '经营总览',
 });
 
 verifyOversizedJsonBoundary({
   product: 'Customer Web',
   path: '/platform/customer/',
   role: 'customer',
-  heading: '客户工作台',
+  heading: '云岫智能 · AI 认知资产总览',
 });

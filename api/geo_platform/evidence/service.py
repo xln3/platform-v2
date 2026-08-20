@@ -187,6 +187,7 @@ class EvidenceService:
         evidence_pub_ids: list[str],
         public: bool,
         expires_at: datetime | None,
+        customer_visible_only: bool = False,
     ) -> StoredObject:
         with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
             rows = connection.execute(
@@ -194,9 +195,10 @@ class EvidenceService:
                 SELECT pub_id,sha256,kind,access_class,capture_time
                 FROM evidence.evidence_asset
                 WHERE tenant_pub_id=%s AND pub_id=ANY(%s) AND deleted_at IS NULL
+                  AND (NOT %s OR customer_visible)
                 ORDER BY pub_id
                 """,
-                (tenant_pub_id, evidence_pub_ids),
+                (tenant_pub_id, evidence_pub_ids, customer_visible_only),
             ).fetchall()
             if len(rows) != len(set(evidence_pub_ids)):
                 raise LookupError("one or more evidence assets are missing")

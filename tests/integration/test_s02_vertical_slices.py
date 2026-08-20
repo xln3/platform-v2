@@ -28,6 +28,18 @@ CLICKHOUSE_ENDPOINT = os.getenv("S02_CLICKHOUSE_ENDPOINT", "http://127.0.0.1:181
 MINIO_ENDPOINT = os.getenv("S02_MINIO_ENDPOINT", "http://127.0.0.1:19000")
 
 
+def _seed_platform_tenant(tenant_pub_id: str) -> None:
+    with psycopg.connect(POSTGRES_DSN) as connection:
+        connection.execute(
+            """
+            INSERT INTO platform.tenant (id,pub_id,name,state,created_at,updated_at)
+            VALUES (%s,%s,%s,'active',now(),now())
+            ON CONFLICT (pub_id) DO NOTHING
+            """,
+            (uuid4(), tenant_pub_id, tenant_pub_id),
+        )
+
+
 def services() -> tuple[
     AnalyticsService, EvidenceService, ReportService, IntelligenceService, ClickHouseWriter
 ]:
@@ -64,8 +76,9 @@ def public_provenance() -> RedactedProvenance:
 def test_concurrent_answer_analysis_returns_one_authoritative_result() -> None:
     analytics, _, _, _, _ = services()
     suffix = uuid4().hex
-    tenant = f"tnt_{suffix}"
+    tenant = f"tnt_{suffix[:26]}"
     answer = f"ans_{suffix}"
+    _seed_platform_tenant(tenant)
     request = {
         "tenant_pub_id": tenant,
         "project_pub_id": f"prj_{suffix}",
@@ -104,9 +117,10 @@ def test_concurrent_answer_analysis_returns_one_authoritative_result() -> None:
 def test_raw_answer_to_kpi_trace_screenshot_clickhouse_and_published_report() -> None:
     analytics, evidence, reports, _, clickhouse = services()
     suffix = uuid4().hex
-    tenant = f"tnt_{suffix}"
+    tenant = f"tnt_{suffix[:26]}"
     project = f"prj_{suffix}"
     answer = f"ans_{suffix}"
+    _seed_platform_tenant(tenant)
     provenance = public_provenance()
     analysis_request = {
         "tenant_pub_id": tenant,

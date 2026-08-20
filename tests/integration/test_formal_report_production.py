@@ -101,8 +101,10 @@ def _create_body(project_pub_id: str) -> dict[str, object]:
         "services": [1],
         "window_start": "2026-07-01",
         "window_end": "2026-07-31",
-        "document_status": "pre_formal",
-        "candidate_group_strategy": "evidence_completeness_v1",
+        "document_status": "internal_review",
+        "candidate_group_strategy": "preregistered_scope_v1",
+        "prepared_by": "GEO integration fixture",
+        "prepared_date": "2026-08-01",
     }
 
 
@@ -621,7 +623,12 @@ def test_formal_review_claim_is_atomic_and_exactly_replayable() -> None:
     created = client.post(
         "/api/v2/reports/formal-productions",
         headers=headers,
-        json=_create_body(project_pub_id) | {"document_status": "formal"},
+        json=_create_body(project_pub_id)
+        | {
+            "document_status": "delivery_candidate",
+            "reviewed_by": "GEO integration reviewer",
+            "reviewed_date": "2026-08-01",
+        },
     )
     assert created.status_code == 201, created.text
     production_pub_id = str(created.json()["pub_id"])
@@ -707,7 +714,12 @@ def test_formal_output_artifacts_persist_all_or_none_and_replay(
     created = client.post(
         "/api/v2/reports/formal-productions",
         headers=headers,
-        json=_create_body(project_pub_id),
+        json=_create_body(project_pub_id)
+        | {
+            "document_status": "delivery_candidate",
+            "reviewed_by": "GEO integration reviewer",
+            "reviewed_date": "2026-08-01",
+        },
     )
     assert created.status_code == 201, created.text
     production_pub_id = str(created.json()["pub_id"])
@@ -739,7 +751,7 @@ def test_formal_output_artifacts_persist_all_or_none_and_replay(
     assert input_evidence.metadata_pub_id is not None
     facts = {
         1: {
-            "document_status": "pre_formal",
+            "document_status": "delivery_candidate",
             "summary": "Customer-visible frozen facts",
             "_input_evidence": {
                 "pub_id": input_evidence.metadata_pub_id,
@@ -756,21 +768,33 @@ def test_formal_output_artifacts_persist_all_or_none_and_replay(
     ).fact_snapshot_hash
     docx = b"integration-docx-content"
     pdf = b"%PDF-1.7 integration-pdf-content"
+    xlsx = b"integration-xlsx-content"
+    archive = b"integration-zip-content"
     manifest = json.dumps(
         {
-            "schema_version": "formal-report-manifest-v1",
+            "schema_version": "formal-report-manifest-v2",
             "service_number": 1,
-            "document_status": "pre_formal",
+            "document_status": "delivery_candidate",
             "window": {"start": "2026-07-01", "end": "2026-07-31"},
             "fact_snapshot_hash": fact_snapshot_hash,
             "artifacts": {
                 "docx": {"sha256": sha256(docx).hexdigest(), "byte_size": len(docx)},
                 "pdf": {"sha256": sha256(pdf).hexdigest(), "byte_size": len(pdf)},
+                "xlsx": {"sha256": sha256(xlsx).hexdigest(), "byte_size": len(xlsx)},
+                "zip": {"sha256": sha256(archive).hexdigest(), "byte_size": len(archive)},
             },
         },
         sort_keys=True,
     ).encode()
-    artifacts = {1: {"docx": docx, "pdf": pdf, "manifest": manifest}}
+    artifacts = {
+        1: {
+            "docx": docx,
+            "pdf": pdf,
+            "xlsx": xlsx,
+            "zip": archive,
+            "manifest": manifest,
+        }
+    }
 
     monkeypatch.setattr(formal_production, "report_runtime_preflight", lambda: None)
     monkeypatch.setattr(
@@ -812,6 +836,8 @@ def test_formal_output_artifacts_persist_all_or_none_and_replay(
     assert {artifact["format"] for artifact in completed["outputs"][0]["artifacts"]} == {
         "docx",
         "pdf",
+        "xlsx",
+        "zip",
         "manifest",
     }
     persisted_manifest, manifest_mime, _ = service.artifact(
@@ -910,8 +936,8 @@ def test_formal_output_artifacts_persist_all_or_none_and_replay(
         "versions": 1,
         "facts": 1,
         "evidence_references": 1,
-        "artifacts": 3,
-        "artifact_assets": 3,
+        "artifacts": 5,
+        "artifact_assets": 5,
     }
 
     # A lost Temporal activity response must replay from persisted output without
@@ -927,7 +953,7 @@ def test_formal_output_artifacts_persist_all_or_none_and_replay(
         production_pub_id=production_pub_id,
     )
     assert replayed == completed
-    assert _tenant_counts(tenant_pub_id, production_pub_id)["artifacts"] == 3
+    assert _tenant_counts(tenant_pub_id, production_pub_id)["artifacts"] == 5
 
     reviewer_pub_id = "usr_formal_integration_reviewer"
     review_rationale = "Integration evidence needs changes."
@@ -1105,6 +1131,8 @@ def test_formal_persistence_rejects_cross_project_evidence() -> None:
         1: {
             "docx": b"scoped-docx",
             "pdf": b"scoped-pdf",
+            "xlsx": b"scoped-xlsx",
+            "zip": b"scoped-zip",
             "manifest": b"scoped-manifest",
         }
     }

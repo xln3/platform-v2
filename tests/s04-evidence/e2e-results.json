@@ -4,10 +4,12 @@
       "/home/xln/.config/nvm/versions/node/v24.6.0/bin/node",
       "/home/xln/geo-system/platform-v2/node_modules/@playwright/test/cli.js",
       "test",
-      "customer-account.spec.ts",
+      "tests/e2e/customer-product-live.spec.ts",
+      "--project=customer-desktop",
+      "--project=customer-tablet",
       "--project=customer-mobile",
-      "-g",
-      "pairs, verifies and revokes"
+      "--grep",
+      "validated customer reads"
     ],
     "configFile": "/home/xln/geo-system/platform-v2/playwright.config.ts",
     "rootDir": "/home/xln/geo-system/platform-v2/tests/e2e",
@@ -295,7 +297,9 @@
       "env": {
         "PYTHON_BASIC_REPL": "1",
         "LESSOPEN": "| /usr/bin/lesspipe %s",
-        "TMUX": "/tmp/tmux-1000/default,4013479,42",
+        "TMUX": "/tmp/tmux-1000/default,4013479,73",
+        "CODEX_CI": "1",
+        "no_proxy": "127.0.0.1,localhost",
         "USER": "xln",
         "SSH_CLIENT": "117.133.64.159 8015 2222",
         "npm_config_user_agent": "pnpm/11.17.0 npm/? node/v24.6.0 linux x64",
@@ -305,23 +309,26 @@
         "BROWSER": "/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/bin/helpers/browser.sh",
         "MOTD_SHOWN": "pam",
         "HOME": "/home/xln",
-        "OLDPWD": "/home/xln/geo-system",
+        "NO_PROXY": "127.0.0.1,localhost",
         "TERM_PROGRAM_VERSION": "3.2a",
         "NVM_BIN": "/home/xln/.config/nvm/versions/node/v24.6.0/bin",
         "VSCODE_IPC_HOOK_CLI": "/run/user/1000/vscode-ipc-19a833ff-7b40-43ab-9744-1d6bf8bcdc83.sock",
         "NVM_INC": "/home/xln/.config/nvm/versions/node/v24.6.0/include/node",
         "COREPACK_ROOT": "/home/xln/.config/nvm/versions/node/v24.6.0/lib/node_modules/corepack",
+        "PAGER": "cat",
         "VSCODE_GIT_ASKPASS_MAIN": "/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/extensions/git/dist/askpass-main.js",
         "HF_ENDPOINT": "https://hf-mirror.com",
         "VSCODE_GIT_ASKPASS_NODE": "/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/node",
+        "LC_CTYPE": "C.UTF-8",
         "PYDEVD_DISABLE_FILE_VALIDATION": "1",
         "BUNDLED_DEBUGPY_PATH": "/home/xln/.vscode-server/extensions/ms-python.debugpy-2026.6.0-linux-x64/bundled/libs/debugpy",
         "VSCODE_PYTHON_AUTOACTIVATE_GUARD": "1",
         "NO_COLOR": "1",
         "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/1000/bus",
-        "COLORTERM": "truecolor",
+        "COLORTERM": "",
         "NVM_DIR": "/home/xln/.config/nvm",
         "https_proxy": "http://127.0.0.1:7890",
+        "CODEX_PERMISSION_PROFILE": ":danger-full-access",
         "COREPACK_ENABLE_DOWNLOAD_PROMPT": "1",
         "LOGNAME": "xln",
         "pnpm_config_verify_deps_before_run": "false",
@@ -331,29 +338,34 @@
         "XDG_SESSION_CLASS": "user",
         "TERM": "dumb",
         "XDG_SESSION_ID": "5582",
-        "PATH": "./node_modules/.bin:/home/xln/geo-system/platform-v2/node_modules/.bin:/home/xln/.local/bin:/home/xln/.kimi-code/bin:/home/xln/.deno/bin:/home/xln/.local/bin:/home/xln/.kimi-code/bin:/home/xln/.deno/bin:/home/xln/.local/bin:/home/xln/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand:/home/xln/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli:/home/xln/.vscode-server/cli/servers/Stable-4fe60c8b1cdac1c4c174f2fb180d0d758272d713/server/bin/remote-cli:/home/xln/.local/bin:/home/xln/.kimi-code/bin:/home/xln/google-cloud-sdk/bin:/home/xln/.deno/bin:/home/xln/.config/nvm/versions/node/v24.6.0/bin:/home/xln/.local/bin:/home/xln/.deno/bin:/home/xln/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin",
+        "PATH": "./node_modules/.bin:/home/xln/geo-system/platform-v2/node_modules/.bin:/home/xln/.local/bin:/home/xln/.config/nvm/versions/node/v24.6.0/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/codex-path:/home/xln/.codex/tmp/arg0/codex-arg0vZ1BDe:/home/xln/.local/bin:/home/xln/.kimi-code/bin:/home/xln/.deno/bin:/home/xln/.local/bin:/home/xln/.kimi-code/bin:/home/xln/.deno/bin:/home/xln/.local/bin:/home/xln/.vscode-server/data/User/globalStorage/github.copilot-chat/debugCommand:/home/xln/.vscode-server/data/User/globalStorage/github.copilot-chat/copilotCli:/home/xln/.vscode-server/cli/servers/Stable-df53daabb18cd157bdb08c7f01c34df936cf12f4/server/bin/remote-cli:/home/xln/.local/bin:/home/xln/.kimi-code/bin:/home/xln/google-cloud-sdk/bin:/home/xln/.deno/bin:/home/xln/.config/nvm/versions/node/v24.6.0/bin:/home/xln/.local/bin:/home/xln/.deno/bin:/home/xln/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/home/xln/.vscode-server/extensions/ms-python.debugpy-2026.6.0-linux-x64/bundled/scripts/noConfigScripts",
         "XDG_RUNTIME_DIR": "/run/user/1000",
         "VSCODE_DEBUGPY_ADAPTER_ENDPOINTS": "/home/xln/.vscode-server/extensions/ms-python.debugpy-2026.6.0-linux-x64/.noConfigDebugAdapterEndpoints/endpoint-70a46e768030bfa5.txt",
-        "LANG": "en_US.UTF-8",
+        "LANG": "C.UTF-8",
         "PYTHONSTARTUP": "/home/xln/.vscode-server/data/User/workspaceStorage/064617a2688c468aa40abc1ece39445c/ms-python.python/pythonrc.py",
+        "GH_PAGER": "cat",
         "LS_COLORS": "rs=0:di=01;34:ln=01;36:mh=00:pi=40;33:so=01;35:do=01;35:bd=40;33;01:cd=40;33;01:or=40;31;01:mi=00:su=37;41:sg=30;43:ca=30;41:tw=30;42:ow=34;42:st=37;44:ex=01;32:*.tar=01;31:*.tgz=01;31:*.arc=01;31:*.arj=01;31:*.taz=01;31:*.lha=01;31:*.lz4=01;31:*.lzh=01;31:*.lzma=01;31:*.tlz=01;31:*.txz=01;31:*.tzo=01;31:*.t7z=01;31:*.zip=01;31:*.z=01;31:*.dz=01;31:*.gz=01;31:*.lrz=01;31:*.lz=01;31:*.lzo=01;31:*.xz=01;31:*.zst=01;31:*.tzst=01;31:*.bz2=01;31:*.bz=01;31:*.tbz=01;31:*.tbz2=01;31:*.tz=01;31:*.deb=01;31:*.rpm=01;31:*.jar=01;31:*.war=01;31:*.ear=01;31:*.sar=01;31:*.rar=01;31:*.alz=01;31:*.ace=01;31:*.zoo=01;31:*.cpio=01;31:*.7z=01;31:*.rz=01;31:*.cab=01;31:*.wim=01;31:*.swm=01;31:*.dwm=01;31:*.esd=01;31:*.jpg=01;35:*.jpeg=01;35:*.mjpg=01;35:*.mjpeg=01;35:*.gif=01;35:*.bmp=01;35:*.pbm=01;35:*.pgm=01;35:*.ppm=01;35:*.tga=01;35:*.xbm=01;35:*.xpm=01;35:*.tif=01;35:*.tiff=01;35:*.png=01;35:*.svg=01;35:*.svgz=01;35:*.mng=01;35:*.pcx=01;35:*.mov=01;35:*.mpg=01;35:*.mpeg=01;35:*.m2v=01;35:*.mkv=01;35:*.webm=01;35:*.webp=01;35:*.ogm=01;35:*.mp4=01;35:*.m4v=01;35:*.mp4v=01;35:*.vob=01;35:*.qt=01;35:*.nuv=01;35:*.wmv=01;35:*.asf=01;35:*.rm=01;35:*.rmvb=01;35:*.flc=01;35:*.avi=01;35:*.fli=01;35:*.flv=01;35:*.gl=01;35:*.dl=01;35:*.xcf=01;35:*.xwd=01;35:*.yuv=01;35:*.cgm=01;35:*.emf=01;35:*.ogv=01;35:*.ogx=01;35:*.aac=00;36:*.au=00;36:*.flac=00;36:*.m4a=00;36:*.mid=00;36:*.midi=00;36:*.mka=00;36:*.mp3=00;36:*.mpc=00;36:*.ogg=00;36:*.ra=00;36:*.wav=00;36:*.oga=00;36:*.opus=00;36:*.spx=00;36:*.xspf=00;36:",
         "CLAUDE_CODE_DISABLE_1M_CONTEXT": "1",
         "VSCODE_GIT_IPC_HANDLE": "/run/user/1000/vscode-git-732bafe257.sock",
         "TERM_PROGRAM": "tmux",
         "SHELL": "/bin/bash",
-        "GIT_TERMINAL_PROMPT": "0",
         "NODE_PATH": "/home/xln/geo-system/platform-v2/node_modules/.pnpm/@playwright+test@1.61.1/node_modules/@playwright/test/node_modules:/home/xln/geo-system/platform-v2/node_modules/.pnpm/@playwright+test@1.61.1/node_modules:/home/xln/geo-system/platform-v2/node_modules/.pnpm/node_modules",
         "LESSCLOSE": "/usr/bin/lesspipe %s %s",
+        "CODEX_THREAD_ID": "01a012f4-2b94-7a12-999f-cf539ce4902a",
         "PNPM_PACKAGE_NAME": "geo-platform-v2",
         "VSCODE_GIT_ASKPASS_EXTRA_ARGS": "",
+        "GIT_PAGER": "cat",
         "PWD": "/home/xln/geo-system/platform-v2",
         "DISABLE_AUTOUPDATER": "1",
+        "LC_ALL": "C.UTF-8",
+        "CODEX_MANAGED_PACKAGE_ROOT": "/home/xln/.config/nvm/versions/node/v24.6.0/lib/node_modules/@openai/codex",
         "COPILOT_DEBUG_NONCE": "9abf7f5d3e8c784e97955dcc9fdda180",
-        "SSH_CONNECTION": "117.133.64.36 2842 172.16.1.190 2222",
+        "SSH_CONNECTION": "114.248.4.235 57824 172.16.1.190 2222",
         "NVM_CD_FLAGS": "",
         "XDG_DATA_DIRS": "/usr/share/gnome:/usr/local/share:/usr/share:/var/lib/snapd/desktop",
         "npm_command": "exec",
-        "TMUX_PANE": "%42",
+        "CODEX_MANAGED_BY_NPM": "1",
+        "TMUX_PANE": "%73",
         "GEO_VITE_NO_WATCH": "1",
         "GEO_E2E_BUILD": "1",
         "VITE_ALLOW_CONTRACT_FIXTURES": "true",
@@ -365,14 +377,82 @@
   },
   "suites": [
     {
-      "title": "customer-account.spec.ts",
-      "file": "customer-account.spec.ts",
+      "title": "customer-product-live.spec.ts",
+      "file": "customer-product-live.spec.ts",
       "column": 0,
       "line": 0,
       "specs": [
         {
-          "title": "customer pairs, verifies and revokes without secret leakage",
-          "ok": false,
+          "title": "validated customer reads mounted data and serializes every write without secret leakage",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-desktop",
+              "projectName": "customer-desktop",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 6209,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-18T06:20:08.665Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-eef288ab98a4735ac702",
+          "file": "customer-product-live.spec.ts",
+          "line": 33,
+          "column": 5
+        },
+        {
+          "title": "validated customer reads mounted data and serializes every write without secret leakage",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "customer-tablet",
+              "projectName": "customer-tablet",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 5787,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-18T06:20:15.712Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "77e20af114bd24fe2de3-0c4d0c0ab88bf2d36dd8",
+          "file": "customer-product-live.spec.ts",
+          "line": 33,
+          "column": 5
+        },
+        {
+          "title": "validated customer reads mounted data and serializes every write without secret leakage",
+          "ok": true,
           "tags": [],
           "tests": [
             {
@@ -383,47 +463,25 @@
               "projectName": "customer-mobile",
               "results": [
                 {
-                  "workerIndex": 0,
+                  "workerIndex": 2,
                   "parallelIndex": 0,
-                  "status": "timedOut",
-                  "duration": 30191,
-                  "error": {
-                    "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m",
-                    "stack": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m"
-                  },
-                  "errors": [
-                    {
-                      "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m"
-                    },
-                    {
-                      "location": {
-                        "file": "/home/xln/geo-system/platform-v2/tests/e2e/customer-account.spec.ts",
-                        "column": 52,
-                        "line": 32
-                      },
-                      "message": "Error: locator.click: Test timeout of 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('button', { name: /平台账号/ })\u001b[22m\n\u001b[2m    - locator resolved to <button class=\"\" aria-label=\"平台账号\">…</button>\u001b[22m\n\u001b[2m  - attempting click action\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <select disabled aria-label=\"AI 一键调研预填模型选择\">…</select> from <aside aria-label=\"AI 操作面板\" class=\"ai-dock ai-dock-open\">…</aside> subtree intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m    - waiting 20ms\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <select disabled aria-label=\"AI 一键调研预填模型选择\">…</select> from <aside aria-label=\"AI 操作面板\" class=\"ai-dock ai-dock-open\">…</aside> subtree intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m      - waiting 100ms\u001b[22m\n\u001b[2m    57 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m       - element is visible, enabled and stable\u001b[22m\n\u001b[2m       - scrolling into view if needed\u001b[22m\n\u001b[2m       - done scrolling\u001b[22m\n\u001b[2m       - <select disabled aria-label=\"AI 一键调研预填模型选择\">…</select> from <aside aria-label=\"AI 操作面板\" class=\"ai-dock ai-dock-open\">…</aside> subtree intercepts pointer events\u001b[22m\n\u001b[2m     - retrying click action\u001b[22m\n\u001b[2m       - waiting 500ms\u001b[22m\n\u001b[2m    - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m    - element is visible, enabled and stable\u001b[22m\n\u001b[2m    - scrolling into view if needed\u001b[22m\n\u001b[2m    - done scrolling\u001b[22m\n\n\n  30 |\n  31 |   await page.goto('/platform/customer/');\n> 32 |   await page.getByRole('button', { name: /平台账号/ }).click();\n     |                                                    ^\n  33 |   await expect(page.getByRole('heading', { name: '客户终端安全配对' })).toBeVisible();\n  34 |   await page.getByRole('button', { name: '查看撤销流程' }).click();\n  35 |   await expect(page.getByRole('dialog', { name: '客户撤销权与执行顺序' })).toContainText(\n    at /home/xln/geo-system/platform-v2/tests/e2e/customer-account.spec.ts:32:52"
-                    }
-                  ],
+                  "status": "passed",
+                  "duration": 5019,
+                  "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-08-07T17:54:56.387Z",
+                  "startTime": "2026-08-18T06:20:22.294Z",
                   "annotations": [],
-                  "attachments": [
-                    {
-                      "name": "error-context",
-                      "contentType": "text/markdown",
-                      "path": "/home/xln/geo-system/platform-v2/tests/e2e-results/customer-account-customer--a957a-okes-without-secret-leakage-customer-mobile/error-context.md"
-                    }
-                  ]
+                  "attachments": []
                 }
               ],
-              "status": "unexpected"
+              "status": "expected"
             }
           ],
-          "id": "3a5abf23ef5b02e3de66-9086a582641605d54316",
-          "file": "customer-account.spec.ts",
-          "line": 5,
+          "id": "77e20af114bd24fe2de3-56b951abf2f4ecde568d",
+          "file": "customer-product-live.spec.ts",
+          "line": 33,
           "column": 5
         }
       ]
@@ -431,11 +489,11 @@
   ],
   "errors": [],
   "stats": {
-    "startTime": "2026-08-07T17:54:26.976Z",
-    "duration": 59940.558,
-    "expected": 0,
+    "startTime": "2026-08-18T06:19:35.207Z",
+    "duration": 52578.772,
+    "expected": 3,
     "skipped": 0,
-    "unexpected": 1,
+    "unexpected": 0,
     "flaky": 0
   }
 }

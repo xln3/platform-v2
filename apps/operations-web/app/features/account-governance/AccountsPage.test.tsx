@@ -2,7 +2,12 @@
 
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { CollectionAccountRow, CollectionRegionRow, PlatformAccountCell } from './api';
+import type {
+  AccountQuotaObservation,
+  CollectionAccountRow,
+  CollectionRegionRow,
+  PlatformAccountCell,
+} from './api';
 import { AccountsPage, RuntimeStateBadge } from './AccountsPage';
 
 const session = {
@@ -86,11 +91,49 @@ const REGIONS: CollectionRegionRow[] = [
   },
 ];
 
+const QUOTA_OBSERVATIONS: AccountQuotaObservation[] = [
+  {
+    observation_pub_id: 'aev_quota_sh',
+    browser_instance_key: 'doubao_sh',
+    platform: 'doubao',
+    region_gb: '310000',
+    mode: 'deep_think',
+    account_tier: 'free',
+    quota_state: 'exhausted',
+    window_type: 'rolling',
+    window_days: 7,
+    observed_window_count: 26,
+    daily_equivalent: 3.7,
+    count_kind: 'lower_bound',
+    reset_at: '2026-08-20T08:11:51.143Z',
+    observed_at: '2026-08-17T08:00:00Z',
+    source: 'platform_and_logs',
+  },
+  {
+    observation_pub_id: 'aev_quota_bj',
+    browser_instance_key: 'doubao_bj',
+    platform: 'doubao',
+    region_gb: '110000',
+    mode: 'deep_think',
+    account_tier: 'subscriber',
+    quota_state: 'available',
+    window_type: 'rolling',
+    window_days: 7,
+    observed_window_count: null,
+    daily_equivalent: null,
+    count_kind: 'unknown',
+    reset_at: null,
+    observed_at: '2026-08-17T08:02:00Z',
+    source: 'platform',
+  },
+];
+
 type FetchCall = { method: string; path: string; body?: unknown };
 
 function installFetch(handlers: {
   accounts?: unknown;
   regions?: unknown;
+  quotas?: unknown;
   patch?: { status: number; body: unknown };
   linkTest?: { status: number; body: unknown };
   createAccount?: { status: number; body: unknown };
@@ -111,6 +154,8 @@ function installFetch(handlers: {
       return json(200, handlers.accounts ?? []);
     if (method === 'GET' && path === '/api/v2/collection-regions')
       return json(200, handlers.regions ?? []);
+    if (method === 'GET' && path === '/api/v2/collection-account-quota-observations')
+      return json(200, handlers.quotas ?? []);
     if (method === 'PATCH' && path.startsWith('/api/v2/collection-platform-accounts/')) {
       const patch = handlers.patch ?? { status: 200, body: {} };
       return json(patch.status, patch.body);
@@ -136,6 +181,19 @@ afterEach(() => {
 });
 
 describe('AccountsPage', () => {
+  it('展示平台额度状态，并明确区分日志下限估算与平台固定额度', async () => {
+    installFetch({ accounts: [makeAccountRow()], regions: REGIONS, quotas: QUOTA_OBSERVATIONS });
+    render(<AccountsPage session={session} />);
+
+    const panel = await screen.findByRole('region', { name: '平台账号额度' });
+    expect(within(panel).getByText('约 4 条/天')).toBeTruthy();
+    expect(within(panel).getByText(/已确认 26 条 ÷ 7 天 = 3.7；下限估算/)).toBeTruthy();
+    expect(within(panel).getByText('平台未公开固定条数')).toBeTruthy();
+    expect(within(panel).getByText('免费版 · 专家模式')).toBeTruthy();
+    expect(within(panel).getByText('专业版 · 专家模式')).toBeTruthy();
+    expect(within(panel).getByText(/快速模式不占用这里展示的专家模式额度/)).toBeTruthy();
+  });
+
   it('渲染账号行：五平台格、状态徽章映射、null 格显示 —', async () => {
     installFetch({ accounts: [makeAccountRow()], regions: REGIONS });
     render(<AccountsPage session={session} />);
@@ -186,7 +244,8 @@ describe('AccountsPage', () => {
     await waitFor(() => {
       const patch = calls.find(
         (call) =>
-          call.method === 'PATCH' && call.path === '/api/v2/collection-platform-accounts/pac_doubao_1',
+          call.method === 'PATCH' &&
+          call.path === '/api/v2/collection-platform-accounts/pac_doubao_1',
       );
       expect(patch?.body).toEqual({ region_gb: '110000', confirm: true });
     });
@@ -232,7 +291,8 @@ describe('AccountsPage', () => {
     expect(await within(dialog).findByText('请向该手机号发送一条测试验证码短信')).toBeTruthy();
     expect(within(dialog).getByText(/等待回执：剩余 \d+ 秒/)).toBeTruthy();
     const linkTest = calls.find(
-      (call) => call.method === 'POST' && call.path === '/api/v2/collection-accounts/phone_1/link-test',
+      (call) =>
+        call.method === 'POST' && call.path === '/api/v2/collection-accounts/phone_1/link-test',
     );
     expect(linkTest?.body).toEqual({ channel: 'sms' });
   });

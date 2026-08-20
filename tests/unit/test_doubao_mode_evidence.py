@@ -159,9 +159,8 @@ def test_collect_deep_think_unconfirmed_raises_after_trace(
 def test_collect_normal_mode_records_requested_normal(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """normal 题同样留 mode 段（ui_toggle_engaged=None=无 toggle 环节），
-    且全程未触碰模式 picker。"""
-    page = _FakePage(deep_think=True)  # picker 存在也不许点
+    """normal 题同样留 mode 段；已处于快速态时确认后置状态即可，无需点击。"""
+    page = _FakePage(deep_think=True)
     session, evidence = _make_session(tmp_path, monkeypatch, page, stem="run-9-task-3-a1")
 
     answer = session.collect("普通问题", on_stage=lambda s: None, mode="normal")
@@ -175,7 +174,7 @@ def test_collect_normal_mode_records_requested_normal(
     trace = _read_trace(evidence, "run-9-task-3-a1")
     assert trace["mode"] == {
         "requested": "normal",
-        "ui_toggle_engaged": None,
+        "ui_toggle_engaged": True,
         "sse_deep_think_active": False,
         "actual": "normal",
     }
@@ -185,7 +184,7 @@ def test_collect_batch_records_mode_evidence_per_item(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """batch 路径：deep_think 题与 normal 题各留各的 mode 段（逐题 stem 区分）。
-    第 2 题请求 normal 但 SSE 见 thinking root → 反向错配如实 actual=deep_think。"""
+    第 2 题请求 normal 但 SSE 见 thinking root → 留痕后诚实拒绝错标答案。"""
     monkeypatch.setattr(tda, "_SSE_BODY", _SSE_BODY_DEEP)
     page = _FakePage(deep_think=True)
     session, evidence = _make_session(tmp_path, monkeypatch, page, stem="batch-stem")
@@ -206,15 +205,17 @@ def test_collect_batch_records_mode_evidence_per_item(
 
     outcomes = session.collect_batch(specs, on_stage=lambda s: None)
 
-    assert [o.status for o in outcomes] == ["ok", "ok"]
+    assert [o.status for o in outcomes] == ["ok", "wall"]
     deep_trace = _read_trace(evidence, "run-9-task-1-a1")
     assert deep_trace["mode"]["requested"] == "deep_think"
     assert deep_trace["mode"]["ui_toggle_engaged"] is True
     assert deep_trace["mode"]["actual"] == "deep_think"
     normal_trace = _read_trace(evidence, "run-9-task-2-a1")
     assert normal_trace["mode"]["requested"] == "normal"
-    assert normal_trace["mode"]["ui_toggle_engaged"] is None
+    assert normal_trace["mode"]["ui_toggle_engaged"] is True
     assert normal_trace["mode"]["sse_deep_think_active"] is True
-    assert normal_trace["mode"]["actual"] == "deep_think"  # 反向错配如实记录
+    assert normal_trace["mode"]["actual"] == "deep_think"
     assert outcomes[0].answer is not None
     assert outcomes[0].answer.meta["mode"]["actual"] == "deep_think"
+    assert outcomes[1].answer is None
+    assert outcomes[1].error_type == "mode_unconfirmed"

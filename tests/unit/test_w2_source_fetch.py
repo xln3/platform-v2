@@ -14,9 +14,11 @@ from io import BytesIO
 from typing import Any
 
 import pytest
+from geo_platform.analytics.service import _lock_answer_source_metadata
 from PIL import Image
 from temporalio.exceptions import ApplicationError
 
+from domain.collection.source_metadata import extract_source_metadata
 from workflows.activities.source_fetch import (
     BrandMentionCapture,
     ExistingDocument,
@@ -26,9 +28,11 @@ from workflows.activities.source_fetch import (
     SourceFetchConfig,
     SourceFetchInput,
     SourceTarget,
+    _EvidenceServiceSink,
     classify_attempt,
     derive_document_pub_id,
     derive_evidence_pub_id,
+    exact_source_quote_matches,
     execute_source_fetch,
     extract_text_from_html,
     find_brand_term,
@@ -160,6 +164,8 @@ class _FakeSink:
         text: str,
         fetched_at: datetime,
         brand_mention: BrandMentionCapture | None = None,
+        metadata: Any = None,
+        redirect_chain: tuple[dict[str, Any], ...] = (),
     ) -> PersistedDocument:
         self.persisted.append(
             {
@@ -172,6 +178,8 @@ class _FakeSink:
                 "text": text,
                 "fetched_at": fetched_at,
                 "brand_mention": brand_mention,
+                "metadata": metadata,
+                "redirect_chain": redirect_chain,
             }
         )
         pub_id = derive_document_pub_id(context.tenant_pub_id, context.run_pub_id, target.url_hash)
@@ -470,6 +478,84 @@ def test_derived_pub_ids_are_deterministic() -> None:
     assert e1 == e2 and e1.startswith("evd_") and len(e1) == 30
 
 
+def test_source_link_and_analysis_share_a_stable_answer_metadata_lock() -> None:
+    class RecordingConnection:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, tuple[Any, ...]]] = []
+
+        def execute(self, sql: str, parameters: tuple[Any, ...]) -> None:
+            self.calls.append((sql, parameters))
+
+    source_connection = RecordingConnection()
+    target = SourceTarget(
+        url="https://example.com/source",
+        key="https://example.com/source",
+        url_hash="a" * 64,
+        host="example.com",
+        task_pub_ids=("ans_b", "ans_a"),
+    )
+    _EvidenceServiceSink._link_with_connection(
+        source_connection,  # type: ignore[arg-type]
+        context=_context(),
+        target=target,
+        source_document_pub_id="srd_source",
+    )
+    analysis_connection = RecordingConnection()
+    _lock_answer_source_metadata(
+        analysis_connection,  # type: ignore[arg-type]
+        _TENANT,
+        "ans_a",
+    )
+
+    source_lock_keys = [
+        parameters[0]
+        for sql, parameters in source_connection.calls
+        if "pg_advisory_xact_lock" in sql
+    ]
+    assert source_lock_keys == [
+        f"answer-source-metadata:{_TENANT}:ans_a",
+        f"answer-source-metadata:{_TENANT}:ans_b",
+    ]
+    assert analysis_connection.calls[0][1][0] == source_lock_keys[0]
+
+
+def test_exact_source_quote_match_preserves_position_and_hash_without_claiming_support() -> None:
+    target = SourceTarget(
+        url="https://example.com/source",
+        key="https://example.com/source",
+        url_hash="a" * 64,
+        host="example.com",
+        task_pub_ids=("ans_a",),
+    )
+    context = _context(
+        tasks=[
+            (
+                "ans_a",
+                [
+                    {
+                        "url": "https://example.com/source",
+                        "ordinal": 2,
+                        "cited_text": "可复核的来源原句",
+                    }
+                ],
+            )
+        ]
+    )
+
+    matches = exact_source_quote_matches(context, target, "前文。可复核的来源原句。后文。")
+
+    assert matches == [
+        {
+            "answer_pub_id": "ans_a",
+            "ordinal": 2,
+            "source_quote": "可复核的来源原句",
+            "source_text_start": 3,
+            "source_text_end": 11,
+            "source_quote_hash": sha256("可复核的来源原句".encode()).hexdigest(),
+        }
+    ]
+
+
 # ---------------------------------------------------------------------------
 # 主流程（fake 注入）
 # ---------------------------------------------------------------------------
@@ -523,6 +609,42 @@ def test_execute_fetch_happy_path_httpx_only() -> None:
     assert sink.persisted[0]["extractor"] == "density-extract-v1"
     assert sink.linked == [(entry.source_document_pub_id, ("tsk_1",))]
     assert len(sleeps) == 0  # 同域首次请求不限速
+
+
+def test_execute_fetch_carries_publication_metadata_and_redirect_chain_to_sink() -> None:
+    original_url = "https://a.example.com/redirect"
+    final_url = "https://a.example.com/2026/08/01/article"
+    metadata = extract_source_metadata(
+        '<meta property="article:published_time" content="2026-08-01T09:30:00+08:00">',
+        final_url=final_url,
+        observed_at=datetime(2026, 8, 18, tzinfo=UTC),
+    )
+    redirect_chain = ({"url": original_url, "http_status": 301},)
+    attempt = HttpAttempt(
+        final_url=final_url,
+        http_status=200,
+        text="正文 " * 100,
+        extractor="density-extract-v1",
+        error_kind=None,
+        detail=None,
+        metadata=metadata,
+        redirect_chain=redirect_chain,
+    )
+    sink = _FakeSink()
+
+    result = execute_source_fetch(
+        _ITEM,
+        config=_config(),
+        loader=_FakeLoader(_context(tasks=[("ans_1", [_citation(original_url)])])),
+        fetcher=_FakeFetcher(httpx_results={original_url: attempt}),
+        sink=sink,
+        sleep=lambda _seconds: None,
+    )
+
+    assert result.failures == []
+    assert sink.persisted[0]["metadata"].published_at_source == "meta.article:published_time"
+    assert sink.persisted[0]["metadata"].published_at_confidence == "structured_only"
+    assert sink.persisted[0]["redirect_chain"] == redirect_chain
 
 
 def test_execute_fetch_only_persists_dom_verified_brand_mention() -> None:

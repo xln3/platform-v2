@@ -17,6 +17,11 @@ class CitationInput:
     url: str
     title: str | None = None
     cited_text: str | None = None
+    # Customer ordinals are always one-based. ``platform_ordinal`` preserves
+    # what the platform emitted, including zero-based schemes.
+    ordinal: int | None = None
+    platform_ordinal: int | None = None
+    ordinal_base: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,22 +52,27 @@ def analyze_answer(
     # Sentiment is a fact about the requested brand.  A response which never
     # mentions that brand cannot truthfully carry brand sentiment.
     sentiment = _sentiment(normalized) if brand_position is not None else "neutral"
-    citation_rows: tuple[dict[str, object], ...] = tuple(
-        {
-            "ordinal": index,
-            "original_url": citation.url,
-            "canonical_url": canonicalize_url(citation.url),
-            "host": (urlsplit(citation.url).hostname or "").lower(),
-            "title": citation.title,
-            "cited_text": citation.cited_text,
-            "own_source": any(
-                (urlsplit(citation.url).hostname or "").lower() == domain
-                or (urlsplit(citation.url).hostname or "").lower().endswith(f".{domain}")
-                for domain in own_domains
-            ),
-        }
-        for index, citation in enumerate(citations, 1)
-    )
+    citation_rows_list: list[dict[str, object]] = []
+    for index, citation in enumerate(citations, 1):
+        ordinal, platform_ordinal, ordinal_base = _citation_ordinals(citation, index)
+        citation_rows_list.append(
+            {
+                "ordinal": ordinal,
+                "platform_ordinal": platform_ordinal,
+                "ordinal_base": ordinal_base,
+                "original_url": citation.url,
+                "canonical_url": canonicalize_url(citation.url),
+                "host": (urlsplit(citation.url).hostname or "").lower(),
+                "title": citation.title,
+                "cited_text": citation.cited_text,
+                "own_source": any(
+                    (urlsplit(citation.url).hostname or "").lower() == domain
+                    or (urlsplit(citation.url).hostname or "").lower().endswith(f".{domain}")
+                    for domain in own_domains
+                ),
+            }
+        )
+    citation_rows = tuple(citation_rows_list)
     canonical_urls = [str(row["canonical_url"]) for row in citation_rows]
     digest_input = "\n".join([text, brand, *competitors, *canonical_urls])
     return AnalysisResult(
@@ -97,6 +107,43 @@ def canonicalize_url(url: str) -> str:
         ]
     )
     return urlunsplit((split.scheme.lower() or "https", netloc, path, query, ""))
+
+
+def _citation_ordinals(citation: CitationInput, fallback_ordinal: int) -> tuple[int, int, int]:
+    if citation.ordinal is not None and (
+        not isinstance(citation.ordinal, int) or isinstance(citation.ordinal, bool)
+    ):
+        raise ValueError("citation ordinal mapping is invalid")
+    if citation.platform_ordinal is not None and (
+        not isinstance(citation.platform_ordinal, int)
+        or isinstance(citation.platform_ordinal, bool)
+    ):
+        raise ValueError("citation ordinal mapping is invalid")
+    base = (
+        citation.ordinal_base
+        if isinstance(citation.ordinal_base, int)
+        and not isinstance(citation.ordinal_base, bool)
+        and citation.ordinal_base in {0, 1}
+        else 1
+    )
+    if citation.platform_ordinal is not None:
+        platform_ordinal = citation.platform_ordinal
+    elif citation.ordinal is not None:
+        platform_ordinal = citation.ordinal - (1 - base)
+    else:
+        platform_ordinal = fallback_ordinal - (1 - base)
+    ordinal = citation.ordinal if citation.ordinal is not None else platform_ordinal + (1 - base)
+    if (
+        not isinstance(ordinal, int)
+        or isinstance(ordinal, bool)
+        or not isinstance(platform_ordinal, int)
+        or isinstance(platform_ordinal, bool)
+        or ordinal < 1
+        or platform_ordinal < base
+        or ordinal != platform_ordinal + (1 - base)
+    ):
+        raise ValueError("citation ordinal mapping is invalid")
+    return ordinal, platform_ordinal, base
 
 
 def _normalize(text: str) -> str:

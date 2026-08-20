@@ -426,6 +426,30 @@ def test_record_task_outcome_success_counts_usage_and_idempotent(
     assert account.used_today == 2
 
 
+def test_account_success_clears_stale_browser_captcha_and_breaker(
+    session: _FakeSession, governor: AccountGovernor, fixed_clock: None
+) -> None:
+    _seed_account(session, quota_reset_at=_FIXED_NOW + timedelta(hours=2))
+    browser = _seed_browser(
+        session,
+        activity="captcha",
+        error_streak=5,
+        breaker_until=_FIXED_NOW + timedelta(hours=2),
+    )
+
+    governor.record_task_outcome(
+        platform="doubao",
+        browser_instance_key="doubao_sh",
+        outcome="success",
+        run_pub_id="run_after_manual_captcha",
+        mode="normal",
+    )
+
+    assert browser.activity == "idle"
+    assert browser.error_streak == 0
+    assert browser.breaker_until is None
+
+
 def test_record_task_outcome_breaker_after_three_same_failures(
     session: _FakeSession, governor: AccountGovernor, fixed_clock: None
 ) -> None:
@@ -505,14 +529,17 @@ def test_record_task_outcome_browser_fallback_breaker(
     assert browser.error_streak == 3
     assert browser.breaker_until == _FIXED_NOW + timedelta(hours=2)
     assert len(_events(session, "breaker")) == 1
-    # 成功清零 streak（熔断时间保留到期自然失效，由 resolve 的时间判断消费）
+    # 人工处理后首个真实成功同时证伪陈旧 captcha/activity 与 breaker。
+    browser.activity = "captcha"
     governor.record_task_outcome(
         platform="doubao",
         browser_instance_key="doubao_sh",
         outcome="success",
         run_pub_id="run_3",
     )
+    assert browser.activity == "idle"
     assert browser.error_streak == 0
+    assert browser.breaker_until is None
 
 
 def test_record_task_outcome_orphan_is_logged_noop(

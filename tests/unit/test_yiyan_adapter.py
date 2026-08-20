@@ -106,9 +106,8 @@ async def test_success_maps_result_fields(adapter_env: Path) -> None:
         heartbeat=lambda payload: beats.append(payload),
     )
     assert result.business_key == "run-9-task-5"
-    assert "友邦在售的重疾险" in result.answer_text
-    assert "参考来源：" in result.answer_text
-    assert "https://example.com/article/2" in result.answer_text
+    assert result.answer_text == "友邦在售的重疾险包括……"
+    assert result.citations[0]["url"] == "https://example.com/article/2"
     assert result.screenshot_ref == f"file://{shot}"
     assert result.quality_state == "live_valid"
     assert beats and beats[0]["business_key"] == "run-9-task-5"

@@ -1,20 +1,28 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Conservative, unattended G07-G34 top-up cadence for spare-capacity windows.
-# One hourly invocation considers one rotating leg and launches at most four
-# questions.  Every guard is fail-closed so report production and foreground
-# collections take priority.
+# Conservative, unattended G01-G34 top-up cadence for spare-capacity windows.
+# Each invocation considers one rotating leg and launches at most four
+# questions.  Up to two gradual runs may overlap on distinct browser legs;
+# every guard is fail-closed so report production and foreground collections
+# take priority.
 
 ROOT=/home/xln/geo-system/platform-v2
 PYTHON="$ROOT/.venv/bin/python"
 PSQL=/usr/bin/psql
 TOKEN_FILE=/tmp/s04-acceptance-token
 LOCK_FILE=/tmp/sbaq-g0734-gradual.lock
-LOG_PREFIX=sbaq_g0734_gradual
-ZOMBIE_RUN=run_3J895WRN5MGF6CQFXVZ370MR50
+MAINTENANCE_FILE=/tmp/sbaq-g0134-gradual.maintenance
+PLANNER="$ROOT/tools/topup_sbaq_g0134_20260816.py"
+LOG_PREFIX=sbaq_g0134_gradual
+RUN_PREFIX=sbaq-g0134-gradual
+LEGACY_RUN_PREFIX=sbaq-g0734-gradual
 MIN_AVAILABLE_KB=8388608
 MAX_LOAD_ONE=8
+MAX_CONCURRENT_RUNS=2
+FAILURE_COOLDOWN_HOURS=2
+FANOUT_GRACE_MINUTES=15
+ACTIVE_STATES="'pending','starting','running','pausing','paused','resuming','cancelling'"
 
 log() {
   printf '%s %s %s\n' "$(date '+%F %T %Z')" "$LOG_PREFIX" "$*"
@@ -23,6 +31,11 @@ log() {
 exec 9>"$LOCK_FILE"
 if ! /usr/bin/flock -n 9; then
   log "skip reason=lock_busy"
+  exit 0
+fi
+
+if [[ -e "$MAINTENANCE_FILE" ]]; then
+  log "skip reason=maintenance file=$MAINTENANCE_FILE"
   exit 0
 fi
 
@@ -49,12 +62,21 @@ if [[ -z "$dsn_raw" ]]; then
 fi
 psql_dsn=${dsn_raw/postgresql+psycopg:\/\//postgresql:\/\/}
 
-active_runs=$(
+active_foreground_runs=$(
   "$PSQL" "$psql_dsn" -X -Atc \
-    "SELECT count(*) FROM platform.collection_run WHERE state IN ('pending','running','paused') AND pub_id <> '$ZOMBIE_RUN'"
+    "SELECT count(*) FROM platform.collection_run WHERE state IN ($ACTIVE_STATES) AND idempotency_key NOT LIKE '$RUN_PREFIX-%' AND idempotency_key NOT LIKE '$LEGACY_RUN_PREFIX-%'"
 )
-if (( active_runs > 0 )); then
-  log "skip reason=active_collection count=$active_runs"
+if (( active_foreground_runs > 0 )); then
+  log "skip reason=active_foreground_collection count=$active_foreground_runs"
+  exit 0
+fi
+
+active_gradual_runs=$(
+  "$PSQL" "$psql_dsn" -X -Atc \
+    "SELECT count(*) FROM platform.collection_run WHERE state IN ($ACTIVE_STATES) AND (idempotency_key LIKE '$RUN_PREFIX-%' OR idempotency_key LIKE '$LEGACY_RUN_PREFIX-%')"
+)
+if (( active_gradual_runs >= MAX_CONCURRENT_RUNS )); then
+  log "skip reason=gradual_capacity active=$active_gradual_runs maximum=$MAX_CONCURRENT_RUNS"
   exit 0
 fi
 
@@ -67,32 +89,111 @@ if (( active_reports > 0 )); then
   exit 0
 fi
 
-legs=(deepseek-sh yiyan-bj yiyan-sh)
-epoch_hour=$(( $(date +%s) / 3600 ))
-leg=${legs[$(( epoch_hour % ${#legs[@]} ))]}
-browser_unit="geo-platform-v2-browser@${leg//-/_}.service"
-if [[ "$(systemctl is-active "$browser_unit")" != active ]]; then
-  log "skip reason=browser_inactive leg=$leg unit=$browser_unit"
-  exit 0
-fi
 if [[ "$(systemctl is-active geo-platform-v2-worker.service)" != active ]]; then
   log "skip reason=worker_inactive"
   exit 0
 fi
 
-recent_failures=$(
+legs=(doubao-bj doubao-sh deepseek-bj deepseek-sh yiyan-bj yiyan-sh)
+last_key=$(
   "$PSQL" "$psql_dsn" -X -Atc \
-    "SELECT count(*) FROM platform.collection_run WHERE idempotency_key LIKE 'sbaq-g0734-gradual-$leg-%-run' AND updated_at >= now() - interval '12 hours' AND (state IN ('failed','cancelled','completed_with_failures') OR failed_tasks > 0)"
+    "SELECT idempotency_key FROM platform.collection_run WHERE idempotency_key LIKE '$RUN_PREFIX-%' OR idempotency_key LIKE '$LEGACY_RUN_PREFIX-%' ORDER BY created_at DESC LIMIT 1"
 )
-if (( recent_failures > 0 )); then
-  log "skip reason=leg_cooldown leg=$leg recent_failures=$recent_failures"
-  exit 0
-fi
+start_index=0
+for index in "${!legs[@]}"; do
+  if [[ "$last_key" == "$RUN_PREFIX-${legs[$index]}-"* || "$last_key" == "$LEGACY_RUN_PREFIX-${legs[$index]}-"* ]]; then
+    start_index=$(( (index + 1) % ${#legs[@]} ))
+    break
+  fi
+done
 
-plan=$(GEO_POSTGRES_DSN="$dsn_raw" "$PYTHON" "$ROOT/tools/topup_sbaq_g0734_20260814.py" --leg "$leg" --max-queries 4)
-launch_count=$("$PYTHON" -c 'import json, sys; print(json.load(sys.stdin)["launch_query_count"])' <<<"$plan")
-if (( launch_count == 0 )); then
-  log "skip reason=leg_complete leg=$leg"
+leg=""
+for offset in "${!legs[@]}"; do
+  candidate=${legs[$(( (start_index + offset) % ${#legs[@]} ))]}
+  candidate_mode=deep_think
+  if [[ "$candidate" == doubao-* ]]; then
+    candidate_mode=normal
+  fi
+  browser_unit="geo-platform-v2-browser@${candidate//-/_}.service"
+  if [[ "$(systemctl is-active "$browser_unit")" != active ]]; then
+    log "candidate_skip reason=browser_inactive leg=$candidate unit=$browser_unit"
+    continue
+  fi
+
+  active_on_leg=$(
+    "$PSQL" "$psql_dsn" -X -Atc \
+      "SELECT count(*) FROM platform.collection_run WHERE state IN ($ACTIVE_STATES) AND (idempotency_key LIKE '$RUN_PREFIX-$candidate-%' OR idempotency_key LIKE '$LEGACY_RUN_PREFIX-$candidate-%')"
+  )
+  if (( active_on_leg > 0 )); then
+    log "candidate_skip reason=leg_active leg=$candidate count=$active_on_leg"
+    continue
+  fi
+
+  recent_leg_runs=$(
+    "$PSQL" "$psql_dsn" -X -Atc \
+      "SELECT count(*) FROM platform.collection_run WHERE (idempotency_key LIKE '$RUN_PREFIX-$candidate-%' OR idempotency_key LIKE '$LEGACY_RUN_PREFIX-$candidate-%') AND updated_at >= now() - make_interval(mins => $FANOUT_GRACE_MINUTES)"
+  )
+  if (( recent_leg_runs > 0 )); then
+    log "candidate_skip reason=fanout_grace leg=$candidate recent_runs=$recent_leg_runs minutes=$FANOUT_GRACE_MINUTES"
+    continue
+  fi
+
+  browser_key=${candidate//-/_}
+  browser_state=$(
+    "$PSQL" "$psql_dsn" -X -F '|' -Atc \
+      "SELECT activity, CASE WHEN breaker_until > now() THEN 1 ELSE 0 END, coalesce(to_char(breaker_until AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI:SS'),'none'), CASE WHEN muted_until > now() THEN 1 ELSE 0 END, coalesce(to_char(muted_until AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD HH24:MI:SS'),'none') FROM platform.collection_browser WHERE instance_key='$browser_key'"
+  )
+  if [[ -z "$browser_state" ]]; then
+    log "candidate_skip reason=browser_unregistered leg=$candidate instance=$browser_key"
+    continue
+  fi
+  IFS='|' read -r browser_activity breaker_active breaker_until muted_active muted_until <<<"$browser_state"
+  if [[ "$browser_activity" != idle ]]; then
+    log "candidate_skip reason=browser_not_idle leg=$candidate activity=$browser_activity"
+    continue
+  fi
+  if [[ "$muted_active" == 1 ]]; then
+    log "candidate_skip reason=browser_muted leg=$candidate muted_until=$muted_until"
+    continue
+  fi
+  if [[ "$breaker_active" == 1 ]]; then
+    # 配额按账号×mode 生效。最近一次同批根因若是另一模式的 quota，不能拿
+    # 专家配额 breaker 阻断快速补采；验证码/登录/禁言等账号级墙仍 fail-closed。
+    breaker_root=$(
+      "$PSQL" "$psql_dsn" -X -F '|' -Atc \
+        "WITH latest_breaker AS (SELECT event.created_at FROM platform.collection_account_event event JOIN platform.collection_browser browser ON browser.id=event.browser_id WHERE browser.instance_key='$browser_key' AND event.event_type='breaker' ORDER BY event.created_at DESC LIMIT 1) SELECT coalesce(wall.new_value->>'wall_type',''),coalesce(wall.new_value->>'mode','') FROM platform.collection_account_event wall JOIN platform.collection_browser browser ON browser.id=wall.browser_id CROSS JOIN latest_breaker root WHERE browser.instance_key='$browser_key' AND wall.event_type='wall_hit' AND wall.created_at BETWEEN root.created_at - interval '5 minutes' AND root.created_at + interval '5 minutes' ORDER BY wall.created_at DESC LIMIT 1"
+    )
+    IFS='|' read -r breaker_wall_type breaker_wall_mode <<<"$breaker_root"
+    if [[ "$breaker_wall_type" == wall_quota && -n "$breaker_wall_mode" && "$breaker_wall_mode" != "$candidate_mode" ]]; then
+      log "candidate_allow reason=quota_mode_mismatch leg=$candidate requested_mode=$candidate_mode blocked_mode=$breaker_wall_mode breaker_until=$breaker_until"
+    else
+      log "candidate_skip reason=browser_breaker leg=$candidate mode=$candidate_mode breaker_until=$breaker_until root_wall=${breaker_wall_type:-unknown} root_mode=${breaker_wall_mode:-unknown}"
+      continue
+    fi
+  fi
+
+  recent_severe_failures=$(
+    "$PSQL" "$psql_dsn" -X -Atc \
+      "SELECT count(*) FROM platform.collection_run run JOIN platform.monitoring_config_version version ON version.id=run.config_version_id WHERE (run.idempotency_key LIKE '$RUN_PREFIX-$candidate-%-run' OR run.idempotency_key LIKE '$LEGACY_RUN_PREFIX-$candidate-%-run') AND (version.snapshot_json::jsonb -> 'modes') ? '$candidate_mode' AND run.updated_at >= now() - make_interval(hours => $FAILURE_COOLDOWN_HOURS) AND (run.state IN ('failed','cancelled') OR (run.failed_tasks > 0 AND run.failed_tasks * 2 >= run.total_tasks))"
+  )
+  if (( recent_severe_failures > 0 )); then
+    log "candidate_skip reason=leg_cooldown leg=$candidate mode=$candidate_mode recent_severe_failures=$recent_severe_failures"
+    continue
+  fi
+
+  candidate_plan=$(GEO_POSTGRES_DSN="$dsn_raw" "$PYTHON" "$PLANNER" --leg "$candidate" --max-queries 4)
+  launch_count=$("$PYTHON" -c 'import json, sys; print(json.load(sys.stdin)["launch_query_count"])' <<<"$candidate_plan")
+  if (( launch_count == 0 )); then
+    log "candidate_skip reason=leg_complete leg=$candidate"
+    continue
+  fi
+
+  leg=$candidate
+  break
+done
+
+if [[ -z "$leg" ]]; then
+  log "skip reason=no_eligible_leg"
   exit 0
 fi
 
@@ -119,12 +220,12 @@ except Exception:
 trap cleanup_token EXIT
 
 GEO_POSTGRES_DSN="$dsn_raw" "$PYTHON" "$ROOT/tools/mint_acceptance_session.py" >/dev/null
-pass_id="auto-$(date '+%Y%m%dT%H')"
+pass_id="auto-$(date '+%Y%m%dT%H%M')"
 output=$(
-  GEO_POSTGRES_DSN="$dsn_raw" "$PYTHON" "$ROOT/tools/topup_sbaq_g0734_20260814.py" \
+  GEO_POSTGRES_DSN="$dsn_raw" "$PYTHON" "$PLANNER" \
     --leg "$leg" \
     --pass-id "$pass_id" \
     --max-queries 4 \
     --launch
 )
-log "launch leg=$leg payload=$output"
+log "launch leg=$leg mode=$($PYTHON -c 'import json, sys; print(json.load(sys.stdin)["mode"])' <<<"$output") payload=$output"

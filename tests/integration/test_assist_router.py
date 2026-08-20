@@ -333,6 +333,7 @@ def test_done_marks_registry_and_enqueues_signal_idempotently(
         write_registry(
             assist_dir,
             ticket,
+            tenant_pub_id=tenant,
             run_pub_id=run_pub_id,
             session_id=session_id,
             port=bridge.port,
@@ -383,6 +384,7 @@ def test_done_recovers_signal_when_registry_rewrite_interrupted(
         registry = write_registry(
             assist_dir,
             ticket,
+            tenant_pub_id=tenant,
             run_pub_id=run_pub_id,
             session_id=session_id,
             port=bridge.port,

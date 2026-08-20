@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { MetricHelp } from '../MetricHelp';
 import { WindowPicker } from '../WindowPicker';
 import {
   defaultWindow,
@@ -139,7 +140,10 @@ export function SiteAuditWorkspace({
         <>
           <div className="metric-cards">
             <article>
-              <span>官网引用率</span>
+              <MetricHelp
+                label="官网引用率"
+                explanation="至少引用 1 个官网 URL 的合格 AI 回答数 ÷ 全部合格 AI 回答数 × 100%。同一回答引用多个官网 URL 仍只计 1 条回答。"
+              />
               <strong>
                 {data.own_site_answer_citation_rate === null
                   ? '—'
@@ -150,7 +154,10 @@ export function SiteAuditWorkspace({
               </span>
             </article>
             <article>
-              <span>回答信源覆盖率</span>
+              <MetricHelp
+                label="回答信源覆盖率"
+                explanation="至少返回 1 个可解析引用 URL 的合格 AI 回答数 ÷ 全部合格 AI 回答数 × 100%。官网与第三方引用都计入分子。"
+              />
               <strong>
                 {data.citation_coverage_rate === null
                   ? '—'
@@ -161,7 +168,10 @@ export function SiteAuditWorkspace({
               </span>
             </article>
             <article>
-              <span>官网内容采纳率</span>
+              <MetricHelp
+                label="官网内容采纳率"
+                explanation="已确认理解并使用官网内容生成回答的 AI 回答数 ÷ 已完成采纳评价的官网引用回答数 × 100%。没有回答级采纳证据时显示“数据不足”。"
+              />
               <strong>
                 {data.own_site_adoption_rate === null
                   ? '数据不足'
@@ -173,7 +183,10 @@ export function SiteAuditWorkspace({
               </span>
             </article>
             <article>
-              <span>官网引文证据可见率</span>
+              <MetricHelp
+                label="官网引文证据可见率"
+                explanation="能看到官网引文原句（cited_text）的官网引用回答数 ÷ 引用官网的 AI 回答数 × 100%。它衡量证据可见性，不代表转述正确。"
+              />
               <strong>
                 {data.own_site_cited_text_evidence_rate === null
                   ? '—'
@@ -185,7 +198,10 @@ export function SiteAuditWorkspace({
               </span>
             </article>
             <article>
-              <span>抓取文档官网占比</span>
+              <MetricHelp
+                label="抓取文档官网占比"
+                explanation="本次下游审计抓取到的官网文档数 ÷ 全部抓取文档数 × 100%。这是抓取样本结构，不是 AI 回答的官网引用率。"
+              />
               <strong>
                 {data.own_site_share === null ? '—' : `${(data.own_site_share * 100).toFixed(1)}%`}
               </strong>
@@ -194,7 +210,10 @@ export function SiteAuditWorkspace({
               </span>
             </article>
             <article>
-              <span>官网引用转述准确率</span>
+              <MetricHelp
+                label="官网引用转述准确率"
+                explanation="判定为转述准确的官网文档审计数 ÷ 已完成转述判定的官网文档审计数 × 100%。只统计官网且判定成功的转述审计。"
+              />
               <strong>
                 {data.own_site_transcript_accuracy_rate === null
                   ? '数据不足'

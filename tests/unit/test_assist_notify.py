@@ -1,7 +1,7 @@
 """assist_notify 推送网关单元测试：只打 127.0.0.1 ephemeral 端口的本机回环
 假服务器（stdlib http.server），绝不发真 HTTP 出网。
 
-覆盖：五种 flavor 的 URL/payload 拼装正确性 + 未配置/未知 flavor/对端异常 →
+覆盖：六种 flavor 的 URL/payload 拼装正确性 + 未配置/未知 flavor/对端异常 →
 False 不抛。
 """
 
@@ -26,6 +26,7 @@ class _CaptureServer:
 
     def __init__(self) -> None:
         self.records: list[dict] = []
+        self.response_body = b'{"code":0,"msg":"success"}'
         outer = self
 
         class _Handler(BaseHTTPRequestHandler):
@@ -43,7 +44,7 @@ class _CaptureServer:
                         "body": body,
                     }
                 )
-                payload = b"ok"
+                payload = outer.response_body
                 self.send_response(200)
                 self.send_header("Content-Type", "text/plain")
                 self.send_header("Content-Length", str(len(payload)))
@@ -74,7 +75,7 @@ def server():
     srv.stop()
 
 
-# ── 五 flavor 拼装正确性 ────────────────────────────────────────────────────────
+# ── 六种 flavor 拼装正确性 ─────────────────────────────────────────────────────
 
 
 def test_bark_get_path_and_click_url(server: _CaptureServer) -> None:
@@ -103,6 +104,21 @@ def test_serverchan_query_params(server: _CaptureServer) -> None:
     qs = urllib.parse.parse_qs(split.query)
     assert qs["title"] == [_TITLE]
     assert qs["desp"] == [_BODY]
+
+
+def test_feishu_text_payload(server: _CaptureServer) -> None:
+    ok = push_captcha_assist(flavor="feishu", url=server.base, title=_TITLE, body=_BODY)
+    assert ok is True
+    (rec,) = server.records
+    assert rec["method"] == "POST"
+    assert rec["headers"]["Content-Type"] == "application/json"
+    payload = json.loads(rec["body"])
+    assert payload == {"msg_type": "text", "content": {"text": f"{_TITLE}\n{_BODY}"}}
+
+
+def test_feishu_business_error_returns_false(server: _CaptureServer) -> None:
+    server.response_body = b'{"code":9499,"msg":"Bad Request"}'
+    assert push_captcha_assist(flavor="feishu", url=server.base, title=_TITLE, body=_BODY) is False
 
 
 def test_wecom_text_payload(server: _CaptureServer) -> None:
@@ -148,6 +164,17 @@ def test_default_flavor_is_raw(server: _CaptureServer) -> None:
     assert json.loads(rec["body"])["event"] == "captcha_assist"
 
 
+def test_host_proxy_environment_is_ignored(
+    monkeypatch: pytest.MonkeyPatch, server: _CaptureServer
+) -> None:
+    dead_proxy = "http://127.0.0.1:1"
+    for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"):
+        monkeypatch.setenv(key, dead_proxy)
+    monkeypatch.setenv("NO_PROXY", "")
+    monkeypatch.setenv("no_proxy", "")
+    assert push_captcha_assist(flavor="raw", url=server.base, title=_TITLE, body=_BODY) is True
+
+
 # ── 失败路径：一律 False 不抛 ───────────────────────────────────────────────────
 
 
@@ -171,7 +198,7 @@ def test_peer_failure_returns_false_not_raise() -> None:
     sock.bind(("127.0.0.1", 0))
     dead_port = sock.getsockname()[1]
     sock.close()
-    for flavor in ("bark", "serverchan", "wecom", "ntfy", "raw"):
+    for flavor in ("bark", "serverchan", "feishu", "wecom", "ntfy", "raw"):
         assert (
             push_captcha_assist(
                 flavor=flavor,

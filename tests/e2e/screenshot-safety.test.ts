@@ -8,7 +8,10 @@ const safeSurface = {
   textLines: ['安全投影；不会显示 Cookie、token、OTP、profile 路径或生物材料。'],
   textNodes: ['安全投影；不会显示 Cookie、token、OTP、profile 路径或生物材料。'],
   attributeNames: ['id', 'aria-label'],
-  attributes: ['main-content', '平台账号与授权'],
+  attributes: [
+    { value: 'main-content', isSameOriginBlobImageSource: false },
+    { value: '平台账号与授权', isSameOriginBlobImageSource: false },
+  ],
   controls: ['read', 'query'],
   machineReadableVisuals: [{ payloadFree: true }],
   computedGeneratedContentSafe: true,
@@ -32,6 +35,31 @@ const safeSurface = {
 describe('local visual evidence DLP', () => {
   it('rejects secrets from DOM, controls, URL and browser storage without false positives', () => {
     expect(isSafeScreenshotSurface(safeSurface)).toBe(true);
+    const phoneShapedBlobUrl = 'blob:http://127.0.0.1/a2172290-4754-45ba-b7ce-505cab745263';
+    expect(
+      isSafeScreenshotSurface({
+        ...safeSurface,
+        attributes: [
+          ...safeSurface.attributes,
+          {
+            value: phoneShapedBlobUrl,
+            isSameOriginBlobImageSource: true,
+          },
+        ],
+      }),
+    ).toBe(true);
+    expect(
+      isSafeScreenshotSurface({
+        ...safeSurface,
+        attributes: [
+          ...safeSurface.attributes,
+          {
+            value: phoneShapedBlobUrl,
+            isSameOriginBlobImageSource: false,
+          },
+        ],
+      }),
+    ).toBe(false);
     expect(
       isSafeScreenshotSurface({
         ...safeSurface,
@@ -50,7 +78,14 @@ describe('local visual evidence DLP', () => {
       { computedGeneratedContentSafe: false },
       { computedResourceStylesSafe: false },
       { attributeNames: ['data-access_token'] },
-      { attributes: ['access_token=screenshot-secret-canary'] },
+      {
+        attributes: [
+          {
+            value: 'access_token=screenshot-secret-canary',
+            isSameOriginBlobImageSource: false,
+          },
+        ],
+      },
       { url: 'http://example.test/?access_token=screenshot-secret-canary' },
       { url: 'http://example.test/platform/customer/access%255Ftoken' },
       { url: 'http://example.test/platform/customer/#profile%255Fpath' },

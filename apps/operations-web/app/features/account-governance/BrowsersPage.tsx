@@ -89,7 +89,10 @@ export function BrowsersPage({ session }: { session: SessionContext }) {
     setBusyKey(row.instance_key);
     try {
       const result = await accountGovApi.releaseBrowserLock(session, row.instance_key);
-      pushToast(result.released ? 'positive' : 'warning', `释放锁 ${row.instance_key}：${result.detail}`);
+      pushToast(
+        result.released ? 'positive' : 'warning',
+        `释放锁 ${row.instance_key}：${result.detail}`,
+      );
     } catch (cause) {
       pushToast('negative', describeApiError(cause));
     }
@@ -199,8 +202,7 @@ function BrowserRow({
   onRestart: () => void;
   onReleaseLock: () => void;
 }) {
-  const uptimeTone =
-    row.uptime_s !== null && row.uptime_s > UPTIME_WARN_S ? 'warn' : undefined;
+  const uptimeTone = row.uptime_s !== null && row.uptime_s > UPTIME_WARN_S ? 'warn' : undefined;
   const rssTone =
     row.rss_bytes !== null && row.rss_bytes > RSS_BAD_BYTES
       ? 'bad'

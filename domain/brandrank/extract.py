@@ -18,8 +18,8 @@ V2 适配（仅传输层与配置族，抽取语义零变化）：
 - 配置独立 env 族（**不与 GEO_RESEARCH_LLM_* 混用**，key 绝不入代码/git）::
 
     GEO_BRANDRANK_LLM_API_KEY           未配 → 禁用态（API 503 llm_disabled，诚实降级）
-    GEO_BRANDRANK_LLM_BASE_URL          缺省 https://aihubmix.com
-    GEO_BRANDRANK_LLM_BASE_URL_FALLBACK 缺省 https://api.inferera.com
+    GEO_BRANDRANK_LLM_BASE_URL          缺省 https://api.inferera.com
+    GEO_BRANDRANK_LLM_BASE_URL_FALLBACK 缺省空（生产不得回落到其他网关）
     GEO_BRANDRANK_LLM_MODEL             缺省 deep-deepseek-v4-flash（旧库缺省模型）
     GEO_BRANDRANK_LLM_MAX_WORKERS       批处理线程数，缺省取规则包 llm.max_workers_default
 """
@@ -33,8 +33,8 @@ from typing import Any
 
 from .rules import DomainRules
 
-_DEFAULT_BASE_URL = "https://aihubmix.com"
-_DEFAULT_BASE_URL_FALLBACK = "https://api.inferera.com"
+_DEFAULT_BASE_URL = "https://api.inferera.com"
+_DEFAULT_BASE_URL_FALLBACK = ""
 _DEFAULT_MODEL = "deep-deepseek-v4-flash"
 _TIMEOUT_S = 60.0  # 品牌抽取输入是整篇回答（比 otp 短信长得多），超时给足
 _MAX_TEXT_CHARS = 12000  # 防御性截断（她的脚本无截断；超长回答只浪费 token，不影响口径）
@@ -48,7 +48,7 @@ def load_config() -> tuple[str, str, str, str] | None:
     """(key, base_url, base_url_fallback, model) 或 None（未配 key→禁用）。
 
     独立 env 族：未配置即禁用，**不做**跨族回落（V2 任务书口径；旧库的
-    AIHUBMIX/OTP 回落在 V2 由 GEO_RESEARCH_LLM_* 承担，不混用）。"""
+    其他 LLM 通道由 GEO_RESEARCH_LLM_* 承担，不混用）。"""
     key = (os.environ.get("GEO_BRANDRANK_LLM_API_KEY") or "").strip()
     if not key:
         return None
@@ -138,6 +138,7 @@ class _HttpxChatCompletions:
                     base_url=base,
                     timeout=_TIMEOUT_S,
                     headers={"Authorization": f"Bearer {self._api_key}"},
+                    trust_env=False,
                 ) as client:
                     response = client.post("/chat/completions", json=body)
             except httpx.HTTPError as e:  # 网络/超时 → 换备通道

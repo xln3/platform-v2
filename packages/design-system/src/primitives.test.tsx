@@ -721,6 +721,59 @@ describe('shared experience primitives', () => {
     expect(dialog.textContent).not.toContain('有一项待人工确认');
   });
 
+  it('lists every authorized project and preserves the active project across navigation', () => {
+    render(
+      <ExperienceProvider
+        value={{
+          tenantPubId: 'tnt_safe',
+          tenantLabel: '安全租户',
+          projectPubId: 'prj_security',
+          projectLabel: '盛邦安全-GEO验证',
+          userPubId: 'usr_safe',
+          userLabel: '安全用户',
+          roles: ['customer'],
+          projects: [
+            {
+              projectPubId: 'prj_security',
+              projectLabel: '盛邦安全-GEO验证',
+              state: 'draft',
+            },
+            {
+              projectPubId: 'prj_testdeep',
+              projectLabel: 'testdeep',
+              state: 'paused',
+            },
+          ],
+          source: 'live',
+        }}
+      >
+        <ProductShell
+          product="Customer Web"
+          title="客户工作台"
+          description="安全工作区"
+          nav={[
+            { id: 'home', label: '首页' },
+            { id: 'reports', label: '报告', href: '/platform/customer/reports' },
+          ]}
+          probe={async () => ({ status: 'ok' })}
+        >
+          {() => <section>安全业务内容</section>}
+        </ProductShell>
+      </ExperienceProvider>,
+    );
+
+    expect(screen.getByRole('link', { name: '报告' }).getAttribute('href')).toBe(
+      '/platform/customer/reports?project=prj_security',
+    );
+    fireEvent.click(screen.getByRole('button', { name: /安全租户.*盛邦安全/u }));
+    const dialog = screen.getByRole('dialog', { name: '当前项目上下文' });
+    expect(dialog.textContent).toContain('盛邦安全-GEO验证');
+    expect(dialog.textContent).toContain('testdeep');
+    expect(screen.getByRole('link', { name: /testdeep/u }).getAttribute('href')).toBe(
+      '?project=prj_testdeep',
+    );
+  });
+
   it('projects health status again in the shared shell and ignores superseded probes', async () => {
     let resolveFirst: ((value: { status: string }) => void) | undefined;
     const firstProbe = vi.fn(
@@ -756,6 +809,35 @@ describe('shared experience primitives', () => {
     rerender(renderShell(async () => ({ status: 'Cookie=session-health-probe-canary' })));
     await waitFor(() => expect(healthStatus.textContent).toContain('unavailable'));
     expect(document.body.textContent).not.toMatch(/Cookie|session-health-probe-canary/i);
+  });
+
+  it('renders safe navigation groups once and rejects items with unsafe group labels', () => {
+    render(
+      <ProductShell
+        product="Customer Web"
+        title="客户工作台"
+        description="分组导航"
+        nav={[
+          { id: 'home', label: '经营总览', group: '数据洞察' },
+          { id: 'answers', label: '真实 AI 回答', group: '数据洞察' },
+          { id: 'reports', label: '报告', group: '成果交付' },
+          {
+            id: 'unsafe-group',
+            label: '不安全入口',
+            group: 'Bearer navigation-group-canary',
+          },
+        ]}
+        probe={async () => ({ status: 'ok' })}
+      >
+        {() => <section>安全业务内容</section>}
+      </ProductShell>,
+    );
+
+    expect(screen.getAllByRole('heading', { name: '数据洞察' })).toHaveLength(1);
+    expect(screen.getAllByRole('heading', { name: '成果交付' })).toHaveLength(1);
+    expect(screen.getByRole('button', { name: '真实 AI 回答' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '不安全入口' })).toBeNull();
+    expect(document.body.textContent).not.toContain('navigation-group-canary');
   });
 
   it('keeps internal href navigation outside section state and renders unsafe destinations disabled', () => {

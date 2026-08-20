@@ -76,6 +76,70 @@ def test_select_sampling_campaign_merges_split_legs_and_topups() -> None:
     ]
 
 
+def test_select_sampling_campaign_bridges_quick_topup_to_deep_think_full_plan() -> None:
+    configs = parse_sampling_configs(
+        [
+            _row(44, ["问题二"], model="doubao", region="北京", mode="normal"),
+            _row(43, ["问题一"], model="doubao", region="上海", mode="normal"),
+            _row(
+                42,
+                ["问题一", "问题二", "问题三"],
+                model="deepseek",
+                region="上海",
+            ),
+            _row(
+                41,
+                ["问题一", "问题二", "问题三"],
+                model="deepseek",
+                region="北京",
+            ),
+            _row(
+                40,
+                ["旧批次问题"],
+                model="yiyan",
+                region="北京",
+                mode="normal",
+            ),
+        ]
+    )
+
+    baseline, campaign = select_sampling_campaign(configs)
+
+    assert baseline is not None
+    assert baseline.revision == 42
+    assert [config.revision for config in campaign] == [44, 43, 42, 41]
+    assert [
+        (column.model, column.region, column.mode) for column in sampling_columns(campaign)
+    ] == [
+        ("doubao", "北京", "normal"),
+        ("doubao", "上海", "normal"),
+        ("deepseek", "北京", "deep_think"),
+        ("deepseek", "上海", "deep_think"),
+    ]
+
+
+def test_select_sampling_campaign_recovers_plan_behind_more_than_100_topups() -> None:
+    full_plan = [f"问题{index:03d}" for index in range(136)]
+    topups = [
+        _row(revision, [full_plan[(revision - 43) % len(full_plan)]])
+        for revision in range(197, 42, -1)
+    ]
+    configs = parse_sampling_configs(
+        topups
+        + [
+            _row(42, full_plan, model="deepseek", region="上海"),
+            _row(41, full_plan, model="deepseek", region="北京"),
+        ]
+    )
+
+    baseline, campaign = select_sampling_campaign(configs)
+
+    assert baseline is not None
+    assert baseline.revision == 42
+    assert len(sampling_plan_items(baseline)) == 136
+    assert [config.revision for config in campaign[-2:]] == [42, 41]
+
+
 def test_select_sampling_campaign_keeps_latest_independent_plan() -> None:
     configs = parse_sampling_configs([_row(3, ["新问题"]), _row(2, ["旧问题一", "旧问题二"])])
 
@@ -173,6 +237,7 @@ def test_sampling_progress_route_projects_counts_and_establishes_both_tenant_con
                             "mode": "deep_think",
                             "completed_samples": 2,
                             "latest_capture_time": captured_at,
+                            "answer_pub_ids": ["ans_newest", "ans_oldest"],
                         }
                     ]
                 )
@@ -203,4 +268,9 @@ def test_sampling_progress_route_projects_counts_and_establishes_both_tenant_con
     assert result.total_cells == 2
     assert result.live_runs == 1
     assert result.rows[0].cells[0].latest_capture_time == captured_at
+    assert result.rows[0].cells[0].answer_pub_ids == ["ans_newest", "ans_oldest"]
+    answer_sql = next(sql for sql, _ in calls if "FROM analytics.answer" in sql)
+    assert "array_agg(pub_id ORDER BY capture_time DESC,pub_id DESC)" in answer_sql
     assert any("set_config('app.tenant_id'" in sql for sql, _ in calls)
+    config_sql = next(sql for sql, _ in calls if "FROM platform.monitoring_config_version" in sql)
+    assert "LIMIT 100" not in config_sql

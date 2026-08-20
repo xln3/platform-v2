@@ -85,10 +85,7 @@ def test_libreoffice_export_is_tagged_clickable_and_reexport_stable() -> None:
 
 def test_reviewed_legacy_report_is_detected_as_not_deliverable() -> None:
     workspace = Path(__file__).resolve().parents[3]
-    root = (
-        workspace
-        / "client-sbaq/formal-reports-20260813/frp_94387df8ba4df75d3b26a9903e"
-    )
+    root = workspace / "client-sbaq/formal-reports-20260813/frp_94387df8ba4df75d3b26a9903e"
     docx_path = root / "服务1_品牌GEO推荐结果评测报告_正式_20260813.docx"
     pdf_path = root / "服务1_品牌GEO推荐结果评测报告_正式_20260813.pdf"
     if not docx_path.is_file() or not pdf_path.is_file():

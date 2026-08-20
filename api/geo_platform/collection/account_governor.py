@@ -250,7 +250,8 @@ class AccountGovernor:
     ) -> None:
         """采集任务终态上报：成功记用量台账，同类失败连续 ≥3 熔断。
 
-        - 成功 → used_today/week/year +1（账号路径）或 error_streak 清零（实例路径）。
+        - 成功 → used_today/week/year +1（账号路径），并把已由真实成功证伪的浏览器
+          captcha/activity/breaker 陈旧态恢复为 idle（两条路径均清 error_streak）。
         - 失败（outcome != "success"）→ 账号路径：同类失败连续 ≥3 →
           runtime_state='error' + breaker 事件；实例路径（无账号行）：
           error_streak+1，≥3 → breaker_until = now+2h + breaker 事件。
@@ -284,6 +285,14 @@ class AccountGovernor:
             account.updated_at = now
             self._conn.flush()
             browser = self._find_browser(account.browser_instance_key)
+            if outcome == "success" and browser is not None:
+                # 一次真实成功比陈旧的验证码/熔断记录更新；人工过码后首个受控任务
+                # 用此路径自动解锁调度。禁言时间是独立硬状态，不在这里清除。
+                browser.activity = "idle"
+                browser.error_streak = 0
+                browser.breaker_until = None
+                browser.updated_at = now
+                self._conn.flush()
             region = (
                 self._conn.scalar(
                     select(CollectionRegion).where(CollectionRegion.region_gb == account.region_gb)
@@ -358,7 +367,9 @@ class AccountGovernor:
         ):
             return
         if outcome == "success":
+            browser.activity = "idle"
             browser.error_streak = 0
+            browser.breaker_until = None
         else:
             browser.error_streak += 1
         browser.updated_at = now

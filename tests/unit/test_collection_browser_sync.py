@@ -30,9 +30,7 @@ class _FakeSession:
         rows = list(self.rows.get(cls, []))
         for criterion in stmt._where_criteria:
             rows = [
-                row
-                for row in rows
-                if getattr(row, criterion.left.key) == criterion.right.value
+                row for row in rows if getattr(row, criterion.left.key) == criterion.right.value
             ]
         return rows
 
@@ -63,12 +61,8 @@ def _set_instance_env(
 
 def test_sync_creates_rows_with_cdp_port(monkeypatch: pytest.MonkeyPatch) -> None:
     _set_instances(monkeypatch, "doubao_bj", "deepseek_sh")
-    _set_instance_env(
-        monkeypatch, "doubao_bj", cdp="http://127.0.0.1:19233", exit_gb="110000"
-    )
-    _set_instance_env(
-        monkeypatch, "deepseek_sh", cdp="http://127.0.0.1:19234", exit_gb="310000"
-    )
+    _set_instance_env(monkeypatch, "doubao_bj", cdp="http://127.0.0.1:19233", exit_gb="110000")
+    _set_instance_env(monkeypatch, "deepseek_sh", cdp="http://127.0.0.1:19234", exit_gb="310000")
     session = _FakeSession()
     summary = sync_collection_browsers(session)  # type: ignore[arg-type]
     assert summary == {

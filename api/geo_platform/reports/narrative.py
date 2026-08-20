@@ -8,7 +8,7 @@
     ``deep-deepseek-v4-flash`` 为缺省），与 intake 调研清单互不影响——每个功能独立选模型；
   * 输出能力：**不发 max_tokens/max_completion_tokens**，模型自身上限即输出边界；
     提示词不设字数上限，篇幅由内容决定；
-  * 传输 = OpenAI 兼容 ``/chat/completions``（七模型 20260808 经 aihubmix 逐台实测）；
+  * 传输 = OpenAI 兼容 ``/chat/completions``（七模型逐台实测，生产统一经 inferera）；
     **不发 temperature**（网关缺省即可：实测 kimi-k3 仅在显式发送时才有 =1 约束，
     不发全兼容；claude-* 显式发送直接 400）——请求只带 model/messages，
     不发 max_tokens/max_completion_tokens，模型自身上限即输出边界；
@@ -95,6 +95,7 @@ def _default_client_factory(config: research.LlmConfig, base_url: str) -> httpx.
         base_url=base,
         headers={"Authorization": f"Bearer {config.api_key}"},
         timeout=_TIMEOUT_SECONDS,
+        trust_env=False,
     )
 
 

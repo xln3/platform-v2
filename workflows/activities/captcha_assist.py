@@ -67,8 +67,17 @@ from workflows.activities.yuanbao_adapter import _captcha_hit as _yuanbao_captch
 
 log = structlog.get_logger()
 
-# 注册表目录（相对 platform-v2 仓库根）；测试 monkeypatch 本变量到 tmp_path。
-_REGISTRY_DIR = Path(__file__).resolve().parents[2] / "runtime" / "captcha-assist"
+# A configured absolute path is stable across immutable release snapshots. The
+# source-relative fallback preserves development compatibility; tests
+# monkeypatch this variable to tmp_path.
+_configured_registry = os.environ.get("GEO_ASSIST_REGISTRY_DIR", "").strip()
+if _configured_registry and not Path(_configured_registry).is_absolute():
+    raise RuntimeError("assist_registry_dir_must_be_absolute")
+_REGISTRY_DIR = (
+    Path(_configured_registry)
+    if _configured_registry
+    else Path(__file__).resolve().parents[2] / "runtime" / "captcha-assist"
+)
 _LOCK_TIMEOUT_S = 60.0  # assist 在 workflow 保证的串行点启动，等不到锁 = 调度出错
 _READY_WAIT_S = 30.0  # start() 等会话就绪上限（CDP attach 本地理应秒级）
 _DEFAULT_TTL_S = 4200  # 70min 兜底自杀：管理员忘接管也不留孤儿会话/不放干锁
@@ -177,6 +186,74 @@ def _ttl_s() -> int:
         return max(1, int(raw)) if raw else _DEFAULT_TTL_S
     except ValueError:
         return _DEFAULT_TTL_S
+
+
+def _enqueue_feishu_app_assist(
+    *,
+    tenant_pub_id: str | None,
+    session_kind: str,
+    run_pub_id: str,
+    session_id: str,
+    ticket_hash: str,
+    platform: str,
+    instance_key: str,
+    business_key: str,
+    created_at: int,
+    expires_at: int,
+    chat_id: str,
+) -> str | None:
+    """Best-effort local outbox insert; deliberately performs no Feishu I/O."""
+    try:
+        from geo_platform.notifications.service import NotificationService
+        from geo_platform.tenancy.database import WorkerSessionLocal
+
+        with WorkerSessionLocal() as session:
+            notification_id = NotificationService(session).enqueue_assist(
+                tenant_pub_id=tenant_pub_id,
+                session_kind=session_kind,
+                run_pub_id=run_pub_id,
+                session_id=session_id,
+                ticket_sha256=ticket_hash,
+                platform=platform,
+                instance_key=instance_key,
+                business_key=business_key,
+                created_at_epoch=created_at,
+                expires_at_epoch=expires_at,
+                target_chat_id=chat_id,
+            )
+            session.commit()
+        return notification_id
+    except Exception as error:  # noqa: BLE001 - notification failure cannot block collection
+        log.warning(
+            "captcha_assist.feishu_outbox_failed",
+            run_pub_id=run_pub_id,
+            marker=type(error).__name__,
+        )
+        return None
+
+
+def _mark_feishu_app_assist_state(ticket_hash: str, state: str) -> bool:
+    """Best-effort state outbox update for non-HTTP completion paths."""
+    if os.environ.get("GEO_ASSIST_NOTIFY_FLAVOR", "").strip().lower() != "feishu_app":
+        return False
+    try:
+        from geo_platform.notifications.service import NotificationService
+        from geo_platform.tenancy.database import WorkerSessionLocal
+
+        with WorkerSessionLocal() as session:
+            notice = NotificationService(session).mark_assist_state_by_ticket(
+                ticket_sha256=ticket_hash,
+                state=state,
+            )
+            session.commit()
+        return notice is not None
+    except Exception as error:  # noqa: BLE001 - notification is never completion authority
+        log.warning(
+            "captcha_assist.feishu_state_failed",
+            state=state,
+            marker=type(error).__name__,
+        )
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -883,12 +960,15 @@ def _captcha_assist_start_blocking(input: CaptchaAssistInput) -> CaptchaAssistSt
 
         base = os.environ.get("GEO_ASSIST_PUBLIC_BASE", "").strip()
         notify_url = os.environ.get("GEO_ASSIST_NOTIFY_URL", "").strip()
-        if not base or not notify_url:
+        flavor = os.environ.get("GEO_ASSIST_NOTIFY_FLAVOR", "raw").strip().lower() or "raw"
+        chat_id = os.environ.get("GEO_FEISHU_CHAT_ID", "").strip()
+        notification_configured = bool(chat_id) if flavor == "feishu_app" else bool(notify_url)
+        if not base or not notification_configured:
             # 未配置公网基址/推送通道 = 功能未启用：fail fast 让 workflow 立即回
             # 退现行 wall+abort 语义。绝不能起了会话空等 60min——收不到通知的
             # "等人工"等于白挂起（未配置的生产行为必须与启用前逐字节一致）。
             raise ApplicationError(
-                "GEO_ASSIST_PUBLIC_BASE/GEO_ASSIST_NOTIFY_URL 未配置，撞码接管未启用",
+                "captcha assist notification configuration is incomplete",
                 type="assist_not_configured",
                 non_retryable=True,
             )
@@ -925,6 +1005,8 @@ def _captcha_assist_start_blocking(input: CaptchaAssistInput) -> CaptchaAssistSt
         assist_url = f"{base.rstrip('/')}/api/v2/assist/{ticket}"
         record = {
             "version": 1,
+            "session_kind": "workflow_captcha",
+            "tenant_pub_id": input.tenant_pub_id,
             "run_pub_id": input.run_pub_id,
             "session_id": session_id,
             "ticket_hash": th,
@@ -944,7 +1026,6 @@ def _captcha_assist_start_blocking(input: CaptchaAssistInput) -> CaptchaAssistSt
         _write_registry(record)
 
         pushed = False
-        flavor = os.environ.get("GEO_ASSIST_NOTIFY_FLAVOR", "raw").strip() or "raw"
         label = _PLATFORM_LABELS.get(input.platform, input.platform)
         title = f"[GEO] {label}采集撞验证码，点此接管"
         body = (
@@ -953,26 +1034,61 @@ def _captcha_assist_start_blocking(input: CaptchaAssistInput) -> CaptchaAssistSt
             f"有效期: {round(ttl_s / 60)} 分钟\n"
             f"接管链接: {assist_url}"
         )
-        pushed = push_captcha_assist(flavor=flavor, url=notify_url, title=title, body=body)
-        if pushed:
-            _patch_registry(th, push_sent=True)
+        if flavor == "feishu_app":
+            notification_id = _enqueue_feishu_app_assist(
+                tenant_pub_id=input.tenant_pub_id,
+                session_kind="workflow_captcha",
+                run_pub_id=input.run_pub_id,
+                session_id=session_id,
+                ticket_hash=th,
+                platform=input.platform,
+                instance_key=sess._instance_key,
+                business_key=input.business_key,
+                created_at=now,
+                expires_at=now + ttl_s,
+                chat_id=chat_id,
+            )
+            pushed = notification_id is not None
+            if notification_id is not None:
+                _patch_registry(
+                    th,
+                    push_sent=True,
+                    delivery_enqueued=True,
+                    notification_id=notification_id,
+                )
         else:
+            pushed = push_captcha_assist(
+                flavor=flavor,
+                url=notify_url,
+                title=title,
+                body=body,
+            )
+            if pushed:
+                _patch_registry(th, push_sent=True)
+        if not pushed:
             # 推送失败仍保留会话：operator 可能恰好在本机（/ops 台账可查），
             # 且 60min 等待窗内随时可人工补推——不因此废掉这次接管机会。
             log.warning("captcha_assist.push_failed", run_pub_id=input.run_pub_id, flavor=flavor)
 
-        sess.assist_url = assist_url
+        # The workflow never consumes assist_url.  With the app channel keep the
+        # raw ticket out of Temporal history; the card sender derives a separate
+        # signed capability from the registry digest.
+        activity_assist_url = "" if flavor == "feishu_app" else assist_url
+        sess.assist_url = activity_assist_url
         sess.pushed = pushed
         _SESSIONS[input.run_pub_id] = sess
         log.info(
             "captcha_assist.session_started",
             run_pub_id=input.run_pub_id,
-            session_id=session_id,
+            session_ref=hashlib.sha256(session_id.encode("utf-8")).hexdigest()[:12],
             platform=input.platform,
-            business_key=input.business_key,
             pushed=pushed,
         )  # ticket 明文绝不进日志
-        return CaptchaAssistStarted(session_id=session_id, assist_url=assist_url, pushed=pushed)
+        return CaptchaAssistStarted(
+            session_id=session_id,
+            assist_url=activity_assist_url,
+            pushed=pushed,
+        )
 
 
 @activity.defn(name="captcha_assist_stop")
@@ -996,7 +1112,7 @@ def _captcha_assist_stop_blocking(input: CaptchaAssistStopInput) -> None:
             log.warning(
                 "captcha_assist.stop_session_mismatch",
                 run_pub_id=input.run_pub_id,
-                session_id=input.session_id,
+                session_ref=hashlib.sha256(input.session_id.encode("utf-8")).hexdigest()[:12],
             )
         try:
             # 线程 finally：bridge.stop → browser.close(仅断 CDP) → pw.stop → 放锁 → 注册表 closed
@@ -1004,5 +1120,6 @@ def _captcha_assist_stop_blocking(input: CaptchaAssistStopInput) -> None:
         except Exception:
             log.warning("captcha_assist.stop_failed", run_pub_id=input.run_pub_id, exc_info=True)
         _patch_registry(sess.ticket_hash, state="closed")
+        _mark_feishu_app_assist_state(sess.ticket_hash, "closed")
     except Exception:
         log.warning("captcha_assist.stop_unexpected", run_pub_id=input.run_pub_id, exc_info=True)

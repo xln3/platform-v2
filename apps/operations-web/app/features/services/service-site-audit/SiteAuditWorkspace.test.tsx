@@ -163,6 +163,17 @@ describe('SiteAuditWorkspace', () => {
     expect(screen.getByText(/这里展示回答引用事实/)).toBeTruthy();
     expect(screen.getByText('转述:准确')).toBeTruthy();
     expect(screen.getByText('转述与原文一致')).toBeTruthy();
+    for (const label of [
+      '官网引用率',
+      '回答信源覆盖率',
+      '官网内容采纳率',
+      '官网引文证据可见率',
+      '抓取文档官网占比',
+      '官网引用转述准确率',
+    ]) {
+      expect(screen.getByRole('button', { name: `${label}计算方式` }).textContent).toBe('?');
+    }
+    expect(screen.getByText(/官网文档数 ÷ 全部抓取文档数 × 100%/)).toBeTruthy();
   });
 
   it('shows 数据不足 when the own-site adoption rate is null', async () => {

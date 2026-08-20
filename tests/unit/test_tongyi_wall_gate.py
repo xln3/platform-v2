@@ -34,8 +34,7 @@ from workflows.activities.tongyi_adapter import (
 _QUOTA_TEXT = "今日体验次数已用完，开通会员可继续畅聊。"
 # 禁言 regex 为 common 表（平台第二人称铁证 + 具体解封时间）。
 _MUTED_TEXT = (
-    "由于违反用户使用规范，你的账号已被禁言至 2026 年 8 月 14 日 13:02，"
-    "如有疑问请联系我们。"
+    "由于违反用户使用规范，你的账号已被禁言至 2026 年 8 月 14 日 13:02，如有疑问请联系我们。"
 )
 _REFUSAL_TEXT = "很抱歉，我暂时无法回答这个问题。"
 _OK_ANSWER = "这是答案"
@@ -145,9 +144,7 @@ def test_answer_gate_muted_text_carries_until(
 
     assert [o.status for o in outcomes] == ["wall"]
     assert outcomes[0].error_type == "wall_muted"
-    assert outcomes[0].error_message and "until=2026-08-14T13:02:00" in (
-        outcomes[0].error_message
-    )
+    assert outcomes[0].error_message and "until=2026-08-14T13:02:00" in (outcomes[0].error_message)
 
 
 # ---------------------------------------------------------------------------
@@ -171,9 +168,7 @@ def test_softban_scan_runs_even_with_answer(
     assert outcomes[0].error_message and "请求频率过高" in outcomes[0].error_message
 
 
-def test_softban_scan_excludes_answer_text(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_softban_scan_excludes_answer_text(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """零误伤不变量：答案正文本身提及「请求频率过高」不翻标记（扫描前剔除
     答案正文）。"""
     answer = "这是答案：当平台提示请求频率过高时，应降低发送频率并重试。"
@@ -234,9 +229,7 @@ def test_batch_quota_cascades_same_mode_only(
     assert keys == list(specs[0].query) + list(specs[1].query)
 
 
-def test_batch_refusal_does_not_cascade(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_batch_refusal_does_not_cascade(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """wall_refusal=题级内容失败：不连坐，后续题照常跑通。"""
     page = _ScriptedAnswerPage([_REFUSAL_TEXT, _OK_ANSWER, _OK_ANSWER], messages=0)
     session = w8t._make_session(tmp_path, monkeypatch, page)
@@ -269,9 +262,7 @@ def test_muted_banner_upgrades_no_input_to_wall_muted(
 
     assert [o.status for o in outcomes] == ["wall", "aborted"]
     assert outcomes[0].error_type == "wall_muted"
-    assert outcomes[0].error_message and "until=2026-08-14T13:02:00" in (
-        outcomes[0].error_message
-    )
+    assert outcomes[0].error_message and "until=2026-08-14T13:02:00" in (outcomes[0].error_message)
     assert outcomes[1].error_type == "aborted_after_failure"
     # 一题未发：全程无键盘输入
     assert [e for e in page.events if e[0] == "key"] == []
@@ -289,9 +280,7 @@ def test_no_input_without_banner_stays_incomplete(
 
     assert [o.status for o in outcomes] == ["incomplete"]
     assert outcomes[0].error_type == "answer_capture_incomplete"
-    assert outcomes[0].error_message and "could-not-find-chat-input" in (
-        outcomes[0].error_message
-    )
+    assert outcomes[0].error_message and "could-not-find-chat-input" in (outcomes[0].error_message)
 
 
 # ---------------------------------------------------------------------------

@@ -145,6 +145,7 @@ from workflows.activities.human_like import (
 from workflows.activities.official_share import (
     OfficialShareExportError,
     capture_deepseek_official_share,
+    probe_official_share_url,
     write_share_link_manifest,
 )
 from workflows.activities.page_capture import capture_scoped_chat_tiles
@@ -766,7 +767,9 @@ async def run_deepseek_batch(
         run_pub_id=batch.run_pub_id,
         attempt=attempt,
         items=len(specs),
-        proxy=mask_proxy_url(config.proxy_url),
+        browser_instance=instance_key,
+        egress_region_gb=route.exit_gb if route is not None else None,
+        fallback_proxy=(mask_proxy_url(config.proxy_url) if route is None else None),
     )
     if not specs:
         # 空 batch → 空结果，零浏览器交互（连 session 都不建）。
@@ -1095,20 +1098,9 @@ def _safe_stem(business_key: str) -> str:
 
 
 def _compose_answer_text(answer_text: str, references: list[dict[str, Any]]) -> str:
-    """正文 + 参考来源追加段（沿用旧链 render_transcript 的参考资料口径）。"""
-    text = answer_text.strip()
-    if not references:
-        return text
-    lines = [f"{text}", "", "参考来源："]
-    for i, ref in enumerate(references, 1):
-        title = str(ref.get("title") or "(无标题)").strip()
-        site = str(ref.get("sitename") or "").strip()
-        head = f"{i}. {title}" + (f" — {site}" if site else "")
-        lines.append(head)
-        url = str(ref.get("url") or "").strip()
-        if url:
-            lines.append(f"   {url}")
-    return "\n".join(lines)
+    """Keep the platform answer separate from its structured source relations."""
+    del references
+    return answer_text.strip()
 
 
 # ---------------------------------------------------------------------------
@@ -1691,6 +1683,10 @@ class _PlaywrightDeepseekSession:
                     share_url=share.share_url,
                     platform="deepseek",
                     channel="create-and-copy",
+                    verification=probe_official_share_url(
+                        share.share_url,
+                        allowed_hosts={"chat.deepseek.com"},
+                    ),
                 )
             except (OfficialShareExportError, OSError) as exc:
                 raise _IncompleteCapture(

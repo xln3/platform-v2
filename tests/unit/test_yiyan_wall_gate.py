@@ -35,8 +35,7 @@ from workflows.activities.yiyan_adapter import (
 _QUOTA_TEXT = "今日额度已用完，请明天再试。"
 # 禁言 regex 为 common 表（平台第二人称铁证 + 具体解封时间）。
 _MUTED_TEXT = (
-    "由于违反用户使用规范，你的账号已被禁言至 2026 年 8 月 14 日 13:02，"
-    "如有疑问请联系我们。"
+    "由于违反用户使用规范，你的账号已被禁言至 2026 年 8 月 14 日 13:02，如有疑问请联系我们。"
 )
 _REFUSAL_TEXT = "很抱歉，我无法回答该问题。"
 _OK_ANSWER = "这是答案"
@@ -174,9 +173,7 @@ def test_answer_gate_muted_text_carries_until(
 
     assert [o.status for o in outcomes] == ["wall"]
     assert outcomes[0].error_type == "wall_muted"
-    assert outcomes[0].error_message and "until=2026-08-14T13:02:00" in (
-        outcomes[0].error_message
-    )
+    assert outcomes[0].error_message and "until=2026-08-14T13:02:00" in (outcomes[0].error_message)
 
 
 # ---------------------------------------------------------------------------
@@ -200,9 +197,7 @@ def test_softban_scan_runs_even_with_answer(
     assert outcomes[0].error_message and "请求频率过高" in outcomes[0].error_message
 
 
-def test_softban_scan_excludes_answer_text(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_softban_scan_excludes_answer_text(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """零误伤不变量：答案正文本身提及「请求频率过高」不翻标记（扫描前剔除
     答案正文）。"""
     answer = "这是答案：当平台提示请求频率过高时，应降低发送频率并重试。"
@@ -215,6 +210,38 @@ def test_softban_scan_excludes_answer_text(
     assert [o.status for o in outcomes] == ["ok"]
     assert outcomes[0].answer is not None
     assert "请求频率过高" in outcomes[0].answer.answer_text
+
+
+def test_notice_scan_structurally_excludes_answer_and_history_text() -> None:
+    """生产回归：完整答案里的“实名验证”不能被误判成登录/实名墙。"""
+
+    class _NoticeScopedPage(_ScriptedAnswerPage):
+        def evaluate(self, script: str, *_args: Any) -> Any:
+            if script == yiyan_adapter._NOTICE_TEXT_JS:
+                return "文心助手\n开启新对话\n意见反馈"
+            return super().evaluate(script, *_args)
+
+    answer = "接入方案包含身份核验、实名验证与密码合规要求。"
+    page = _NoticeScopedPage([answer], messages=0)
+    # 旧实现扫整页且依赖精确 replace；DOM 换行/空白不同就会残留命中词。
+    page.body_text = "历史记录\n接入方案包含身份核验、实名 验证与实名验证要求。"
+
+    assert yiyan_adapter._scan_dom_notices(page, exclude=answer) == {
+        "softban": [],
+        "realname": [],
+    }
+
+
+def test_notice_scan_keeps_real_system_notice_outside_chat_content() -> None:
+    class _NoticeScopedPage(_ScriptedAnswerPage):
+        def evaluate(self, script: str, *_args: Any) -> Any:
+            if script == yiyan_adapter._NOTICE_TEXT_JS:
+                return "系统提示：请先实名后继续使用"
+            return super().evaluate(script, *_args)
+
+    page = _NoticeScopedPage([_OK_ANSWER], messages=0)
+
+    assert yiyan_adapter._scan_dom_notices(page)["realname"] == ["请先实名"]
 
 
 # ---------------------------------------------------------------------------
@@ -266,9 +293,7 @@ def test_batch_quota_cascades_same_mode_only(
     assert keys == list(specs[0].query) + list(specs[1].query)
 
 
-def test_batch_refusal_does_not_cascade(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_batch_refusal_does_not_cascade(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """wall_refusal=题级内容失败：不连坐，后续题照常跑通。"""
     page = _ScriptedAnswerPage([_REFUSAL_TEXT, _OK_ANSWER, _OK_ANSWER], messages=0)
     session = w8y._make_session(tmp_path, monkeypatch, page)
@@ -301,9 +326,7 @@ def test_muted_banner_upgrades_no_input_to_wall_muted(
 
     assert [o.status for o in outcomes] == ["wall", "aborted"]
     assert outcomes[0].error_type == "wall_muted"
-    assert outcomes[0].error_message and "until=2026-08-14T13:02:00" in (
-        outcomes[0].error_message
-    )
+    assert outcomes[0].error_message and "until=2026-08-14T13:02:00" in (outcomes[0].error_message)
     assert outcomes[1].error_type == "aborted_after_failure"
     # 一题未发：全程无键盘输入
     assert [e for e in page.events if e[0] == "key"] == []
@@ -321,9 +344,7 @@ def test_no_input_without_banner_stays_incomplete(
 
     assert [o.status for o in outcomes] == ["incomplete"]
     assert outcomes[0].error_type == "answer_capture_incomplete"
-    assert outcomes[0].error_message and "could-not-find-chat-input" in (
-        outcomes[0].error_message
-    )
+    assert outcomes[0].error_message and "could-not-find-chat-input" in (outcomes[0].error_message)
 
 
 # ---------------------------------------------------------------------------

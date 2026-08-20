@@ -317,7 +317,7 @@ def test_service3_v2_renderer_contains_client_evidence_chain() -> None:
     with ZipFile(BytesIO(payload)) as archive:
         xml = archive.read("word/document.xml").decode("utf-8")
     assert 'TOC \\o "1-3" \\h \\z \\u' in xml
-    assert "GEO-S3-V2-FORMAL-20260812" in xml
+    assert "GEO-S3-V10-FORMAL-20260812" in xml
     assert "预正式" not in xml
     assert "禁止外发" not in xml
     assert "联调/试采样数据，不是正式运行签发结论" not in xml

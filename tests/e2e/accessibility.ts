@@ -54,6 +54,7 @@ function projectReflowSafety() {
         {
           index,
           element: element.tagName.toLowerCase(),
+          className: typeof element.className === 'string' ? element.className : '',
           display: computed.display,
           position: computed.position,
           left: Number(bounds.left.toFixed(2)),
@@ -97,6 +98,7 @@ function projectReflowSafety() {
         {
           index,
           element: element.tagName.toLowerCase(),
+          className: typeof element.className === 'string' ? element.className : '',
           clientWidth: element.clientWidth,
           clientHeight: element.clientHeight,
           scrollWidth: element.scrollWidth,

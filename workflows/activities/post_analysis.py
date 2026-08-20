@@ -1955,6 +1955,7 @@ def _default_client_factory(*, base_url: str, api_key: str, timeout: float) -> h
         base_url=_normalize_base_url(base_url),
         headers={"Authorization": f"Bearer {api_key}"},
         timeout=timeout,
+        trust_env=False,
     )
 
 

@@ -456,44 +456,43 @@ def formal_evidence_gate(service: int, facts: Mapping[str, Any]) -> tuple[bool, 
 
     reasons: list[str] = []
     if service == 1:
-        service_facts = facts.get("service1")
-        delivery = service_facts.get("delivery_v3") if isinstance(service_facts, Mapping) else None
+        service1_facts_value = facts.get("service1")
+        service1_facts: Mapping[str, Any] = (
+            service1_facts_value if isinstance(service1_facts_value, Mapping) else {}
+        )
+        delivery = service1_facts.get("delivery_v3")
         if not isinstance(delivery, Mapping):
             # Read-only compatibility for already frozen v2 productions.  New
             # requests cannot use this path because their strategy is preregistered_scope_v1.
-            legacy = (
-                service_facts.get("delivery_v2")
-                if isinstance(service_facts, Mapping)
-                else None
+            legacy = service1_facts.get("delivery_v2")
+            candidate_groups = service1_facts.get("candidate_groups")
+            selected = (
+                [
+                    row
+                    for row in candidate_groups
+                    if isinstance(row, Mapping) and row.get("selected_for_main_report")
+                ]
+                if isinstance(candidate_groups, Sequence)
+                and not isinstance(candidate_groups, str | bytes)
+                else []
             )
-            selected = [
-                row
-                for row in (
-                    service_facts.get("candidate_groups", [])
-                    if isinstance(service_facts, Mapping)
-                    else []
-                )
-                if isinstance(row, Mapping) and row.get("selected_for_main_report")
-            ]
             scope = legacy.get("scope") if isinstance(legacy, Mapping) else None
             registry = legacy.get("sample_registry") if isinstance(legacy, Mapping) else None
-            required = int(service_facts.get("quotation_required_repetitions_per_cell") or 0)
+            required = int(service1_facts.get("quotation_required_repetitions_per_cell") or 0)
             if len(selected) != 3:
                 reasons.append("three_complete_candidate_groups_required")
             if any(
-                int(group.get("observed_cells") or 0)
-                != int(group.get("expected_cells") or 0)
+                int(group.get("observed_cells") or 0) != int(group.get("expected_cells") or 0)
                 or int(group.get("expected_cells") or 0) <= 0
                 for group in selected
             ):
                 reasons.append("selected_candidate_group_cells_incomplete")
             answers = int(scope.get("answers") or 0) if isinstance(scope, Mapping) else 0
-            if not answers or int(scope.get("extract_ok") or 0) != answers:
+            extracts = int(scope.get("extract_ok") or 0) if isinstance(scope, Mapping) else 0
+            if not answers or extracts != answers:
                 reasons.append("brand_extraction_incomplete")
             if (
-                int(scope.get("current_repetitions") or 0)
-                if isinstance(scope, Mapping)
-                else 0
+                int(scope.get("current_repetitions") or 0) if isinstance(scope, Mapping) else 0
             ) < required or required <= 0:
                 reasons.append("quotation_repetitions_incomplete")
             if (
@@ -508,16 +507,18 @@ def formal_evidence_gate(service: int, facts: Mapping[str, Any]) -> tuple[bool, 
                 reasons.append("answer_visual_evidence_incomplete")
             return not reasons, tuple(dict.fromkeys(reasons))
         scope = delivery.get("scope") if isinstance(delivery, Mapping) else None
-        required = (
-            int(service_facts.get("quotation_required_repetitions_per_cell") or 0)
-            if isinstance(service_facts, Mapping)
-            else 0
-        )
+        required = int(service1_facts.get("quotation_required_repetitions_per_cell") or 0)
         current = int(scope.get("current_repetitions") or 0) if isinstance(scope, Mapping) else 0
         answers = int(scope.get("answers") or 0) if isinstance(scope, Mapping) else 0
         extracts = int(scope.get("extract_ok") or 0) if isinstance(scope, Mapping) else 0
-        selected = delivery.get("selected_groups", []) if isinstance(delivery, Mapping) else []
-        quotation = delivery.get("quotation_gate") if isinstance(delivery, Mapping) else None
+        selected_groups = delivery.get("selected_groups")
+        selected = (
+            [row for row in selected_groups if isinstance(row, Mapping)]
+            if isinstance(selected_groups, Sequence)
+            and not isinstance(selected_groups, str | bytes)
+            else []
+        )
+        quotation = delivery.get("quotation_gate")
         if not isinstance(quotation, Mapping) or quotation.get("status") != "ready":
             reasons.extend(
                 str(value)
@@ -539,7 +540,7 @@ def formal_evidence_gate(service: int, facts: Mapping[str, Any]) -> tuple[bool, 
             reasons.append("brand_extraction_incomplete")
         if current < required or required <= 0:
             reasons.append("quotation_repetitions_incomplete")
-        registry = delivery.get("sample_registry") if isinstance(delivery, Mapping) else None
+        registry = delivery.get("sample_registry")
         if (
             not isinstance(registry, Sequence)
             or len(registry) != answers
@@ -552,7 +553,10 @@ def formal_evidence_gate(service: int, facts: Mapping[str, Any]) -> tuple[bool, 
             )
         ):
             reasons.append("answer_visual_evidence_incomplete")
-        if int(scope.get("unclassified_entities") or 0) > 0:
+        unclassified_entities = (
+            int(scope.get("unclassified_entities") or 0) if isinstance(scope, Mapping) else 0
+        )
+        if unclassified_entities > 0:
             reasons.append("entity_master_classification_incomplete")
         if not delivery.get("representative_platforms_complete"):
             reasons.append("three_platform_representative_evidence_required")
@@ -1228,9 +1232,7 @@ class FormalReportProductionService:
             value["document_governance"] = governance
             ready, reasons = formal_evidence_gate(service, value)
             if not ready:
-                raise FormalProductionInvalid(
-                    "approval_data_gate_drifted:" + ",".join(reasons)
-                )
+                raise FormalProductionInvalid("approval_data_gate_drifted:" + ",".join(reasons))
             value["formal_evidence_gate"] = {"status": "ready", "reasons": []}
         return signed_request, signed_facts, self._render_artifacts(signed_request, signed_facts)
 
@@ -1369,9 +1371,7 @@ class FormalReportProductionService:
                 ) VALUES (%s,%s,%s,%s,%s)
                 """,
                 (
-                    _stable_pub_id(
-                        "rpta", request.tenant_pub_id, version_pub_id, format_name
-                    ),
+                    _stable_pub_id("rpta", request.tenant_pub_id, version_pub_id, format_name),
                     request.tenant_pub_id,
                     version_pub_id,
                     format_name,
@@ -1417,6 +1417,28 @@ class FormalReportProductionService:
             tenant_pub_id=tenant_pub_id,
             production_pub_id=production_pub_id,
         )
+        with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
+            review_contract = connection.execute(
+                """
+                SELECT status,document_status,review_request_hash
+                FROM reporting.formal_report_production
+                WHERE tenant_pub_id=%s AND pub_id=%s
+                """,
+                (tenant_pub_id, production_pub_id),
+            ).fetchone()
+        if review_contract is None:
+            raise FormalProductionNotFound("formal_production_not_found")
+        claimed_review_hash = review_contract["review_request_hash"]
+        if not isinstance(claimed_review_hash, str) or not hmac.compare_digest(
+            claimed_review_hash, expected_review_hash
+        ):
+            raise FormalProductionConflict("formal_review_contract_mismatch")
+        if (
+            approved
+            and review_contract["status"] != "signed"
+            and review_contract["document_status"] != "delivery_candidate"
+        ):
+            raise FormalProductionConflict("delivery_candidate_required")
         signed_bundle = None
         if approved and current["status"] != "signed":
             signed_bundle = self._prepare_signed_bundle(
@@ -1723,14 +1745,28 @@ class FormalReportProductionService:
         with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
             row = connection.execute(
                 """
-                SELECT project.name AS project_name,production.document_status,
+                SELECT COALESCE(
+                         jsonb_extract_path_text(
+                           production.fact_bundle,'services',%s::text,'project_name'
+                         ),
+                         jsonb_extract_path_text(
+                           production.fact_bundle,'services',%s::text,'account_name'
+                         ),
+                         '客户项目'
+                       ) AS project_name,
+                       production.document_status,
                        production.document_governance,production.frozen_at
                 FROM reporting.formal_report_production production
-                JOIN platform.project project ON project.pub_id=production.project_pub_id
                 WHERE production.tenant_pub_id=%s AND production.pub_id=%s
                   AND %s=ANY(production.services)
                 """,
-                (tenant_pub_id, production_pub_id, service_number),
+                (
+                    service_number,
+                    service_number,
+                    tenant_pub_id,
+                    production_pub_id,
+                    service_number,
+                ),
             ).fetchone()
         if row is None:
             raise FormalProductionNotFound("formal_artifact_not_found")
@@ -1793,9 +1829,7 @@ class FormalReportProductionService:
         candidate_group_strategy = str(row["candidate_group_strategy"])
         raw_governance = row.get("document_governance")
         governance = (
-            raw_governance
-            if isinstance(raw_governance, Mapping) and raw_governance
-            else None
+            raw_governance if isinstance(raw_governance, Mapping) and raw_governance else None
         )
         try:
             contract = request_contract(
@@ -2003,8 +2037,7 @@ class FormalReportProductionService:
                     second_pdf=second_pdf,
                 )
                 if request.document_status in {"delivery_candidate", "approved_signed"} and (
-                    publication_qa["status"] != "passed"
-                    or reexport_qa["status"] != "passed"
+                    publication_qa["status"] != "passed" or reexport_qa["status"] != "passed"
                 ):
                     raise FormalProductionInvalid("publication_quality_gate_failed")
             payloads = {"docx": docx, "pdf": pdf, **extra_artifacts}

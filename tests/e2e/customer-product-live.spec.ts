@@ -1,5 +1,8 @@
 import { expect, test } from './runtime-fixture';
 import type { Locator } from '@playwright/test';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { expectAccessible } from './accessibility';
 import { expectSafeLocatorScreenshot, expectSafePageScreenshot } from './screenshot-safety';
 import { installSyntheticHttpResponses, syntheticHttpResponseCount } from './synthetic-http';
@@ -9,6 +12,16 @@ const customerReportHtml =
 const customerReportPdf = '%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF';
 const customerReportHtmlSha256 = '40eb6105778ec6e9ab98b518801d34fb4aad2f0ee2a931e3694a040e392cd4bb';
 const customerReportPdfSha256 = '5685e2d63d2a3b750e0850b8654c06f87fe9a1b138525deef264166e4152efbc';
+const customerPlatformSharePng = readFileSync(
+  resolve(process.cwd(), 'tests/e2e/fixtures/customer-platform-share.png'),
+);
+const customerPlatformShareHtml = readFileSync(
+  resolve(process.cwd(), 'tests/e2e/fixtures/customer-platform-share.html'),
+  'utf8',
+);
+const customerPlatformSharePngSha256 = createHash('sha256')
+  .update(customerPlatformSharePng)
+  .digest('hex');
 
 const synchronouslyActivateTwice = async (button: Locator) => {
   await button.evaluate((element) => {
@@ -28,6 +41,8 @@ test('validated customer reads mounted data and serializes every write without s
   let deliveryConfirmed = false;
   let reportQuestionAccepted = false;
   let reportQuestionAuthorityReads = 0;
+  let shareImageContentReads = 0;
+  let customerAnswerPageRequests = 0;
   let releaseDelayedReportQuestion: (() => void) | null = null;
   const delayedReportQuestionResponse = new Promise<void>((resolve) => {
     releaseDelayedReportQuestion = resolve;
@@ -44,6 +59,9 @@ test('validated customer reads mounted data and serializes every write without s
     localStorage.setItem('geo.session.actor', 'customer-product-live');
     localStorage.setItem('geo.session.role', 'customer');
   });
+  await page.route('https://www.doubao.com/thread/customer-live-safe', (route) =>
+    route.fulfill({ status: 200, contentType: 'text/html', body: customerPlatformShareHtml }),
+  );
   await page.route('**/api/v2/identity/session', (route) =>
     route.fulfill({
       status: 200,
@@ -67,8 +85,8 @@ test('validated customer reads mounted data and serializes every write without s
             tenant_pub_id: 'tnt_customer_product_live',
             name: '客户产品联调项目',
             state: 'active',
-            created_at: '2026-07-25T00:00:00Z',
-            updated_at: '2026-07-25T00:00:00Z',
+            created_at: '2026-08-05T17:27:57.411449+00:00',
+            updated_at: '2026-08-09T21:00:05.757883+00:00',
           },
         ],
         page: { next_cursor: null, has_more: false },
@@ -403,12 +421,43 @@ test('validated customer reads mounted data and serializes every write without s
       }),
     }),
   );
-  await page.route('**/api/v2/analytics/answers/*/relations', (route) =>
-    route.fulfill({
+  await page.route('**/api/v2/analytics/answers/*/relations**', (route) => {
+    const pathParts = new URL(route.request().url()).pathname.split('/');
+    const answerPubId = pathParts.at(-2) ?? 'ans_live_safe';
+    const hasOfficialShareEvidence = ![
+      'ans_customer_product_live_02',
+      'ans_customer_product_live_03',
+    ].includes(answerPubId);
+    return route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        answer_pub_id: 'ans_live_safe',
+        answer_pub_id: answerPubId,
+        share_artifact: hasOfficialShareEvidence
+          ? {
+              platform: 'doubao',
+              status: 'available',
+              share_url: 'https://www.doubao.com/thread/customer-live-safe',
+              final_url: 'https://www.doubao.com/thread/customer-live-safe',
+              availability_status: 'reachable',
+              http_status: 200,
+              checked_at: '2026-07-25T01:00:00Z',
+              last_accessible_at: '2026-07-25T01:00:00Z',
+              embed_status: 'allowed',
+              embed_reason: null,
+            }
+          : null,
+        share_image: hasOfficialShareEvidence
+          ? {
+              pub_id: 'evd_live_share_image',
+              sha256: customerPlatformSharePngSha256,
+              mime_type: 'image/png',
+              byte_size: customerPlatformSharePng.byteLength,
+              image_width: 698,
+              image_height: 4863,
+              capture_time: '2026-07-25T01:00:00Z',
+            }
+          : null,
         citations: [
           {
             pub_id: 'cit_live_safe',
@@ -433,30 +482,56 @@ test('validated customer reads mounted data and serializes every write without s
             content_hash: 'c'.repeat(64),
           },
         ],
-        evidence: [
-          {
-            pub_id: 'evd_live_safe',
-            relation_type: 'visualizes',
-            kind: 'answer_screenshot',
-            access_class: 'customer_private',
-            sha256: 'a'.repeat(64),
-            mime_type: 'image/png',
-            byte_size: 1024,
-            source_url: 'https://capture.example/answer',
-            capture_time: '2026-07-25T01:00:00Z',
-            anchors: [
+        evidence: hasOfficialShareEvidence
+          ? [
               {
-                pub_id: 'anch_live_safe',
-                text_start: 0,
-                text_end: 4,
-                bbox: { x: 1, y: 2, width: 3, height: 4 },
-                page_number: null,
-                quote_hash: 'd'.repeat(64),
+                pub_id: 'evd_live_share_link',
+                relation_type: 'official_share_link',
+                kind: 'share_link',
+                access_class: 'customer_private',
+                sha256: 'e'.repeat(64),
+                mime_type: 'application/json',
+                byte_size: 256,
+                source_url: 'https://www.doubao.com/thread/customer-live-safe',
+                capture_time: '2026-07-25T01:00:00Z',
+                anchors: [],
               },
-            ],
-            object_key: 'Cookie=relation-object-key-canary',
-          },
-        ],
+              {
+                pub_id: 'evd_live_share_image',
+                relation_type: 'official_share_image',
+                kind: 'share_image',
+                access_class: 'customer_private',
+                sha256: customerPlatformSharePngSha256,
+                mime_type: 'image/png',
+                byte_size: customerPlatformSharePng.byteLength,
+                source_url: null,
+                capture_time: '2026-07-25T01:00:00Z',
+                anchors: [],
+              },
+              {
+                pub_id: 'evd_live_safe',
+                relation_type: 'visualizes',
+                kind: 'answer_screenshot',
+                access_class: 'customer_private',
+                sha256: 'a'.repeat(64),
+                mime_type: 'image/png',
+                byte_size: 1024,
+                source_url: 'https://capture.example/answer',
+                capture_time: '2026-07-25T01:00:00Z',
+                anchors: [
+                  {
+                    pub_id: 'anch_live_safe',
+                    text_start: 0,
+                    text_end: 4,
+                    bbox: { x: 1, y: 2, width: 3, height: 4 },
+                    page_number: null,
+                    quote_hash: 'd'.repeat(64),
+                  },
+                ],
+                object_key: 'Cookie=relation-object-key-canary',
+              },
+            ]
+          : [],
         history: [
           {
             pub_id: 'diff_live_safe',
@@ -469,8 +544,8 @@ test('validated customer reads mounted data and serializes every write without s
           },
         ],
       }),
-    }),
-  );
+    });
+  });
   await page.route('**/api/v2/exports/metrics', async (route) => {
     exportBodies.push(route.request().postDataJSON());
     await route.fulfill({
@@ -515,19 +590,17 @@ test('validated customer reads mounted data and serializes every write without s
       }),
     });
   });
-  // 证据画廊逐资产拉取 content（VerifiedBlobImage）；上方 `assets**` 通配会 shadow 该
-  // 路径并返回 JSON，加载器因 MIME 不符中止请求（request-failed）。补一个合法 PNG 响应；
-  // 尺寸/哈希与夹具元数据不符时加载器 fail-closed 为占位态，不产生运行时告警。
-  await page.route('**/api/v2/evidence/assets/*/content', (route) =>
-    route.fulfill({
+  // 官方分享图仅在客户主动切到“分享图片”后按资产 ID 读取；证据中心后续也会复用同一
+  // verified-Blob 边界，因此重复读取返回同一份通过尺寸与哈希核验的 PNG。
+  await page.route('**/api/v2/evidence/assets/*/content', (route) => {
+    const isShareImage = route.request().url().includes('/evd_live_share_image/');
+    if (isShareImage) shareImageContentReads += 1;
+    return route.fulfill({
       status: 200,
       contentType: 'image/png',
-      body: Buffer.from(
-        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
-        'base64',
-      ),
-    }),
-  );
+      body: customerPlatformSharePng,
+    });
+  });
   await page.route('**/api/v2/evidence/packages', async (route) => {
     const packageBody = route.request().postDataJSON() as { package_pub_id: string };
     packageBodies.push(packageBody);
@@ -729,21 +802,597 @@ test('validated customer reads mounted data and serializes every write without s
     });
   });
 
+  const dashboardMetric = (
+    code: string,
+    label: string,
+    group: string,
+    format: 'percentage' | 'score' | 'rank' | 'count' | 'decimal',
+    value: number,
+    direction: 'higher' | 'lower' | 'neutral' = 'higher',
+  ) => ({
+    code,
+    label,
+    group,
+    format,
+    direction,
+    value,
+    state: 'ready',
+    version: 'customer-metrics-v1',
+  });
+  const dimensionMetrics = [
+    dashboardMetric('mention_rate', '品牌提及率', 'visibility', 'percentage', 0.75),
+    dashboardMetric('top3_rate', 'Top3 率', 'ranking', 'percentage', 0.5),
+    dashboardMetric('average_rank', '平均排名', 'ranking', 'rank', 2, 'lower'),
+    dashboardMetric('recommendation_rate', '品牌推荐率', 'visibility', 'percentage', 0.625),
+    dashboardMetric('citation_coverage', '引用覆盖率', 'source', 'percentage', 0.5),
+  ];
+  const dashboardMetrics = [
+    dashboardMetric('geo_visibility_index', 'GEO 可见度指数', 'composite', 'score', 75),
+    dashboardMetric('competitive_power_index', '竞争力指数', 'composite', 'score', 68),
+    dashboardMetric('source_authority_index', '信源权威指数', 'composite', 'score', 71),
+    dashboardMetric('content_readiness_index', '内容准备度指数', 'composite', 'score', 64),
+    dashboardMetric('reputation_index', 'AI 口碑指数', 'composite', 'score', 79),
+    dashboardMetric('cognition_consistency_index', 'AI 认知一致性指数', 'composite', 'score', 73),
+    dashboardMetric('answer_count', '已分析回答', 'visibility', 'count', 1217, 'neutral'),
+    dashboardMetric('mention_count', '品牌提及回答', 'visibility', 'count', 913),
+    ...dimensionMetrics,
+    dashboardMetric('top1_rate', 'Top1 率', 'ranking', 'percentage', 0.25),
+    dashboardMetric('ranked_answer_rate', '有效排名覆盖率', 'ranking', 'percentage', 0.75),
+    dashboardMetric('share_of_voice', '竞争声量份额', 'competition', 'percentage', 0.4),
+    dashboardMetric('own_source_answer_rate', '官网引用回答率', 'source', 'percentage', 0.25),
+    dashboardMetric('unique_source_hosts', '独立信源网站', 'source', 'count', 1742),
+    dashboardMetric('unique_source_pages', '独立信源页面', 'source', 'count', 12684),
+    dashboardMetric('citation_references', '引用总次数', 'source', 'count', 18926),
+    dashboardMetric('cited_text_visibility_rate', '引用原文可见率', 'source', 'percentage', 0.88),
+    dashboardMetric(
+      'citation_title_visibility_rate',
+      '引用标题可见率',
+      'source',
+      'percentage',
+      0.94,
+    ),
+    dashboardMetric('source_audit_count', '已完成信源审计', 'content', 'count', 520),
+    dashboardMetric('source_accuracy_rate', '信源准确率', 'content', 'percentage', 0.92),
+    dashboardMetric(
+      'source_unsupported_rate',
+      '无依据信源率',
+      'content',
+      'percentage',
+      0.05,
+      'lower',
+    ),
+    dashboardMetric(
+      'source_unverifiable_rate',
+      '无法核实率',
+      'content',
+      'percentage',
+      0.03,
+      'lower',
+    ),
+    dashboardMetric('positive_rate', '正面回答率', 'reputation', 'percentage', 0.75),
+  ];
+  await page.route('**/api/v2/customer-dashboard/metrics/catalog**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        schema_version: 'customer-metric-catalog-v1',
+        metrics: dashboardMetrics.map(({ value: _value, state: _state, ...metric }) => ({
+          ...metric,
+          description: `${metric.label}的真实客户合同口径。`,
+        })),
+      }),
+    }),
+  );
+  const answerLibrarySnapshotId = `als_${'a'.repeat(24)}`;
+  const answerLibraryMetaId = `amq_${'b'.repeat(24)}`;
+  const answerLibraryQuestionIds = [
+    `aq_${'1'.repeat(24)}`,
+    `aq_${'2'.repeat(24)}`,
+    `aq_${'3'.repeat(24)}`,
+    `aq_${'4'.repeat(24)}`,
+  ];
+  const answerLibraryChoices = answerLibraryQuestionIds.map((questionId, index) => ({
+    question_id: questionId,
+    ordinal: index + 1,
+    variant_label: ['原问题', '变体 A', '变体 B', '变体 C'][index],
+    text: index === 0 ? '真实客户合同问题' : `真实客户合同问题变体 ${index}`,
+    answer_count: index === 0 ? 3 : 1,
+  }));
+  const answerLibraryDimensions = {
+    models: [
+      { label: 'doubao', answer_count: 1 },
+      { label: 'DeepSeek', answer_count: 1 },
+      { label: '文心一言', answer_count: 1 },
+    ],
+    regions: [
+      { label: 'east', answer_count: 2 },
+      { label: 'north', answer_count: 1 },
+    ],
+    modes: [
+      { label: 'deep', answer_count: 2 },
+      { label: 'fast', answer_count: 1 },
+    ],
+  };
+  const answerLibraryRuns = [
+    {
+      answer_pub_id: 'ans_customer_product_live_01',
+      repeat_index: 1,
+      model: 'doubao',
+      region: 'east',
+      mode: 'deep',
+      capture_time: '2026-07-25T00:00:00Z',
+      analysis_state: 'ready',
+      mentioned: true,
+      rank: 1,
+      sentiment: 'positive',
+      recommended: true,
+      citation_count: 2,
+    },
+    {
+      answer_pub_id: 'ans_customer_product_live_02',
+      repeat_index: 1,
+      model: 'DeepSeek',
+      region: 'east',
+      mode: 'deep',
+      capture_time: '2026-07-24T23:30:00Z',
+      analysis_state: 'ready',
+      mentioned: true,
+      rank: 2,
+      sentiment: 'positive',
+      recommended: true,
+      citation_count: 1,
+    },
+    {
+      answer_pub_id: 'ans_customer_product_live_03',
+      repeat_index: 1,
+      model: '文心一言',
+      region: 'north',
+      mode: 'fast',
+      capture_time: '2026-07-24T23:00:00Z',
+      analysis_state: 'ready',
+      mentioned: false,
+      rank: null,
+      sentiment: 'neutral',
+      recommended: false,
+      citation_count: 0,
+    },
+  ];
+  await page.route('**/api/v2/customer-dashboard/projects/**', (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname.endsWith('/answer-library')) {
+      customerAnswerPageRequests += 1;
+      const offset = Number(url.searchParams.get('offset') ?? '0');
+      const limit = Number(url.searchParams.get('limit') ?? '8');
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          schema_version: 'customer-answer-library-v1',
+          project_pub_id: 'prj_customer_product_live',
+          snapshot_id: answerLibrarySnapshotId,
+          snapshot_at: '2026-07-25T01:00:00Z',
+          totals: {
+            meta_query_count: 34,
+            question_count: 136,
+            answer_count: 1237,
+            cited_answer_count: 988,
+            citation_count: 3918,
+            mentioned_answer_count: 913,
+            unmapped_answer_count: 0,
+          },
+          ...answerLibraryDimensions,
+          data:
+            offset === 0
+              ? [
+                  {
+                    meta_query_id: answerLibraryMetaId,
+                    ordinal: 1,
+                    label: '真实客户选型关键词',
+                    question_count: 4,
+                    answer_count: 6,
+                    cited_answer_count: 5,
+                    citation_count: 12,
+                    mentioned_answer_count: 4,
+                    latest_capture_time: '2026-07-25T00:00:00Z',
+                    ...answerLibraryDimensions,
+                    questions: answerLibraryChoices,
+                  },
+                ]
+              : [],
+          page: { total: 34, offset, limit, has_more: offset + limit < 34 },
+        }),
+      });
+    }
+    if (url.pathname.includes('/answer-library/meta-queries/')) {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          schema_version: 'customer-answer-library-meta-v1',
+          project_pub_id: 'prj_customer_product_live',
+          snapshot_id: answerLibrarySnapshotId,
+          snapshot_at: '2026-07-25T01:00:00Z',
+          meta_query_id: answerLibraryMetaId,
+          ordinal: 1,
+          label: '真实客户选型关键词',
+          answer_count: 6,
+          cited_answer_count: 5,
+          citation_count: 12,
+          mentioned_answer_count: 4,
+          latest_capture_time: '2026-07-25T00:00:00Z',
+          questions: answerLibraryChoices.map((question) => ({
+            ...question,
+            cited_answer_count: question.answer_count,
+            citation_count: question.answer_count * 2,
+            mentioned_answer_count: question.answer_count,
+            latest_capture_time: '2026-07-25T00:00:00Z',
+            ...answerLibraryDimensions,
+          })),
+        }),
+      });
+    }
+    if (url.pathname.includes('/answer-library/questions/')) {
+      const offset = Number(url.searchParams.get('offset') ?? '0');
+      const limit = Number(url.searchParams.get('limit') ?? '20');
+      const model = url.searchParams.get('model');
+      const region = url.searchParams.get('region');
+      const mode = url.searchParams.get('mode');
+      const matchingRuns = answerLibraryRuns.filter(
+        (run) =>
+          (!model || run.model === model) &&
+          (!region || run.region === region) &&
+          (!mode || run.mode === mode),
+      );
+      const data = matchingRuns.slice(offset, offset + limit);
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          schema_version: 'customer-answer-library-runs-v1',
+          project_pub_id: 'prj_customer_product_live',
+          snapshot_id: answerLibrarySnapshotId,
+          snapshot_at: '2026-07-25T01:00:00Z',
+          meta_query_id: answerLibraryMetaId,
+          meta_query_ordinal: 1,
+          meta_query_label: '真实客户选型关键词',
+          question: {
+            ...answerLibraryChoices[0],
+            cited_answer_count: 3,
+            citation_count: 3,
+            mentioned_answer_count: 2,
+            latest_capture_time: '2026-07-25T00:00:00Z',
+            ...answerLibraryDimensions,
+          },
+          ...answerLibraryDimensions,
+          data,
+          page: {
+            total: matchingRuns.length,
+            offset,
+            limit,
+            has_more: offset + data.length < matchingRuns.length,
+          },
+        }),
+      });
+    }
+    if (url.pathname.includes('/answer-library/answers/')) {
+      const answerPubId = url.pathname.split('/').at(-1) ?? 'ans_customer_product_live_01';
+      const run = answerLibraryRuns.find((candidate) => candidate.answer_pub_id === answerPubId);
+      const responseText =
+        answerPubId === 'ans_customer_product_live_02'
+          ? '## DeepSeek 采集结论\n\nDeepSeek 对同一问题的完整回答，用于跨平台对照。[citation:1]\n\n- 该记录保留了答案正文\n- 该记录没有保存官方分享链接\n\n| 证据项 | 状态 |\n| --- | --- |\n| 答案正文 | 已采集 |\n| 官方链接 | 未保存 |'
+          : answerPubId === 'ans_customer_product_live_03'
+            ? '文心一言对同一问题的采集回答，用于验证平台差异与信源变化。'
+            : '真实客户回答原文，完整展示品牌提及、推荐语境与引用信息。[citation:1]\n\n## 核验建议\n\n- 打开官方分享页交叉核对\n- 检查引用原文与发布时间';
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          schema_version: 'customer-answer-library-detail-v1',
+          project_pub_id: 'prj_customer_product_live',
+          snapshot_id: answerLibrarySnapshotId,
+          snapshot_at: '2026-07-25T01:00:00Z',
+          meta_query_id: answerLibraryMetaId,
+          meta_query_ordinal: 1,
+          meta_query_label: '真实客户选型关键词',
+          question_id: answerLibraryQuestionIds[0],
+          question_ordinal: 1,
+          variant_label: '原问题',
+          question_text: '真实客户合同问题',
+          answer: run,
+          response_text: responseText,
+        }),
+      });
+    }
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        schema_version: 'customer-dashboard-v1',
+        metric_version: 'customer-metrics-v1',
+        project_pub_id: 'prj_customer_product_live',
+        brand_name: '真实客户品牌',
+        state: 'ready',
+        generated_at: '2026-07-25T01:00:00Z',
+        as_of: '2026-07-25T00:00:00Z',
+        window: { start: '2026-07-01', end: '2026-07-25', filters: {} },
+        metrics: dashboardMetrics,
+        models: [{ key: 'doubao', label: 'doubao', metrics: dimensionMetrics }],
+        competitors: [
+          {
+            name: '真实分析竞品',
+            metrics: [
+              dashboardMetric('share_of_voice', '竞争声量份额', 'competition', 'percentage', 0.3),
+            ],
+          },
+        ],
+        questions: [
+          {
+            query_pub_id: 'qry_customer_product_live_01',
+            query_text: '真实客户合同问题',
+            query_group: '选型',
+            metrics: dimensionMetrics,
+          },
+        ],
+        sources: [
+          {
+            host: 'source.example',
+            references: 2,
+            share: 1,
+            own_source: false,
+            answers: 1,
+          },
+        ],
+        regions: [{ key: 'east', label: 'east', metrics: dimensionMetrics }],
+        modes: [{ key: 'deep', label: 'deep', metrics: dimensionMetrics }],
+        trends: ['2026-07-21', '2026-07-22', '2026-07-23', '2026-07-24', '2026-07-25'].map(
+          (date) => ({ date, metrics: dimensionMetrics }),
+        ),
+        risk: { metrics: [], by_model: [] },
+        source_audit: {
+          metrics: [],
+          verdicts: { accurate: 478, unsupported: 26, unverifiable: 16 },
+        },
+        snapshot_hash: 'a'.repeat(64),
+      }),
+    });
+  });
+
   await page.goto('/platform/customer/');
-  await expect(page.getByRole('heading', { name: '项目监测概览' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '真实客户品牌 · AI 认知资产总览' })).toBeVisible();
+  await expect(page.getByLabel('AI 操作面板')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: '监测运行中' })).toHaveCount(0);
   await expect(page.getByRole('progressbar', { name: '项目进度' })).toHaveCount(0);
   await expect(page.getByText('资料确认', { exact: true })).toHaveCount(0);
-  await expect(page.getByText('Analytics overview', { exact: true })).toBeVisible();
   await expect(page.getByText('Project stage', { exact: true })).toHaveCount(0);
-  await expect(page.locator('.metric-value').filter({ hasText: /^75\.0%$/ })).toBeVisible();
-  await expect(page.getByText(/当前合同未提供项目阶段或采集计划，不展示进度比例/)).toBeVisible();
-  await expect(page.getByText(/当前安全投影未提供建议动作，不根据指标推断客户待办/)).toBeVisible();
-  await expect(page.getByText('样本不足')).toBeVisible();
+  await expect(page.getByRole('heading', { name: '六大经营指数' })).toBeVisible();
+  const assetScale = page.getByLabel('所选统计区间沉淀的 AI 认知资产');
+  await expect(assetScale.getByText('1,217', { exact: true })).toBeVisible();
+  await expect(assetScale.getByText('1,742', { exact: true })).toBeVisible();
+  await expect(assetScale.getByText('12,684', { exact: true })).toBeVisible();
+  await expect(assetScale.getByText('18,926', { exact: true })).toBeVisible();
+  await expect(
+    page.locator('.geo-kpi-card').filter({ hasText: '品牌提及率' }).getByText('75.0%'),
+  ).toBeVisible();
+  await expect(page.getByRole('heading', { name: '真实客户品牌 · 真实 AI 回答' })).toHaveCount(0);
   await expectSafePageScreenshot(page, 'customer-live-home.png', {
     fullPage: true,
     animations: 'disabled',
   });
+  await page.getByRole('button', { name: '真实 AI 回答', exact: true }).click();
+  await expect(
+    page.getByRole('heading', { name: '真实客户品牌 · 真实 AI 回答与模型语境' }),
+  ).toBeVisible();
+  await expect(page.getByLabel('AI 操作面板')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: /真实客户品牌.*回答证据库/u })).toBeVisible();
+  await expect(page.getByText('已确认元查询').first()).toBeVisible();
+  await expect(page.getByText('1,237', { exact: true })).toBeVisible();
+  await expect(page.getByText('3,918', { exact: true })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: '关键词分页' })).toBeVisible();
+  await expect(
+    page.getByText('真实客户回答原文，完整展示品牌提及、推荐语境与引用信息。'),
+  ).toHaveCount(0);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expectSafePageScreenshot(page, 'customer-live-answers.png', {
+    fullPage: true,
+    animations: 'disabled',
+  });
+
+  await page.getByRole('button', { name: /进入 4 条问题/u }).click();
+  await expect(page.getByRole('button', { name: /选择采集条件/u })).toHaveCount(4);
+  await expect(page.getByRole('navigation', { name: '答案库路径' })).toContainText(
+    '关键词/查询 01 · 真实客户选型关键词',
+  );
+  const originalQuestionCard = page
+    .locator('.geo-answer-library__question-grid article')
+    .filter({ hasText: '原问题' });
+  await originalQuestionCard.getByRole('button', { name: /选择采集条件/u }).click();
+  await expect(page.locator('.geo-answer-library__runs article')).toHaveCount(3);
+  await expect(
+    page.getByText('这一层只显示平台、地域、遍次、时间与模式等摘要，不传输答案正文。'),
+  ).toBeVisible();
+  await expect(
+    page.getByText('真实客户回答原文，完整展示品牌提及、推荐语境与引用信息。'),
+  ).toHaveCount(0);
+  const doubaoRun = page.locator('.geo-answer-library__runs article').filter({ hasText: 'doubao' });
+  await doubaoRun.getByRole('button', { name: /查看完整答案/u }).click();
+
+  const answerDossier = page.locator('.geo-answer-library__answer');
+  await expect(answerDossier).toBeVisible();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  const modeTabs = answerDossier.getByRole('tablist', { name: '答案展示方式' });
+  await expect(modeTabs.getByRole('tab', { name: '文本回答' })).toBeVisible();
+  await expect(modeTabs.getByRole('tab', { name: '官方实时页' })).toBeVisible();
+  await expect(modeTabs.getByRole('tab', { name: '分享图片' })).toBeVisible();
+  await expect(modeTabs.getByRole('tab', { name: '文本回答' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await expect(answerDossier.getByRole('heading', { name: '核验建议' })).toBeVisible();
+  await expect(answerDossier.getByText('已保留采集证据', { exact: true })).toHaveCount(0);
+  await expect(answerDossier.getByText(/doubao · 采集于/u)).toHaveCount(0);
+  await expect(answerDossier.locator('.geo-answer-dossier__fallback > footer')).toHaveCount(0);
+  expect(shareImageContentReads).toBe(0);
+  const answerStage = answerDossier.locator('.geo-answer-display__stage');
+  const textStageBox = await answerStage.boundingBox();
+  expect(textStageBox).not.toBeNull();
+
+  await modeTabs.getByRole('tab', { name: '官方实时页' }).click();
+  const officialFrame = answerDossier.getByTitle('doubao 官方回答只读预览');
+  const officialViewport = answerDossier.getByRole('region', { name: '官方回答只读预览' });
+  await expect(officialFrame).toBeVisible();
+  await expect(officialFrame).toHaveAttribute('tabindex', '-1');
+  await expect(officialFrame).toHaveAttribute('aria-hidden', 'true');
+  await expect(officialFrame).toHaveAttribute('sandbox', 'allow-scripts allow-same-origin');
+  await expect(officialViewport).toBeVisible();
+  expect(await officialFrame.evaluate((element) => getComputedStyle(element).pointerEvents)).toBe(
+    'none',
+  );
+  await expect(answerDossier.getByText(/已裁掉平台底部/u)).toHaveCount(0);
+  await expect(answerDossier.getByRole('link', { name: /无法显示.*打开官方原页/u })).toHaveCount(0);
+  const externalOfficialLink = answerDossier.getByRole('link', { name: '打开官方原页 ↗' });
+  await expect(externalOfficialLink).toBeVisible();
+  await expect(externalOfficialLink).toHaveAttribute(
+    'href',
+    'https://www.doubao.com/thread/customer-live-safe',
+  );
+  const officialScroll = await officialViewport.evaluate((element) => {
+    const maximum = element.scrollHeight - element.clientHeight;
+    element.scrollTop = Math.min(320, maximum);
+    return { maximum, top: element.scrollTop };
+  });
+  expect(await officialViewport.evaluate((element) => getComputedStyle(element).overflowY)).toBe(
+    'auto',
+  );
+  if (officialScroll.maximum > 0) expect(officialScroll.top).toBeGreaterThan(0);
+  await officialViewport.evaluate((element) => {
+    element.scrollTop = 0;
+    element.scrollLeft = 0;
+  });
+  const officialFrameBody = page
+    .frameLocator('iframe[title="doubao 官方回答只读预览"]')
+    .locator('body');
+  await officialFrameBody.evaluate((body) => {
+    (body.ownerDocument.defaultView as Window & { __customerFrameClicks?: number })[
+      '__customerFrameClicks'
+    ] = 0;
+    body.ownerDocument.addEventListener('click', () => {
+      const frameWindow = body.ownerDocument.defaultView as Window & {
+        __customerFrameClicks?: number;
+      };
+      frameWindow.__customerFrameClicks = (frameWindow.__customerFrameClicks ?? 0) + 1;
+    });
+  });
+  const officialFrameBox = await officialFrame.boundingBox();
+  expect(officialFrameBox).not.toBeNull();
+  await page.mouse.click(
+    officialFrameBox!.x + officialFrameBox!.width / 2,
+    officialFrameBox!.y + Math.min(200, officialFrameBox!.height / 2),
+  );
+  expect(
+    await officialFrameBody.evaluate(
+      (body) =>
+        (body.ownerDocument.defaultView as Window & { __customerFrameClicks?: number })
+          .__customerFrameClicks ?? 0,
+    ),
+  ).toBe(0);
+  expect((await answerStage.boundingBox())?.height).toBeCloseTo(textStageBox!.height, 0);
+  await expect(answerDossier.getByText('## 核验建议', { exact: true })).toHaveCount(0);
+  await expect(answerDossier.getByText('发布时间完整度', { exact: true })).toHaveCount(0);
+  await expect(answerDossier.getByText('官方回答页', { exact: true })).toHaveCount(0);
+  const citationRail = answerDossier.getByRole('complementary', { name: '引用来源' });
+  const citationTableRegion = answerDossier.getByRole('region', { name: '引用信源分析表' });
+  const assertCitationReadingLayout = async () => {
+    await expect(citationRail.getByRole('heading', { name: '引用信源' })).toBeVisible();
+    await expect(citationTableRegion).toBeVisible();
+    const tableFontSize = await citationTableRegion
+      .locator('tbody td')
+      .first()
+      .evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize));
+    expect(tableFontSize).toBeGreaterThanOrEqual(11);
+    const railBox = await citationRail.boundingBox();
+    expect(railBox).not.toBeNull();
+    expect(railBox!.width).toBeGreaterThan(0);
+    await citationTableRegion.evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+      element.scrollLeft = element.scrollWidth;
+    });
+    await citationTableRegion.evaluate((element) => {
+      element.scrollTop = 0;
+      element.scrollLeft = 0;
+    });
+  };
+  await expect(answerDossier.getByText('待采集', { exact: true })).toBeVisible();
+  await expect(citationTableRegion).toContainText('真实独立来源');
+  await assertCitationReadingLayout();
+  expect(
+    await answerDossier.evaluate(
+      (element) => element.scrollWidth <= Math.ceil(element.clientWidth) + 1,
+    ),
+  ).toBe(true);
+  await expectSafePageScreenshot(page, 'customer-live-answer-official.png', {
+    fullPage: true,
+    animations: 'disabled',
+  });
+
+  await modeTabs.getByRole('tab', { name: '分享图片' }).click();
+  const officialShareImage = answerDossier.getByRole('img', {
+    name: 'doubao 官方分享图片',
+  });
+  await expect(officialShareImage).toBeVisible();
+  await expect.poll(() => shareImageContentReads).toBe(1);
+  expect((await answerStage.boundingBox())?.height).toBeCloseTo(textStageBox!.height, 0);
+  await expect(answerDossier.getByText(/采集现场截图/u)).toHaveCount(0);
+  await expectSafePageScreenshot(page, 'customer-live-answer-share-image.png', {
+    fullPage: true,
+    animations: 'disabled',
+  });
+
+  await modeTabs.getByRole('tab', { name: '文本回答' }).click();
+  await expect(answerDossier.getByRole('heading', { name: '核验建议' })).toBeVisible();
+  expect((await answerStage.boundingBox())?.height).toBeCloseTo(textStageBox!.height, 0);
+  await expectSafePageScreenshot(page, 'customer-live-answer-dossier.png', {
+    fullPage: true,
+    animations: 'disabled',
+  });
+
+  await page.getByRole('button', { name: '问题 01 · 原问题' }).click();
+  const deepSeekRun = page
+    .locator('.geo-answer-library__runs article')
+    .filter({ hasText: 'DeepSeek' });
+  await deepSeekRun.getByRole('button', { name: /查看完整答案/u }).click();
+  const fallbackAnswer = page.getByRole('region', {
+    name: '历史采集答案退阶阅读版',
+  });
+  await expect(fallbackAnswer).toBeVisible();
+  await expect(fallbackAnswer.getByRole('heading', { name: 'DeepSeek 采集结论' })).toBeVisible();
+  await expect(fallbackAnswer.getByText('该记录保留了答案正文')).toBeVisible();
+  await expect(fallbackAnswer.getByRole('table')).toBeVisible();
+  expect(
+    await fallbackAnswer
+      .getByRole('note')
+      .evaluate((element) => element.scrollWidth <= Math.ceil(element.clientWidth) + 1),
+  ).toBe(true);
+  await expect(fallbackAnswer.getByText(/\[citation:1\]/u)).toHaveCount(0);
+  await expect(fallbackAnswer.getByRole('link', { name: '1' })).toHaveAttribute(
+    'href',
+    '#citation-1',
+  );
+  await expect(page.getByTitle('DeepSeek 官方回答只读预览')).toHaveCount(0);
+  await expect(page.getByRole('link', { name: '打开官方原页 ↗' })).toHaveCount(0);
+  await expect(page.getByRole('tablist', { name: '答案展示方式' })).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: '官方实时页' })).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: '分享图片' })).toHaveCount(0);
+  await expect(fallbackAnswer.getByRole('img')).toHaveCount(0);
+  await expectSafePageScreenshot(page, 'customer-live-answer-fallback.png', {
+    fullPage: true,
+    animations: 'disabled',
+  });
+  await page.getByRole('button', { name: '关键词', exact: true }).click();
+  const requestsBeforeModelChange = customerAnswerPageRequests;
+  await page.getByLabel('AI 模型').selectOption('doubao');
+  await expect(page.getByRole('heading', { name: /真实客户品牌.*回答证据库/u })).toBeVisible();
+  await expect.poll(() => customerAnswerPageRequests).toBe(requestsBeforeModelChange + 1);
   await page.goto(
     '/platform/customer/?section=profile&declaration_page=2&declaration_cursor=rev_Bearer%20profile-cursor-canary',
   );
@@ -788,29 +1437,40 @@ test('validated customer reads mounted data and serializes every write without s
     fullPage: true,
     animations: 'disabled',
   });
-  await page.getByRole('button', { name: '问题目标' }).click();
+  await page.getByRole('button', { name: '监测问题与目标' }).click();
   await expect(page.getByText('真实目录中的客户关注问题')).toBeVisible();
   await expect(page.getByText('目标 80.0% · active')).toBeVisible();
   await expectSafePageScreenshot(page, 'customer-live-questions.png', {
     fullPage: true,
     animations: 'disabled',
   });
-  await page.getByRole('button', { name: '监测表现' }).click();
-  await expect(page.locator('.metric-value').filter({ hasText: /^75\.0%$/ })).toBeVisible();
-  await expect(page.getByText('3 / 4 · 已完成')).toBeVisible();
-  await expect(page.getByLabel('监测指标窗口对比')).toContainText('品牌提及率');
-  await expect(page.getByLabel('监测指标窗口对比')).toContainText('75.0%');
-  await expect(page.getByRole('table', { name: '逐日品牌提及率' })).toBeVisible();
-  await expect(page.getByRole('table', { name: '确认竞品提及率' })).toContainText('真实分析竞品');
-  await expect(page.getByRole('table', { name: '各模型品牌提及率' })).toContainText('doubao');
-  await expect(page.getByLabel('地域与回答模式表现')).toContainText('east');
-  await expect(page.getByLabel('问题级表现')).toContainText('真实合同问题');
+  await page.getByRole('button', { name: '品牌可见度', exact: true }).click();
+  await expect(
+    page.getByRole('heading', { name: '真实客户品牌 · 品牌可见度与模型表现' }),
+  ).toBeVisible();
+  await expect(page.getByLabel('AI 操作面板')).toHaveCount(0);
+  await expect(
+    page.locator('.geo-kpi-card').filter({ hasText: '品牌提及率' }).getByText('75.0%'),
+  ).toBeVisible();
+  await expect(page.getByRole('img', { name: '真实客户品牌提及率趋势' })).toBeVisible();
+  await expect(page.getByLabel('模型表现数据表')).toContainText('doubao');
+  await expect(page.getByLabel('地区表现数据表')).toContainText('east');
+  await expect(page.getByLabel('回答模式表现数据表')).toContainText('deep');
+  await expect(page.getByText('真实客户合同问题', { exact: true })).toHaveCount(0);
   await expectSafePageScreenshot(page, 'customer-live-monitoring.png', {
     fullPage: true,
     animations: 'disabled',
   });
-  await synchronouslyActivateTwice(page.getByRole('button', { name: '导出当前筛选 XLSX' }));
-  await expect(page.getByText('真实 XLSX 导出已冻结并进入证据存储')).toBeVisible();
+  await page.getByRole('button', { name: '信源与内容', exact: true }).click();
+  await expect(
+    page.getByRole('heading', { name: '真实客户品牌 · 信源权威与内容准备度' }),
+  ).toBeVisible();
+  const sourceScale = page.getByLabel('AI 信源资产规模');
+  await expect(sourceScale.getByText('1,742', { exact: true })).toBeVisible();
+  await expect(sourceScale.getByText('12,684', { exact: true })).toBeVisible();
+  const contentReadiness = page.getByLabel('内容准备度与事实审计');
+  await expect(contentReadiness.getByText('520', { exact: true })).toBeVisible();
+  await expect(contentReadiness.getByText('92.0%', { exact: true })).toBeVisible();
   await page.goto(
     '/platform/customer/?section=evidence&evidence_page=2&evidence_cursor=evd_Bearer%20evidence-cursor-canary',
   );
@@ -904,7 +1564,7 @@ test('validated customer reads mounted data and serializes every write without s
   await expect.poll(() => reportQuestionBodies).toHaveLength(2);
   await page.getByRole('button', { name: '前往监测导出' }).click();
   await expect(page).toHaveURL(/section=monitoring/);
-  await expect(page.getByRole('heading', { name: '模型表现' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '模型表现', exact: true })).toBeVisible();
   releaseDelayedReportQuestion?.();
   await page.waitForTimeout(250);
   expect(reportQuestionAuthorityReads).toBe(2);
@@ -921,11 +1581,7 @@ test('validated customer reads mounted data and serializes every write without s
   expect(surfaces).not.toMatch(
     /analytics-(?:canary|breakdown-canary)|analytics-delta-(?:canary|root-canary)|analytics-competitor-canary|answers-canary|answer-provenance-canary|evidence-canary|export-canary|package-canary|catalog-(?:brand|competitor|query|goal)-canary|customer-report-(?:detail|cursor)-canary|delivery-(?:comment|extension|recipient|confirm-response)-canary|profile-field-canary|proxy-password|SESSION=|Bearer |318294|429155|731904|824911|\/secret\/profile/i,
   );
-  expect(exportBodies).toHaveLength(1);
-  expect(exportBodies[0]).toMatchObject({
-    project_pub_id: 'prj_customer_product_live',
-    dimensions: {},
-  });
+  expect(exportBodies).toHaveLength(0);
   expect(packageBodies).toHaveLength(1);
   expect(packageBodies[0]).toMatchObject({
     evidence_pub_ids: ['evd_live_safe'],
@@ -1002,6 +1658,23 @@ test('customer product 404 fails closed without revealing whether analytics exis
       path: '/api/v2/analytics/answers',
       status: 404,
     },
+    {
+      id: 'customer-dashboard-forbidden',
+      path: '/api/v2/customer-dashboard/projects/prj_customer_hidden',
+      status: 404,
+      body: {
+        error: {
+          code: 'not_found',
+          message: 'customer-dashboard-forbidden-canary',
+          request_id: 'req_dashboard_safe',
+        },
+      },
+    },
+    {
+      id: 'customer-metric-catalog-forbidden',
+      path: '/api/v2/customer-dashboard/metrics/catalog',
+      status: 404,
+    },
   ]);
   await page.route('**/api/v2/identity/session', (route) =>
     route.fulfill({
@@ -1046,10 +1719,11 @@ test('customer product 404 fails closed without revealing whether analytics exis
     }),
   );
   await page.goto('/platform/customer/');
-  await page.getByRole('button', { name: '监测表现' }).click();
+  await page.getByRole('button', { name: '品牌可见度', exact: true }).click();
   await expect(page.getByText('无权查看')).toBeVisible();
   await expect(page.getByText('Cookie=forbidden-customer-canary')).toHaveCount(0);
-  expect(await syntheticHttpResponseCount(page, 'customer-overview-forbidden')).toBe(2);
+  await expect(page.getByText('customer-dashboard-forbidden-canary')).toHaveCount(0);
+  expect(await syntheticHttpResponseCount(page, 'customer-dashboard-forbidden')).toBeGreaterThan(0);
   expect(await syntheticHttpResponseCount(page, 'customer-answers-forbidden')).toBe(0);
 });
 

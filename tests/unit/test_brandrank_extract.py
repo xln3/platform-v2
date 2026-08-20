@@ -157,8 +157,8 @@ def test_config_env_and_defaults(clean_env):
     clean_env.setenv("GEO_BRANDRANK_LLM_MODEL", "m-brand")
     key, base, fallback, model = extract.load_config()
     assert key == "k1" and model == "m-brand"
-    assert base == "https://aihubmix.com"  # V2 主通道缺省
-    assert fallback == "https://api.inferera.com"  # 备通道缺省
+    assert base == "https://api.inferera.com"  # 国外模型统一网关
+    assert fallback == ""  # 不回落到其他网关
 
 
 def test_config_explicit_base_urls(clean_env):

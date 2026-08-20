@@ -38,8 +38,7 @@ _QUOTA_TEXT = (
     "别的吧。开通豆包专业版，免等待，继续为你服务。"
 )
 _MUTED_TEXT = (
-    "由于违反用户使用规范，你的账号已被禁言至 2026 年 8 月 14 日 13:02，"
-    "如有疑问请联系我们。"
+    "由于违反用户使用规范，你的账号已被禁言至 2026 年 8 月 14 日 13:02，如有疑问请联系我们。"
 )
 _REFUSAL_TEXT = "这个问题我们换个话题聊聊吧。"
 
@@ -169,9 +168,7 @@ def test_answer_gate_muted_text_carries_until(
 
     assert [o.status for o in outcomes] == ["wall"]
     assert outcomes[0].error_type == "wall_muted"
-    assert outcomes[0].error_message and "until=2026-08-14T13:02:00" in (
-        outcomes[0].error_message
-    )
+    assert outcomes[0].error_message and "until=2026-08-14T13:02:00" in (outcomes[0].error_message)
 
 
 # ---------------------------------------------------------------------------
@@ -195,9 +192,7 @@ def test_softban_scan_runs_even_with_answer(
     assert outcomes[0].error_message and "今日请求过频" in outcomes[0].error_message
 
 
-def test_softban_scan_excludes_answer_text(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_softban_scan_excludes_answer_text(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """零误伤不变量：答案正文本身提及「过频」不翻标记（扫描前剔除答案正文）。"""
     answer = "这是答案：今日请求过频时请降低发送频率并重试。"
     page = _FakePage(messages=0)
@@ -265,9 +260,7 @@ def test_batch_quota_cascades_same_mode_only(
     assert keys == list(specs[0].query) + list(specs[1].query)
 
 
-def test_batch_refusal_does_not_cascade(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_batch_refusal_does_not_cascade(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """wall_refusal=题级内容失败：不连坐，后续题照常跑通。"""
     page = _FakePage(messages=0)
     session, _evidence = _make_session(
@@ -305,9 +298,7 @@ def test_muted_banner_upgrades_no_input_to_wall_muted(
 
     assert [o.status for o in outcomes] == ["wall", "aborted"]
     assert outcomes[0].error_type == "wall_muted"
-    assert outcomes[0].error_message and "until=2026-08-14T13:02:00" in (
-        outcomes[0].error_message
-    )
+    assert outcomes[0].error_message and "until=2026-08-14T13:02:00" in (outcomes[0].error_message)
     assert outcomes[1].error_type == "aborted_after_failure"
     # 一题未发：全程无键盘输入
     assert [e for e in page.events if e[0] == "key"] == []
@@ -325,9 +316,7 @@ def test_no_input_without_banner_stays_incomplete(
 
     assert [o.status for o in outcomes] == ["incomplete"]
     assert outcomes[0].error_type == "answer_capture_incomplete"
-    assert outcomes[0].error_message and "could-not-find-chat-input" in (
-        outcomes[0].error_message
-    )
+    assert outcomes[0].error_message and "could-not-find-chat-input" in (outcomes[0].error_message)
 
 
 # ---------------------------------------------------------------------------
@@ -347,9 +336,7 @@ def test_mode_unconfirmed_fails_deep_think_item(
 
     assert [o.status for o in outcomes] == ["wall"]
     assert outcomes[0].error_type == "mode_unconfirmed"
-    assert outcomes[0].error_message and "no thinking-root evidence" in (
-        outcomes[0].error_message
-    )
+    assert outcomes[0].error_message and "no thinking-root evidence" in (outcomes[0].error_message)
     trace = json.loads((evidence / "run-1-task-1-a1-sse-trace.json").read_text("utf-8"))
     assert trace["mode"]["requested"] == "deep_think"
     assert trace["mode"]["actual"] == "normal"

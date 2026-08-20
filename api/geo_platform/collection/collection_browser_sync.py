@@ -76,9 +76,7 @@ def sync_collection_browsers(conn: Session) -> dict[str, Any]:
             errors.append(f"invalid_exit_gb:{key}")
             continue
         platform = key.split("_", 1)[0]
-        row = conn.scalar(
-            select(CollectionBrowser).where(CollectionBrowser.instance_key == key)
-        )
+        row = conn.scalar(select(CollectionBrowser).where(CollectionBrowser.instance_key == key))
         if row is None:
             row = CollectionBrowser(
                 pub_id=new_pub_id("brw"),

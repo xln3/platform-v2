@@ -5,18 +5,19 @@
 分别合并重建 `.datasets/media-prices.json` 和 `.datasets/media-wemedia.json`
 （均带 `.sha256` sidecar），进度与结果落 `.datasets/media-prices.refresh.json`。
 
-由 `POST /api/v2/datasets/media-prices/refresh` 以子进程启动（仓库 .venv 解释器），
-也可手动执行：`.venv/bin/python tools/media_prices_refresh.py`。
+由 `POST /api/v2/datasets/media-prices/refresh` 写入持久化请求，再由独立 systemd
+服务启动；也可手动执行：`.venv/bin/python tools/media_prices_refresh.py`。
 
-- prfabu 需要 `.datasets/prfabu_session.txt`（Netscape 格式 PHPSESSID）；会话失效
-  （响应 code=201 且 msg 含"登录"）不报错，标记 `stale: session_expired` 并沿用
-  `.datasets/raw/prfabu/` 既有分页。会话需人工重新登录后更新该文件（不要自动打码）。
+- 网页触发刷新时，prfabu / 品达使用请求租户在发帖页保存的 KMS 加密会话；会话
+  轮换或失效会写回同一加密记录。直接手工运行且没有租户上下文时，才兼容读取
+  `.datasets/prfabu_session.txt` / `.datasets/pinda_session.txt`。
 - toumeiw 免登录，被限流（code=301）时标记 `partial` 并保留已拉到的页。
 - mtpfw / meititejia 免登录，TLS 证书有问题，verify=False。
 - meijiehezi 免登录但字段结构不同（kind='mjhz'），经 `_normalize_rows` 映射成标准字段。
 - pinda 复用 `.datasets/pinda_session.txt`，登录后以 pageSize=1000 单路分页抓取；
   单页失败优先沿用 `.datasets/raw/(wemedia/)pinda/` 缓存。
-- 单实例闸：`.datasets/media-prices.refresh.lock`（O_EXCL；>45min 视为僵死删除）。
+- 单实例闸：`.datasets/media-prices.refresh.lock`（O_EXCL；PID 存活时不按时长误删，
+  PID 已退出时立即回收；无法识别旧格式时才按 45 分钟兜底）。
 """
 
 from __future__ import annotations
@@ -38,7 +39,16 @@ from urllib.parse import unquote
 import httpx
 
 ROOT = Path(__file__).resolve().parents[1]
-DATASETS = ROOT / ".datasets"
+
+
+def _configured_datasets_dir() -> Path:
+    """Use the same persistent artifact directory as the API process."""
+    configured = os.environ.get("GEO_DATASETS_DIR", "")
+    return Path(configured) if configured else ROOT / ".datasets"
+
+
+DATASETS = _configured_datasets_dir()
+CREDENTIAL_TENANT_ID = os.environ.get("GEO_MEDIA_PRICES_TENANT_ID", "").strip()
 RAW = DATASETS / "raw"
 REFRESH_JSON = DATASETS / "media-prices.refresh.json"
 LOCK_FILE = DATASETS / "media-prices.refresh.lock"
@@ -65,6 +75,7 @@ TOUMEIW_FULL_COUNT = 16343
 PINDA_PAGE_SIZE = 1000
 PINDA_FETCH_WORKERS = 1
 _CLIENT_SECRET_INVISIBLE_PATTERN = re.compile(r"[\u200b-\u200d\u2060\ufeff]")
+_LOCK_PID_PATTERN = re.compile(r"(?:^|\s)pid=(\d+)(?:\s|$)")
 _CLIENT_SECRET_VALUE_PATTERN = re.compile(
     r"(?:bearer\s+|session\s*=|cookie(?:\s|=|:)|token(?:\s|=|:)|"
     r"otp(?:\s|=|:)|password(?:\s|=|:)|"
@@ -203,16 +214,39 @@ def _write_refresh(
     _atomic_write(REFRESH_JSON, json.dumps(payload, ensure_ascii=False, indent=1).encode("utf-8"))
 
 
+def _lock_owner_alive() -> bool | None:
+    try:
+        lock_text = LOCK_FILE.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    match = _LOCK_PID_PATTERN.search(lock_text)
+    if match is None:
+        return None
+    pid = int(match.group(1))
+    if pid <= 0:
+        return None
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
 def _acquire_lock() -> bool:
     for _attempt in range(2):
         try:
             fd = os.open(LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         except FileExistsError:
+            owner_alive = _lock_owner_alive()
+            if owner_alive is True:
+                return False
             try:
                 age = time.time() - LOCK_FILE.stat().st_mtime
             except OSError:
                 age = 0
-            if age > LOCK_TTL_SECONDS:
+            if owner_alive is False or age > LOCK_TTL_SECONDS:
                 LOCK_FILE.unlink(missing_ok=True)
                 continue
             return False
@@ -224,19 +258,6 @@ def _acquire_lock() -> bool:
 
 def _release_lock() -> None:
     LOCK_FILE.unlink(missing_ok=True)
-
-
-def _load_phpsessid() -> str | None:
-    try:
-        for line in SESSION_FILE.read_text(encoding="utf-8").splitlines():
-            if line.startswith("#") and not line.startswith("#HttpOnly_"):
-                continue
-            parts = line.strip().split("\t")
-            if len(parts) >= 7 and parts[5] == "PHPSESSID" and parts[6]:
-                return parts[6]
-    except OSError:
-        pass
-    return None
 
 
 def _save_phpsessid(cookies: httpx.Cookies) -> None:
@@ -262,6 +283,73 @@ def _load_netscape_cookies(path: Path) -> dict[str, str]:
     except OSError:
         pass
     return cookies
+
+
+def _encrypted_provider_cookies(provider: str) -> dict[str, str] | None:
+    """Return tenant cookies, or None when running in explicit legacy/manual mode."""
+
+    if not CREDENTIAL_TENANT_ID:
+        return None
+    api_root = str(ROOT / "api")
+    if api_root not in sys.path:
+        sys.path.insert(0, api_root)
+    from geo_platform.posting.provider_credentials import (  # noqa: PLC0415
+        ProviderCredentialNotConfigured,
+        ProviderCredentialStore,
+        ProviderCredentialUnavailable,
+    )
+
+    try:
+        account = ProviderCredentialStore().load(
+            tenant_pub_id=CREDENTIAL_TENANT_ID,
+            provider=provider,
+        )
+    except (ProviderCredentialNotConfigured, ProviderCredentialUnavailable):
+        return {}
+    return account.cookies
+
+
+def _provider_session_cookies(provider: str, legacy_path: Path) -> dict[str, str]:
+    encrypted = _encrypted_provider_cookies(provider)
+    return _load_netscape_cookies(legacy_path) if encrypted is None else encrypted
+
+
+def _client_cookie_values(client: httpx.Client) -> dict[str, str]:
+    return {
+        cookie.name: cookie.value for cookie in client.cookies.jar if cookie.name and cookie.value
+    }
+
+
+def _persist_provider_session(
+    provider: str,
+    client: httpx.Client,
+    *,
+    status: str = "ready",
+    message: str = "目录刷新成功，会话由系统自动维护",
+) -> None:
+    if not CREDENTIAL_TENANT_ID:
+        if provider == "prfabu" and status == "ready":
+            _save_phpsessid(client.cookies)
+        return
+    api_root = str(ROOT / "api")
+    if api_root not in sys.path:
+        sys.path.insert(0, api_root)
+    from geo_platform.posting.provider_credentials import (  # noqa: PLC0415
+        ProviderCredentialNotConfigured,
+        ProviderCredentialStore,
+        ProviderCredentialUnavailable,
+    )
+
+    try:
+        ProviderCredentialStore().update_session(
+            tenant_pub_id=CREDENTIAL_TENANT_ID,
+            provider=provider,
+            cookies=_client_cookie_values(client) if status == "ready" else {},
+            status=status,
+            message=message,
+        )
+    except (ProviderCredentialNotConfigured, ProviderCredentialUnavailable):
+        return
 
 
 def _read_raw_pages(plat: str) -> list[dict[str, Any]]:
@@ -317,10 +405,16 @@ def _fetch_source(
             if config.get("kind") == "pinda":
                 return _fetch_pinda(client, on_progress, catalog)
             if plat == "prfabu":
-                sessid = _load_phpsessid()
-                if not sessid:
-                    return _fallback(plat, "session_file_missing", catalog)
-                client.cookies.set("PHPSESSID", sessid, domain="www.prfabu.com")
+                cookies = _provider_session_cookies("prfabu", SESSION_FILE)
+                if not cookies:
+                    note = (
+                        "encrypted_session_missing"
+                        if CREDENTIAL_TENANT_ID
+                        else "session_file_missing"
+                    )
+                    return _fallback(plat, note, catalog)
+                for name, value in cookies.items():
+                    client.cookies.set(name, value, domain="www.prfabu.com", path="/")
             fetched = 0
             for page in range(1, MAX_PAGES + 1):
                 label = "新闻" if catalog == "news" else "自媒体"
@@ -358,8 +452,16 @@ def _fetch_source(
                 if fetched >= count or not rows:
                     break
                 time.sleep(PAGE_DELAY_SECONDS)
-            if plat == "prfabu" and not session_expired:
-                _save_phpsessid(client.cookies)
+            if plat == "prfabu":
+                if session_expired:
+                    _persist_provider_session(
+                        "prfabu",
+                        client,
+                        status="expired",
+                        message="供应商会话已失效，请在发帖页重新登录",
+                    )
+                else:
+                    _persist_provider_session("prfabu", client)
     except Exception as exc:  # 网络/解析异常：有旧数据则 stale 沿用
         return _fallback(plat, f"fetch_failed:{type(exc).__name__}", catalog)
     if session_expired:
@@ -532,9 +634,10 @@ def _fetch_pinda(
     catalog: str,
 ) -> tuple[str, list[dict[str, Any]], str]:
     """品达目录：pageSize=1000 单路分页，每页独立缓存并在瞬时失败时复用旧页。"""
-    cookies = _load_netscape_cookies(PINDA_SESSION_FILE)
+    cookies = _provider_session_cookies("pinda", PINDA_SESSION_FILE)
     if not cookies:
-        return _fallback("pinda", "session_file_missing", catalog)
+        note = "encrypted_session_missing" if CREDENTIAL_TENANT_ID else "session_file_missing"
+        return _fallback("pinda", note, catalog)
     for name, value in cookies.items():
         client.cookies.set(name, value, domain="fagao.pindarpr.com")
 
@@ -612,6 +715,7 @@ def _fetch_pinda(
     pages = [pages_by_number[number] for number in sorted(pages_by_number)]
     if not pages:
         return _fallback("pinda", "no_rows", catalog)
+    _persist_provider_session("pinda", client)
     for path in raw_dir.glob("page_*.json"):
         match = re.fullmatch(r"page_(\d+)\.json", path.name)
         if match and int(match.group(1)) > total_pages:
@@ -927,7 +1031,7 @@ def _normalize_wemedia_rows(
     rows: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     if SOURCES[plat].get("kind") == "pinda":
-        normalized: list[dict[str, Any]] = []
+        pinda_normalized: list[dict[str, Any]] = []
         for row in rows:
             out = dict(row)
             out["wemedia_name"] = row.get("name")
@@ -941,11 +1045,11 @@ def _normalize_wemedia_rows(
             out["read_num_str"] = str(reads) if reads not in (None, "", 0, "0") else ""
             out["remark"] = row.get("brief") or row.get("remark")
             out["case_link"] = row.get("exampleUrl")
-            normalized.append(out)
-        return normalized
+            pinda_normalized.append(out)
+        return pinda_normalized
     if SOURCES[plat].get("kind") != "mjhz":
         return rows
-    normalized: list[dict[str, Any]] = []
+    mjhz_normalized: list[dict[str, Any]] = []
     for row in rows:
         out = dict(row)
         out["wemedia_name"] = row.get("toutiao_name")
@@ -956,13 +1060,14 @@ def _normalize_wemedia_rows(
         fans = row.get("fans_num")
         reads = row.get("read_num")
         auth = row.get("account_auth")
-        out["fans_num_str"] = _FANS_LABELS.get(fans, str(fans) if fans not in (None, "") else "")
-        out["read_num_str"] = _READ_LABELS.get(reads, str(reads) if reads not in (None, "") else "")
-        out["account_auth_str"] = _ACCOUNT_AUTH_LABELS.get(
-            auth, str(auth) if auth not in (None, "") else ""
-        )
-        normalized.append(out)
-    return normalized
+        fans_label = _FANS_LABELS.get(fans) if isinstance(fans, int) else None
+        reads_label = _READ_LABELS.get(reads) if isinstance(reads, int) else None
+        auth_label = _ACCOUNT_AUTH_LABELS.get(auth) if isinstance(auth, int) else None
+        out["fans_num_str"] = fans_label or (str(fans) if fans not in (None, "") else "")
+        out["read_num_str"] = reads_label or (str(reads) if reads not in (None, "") else "")
+        out["account_auth_str"] = auth_label or (str(auth) if auth not in (None, "") else "")
+        mjhz_normalized.append(out)
+    return mjhz_normalized
 
 
 def _merge(
@@ -1035,7 +1140,7 @@ def _merge(
         best_plat = min(prices, key=prices.get) if prices else None
         worst = max(values) if values else None
         meta = rec["meta"]
-        row: dict[str, Any] = {
+        merged_row: dict[str, Any] = {
             "name": name,
             "prices": prices,
             "best": best,
@@ -1046,10 +1151,10 @@ def _merge(
             "geo_n": len(rec["geo_src"]),
             "ids": rec["ids"],
         }
-        row.update({k: v for k, v in meta.items() if v not in (None, "")})
+        merged_row.update({k: v for k, v in meta.items() if v not in (None, "")})
         if whitelist and _whitelist_match(name, whitelist[0], whitelist[1]):
-            row["whitelist"] = True
-        rows_out.append(row)
+            merged_row["whitelist"] = True
+        rows_out.append(merged_row)
 
     rows_out.sort(key=lambda r: (r["best"] is None, r["best"] or 0))
     stats = {
@@ -1150,7 +1255,7 @@ def _merge_wemedia(
         best = min(values) if values else None
         best_plat = min(prices, key=prices.get) if prices else None
         worst = max(values) if values else None
-        row: dict[str, Any] = {
+        merged_row: dict[str, Any] = {
             "name": rec["name"],
             "platform": rec["platform"],
             "prices": prices,
@@ -1167,8 +1272,8 @@ def _merge_wemedia(
             meta["remark"] = str(meta["remark"])[:300]
         if meta.get("site") == meta.get("case"):
             meta.pop("site", None)
-        row.update({k: v for k, v in meta.items() if v not in (None, "")})
-        rows_out.append(row)
+        merged_row.update({k: v for k, v in meta.items() if v not in (None, "")})
+        rows_out.append(merged_row)
 
     rows_out.sort(key=lambda row: (row["best"] is None, row["best"] or 0))
     stats = {

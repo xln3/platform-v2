@@ -47,9 +47,7 @@ def _payload_groups(need: dict[str, list[str]]) -> list[dict]:
         groups.append(
             {
                 "name": name,
-                "items": [
-                    {"text": q, "priority": canonical[name].index(q) + 1} for q in wanted
-                ],
+                "items": [{"text": q, "priority": canonical[name].index(q) + 1} for q in wanted],
             }
         )
     return groups

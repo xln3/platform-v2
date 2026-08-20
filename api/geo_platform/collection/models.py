@@ -171,7 +171,15 @@ class CollectionTask(TenantModel, Base):
     matrix_json: Mapped[str] = mapped_column(Text)
     state: Mapped[str] = mapped_column(String(30), default="pending")
     attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    # ``answer_text`` is the immutable platform response.  The remaining fields
+    # are deterministic customer/read/search projections of that raw value.
     answer_text: Mapped[str | None] = mapped_column(Text)
+    response_markdown_normalized: Mapped[str | None] = mapped_column(Text)
+    response_ast_json: Mapped[str | None] = mapped_column(Text)
+    response_html_sanitized: Mapped[str | None] = mapped_column(Text)
+    response_plain_text: Mapped[str | None] = mapped_column(Text)
+    response_hash: Mapped[str | None] = mapped_column(String(64))
+    render_parser_version: Mapped[str | None] = mapped_column(String(80))
     screenshot_ref: Mapped[str | None] = mapped_column(String(500))
     quality_state: Mapped[str | None] = mapped_column(String(40))
     citations_json: Mapped[str] = mapped_column(Text, default="[]")

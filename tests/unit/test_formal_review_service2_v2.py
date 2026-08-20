@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from io import BytesIO
 from zipfile import ZipFile
 
@@ -111,7 +112,7 @@ def test_answer_evidence_card_omits_unreadable_full_page_thumbnail() -> None:
         xml = archive.read("word/document.xml").decode("utf-8")
     assert len(media) == 1
     assert "完整原图缩略" not in xml
-    assert "采集时 DOM 文本坐标" in xml
+    assert "红框按采集时保存的文本位置绘制" in xml
 
 
 def test_source_capture_status_rejects_404_and_unanchored_page() -> None:
@@ -192,8 +193,14 @@ def test_renderer_is_customer_readable_and_omits_internal_ids_and_own_articles()
     payload = render_service2_v2_docx(_minimal_facts())
     with ZipFile(BytesIO(payload)) as archive:
         xml = archive.read("word/document.xml").decode("utf-8")
-    assert "975" in xml and "42" in xml
-    assert "130" in xml and "2,365" in xml and "1,598" in xml
+    visible = "\n".join(re.findall(r"<w:t[^>]*>([^<]*)</w:t>", xml))
+    assert "130" in visible and "100" in visible
+    assert "2,365" in visible and "1,598" in visible
+    assert "975" not in visible
+    assert "42 个" not in visible
+    assert "口径修正" not in xml
+    assert "执行行" not in xml
+    assert "采集批次" not in xml
     assert "豆包 AI 回答对绿盟科技作出负向评价" in xml
     assert "dpj_" not in xml
     assert "己方 GEO 稿件" not in xml

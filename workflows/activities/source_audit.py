@@ -148,8 +148,7 @@ class AuditLlmConfig:
     api_key: str  # 空 = 未配置 → llm_unavailable（诚实降级）
     model: str
     base_url: str
-    # 主备 failover（post_analysis 同款口径）：空 = 单通道。20260810 实证
-    # aihubmix 本机直连不通、inferera 直连通——无 failover 时 audit 族全灭。
+    # 主备 failover（post_analysis 同款口径）：空 = 单通道。生产只允许 inferera。
     base_url_fallback: str = ""
 
 
@@ -582,6 +581,7 @@ class _ResponsesApiJudge:
                     base_url=_normalize_base_url(base),
                     headers={"Authorization": f"Bearer {self._config.api_key}"},
                     timeout=_LLM_TIMEOUT_S,
+                    trust_env=False,
                 ) as client:
                     return self._post_with(client, body)
             except JudgeError as exc:

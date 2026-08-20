@@ -164,6 +164,7 @@ from workflows.activities.human_like import (
 from workflows.activities.official_share import (
     OfficialShareExportError,
     capture_yiyan_official_share,
+    probe_official_share_url,
     write_share_link_manifest,
 )
 from workflows.activities.page_capture import capture_scoped_chat_tiles
@@ -368,6 +369,35 @@ _REALNAME_DOM_PHRASES: tuple[str, ...] = (
     "进行实名认证",
     "实名验证",
 )
+
+# 只扫描页面 chrome / 弹层 / toast，不扫描聊天正文、历史侧栏或 composer。
+# 2026-08-17 生产事故：网证答案正文中的“实名验证”因 DOM 空白与抽取正文不完全
+# 一致，未被 ``text.replace(answer_text, " ")`` 精确剔除，导致已有完整答案且账号
+# 明确登录的页面被误报 ``wall_login_required``。真实实名墙是独立弹层/通知，不在
+# 问答消息节点内；clone 后移除内容区可保留墙证据，同时从结构上消除正文误伤。
+_NOTICE_TEXT_JS = r"""() => {
+  if (!document.body) return '';
+  const clone = document.body.cloneNode(true);
+  const contentSelectors = [
+    '.chat-qa-container',
+    '.conversation-flow-question-container',
+    'div.conversation-flow-answer-container',
+    'div.chat-search-answer-generate',
+    '.answer-ask-container',
+    '.answer-tips-wrapper',
+    'textarea',
+    'input',
+    '[contenteditable="true"]',
+    'aside',
+    'nav',
+    '[class*="sidebar"]',
+    '[class*="history"]',
+    'script',
+    'style'
+  ];
+  clone.querySelectorAll(contentSelectors.join(',')).forEach((el) => el.remove());
+  return clone.innerText || clone.textContent || '';
+}"""
 
 # DOM 兜底抽取后裁剪尾部 UI 噪声（工具栏/建议 chips；20260727 live 实测「深度思考」
 # 按钮文本会挂在 generate 块正文尾部）
@@ -1010,7 +1040,9 @@ async def run_yiyan_batch(
         run_pub_id=batch.run_pub_id,
         attempt=attempt,
         items=len(specs),
-        proxy=mask_proxy_url(config.proxy_url),
+        browser_instance=instance_key,
+        egress_region_gb=route.exit_gb if route is not None else None,
+        fallback_proxy=(mask_proxy_url(config.proxy_url) if route is None else None),
     )
     progress: dict[str, Any] = {"stage": "browser_launch", "item": None}
 
@@ -1317,20 +1349,9 @@ def _safe_stem(business_key: str) -> str:
 
 
 def _compose_answer_text(answer_text: str, references: list[dict[str, Any]]) -> str:
-    """正文 + 参考来源追加段（沿用旧链 render_transcript 的参考资料口径）。"""
-    text = answer_text.strip()
-    if not references:
-        return text
-    lines = [f"{text}", "", "参考来源："]
-    for i, ref in enumerate(references, 1):
-        title = str(ref.get("title") or "(无标题)").strip()
-        site = str(ref.get("sitename") or "").strip()
-        head = f"{i}. {title}" + (f" — {site}" if site else "")
-        lines.append(head)
-        url = str(ref.get("url") or "").strip()
-        if url:
-            lines.append(f"   {url}")
-    return "\n".join(lines)
+    """Keep the platform answer separate from its structured source relations."""
+    del references
+    return answer_text.strip()
 
 
 # ---------------------------------------------------------------------------
@@ -1686,9 +1707,7 @@ class _PlaywrightYiyanSession:
             # 时间），走既有墙管道。
             muted = detect_muted_banner("yiyan", _read_page_text(page))
             if muted is not None:
-                until_note = (
-                    f" until={muted.until.isoformat()}" if muted.until is not None else ""
-                )
+                until_note = f" until={muted.until.isoformat()}" if muted.until is not None else ""
                 raise _WallError(
                     "wall_muted",
                     f"muted banner on page ({muted.phrase!r}){until_note}",
@@ -1949,6 +1968,10 @@ class _PlaywrightYiyanSession:
                 share_url=share.share_url,
                 platform="yiyan",
                 channel="clipboard",
+                verification=probe_official_share_url(
+                    share.share_url,
+                    allowed_hosts={"mr.baidu.com", "wenxin.baidu.com"},
+                ),
             )
         except (OfficialShareExportError, OSError) as exc:
             raise _IncompleteCapture(
@@ -2418,6 +2441,17 @@ def _read_page_text(page: Any) -> str:
         return ""
 
 
+def _read_notice_text(page: Any) -> str:
+    """读取聊天内容之外的通知文本；探针不可用时回退旧 body 路径。"""
+    try:
+        text = page.evaluate(_NOTICE_TEXT_JS)
+        if isinstance(text, str):
+            return text
+    except Exception:
+        pass
+    return _read_page_text(page)
+
+
 def _scan_dom_notices(page: Any, *, exclude: str = "") -> dict[str, list[str]]:
     """best-effort 读 body 文本扫系统通知词（限流 / 实名墙）。
 
@@ -2425,7 +2459,7 @@ def _scan_dom_notices(page: Any, *, exclude: str = "") -> dict[str, list[str]]:
     ``exclude`` 传入已定稿答案正文做精确串剔除——系统通知在答案气泡之外，
     剔除后「答案正文提及「过频/实名」不翻标记」的旧不变量保持成立
     （best-effort 精确串剔除，词表本身已是平台口吻短语）。"""
-    text = _read_page_text(page)
+    text = _read_notice_text(page)
     if exclude:
         text = text.replace(exclude, " ")
     return {

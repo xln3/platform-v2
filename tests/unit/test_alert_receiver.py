@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import threading
+import urllib.error
 import urllib.request
 from collections.abc import Iterator
 from typing import Any
@@ -142,3 +143,40 @@ def test_do_post_forwards_and_rate_limits(monkeypatch: pytest.MonkeyPatch) -> No
         thread.join(timeout=5)
     assert len(calls) == 1
     assert calls[0]["url"] == "https://sctapi.ftqq.com/sctkey.send"
+
+
+def test_feishu_intake_returns_503_when_durable_write_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GEO_ALERT_NOTIFY_CHANNEL", "feishu_app")
+    monkeypatch.setattr(alert_receiver, "persist_business_alerts_feishu", lambda _alerts: None)
+    server = alert_receiver.ThreadingHTTPServer(
+        ("127.0.0.1", 0), alert_receiver.AlertReceiverHandler
+    )
+    thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.05})
+    thread.start()
+    try:
+        payload = json.dumps(
+            {
+                "alerts": [
+                    {
+                        "status": "firing",
+                        "labels": {"alertname": "GeoOutboxPoisonMessage", "severity": "critical"},
+                        "fingerprint": "abc123",
+                    }
+                ]
+            }
+        ).encode()
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{server.server_address[1]}/alerts",
+            data=payload,
+            method="POST",
+        )
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        with pytest.raises(urllib.error.HTTPError) as raised:
+            opener.open(request, timeout=5)
+        assert raised.value.code == 503
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)

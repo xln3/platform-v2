@@ -120,7 +120,10 @@ def test_build_environment_drops_all_secret_and_vite_values() -> None:
     assert result["HOME"] == "/safe/home"
     assert result["NODE_ENV"] == "production"
     assert result["GEO_FRONTEND_RELEASE_BUILD"] == "1"
-    assert all(not key.startswith("VITE_") for key in result)
+    assert result["VITE_ALLOW_CONTRACT_FIXTURES"] == "false"
+    assert all(
+        not key.startswith("VITE_") or key == "VITE_ALLOW_CONTRACT_FIXTURES" for key in result
+    )
     assert {"TOKEN", "DATABASE_URL", "GEOSYS_DB"}.isdisjoint(result)
 
 

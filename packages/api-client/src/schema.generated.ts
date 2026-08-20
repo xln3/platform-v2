@@ -355,6 +355,125 @@ export interface paths {
         patch: operations["update_customer_api_v2_customers__customer_pub_id__patch"];
         trace?: never;
     };
+    "/api/v2/customer-dashboard/metrics/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Customer Metric Catalog */
+        get: operations["getCustomerMetricCatalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/customer-dashboard/projects/{project_pub_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Customer Dashboard */
+        get: operations["getCustomerDashboard"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/customer-dashboard/projects/{project_pub_id}/answers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Customer Answers */
+        get: operations["getCustomerAnswerPage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/customer-dashboard/projects/{project_pub_id}/answer-library": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Customer Answer Library */
+        get: operations["getCustomerAnswerLibraryPage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/customer-dashboard/projects/{project_pub_id}/answer-library/meta-queries/{meta_query_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Customer Answer Library Meta Query */
+        get: operations["getCustomerAnswerLibraryMetaQuery"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/customer-dashboard/projects/{project_pub_id}/answer-library/questions/{question_id}/answers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Customer Answer Library Question Runs */
+        get: operations["getCustomerAnswerLibraryQuestionRuns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/customer-dashboard/projects/{project_pub_id}/answer-library/answers/{answer_pub_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Customer Answer Library Detail */
+        get: operations["getCustomerAnswerLibraryDetail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/onboarding": {
         parameters: {
             query?: never;
@@ -758,6 +877,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/collection-account-quota-observations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Collection Account Quota Observations
+         * @description 返回每个浏览器账号 × mode 最新一条额度观测。
+         *
+         *     浏览器实例在账号尚未登记为 ``phone × platform`` 时仍是有效的独立登录账号，
+         *     因而额度观测以 browser 为最小安全锚点。接口最多扫描最近 200 条审计事件，按
+         *     ``(instance_key, mode)`` 去重；不返回 ``new_value`` 原文。
+         */
+        get: operations["list_collection_account_quota_observations_api_v2_collection_account_quota_observations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/collection-platform-accounts/{pub_id}": {
         parameters: {
             query?: never;
@@ -963,6 +1106,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/assist/notification/{notification_id}/{capability}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Notification Assist Page
+         * @description Card link backed by a short-lived HMAC capability, never a stored raw ticket.
+         */
+        get: operations["notification_assist_page_api_v2_assist_notification__notification_id___capability__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/assist/{ticket}/frame": {
         parameters: {
             query?: never;
@@ -972,6 +1135,23 @@ export interface paths {
         };
         /** Assist Frame */
         get: operations["assist_frame_api_v2_assist__ticket__frame_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/assist/notification/{notification_id}/{capability}/frame": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Notification Assist Frame */
+        get: operations["notification_assist_frame_api_v2_assist_notification__notification_id___capability__frame_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -997,6 +1177,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/assist/notification/{notification_id}/{capability}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Notification Assist Status */
+        get: operations["notification_assist_status_api_v2_assist_notification__notification_id___capability__status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/assist/{ticket}/input": {
         parameters: {
             query?: never;
@@ -1014,6 +1211,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/assist/notification/{notification_id}/{capability}/input": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Notification Assist Input */
+        post: operations["notification_assist_input_api_v2_assist_notification__notification_id___capability__input_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/assist/{ticket}/done": {
         parameters: {
             query?: never;
@@ -1025,13 +1239,29 @@ export interface paths {
         put?: never;
         /**
          * Assist Done
-         * @description 人工确认完成：先入 workflow signal outbox（幂等），再原子更新注册表。
+         * @description 人工确认完成：按 session_kind 落库，再原子更新注册表。
          *
-         *     顺序上 DB 先于注册表文件：若中间崩溃，重试时 workflow_signal_replayed
-         *     命中同 idempotency_key 直接跳过重复入队，随后补写注册表，流程自愈；
-         *     反过来先写文件则会漏 signal、workflow 永远挂起。
+         *     workflow captcha 走幂等 signal outbox；OTP CLI 不查询 run、不发 signal。
+         *     两类都保持 DB 先于文件，重复请求可补写崩溃窗口里的注册表。
          */
         post: operations["assist_done_api_v2_assist__ticket__done_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/assist/notification/{notification_id}/{capability}/done": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Notification Assist Done */
+        post: operations["notification_assist_done_api_v2_assist_notification__notification_id___capability__done_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3217,6 +3447,126 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/posting/provider-accounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Provider Accounts */
+        get: operations["list_provider_accounts_api_v2_posting_provider_accounts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/posting/provider-accounts/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Save Provider Account */
+        put: operations["save_provider_account_api_v2_posting_provider_accounts__provider__put"];
+        post?: never;
+        /** Delete Provider Account */
+        delete: operations["delete_provider_account_api_v2_posting_provider_accounts__provider__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/posting/provider-accounts/{provider}/login/captcha": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start Provider Account Login */
+        post: operations["start_provider_account_login_api_v2_posting_provider_accounts__provider__login_captcha_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/posting/provider-accounts/{provider}/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Complete Provider Account Login */
+        post: operations["complete_provider_account_login_api_v2_posting_provider_accounts__provider__login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/posting/providers/prfabu/session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Prfabu Session */
+        get: operations["get_prfabu_session_api_v2_posting_providers_prfabu_session_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/posting/providers/prfabu/login/captcha": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start Prfabu Login */
+        post: operations["start_prfabu_login_api_v2_posting_providers_prfabu_login_captcha_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/posting/providers/prfabu/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Complete Prfabu Login */
+        post: operations["complete_prfabu_login_api_v2_posting_providers_prfabu_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/posting/batches": {
         parameters: {
             query?: never;
@@ -4121,6 +4471,67 @@ export interface components {
              */
             created_at: string;
         };
+        /**
+         * AccountQuotaObservationView
+         * @description 账号管理页的平台额度安全投影。
+         *
+         *     真源是 ``collection_account_event(event_type='quota_observation')``；响应只暴露
+         *     白名单字段，绝不透传平台原始响应、账号标识或探测证据。``observed_window_count``
+         *     可以是日志下限/估算值，精度由 ``count_kind`` 明示，不能冒充官方固定额度。
+         */
+        AccountQuotaObservationView: {
+            /** Observation Pub Id */
+            observation_pub_id: string;
+            /** Browser Instance Key */
+            browser_instance_key: string;
+            /** Platform */
+            platform: string;
+            /** Region Gb */
+            region_gb: string | null;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "normal" | "deep_think" | "unknown";
+            /**
+             * Account Tier
+             * @enum {string}
+             */
+            account_tier: "free" | "subscriber" | "unknown";
+            /**
+             * Quota State
+             * @enum {string}
+             */
+            quota_state: "available" | "exhausted" | "unknown";
+            /**
+             * Window Type
+             * @enum {string}
+             */
+            window_type: "rolling" | "calendar" | "unknown";
+            /** Window Days */
+            window_days: number | null;
+            /** Observed Window Count */
+            observed_window_count: number | null;
+            /** Daily Equivalent */
+            daily_equivalent: number | null;
+            /**
+             * Count Kind
+             * @enum {string}
+             */
+            count_kind: "lower_bound" | "estimate" | "platform_exact" | "unknown";
+            /** Reset At */
+            reset_at: string | null;
+            /**
+             * Observed At
+             * Format: date-time
+             */
+            observed_at: string;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "platform" | "platform_and_logs" | "manual" | "unknown";
+        };
         /** AccountView */
         AccountView: {
             /** Pub Id */
@@ -4229,6 +4640,10 @@ export interface components {
             mime_type: string;
             /** Byte Size */
             byte_size: number;
+            /** Image Width */
+            image_width?: number | null;
+            /** Image Height */
+            image_height?: number | null;
             /** Source Url */
             source_url: string | null;
             /**
@@ -4252,6 +4667,8 @@ export interface components {
         AnswerRelationsView: {
             /** Answer Pub Id */
             answer_pub_id: string;
+            share_artifact: components["schemas"]["AnswerShareArtifactView"] | null;
+            share_image: components["schemas"]["AnswerShareImageView"] | null;
             /** Answer Citations */
             answer_citations: components["schemas"]["CitationRelationView"][];
             /** Brand Mention Evidence */
@@ -4264,6 +4681,61 @@ export interface components {
             evidence: components["schemas"]["AnswerEvidenceView"][];
             /** History */
             history: components["schemas"]["EvidenceHistoryView"][];
+        };
+        /** AnswerShareArtifactView */
+        AnswerShareArtifactView: {
+            /** Platform */
+            platform: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "available" | "missing" | "unsupported" | "invalid";
+            /** Share Url */
+            share_url?: string | null;
+            /** Final Url */
+            final_url?: string | null;
+            /**
+             * Availability Status
+             * @enum {string}
+             */
+            availability_status: "reachable" | "redirected" | "blocked" | "unreachable" | "unchecked";
+            /** Http Status */
+            http_status?: number | null;
+            /** Checked At */
+            checked_at?: string | null;
+            /** Last Accessible At */
+            last_accessible_at?: string | null;
+            /**
+             * Embed Status
+             * @enum {string}
+             */
+            embed_status: "allowed" | "blocked" | "unknown";
+            /** Embed Reason */
+            embed_reason?: string | null;
+        };
+        /** AnswerShareImageView */
+        AnswerShareImageView: {
+            /** Pub Id */
+            pub_id: string;
+            /** Sha256 */
+            sha256: string;
+            /**
+             * Mime Type
+             * @constant
+             */
+            mime_type: "image/png";
+            /** Byte Size */
+            byte_size: number;
+            /** Image Width */
+            image_width?: number | null;
+            /** Image Height */
+            image_height?: number | null;
+            /**
+             * Capture Time
+             * Format: date-time
+             */
+            capture_time: string;
         };
         /** AnswerView */
         AnswerView: {
@@ -5261,6 +5733,17 @@ export interface components {
             pub_id: string;
             /** Ordinal */
             ordinal: number;
+            /**
+             * Platform Ordinal
+             * @default 1
+             */
+            platform_ordinal: number;
+            /**
+             * Ordinal Base
+             * @default 1
+             * @enum {integer}
+             */
+            ordinal_base: 0 | 1;
             /** Canonical Url */
             canonical_url: string;
             /** Host */
@@ -5273,6 +5756,72 @@ export interface components {
             own_source: boolean;
             /** Content Hash */
             content_hash: string | null;
+            /** Source Document Pub Id */
+            source_document_pub_id?: string | null;
+            /** Published At Raw */
+            published_at_raw?: string | null;
+            /** Published At */
+            published_at?: string | null;
+            /** Published At Timezone */
+            published_at_timezone?: string | null;
+            /** Published At Precision */
+            published_at_precision?: string | null;
+            /** Published At Source */
+            published_at_source?: string | null;
+            /**
+             * Published At Confidence
+             * @default unknown
+             * @enum {string}
+             */
+            published_at_confidence: "verified_structured" | "structured_only" | "visible_only" | "inferred_low" | "unknown";
+            support: components["schemas"]["CitationSupportView"];
+        };
+        /** CitationSupportView */
+        CitationSupportView: {
+            /**
+             * Mapping Status
+             * @enum {string}
+             */
+            mapping_status: "mapped" | "unmapped" | "ambiguous";
+            /** Mapping Basis */
+            mapping_basis?: string | null;
+            /** Answer Text Start */
+            answer_text_start?: number | null;
+            /** Answer Text End */
+            answer_text_end?: number | null;
+            /** Answer Ast Path */
+            answer_ast_path?: (string | number)[] | null;
+            /** Answer Sentence */
+            answer_sentence?: string | null;
+            /** Source Quote */
+            source_quote?: string | null;
+            /** Source Text Start */
+            source_text_start?: number | null;
+            /** Source Text End */
+            source_text_end?: number | null;
+            /** Source Quote Hash */
+            source_quote_hash?: string | null;
+            /**
+             * Source Match Status
+             * @enum {string}
+             */
+            source_match_status: "exact" | "normalized" | "not_found" | "not_checked";
+            /** Source Match Version */
+            source_match_version?: string | null;
+            /**
+             * Relation
+             * @enum {string}
+             */
+            relation: "supports" | "contradicts" | "background" | "unverified";
+            /** Relevance Confidence */
+            relevance_confidence?: number | null;
+            /** Classifier Version */
+            classifier_version?: string | null;
+            /**
+             * Review Status
+             * @enum {string}
+             */
+            review_status: "unreviewed" | "approved" | "rejected" | "needs_review";
         };
         /** ClaimEvidenceCreate */
         ClaimEvidenceCreate: {
@@ -5674,6 +6223,328 @@ export interface components {
             /** Revoked At */
             revoked_at: string | null;
         };
+        /** CustomerAnswerLibraryChoiceView */
+        CustomerAnswerLibraryChoiceView: {
+            /** Question Id */
+            question_id: string;
+            /** Ordinal */
+            ordinal: number;
+            /** Variant Label */
+            variant_label: string;
+            /** Text */
+            text: string;
+            /** Answer Count */
+            answer_count: number;
+        };
+        /** CustomerAnswerLibraryDetailView */
+        CustomerAnswerLibraryDetailView: {
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "customer-answer-library-detail-v1";
+            /** Project Pub Id */
+            project_pub_id: string;
+            /** Snapshot Id */
+            snapshot_id: string;
+            /**
+             * Snapshot At
+             * Format: date-time
+             */
+            snapshot_at: string;
+            /** Meta Query Id */
+            meta_query_id: string;
+            /** Meta Query Ordinal */
+            meta_query_ordinal: number;
+            /** Meta Query Label */
+            meta_query_label: string;
+            /** Question Id */
+            question_id: string;
+            /** Question Ordinal */
+            question_ordinal: number;
+            /** Variant Label */
+            variant_label: string;
+            /** Question Text */
+            question_text: string;
+            answer: components["schemas"]["CustomerAnswerLibraryRunView"];
+            /** Response Text */
+            response_text: string;
+        };
+        /** CustomerAnswerLibraryDimensionView */
+        CustomerAnswerLibraryDimensionView: {
+            /** Label */
+            label: string;
+            /** Answer Count */
+            answer_count: number;
+        };
+        /** CustomerAnswerLibraryMetaDetailView */
+        CustomerAnswerLibraryMetaDetailView: {
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "customer-answer-library-meta-v1";
+            /** Project Pub Id */
+            project_pub_id: string;
+            /** Snapshot Id */
+            snapshot_id: string;
+            /**
+             * Snapshot At
+             * Format: date-time
+             */
+            snapshot_at: string;
+            /** Meta Query Id */
+            meta_query_id: string;
+            /** Ordinal */
+            ordinal: number;
+            /** Label */
+            label: string;
+            /** Answer Count */
+            answer_count: number;
+            /** Cited Answer Count */
+            cited_answer_count: number;
+            /** Citation Count */
+            citation_count: number;
+            /** Mentioned Answer Count */
+            mentioned_answer_count: number;
+            /** Latest Capture Time */
+            latest_capture_time?: string | null;
+            /** Questions */
+            questions: components["schemas"]["CustomerAnswerLibraryQuestionView"][];
+        };
+        /** CustomerAnswerLibraryMetaQueryView */
+        CustomerAnswerLibraryMetaQueryView: {
+            /** Meta Query Id */
+            meta_query_id: string;
+            /** Ordinal */
+            ordinal: number;
+            /** Label */
+            label: string;
+            /** Question Count */
+            question_count: number;
+            /** Answer Count */
+            answer_count: number;
+            /** Cited Answer Count */
+            cited_answer_count: number;
+            /** Citation Count */
+            citation_count: number;
+            /** Mentioned Answer Count */
+            mentioned_answer_count: number;
+            /** Latest Capture Time */
+            latest_capture_time?: string | null;
+            /** Models */
+            models: components["schemas"]["CustomerAnswerLibraryDimensionView"][];
+            /** Regions */
+            regions: components["schemas"]["CustomerAnswerLibraryDimensionView"][];
+            /** Modes */
+            modes: components["schemas"]["CustomerAnswerLibraryDimensionView"][];
+            /** Questions */
+            questions: components["schemas"]["CustomerAnswerLibraryChoiceView"][];
+        };
+        /** CustomerAnswerLibraryPageMetaView */
+        CustomerAnswerLibraryPageMetaView: {
+            /** Total */
+            total: number;
+            /** Offset */
+            offset: number;
+            /** Limit */
+            limit: number;
+            /** Has More */
+            has_more: boolean;
+        };
+        /** CustomerAnswerLibraryPageView */
+        CustomerAnswerLibraryPageView: {
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "customer-answer-library-v1";
+            /** Project Pub Id */
+            project_pub_id: string;
+            /** Snapshot Id */
+            snapshot_id: string;
+            /**
+             * Snapshot At
+             * Format: date-time
+             */
+            snapshot_at: string;
+            totals: components["schemas"]["CustomerAnswerLibraryTotalsView"];
+            /** Models */
+            models: components["schemas"]["CustomerAnswerLibraryDimensionView"][];
+            /** Regions */
+            regions: components["schemas"]["CustomerAnswerLibraryDimensionView"][];
+            /** Modes */
+            modes: components["schemas"]["CustomerAnswerLibraryDimensionView"][];
+            /** Data */
+            data: components["schemas"]["CustomerAnswerLibraryMetaQueryView"][];
+            page: components["schemas"]["CustomerAnswerLibraryPageMetaView"];
+        };
+        /** CustomerAnswerLibraryQuestionRunsView */
+        CustomerAnswerLibraryQuestionRunsView: {
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "customer-answer-library-runs-v1";
+            /** Project Pub Id */
+            project_pub_id: string;
+            /** Snapshot Id */
+            snapshot_id: string;
+            /**
+             * Snapshot At
+             * Format: date-time
+             */
+            snapshot_at: string;
+            /** Meta Query Id */
+            meta_query_id: string;
+            /** Meta Query Ordinal */
+            meta_query_ordinal: number;
+            /** Meta Query Label */
+            meta_query_label: string;
+            question: components["schemas"]["CustomerAnswerLibraryQuestionView"];
+            /** Models */
+            models: components["schemas"]["CustomerAnswerLibraryDimensionView"][];
+            /** Regions */
+            regions: components["schemas"]["CustomerAnswerLibraryDimensionView"][];
+            /** Modes */
+            modes: components["schemas"]["CustomerAnswerLibraryDimensionView"][];
+            /** Data */
+            data: components["schemas"]["CustomerAnswerLibraryRunView"][];
+            page: components["schemas"]["CustomerAnswerLibraryPageMetaView"];
+        };
+        /** CustomerAnswerLibraryQuestionView */
+        CustomerAnswerLibraryQuestionView: {
+            /** Question Id */
+            question_id: string;
+            /** Ordinal */
+            ordinal: number;
+            /** Variant Label */
+            variant_label: string;
+            /** Text */
+            text: string;
+            /** Answer Count */
+            answer_count: number;
+            /** Cited Answer Count */
+            cited_answer_count: number;
+            /** Citation Count */
+            citation_count: number;
+            /** Mentioned Answer Count */
+            mentioned_answer_count: number;
+            /** Latest Capture Time */
+            latest_capture_time?: string | null;
+            /** Models */
+            models: components["schemas"]["CustomerAnswerLibraryDimensionView"][];
+            /** Regions */
+            regions: components["schemas"]["CustomerAnswerLibraryDimensionView"][];
+            /** Modes */
+            modes: components["schemas"]["CustomerAnswerLibraryDimensionView"][];
+        };
+        /** CustomerAnswerLibraryRunView */
+        CustomerAnswerLibraryRunView: {
+            /** Answer Pub Id */
+            answer_pub_id: string;
+            /** Repeat Index */
+            repeat_index: number;
+            /** Model */
+            model: string;
+            /** Region */
+            region: string;
+            /** Mode */
+            mode: string;
+            /**
+             * Capture Time
+             * Format: date-time
+             */
+            capture_time: string;
+            /**
+             * Analysis State
+             * @enum {string}
+             */
+            analysis_state: "ready" | "pending";
+            /** Mentioned */
+            mentioned?: boolean | null;
+            /** Rank */
+            rank?: number | null;
+            /** Sentiment */
+            sentiment?: ("positive" | "neutral" | "negative" | "unknown") | null;
+            /** Recommended */
+            recommended?: boolean | null;
+            /** Citation Count */
+            citation_count: number;
+        };
+        /** CustomerAnswerLibraryTotalsView */
+        CustomerAnswerLibraryTotalsView: {
+            /** Meta Query Count */
+            meta_query_count: number;
+            /** Question Count */
+            question_count: number;
+            /** Answer Count */
+            answer_count: number;
+            /** Cited Answer Count */
+            cited_answer_count: number;
+            /** Citation Count */
+            citation_count: number;
+            /** Mentioned Answer Count */
+            mentioned_answer_count: number;
+            /** Unmapped Answer Count */
+            unmapped_answer_count: number;
+        };
+        /** CustomerAnswerPageMetaView */
+        CustomerAnswerPageMetaView: {
+            /** Total */
+            total: number;
+            /** Offset */
+            offset: number;
+            /** Limit */
+            limit: number;
+            /** Has More */
+            has_more: boolean;
+        };
+        /** CustomerAnswerPageView */
+        CustomerAnswerPageView: {
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "customer-answer-page-v1";
+            /** Project Pub Id */
+            project_pub_id: string;
+            /** Data */
+            data: components["schemas"]["CustomerAnswerView"][];
+            page: components["schemas"]["CustomerAnswerPageMetaView"];
+        };
+        /** CustomerAnswerView */
+        CustomerAnswerView: {
+            /** Answer Pub Id */
+            answer_pub_id: string;
+            /** Query Pub Id */
+            query_pub_id?: string | null;
+            /** Query Text */
+            query_text?: string | null;
+            /** Response Text */
+            response_text: string;
+            /** Model */
+            model: string;
+            /** Region */
+            region: string;
+            /** Mode */
+            mode: string;
+            /**
+             * Capture Time
+             * Format: date-time
+             */
+            capture_time: string;
+            /** Mentioned */
+            mentioned: boolean;
+            /** Rank */
+            rank?: number | null;
+            /** Sentiment */
+            sentiment?: ("positive" | "neutral" | "negative" | "unknown") | null;
+            /** Recommended */
+            recommended?: boolean | null;
+            /** Citation Count */
+            citation_count: number;
+        };
         /** CustomerAuthorizationCreate */
         CustomerAuthorizationCreate: {
             /** Scopes */
@@ -5690,12 +6561,75 @@ export interface components {
             /** Responsible Member Pub Id */
             responsible_member_pub_id?: string | null;
         };
+        /** CustomerCompetitorView */
+        CustomerCompetitorView: {
+            /** Name */
+            name: string;
+            /** Metrics */
+            metrics: components["schemas"]["CustomerMetricView"][];
+        };
         /** CustomerCreate */
         CustomerCreate: {
             /** Name */
             name: string;
             /** External Ref */
             external_ref?: string | null;
+        };
+        /** CustomerDashboardView */
+        CustomerDashboardView: {
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "customer-dashboard-v1";
+            /**
+             * Metric Version
+             * @constant
+             */
+            metric_version: "customer-metrics-v1";
+            /** Project Pub Id */
+            project_pub_id: string;
+            /** Brand Name */
+            brand_name: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "ready" | "building";
+            /** Generated At */
+            generated_at: string;
+            /** As Of */
+            as_of: string | null;
+            window: components["schemas"]["CustomerWindowView"];
+            /** Metrics */
+            metrics: components["schemas"]["CustomerMetricView"][];
+            /** Models */
+            models: components["schemas"]["CustomerDimensionView"][];
+            /** Competitors */
+            competitors: components["schemas"]["CustomerCompetitorView"][];
+            /** Questions */
+            questions: components["schemas"]["CustomerQuestionView"][];
+            /** Sources */
+            sources: components["schemas"]["CustomerSourceView"][];
+            /** Regions */
+            regions: components["schemas"]["CustomerDimensionView"][];
+            /** Modes */
+            modes: components["schemas"]["CustomerDimensionView"][];
+            /** Trends */
+            trends: components["schemas"]["CustomerTrendView"][];
+            risk: components["schemas"]["CustomerRiskView"];
+            source_audit: components["schemas"]["CustomerSourceAuditView"];
+            /** Snapshot Hash */
+            snapshot_hash: string;
+        };
+        /** CustomerDimensionView */
+        CustomerDimensionView: {
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Metrics */
+            metrics: components["schemas"]["CustomerMetricView"][];
         };
         /** CustomerEventView */
         CustomerEventView: {
@@ -5708,6 +6642,67 @@ export interface components {
              * Format: date-time
              */
             occurred_at: string;
+        };
+        /** CustomerMetricCatalogView */
+        CustomerMetricCatalogView: {
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "customer-metric-catalog-v1";
+            /** Metrics */
+            metrics: components["schemas"]["CustomerMetricSpecView"][];
+        };
+        /** CustomerMetricSpecView */
+        CustomerMetricSpecView: {
+            /** Code */
+            code: string;
+            /** Label */
+            label: string;
+            /** Group */
+            group: string;
+            /**
+             * Format
+             * @enum {string}
+             */
+            format: "percentage" | "score" | "rank" | "count" | "decimal";
+            /**
+             * Direction
+             * @enum {string}
+             */
+            direction: "higher" | "lower" | "neutral";
+            /** Description */
+            description: string;
+            /** Version */
+            version: string;
+        };
+        /** CustomerMetricView */
+        CustomerMetricView: {
+            /** Code */
+            code: string;
+            /** Label */
+            label: string;
+            /** Group */
+            group: string;
+            /**
+             * Format
+             * @enum {string}
+             */
+            format: "percentage" | "score" | "rank" | "count" | "decimal";
+            /**
+             * Direction
+             * @enum {string}
+             */
+            direction: "higher" | "lower" | "neutral";
+            /** Value */
+            value: number | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "ready" | "not_ready";
+            /** Version */
+            version: string;
         };
         /** CustomerPage */
         CustomerPage: {
@@ -5760,6 +6755,53 @@ export interface components {
             /** Expected Version */
             expected_version: number;
         };
+        /** CustomerQuestionView */
+        CustomerQuestionView: {
+            /** Query Pub Id */
+            query_pub_id: string;
+            /** Query Text */
+            query_text: string;
+            /** Query Group */
+            query_group?: string | null;
+            /** Metrics */
+            metrics: components["schemas"]["CustomerMetricView"][];
+        };
+        /** CustomerRiskView */
+        CustomerRiskView: {
+            /** Metrics */
+            metrics: components["schemas"]["CustomerMetricView"][];
+            /** By Model */
+            by_model: components["schemas"]["CustomerDimensionView"][];
+        };
+        /** CustomerSourceAuditView */
+        CustomerSourceAuditView: {
+            /** Metrics */
+            metrics: components["schemas"]["CustomerMetricView"][];
+            /** Verdicts */
+            verdicts: {
+                [key: string]: number;
+            };
+        };
+        /** CustomerSourceView */
+        CustomerSourceView: {
+            /** Host */
+            host: string;
+            /** References */
+            references: number;
+            /** Share */
+            share?: (number) | null;
+            /** Own Source */
+            own_source: boolean;
+            /** Answers */
+            answers: number;
+        };
+        /** CustomerTrendView */
+        CustomerTrendView: {
+            /** Date */
+            date: string;
+            /** Metrics */
+            metrics: components["schemas"]["CustomerMetricView"][];
+        };
         /** CustomerView */
         CustomerView: {
             /** Pub Id */
@@ -5770,6 +6812,17 @@ export interface components {
             external_ref: string | null;
             /** Version */
             version: number;
+        };
+        /** CustomerWindowView */
+        CustomerWindowView: {
+            /** Start */
+            start?: string | null;
+            /** End */
+            end?: string | null;
+            /** Filters */
+            filters: {
+                [key: string]: string;
+            };
         };
         /** DashboardArticle */
         DashboardArticle: {
@@ -7777,6 +8830,41 @@ export interface components {
             data: components["schemas"]["TaskView"][];
             page: components["schemas"]["PageMeta"];
         };
+        /** PrfabuCaptchaView */
+        PrfabuCaptchaView: {
+            /** Challenge Id */
+            challenge_id: string;
+            /** Image Base64 */
+            image_base64: string;
+            /** Expires In Seconds */
+            expires_in_seconds: number;
+        };
+        /** PrfabuLoginRequest */
+        PrfabuLoginRequest: {
+            /** Challenge Id */
+            challenge_id: string;
+            /** Account */
+            account: string;
+            /**
+             * Password
+             * Format: password
+             */
+            password: string;
+            /** Captcha */
+            captcha: string;
+        };
+        /** PrfabuSessionView */
+        PrfabuSessionView: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ready" | "missing" | "expired" | "unavailable" | "rejected";
+            /** Message */
+            message: string;
+            /** Balance */
+            balance?: string | null;
+        };
         /** ProfileEnroll */
         ProfileEnroll: {
             /** Profile Payload */
@@ -8011,6 +9099,74 @@ export interface components {
             created_at: string;
             /** Updated At */
             updated_at: string;
+        };
+        /** ProviderAccountView */
+        ProviderAccountView: {
+            /**
+             * Provider
+             * @enum {string}
+             */
+            provider: "prfabu" | "toumeiw" | "mtpfw" | "meititejia" | "meijiehezi" | "pinda";
+            /** Label */
+            label: string;
+            /** Configured */
+            configured: boolean;
+            /** Account Mask */
+            account_mask: string;
+            /**
+             * Session Status
+             * @enum {string}
+             */
+            session_status: "not_configured" | "needs_login" | "ready" | "expired" | "rejected" | "verification_required" | "interactive_required" | "unavailable";
+            /** Session Message */
+            session_message: string;
+            /**
+             * Login Mode
+             * @enum {string}
+             */
+            login_mode: "image_captcha" | "interactive";
+            /** Posting Supported */
+            posting_supported: boolean;
+            /** Balance */
+            balance?: string | null;
+            /** Updated At */
+            updated_at?: string | null;
+        };
+        /** ProviderCaptchaView */
+        ProviderCaptchaView: {
+            /**
+             * Provider
+             * @enum {string}
+             */
+            provider: "prfabu" | "toumeiw" | "mtpfw" | "meititejia" | "meijiehezi" | "pinda";
+            /** Challenge Id */
+            challenge_id: string;
+            /** Image Base64 */
+            image_base64: string;
+            /**
+             * Image Mime Type
+             * @enum {string}
+             */
+            image_mime_type: "image/png" | "image/jpeg" | "image/gif";
+            /** Expires In Seconds */
+            expires_in_seconds: number;
+        };
+        /** ProviderCredentialUpsert */
+        ProviderCredentialUpsert: {
+            /** Account */
+            account: string;
+            /**
+             * Password
+             * Format: password
+             */
+            password: string;
+        };
+        /** ProviderLoginRequest */
+        ProviderLoginRequest: {
+            /** Challenge Id */
+            challenge_id: string;
+            /** Captcha */
+            captcha: string;
         };
         /** PublicationCreate */
         PublicationCreate: {
@@ -8981,6 +10137,8 @@ export interface components {
              * Format: date-time
              */
             latest_capture_time: string;
+            /** Answer Pub Ids */
+            answer_pub_ids: string[];
         };
         /** SamplingProgressColumnView */
         SamplingProgressColumnView: {
@@ -12210,6 +13368,534 @@ export interface operations {
             };
         };
     };
+    getCustomerMetricCatalog: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerMetricCatalogView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getCustomerDashboard: {
+        parameters: {
+            query?: {
+                start?: string | null;
+                end?: string | null;
+                model?: string | null;
+                region?: string | null;
+                mode?: string | null;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerDashboardView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getCustomerAnswerPage: {
+        parameters: {
+            query?: {
+                start?: string | null;
+                end?: string | null;
+                search?: string | null;
+                model?: string | null;
+                region?: string | null;
+                mode?: string | null;
+                mentioned?: boolean | null;
+                sentiment?: ("positive" | "neutral" | "negative" | "unknown") | null;
+                offset?: number;
+                limit?: number;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerAnswerPageView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getCustomerAnswerLibraryPage: {
+        parameters: {
+            query?: {
+                start?: string | null;
+                end?: string | null;
+                search?: string | null;
+                model?: string | null;
+                region?: string | null;
+                mode?: string | null;
+                snapshot_id?: string | null;
+                snapshot_at?: string | null;
+                offset?: number;
+                limit?: number;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerAnswerLibraryPageView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getCustomerAnswerLibraryMetaQuery: {
+        parameters: {
+            query: {
+                snapshot_id: string;
+                snapshot_at: string;
+                start?: string | null;
+                end?: string | null;
+                model?: string | null;
+                region?: string | null;
+                mode?: string | null;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+                meta_query_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerAnswerLibraryMetaDetailView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getCustomerAnswerLibraryQuestionRuns: {
+        parameters: {
+            query: {
+                snapshot_id: string;
+                snapshot_at: string;
+                start?: string | null;
+                end?: string | null;
+                model?: string | null;
+                region?: string | null;
+                mode?: string | null;
+                offset?: number;
+                limit?: number;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+                question_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerAnswerLibraryQuestionRunsView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getCustomerAnswerLibraryDetail: {
+        parameters: {
+            query: {
+                snapshot_id: string;
+                snapshot_at: string;
+                start?: string | null;
+                end?: string | null;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+                answer_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerAnswerLibraryDetailView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     create_onboarding_api_v2_onboarding_post: {
         parameters: {
             query?: never;
@@ -14030,6 +15716,72 @@ export interface operations {
             };
         };
     };
+    list_collection_account_quota_observations_api_v2_collection_account_quota_observations_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountQuotaObservationView"][];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     patch_platform_account_api_v2_collection_platform_accounts__pub_id__patch: {
         parameters: {
             query?: never;
@@ -14772,12 +16524,130 @@ export interface operations {
             };
         };
     };
+    notification_assist_page_api_v2_assist_notification__notification_id___capability__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                notification_id: string;
+                capability: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": string;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     assist_frame_api_v2_assist__ticket__frame_get: {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 ticket: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    notification_assist_frame_api_v2_assist_notification__notification_id___capability__frame_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                notification_id: string;
+                capability: string;
             };
             cookie?: never;
         };
@@ -14888,6 +16758,65 @@ export interface operations {
             };
         };
     };
+    notification_assist_status_api_v2_assist_notification__notification_id___capability__status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                notification_id: string;
+                capability: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     assist_input_api_v2_assist__ticket__input_post: {
         parameters: {
             query?: never;
@@ -14946,12 +16875,132 @@ export interface operations {
             };
         };
     };
+    notification_assist_input_api_v2_assist_notification__notification_id___capability__input_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                notification_id: string;
+                capability: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     assist_done_api_v2_assist__ticket__done_post: {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 ticket: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: boolean;
+                    };
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    notification_assist_done_api_v2_assist_notification__notification_id___capability__done_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                notification_id: string;
+                capability: string;
             };
             cookie?: never;
         };
@@ -17470,7 +19519,12 @@ export interface operations {
     };
     answer_relations_api_v2_analytics_answers__answer_pub_id__relations_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Optional project binding for customer answer-detail reads. */
+                project_pub_id?: string | null;
+                /** @description Optional immutable customer-library cutoff for related evidence. */
+                snapshot_at?: string | null;
+            };
             header?: {
                 "X-Tenant-Id"?: string | null;
                 "X-Actor-Id"?: string | null;
@@ -25328,6 +27382,552 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RefreshStatusView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_provider_accounts_api_v2_posting_provider_accounts_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderAccountView"][];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_provider_account_api_v2_posting_provider_accounts__provider__put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                provider: "prfabu" | "toumeiw" | "mtpfw" | "meititejia" | "meijiehezi" | "pinda";
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProviderCredentialUpsert"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderAccountView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_provider_account_api_v2_posting_provider_accounts__provider__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                provider: "prfabu" | "toumeiw" | "mtpfw" | "meititejia" | "meijiehezi" | "pinda";
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_provider_account_login_api_v2_posting_provider_accounts__provider__login_captcha_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                provider: "prfabu" | "toumeiw" | "mtpfw" | "meititejia" | "meijiehezi" | "pinda";
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderCaptchaView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    complete_provider_account_login_api_v2_posting_provider_accounts__provider__login_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                provider: "prfabu" | "toumeiw" | "mtpfw" | "meititejia" | "meijiehezi" | "pinda";
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProviderLoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderAccountView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_prfabu_session_api_v2_posting_providers_prfabu_session_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrfabuSessionView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_prfabu_login_api_v2_posting_providers_prfabu_login_captcha_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrfabuCaptchaView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    complete_prfabu_login_api_v2_posting_providers_prfabu_login_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PrfabuLoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrfabuSessionView"];
                 };
             };
             /** @description Bad Request */

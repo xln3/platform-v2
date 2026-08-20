@@ -31,6 +31,18 @@ _GOOD_PROVENANCE = {
 }
 
 
+def _seed_platform_tenant(tenant_pub_id: str) -> None:
+    with psycopg.connect(POSTGRES_DSN) as connection:
+        connection.execute(
+            """
+            INSERT INTO platform.tenant (id,pub_id,name,state,created_at,updated_at)
+            VALUES (%s,%s,%s,'active',now(),now())
+            ON CONFLICT (pub_id) DO NOTHING
+            """,
+            (uuid4(), tenant_pub_id, tenant_pub_id),
+        )
+
+
 def _provenance(captured: datetime) -> RedactedProvenance:
     return RedactedProvenance(
         platform_account_pub_id=None,
@@ -74,8 +86,9 @@ def _persist(
 def test_eligible_write_path_and_unified_read_filters() -> None:
     """五元负载真实计算 eligible；overview/competitors 与 breakdown 同口径排除。"""
     suffix = uuid4().hex
-    tenant = f"tnt_inv1_{suffix}"
+    tenant = f"tnt_{suffix[:26]}"
     project = f"prj_inv1_{suffix}"
+    _seed_platform_tenant(tenant)
     captured = datetime.now(UTC)
     service = AnalyticsService(dsn=POSTGRES_DSN)
     base_dimensions = {"model": "doubao", "region": "上海", "mode": "normal"}
@@ -148,8 +161,9 @@ def test_eligible_write_path_and_unified_read_filters() -> None:
 def test_legacy_payload_without_provenance_inherits_status_quo() -> None:
     """无五元键的负载（历史形状）：eligible 缺省 true，dimensions 快照不补键。"""
     suffix = uuid4().hex
-    tenant = f"tnt_inv1_legacy_{suffix}"
+    tenant = f"tnt_{suffix[:26]}"
     project = f"prj_inv1_legacy_{suffix}"
+    _seed_platform_tenant(tenant)
     captured = datetime.now(UTC)
     service = AnalyticsService(dsn=POSTGRES_DSN)
     _persist(
@@ -181,8 +195,9 @@ def test_metric_daily_concurrent_persist_does_not_lose_updates() -> None:
     """同 run 多题并发 fanout（每题独立连接）：advisory 锁串行化临界区，
     metric_daily 必须吃到两条 trace（无锁时后提交者用旧快照覆盖 = 丢更新）。"""
     suffix = uuid4().hex
-    tenant = f"tnt_race_{suffix}"
+    tenant = f"tnt_{suffix[:26]}"
     project = f"prj_race_{suffix}"
+    _seed_platform_tenant(tenant)
     captured = datetime.now(UTC)
     dimensions = {
         "model": "doubao",
@@ -306,8 +321,9 @@ def test_outbox_poison_event_isolated_and_healthy_events_proceed() -> None:
 def test_answer_agg_blind_view_columns_and_rls() -> None:
     """视图列集钉死 + security_invoker RLS：无 GUC 零行，有 GUC 只见本租户合格行。"""
     suffix = uuid4().hex
-    tenant = f"tnt_view_{suffix}"
+    tenant = f"tnt_{suffix[:26]}"
     project = f"prj_view_{suffix}"
+    _seed_platform_tenant(tenant)
     captured = datetime.now(UTC)
     service = AnalyticsService(dsn=POSTGRES_DSN)
     _persist(

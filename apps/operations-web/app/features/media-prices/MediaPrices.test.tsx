@@ -89,6 +89,7 @@ const fixtureDataset: MediaPricesDataset = {
     {
       name: '人民网',
       prices: { prfabu: 100, toumeiw: 80 },
+      ids: { prfabu: '1001', toumeiw: '2001' },
       best: 80,
       best_plat: 'toumeiw',
       spread: 1.3,
@@ -106,6 +107,7 @@ const fixtureDataset: MediaPricesDataset = {
     {
       name: '新华网',
       prices: { prfabu: 50 },
+      ids: { prfabu: '1002' },
       best: 50,
       best_plat: 'prfabu',
       spread: null,
@@ -117,6 +119,7 @@ const fixtureDataset: MediaPricesDataset = {
     {
       name: '特价盒子媒体',
       prices: { meititejia: 60, meijiehezi: 55 },
+      ids: { meititejia: '4001', meijiehezi: '5001' },
       best: 55,
       best_plat: 'meijiehezi',
       spread: 1.1,
@@ -131,6 +134,7 @@ const fixtureDataset: MediaPricesDataset = {
     {
       name: '价差媒体',
       prices: { prfabu: 300, mtpfw: 90 },
+      ids: { prfabu: '1003', mtpfw: '3001' },
       best: 90,
       best_plat: 'mtpfw',
       spread: 3.3,
@@ -175,6 +179,7 @@ const fixtureWemediaDataset: MediaWemediaDataset = {
       name: '融媒观察',
       platform: '百家号',
       prices: { prfabu: 100, toumeiw: 80 },
+      ids: { prfabu: '1101', toumeiw: '2101' },
       best: 80,
       best_plat: 'toumeiw',
       spread: 1.3,
@@ -192,6 +197,7 @@ const fixtureWemediaDataset: MediaWemediaDataset = {
       name: '生活方式号',
       platform: '今日头条',
       prices: { prfabu: 30 },
+      ids: { prfabu: '1102' },
       best: 30,
       best_plat: 'prfabu',
       spread: null,
@@ -384,9 +390,8 @@ describe('MediaPrices', () => {
     );
     expect(document.querySelector('.wl-badge')?.textContent).toBe('稿源');
     expect(screen.queryByText('3.3x')).toBeNull();
-    expect(
-      screen.getByText('筛选 4 条；其中 2 条 prfabu 非全网最低，按最低价采购平均可省 45.0%'),
-    ).toBeTruthy();
+    expect(screen.getByText('筛选 4 条')).toBeTruthy();
+    expect(screen.queryByText(/非全网最低|平均可省/u)).toBeNull();
   });
 
   it('renders all six platform price columns with best-price highlight', async () => {
@@ -406,24 +411,31 @@ describe('MediaPrices', () => {
     expect(screen.getByText('新闻资讯')).toBeTruthy();
   });
 
-  it('carries selected news and self-media rows into automatic posting configuration', async () => {
+  it('freezes selected news and self-media provider choices before handing off to posting', async () => {
     render(<MediaPrices session={session} />);
     await screen.findByText('人民网');
-    expect(screen.getByText('在新闻媒体或自媒体表格首列勾选媒体后，可继续配置。')).toBeTruthy();
+    expect(screen.queryByText('自动发帖配置')).toBeNull();
 
     fireEvent.click(screen.getByLabelText('选择人民网发帖'));
-    const newsProvider = screen.getByLabelText('人民网采购服务') as HTMLSelectElement;
+    const newsProvider = screen.getByLabelText('人民网采购平台') as HTMLSelectElement;
     expect(newsProvider.value).toBe('toumeiw');
-    expect(screen.getByText('¥80.00')).toBeTruthy();
     fireEvent.change(newsProvider, { target: { value: 'prfabu' } });
-    expect((screen.getByLabelText('人民网采购服务') as HTMLSelectElement).value).toBe('prfabu');
-    expect(screen.getByText('¥100.00')).toBeTruthy();
+    expect((screen.getByLabelText('人民网采购平台') as HTMLSelectElement).value).toBe('prfabu');
 
     fireEvent.click(screen.getByRole('tab', { name: '自媒体' }));
     await screen.findByText('融媒观察');
     fireEvent.click(screen.getByLabelText('选择融媒观察发帖'));
-    expect(screen.getByLabelText('融媒观察采购服务')).toBeTruthy();
-    expect(screen.getAllByText(/供应商尚未接入/u).length).toBeGreaterThan(0);
+    expect(screen.getByLabelText('融媒观察采购平台')).toBeTruthy();
+    expect(screen.getByText('已选 2 个目标')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '去发帖页配置内容' })).toBeTruthy();
+  });
+
+  it('keeps provider credentials and DOCX controls off the comparison page', async () => {
+    render(<MediaPrices session={session} />);
+    await screen.findByText('人民网');
+    expect(screen.queryByText('平台账号与自动登录')).toBeNull();
+    expect(screen.queryByLabelText(/密码/u)).toBeNull();
+    expect(screen.queryByLabelText('图文 DOCX')).toBeNull();
   });
 
   it('loads the separate self-media dataset only when its tab is first opened and retains it', async () => {
@@ -492,10 +504,14 @@ describe('MediaPrices', () => {
     expect(downloadSafeGeneratedFile).toHaveBeenCalledTimes(1);
   });
 
-  it('shows the missing-dataset guidance when the artifact is not built', async () => {
+  it('starts first-time dataset generation in the page without terminal instructions', async () => {
     vi.mocked(getMediaPricesDataset).mockResolvedValue({ kind: 'missing' });
     render(<MediaPrices session={session} />);
-    await screen.findByText(/数据集未生成，请先运行离线刷新脚本/);
+    await screen.findByText('数据集尚未生成，可直接在本页启动首次生成。');
+    expect(screen.queryByText(/脚本|终端/u)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '立即生成数据集' }));
+    await screen.findByRole('button', { name: '生成中…' });
+    expect(requestMediaPricesRefresh).toHaveBeenCalledTimes(1);
   });
 
   it('shows the forbidden state for unauthorized roles', async () => {
@@ -796,7 +812,9 @@ describe('MediaPrices', () => {
     render(<MediaPrices session={session} />);
     await screen.findByText('人民网');
     fireEvent.click(screen.getByRole('button', { name: '刷新数据' }));
-    const warning = await screen.findByText(/prfabu 会话失效，沿用旧数据（需人工更新会话文件）/);
+    const warning = await screen.findByText(
+      /prfabu 会话失效，沿用旧数据（请到发帖页重新登录平台账号）/,
+    );
     expect(warning.className).toContain('warn');
   });
 
@@ -924,7 +942,7 @@ describe('media prices refresh pure logic', () => {
       },
     });
     expect(notice.tone).toBe('warn');
-    expect(notice.text).toContain('需人工更新会话文件');
+    expect(notice.text).toContain('请到发帖页重新登录平台账号');
     const partialNotice = buildRefreshDoneNotice(doneRefresh);
     expect(partialNotice.tone).toBe('warn');
     expect(partialNotice.text).toContain('toumeiw 仅完成部分采集');

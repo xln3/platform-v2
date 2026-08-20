@@ -148,23 +148,22 @@ def test_w3_rate_by_direction_and_cases(monkeypatch: pytest.MonkeyPatch) -> None
 
     w3 = _compute()["w3_disparagement"]
     assert w3["status"] == "ok"
-    assert w3["n_judgments"] == 4 and w3["n_disparagement"] == 3
-    assert w3["n_undirected"] == 1 and w3["fact_check_available"] is True
+    assert w3["n_judgments"] == 2 and w3["n_disparagement"] == 1
+    assert w3["n_undirected"] == 0 and w3["fact_check_available"] is True
 
     rates = {
         r["extra"]["direction"]: r for r in w3["fact_rows"] if r["metric"] == "disparagement_rate"
     }
     own = rates["smear_on_own"]
     assert own["value"] == 50.0 and own["numerator"] == 1 and own["denominator"] == 2
-    comp = rates["own_smear_on_competitor"]
-    assert comp["value"] == 100.0 and comp["numerator"] == 1 and comp["denominator"] == 1
+    assert "own_smear_on_competitor" not in rates
     assert own["method"] == "w3-disparagement-v1" and own["source"] == "system_computed"
 
     cases = [r for r in w3["fact_rows"] if r["metric"] == "disparagement_case"]
-    assert [r["extra"]["judgment_pub_id"] for r in cases] == ["jdg_1", "jdg_3", "jdg_4"]
+    assert [r["extra"]["judgment_pub_id"] for r in cases] == ["jdg_1"]
     first = cases[0]
     assert first["value"] is None and first["unit"] == "case"
-    assert first["numerator"] == 1 and first["denominator"] == 3
+    assert first["numerator"] == 1 and first["denominator"] == 1
     assert first["extra"]["evidence_quote"] == "引文jdg_1"
     assert first["extra"]["subject_brand"] == "奇安信"
     assert first["extra"]["target_brand"] == "盛邦安全"
@@ -179,8 +178,6 @@ def test_w3_rate_by_direction_and_cases(monkeypatch: pytest.MonkeyPatch) -> None
         "summary": "官网公告可证实",
         "source_url": "https://www.example.com/a",
     }
-    assert cases[1]["extra"]["fact_check"] is None  # T1 无该行 → null（不编造）
-    assert cases[2]["extra"]["direction"] is None  # 无方向如实 null
 
 
 def test_w3_degrades_when_factcheck_table_absent(monkeypatch: pytest.MonkeyPatch) -> None:

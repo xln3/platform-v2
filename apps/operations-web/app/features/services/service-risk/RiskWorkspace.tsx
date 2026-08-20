@@ -1,21 +1,16 @@
 import { useEffect, useState } from 'react';
-import { RunsPanel } from '../RunsPanel';
+import { executionApi, type AnswerRow } from '../../execution/api';
+import { AnswerDetail } from '../AnswerExplorer';
+import { MetricHelp } from '../MetricHelp';
 import { WindowPicker } from '../WindowPicker';
 import {
   defaultWindow,
   servicesApi,
   type DisparagementCase,
-  type DisparagementDimension,
   type DisparagementRateRow,
   type Project,
   type SessionContext,
 } from '../api';
-
-const DIMENSIONS: [DisparagementDimension, string][] = [
-  ['target_brand', '按被拉踩品牌'],
-  ['subject_brand', '按发起品牌'],
-  ['platform', '按平台'],
-];
 
 const FACT_CHECK_LABELS: Record<string, string> = {
   supported: '属实',
@@ -34,9 +29,55 @@ type LoadState<T> =
   | { kind: 'ready'; data: T }
   | { kind: 'failed'; message: string };
 
+function AnswerOrigin({
+  session,
+  projectPubId,
+  answerPubId,
+}: {
+  session: SessionContext;
+  projectPubId: string;
+  answerPubId: string;
+}) {
+  const [answer, setAnswer] = useState<AnswerRow | null>(null);
+  const [open, setOpen] = useState(false);
+  const [state, setState] = useState<'idle' | 'loading' | 'failed'>('idle');
+
+  async function openAnswer() {
+    if (answer) {
+      setOpen(true);
+      return;
+    }
+    setState('loading');
+    try {
+      const page = await executionApi.answers(session, {
+        projectPubId,
+        answerPubId,
+        limit: 1,
+      });
+      const loaded = page.data.find((item) => item.pub_id === answerPubId);
+      if (!loaded) throw new Error('answer_not_found');
+      setAnswer(loaded);
+      setState('idle');
+      setOpen(true);
+    } catch {
+      setState('failed');
+    }
+  }
+
+  return (
+    <>
+      <button type="button" onClick={() => void openAnswer()} disabled={state === 'loading'}>
+        {state === 'loading' ? '正在加载回答…' : state === 'failed' ? '重试查看回答' : '查看回答'}
+      </button>
+      {open && answer ? (
+        <AnswerDetail session={session} answer={answer} onClose={() => setOpen(false)} />
+      ) : null}
+    </>
+  );
+}
+
 export function RiskWorkspace({ session, project }: { session: SessionContext; project: Project }) {
   const [window_, setWindow] = useState(defaultWindow);
-  const [dimension, setDimension] = useState<DisparagementDimension>('target_brand');
   const [rates, setRates] = useState<LoadState<DisparagementRateRow[]>>({ kind: 'loading' });
   const [cases, setCases] = useState<LoadState<DisparagementCase[]>>({ kind: 'loading' });
 
@@ -48,7 +89,7 @@ export function RiskWorkspace({ session, project }: { session: SessionContext; p
         projectPubId: project.pub_id,
         start: window_.start,
         end: window_.end,
-        dimension,
+        dimension: 'target_brand',
       })
       .then((data) => {
         if (!cancelled) setRates({ kind: 'ready', data });
@@ -60,7 +101,7 @@ export function RiskWorkspace({ session, project }: { session: SessionContext; p
     return () => {
       cancelled = true;
     };
-  }, [session, project.pub_id, window_.start, window_.end, dimension]);
+  }, [session, project.pub_id, window_.start, window_.end]);
 
   useEffect(() => {
     let cancelled = false;
@@ -83,70 +124,83 @@ export function RiskWorkspace({ session, project }: { session: SessionContext; p
     };
   }, [session, project.pub_id, window_.start, window_.end]);
 
+  const summary = rates.kind === 'ready' ? (rates.data[0] ?? null) : null;
+
   return (
     <>
       <p className="service-note">
-        采集 run 完成后自动进行抹黑拉踩判定，无需单独启动；本页汇总判定结果与典型案例。
+        仅核查项目目标品牌。采集完成后自动判定 AI
+        回答与公开信源中的相关表述；竞品自身风险不进入本页统计。
       </p>
-      <RunsPanel session={session} projectPubId={project.pub_id} readOnly />
       <section className="execution-card">
         <div className="section-title">
-          <h2>拉踩率</h2>
+          <h2>目标品牌风险概览</h2>
           <span>
             {window_.start} ~ {window_.end}
+            {summary ? ` · ${summary.value}` : ''}
           </span>
         </div>
         <WindowPicker start={window_.start} end={window_.end} onChange={setWindow} />
-        <div className="platform-checks" role="group" aria-label="拉踩维度">
-          {DIMENSIONS.map(([value, label]) => (
-            <label key={value}>
-              <input
-                type="radio"
-                name="disparagement-dimension"
-                checked={dimension === value}
-                onChange={() => setDimension(value)}
-              />
-              {label}
-            </label>
-          ))}
-        </div>
         {rates.kind === 'loading' ? (
-          <p className="empty">正在加载拉踩率…</p>
+          <p className="empty">正在加载目标品牌风险统计…</p>
         ) : rates.kind === 'failed' ? (
-          <p className="empty">拉踩率暂不可用（{rates.message}）。</p>
-        ) : rates.data.length === 0 ? (
-          <p className="empty">该时间窗内尚无抹黑拉踩判定数据——采集 run 完成后自动生成。</p>
+          <p className="empty">目标品牌风险统计暂不可用（{rates.message}）。</p>
+        ) : summary === null ? (
+          <p className="empty">该时间窗内尚无目标品牌判定数据——采集完成后自动生成。</p>
         ) : (
-          <div className="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>对象</th>
-                  <th>判定数</th>
-                  <th>拉踩次数</th>
-                  <th>拉踩率</th>
-                  <th>负面</th>
-                  <th>支持</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rates.data.map((row) => (
-                  <tr key={`${row.dimension}-${row.value}`}>
-                    <td>{row.value}</td>
-                    <td>{row.judgments}</td>
-                    <td>{row.disparagement_count}</td>
-                    <td>
-                      {row.disparagement_rate === null
-                        ? '—'
-                        : `${(row.disparagement_rate * 100).toFixed(1)}%`}
-                    </td>
-                    <td>{row.negative_count}</td>
-                    <td>{row.support_count}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <div className="metric-cards risk-metric-cards">
+              <article>
+                <MetricHelp
+                  label="判定数"
+                  explanation="时间窗内，目标品牌通过校验的品牌提及文本窗数量。按文本窗计数，不等于 AI 回答数；同一回答可能产生多条判定。"
+                />
+                <strong>{summary.judgments}</strong>
+                <span>有效目标品牌判定</span>
+              </article>
+              <article>
+                <MetricHelp
+                  label="拉踩次数"
+                  explanation="有效目标品牌判定中，明确存在贬低、打压或不当比较（disparagement=true）的文本窗数量。"
+                />
+                <strong>{summary.disparagement_count}</strong>
+                <span>判为拉踩的文本窗</span>
+              </article>
+              <article>
+                <MetricHelp
+                  label="拉踩率"
+                  explanation="拉踩次数 ÷ 判定数 × 100%。判定数为 0 时不计算。"
+                />
+                <strong>
+                  {summary.disparagement_rate === null
+                    ? '—'
+                    : `${(summary.disparagement_rate * 100).toFixed(1)}%`}
+                </strong>
+                <span>
+                  {summary.disparagement_count}/{summary.judgments}
+                </span>
+              </article>
+              <article>
+                <MetricHelp
+                  label="负面"
+                  explanation="有效目标品牌判定中，态度为负面（attitude=negative）的文本窗数量。单纯负面批评未必构成拉踩，因此该数可能大于拉踩次数。"
+                />
+                <strong>{summary.negative_count}</strong>
+                <span>负面态度文本窗</span>
+              </article>
+              <article>
+                <MetricHelp
+                  label="支持"
+                  explanation="有效目标品牌判定中，态度为支持（attitude=support）的文本窗数量。中性及其他态度不计入此数。"
+                />
+                <strong>{summary.support_count}</strong>
+                <span>支持态度文本窗</span>
+              </article>
+            </div>
+            <p className="setup-summary">
+              统计只覆盖目标品牌；“负面”描述态度，“拉踩”描述是否构成贬低或不当比较，两者不是同一指标。
+            </p>
+          </>
         )}
       </section>
 
@@ -219,7 +273,13 @@ export function RiskWorkspace({ session, project }: { session: SessionContext; p
                       ) : null}
                     </td>
                     <td>
-                      {item.source_url ? (
+                      {item.subject_type === 'answer' ? (
+                        <AnswerOrigin
+                          session={session}
+                          projectPubId={project.pub_id}
+                          answerPubId={item.subject_pub_id}
+                        />
+                      ) : item.source_url ? (
                         <a href={item.source_url} target="_blank" rel="noreferrer noopener">
                           查看原文
                         </a>

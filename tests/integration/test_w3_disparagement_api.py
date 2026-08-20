@@ -42,8 +42,8 @@ MINIO_ENDPOINT = os.getenv("S02_MINIO_ENDPOINT", "http://127.0.0.1:19000")
 _BRAND = "中意人寿"
 _COMPETITOR = "友邦"
 _ANSWER = (
-    "在选择寿险时需要综合比较。友邦的重疾险价格明显偏贵，保障范围也不如中意人寿全面，"
-    "性价比堪忧。中意人寿的重疾险覆盖一百二十种疾病，含轻症豁免，值得推荐。"
+    "在选择寿险时需要综合比较。中意人寿的重疾险价格明显偏贵，保障范围也不如友邦全面，"
+    "性价比堪忧。友邦的重疾险覆盖一百二十种疾病，含轻症豁免，值得推荐。"
 )
 _DOC_TEXT = (
     "行业观察：中意人寿的就医绿通服务覆盖医院数量多，挂号协调便捷。"
@@ -58,7 +58,7 @@ class _StubJudge:
     def judge(
         self, *, window_text: str, target_brand: str, known_brands: tuple[str, ...]
     ) -> LlmJudgment:
-        disparaging = target_brand == _COMPETITOR and "偏贵" in window_text
+        disparaging = target_brand == _BRAND and "偏贵" in window_text
         return LlmJudgment(
             subject="",
             target=target_brand,
@@ -187,9 +187,10 @@ def _seed_source_document(seeded_run: Any, store: ContentAddressedObjectStore) -
         connection.execute(
             "INSERT INTO platform.source_document (id,pub_id,tenant_id,project_id,run_id,"
             "url,url_hash,host,fetched_at,extract_status,extractor,bytes,text_cas_key,"
-            "text_sha256,created_at,updated_at) "
+            "text_sha256,canonical_url,first_seen_at,last_verified_at,metadata_parser_version,"
+            "created_at,updated_at) "
             "SELECT gen_random_uuid(),%s,%s,r.project_id,r.id,%s,%s,%s,now(),'ok',"
-            "'density-extract-v1',%s,%s,%s,now(),now() "
+            "'density-extract-v1',%s,%s,%s,%s,now(),now(),'w3-fixture-v1',now(),now() "
             "FROM platform.collection_run r WHERE r.pub_id=%s",
             (
                 new_pub_id("srd"),
@@ -200,6 +201,7 @@ def _seed_source_document(seeded_run: Any, store: ContentAddressedObjectStore) -
                 len(_DOC_TEXT.encode("utf-8")),
                 stored.key,
                 stored.sha256,
+                _DOC_URL,
                 seeded_run.run,
             ),
         )
@@ -249,17 +251,18 @@ def test_w3_disparagement_end_to_end(seeded_run: Any) -> None:
         ).fetchall()
     assert len(judgments) == result.judged
     assert len(events) == result.judged
-    by_target = {(row["subject_type"], row["target_brand"]): row for row in judgments}
-    # 答案里的友邦窗：stub 判 negative+拉踩
-    answer_youbang = by_target[("answer", _COMPETITOR)]
-    assert answer_youbang["attitude"] == "negative"
-    assert answer_youbang["disparagement"] is True
-    assert answer_youbang["method"] == "llm"
-    assert answer_youbang["model"] == "gpt-5.6-luna"
-    assert answer_youbang["prompt_version"] == "disparage-v2"
-    assert answer_youbang["platform"] == "doubao"
+    assert {row["target_brand"] for row in judgments} == {_BRAND}
+    by_subject = {row["subject_type"]: row for row in judgments}
+    # 答案只切目标品牌窗：stub 判 negative+拉踩；竞品不生成独立判定。
+    answer_brand = by_subject["answer"]
+    assert answer_brand["attitude"] == "negative"
+    assert answer_brand["disparagement"] is True
+    assert answer_brand["method"] == "llm"
+    assert answer_brand["model"] == "gpt-5.6-luna"
+    assert answer_brand["prompt_version"] == "disparage-v2"
+    assert answer_brand["platform"] == "doubao"
     # 信源正文窗：platform=host、source_url 落库
-    doc_brand = by_target[("source_document", _BRAND)]
+    doc_brand = by_subject["source_document"]
     assert doc_brand["platform"] == "sources.example.com"
     assert doc_brand["source_url"] == _DOC_URL
     assert doc_brand["disparagement"] is False
@@ -295,10 +298,10 @@ def test_w3_disparagement_end_to_end(seeded_run: Any) -> None:
     assert all(fact["judgment_status"] == "ok" for fact in facts)
     disparaging = [f for f in facts if f["disparagement"] == 1]
     assert len(disparaging) == 1
-    assert disparaging[0]["target_brand"] == _COMPETITOR
+    assert disparaging[0]["target_brand"] == _BRAND
     assert disparaging[0]["subject_type"] == "answer"
 
-    # aggregation：rate 按 target_brand 口径正确
+    # aggregation：历史竞品判定也会在查询层排除，只返回目标品牌。
     service = AnalyticsService(dsn=POSTGRES_DSN)
     rates = service.aggregate_disparagement(
         tenant_pub_id=seeded_run.tenant,
@@ -308,14 +311,10 @@ def test_w3_disparagement_end_to_end(seeded_run: Any) -> None:
         dimension="target_brand",
     )
     rate_by_brand = {row["value"]: row for row in rates}
-    assert set(rate_by_brand) == {_BRAND, _COMPETITOR}
-    youbang_rate = rate_by_brand[_COMPETITOR]
-    assert youbang_rate["disparagement_count"] == 1
-    assert youbang_rate["judgments"] >= 1
-    assert float(youbang_rate["disparagement_rate"]) > 0
+    assert set(rate_by_brand) == {_BRAND}
     brand_rate = rate_by_brand[_BRAND]
-    assert brand_rate["disparagement_count"] == 0
-    assert float(brand_rate["disparagement_rate"]) == 0
+    assert brand_rate["disparagement_count"] == 1
+    assert float(brand_rate["disparagement_rate"]) > 0
 
     # platform 维度：doubao（answer）与 sources.example.com（正文）各一组
     platform_rates = service.aggregate_disparagement(
@@ -337,8 +336,8 @@ def test_w3_disparagement_end_to_end(seeded_run: Any) -> None:
     )
     assert len(cases) == 1
     case = cases[0]
-    assert case["target_brand"] == _COMPETITOR
-    assert case["evidence_quote"] == _COMPETITOR
+    assert case["target_brand"] == _BRAND
+    assert case["evidence_quote"] == _BRAND
     assert case["subject_type"] == "answer"
     assert case["source_url"] is None  # answer 判定无信源链接，出处=subject_pub_id
 

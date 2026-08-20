@@ -554,6 +554,8 @@ def test_execute_llm_happy_path() -> None:
     result, sink = _execute(context=_context(), judge=judge)
     assert result.failures == [] and result.validation_failures == 0
     assert sink.records and result.judged == len(sink.records)
+    assert {record.target_brand for record in sink.records} == {_BRAND}
+    assert set(judge.calls) == {_BRAND}
     for record in sink.records:
         assert record.judgment_status == "ok"
         assert record.method == METHOD_LLM
@@ -580,7 +582,13 @@ def test_execute_validation_failure_drops_judgment() -> None:
 
 def test_execute_llm_unavailable_falls_back_to_dictionary() -> None:
     judge = _FakeJudge(_GOOD)
-    result, sink = _execute(context=_context(), judge=judge, llm=_LLM_NO_KEY)
+    target_risk_text = "中意人寿价格偏贵，保障不如友邦，性价比堪忧。"
+    result, sink = _execute(
+        context=_context(),
+        judge=judge,
+        llm=_LLM_NO_KEY,
+        text_store=_FakeTextStore(target_risk_text),
+    )
     assert judge.calls == []  # 一次 LLM 都不调
     assert sink.records, "词典兜底必须落行"
     assert result.dictionary_fallback == len(sink.records) == result.judged
@@ -589,14 +597,14 @@ def test_execute_llm_unavailable_falls_back_to_dictionary() -> None:
         assert record.model == ""
         assert record.prompt_version == DICTIONARY_VERSION
         assert record.judgment_status == "ok"
-    # 友邦提及窗含"偏贵/不如中意人寿/堪忧"+比较对象 → 词典应判 negative+拉踩
-    youbang = next(
+    # 执行层只评价目标品牌；信源正文中的“中意人寿不如友邦”应判 negative+拉踩。
+    target_brand_case = next(
         r
         for r in sink.records
-        if r.target_brand == "友邦" and r.subject_type == "answer" and r.disparagement
+        if r.target_brand == _BRAND and r.subject_type == "source_document" and r.disparagement
     )
-    assert youbang.attitude == "negative"
-    assert youbang.evidence_quote in _ANSWER_TEXT
+    assert target_brand_case.attitude == "negative"
+    assert target_brand_case.evidence_quote in target_risk_text
 
 
 def test_execute_llm_error_falls_back_to_dictionary_with_failure_note() -> None:
@@ -615,7 +623,7 @@ def test_execute_idempotent_skip_existing() -> None:
         subject_pub_id="ans_x",
         text=_ANSWER_TEXT,
         brand=_BRAND,
-        competitors=_COMPETITORS,
+        competitors=(),
         platform="doubao",
     ) + extract_windows(
         subject_type="source_document",
@@ -638,10 +646,10 @@ def test_execute_idempotent_skip_existing() -> None:
 
 def test_execute_window_limit_truncates() -> None:
     judge = _FakeJudge(LlmJudgment("", "", "neutral", False, "中意人寿", 0.5))
-    result, sink = _execute(context=_context(), judge=judge, window_limit=2)
-    assert result.windows > 2
-    assert len(sink.records) == 2
-    assert result.truncated == result.windows - 2
+    result, sink = _execute(context=_context(), judge=judge, window_limit=1)
+    assert result.windows > 1
+    assert len(sink.records) == 1
+    assert result.truncated == result.windows - 1
 
 
 def test_execute_cas_read_failure_goes_to_failures() -> None:

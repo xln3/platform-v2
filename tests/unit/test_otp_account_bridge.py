@@ -41,9 +41,7 @@ class _FakeSession:
         rows = list(self.rows.get(cls, []))
         for criterion in stmt._where_criteria:
             rows = [
-                row
-                for row in rows
-                if getattr(row, criterion.left.key) == criterion.right.value
+                row for row in rows if getattr(row, criterion.left.key) == criterion.right.value
             ]
         return rows[0] if rows else None
 

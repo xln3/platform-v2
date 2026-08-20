@@ -1,6 +1,6 @@
 """AI 联网调研（旧 server/geosys/intake/ai_research.py 的 httpx 移植版）。
 
-口径：多传输按模型路由（``_transport_for_model``，20260810 aihubmix 逐台实证）——
+口径：多传输按模型路由（``_transport_for_model``，经 inferera 逐台实证）——
 gpt 系/gemini-3.6-flash 走 OpenAI Responses API（POST {base}/responses，**非流式**）+
 宿主 ``web_search`` 工具（搜索+开网页一体，信源走 url_citation 标注）；claude 系走
 Anthropic 原生 ``/v1/messages`` + server 工具 ``web_search_20250305``；qwen 系走
@@ -38,8 +38,8 @@ from . import models
 log = structlog.get_logger()
 
 _DEFAULT_MODEL = "gpt-5.6-luna"
-_DEFAULT_BASE_URL = "https://aihubmix.com"
-_DEFAULT_FALLBACK_BASE_URL = "https://api.inferera.com"
+_DEFAULT_BASE_URL = "https://api.inferera.com"
+_DEFAULT_FALLBACK_BASE_URL = ""
 _DEFAULT_MAX_ROUNDS = 3
 _HARD_MAX_ROUNDS = 5
 _TIMEOUT_SECONDS = 300.0
@@ -136,6 +136,7 @@ def _build_client(config: LlmConfig, base_url: str) -> httpx.Client:
         base_url=_normalize_base_url(base_url),
         headers={"Authorization": f"Bearer {config.api_key}"},
         timeout=_TIMEOUT_SECONDS,
+        trust_env=False,
     )
 
 
@@ -275,7 +276,7 @@ def _extract_json(text: str) -> dict[str, Any]:
 
 
 def _transport_for_model(model: str) -> str:
-    """按模型选传输与联网激活方式（20260810 aihubmix 逐台实证，勿凭想象改）：
+    """按模型选传输与联网激活方式（逐台实证，当前统一经 inferera）：
 
     - ``claude-*`` → Anthropic 原生 ``/v1/messages`` + server 工具
       ``web_search_20250305``（OpenAI 兼容端点不透传搜索执行；/responses 会忽略 tools）；
@@ -605,8 +606,11 @@ def _retry_fallback(
 ) -> tuple[dict[str, Any], list[dict[str, str]], dict[str, int]]:
     """主 base_url 网络/5xx 失败 → base_url_fallback 重试一次（仅一次）。"""
     log.warning("research_primary_failed", error_type=type(first_err).__name__)
+    fallback = config.base_url_fallback.strip()
+    if not fallback or _normalize_base_url(fallback) == _normalize_base_url(config.base_url):
+        raise ResearchFailed("LLM 上游不可用") from first_err
     try:
-        with _build_client(config, config.base_url_fallback) as client:
+        with _build_client(config, fallback) as client:
             return _run_once(client, model, user_msg, instructions=instructions, tools=tools)
     except (httpx.HTTPError, ResearchFailed) as e2:
         raise ResearchFailed("LLM 上游不可用（主/备 base_url 均失败）") from e2

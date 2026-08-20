@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 import base64
+import json
 import time
+from hashlib import sha256
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import httpx
 import pytest
 
 from workflows.activities import official_share
 from workflows.activities.official_share import (
     OfficialShareExportError,
+    probe_official_share_url,
     recover_png_from_export_audit,
     valid_png,
     validated_deepseek_share_url,
@@ -18,6 +22,61 @@ from workflows.activities.official_share import (
 )
 
 _ONE_PIXEL_PNG_HEADER = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+
+
+def test_share_probe_records_redirect_hash_and_blocking_frame_policy() -> None:
+    payload = b"official shared answer"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/share/start":
+            return httpx.Response(302, headers={"Location": "/share/final"})
+        return httpx.Response(200, headers={"X-Frame-Options": "DENY"}, content=payload)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        result = probe_official_share_url(
+            "https://chat.deepseek.com/share/start",
+            allowed_hosts={"chat.deepseek.com"},
+            client=client,
+        )
+
+    assert result.availability_status == "redirected"
+    assert result.http_status == 200
+    assert result.final_url == "https://chat.deepseek.com/share/final"
+    assert len(result.redirect_chain) == 1
+    assert result.content_hash == sha256(payload).hexdigest()
+    assert result.embed_status == "blocked"
+    assert result.embed_reason == "x_frame_options_restricts_embedding"
+
+
+def test_share_probe_rejects_redirect_outside_platform_allowlist() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(302, headers={"Location": "https://attacker.example/share"})
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        result = probe_official_share_url(
+            "https://www.doubao.com/thread/test",
+            allowed_hosts={"doubao.com", "www.doubao.com"},
+            client=client,
+        )
+
+    assert result.availability_status == "unreachable"
+    assert not result.allowlist_valid
+    assert result.failure_reason == "redirect_allowlist_rejected"
+
+
+def test_share_manifest_always_carries_normalized_verification(tmp_path: Path) -> None:
+    path = tmp_path / "share-link.json"
+    official_share.write_share_link_manifest(
+        path,
+        share_url="https://chat.deepseek.com/share/test",
+        platform="deepseek",
+        channel="create-and-copy",
+    )
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert payload["schema_version"] == "official-share-link-v2"
+    assert payload["verification"]["availability_status"] == "unchecked"
+    assert payload["verification"]["embed_status"] == "unknown"
 
 
 class _YiyanShareLocator:

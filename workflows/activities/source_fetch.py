@@ -63,7 +63,9 @@ from psycopg.rows import dict_row
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from domain.collection.source_metadata import SourceMetadata, extract_source_metadata
 from domain.evidence.provenance import AccessClass, CaptureChannel, RedactedProvenance
+from domain.scoring.analyzer import canonicalize_url
 from workflows.activities.browser_driver import load_sync_browser_driver
 
 log = structlog.get_logger()
@@ -641,6 +643,8 @@ class HttpAttempt:
     extractor: str | None
     error_kind: str | None  # "timeout" / "transport" / None
     detail: str | None
+    metadata: SourceMetadata | None = None
+    redirect_chain: tuple[dict[str, Any], ...] = ()
 
 
 def classify_attempt(attempt: HttpAttempt) -> tuple[str, bool]:
@@ -836,6 +840,8 @@ class SourceDocumentSink(Protocol):
         text: str,
         fetched_at: datetime,
         brand_mention: BrandMentionCapture | None = None,
+        metadata: SourceMetadata | None = None,
+        redirect_chain: tuple[dict[str, Any], ...] = (),
     ) -> PersistedDocument: ...
 
     def link(
@@ -976,6 +982,48 @@ class _PostgresSourceLoader:
         )
 
 
+def exact_source_quote_matches(
+    context: RunSourceContext,
+    target: SourceTarget,
+    source_text: str,
+) -> list[dict[str, Any]]:
+    """Return only byte-for-byte source fragments; never infer semantic support."""
+
+    matches: list[dict[str, Any]] = []
+    linked_answers = set(target.task_pub_ids)
+    for answer_pub_id, citations in context.tasks:
+        if answer_pub_id not in linked_answers:
+            continue
+        for fallback_ordinal, citation in enumerate(citations, 1):
+            url = citation.get("url")
+            cited_text = citation.get("cited_text")
+            if (
+                not isinstance(url, str)
+                or url_dedupe_key(url) != target.key
+                or not isinstance(cited_text, str)
+                or not cited_text.strip()
+            ):
+                continue
+            quote = cited_text.strip()
+            start = source_text.find(quote)
+            if start < 0:
+                continue
+            ordinal = citation.get("ordinal", fallback_ordinal)
+            if isinstance(ordinal, bool) or not isinstance(ordinal, int) or ordinal < 1:
+                ordinal = fallback_ordinal
+            matches.append(
+                {
+                    "answer_pub_id": answer_pub_id,
+                    "ordinal": ordinal,
+                    "source_quote": source_text[start : start + len(quote)],
+                    "source_text_start": start,
+                    "source_text_end": start + len(quote),
+                    "source_quote_hash": sha256(quote.encode()).hexdigest(),
+                }
+            )
+    return matches
+
+
 class _EvidenceServiceSink:
     """生产存证：正文 bytes 进 CAS + source_document 行（单文档单事务）。
 
@@ -1002,6 +1050,8 @@ class _EvidenceServiceSink:
         text: str,
         fetched_at: datetime,
         brand_mention: BrandMentionCapture | None = None,
+        metadata: SourceMetadata | None = None,
+        redirect_chain: tuple[dict[str, Any], ...] = (),
     ) -> PersistedDocument:
         document_pub_id = derive_document_pub_id(
             context.tenant_pub_id, context.run_pub_id, target.url_hash
@@ -1009,6 +1059,7 @@ class _EvidenceServiceSink:
         payload = text.encode("utf-8") if text else b""
         text_cas_key: str | None = None
         text_sha256: str | None = None
+        metadata = metadata or SourceMetadata(canonical_url=final_url or target.url)
         with _platform_connection(self._dsn, context) as connection:
             if payload:
                 evidence_pub_id = derive_evidence_pub_id(
@@ -1040,9 +1091,15 @@ class _EvidenceServiceSink:
                 INSERT INTO platform.source_document
                   (id,pub_id,tenant_id,project_id,run_id,url,url_hash,host,final_url,
                    http_status,fetched_at,extract_status,extractor,bytes,text_cas_key,
-                   text_sha256,created_at,updated_at)
+                   text_sha256,canonical_url,redirect_chain,page_title,site_name,publisher,
+                   authors,language,content_format,published_at_raw,published_at,
+                   published_at_timezone,published_at_precision,published_at_source,
+                   published_at_confidence,published_at_candidates,modified_at,first_seen_at,
+                   last_verified_at,metadata_parser_version,created_at,updated_at)
                 VALUES
-                  (gen_random_uuid(),%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,now(),now())
+                  (gen_random_uuid(),%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+                   %s,%s::jsonb,%s,%s,%s,%s::jsonb,%s,'html',%s,%s,%s,%s,%s,%s,
+                   %s::jsonb,%s,%s,%s,%s,now(),now())
                 ON CONFLICT (run_id,url_hash) DO NOTHING
                 """,
                 (
@@ -1061,6 +1118,29 @@ class _EvidenceServiceSink:
                     len(payload),
                     text_cas_key,
                     text_sha256,
+                    metadata.canonical_url or final_url or target.url,
+                    json.dumps(list(redirect_chain), ensure_ascii=False, separators=(",", ":")),
+                    metadata.title,
+                    metadata.site_name,
+                    metadata.publisher,
+                    json.dumps(list(metadata.authors), ensure_ascii=False, separators=(",", ":")),
+                    metadata.language,
+                    metadata.published_at_raw,
+                    metadata.published_at,
+                    metadata.published_at_timezone,
+                    metadata.published_at_precision,
+                    metadata.published_at_source,
+                    metadata.published_at_confidence,
+                    json.dumps(
+                        metadata.candidates_json(),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
+                    metadata.modified_at,
+                    fetched_at,
+                    fetched_at,
+                    metadata.parser_version,
                 ),
             )
             self._link_with_connection(
@@ -1068,6 +1148,19 @@ class _EvidenceServiceSink:
                 context=context,
                 target=target,
                 source_document_pub_id=document_pub_id,
+            )
+            self._sync_citation_metadata_with_connection(
+                connection,
+                context=context,
+                target=target,
+                source_document_pub_id=document_pub_id,
+                metadata=metadata,
+            )
+            self._sync_source_quote_matches_with_connection(
+                connection,
+                context=context,
+                source_document_pub_id=document_pub_id,
+                matches=exact_source_quote_matches(context, target, text),
             )
             if brand_mention is not None:
                 self._persist_brand_mention_with_connection(
@@ -1096,6 +1189,33 @@ class _EvidenceServiceSink:
                 target=target,
                 source_document_pub_id=source_document_pub_id,
             )
+            document = connection.execute(
+                """
+                SELECT canonical_url,published_at_raw,published_at,published_at_timezone,
+                       published_at_precision,published_at_source,published_at_confidence,
+                       published_at_candidates,metadata_parser_version
+                FROM platform.source_document WHERE pub_id=%s
+                """,
+                (source_document_pub_id,),
+            ).fetchone()
+            if document is not None:
+                self._sync_citation_metadata_with_connection(
+                    connection,
+                    context=context,
+                    target=target,
+                    source_document_pub_id=source_document_pub_id,
+                    metadata=SourceMetadata(
+                        canonical_url=document[0],
+                        published_at_raw=document[1],
+                        published_at=document[2],
+                        published_at_timezone=document[3],
+                        published_at_precision=document[4],
+                        published_at_source=document[5],
+                        published_at_confidence=document[6] or "unknown",
+                        parser_version=document[8] or "legacy-backfill-v1",
+                    ),
+                    candidates_json=document[7] or [],
+                )
             connection.commit()
 
     @staticmethod
@@ -1106,6 +1226,14 @@ class _EvidenceServiceSink:
         target: SourceTarget,
         source_document_pub_id: str,
     ) -> None:
+        # Analysis delivery and W2 fetching are asynchronous.  Sharing this
+        # transaction lock with AnalyticsService closes the interleaving where
+        # each side could otherwise update before the other row became visible.
+        for answer_pub_id in sorted(set(target.task_pub_ids)):
+            connection.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",
+                (f"answer-source-metadata:{context.tenant_pub_id}:{answer_pub_id}",),
+            )
         for answer_pub_id in target.task_pub_ids:
             connection.execute(
                 """
@@ -1115,6 +1243,110 @@ class _EvidenceServiceSink:
                 ON CONFLICT (tenant_pub_id,from_pub_id,to_pub_id,relation_type) DO NOTHING
                 """,
                 (context.tenant_pub_id, answer_pub_id, source_document_pub_id),
+            )
+
+    @staticmethod
+    def _sync_citation_metadata_with_connection(
+        connection: psycopg.Connection[Any],
+        *,
+        context: RunSourceContext,
+        target: SourceTarget,
+        source_document_pub_id: str,
+        metadata: SourceMetadata,
+        candidates_json: list[dict[str, Any]] | None = None,
+    ) -> None:
+        """Cover both race orders: source fetch before or after answer analysis."""
+
+        canonical_candidates = {
+            canonicalize_url(target.url),
+            canonicalize_url(metadata.canonical_url or target.url),
+        }
+        for answer_pub_id in target.task_pub_ids:
+            connection.execute(
+                """
+                UPDATE analytics.citation_fact
+                SET source_document_pub_id=%s,
+                    published_at_raw=%s,
+                    published_at=%s,
+                    published_at_timezone=%s,
+                    published_at_precision=%s,
+                    published_at_source=%s,
+                    published_at_confidence=%s,
+                    published_at_candidates=%s::jsonb
+                WHERE tenant_pub_id=%s AND answer_pub_id=%s
+                  AND (original_url=%s OR canonical_url=ANY(%s::text[]))
+                """,
+                (
+                    source_document_pub_id,
+                    metadata.published_at_raw,
+                    metadata.published_at,
+                    metadata.published_at_timezone,
+                    metadata.published_at_precision,
+                    metadata.published_at_source,
+                    metadata.published_at_confidence,
+                    json.dumps(
+                        candidates_json
+                        if candidates_json is not None
+                        else metadata.candidates_json(),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
+                    context.tenant_pub_id,
+                    answer_pub_id,
+                    target.url,
+                    list(canonical_candidates),
+                ),
+            )
+
+    @staticmethod
+    def _sync_source_quote_matches_with_connection(
+        connection: psycopg.Connection[Any],
+        *,
+        context: RunSourceContext,
+        source_document_pub_id: str,
+        matches: list[dict[str, Any]],
+    ) -> None:
+        for match in matches:
+            relation_pub_id = (
+                "acr_"
+                + sha256(
+                    (
+                        f"{context.tenant_pub_id}|{match['answer_pub_id']}|{match['ordinal']}"
+                    ).encode()
+                ).hexdigest()[:26]
+            )
+            connection.execute(
+                """
+                INSERT INTO analytics.answer_citation_relation
+                  (pub_id,tenant_pub_id,answer_pub_id,ordinal,source_document_pub_id,
+                   mapping_status,source_quote,source_text_start,source_text_end,
+                   source_quote_hash,source_match_status,source_match_version,relation,
+                   classifier_version,review_status)
+                VALUES
+                  (%s,%s,%s,%s,%s,'unmapped',%s,%s,%s,%s,'exact',
+                   'source-exact-match-v1','unverified','source-exact-match-v1','unreviewed')
+                ON CONFLICT (tenant_pub_id,answer_pub_id,ordinal) DO UPDATE SET
+                  source_document_pub_id=EXCLUDED.source_document_pub_id,
+                  source_quote=EXCLUDED.source_quote,
+                  source_text_start=EXCLUDED.source_text_start,
+                  source_text_end=EXCLUDED.source_text_end,
+                  source_quote_hash=EXCLUDED.source_quote_hash,
+                  source_match_status='exact',
+                  source_match_version='source-exact-match-v1',
+                  updated_at=now()
+                """,
+                (
+                    relation_pub_id,
+                    context.tenant_pub_id,
+                    match["answer_pub_id"],
+                    match["ordinal"],
+                    source_document_pub_id,
+                    match["source_quote"],
+                    match["source_text_start"],
+                    match["source_text_end"],
+                    match["source_quote_hash"],
+                ),
             )
 
     def _persist_brand_mention_with_connection(
@@ -1271,29 +1503,74 @@ class _HttpxBrowserFetcher:
             return HttpAttempt(None, None, "", None, "transport", type(exc).__name__)
         status = response.status_code
         final_url = str(response.url)
+        redirect_chain = tuple(
+            {"url": str(item.url), "http_status": item.status_code} for item in response.history
+        )
         content_type = response.headers.get("content-type", "").lower()
         if status < 400 and "html" not in content_type and "text/" not in content_type:
             # 非 HTML 正文（PDF/图片/JSON 等）：不抽文本，如实记 0 字节走 extract_empty 判定
-            return HttpAttempt(final_url, status, "", None, None, f"content-type:{content_type}")
+            return HttpAttempt(
+                final_url,
+                status,
+                "",
+                None,
+                None,
+                f"content-type:{content_type}",
+                redirect_chain=redirect_chain,
+            )
         text = extract_text_from_html(response.text) if status < 400 else ""
-        return HttpAttempt(final_url, status, text, _EXTRACTOR_HTTPX if text else None, None, None)
+        metadata = (
+            extract_source_metadata(
+                response.text,
+                final_url=final_url,
+                response_headers=dict(response.headers),
+            )
+            if status < 400 and "html" in content_type
+            else None
+        )
+        return HttpAttempt(
+            final_url,
+            status,
+            text,
+            _EXTRACTOR_HTTPX if text else None,
+            None,
+            None,
+            metadata=metadata,
+            redirect_chain=redirect_chain,
+        )
 
     def fetch_browser(self, url: str) -> HttpAttempt:
         self._ensure_browser()
         page = self._context.new_page()
         try:
-            page.goto(url, wait_until="domcontentloaded", timeout=_GOTO_TIMEOUT_MS)
+            response = page.goto(url, wait_until="domcontentloaded", timeout=_GOTO_TIMEOUT_MS)
             page.wait_for_timeout(_SETTLE_MS)
             extracted = page.evaluate(_EXTRACT_TEXT_JS)
             raw_text = extracted if isinstance(extracted, str) else ""
             text = clean_text(raw_text)
             final_url = str(page.url)
+            page_html = page.content()
+            response_headers = response.all_headers() if response is not None else {}
+            http_status = response.status if response is not None else None
+            metadata = extract_source_metadata(
+                page_html,
+                final_url=final_url,
+                response_headers=response_headers,
+            )
         finally:
             try:
                 page.close()
             except Exception:
                 pass
-        return HttpAttempt(final_url, None, text, _EXTRACTOR_BROWSER if text else None, None, None)
+        return HttpAttempt(
+            final_url,
+            http_status,
+            text,
+            _EXTRACTOR_BROWSER if text else None,
+            None,
+            None,
+            metadata=metadata,
+        )
 
     def capture_brand_mention(
         self, url: str, brand_terms: tuple[str, ...]
@@ -1689,6 +1966,8 @@ def execute_source_fetch(
                         text=text,
                         fetched_at=fetched_at,
                         brand_mention=brand_mention,
+                        metadata=attempt.metadata,
+                        redirect_chain=attempt.redirect_chain,
                     )
                 else:
                     persisted = sink.persist(
@@ -1700,6 +1979,8 @@ def execute_source_fetch(
                         extractor=attempt.extractor if status == "ok" else None,
                         text=text,
                         fetched_at=fetched_at,
+                        metadata=attempt.metadata,
+                        redirect_chain=attempt.redirect_chain,
                     )
             except Exception as exc:
                 failures.append(

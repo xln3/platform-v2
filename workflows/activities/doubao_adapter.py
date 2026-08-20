@@ -14,8 +14,10 @@
 
 v1 边界（2026-08-05 W1 起 deep_think 解锁）：
 
-- ``mode='normal'`` 与 ``mode='deep_think'`` 均支持；其他 mode →
+- ``mode='normal'``（页面「快速」）与 ``mode='deep_think'``（页面「专家」）均支持；其他 mode →
   ``ApplicationError(..., type="unsupported_mode", non_retryable=True)`` 诚实拒绝。
+  两种模式都经 composer picker 显式切到目标态并做后置校验，避免浏览器继承上题
+  模式后把专家回答错标为快速（或反之）；快速态确认失败 → ``mode_toggle_failed``。
   deep_think 经 composer 模式 picker 的 UI toggle 启用（移植自旧链
   ``server/proxyllm/deep_think.py``，selector 漂移防护 + 后置校验原样保留）；
   无法确认启用 → ``deep_think_toggle_failed`` non_retryable，绝不静默回退 normal。
@@ -170,7 +172,7 @@ from workflows.activities.collection import (
     CollectionTaskInput,
     CollectionTaskResult,
 )
-from workflows.activities.doubao_share_bridge import capture_share_image, capture_share_link
+from workflows.activities.doubao_share_bridge import capture_share_link
 from workflows.activities.human_like import (
     human_click,
     human_move_to,
@@ -178,10 +180,7 @@ from workflows.activities.human_like import (
     human_read_pause,
     human_type,
 )
-from workflows.activities.official_share import (
-    recover_png_from_export_audit,
-    write_share_link_manifest,
-)
+from workflows.activities.official_share import probe_official_share_url, write_share_link_manifest
 from workflows.activities.raw_capture import dump_raw_evidence_refs, maybe_raw_capture
 from workflows.activities.resident_browser import (
     BrowserBusyError,
@@ -745,11 +744,20 @@ class _DeepThinkToggleFailed(RuntimeError):
         self.evidence_refs: list[CollectionEvidenceRef] = []
 
 
+class _QuickModeToggleFailed(RuntimeError):
+    """normal 请求无法确认页面已切到「快速」（non_retryable；拒绝错标结果）。"""
+
+    def __init__(self, message: str, evidence_path: Path | None = None) -> None:
+        super().__init__(message)
+        self.evidence_path = evidence_path
+        self.evidence_refs: list[CollectionEvidenceRef] = []
+
+
 class _ModeUnconfirmed(RuntimeError):
-    """deep_think 请求已下达（UI toggle 后置校验通过）但 SSE 无 thinking root
-    证据——诚实失败（non_retryable）：绝不把无思考证据的答案按 deep_think 落
-    completed。2026-08-14 起由 warning-only 升级（配额耗尽后平台静默回退快速
-    模式的「正常答案」曾是 2026-08-13 事故源头之一）。"""
+    """页面目标模式与 SSE 实际模式不一致时的诚实失败（non_retryable）。
+
+    deep_think 请求缺 thinking root，或 normal/快速请求反而出现 thinking root，
+    都拒绝按请求标签落 completed，防止模式错标。"""
 
     def __init__(self, message: str, evidence_path: Path | None = None) -> None:
         super().__init__(message)
@@ -949,7 +957,9 @@ async def run_doubao_batch(
         run_pub_id=batch.run_pub_id,
         attempt=attempt,
         items=len(specs),
-        proxy=mask_proxy_url(config.proxy_url),
+        browser_instance=instance_key,
+        egress_region_gb=route.exit_gb if route is not None else None,
+        fallback_proxy=(mask_proxy_url(config.proxy_url) if route is None else None),
     )
     progress: dict[str, Any] = {"stage": "browser_launch", "item": None}
 
@@ -1013,6 +1023,23 @@ async def run_doubao_batch(
                     item,
                     status="wall",
                     error_type="deep_think_toggle_failed",
+                    error_message=f"{toggle}{evidence_suffix}",
+                    evidence_path=toggle.evidence_path,
+                    evidence=toggle.evidence_refs,
+                )
+                for item in batch.items
+            ]
+        )
+    except _QuickModeToggleFailed as toggle:
+        # normal/快速同样 fail-closed：无法确认目标态时不得按快速模式落结果。
+        evidence_suffix = f"; evidence={toggle.evidence_path}" if toggle.evidence_path else ""
+        bound.info("doubao_batch_session_quick_toggle_failed", stage=progress["stage"])
+        return CollectionBatchResult(
+            results=[
+                _failure_batch_item(
+                    item,
+                    status="wall",
+                    error_type="mode_toggle_failed",
                     error_message=f"{toggle}{evidence_suffix}",
                     evidence_path=toggle.evidence_path,
                     evidence=toggle.evidence_refs,
@@ -1190,9 +1217,14 @@ async def run_doubao_collection(
         raise ApplicationError(
             f"{toggle}{evidence_suffix}", type="deep_think_toggle_failed", non_retryable=True
         ) from toggle
+    except _QuickModeToggleFailed as toggle:
+        evidence_suffix = f"; evidence={toggle.evidence_path}" if toggle.evidence_path else ""
+        bound.info("doubao_quick_mode_toggle_failed", stage=progress["stage"])
+        raise ApplicationError(
+            f"{toggle}{evidence_suffix}", type="mode_toggle_failed", non_retryable=True
+        ) from toggle
     except _ModeUnconfirmed as mu:
-        # deep_think 无 SSE 思考证据（2026-08-14 起）：non_retryable 诚实失败，
-        # 绝不把无思考证据的答案按 deep_think 落 completed。
+        # 请求模式与 SSE 实际态不一致：non_retryable 诚实失败，绝不错标落库。
         evidence_suffix = f"; evidence={mu.evidence_path}" if mu.evidence_path else ""
         bound.info("doubao_mode_unconfirmed", stage=progress["stage"])
         raise ApplicationError(
@@ -1266,20 +1298,9 @@ def _safe_stem(business_key: str) -> str:
 
 
 def _compose_answer_text(answer_text: str, references: list[dict[str, Any]]) -> str:
-    """正文 + 参考来源追加段（沿用旧链 render_transcript 的参考资料口径）。"""
-    text = answer_text.strip()
-    if not references:
-        return text
-    lines = [f"{text}", "", "参考来源："]
-    for i, ref in enumerate(references, 1):
-        title = str(ref.get("title") or "(无标题)").strip()
-        site = str(ref.get("sitename") or "").strip()
-        head = f"{i}. {title}" + (f" — {site}" if site else "")
-        lines.append(head)
-        url = str(ref.get("url") or "").strip()
-        if url:
-            lines.append(f"   {url}")
-    return "\n".join(lines)
+    """Keep the platform answer separate from its structured source relations."""
+    del references
+    return answer_text.strip()
 
 
 def _external_http_url(value: object) -> str | None:
@@ -1466,6 +1487,13 @@ class _PlaywrightDoubaoSession:
                         self._failure_outcome(spec, "wall", "deep_think_toggle_failed", toggle)
                     )
                     continue
+                except _QuickModeToggleFailed as toggle:
+                    # 快速态 picker 失败也是题级页面 flake；本题诚实失败，下一题
+                    # fresh_chat 后重新确认目标态，避免把整批未执行题连坐掉。
+                    outcomes.append(
+                        self._failure_outcome(spec, "wall", "mode_toggle_failed", toggle)
+                    )
+                    continue
                 except _IncompleteCapture as inc:
                     # 同上：截图为题级 flake，记 incomplete 后续跑，不中止整批。
                     outcomes.append(
@@ -1492,7 +1520,13 @@ class _PlaywrightDoubaoSession:
         spec: DoubaoBatchItemSpec,
         status: str,
         error_type: str,
-        exc: _WallError | _IncompleteCapture | _DeepThinkToggleFailed | _ModeUnconfirmed,
+        exc: (
+            _WallError
+            | _IncompleteCapture
+            | _DeepThinkToggleFailed
+            | _QuickModeToggleFailed
+            | _ModeUnconfirmed
+        ),
     ) -> DoubaoBatchItemOutcome:
         return DoubaoBatchItemOutcome(
             business_key=spec.business_key,
@@ -1670,9 +1704,9 @@ class _PlaywrightDoubaoSession:
             body_url_hints=("/chat/completion",),
             creator="geo-doubao-adapter",
         )
-        # 请求态≠实际态：deep_think 的 UI toggle 后置校验结果（None=本题未请求
-        # deep_think，无 toggle 环节）。toggle 失败在下方诚实 raise，走不到这里。
-        deep_think_ui_engaged: bool | None = None
+        # 请求态≠实际态：目标模式的 UI picker 后置校验结果。None 仅表示旧版页面
+        # 未暴露 picker（normal 沿用其默认快速态）；可观察到 picker 时必须显式确认。
+        mode_ui_engaged: bool | None = None
         try:
 
             def _pace(lo: float, hi: float) -> float:
@@ -1763,9 +1797,31 @@ class _PlaywrightDoubaoSession:
                         _shot("deep_think"),
                     )
                 # UI 后置校验通过 = 请求态已确认下达（实际态仍待 SSE 证据二次确认）。
-                deep_think_ui_engaged = True
+                mode_ui_engaged = True
                 _pace(*_PACE_AFTER_TOGGLE_S)  # 切完模式回神再回到输入框
                 on_stage("typing")
+            else:
+                # normal 在当前豆包 UI 中就是「快速」。浏览器会继承上题的专家态，
+                # 因此只在配置中写 normal 不够：picker 可观察时必须显式切回快速并
+                # 后置确认，确认不了就拒绝错标落库。无 picker 仅兼容旧版默认快速 UI。
+                picker = _mode_picker(page)
+                picker_state = _picker_state(page)
+                if picker is not None or picker_state:
+                    on_stage("enable_quick_mode")
+                    if not _try_enable_quick_mode(page, self._rng):
+                        raise _QuickModeToggleFailed(
+                            "normal mode requested but the composer picker could not be "
+                            "confirmed in quick mode (selector drift or mode unavailable)",
+                            _shot("quick_mode"),
+                        )
+                    mode_ui_engaged = True
+                    _pace(*_PACE_AFTER_TOGGLE_S)
+                    on_stage("typing")
+                else:
+                    log.info(
+                        "doubao_quick_mode_legacy_default",
+                        business_key=spec.business_key,
+                    )
             # 点输入框聚焦（贝塞尔移动 + 悬停 + 框内随机偏移点击）。human_click
             # 拿不到布局时内部回退原生 click；仍失败则原样抛出=诚实失败。
             clicked_at = human_click(input_loc, page, self._rng, start=self._mouse_pos)
@@ -1932,7 +1988,7 @@ class _PlaywrightDoubaoSession:
             # 业务字段水位）；normal 题同样记录（反向错配=请求 normal 实际 deep
             # 也如实可见）。
             mode_evidence = _mode_evidence(
-                spec.mode, ui_engaged=deep_think_ui_engaged, sse_trace=sse_trace
+                spec.mode, ui_engaged=mode_ui_engaged, sse_trace=sse_trace
             )
             if sse_trace is not None:
                 sse_trace["mode"] = mode_evidence
@@ -1980,6 +2036,12 @@ class _PlaywrightDoubaoSession:
                     "a normal-evidence answer as deep_think",
                     _shot("mode_unconfirmed"),
                 )
+            if spec.mode == "normal" and mode_evidence["actual"] != "normal":
+                raise _ModeUnconfirmed(
+                    "quick mode requested and UI picker confirmed, but SSE stream carries "
+                    "thinking-root evidence — refusing to record a deep-think answer as quick",
+                    _shot("mode_unconfirmed"),
+                )
 
             # Official share output is part of the successful-capture contract.  A
             # runtime browser screenshot is audit evidence, not a substitute for the
@@ -1989,15 +2051,7 @@ class _PlaywrightDoubaoSession:
             # 大量裸 mouse.click / locator.click：包一层 facade 换成拟人化路径。
             human_page = _HumanizedPageFacade(page, self._rng, start=self._mouse_pos)
             share_image_path = self._evidence_dir / f"{spec.file_stem}-share.png"
-            share_image_audit: dict[str, Any]
             share_link_audit: dict[str, Any]
-            try:
-                share_image_audit = capture_share_image(human_page, share_image_path)
-            except Exception as exc:
-                share_image_audit = {
-                    "ok": False,
-                    "error": f"{type(exc).__name__}: {exc}",
-                }
             try:
                 share_link_audit = capture_share_link(human_page)
             except Exception as exc:
@@ -2006,10 +2060,26 @@ class _PlaywrightDoubaoSession:
                     "error": f"{type(exc).__name__}: {exc}",
                 }
             share_url = _validated_doubao_share_url(share_link_audit.get("url"))
-            share_image_ok = bool(share_image_audit.get("ok")) and recover_png_from_export_audit(
-                share_image_path, share_image_audit
-            )
             share_link_ok = bool(share_link_audit.get("ok")) and share_url is not None
+            if share_link_ok and share_url is not None:
+                # 豆包 2026-08-17 新版「分享图片」预览会让 renderer 长时间卡在
+                # 生成态；公开 /thread 链接仍是平台官方产物且完整 SSR 问答。优先
+                # 截取并校验该官方分享页，既保留官方图证，也避免完整答案因旧入口
+                # 漂移被误记 incomplete。
+                share_image_audit = _capture_official_share_page(
+                    context,
+                    share_url,
+                    share_image_path,
+                    expected_question=spec.query,
+                    expected_answer=answer_text,
+                )
+            else:
+                share_image_audit = {
+                    "ok": False,
+                    "channel": "official_share_page_screenshot",
+                    "error": "validated share URL unavailable",
+                }
+            share_image_ok = bool(share_image_audit.get("ok"))
             if share_image_ok:
                 evidence.append(
                     CollectionEvidenceRef(
@@ -2031,6 +2101,10 @@ class _PlaywrightDoubaoSession:
                             str(share_link_audit.get("channel"))
                             if share_link_audit.get("channel")
                             else None
+                        ),
+                        verification=probe_official_share_url(
+                            share_url,
+                            allowed_hosts={"doubao.com", "www.doubao.com"},
                         ),
                     )
                 except OSError as exc:
@@ -2092,7 +2166,13 @@ class _PlaywrightDoubaoSession:
                 search_queries=search_queries,
                 answer_evidence=answer_evidence,
             )
-        except (_WallError, _IncompleteCapture, _DeepThinkToggleFailed, _ModeUnconfirmed) as exc:
+        except (
+            _WallError,
+            _IncompleteCapture,
+            _DeepThinkToggleFailed,
+            _QuickModeToggleFailed,
+            _ModeUnconfirmed,
+        ) as exc:
             # 失败题同样留 raw/HAR（题末先 dump 后 detach）：ref 挂异常对象，经
             # _failure_outcome → 失败 result.evidence → persist 层进 CAS。
             exc.evidence_refs = dump_raw_evidence_refs(
@@ -2243,6 +2323,87 @@ def _validated_doubao_share_url(value: object) -> str | None:
     if not parsed.path.startswith("/thread/"):
         return None
     return url
+
+
+def _capture_official_share_page(
+    context: Any,
+    share_url: str,
+    output_path: Path,
+    *,
+    expected_question: str,
+    expected_answer: str,
+) -> dict[str, Any]:
+    """把豆包官方 ``/thread`` 分享页存为 PNG，并校验它确属当前问答。
+
+    分享 URL 本身已通过 host/path 白名单；这里再以当前问题和答案前缀校验可见
+    DOM，防止剪贴板残留把上一题链接挂到本题。使用临时 tab，不改变采集主页面。
+    """
+
+    audit: dict[str, Any] = {
+        "ok": False,
+        "channel": "official_share_page_screenshot",
+        "url": share_url,
+        "path": str(output_path),
+        "error": None,
+        "question_verified": False,
+        "answer_verified": False,
+    }
+    share_page: Any | None = None
+
+    def _compact(value: str) -> str:
+        # SSE 正文保留 Markdown（#、**、列表符），官方分享页呈现的是渲染后
+        # 可见文本；比较前移除纯格式符，语义文字仍须逐字对应。
+        without_markdown = re.sub(r"[#*_>`~\[\]()]", "", value)
+        return re.sub(r"\s+", "", without_markdown)
+
+    try:
+        share_page = context.new_page()
+        response = share_page.goto(share_url, wait_until="domcontentloaded", timeout=30_000)
+        status = getattr(response, "status", None) if response is not None else None
+        audit["http_status"] = status
+        if isinstance(status, int) and status >= 400:
+            raise RuntimeError(f"official share page returned HTTP {status}")
+
+        # SSR shell 会先到，问答正文随后水合。等待当前问题实际可见，而不是只在
+        # hydration JSON 中搜字符串；当前 live 页面通常在 2–20s 内完成。
+        share_page.get_by_text(expected_question, exact=True).first.wait_for(
+            state="visible", timeout=25_000
+        )
+        body_text = str(share_page.locator("body").inner_text(timeout=10_000) or "")
+        audit["body_text_length"] = len(body_text)
+        compact_body = _compact(body_text)
+        compact_question = _compact(expected_question)
+        compact_answer = _compact(expected_answer)
+        # 取足以区分题目的答案前缀，同时避免长正文因 UI 插入工具条而精确串失败。
+        answer_probe = compact_answer[:80]
+        audit["answer_probe_length"] = len(answer_probe)
+        audit["question_verified"] = bool(compact_question) and compact_question in compact_body
+        audit["answer_verified"] = bool(answer_probe) and answer_probe in compact_body
+        if not audit["question_verified"] or not audit["answer_verified"]:
+            raise RuntimeError("official share page content does not match the current Q&A")
+
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        share_page.screenshot(path=str(output_path), full_page=True, timeout=45_000)
+        with Image.open(output_path) as image:
+            image.load()
+            if image.format != "PNG" or image.width < 320 or image.height < 240:
+                raise RuntimeError(
+                    f"invalid official share PNG: format={image.format} "
+                    f"size={image.width}x{image.height}"
+                )
+            audit["dims"] = {"width": image.width, "height": image.height}
+        audit["size"] = output_path.stat().st_size
+        audit["ok"] = True
+        return audit
+    except Exception as exc:
+        audit["error"] = f"{type(exc).__name__}: {exc}"
+        return audit
+    finally:
+        if share_page is not None:
+            try:
+                share_page.close()
+            except Exception:
+                pass
 
 
 def _source_screenshot_limit() -> int:
@@ -2755,9 +2916,7 @@ def _wall_hit_fragment(text: str, phrase: str, *, limit: int = 120) -> str:
 def _wall_verdict_message(verdict: WallVerdict, answer_text: str) -> str:
     """答案验收门命中 → _WallError message（类型 + 短语 + 截断片段 + 禁言解封时间）。"""
     fragment = _wall_hit_fragment(answer_text, verdict.phrase)
-    until_note = (
-        f" until={verdict.until.isoformat()}" if verdict.until is not None else ""
-    )
+    until_note = f" until={verdict.until.isoformat()}" if verdict.until is not None else ""
     return (
         f"answer-text wall hit [{verdict.wall_type}] phrase={verdict.phrase!r}"
         f"{until_note} fragment={fragment!r}"
@@ -3624,8 +3783,9 @@ def _mode_evidence(
     portal 对「请求了深度思考但证据中未检测到启用」的答案拒记深度态）。
 
     - ``requested``：任务请求的 mode（normal/deep_think）；
-    - ``ui_toggle_engaged``：发送前 picker 后置校验是否确认切换（None=本题
-      未请求 deep_think，无 toggle 环节；toggle 失败已诚实 raise，走不到这里）；
+    - ``ui_toggle_engaged``：发送前 picker 后置校验是否确认目标态；已处于目标态
+      也记 True，None 仅表示旧版 normal UI 没有可观察 picker；toggle 失败已诚实
+      raise，走不到这里；
     - ``sse_deep_think_active``：SSE 流证据（thinking root block_type=10040
       是否出现；None=无 SSE 可判——DOM 兜底/解析失败）；
     - ``actual``：仅当 SSE 证据为正才标 deep_think；证据缺失或为负一律如实
@@ -3656,6 +3816,7 @@ def _mode_evidence(
 # 入口。「快速」是默认项，绝不能算作已启用。
 _DEEP_MODE_LABELS = ("专家", "思考", "深度思考")
 _DEEP_MODE_SUBTITLES = ("研究级智能模型", "擅长解决更难的问题")
+_QUICK_MODE_LABELS = ("快速", "快速模式")
 
 # Picker 状态探针（selector 漂移防护，旧链 T-03）：读全部可见短按钮文本并筛
 # picker 候选——长度 <12 字符以免答案区长 chip 混入；思考块按钮（思考过程/已完成
@@ -3677,6 +3838,7 @@ _PICKER_STATE_JS = r"""() => {
 
 # picker 文本精确匹配表（非子串）——「思考过程」绝不能命中「思考」。
 _DEEP_PICKER_TEXTS = ("专家", "思考", "深度思考", "专家模式", "深度思考模式")
+_QUICK_PICKER_TEXTS = ("快速", "快速模式")
 
 
 def _picker_state(page: Any) -> list[str]:
@@ -3733,6 +3895,112 @@ def _deep_think_engaged(page: Any) -> bool:
         except Exception:
             continue
     return False
+
+
+def _quick_mode_engaged(page: Any) -> bool:
+    """后置校验：composer picker 当前显示「快速」，且没有仍显示专家/深思态。"""
+    hits = _picker_state(page)
+    if hits:
+        if any(t in _DEEP_PICKER_TEXTS or t.startswith(("专家", "思考", "深度思考")) for t in hits):
+            return False
+        return any(t in _QUICK_PICKER_TEXTS or t.startswith("快速") for t in hits)
+    for label in _QUICK_MODE_LABELS:
+        try:
+            btn = page.locator(f'button:has-text("{label}")').first
+            if btn.count() > 0 and btn.is_visible(timeout=400):
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _try_enable_quick_mode(page: Any, rng: random.Random) -> bool:
+    """把 composer picker 显式切到「快速」，以双拍后置状态为成功判据。
+
+    豆包会跨新会话保留上一次的专家态；normal 任务若不切换会被错误标注。与专家
+    toggle 一样，坐标点击被 Radix 吞掉时才使用 Playwright 原生指针点击兜底。
+    """
+
+    def _pace(lo: float, hi: float) -> float:
+        return human_pause(rng, lo, hi, sleep=lambda s: page.wait_for_timeout(int(s * 1000)))
+
+    if _quick_mode_engaged(page):
+        return True
+
+    picker = _mode_picker(page)
+    if picker is None:
+        return False
+
+    try:
+        menu_open = False
+        for _attempt in range(2):
+            human_click(picker, page, rng, hover_s=_PACE_PICKER_HOVER_S)
+            try:
+                page.get_by_role("menuitem", name=_QUICK_MODE_LABELS[0], exact=True).first.wait_for(
+                    state="visible", timeout=5_000
+                )
+                menu_open = True
+                break
+            except Exception:
+                try:
+                    page.get_by_text(_QUICK_MODE_LABELS[0], exact=True).first.wait_for(
+                        state="visible", timeout=1_000
+                    )
+                    menu_open = True
+                    break
+                except Exception:
+                    pass
+                try:
+                    picker.click(timeout=2_000)
+                    page.get_by_role(
+                        "menuitem", name=_QUICK_MODE_LABELS[0], exact=True
+                    ).first.wait_for(state="visible", timeout=5_000)
+                    menu_open = True
+                    break
+                except Exception:
+                    try:
+                        page.get_by_text(_QUICK_MODE_LABELS[0], exact=True).first.wait_for(
+                            state="visible", timeout=1_000
+                        )
+                        menu_open = True
+                        break
+                    except Exception:
+                        continue
+
+        _pace(*_PACE_MENU_READ_S)
+        candidates = []
+        if menu_open:
+            for label in _QUICK_MODE_LABELS:
+                candidates.append(page.get_by_role("menuitem", name=label, exact=True).first)
+                candidates.append(page.get_by_text(label, exact=True).first)
+                candidates.append(page.get_by_role("button", name=label, exact=True).first)
+        for option in candidates:
+            try:
+                if option.count() == 0 or not option.is_visible(timeout=400):
+                    continue
+                human_click(option, page, rng)
+                page.wait_for_timeout(400)
+                if _quick_mode_engaged(page):
+                    page.wait_for_timeout(400)
+                    if _quick_mode_engaged(page):
+                        return True
+                if option.is_visible(timeout=300):
+                    option.click(timeout=2_000)
+                    page.wait_for_timeout(400)
+                    if _quick_mode_engaged(page):
+                        page.wait_for_timeout(400)
+                        if _quick_mode_engaged(page):
+                            return True
+            except Exception:
+                continue
+    except Exception:
+        pass
+    try:
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(150)
+    except Exception:
+        pass
+    return _quick_mode_engaged(page)
 
 
 def _try_enable_deep_think(page: Any, rng: random.Random) -> bool:

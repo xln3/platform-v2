@@ -178,9 +178,7 @@ def mint_analysis_commands(run_pub_id: str) -> str:
                 raise RuntimeError(f"payload drift on {analysis_workflow_id}")
             minted += 1
         session.commit()
-        return (
-            f"minted_or_confirmed={minted} skipped={skipped} (completed={len(completed)})"
-        )
+        return f"minted_or_confirmed={minted} skipped={skipped} (completed={len(completed)})"
 
 
 async def run_sidecars(run_pub_id: str) -> None:

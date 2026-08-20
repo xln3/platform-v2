@@ -8,9 +8,11 @@
 即登录/OTP 表单）中继到管理员手机浏览器；人工完成登录后运维确认，工具做
 best-effort 登录态验证并干净退出。
 
-用法（生产 yiyan 文心一言，15510162660 开户）::
+用法（生产 yiyan 文心一言，脱敏账号开户）::
 
     set -a; . /etc/geo-platform-v2/worker-adapters.env; set +a
+    # feishu_app additionally sources the non-secret bot identifiers:
+    set -a; . /etc/geo-platform-v2/feishu-bot.env; set +a
     .venv/bin/python tools/otp_assist_login.py --platform yiyan_sh \
         --goto https://yiyan.baidu.com/ --ttl-min 60 --note "155开户"
 
@@ -21,33 +23,25 @@ best-effort 登录态验证并干净退出。
   ``GEO_BROWSER_<KEY>_CDP_URL``（未设置回退 ``GEO_<PLATFORM>_CDP_URL``——
   传旧平台 slug 仍可用，行为与升级前一致）。指向 supervisor 常驻浏览器
   CDP 端口。工具独立运行，不经 worker env 文件；运维按上行 source 加载。
-- 推送未配齐（``GEO_ASSIST_PUBLIC_BASE`` / ``GEO_ASSIST_NOTIFY_URL``）时必须显式
-  ``--no-notify``：只本地打印 ticket/链接；``GEO_ASSIST_PUBLIC_BASE`` 也缺时会
-  如实说明拼不出公网链接（ticket 明文照打，运维自行拼接
-  ``/api/v2/assist/<ticket>``）。推送 flavor 走 ``GEO_ASSIST_NOTIFY_FLAVOR``
-  （bark|serverchan|wecom|ntfy|raw，缺省 raw）。
+- 推送未配齐时必须显式 ``--no-notify``：旧 webhook 需要
+  ``GEO_ASSIST_PUBLIC_BASE`` / ``GEO_ASSIST_NOTIFY_URL``；``feishu_app`` 需要公网基址和
+  ``GEO_FEISHU_CHAT_ID``。bearer 只作为完整或相对接管 URL 的路径段输出；公网基址
+  缺失时不会单独打印 ticket。推送 flavor 走 ``GEO_ASSIST_NOTIFY_FLAVOR``
+  （feishu_app|feishu_webhook|bark|serverchan|wecom|ntfy|raw，缺省 raw）。
 - 平台互斥锁走 ``browser_lock(platform)``（进程内 + DB fencing；单 worker
   开发/测试可 ``GEO_BROWSER_FENCING=local`` 纯进程内锁）——会话全程持锁，
   防 batch 抢页；锁忙/DB 不可达 fail-closed → exit 1。
 
-done 感知的诚实现状（读 captcha_assist/assist_router 代码确认）：
-
-- workflow 撞码路径的 done = 手机页按钮 → ``POST /api/v2/assist/<ticket>/done``
-  → 按注册表 ``run_pub_id`` 查 DB CollectionRun → workflow signal outbox。
-  **CLI 会话没有 workflow run，该端点对本工具会话恒 404 run_not_found——
-  手机页 done 按钮对 CLI 会话不可用**（assist_router.py 只读不改）。
-- 因此本工具的 done 通道：运维在终端按 **Enter**（stdin 非 TTY 时退化纯轮询）；
-  同时轮询注册表 ``state``（active/solved/closed，与 captcha_assist 词表一致）
-  兜底——外部把 state 标 solved/closed（如未来 router 支持无 run done、或人工
-  改文件）都能被正确感知。手机页 frame/input/status 全可用（纯注册表驱动，
-  不依赖 DB）。CLI 确认 done 后会镜像 router 的 done 写（state=solved +
-  solved_at），手机页随即显示"已解决"。
+done 语义按注册表 ``session_kind`` 明确分流：workflow captcha 走幂等 workflow
+signal outbox；本工具写入 ``otp_cli``，手机页、飞书卡片或终端 Enter 的授权确认
+只推进 CLI 注册表，不查询不存在的 CollectionRun，也不发送 Temporal signal。
 
 退出码：0=人工完成；2=TTL 超时；3=配置门；1=attach/bridge/会话异常；130=Ctrl+C。
 
 纪律（继承 captcha_assist）：绝不杀常驻浏览器（退出只断 CDP 连接）；ticket 明文
-只出现在 stdout/推送 URL，绝不进日志/注册表文件；不打印任何 env 秘密（推送
-URL 含 key，只记 flavor）。patchright ``connect_over_cdp`` 会读 http_proxy env
+只作为 stdout 接管 URL 路径段或旧通道推送 URL 的一部分，绝不单独打印，也不进
+日志/注册表；不打印任何 env 秘密（推送 URL 含 key，只记 flavor）。patchright
+``connect_over_cdp`` 会读 http_proxy env
 （本机 mihomo 7890）导致 /json/version 400——本工具启动时进程内 pop 掉全部
 proxy env（不动 shell 环境）。
 """
@@ -55,6 +49,7 @@ proxy env（不动 shell 环境）。
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import re
 import secrets
@@ -62,8 +57,10 @@ import sys
 import threading
 import time
 from typing import Any, TextIO, cast
+from urllib.parse import urlsplit
 
 import structlog
+from geo_platform.notifications.redaction import redact_notification_text
 from temporalio.exceptions import ApplicationError
 
 from workflows.activities import captcha_assist
@@ -94,6 +91,20 @@ _PLATFORM_LABELS = {
     "tongyi": "通义千问",
     "yuanbao": "腾讯元宝",
 }
+
+
+def _safe_url_origin(value: str) -> str:
+    """Display an HTTP origin without credentials, path tokens, query, or fragment."""
+    try:
+        parsed = urlsplit(value)
+        host = parsed.hostname
+        if parsed.scheme not in {"http", "https"} or not host:
+            return "[non-http page]"
+        rendered_host = f"[{host}]" if ":" in host else host
+        authority = f"{rendered_host}:{parsed.port}" if parsed.port is not None else rendered_host
+        return f"{parsed.scheme}://{authority}/"
+    except ValueError:
+        return "[invalid page URL]"
 
 
 # ---------------------------------------------------------------------------
@@ -130,7 +141,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument(
         "--no-notify",
         action="store_true",
-        help="不推送（GEO_ASSIST_PUBLIC_BASE/NOTIFY_URL 未配齐时必须显式开启）",
+        help="不推送（公网基址/所选通知渠道未配齐时必须显式开启）",
     )
     parser.add_argument("--note", default="", help="事项备注（写进推送文案与注册表 business_key）")
     parser.add_argument(
@@ -230,15 +241,17 @@ def _build_registry_record(
 ) -> dict[str, Any]:
     """CLI 会话的注册表记录：字段集与 captcha_assist_start 完全一致。
 
-    唯一语义差别是 ``run_pub_id`` 指向 CLI 会话标识而非 DB CollectionRun——
-    frame/status/input 端点纯注册表驱动不受影响；done 端点因此 404（见模块
-    docstring「done 感知的诚实现状」）。``platform``=平台 slug（特征语义），
+    唯一语义差别是 ``run_pub_id`` 指向 CLI 会话标识而非 DB CollectionRun，且
+    ``tenant_pub_id`` 为空。统一 done 服务按 ``session_kind=otp_cli`` 推进注册表，
+    不查询 CollectionRun、不发送 Temporal signal。``platform``=平台 slug（特征语义），
     ``instance_key``=实际 attach 的常驻实例键（锁/CDP 口径；None→平台 slug）。
     """
     label = _PLATFORM_LABELS.get(platform, platform)
     created = int(now if now is not None else time.time())
     return {
         "version": 1,
+        "session_kind": "otp_cli",
+        "tenant_pub_id": None,
         "run_pub_id": run_pub_id,
         "session_id": session_id,
         "ticket_hash": ticket_hash,
@@ -326,7 +339,7 @@ def _read_page_state(sess: captcha_assist.AssistSession) -> tuple[str, str] | No
         url = str(sess.run_on_page(lambda page: page.url))
         title = str(sess.run_on_page(lambda page: page.title()))
     except Exception as exc:  # noqa: BLE001 — best-effort，失败如实报告
-        log.warning("otp_assist.page_state_unreadable", error=str(exc))
+        log.warning("otp_assist.page_state_unreadable", marker=type(exc).__name__)
         return None
     return url, title
 
@@ -340,7 +353,7 @@ def _report_verification(
         print("[警告] 无法读取页面状态——请在桌面浏览器人工核对登录态")
         return
     url, title = state
-    print(f"当前页面: {title!r} | {url}")
+    print(f"当前页面: {redact_notification_text(title)!r} | {_safe_url_origin(url)}")
     if expect_url_regex:
         ok = re.search(expect_url_regex, url) is not None
         print(f"登录态验证[url ~ /{expect_url_regex}/]: {'PASS' if ok else 'FAIL——请人工核对页面'}")
@@ -353,10 +366,7 @@ def _report_verification(
             )
         except Exception:  # noqa: BLE001 — 探测异常按不可见如实报 FAIL
             visible = False
-        print(
-            f"登录态验证[selector {expect_selector!r}]: "
-            f"{'PASS' if visible else 'FAIL——请人工核对页面'}"
-        )
+        print(f"登录态验证[selector]: {'PASS' if visible else 'FAIL——请人工核对页面'}")
     if not expect_url_regex and not expect_selector:
         print("（未配置 --expect-*，跳过自动验证——请按上面的 URL/title 人工判断登录态）")
 
@@ -387,7 +397,8 @@ def main(argv: list[str] | None = None) -> int:
             f"[配置错误] GEO_BROWSER_{lock_key.upper()}_CDP_URL / "
             f"GEO_{lock_key.upper()}_CDP_URL 均未配置——"
             f"工具独立运行，请先加载 worker env：\n"
-            f"  set -a; . /etc/geo-platform-v2/worker-adapters.env; set +a",
+            f"  set -a; . /etc/geo-platform-v2/worker-adapters.env; "
+            f". /etc/geo-platform-v2/feishu-bot.env; set +a",
             file=sys.stderr,
         )
         return EXIT_CONFIG
@@ -395,10 +406,12 @@ def main(argv: list[str] | None = None) -> int:
     # ── 配置门 2：推送（未配齐必须显式 --no-notify） ──
     public_base = os.environ.get("GEO_ASSIST_PUBLIC_BASE", "").strip()
     notify_url = os.environ.get("GEO_ASSIST_NOTIFY_URL", "").strip()
-    flavor = os.environ.get("GEO_ASSIST_NOTIFY_FLAVOR", "raw").strip() or "raw"
-    if not args.no_notify and (not public_base or not notify_url):
+    flavor = os.environ.get("GEO_ASSIST_NOTIFY_FLAVOR", "raw").strip().lower() or "raw"
+    chat_id = os.environ.get("GEO_FEISHU_CHAT_ID", "").strip()
+    channel_configured = bool(chat_id) if flavor == "feishu_app" else bool(notify_url)
+    if not args.no_notify and (not public_base or not channel_configured):
         print(
-            "[配置错误] GEO_ASSIST_PUBLIC_BASE / GEO_ASSIST_NOTIFY_URL 未配齐，"
+            "[配置错误] 人工接管公网基址或通知渠道配置未配齐，"
             "无法推送接管链接。配齐后重跑，或显式 --no-notify（仅本地打印链接）。",
             file=sys.stderr,
         )
@@ -431,8 +444,9 @@ def main(argv: list[str] | None = None) -> int:
         print("\n已中断（Ctrl+C）——会话清理中。", file=sys.stderr)
         return EXIT_INTERRUPTED
     except Exception as exc:  # noqa: BLE001 — 无 CDP/无页/锁忙，全部如实上报
-        print(f"[接管失败] 无法 attach {label} 常驻浏览器：{exc}", file=sys.stderr)
-        log.warning("otp_assist.start_failed", platform=platform, error=str(exc))
+        marker = type(exc).__name__
+        print(f"[接管失败] 无法 attach {label} 常驻浏览器（{marker}）", file=sys.stderr)
+        log.warning("otp_assist.start_failed", platform=platform, marker=marker)
         return EXIT_ATTACH_FAILED
 
     try:
@@ -451,16 +465,20 @@ def main(argv: list[str] | None = None) -> int:
 
         state = _read_page_state(sess)
         if state is not None:
-            print(f"已接管页面: {state[1]!r} | {state[0]}")
+            print(
+                f"已接管页面: {redact_notification_text(state[1])!r} | {_safe_url_origin(state[0])}"
+            )
 
         if args.goto:
             try:
                 sess.run_on_page(lambda page: page.goto(args.goto, wait_until="domcontentloaded"))
-                print(f"已导航到: {args.goto}")
+                print(f"已导航到: {_safe_url_origin(args.goto)}")
             except Exception as exc:  # noqa: BLE001 — headed 浏览器，运维可桌面手动导航
-                log.warning("otp_assist.goto_failed", error=str(exc))
+                marker = type(exc).__name__
+                log.warning("otp_assist.goto_failed", marker=marker)
                 print(
-                    f"[警告] 导航 {args.goto} 失败：{exc}（页面保持原状，可在桌面手动打开登录页）"
+                    f"[警告] 导航 {_safe_url_origin(args.goto)} 失败（{marker}）；"
+                    "页面保持原状，可在桌面手动打开登录页"
                 )
 
         print("=" * 72)
@@ -468,16 +486,10 @@ def main(argv: list[str] | None = None) -> int:
         if assist_url:
             print(f"接管链接: {assist_url}")
         else:
-            print(
-                "GEO_ASSIST_PUBLIC_BASE 未配置——拼不出公网链接；"
-                "请自行拼接 /api/v2/assist/<ticket>："
-            )
-        print(f"ticket: {ticket}")  # 明文只进 stdout/推送，绝不进日志
+            print("GEO_ASSIST_PUBLIC_BASE 未配置——只能提供相对接管链接：")
+            print(f"接管相对链接: /api/v2/assist/{ticket}")
         print("完成登录后回到本终端按 Enter 结束。")
-        print(
-            "注意：手机页「我已完成」按钮对 CLI 会话不可用（无 workflow run，"
-            "done 端点 404）——人工完成后须由运维在本终端确认。"
-        )
+        print("可在手机页/飞书卡片确认完成，也可回到本终端按 Enter。")
         print("=" * 72)
 
         # ── 推送（失败不废会话：链接已在 stdout，运维可手动转发） ──
@@ -489,9 +501,38 @@ def main(argv: list[str] | None = None) -> int:
                 f"有效期: {round(ttl_s / 60)} 分钟\n"
                 f"接管链接: {assist_url}"
             )
-            pushed = push_captcha_assist(flavor=flavor, url=notify_url, title=title, body=body)
+            if flavor == "feishu_app":
+                notification_id = captcha_assist._enqueue_feishu_app_assist(
+                    tenant_pub_id=None,
+                    session_kind="otp_cli",
+                    run_pub_id=run_pub_id,
+                    session_id=session_id,
+                    ticket_hash=ticket_hash,
+                    platform=platform,
+                    instance_key=instance_key or platform,
+                    business_key=args.note.strip() or "开户/登录",
+                    created_at=int(record["created_at"]),
+                    expires_at=int(record["expires_at"]),
+                    chat_id=chat_id,
+                )
+                pushed = notification_id is not None
+                if notification_id is not None:
+                    captcha_assist._patch_registry(
+                        ticket_hash,
+                        push_sent=True,
+                        delivery_enqueued=True,
+                        notification_id=notification_id,
+                    )
+            else:
+                pushed = push_captcha_assist(
+                    flavor=flavor,
+                    url=notify_url,
+                    title=title,
+                    body=body,
+                )
             if pushed:
-                captcha_assist._patch_registry(ticket_hash, push_sent=True)
+                if flavor != "feishu_app":
+                    captcha_assist._patch_registry(ticket_hash, push_sent=True)
                 print(f"推送已发出（flavor={flavor}）")
             else:
                 log.warning("otp_assist.push_failed", platform=platform, flavor=flavor)
@@ -500,7 +541,7 @@ def main(argv: list[str] | None = None) -> int:
         log.info(
             "otp_assist.session_started",
             platform=platform,
-            session_id=session_id,
+            session_ref=hashlib.sha256(session_id.encode("utf-8")).hexdigest()[:12],
             port=port,
             pushed=not args.no_notify,
         )
@@ -520,28 +561,41 @@ def main(argv: list[str] | None = None) -> int:
                 captcha_assist._patch_registry(
                     ticket_hash, state="solved", solved_at=int(time.time())
                 )
+            captcha_assist._mark_feishu_app_assist_state(ticket_hash, "solved")
             _report_verification(
                 sess, expect_selector=args.expect_selector, expect_url_regex=args.expect_url_regex
             )
             print("人工已确认完成，会话清理中（常驻浏览器保持运行）。")
-            log.info("otp_assist.done", platform=platform, session_id=session_id)
+            log.info(
+                "otp_assist.done",
+                platform=platform,
+                session_ref=hashlib.sha256(session_id.encode("utf-8")).hexdigest()[:12],
+            )
             return EXIT_OK
 
         if outcome == "ttl":
+            captcha_assist._mark_feishu_app_assist_state(ticket_hash, "expired")
             print(f"TTL {args.ttl_min:g} 分钟到期，人工未完成——会话已清理。", file=sys.stderr)
-            log.warning("otp_assist.ttl_expired", platform=platform, session_id=session_id)
+            log.warning(
+                "otp_assist.ttl_expired",
+                platform=platform,
+                session_ref=hashlib.sha256(session_id.encode("utf-8")).hexdigest()[:12],
+            )
             return EXIT_TTL_EXPIRED
 
-        print(f"会话异常终止（{outcome}）：{sess.error or '无详情'}", file=sys.stderr)
+        captcha_assist._mark_feishu_app_assist_state(ticket_hash, "closed")
+        error_marker = type(sess.error).__name__ if sess.error is not None else "unknown"
+        print(f"会话异常终止（{outcome}，{error_marker}）", file=sys.stderr)
         log.warning(
             "otp_assist.session_lost",
             platform=platform,
-            session_id=session_id,
+            session_ref=hashlib.sha256(session_id.encode("utf-8")).hexdigest()[:12],
             outcome=outcome,
-            error=str(sess.error) if sess.error else None,
+            marker=error_marker,
         )
         return EXIT_ATTACH_FAILED
     except KeyboardInterrupt:
+        captcha_assist._mark_feishu_app_assist_state(ticket_hash, "closed")
         print("\n已中断（Ctrl+C）——会话清理中。", file=sys.stderr)
         return EXIT_INTERRUPTED
     finally:

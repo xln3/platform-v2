@@ -61,15 +61,16 @@ class Settings(BaseSettings):
     # Intake AI 联网调研（Responses API + web_search；缺省值照旧版 ai_research.py env 口径）。
     research_llm_api_key: str = ""
     research_llm_model: str = "gpt-5.6-luna"
-    research_llm_base_url: str = "https://aihubmix.com"
-    research_llm_base_url_fallback: str = "https://api.inferera.com"
+    # 国外模型统一经 inferera；不得回落到需借用宿主机翻墙代理的端点。
+    research_llm_base_url: str = "https://api.inferera.com"
+    research_llm_base_url_fallback: str = ""
     research_llm_max_rounds: int = 3
     # AI 调研可选模型清单（GEO_RESEARCH_LLM_MODELS，逗号分隔）：暴露给前端下拉选择；
     # 空 = 仅缺省模型可选。缺省模型（research_llm_model）恒在清单首位。
     research_llm_models: str = ""
     # AI 报告起草（reports/narrative）可选模型清单（GEO_REPORT_LLM_MODELS，逗号分隔，
     # 首项=缺省）。七项为既定选型（developlog/implementation/fix-20260807-174349.md §8），
-    # 20260808 经 aihubmix /chat/completions 逐台实测。
+    # 模型传输形状经 /chat/completions 逐台实测；生产网关由 research_llm_base_url 统一控制。
     report_llm_models: str = (
         "deep-deepseek-v4-flash,deep-deepseek-v4-pro,claude-opus-5,gpt-5.6-sol,"
         "gemini-3.6-flash,baidu-glm-5.2,moonshot-kimi-k3"
@@ -99,7 +100,7 @@ class Settings(BaseSettings):
     audit_llm_base_url: str = ""
     audit_llm_model: str = ""
     # 主备 failover：空则复用 research_llm_base_url_fallback；再空 = 不做 failover。
-    # （20260810 实证：aihubmix 本机直连不通、inferera 直连通——单通道必挂。）
+    # 生产只允许 inferera；同端点不重复尝试，瞬时失败交给 activity/API 外层重试。
     audit_llm_base_url_fallback: str = ""
     # 信源帖子取证分析（post_analysis）LLM：三项留空则逐项复用 research_llm_*
     # （GEO_RESEARCH_LLM_*）的值；key 缺失 → 分析如实落 analysis_failed

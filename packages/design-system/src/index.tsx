@@ -1,5 +1,6 @@
 import {
   Component,
+  Fragment,
   createContext,
   useContext,
   useEffect,
@@ -31,7 +32,14 @@ export type ExperienceContextValue = {
   userPubId: string;
   userLabel: string;
   roles: readonly ('customer' | 'operator' | 'analyst' | 'reviewer' | 'admin')[];
+  projects?: readonly ExperienceProjectOption[];
   source?: 'live' | 'contract-fixture';
+};
+
+export type ExperienceProjectOption = {
+  projectPubId: string;
+  projectLabel: string;
+  state: 'draft' | 'active' | 'paused' | 'archived';
 };
 
 const ExperienceContext = createContext<ExperienceContextValue | null>(null);
@@ -91,6 +99,20 @@ const safeExperienceValue = (value: unknown, fallback: string, maxLength: number
 export function projectSafeExperienceContext(
   value: ExperienceContextValue,
 ): ExperienceContextValue {
+  const seenProjects = new Set<string>();
+  const projects = (value.projects ?? []).flatMap((project) => {
+    const projectPubId = safeExperienceValue(project.projectPubId, '', 120);
+    const projectLabel = safeExperienceValue(project.projectLabel, '未命名项目', 120);
+    if (
+      !/^prj_[A-Za-z0-9_-]{1,116}$/.test(projectPubId) ||
+      seenProjects.has(projectPubId) ||
+      !['draft', 'active', 'paused', 'archived'].includes(project.state)
+    ) {
+      return [];
+    }
+    seenProjects.add(projectPubId);
+    return [{ projectPubId, projectLabel, state: project.state } satisfies ExperienceProjectOption];
+  });
   return {
     tenantPubId: safeExperienceValue(value.tenantPubId, 'tnt_redacted', 120),
     tenantLabel: safeExperienceValue(value.tenantLabel, '租户已隐藏', 120),
@@ -101,6 +123,7 @@ export function projectSafeExperienceContext(
     roles: value.roles.filter((role) =>
       ['customer', 'operator', 'analyst', 'reviewer', 'admin'].includes(role),
     ),
+    ...(projects.length ? { projects } : {}),
     source: value.source === 'live' ? 'live' : 'contract-fixture',
   };
 }
@@ -906,10 +929,17 @@ export type DataState =
   | 'forbidden'
   | 'ready';
 
-export type NavItem = { id: string; label: string; badge?: string; href?: string };
+export type NavItem = {
+  id: string;
+  label: string;
+  group?: string;
+  badge?: string;
+  href?: string;
+};
 export type SafeNavItem = {
   id: string;
   label: string;
+  group?: string;
   badge?: string;
   href?: string;
   disabledExternal?: true;
@@ -959,6 +989,8 @@ export function projectSafeProductNavigation(items: readonly NavItem[]): SafeNav
       safeNavigationText(item.id, 64) && /^[A-Za-z][A-Za-z0-9_-]*$/.test(item.id) ? item.id : null;
     const label = safeNavigationText(item.label, 60);
     if (!id || !label || seenIds.has(id)) continue;
+    const group = item.group === undefined ? null : safeNavigationText(item.group, 40);
+    if (item.group !== undefined && !group) continue;
     const badge = item.badge === undefined ? null : safeNavigationText(item.badge, 12);
     if (item.badge !== undefined && !badge) continue;
     seenIds.add(id);
@@ -967,12 +999,13 @@ export function projectSafeProductNavigation(items: readonly NavItem[]): SafeNav
       projected.push({
         id,
         label,
+        ...(group ? { group } : {}),
         ...(badge ? { badge } : {}),
         ...(href ? { href } : { disabledExternal: true as const }),
       });
       continue;
     }
-    projected.push({ id, label, ...(badge ? { badge } : {}) });
+    projected.push({ id, label, ...(group ? { group } : {}), ...(badge ? { badge } : {}) });
   }
   return projected;
 }
@@ -2404,6 +2437,14 @@ export function ProductShell({
   const experience = useOptionalExperienceContext();
   const navId = useId();
   const mainRef = useRef<HTMLElement>(null);
+  const projectAwareHref = (href: string) => {
+    if (!experience?.projectPubId || !/^prj_[A-Za-z0-9_-]{1,116}$/.test(experience.projectPubId)) {
+      return href;
+    }
+    const target = new URL(href, 'https://geo-navigation.invalid');
+    target.searchParams.set('project', experience.projectPubId);
+    return `${target.pathname}${target.search}`;
+  };
   useEffect(() => {
     let active = true;
     setStatus('checking');
@@ -2469,40 +2510,38 @@ export function ProductShell({
           </div>
           <div className="workspace-label">{product}</div>
           <nav aria-label={`${product} 主导航`} id={navId}>
-            {safeNav.map((item) =>
-              item.href ? (
-                <a
-                  aria-label={item.label}
-                  aria-current={currentNavId === item.id ? 'page' : undefined}
-                  className={currentNavId === item.id ? 'nav-active' : undefined}
-                  href={item.href}
-                  key={item.id}
-                >
-                  <span>{item.label}</span>
-                  {item.badge ? <em>{item.badge}</em> : null}
-                </a>
-              ) : item.disabledExternal ? (
-                <button
-                  aria-label={item.label}
-                  disabled
-                  key={item.id}
-                  title="导航地址未通过安全校验"
-                >
-                  <span>{item.label}</span>
-                </button>
-              ) : (
-                <button
-                  aria-label={item.label}
-                  aria-current={active === item.id ? 'page' : undefined}
-                  className={active === item.id ? 'nav-active' : ''}
-                  key={item.id}
-                  onClick={() => setActive(item.id)}
-                >
-                  <span>{item.label}</span>
-                  {item.badge ? <em>{item.badge}</em> : null}
-                </button>
-              ),
-            )}
+            {safeNav.map((item, index) => (
+              <Fragment key={item.id}>
+                {item.group && item.group !== safeNav[index - 1]?.group ? (
+                  <h2 className="nav-group">{item.group}</h2>
+                ) : null}
+                {item.href ? (
+                  <a
+                    aria-label={item.label}
+                    aria-current={currentNavId === item.id ? 'page' : undefined}
+                    className={currentNavId === item.id ? 'nav-active' : undefined}
+                    href={projectAwareHref(item.href)}
+                  >
+                    <span>{item.label}</span>
+                    {item.badge ? <em>{item.badge}</em> : null}
+                  </a>
+                ) : item.disabledExternal ? (
+                  <button aria-label={item.label} disabled title="导航地址未通过安全校验">
+                    <span>{item.label}</span>
+                  </button>
+                ) : (
+                  <button
+                    aria-label={item.label}
+                    aria-current={active === item.id ? 'page' : undefined}
+                    className={active === item.id ? 'nav-active' : ''}
+                    onClick={() => setActive(item.id)}
+                  >
+                    <span>{item.label}</span>
+                    {item.badge ? <em>{item.badge}</em> : null}
+                  </button>
+                )}
+              </Fragment>
+            ))}
           </nav>
           <div className="sidebar-foot" role="status" aria-live="polite">
             <span className="live-dot" />
@@ -2518,7 +2557,7 @@ export function ProductShell({
             >
               {experience
                 ? `${experience.tenantLabel} · ${experience.projectLabel}`
-                : '云岫智能 · 品牌增长项目'}{' '}
+                : '未登录 · 未选择项目'}{' '}
               <span>⌄</span>
             </button>
             <div className="top-actions">
@@ -2530,7 +2569,7 @@ export function ProductShell({
                 ◌
               </button>
               <div className="avatar" title={experience?.userLabel}>
-                {experience?.userLabel.slice(0, 1) ?? '林'}
+                {experience?.userLabel.slice(0, 1) ?? '？'}
               </div>
               <button
                 type="button"
@@ -2585,6 +2624,43 @@ export function ProductShell({
               </dd>
             </div>
           </dl>
+          {experience?.projects && experience.projects.length > 1 ? (
+            <div className="project-context-list" aria-label="切换项目">
+              <h3>切换项目</h3>
+              {experience.projects.map((project) => {
+                const current = project.projectPubId === experience.projectPubId;
+                const stateLabel =
+                  project.state === 'active'
+                    ? '进行中'
+                    : project.state === 'draft'
+                      ? '准备中'
+                      : project.state === 'paused'
+                        ? '已暂停'
+                        : '已归档';
+                return current ? (
+                  <button
+                    type="button"
+                    className="project-context-option project-context-current"
+                    aria-current="page"
+                    disabled
+                    key={project.projectPubId}
+                  >
+                    <span>{project.projectLabel}</span>
+                    <em>当前项目</em>
+                  </button>
+                ) : (
+                  <a
+                    className="project-context-option"
+                    href={`?project=${encodeURIComponent(project.projectPubId)}`}
+                    key={project.projectPubId}
+                  >
+                    <span>{project.projectLabel}</span>
+                    <em>{stateLabel}</em>
+                  </a>
+                );
+              })}
+            </div>
+          ) : null}
           <p className="security-note">
             此处只展示安全投影；不会显示 Cookie、token、OTP、完整手机号或 profile 路径。
           </p>

@@ -300,7 +300,7 @@ def verify(
         )
         for row in rows
     )
-    frozen_questions = sorted({row.get("question", "") for row in workbook.get("问题冻结", [])})
+    frozen_questions = sorted({row.get("question", "") for row in workbook.get("问题清单", [])})
     expected_cells = [
         (question_text, platform_name, region_name)
         for question_text in frozen_questions

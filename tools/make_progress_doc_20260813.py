@@ -44,9 +44,21 @@ VARIANT_LABELS = ["原词/优化句", "变体A", "变体B", "变体C"]
 
 
 def main() -> None:
-    dsn = subprocess.check_output(
-        ["sudo", "-n", "sed", "-n", "s/^GEO_POSTGRES_DSN=//p", "/etc/geo-platform-v2/platform.env"]
-    ).decode().splitlines()[0].replace("postgresql+psycopg://", "postgresql://")
+    dsn = (
+        subprocess.check_output(
+            [
+                "sudo",
+                "-n",
+                "sed",
+                "-n",
+                "s/^GEO_POSTGRES_DSN=//p",
+                "/etc/geo-platform-v2/platform.env",
+            ]
+        )
+        .decode()
+        .splitlines()[0]
+        .replace("postgresql+psycopg://", "postgresql://")
+    )
 
     with psycopg.connect(dsn) as conn:
         rows = conn.execute(
@@ -69,8 +81,10 @@ def main() -> None:
     out: list[str] = []
     out.append("# 盛邦安全 GEO 正式采集一轮 · 采集进度表\n")
     out.append(f"- 生成时间：{now:%Y-%m-%d %H:%M %Z}")
-    out.append(f"- 统计口径：`capture_time ≥ {WINDOW_START}`（UTC 日界窗口）且 `mode=deep_think`"
-               f"（本轮全为深思考模式；normal 模式不在本轮矩阵）")
+    out.append(
+        f"- 统计口径：`capture_time ≥ {WINDOW_START}`（UTC 日界窗口）且 `mode=deep_think`"
+        f"（本轮全为深思考模式；normal 模式不在本轮矩阵）"
+    )
     out.append("- 目标矩阵：136 问（34 组×4 表述）× 3 平台 × 2 地域 × 2 次独立采样 = 1632 条回答")
     out.append("- 账号与实例对照（本轮每实例一账号，互不混用）：\n")
     out.append("| 平台×地域 | 采集实例 | 测评账号 | 模式 |")
@@ -101,7 +115,8 @@ def main() -> None:
                         leg_full[inst] += 1
             out.append(
                 f"| 附录{appendix} | G{gi:02d} | {VARIANT_LABELS[vi]} | {q} | "
-                + " | ".join(cells_txt) + " |"
+                + " | ".join(cells_txt)
+                + " |"
             )
 
     out.append("")

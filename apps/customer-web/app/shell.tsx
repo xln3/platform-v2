@@ -139,22 +139,28 @@ import {
   useCustomerMutationGuard,
   type CustomerAccountMutationTicket,
 } from './account-mutation-guard';
+import { CustomerAnalyticsWorkspace } from './customer-dashboard';
 import './ai-dock.css';
 
 const nav = [
-  { id: 'home', label: '首页' },
-  { id: 'profile', label: '资料' },
-  { id: 'intake', label: '信息表' },
-  { id: 'assets', label: '品牌产品' },
-  { id: 'questions', label: '问题目标' },
-  { id: 'monitoring', label: '监测表现' },
-  { id: 'evidence', label: '回答证据' },
-  { id: 'reports', label: '报告' },
-  { id: 'members', label: '成员' },
-  { id: 'accounts', label: '平台账号', badge: '2' },
+  { id: 'home', label: '经营总览', group: '数据洞察' },
+  { id: 'monitoring', label: '品牌可见度', group: '数据洞察' },
+  { id: 'answers', label: '真实 AI 回答', group: '数据洞察' },
+  { id: 'competition', label: '竞品对标', group: '数据洞察' },
+  { id: 'sources', label: '信源与内容', group: '数据洞察' },
+  { id: 'reputation', label: '口碑与风险', group: '数据洞察' },
+  { id: 'opportunities', label: '增长机会', group: '数据洞察' },
+  { id: 'evidence', label: '证据中心', group: '成果交付' },
+  { id: 'reports', label: '报告', group: '成果交付' },
+  { id: 'profile', label: '客户资料', group: '项目配置' },
+  { id: 'intake', label: '客户信息表', group: '项目配置' },
+  { id: 'assets', label: '品牌产品与竞品', group: '项目配置' },
+  { id: 'questions', label: '监测问题与目标', group: '项目配置' },
+  { id: 'members', label: '项目成员', group: '项目配置' },
+  { id: 'accounts', label: 'AI 平台账号与授权', group: '项目配置', badge: '2' },
 ];
 const liveNav = nav.map((item) =>
-  item.id === 'accounts' ? { id: item.id, label: item.label } : item,
+  item.id === 'accounts' ? { id: item.id, label: item.label, group: item.group } : item,
 );
 const noClientSecret = (value: string): boolean => !containsClientSecret(value);
 const noClientSecretMessage =
@@ -4814,21 +4820,7 @@ function HomeWorkspace() {
       {liveState === 'forbidden' ? <StatePanel state="forbidden" /> : null}
       {liveState === 'empty' ? <StatePanel state="empty" /> : null}
       {liveState === 'ready' ? <MetricGrid metrics={liveCards} /> : null}
-      {liveState === 'fixture' ? (
-        <MetricGrid
-          metrics={[
-            { label: '客户待办', value: '2', detail: '资料确认 1 · 报告问题 1' },
-            { label: '今日任务', value: '38/40', detail: '2 条延迟', trend: '95%' },
-            {
-              label: '最新提及率',
-              value: '68.4%',
-              detail: '26 / 38 个有效回答',
-              trend: '↑ 6.2%',
-            },
-            { label: '证据完整率', value: '92%', detail: '回答与信源截图' },
-          ]}
-        />
-      ) : null}
+      {liveState === 'fixture' ? <StatePanel state="insufficient" /> : null}
       <div className="two-column">
         <section className="panel">
           <h2>下一步</h2>
@@ -10053,11 +10045,8 @@ function AiOpsDock() {
   const [expanded, setExpanded] = useState(() => {
     const stored = readAiDockStorage(aiDockExpandedKey);
     if (stored) return stored !== '0';
-    // 窄屏（≤620px 底部固定导航布局）默认收起，避免悬浮面板遮挡底栏导航与内容；
-    // matchMedia 缺失的环境（如 jsdom）保持桌面语义：默认展开。
-    return !(
-      typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 620px)').matches
-    );
+    // 首访默认收起：操作入口常驻，但不遮挡客户仪表盘、筛选器和回答原文。
+    return false;
   });
   const [catalog, setCatalog] = useState<ResearchModelCatalog | null>(null);
   const [pinned, setPinned] = useState(() => readAiOperationModel('intake-research'));
@@ -10173,47 +10162,64 @@ export default function Shell() {
         nav={experience?.source === 'live' ? liveNav : nav}
         probe={getHealth}
       >
-        {(active) =>
-          experience?.source === 'live' &&
-          ![
-            'home',
-            'profile',
-            'intake',
-            'assets',
-            'monitoring',
-            'accounts',
-            'questions',
-            'evidence',
-            'reports',
-            'members',
-          ].includes(active) ? (
-            <StatePanel state="insufficient" />
-          ) : active === 'home' ? (
-            <HomeWorkspace />
-          ) : active === 'monitoring' ? (
-            <Monitoring />
-          ) : active === 'accounts' ? (
-            <Accounts />
-          ) : active === 'profile' ? (
-            <ProfileWorkspace />
-          ) : active === 'intake' ? (
-            <IntakeWorkspace />
-          ) : active === 'assets' ? (
-            <AssetsWorkspace />
-          ) : active === 'questions' ? (
-            <QuestionsWorkspace />
-          ) : active === 'evidence' ? (
-            <EvidenceWorkspace />
-          ) : active === 'reports' ? (
-            <ReportsWorkspace />
-          ) : active === 'members' ? (
-            <MembersWorkspace />
-          ) : (
-            <Placeholder active={active} />
-          )
-        }
+        {(active) => (
+          <>
+            {experience?.source === 'live' &&
+            ![
+              'home',
+              'answers',
+              'profile',
+              'intake',
+              'assets',
+              'monitoring',
+              'competition',
+              'sources',
+              'reputation',
+              'opportunities',
+              'accounts',
+              'questions',
+              'evidence',
+              'reports',
+              'members',
+            ].includes(active) ? (
+              <StatePanel state="insufficient" />
+            ) : active === 'home' ? (
+              <CustomerAnalyticsWorkspace focus="overview" />
+            ) : active === 'monitoring' ? (
+              <CustomerAnalyticsWorkspace focus="visibility" />
+            ) : active === 'answers' ? (
+              <CustomerAnalyticsWorkspace focus="answers" />
+            ) : active === 'competition' ? (
+              <CustomerAnalyticsWorkspace focus="competition" />
+            ) : active === 'sources' ? (
+              <CustomerAnalyticsWorkspace focus="sources" />
+            ) : active === 'reputation' ? (
+              <CustomerAnalyticsWorkspace focus="reputation" />
+            ) : active === 'opportunities' ? (
+              <CustomerAnalyticsWorkspace focus="opportunities" />
+            ) : active === 'accounts' ? (
+              <Accounts />
+            ) : active === 'profile' ? (
+              <ProfileWorkspace />
+            ) : active === 'intake' ? (
+              <IntakeWorkspace />
+            ) : active === 'assets' ? (
+              <AssetsWorkspace />
+            ) : active === 'questions' ? (
+              <QuestionsWorkspace />
+            ) : active === 'evidence' ? (
+              <EvidenceWorkspace />
+            ) : active === 'reports' ? (
+              <ReportsWorkspace />
+            ) : active === 'members' ? (
+              <MembersWorkspace />
+            ) : (
+              <Placeholder active={active} />
+            )}
+            {active === 'intake' ? <AiOpsDock /> : null}
+          </>
+        )}
       </ProductShell>
-      <AiOpsDock />
     </>
   );
 }

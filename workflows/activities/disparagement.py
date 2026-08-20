@@ -318,6 +318,7 @@ class _ResponsesApiJudge:
                     base_url=_normalize_base_url(base),
                     headers={"Authorization": f"Bearer {self._config.api_key}"},
                     timeout=_LLM_TIMEOUT_S,
+                    trust_env=False,
                 ) as client:
                     return self._post_with(client, body)
             except JudgeError as exc:
@@ -659,13 +660,16 @@ def execute_disparagement(
     # 阶段一：确定性切窗（answers 在前、documents 在后，顺序确定性）
     candidates: list[Window] = []
     for answer in context.answers:
+        # 内容风险核查只评价客户的目标品牌。竞品名称仍保留在
+        # ``known_brands`` 中，供判定器识别比较关系与拉踩方，但不再为竞品
+        # 单独切窗、生成判定或进入统计分母。
         candidates.extend(
             extract_windows(
                 subject_type="answer",
                 subject_pub_id=answer.pub_id,
                 text=answer.text,
                 brand=context.brand,
-                competitors=context.competitors,
+                competitors=(),
                 platform=answer.model,
             )
         )

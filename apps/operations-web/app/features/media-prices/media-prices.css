@@ -340,6 +340,191 @@ button.geo-badge.active {
   background: #f8fbf9;
 }
 
+.posting-workspace {
+  display: grid;
+  gap: 22px;
+}
+
+.posting-channel-tabs {
+  display: flex;
+  gap: 10px;
+}
+
+.posting-channel-tabs button {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 150px;
+  padding: 12px 18px;
+  border: 1px solid #cad8ce;
+  border-radius: 12px;
+  background: #fff;
+  color: #4b5a50;
+  font-weight: 700;
+}
+
+.posting-channel-tabs button.active {
+  border-color: #17613a;
+  background: #e8f4ec;
+  color: #17613a;
+}
+
+.posting-channel-tabs button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.posting-channel-tabs small {
+  font-weight: 500;
+}
+
+.posting-handoff,
+.posting-handoff-tray {
+  padding: 20px 22px;
+  border: 1px solid #cad8ce;
+  border-radius: 16px;
+  background: #f8fbf9;
+}
+
+.posting-handoff,
+.posting-handoff-tray > header,
+.posting-handoff-actions {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.posting-handoff h2,
+.posting-handoff-tray h3 {
+  margin: 4px 0;
+}
+
+.posting-handoff p,
+.posting-handoff-tray p,
+.posting-handoff-actions p {
+  margin: 4px 0 0;
+  color: #637168;
+}
+
+.primary-link {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  min-height: 42px;
+  padding: 9px 14px;
+  border-radius: 8px;
+  background: #17613a;
+  color: #fff;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.posting-handoff-actions {
+  padding-top: 4px;
+}
+
+.posting-handoff-actions .primary,
+.posting-account-form .primary,
+.posting-provider-captcha .primary {
+  background: #17613a;
+  border-color: #17613a;
+  color: #fff;
+  font-weight: 700;
+}
+
+.posting-accounts {
+  padding: 24px;
+  border: 1px solid #cad8ce;
+  border-radius: 18px;
+  background: #f8fbf9;
+}
+
+.posting-account-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 20px;
+}
+
+.posting-account-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid #d8e1da;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.posting-account-card > header {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.posting-account-card > header > div {
+  display: grid;
+  gap: 3px;
+}
+
+.posting-account-card p,
+.posting-account-card small {
+  margin: 0;
+  color: #637168;
+  overflow-wrap: anywhere;
+}
+
+.posting-account-caveat {
+  padding: 9px;
+  border-radius: 8px;
+  background: #fff4d6;
+  color: #775a00 !important;
+  font-size: 13px;
+}
+
+.posting-account-form,
+.posting-provider-captcha {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #edf0ee;
+}
+
+.posting-account-form label,
+.posting-provider-captcha label {
+  display: grid;
+  gap: 5px;
+  color: #4b5a50;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.posting-account-form input,
+.posting-provider-captcha input {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 9px;
+  border: 1px solid #b9c7be;
+  border-radius: 8px;
+  font: inherit;
+}
+
+.posting-account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 6px;
+}
+
+.posting-selection-provider {
+  align-self: center;
+}
+
 .posting-composer-heading,
 .posting-status-panel > header {
   display: flex;
@@ -358,6 +543,91 @@ button.geo-badge.active {
 .posting-status-panel header p {
   margin: 4px 0 0;
   color: #637168;
+}
+
+.posting-provider-login {
+  margin: 20px 0;
+  padding: 16px;
+  border: 1px solid #d4dfd7;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.posting-provider-login-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.posting-provider-login-summary > div {
+  flex: 1 1 280px;
+}
+
+.posting-provider-login-summary p,
+.posting-provider-login-form > p {
+  margin: 4px 0 0;
+  color: #637168;
+  font-size: 13px;
+}
+
+.posting-provider-login-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #e2e9e4;
+}
+
+.posting-provider-login-form > p,
+.posting-provider-login-form > .posting-provider-captcha,
+.posting-provider-login-form > .posting-confirmation {
+  grid-column: 1 / -1;
+}
+
+.posting-provider-login-form label {
+  display: grid;
+  gap: 6px;
+  color: #4b5a50;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.posting-provider-login-form input {
+  width: 100%;
+  min-height: 42px;
+  padding: 9px 10px;
+  border: 1px solid #b9c7be;
+  border-radius: 8px;
+  background: #fff;
+  color: #17211b;
+  font: inherit;
+}
+
+.posting-provider-captcha {
+  display: grid;
+  grid-template-columns: auto minmax(160px, 240px) 1fr;
+  gap: 14px;
+  align-items: end;
+}
+
+.posting-provider-captcha img {
+  width: 120px;
+  height: 40px;
+  border: 1px solid #b9c7be;
+  border-radius: 6px;
+  image-rendering: auto;
+}
+
+.posting-provider-captcha small {
+  align-self: center;
+  color: #637168;
+}
+
+.posting-account-card .posting-provider-captcha {
+  grid-template-columns: 1fr;
+  align-items: stretch;
 }
 
 .posting-empty {
@@ -607,6 +877,9 @@ button.geo-badge.active {
   .metric-row .metric-refresh {
     grid-column: 1 / -1;
   }
+  .posting-account-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 @media (max-width: 700px) {
   .media-prices {
@@ -649,12 +922,27 @@ button.geo-badge.active {
   .posting-composer {
     padding: 16px;
   }
+  .posting-accounts,
+  .posting-handoff,
+  .posting-handoff-tray {
+    padding: 16px;
+  }
+  .posting-account-grid {
+    grid-template-columns: 1fr;
+  }
+  .posting-handoff,
+  .posting-handoff-tray > header,
+  .posting-handoff-actions {
+    display: grid;
+  }
   .posting-composer-heading,
   .posting-status-panel > header {
     display: grid;
   }
   .posting-selection-list article,
   .posting-form-grid,
+  .posting-provider-login-form,
+  .posting-provider-captcha,
   .posting-target-statuses article {
     grid-template-columns: 1fr;
   }

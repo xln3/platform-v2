@@ -571,7 +571,7 @@ test('validated customer submits a project change request through the generated 
   );
 
   await page.goto('/platform/customer/');
-  await page.getByRole('button', { name: '问题目标' }).click();
+  await page.getByRole('button', { name: '监测问题与目标' }).click();
   await expect(page.getByText(/生成的 OpenAPI client/)).toBeVisible();
   await page.getByLabel('关注问题').fill('请使用验证码 824911 查询企业知识库');
   await page.getByLabel('业务原因').fill('需要覆盖客户采购决策阶段的真实比较问题。');
@@ -617,7 +617,9 @@ test('validated customer submits a project change request through the generated 
   );
 });
 
-test('monitoring filters are URL-bound and restore through browser history', async ({ page }) => {
+test('monitoring filters stay in content flow, are URL-bound and restore through history', async ({
+  page,
+}) => {
   await page.route('**/api/v2/health', (route) =>
     route.fulfill({
       status: 200,
@@ -630,34 +632,58 @@ test('monitoring filters are URL-bound and restore through browser history', asy
     }),
   );
   await page.goto('/platform/customer/');
-  await page.getByRole('button', { name: '监测表现' }).click();
+  await page.getByRole('button', { name: '品牌可见度', exact: true }).click();
   await expect(page).toHaveURL(/section=monitoring/);
-  await expect(page.getByText('各模型品牌提及率图表已渲染')).toBeAttached();
-  await expect(page.getByRole('table', { name: /各模型品牌提及率/ })).toBeVisible();
-  await page.getByLabel('模型', { exact: true }).selectOption('deepseek');
-  await expect(page).toHaveURL(/model=deepseek/);
-  await page.getByLabel('回答模式', { exact: true }).selectOption('deep');
-  await expect(page).toHaveURL(/mode=deep/);
-  await page.getByLabel('时间窗口').selectOption('7d');
-  await expect(page).toHaveURL(/window=7d/);
-  await page.getByLabel('监测地域').selectOption('east');
-  await expect(page).toHaveURL(/region=east/);
-  await expect(page.getByRole('heading', { name: '竞品表现' })).toBeVisible();
-  await expect(page.getByRole('table', { name: '近五个冻结日品牌提及率趋势' })).toBeVisible();
-  await expect(page.getByRole('table', { name: '品牌与确认竞品提及率' })).toBeVisible();
-  await expect(page.getByLabel('地域与回答模式表现')).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: '云岫智能 · 品牌可见度与模型表现' }),
+  ).toBeVisible();
+  await expect(page.getByRole('img', { name: '云岫智能提及率趋势' })).toBeVisible();
+  await expect(page.getByLabel('模型表现数据表')).toBeVisible();
+  await expect(page.getByLabel('地区表现数据表')).toBeVisible();
+  await expect(page.getByLabel('回答模式表现数据表')).toBeVisible();
+  const analysisFilters = page.getByLabel('分析筛选');
+  const modelFilter = analysisFilters
+    .locator('label')
+    .filter({ hasText: /^AI 模型/ })
+    .locator('select');
+  const modeFilter = analysisFilters
+    .locator('label')
+    .filter({ hasText: /^回答模式/ })
+    .locator('select');
+  const windowFilter = analysisFilters
+    .locator('label')
+    .filter({ hasText: /^统计区间/ })
+    .locator('select');
+  const regionFilter = analysisFilters
+    .locator('label')
+    .filter({ hasText: /^地区/ })
+    .locator('select');
+  await modelFilter.selectOption('DeepSeek');
+  await expect.poll(() => new URL(page.url()).searchParams.get('model')).toBe('DeepSeek');
+  await modeFilter.selectOption('深度回答');
+  await expect.poll(() => new URL(page.url()).searchParams.get('mode')).toBe('深度回答');
+  await windowFilter.selectOption('7d');
+  await expect.poll(() => new URL(page.url()).searchParams.get('window')).toBe('7d');
+  await regionFilter.selectOption('华东');
+  await expect.poll(() => new URL(page.url()).searchParams.get('region')).toBe('华东');
+  await expect(page.getByRole('heading', { name: '云岫智能 · 真实 AI 回答' })).toHaveCount(0);
 
   await page.goBack();
-  await expect(page.getByLabel('监测地域')).toHaveValue('all');
-  await expect(page.getByLabel('时间窗口')).toHaveValue('7d');
+  await expect(regionFilter).toHaveValue('all');
+  await expect(windowFilter).toHaveValue('7d');
   await page.goBack();
-  await expect(page.getByLabel('时间窗口')).toHaveValue('30d');
-  await expect(page.getByLabel('回答模式', { exact: true })).toHaveValue('deep');
+  await expect(windowFilter).toHaveValue('30d');
+  await expect(modeFilter).toHaveValue('深度回答');
   await page.goBack();
-  await expect(page.getByLabel('回答模式', { exact: true })).toHaveValue('all');
-  await expect(page.getByLabel('模型', { exact: true })).toHaveValue('deepseek');
+  await expect(modeFilter).toHaveValue('all');
+  await expect(modelFilter).toHaveValue('DeepSeek');
   await page.goBack();
-  await expect(page.getByLabel('模型', { exact: true })).toHaveValue('all');
+  await expect(modelFilter).toHaveValue('all');
+  await expect(analysisFilters).toHaveCSS('position', 'static');
+  await page.getByLabel('回答模式表现数据表').scrollIntoViewIfNeeded();
+  await expect
+    .poll(() => analysisFilters.evaluate((element) => element.getBoundingClientRect().bottom <= 0))
+    .toBe(true);
 });
 
 test('customer profile, brand assets and configuration requests validate and submit', async ({
@@ -677,14 +703,14 @@ test('customer profile, brand assets and configuration requests validate and sub
   );
   await page.goto('/platform/customer/');
 
-  await page.getByRole('button', { name: '资料' }).click();
+  await page.getByRole('button', { name: '客户资料' }).click();
   await page.getByRole('button', { name: '保存并生成版本' }).click();
   await expect(page.getByText('提交前必须确认资料真实性')).toBeVisible();
   await page.getByRole('checkbox', { name: /我确认上述客户声明真实/ }).check();
   await page.getByRole('button', { name: '保存并生成版本' }).click();
   await expect(page.getByText(/客户声明 v3/)).toBeVisible();
 
-  await page.getByRole('button', { name: '品牌产品' }).click();
+  await page.getByRole('button', { name: '品牌产品与竞品' }).click();
   await page.getByLabel('品牌名称').fill('澄明云');
   await page.getByLabel('官方 HTTPS 网站').fill('https://example.test');
   await page.getByLabel('产品或服务').fill('可信知识助手');
@@ -694,7 +720,7 @@ test('customer profile, brand assets and configuration requests validate and sub
   await page.getByRole('button', { name: '登记资产' }).click();
   await expect(page.getByText('澄明云')).toBeVisible();
 
-  await page.getByRole('button', { name: '问题目标' }).click();
+  await page.getByRole('button', { name: '监测问题与目标' }).click();
   await page.getByRole('button', { name: '提交审核' }).click();
   await expect(page.getByText('问题至少需要 8 个字')).toBeVisible();
   await page.getByLabel('关注问题').fill('制造企业如何选择可信的私有化知识库？');
@@ -724,11 +750,11 @@ test('customer reviews evidence, exports, questions reports and manages members'
     }),
   );
   await page.goto('/platform/customer/');
-  await page.getByRole('button', { name: '前往报告' }).click();
+  await page.getByRole('button', { name: '报告', exact: true }).click();
   await expect(page).toHaveURL(/section=reports/);
   await expect(page.getByRole('heading', { name: '2026 Q3 GEO 监测与优化建议' })).toBeVisible();
 
-  await page.getByRole('button', { name: '回答证据' }).click();
+  await page.getByRole('button', { name: '证据中心' }).click();
   await page.getByRole('button', { name: '下一页' }).click();
   await expect(page).toHaveURL(/answer_page=2/);
   await page.getByLabel('回答地域').selectOption('上海');
@@ -783,7 +809,7 @@ test('customer reviews evidence, exports, questions reports and manages members'
   await page.getByRole('button', { name: '确认收到 v1.2' }).click();
   await expect(page.getByText('已确认接收 v1.2')).toBeVisible();
 
-  await page.getByRole('button', { name: '成员' }).click();
+  await page.getByRole('button', { name: '项目成员' }).click();
   await page.getByLabel('姓名').fill('周岚');
   await page.getByLabel('工作邮箱').fill('zhoulan@example.test');
   await page.getByRole('button', { name: '发送邀请' }).click();

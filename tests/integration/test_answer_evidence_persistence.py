@@ -25,6 +25,7 @@ from workflows.activities.collection import (
     CollectionTaskResult,
     persist_collection_result,
 )
+from workflows.activities.official_share import ShareLinkVerification, write_share_link_manifest
 
 POSTGRES_DSN = os.getenv(
     "S02_POSTGRES_DSN", "postgresql://geo:geo_dev_only@127.0.0.1:55433/geo_platform"
@@ -142,7 +143,8 @@ def test_answer_anchor_and_clean_image_round_trip_through_postgres_and_cas(
         row = connection.execute(
             """
             SELECT task.answer_text,asset.object_key,asset.sha256,asset.mime_type,
-                   anchor.text_start,anchor.text_end,anchor.bbox,anchor.quote_hash
+                   anchor.text_start,anchor.text_end,anchor.bbox,anchor.quote_hash,
+                   asset.customer_visible
             FROM platform.collection_task task
             JOIN evidence.evidence_relation relation
               ON relation.tenant_pub_id=%s AND relation.from_pub_id=task.pub_id
@@ -163,6 +165,7 @@ def test_answer_anchor_and_clean_image_round_trip_through_postgres_and_cas(
     assert row[4:6] == (0, len(answer_text))
     assert row[6] == bbox
     assert row[7] == sha256(answer_text.encode()).hexdigest()
+    assert row[8] is False
 
     settings = get_settings()
     store = ContentAddressedObjectStore(
@@ -214,3 +217,129 @@ def test_answer_anchor_and_clean_image_round_trip_through_postgres_and_cas(
         ).fetchone()[0]
     persisted_ref = json.loads(evidence_json)[0]
     assert persisted_ref["anchors"][0]["bbox"] == bbox
+
+
+def test_official_share_verification_exposes_only_the_share_image(
+    tmp_path: Path,
+) -> None:
+    with TestClient(app) as client:
+        tenant_pub_id, run_pub_id = _bootstrap_run(client)
+
+    checked_at = datetime(2026, 8, 18, 9, 30, tzinfo=UTC)
+    share_url = "https://chat.deepseek.com/share/integration-safe"
+    manifest_path = tmp_path / "answer-share-link.json"
+    share_image_path = tmp_path / "official-share.png"
+    Image.new("RGB", (1200, 2400), "white").save(share_image_path, format="PNG")
+    write_share_link_manifest(
+        manifest_path,
+        share_url=share_url,
+        platform="deepseek",
+        channel="create-and-copy",
+        verification=ShareLinkVerification(
+            checked_at=checked_at,
+            availability_status="reachable",
+            http_status=200,
+            final_url=share_url,
+            redirect_chain=(),
+            allowlist_valid=True,
+            content_hash=sha256(b"official answer").hexdigest(),
+            embed_status="blocked",
+            x_frame_options="DENY",
+            csp_frame_ancestors=None,
+            embed_reason="x_frame_options_restricts_embedding",
+            failure_reason=None,
+        ),
+    )
+    persist_collection_result(
+        tenant_pub_id,
+        run_pub_id,
+        CollectionTaskResult(
+            business_key="answer-share-1",
+            answer_text="official answer",
+            screenshot_ref="",
+            quality_state="accepted",
+            evidence=[
+                CollectionEvidenceRef(
+                    kind="share_link",
+                    path=str(manifest_path),
+                    relation_type="official_share_link",
+                    mime_type="application/json",
+                    source_url=share_url,
+                ),
+                CollectionEvidenceRef(
+                    kind="share_image",
+                    path=str(share_image_path),
+                    relation_type="official_share_image",
+                    mime_type="image/png",
+                    source_url=share_url,
+                ),
+            ],
+        ),
+        CollectionTaskInput(
+            business_key="answer-share-1",
+            query="Share?",
+            model="deepseek",
+            region="CN-BJ",
+            mode="normal",
+            adapter="deepseek",
+        ),
+    )
+
+    with psycopg.connect(POSTGRES_DSN) as connection:
+        artifact = connection.execute(
+            """
+            SELECT status,share_url,availability_status,http_status,checked_at,
+                   embed_status,x_frame_options,share_link_evidence_pub_id,
+                   share_image_evidence_pub_id
+            FROM evidence.answer_share_artifact
+            WHERE tenant_pub_id=%s AND answer_pub_id=(
+              SELECT task.pub_id FROM platform.collection_task task
+              WHERE task.run_id=(SELECT id FROM platform.collection_run WHERE pub_id=%s)
+                AND task.business_key='answer-share-1'
+            )
+            """,
+            (tenant_pub_id, run_pub_id),
+        ).fetchone()
+        event_count = connection.execute(
+            """
+            SELECT count(*) FROM evidence.answer_share_verification_event event
+            JOIN evidence.answer_share_artifact artifact
+              ON artifact.pub_id=event.artifact_pub_id
+            WHERE artifact.tenant_pub_id=%s AND artifact.share_url=%s
+            """,
+            (tenant_pub_id, share_url),
+        ).fetchone()[0]
+        visibility = connection.execute(
+            """
+            SELECT relation.relation_type,asset.kind,asset.customer_visible
+            FROM evidence.evidence_relation relation
+            JOIN evidence.evidence_asset asset
+              ON asset.tenant_pub_id=relation.tenant_pub_id
+             AND asset.pub_id=relation.to_pub_id
+            WHERE relation.tenant_pub_id=%s AND relation.from_pub_id=(
+              SELECT task.pub_id FROM platform.collection_task task
+              WHERE task.run_id=(SELECT id FROM platform.collection_run WHERE pub_id=%s)
+                AND task.business_key='answer-share-1'
+            )
+              AND relation.relation_type IN ('official_share_link','official_share_image')
+            ORDER BY relation.relation_type
+            """,
+            (tenant_pub_id, run_pub_id),
+        ).fetchall()
+    assert artifact is not None
+    assert artifact[:7] == (
+        "available",
+        share_url,
+        "reachable",
+        200,
+        checked_at,
+        "blocked",
+        "DENY",
+    )
+    assert artifact[7] is not None
+    assert artifact[8] is not None
+    assert event_count == 1
+    assert visibility == [
+        ("official_share_image", "share_image", True),
+        ("official_share_link", "share_link", False),
+    ]

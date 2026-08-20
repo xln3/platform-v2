@@ -23,6 +23,7 @@ from .collection.schedule_router import router as schedule_router
 from .collection.terminal_router import router as terminal_router
 from .config import get_settings
 from .contracts import ApiError, Health, Readiness
+from .customer_dashboard.router import router as customer_dashboard_router
 from .datasets.router import router as datasets_router
 from .identity.router import router as identity_router
 from .intake.router import public_router as intake_public_router
@@ -167,6 +168,7 @@ app.include_router(quotations_router)
 app.include_router(project_catalog_router)
 app.include_router(confirmation_router)
 app.include_router(customer_router)
+app.include_router(customer_dashboard_router)
 app.include_router(onboarding_router)
 app.include_router(collection_router)
 app.include_router(account_admin_router)

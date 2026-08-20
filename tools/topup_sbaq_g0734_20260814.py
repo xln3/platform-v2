@@ -76,9 +76,7 @@ def coverage(leg: str) -> dict[str, int]:
     return {question: found.get(question, 0) for question in questions}
 
 
-def deficit_groups(
-    counts: dict[str, int], max_queries: int
-) -> list[dict[str, object]]:
+def deficit_groups(counts: dict[str, int], max_queries: int) -> list[dict[str, object]]:
     remaining = max_queries
     groups: list[dict[str, object]] = []
     for group_number, name, questions in GROUPS:
@@ -99,10 +97,7 @@ def deficit_groups(
 
 def _api_groups(groups: list[dict[str, object]]) -> list[dict[str, object]]:
     """Strip operator-only group numbers from the frozen config payload."""
-    return [
-        {"name": str(group["name"]), "items": group["items"]}
-        for group in groups
-    ]
+    return [{"name": str(group["name"]), "items": group["items"]} for group in groups]
 
 
 def _client() -> httpx.Client:
@@ -116,9 +111,7 @@ def _client() -> httpx.Client:
     )
 
 
-def launch(
-    leg: str, pass_id: str, groups: list[dict[str, object]]
-) -> tuple[str, str]:
+def launch(leg: str, pass_id: str, groups: list[dict[str, object]]) -> tuple[str, str]:
     model, region = LEGS[leg]
     key = f"sbaq-g0734-gradual-{leg}-{pass_id}-{DATE_TAG}"
     with _client() as client:

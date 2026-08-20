@@ -20,6 +20,11 @@ page_coverage = {
             "assets",
             "questions",
             "monitoring",
+            "answers",
+            "competition",
+            "sources",
+            "reputation",
+            "opportunities",
             "evidence",
             "reports",
             "members",
@@ -34,6 +39,7 @@ page_coverage = {
         "external_sections": {
             "execution",
             "media-prices",
+            "posting",
             "quotation-generator",
             "sop",
             "onboarding",
@@ -171,9 +177,7 @@ for app, basename in apps.items():
             or source.is_relative_to(app_root / "app" / "features" / "login")
             or source.is_relative_to(app_root / "app" / "features" / "onboarding")
             or source.is_relative_to(app_root / "app" / "features" / "services")
-            or source.is_relative_to(
-                app_root / "app" / "features" / "account-governance"
-            )
+            or source.is_relative_to(app_root / "app" / "features" / "account-governance")
         ):
             continue
         # report-studio 的扩展 fact 面板直连同源扩展组端点：扩展键（w3_disparagement/
@@ -701,8 +705,8 @@ if "location.reload()" in (root / "packages/design-system/src/index.tsx").read_t
 
 local_retry_specs = {
     "tests/e2e/customer-local-retry.spec.ts": (
-        "customer-overview-transient",
-        "successfulOverviewRequests",
+        "customer-dashboard-transient",
+        "successfulDashboardRequests",
     ),
     "tests/e2e/reports-local-retry.spec.ts": (
         "report-catalog-transient",
@@ -759,8 +763,8 @@ for fragment in (
     "SESSION=local-retry-evidence-canary",
     "Bearer local-retry-page-canary",
     "证据中心",
-    "真实 0",
-    "暂无数据",
+    "page.getByText('evd_customer_retry_safe')",
+    "page.locator('body').innerText()",
 ):
     if fragment not in customer_retry_e2e:
         errors.append(
@@ -772,26 +776,24 @@ customer_monitoring_integrity_e2e = (
     root / "tests/e2e/customer-monitoring-integrity.spec.ts"
 ).read_text(encoding="utf-8")
 for fragment in (
-    "oversized monitoring facts stay bounded and disclose malformed rows",
-    "filter changes discard slower monitoring auxiliary and breakdown responses",
-    "KPI 概览：服务返回 5 条，浏览器安全视图展示 3 条",
-    "问题级表现：服务返回 101 条，浏览器安全视图展示 99 条",
+    "oversized atomic dashboard collections fail closed without exposing rejected rows",
+    "operational fields fail the atomic customer dashboard snapshot closed",
+    "a malformed nested dimension fails atomically instead of claiming an empty window",
+    "filter changes discard an older customer dashboard snapshot response",
+    "models: Array.from({ length: 101 }",
     "expectAccessible(page)",
-    "stale-monitoring-canary",
-    "currentOverviewGate",
-    "getByText('50.0%', { exact: true })).toHaveCount(0)",
-    "getByText('95.0%', { exact: true })).toBeVisible()",
-    "overview-visible-canary",
-    "monitoring-delta-proxy-password",
-    "monitoring-competitor-proxy-password",
-    "a wholly invalid delta fails only its local panel instead of claiming an empty window",
-    "delta-invalid-current-canary",
-    "a zero-row metric export receipt fails locally without a false artifact claim",
-    "zero-row-export-canary",
+    "atomic-dashboard-oversize-canary",
+    "wf_customer_dashboard_forbidden",
+    "customer-dashboard-token-canary",
+    "oldRequestCount",
+    "currentRequestCount",
+    "getByText('95.0%', { exact: true }).first()).toBeVisible()",
+    "getByText('10.0%', { exact: true })).toHaveCount(0)",
 ):
     if fragment not in customer_monitoring_integrity_e2e:
         errors.append(
-            "tests/e2e/customer-monitoring-integrity.spec.ts is missing bounded/race/DLP "
+            "tests/e2e/customer-monitoring-integrity.spec.ts is missing atomic "
+            "bounded/race/DLP "
             f"coverage: {fragment}"
         )
 
@@ -1545,7 +1547,7 @@ for fragment in (
     "expect(governanceWrites).toBe(0)",
     "validated customer reads mounted data and serializes every write without secret leakage",
     "synchronouslyActivateTwice",
-    "expect(exportBodies).toHaveLength(1)",
+    "expect(exportBodies).toHaveLength(0)",
     "expect(packageBodies).toHaveLength(1)",
     "expect(reportQuestionBodies).toEqual([",
     "expect(deliveryConfirmBodies).toEqual([",
@@ -1671,9 +1673,9 @@ for fragment in (
 ):
     if fragment not in api_client:
         errors.append(f"@geo/api-client browser identity type is missing {fragment}")
-if api_client.count("client: ProjectedApiClientOverride = apiClient") != 118:
+if api_client.count("client: ProjectedApiClientOverride = apiClient") != 133:
     errors.append(
-        "@geo/api-client must keep all 118 projected wrapper overrides free of the raw "
+        "@geo/api-client must keep all 133 projected wrapper overrides free of the raw "
         "generated client type"
     )
 projected_client_unwraps = len(
@@ -1682,7 +1684,7 @@ projected_client_unwraps = len(
         api_client,
     )
 ) + api_client.count("const api = projectedApiClient(client);")
-if projected_client_unwraps != 118:
+if projected_client_unwraps != 133:
     errors.append(
         "@geo/api-client must unwrap every projected wrapper override only inside its "
         "generated request implementation"
@@ -2393,8 +2395,8 @@ for fragment in (
     "expect(writes).toHaveLength(1)",
     "'x-actor-id': 'tenant-admin-integrity'",
     "'x-actor-role': 'admin'",
-    "await page.getByRole('button', { name: '首页' }).click()",
-    "getByRole('button', { name: '成员', exact: true })",
+    "await page.getByRole('button', { name: '经营总览', exact: true }).click()",
+    "getByRole('button', { name: '项目成员', exact: true })",
     "expect(memberReads).toBe(1)",
     "expect(oidcReads).toBe(1)",
     "await expect.poll(() => writeResponseSent).toBe(true)",
@@ -4049,6 +4051,21 @@ for product, coverage in page_coverage.items():
         errors.append(
             f"{coverage['app']} navigation drifted; missing={missing}, unexpected={unexpected}"
         )
+    if coverage["app"] == "customer-web":
+        entry_match = re.search(
+            r"installClientBrowserSecurity\(\s*\[(.*?)\]\s*\)",
+            client_entries["customer-web"],
+            flags=re.DOTALL,
+        )
+        entry_sections = (
+            set(re.findall(r"['\"]([^'\"]+)['\"]", entry_match.group(1))) if entry_match else set()
+        )
+        if entry_sections != navigation_sections:
+            errors.append(
+                "customer-web URL security allowlist drifted from product navigation; "
+                f"missing={sorted(navigation_sections - entry_sections)}, "
+                f"unexpected={sorted(entry_sections - navigation_sections)}"
+            )
 
     spec_path = root / "tests" / "e2e" / str(coverage["spec"])
     spec = spec_path.read_text(encoding="utf-8")

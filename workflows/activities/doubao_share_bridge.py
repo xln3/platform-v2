@@ -80,4 +80,22 @@ def capture_share_image(page: Any, out_path: Path) -> dict[str, Any]:
 
 
 def capture_share_link(page: Any) -> dict[str, Any]:
-    return dict(_share_export_module().capture_share_link(page, timeout_s=25.0))
+    module = _share_export_module()
+    first = dict(module.capture_share_link(page, timeout_s=25.0))
+    if first.get("ok"):
+        return first
+    if first.get("error") not in {"no_header_icon_candidates", "selector_modal_not_opened"}:
+        return first
+
+    # 2026-08-17 live：部分账号的分享弹层恰在首轮 response listener 超时后才
+    # 水合；首轮随即以 no_header_icon_candidates 返回，但页面此时已明确显示
+    # 「分享图片 / 复制链接」。在同一已完成回答上重试一次，legacy 会识别
+    # already_open 并完成官方链接提交；有界两次，不盲点任何未知控件。
+    second = dict(module.capture_share_link(page, timeout_s=25.0))
+    second["attempts"] = 2
+    second["first_attempt"] = {
+        "error": first.get("error"),
+        "channel": first.get("channel"),
+        "timings_ms": first.get("timings_ms"),
+    }
+    return second

@@ -65,10 +65,17 @@ def list_assets(
                    source_url,capture_time,authorized_session_capture
             FROM evidence.evidence_asset
             WHERE tenant_pub_id=%s AND deleted_at IS NULL
+              AND (%s OR customer_visible)
               AND (%s::text IS NULL OR pub_id>%s::text)
             ORDER BY pub_id LIMIT %s
             """,
-            (principal.tenant_pub_id, cursor, cursor, limit + 1),
+            (
+                principal.tenant_pub_id,
+                principal.allows("evidence:read"),
+                cursor,
+                cursor,
+                limit + 1,
+            ),
         ).fetchall()
     has_more = len(rows) > limit
     data = rows[:limit]
@@ -106,8 +113,9 @@ def asset_content(
             SELECT object_key,sha256,mime_type
             FROM evidence.evidence_asset
             WHERE tenant_pub_id=%s AND pub_id=%s AND deleted_at IS NULL
+              AND (%s OR customer_visible)
             """,
-            (principal.tenant_pub_id, evidence_pub_id),
+            (principal.tenant_pub_id, evidence_pub_id, principal.allows("evidence:read")),
         ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail={"code": "evidence_not_found"})
@@ -143,6 +151,7 @@ def create_package(
         evidence_pub_ids=body.evidence_pub_ids,
         public=body.public,
         expires_at=body.expires_at,
+        customer_visible_only=not principal.allows("evidence:read"),
     )
     return {
         "package_pub_id": body.package_pub_id,

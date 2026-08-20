@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 900px;
+        min-height: 1320px;
+        margin: 0;
+      }
+      body {
+        background: #f4f5f8;
+        color: #27272a;
+        font-family: 'Noto Sans CJK SC', system-ui, sans-serif;
+      }
+      .topbar {
+        display: flex;
+        align-items: center;
+        height: 96px;
+        padding: 0 64px;
+        background: #fff;
+      }
+      .logo,
+      .bot {
+        display: grid;
+        flex: 0 0 auto;
+        place-items: center;
+        border-radius: 50%;
+        background: #18181b;
+        color: #fff;
+        font-weight: 800;
+      }
+      .logo {
+        width: 50px;
+        height: 50px;
+        font-size: 18px;
+      }
+      .brand {
+        display: grid;
+        gap: 2px;
+        margin-left: 18px;
+      }
+      .brand strong {
+        color: #18181b;
+        font-size: 22px;
+      }
+      .brand span {
+        color: #71717a;
+        font-size: 14px;
+      }
+      .time {
+        margin-left: auto;
+        padding: 10px 24px;
+        border-radius: 999px;
+        background: #f0f1f4;
+        color: #52525b;
+        font-size: 14px;
+      }
+      .question {
+        width: 690px;
+        margin: 36px 65px 34px auto;
+        padding: 23px 34px;
+        border-radius: 25px;
+        background: #e8f1ff;
+      }
+      .question strong {
+        display: block;
+        color: #18181b;
+        font-size: 19px;
+      }
+      .question span {
+        display: block;
+        margin-top: 7px;
+        color: #52525b;
+        font-size: 15px;
+      }
+      .answer {
+        width: 810px;
+        min-height: 970px;
+        margin: 0 auto;
+        padding: 30px 37px 34px;
+        border-radius: 24px;
+        background: #fff;
+      }
+      .byline {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        color: #71717a;
+        font-size: 15px;
+      }
+      .bot {
+        width: 44px;
+        height: 44px;
+        background: #4f46e5;
+      }
+      h1,
+      h2 {
+        color: #18181b;
+        font-family: 'Noto Serif CJK SC', serif;
+      }
+      h1 {
+        margin: 30px 0 14px;
+        font-size: 30px;
+      }
+      h2 {
+        margin: 30px 0 12px;
+        font-size: 23px;
+      }
+      p {
+        margin: 0;
+        font-size: 18px;
+        line-height: 1.8;
+      }
+      sup {
+        display: inline-grid;
+        min-width: 27px;
+        height: 23px;
+        place-items: center;
+        margin-left: 8px;
+        border-radius: 7px;
+        background: #e0e7ff;
+        color: #4338ca;
+        font-size: 13px;
+      }
+      ul {
+        display: grid;
+        gap: 12px;
+        margin: 0;
+        padding-left: 27px;
+        font-size: 17px;
+      }
+      li::marker {
+        color: #4f46e5;
+      }
+      table {
+        width: 100%;
+        margin-top: 26px;
+        overflow: hidden;
+        border: 1px solid #e2e8f0;
+        border-radius: 16px;
+        border-spacing: 0;
+        background: #f8fafc;
+        font-size: 16px;
+      }
+      th,
+      td {
+        padding: 15px 28px;
+        border-bottom: 1px solid #e2e8f0;
+        text-align: left;
+      }
+      tr:last-child td {
+        border-bottom: 0;
+      }
+      th {
+        color: #64748b;
+        font-size: 14px;
+        font-weight: 500;
+      }
+      .ok {
+        color: #047857;
+        font-weight: 700;
+      }
+      .todo {
+        color: #c2410c;
+        font-weight: 700;
+      }
+      ol {
+        display: grid;
+        gap: 10px;
+        margin: 0;
+        padding-left: 24px;
+        font-size: 17px;
+      }
+      .sources {
+        display: flex;
+        align-items: center;
+        width: max-content;
+        margin-top: 28px;
+        padding: 9px 18px;
+        border-radius: 999px;
+        background: #f4f4f5;
+        color: #52525b;
+        font-size: 14px;
+      }
+      .sources i {
+        width: 20px;
+        height: 20px;
+        margin-right: -4px;
+        border: 2px solid #fff;
+        border-radius: 50%;
+      }
+      .sources i:nth-child(1) {
+        background: #2563eb;
+      }
+      .sources i:nth-child(2) {
+        background: #16a34a;
+      }
+      .sources i:nth-child(3) {
+        margin-right: 12px;
+        background: #f97316;
+      }
+      .notice {
+        margin-top: 35px;
+        color: #a1a1aa;
+        font-size: 13px;
+        text-align: center;
+      }
+      .platform-cta {
+        display: flex;
+        position: fixed;
+        z-index: 10;
+        right: 0;
+        bottom: 0;
+        left: 0;
+        align-items: center;
+        justify-content: center;
+        height: 80px;
+        border-top: 1px solid #e4e4e7;
+        background: rgba(255, 255, 255, 0.98);
+        box-shadow: 0 -10px 28px rgba(24, 24, 27, 0.12);
+      }
+      .platform-cta a {
+        padding: 15px 58px;
+        border-radius: 999px;
+        background: #18181b;
+        color: #fff;
+        font-size: 17px;
+        font-weight: 750;
+        text-decoration: none;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="logo">豆</div>
+      <div class="brand"><strong>豆包</strong><span>AI 生成内容 · 官方分享页</span></div>
+      <time class="time">2026-07-25 08:00</time>
+    </header>
+    <section class="question">
+      <strong>真实客户合同问题</strong>
+      <span>请给出可核验的选型建议，并标明引用来源。</span>
+    </section>
+    <main class="answer">
+      <div class="byline"><span class="bot">豆</span><span>以下回答由豆包生成</span></div>
+      <h1>核验建议</h1>
+      <p>
+        基于当前可公开核验的信息，建议先确认业务边界、服务能力与证据完整度，再进入最终采购判断。<sup
+          >1</sup
+        >
+      </p>
+      <h2>核心判断</h2>
+      <ul>
+        <li>先核验权限边界与数据处理范围。</li>
+        <li>保存可复查的回答、分享页与引用证据。</li>
+        <li>区分信源发布时间与本次采集时间。</li>
+      </ul>
+      <table>
+        <thead>
+          <tr>
+            <th>核验项目</th>
+            <th>当前结果</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>官方分享页</td>
+            <td class="ok">可追溯</td>
+          </tr>
+          <tr>
+            <td>引用发布时间</td>
+            <td class="todo">待补充采集</td>
+          </tr>
+        </tbody>
+      </table>
+      <h2>行动步骤</h2>
+      <ol>
+        <li>打开官方原页，核对平台展示内容。</li>
+        <li>对照引用原文、标题、域名与发布时间。</li>
+        <li>将缺失字段列入下一轮采集任务。</li>
+      </ol>
+      <div class="sources"><i></i><i></i><i></i><span>1 条引用</span></div>
+      <div class="notice">内容由 AI 生成，请结合引用来源独立判断</div>
+    </main>
+    <div class="platform-cta"><a href="/login?from=share">继续问豆包</a></div>
+  </body>
+</html>

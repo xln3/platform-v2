@@ -130,9 +130,7 @@ def _seed_phone(session: _FakeSession, **over: Any) -> CollectionPhoneAccount:
     return row
 
 
-def _seed_platform(
-    session: _FakeSession, phone_id: int, **over: Any
-) -> CollectionPlatformAccount:
+def _seed_platform(session: _FakeSession, phone_id: int, **over: Any) -> CollectionPlatformAccount:
     fields: dict[str, Any] = {
         "pub_id": new_pub_id("ppa"),
         "phone_account_id": phone_id,
@@ -196,6 +194,27 @@ def _events(session: _FakeSession, event_type: str | None = None) -> list[Collec
     return [row for row in rows if row.event_type == event_type]
 
 
+def _seed_quota_observation(
+    session: _FakeSession,
+    browser_id: int,
+    *,
+    created_at: datetime,
+    payload: dict[str, Any],
+) -> CollectionAccountEvent:
+    row = CollectionAccountEvent(
+        pub_id=new_pub_id("aev"),
+        browser_id=browser_id,
+        event_type="quota_observation",
+        actor="quota_reconstruction",
+        new_value=payload,
+        evidence="raw evidence must stay server-side",
+        created_at=created_at,
+    )
+    session.add(row)
+    session.flush()
+    return row
+
+
 # ── 身份门 ──────────────────────────────────────────────────────────────────
 
 
@@ -209,6 +228,103 @@ def test_list_accounts_requires_identity_401(session: _FakeSession) -> None:
 def test_list_accounts_forbidden_role_403(session: _FakeSession) -> None:
     _bind(session, role=Role.CUSTOMER)  # customer 无 account:read
     assert client.get("/api/v2/collection-accounts").status_code == 403
+
+
+def test_quota_observations_latest_per_browser_mode_and_safe_projection(
+    session: _FakeSession,
+) -> None:
+    sh = _seed_browser(session)
+    bj = _seed_browser(
+        session,
+        instance_key="doubao_bj",
+        region_gb="110000",
+        cdp_port=19233,
+    )
+    base = {
+        "schema_version": 1,
+        "mode": "deep_think",
+        "account_tier": "free",
+        "quota_state": "exhausted",
+        "window_type": "rolling",
+        "window_days": 7,
+        "count_kind": "lower_bound",
+        "reset_at": "2026-08-20T08:11:51.143+00:00",
+        "source": "platform_and_logs",
+        # 原始观测允许留在审计事件，但 API 必须只做白名单投影。
+        "raw_sse": "SECRET_PLATFORM_RESPONSE",
+        "phone": "18800006058",
+    }
+    _seed_quota_observation(
+        session,
+        sh.id,
+        created_at=_NOW,
+        payload={**base, "observed_window_count": 20},
+    )
+    latest = _seed_quota_observation(
+        session,
+        sh.id,
+        created_at=_NOW + timedelta(minutes=1),
+        payload={**base, "observed_window_count": 26},
+    )
+    _seed_quota_observation(
+        session,
+        bj.id,
+        created_at=_NOW + timedelta(minutes=2),
+        payload={
+            "schema_version": 1,
+            "mode": "deep_think",
+            "account_tier": "subscriber",
+            "quota_state": "available",
+            "window_type": "rolling",
+            "window_days": 7,
+            "source": "platform",
+        },
+    )
+    # 新协议才能展示；畸形/旧协议事件不能覆盖有效观测。
+    _seed_quota_observation(
+        session,
+        sh.id,
+        created_at=_NOW + timedelta(minutes=3),
+        payload={"schema_version": 0, "mode": "deep_think"},
+    )
+
+    _bind(session)
+    resp = client.get("/api/v2/collection-account-quota-observations")
+    assert resp.status_code == 200
+    rows = resp.json()
+    assert len(rows) == 2
+    sh_row = next(row for row in rows if row["browser_instance_key"] == "doubao_sh")
+    assert sh_row == {
+        "observation_pub_id": latest.pub_id,
+        "browser_instance_key": "doubao_sh",
+        "platform": "doubao",
+        "region_gb": "310000",
+        "mode": "deep_think",
+        "account_tier": "free",
+        "quota_state": "exhausted",
+        "window_type": "rolling",
+        "window_days": 7,
+        "observed_window_count": 26,
+        "daily_equivalent": 3.7,
+        "count_kind": "lower_bound",
+        "reset_at": "2026-08-20T08:11:51.143000Z",
+        "observed_at": "2026-08-13T12:01:00Z",
+        "source": "platform_and_logs",
+    }
+    bj_row = next(row for row in rows if row["browser_instance_key"] == "doubao_bj")
+    assert bj_row["account_tier"] == "subscriber"
+    assert bj_row["quota_state"] == "available"
+    assert bj_row["observed_window_count"] is None
+    assert bj_row["daily_equivalent"] is None
+    assert bj_row["count_kind"] == "unknown"
+    assert "SECRET_PLATFORM_RESPONSE" not in resp.text
+    assert "18800006058" not in resp.text
+    assert "raw evidence" not in resp.text
+
+
+def test_quota_observations_require_account_read(session: _FakeSession) -> None:
+    _bind(session, role=Role.CUSTOMER)
+    assert client.get("/api/v2/collection-account-quota-observations").status_code == 403
 
 
 # ── GET/POST /collection-accounts ───────────────────────────────────────────
@@ -357,9 +473,7 @@ def test_patch_browser_bind_region_ip_mismatch_409(session: _FakeSession) -> Non
 
 def test_patch_unknown_account_404(session: _FakeSession) -> None:
     _bind(session)
-    resp = client.patch(
-        "/api/v2/collection-platform-accounts/ppa_missing", json={"quota_day": 1}
-    )
+    resp = client.patch("/api/v2/collection-platform-accounts/ppa_missing", json={"quota_day": 1})
     assert resp.status_code == 404
     assert resp.json()["error"]["code"] == "platform_account_not_found"
 
@@ -647,9 +761,7 @@ def test_regions_create_list_and_validation(session: _FakeSession) -> None:
     assert [row["region_gb"] for row in listed.json()] == ["110000"]
 
 
-def test_region_probe_endpoint(
-    session: _FakeSession, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_region_probe_endpoint(session: _FakeSession, monkeypatch: pytest.MonkeyPatch) -> None:
     _seed_region(session, region_gb="110000")
     calls: list[str] = []
 

@@ -12,9 +12,10 @@ from urllib.parse import urlsplit
 import psycopg
 from psycopg.rows import dict_row
 
+from domain.collection.answer_content import extract_answer_citation_anchors, project_answer_content
 from domain.evidence.provenance import RedactedProvenance
 from domain.metrics.core import MetricRegistry
-from domain.scoring.analyzer import CitationInput, analyze_answer
+from domain.scoring.analyzer import CitationInput, analyze_answer, canonicalize_url
 from domain.scoring.eligibility import resolve_measurement_eligibility
 from geo_platform.tenancy.ids import new_pub_id
 from geo_platform.tenancy.psycopg import tenant_connection
@@ -128,6 +129,46 @@ def _table_exists(connection: psycopg.Connection[Any], qualified_name: str) -> b
     return row is not None and row["reg"] is not None
 
 
+def _answer_source_metadata(
+    connection: psycopg.Connection[Any], answer_pub_id: str
+) -> dict[str, dict[str, Any]]:
+    rows = connection.execute(
+        """
+        SELECT d.pub_id,d.url,d.final_url,d.canonical_url,d.published_at_raw,d.published_at,
+               d.published_at_timezone,d.published_at_precision,d.published_at_source,
+               d.published_at_confidence,d.published_at_candidates
+        FROM evidence.evidence_relation relation
+        JOIN platform.source_document d ON d.pub_id=relation.to_pub_id
+        WHERE relation.from_pub_id=%s AND relation.relation_type='cited_source_document'
+        ORDER BY d.fetched_at DESC,d.pub_id DESC
+        """,
+        (answer_pub_id,),
+    ).fetchall()
+    output: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        value = dict(row)
+        for raw_url in (row["url"], row["final_url"], row["canonical_url"]):
+            if not raw_url:
+                continue
+            try:
+                key = canonicalize_url(str(raw_url))
+            except ValueError:
+                continue
+            output.setdefault(key, value)
+    return output
+
+
+def _lock_answer_source_metadata(
+    connection: psycopg.Connection[Any], tenant_pub_id: str, answer_pub_id: str
+) -> None:
+    """Serialize citation creation with W2 source-document linking."""
+
+    connection.execute(
+        "SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",
+        (f"answer-source-metadata:{tenant_pub_id}:{answer_pub_id}",),
+    )
+
+
 class AnalyticsService:
     def __init__(self, *, dsn: str) -> None:
         self.dsn = dsn
@@ -161,6 +202,8 @@ class AnalyticsService:
             dimensions=dimensions,
             own_domains=own_domains,
         )
+        answer_content = project_answer_content(answer_text, list(result.citations))
+        citation_anchors = extract_answer_citation_anchors(answer_text, list(result.citations))
         registry = MetricRegistry(metric_version=metric_version, scorer_version=scorer_version)
         metrics = tuple(
             registry.compute(name, [result.fact], filters={})
@@ -183,19 +226,25 @@ class AnalyticsService:
         # metric_dimensions 只用于 metric_trace/metric_daily 快照与 outbox 事件
         # payload；analyze_answer 的输入维持调用方原样。
         eligible, degraded, metric_dimensions = resolve_measurement_eligibility(dimensions)
-        with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
+        with _platform_tenant_connection(self.dsn, tenant_pub_id) as connection:
+            _lock_answer_source_metadata(connection, tenant_pub_id, answer_pub_id)
             persisted_answer = connection.execute(
                 """
                 INSERT INTO analytics.answer
                   (pub_id,tenant_pub_id,project_pub_id,query_pub_id,query_text,response_text,
                    model,region,mode,eligible,degraded,channel,adapter_version,capture_time,
-                   run_pub_id,config_version_pub_id)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                   run_pub_id,config_version_pub_id,response_raw,response_markdown_normalized,
+                   response_ast,response_html_sanitized,response_plain_text,response_hash,
+                   render_parser_version)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,
+                        %s,%s,%s,%s)
                 ON CONFLICT (tenant_pub_id,pub_id)
                 DO UPDATE SET pub_id=analytics.answer.pub_id
                 RETURNING project_pub_id,query_pub_id,query_text,response_text,model,region,mode,
                           eligible,degraded,channel,adapter_version,capture_time
-                          ,run_pub_id,config_version_pub_id
+                          ,run_pub_id,config_version_pub_id,response_raw,
+                          response_markdown_normalized,response_ast,response_html_sanitized,
+                          response_plain_text,response_hash,render_parser_version
                 """,
                 (
                     answer_pub_id,
@@ -203,7 +252,7 @@ class AnalyticsService:
                     project_pub_id,
                     dimensions.get("question_pub_id"),
                     dimensions.get("query_text"),
-                    answer_text,
+                    answer_content.response_markdown_normalized,
                     dimensions.get("model", "unknown"),
                     dimensions.get("region", "unknown"),
                     dimensions.get("mode", "unknown"),
@@ -214,6 +263,18 @@ class AnalyticsService:
                     provenance.capture_time,
                     dimensions.get("run_pub_id"),
                     dimensions.get("config_version_pub_id"),
+                    answer_content.response_raw,
+                    answer_content.response_markdown_normalized,
+                    json.dumps(
+                        answer_content.response_ast,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
+                    answer_content.response_html_sanitized,
+                    answer_content.response_plain_text,
+                    answer_content.response_hash,
+                    answer_content.render_parser_version,
                 ),
             ).fetchone()
             assert persisted_answer is not None
@@ -221,7 +282,7 @@ class AnalyticsService:
                 project_pub_id,
                 dimensions.get("question_pub_id"),
                 dimensions.get("query_text"),
-                answer_text,
+                answer_content.response_markdown_normalized,
                 dimensions.get("model", "unknown"),
                 dimensions.get("region", "unknown"),
                 dimensions.get("mode", "unknown"),
@@ -232,6 +293,13 @@ class AnalyticsService:
                 provenance.capture_time,
                 dimensions.get("run_pub_id"),
                 dimensions.get("config_version_pub_id"),
+                answer_content.response_raw,
+                answer_content.response_markdown_normalized,
+                answer_content.response_ast,
+                answer_content.response_html_sanitized,
+                answer_content.response_plain_text,
+                answer_content.response_hash,
+                answer_content.render_parser_version,
             )
             if tuple(persisted_answer.values()) != expected_answer:
                 raise ValueError("answer replay payload drifted")
@@ -288,26 +356,39 @@ class AnalyticsService:
                     provenance.capture_time,
                 ),
             ).fetchone()
+            source_metadata = _answer_source_metadata(connection, answer_pub_id)
             for citation in result.citations:
+                citation_ordinal = citation["ordinal"]
+                if isinstance(citation_ordinal, bool) or not isinstance(citation_ordinal, int):
+                    raise ValueError("analyzed citation ordinal is invalid")
                 citation_pub_id = new_pub_id("cit")
                 cited_text = (
                     str(citation["cited_text"]) if citation["cited_text"] is not None else None
                 )
-                connection.execute(
+                source = source_metadata.get(str(citation["canonical_url"]))
+                candidates = source.get("published_at_candidates", []) if source else []
+                persisted_citation = connection.execute(
                     """
                     INSERT INTO analytics.citation_fact
                       (pub_id,tenant_pub_id,answer_pub_id,analysis_run_pub_id,ordinal,
-                       original_url,canonical_url,host,title,cited_text,own_source,content_hash)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                       platform_ordinal,ordinal_base,original_url,canonical_url,host,title,
+                       cited_text,own_source,content_hash,source_document_pub_id,published_at_raw,
+                       published_at,published_at_timezone,published_at_precision,
+                       published_at_source,published_at_confidence,published_at_candidates)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+                            %s,%s::jsonb)
                     ON CONFLICT (tenant_pub_id,answer_pub_id,ordinal,analysis_run_pub_id)
-                    DO NOTHING
+                    DO UPDATE SET pub_id=analytics.citation_fact.pub_id
+                    RETURNING pub_id
                     """,
                     (
                         citation_pub_id,
                         tenant_pub_id,
                         answer_pub_id,
                         analysis_run_pub_id,
-                        citation["ordinal"],
+                        citation_ordinal,
+                        citation["platform_ordinal"],
+                        citation["ordinal_base"],
                         citation["original_url"],
                         citation["canonical_url"],
                         citation["host"],
@@ -315,6 +396,79 @@ class AnalyticsService:
                         cited_text,
                         citation["own_source"],
                         sha256(cited_text.encode()).hexdigest() if cited_text else None,
+                        source.get("pub_id") if source else None,
+                        source.get("published_at_raw") if source else None,
+                        source.get("published_at") if source else None,
+                        source.get("published_at_timezone") if source else None,
+                        source.get("published_at_precision") if source else None,
+                        source.get("published_at_source") if source else None,
+                        (source.get("published_at_confidence") if source else None) or "unknown",
+                        json.dumps(candidates, ensure_ascii=False, separators=(",", ":")),
+                    ),
+                ).fetchone()
+                assert persisted_citation is not None
+                citation_pub_id = str(persisted_citation["pub_id"])
+                anchor = citation_anchors.get(citation_ordinal) or {
+                    "mapping_status": "unmapped",
+                    "mapping_basis": None,
+                    "answer_text_start": None,
+                    "answer_text_end": None,
+                    "answer_ast_path": None,
+                    "answer_sentence": None,
+                }
+                relation_pub_id = (
+                    "acr_"
+                    + sha256(
+                        f"{tenant_pub_id}|{answer_pub_id}|{citation_ordinal}".encode()
+                    ).hexdigest()[:26]
+                )
+                connection.execute(
+                    """
+                    INSERT INTO analytics.answer_citation_relation
+                      (pub_id,tenant_pub_id,answer_pub_id,citation_pub_id,ordinal,
+                       source_document_pub_id,mapping_status,mapping_basis,
+                       answer_text_start,answer_text_end,answer_ast_path,answer_sentence,
+                       source_match_status,relation,classifier_version,review_status,
+                       first_cited_at,last_cited_at)
+                    VALUES
+                      (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,
+                       'not_checked','unverified','answer-marker-v1','unreviewed',%s,%s)
+                    ON CONFLICT (tenant_pub_id,answer_pub_id,ordinal) DO UPDATE SET
+                      citation_pub_id=EXCLUDED.citation_pub_id,
+                      source_document_pub_id=COALESCE(
+                        EXCLUDED.source_document_pub_id,
+                        analytics.answer_citation_relation.source_document_pub_id),
+                      mapping_status=EXCLUDED.mapping_status,
+                      mapping_basis=EXCLUDED.mapping_basis,
+                      answer_text_start=EXCLUDED.answer_text_start,
+                      answer_text_end=EXCLUDED.answer_text_end,
+                      answer_ast_path=EXCLUDED.answer_ast_path,
+                      answer_sentence=EXCLUDED.answer_sentence,
+                      first_cited_at=LEAST(
+                        analytics.answer_citation_relation.first_cited_at,
+                        EXCLUDED.first_cited_at),
+                      last_cited_at=GREATEST(
+                        analytics.answer_citation_relation.last_cited_at,
+                        EXCLUDED.last_cited_at),
+                      updated_at=now()
+                    """,
+                    (
+                        relation_pub_id,
+                        tenant_pub_id,
+                        answer_pub_id,
+                        citation_pub_id,
+                        citation_ordinal,
+                        source.get("pub_id") if source else None,
+                        anchor["mapping_status"],
+                        anchor["mapping_basis"],
+                        anchor["answer_text_start"],
+                        anchor["answer_text_end"],
+                        json.dumps(anchor["answer_ast_path"])
+                        if anchor["answer_ast_path"] is not None
+                        else None,
+                        anchor["answer_sentence"],
+                        provenance.capture_time,
+                        provenance.capture_time,
                     ),
                 )
             metric_date = provenance.capture_time.astimezone(UTC).date()
@@ -752,6 +906,8 @@ class AnalyticsService:
     ) -> list[dict[str, Any]]:
         """W3 disparagement_rate 聚合：按 品牌(target)/拉踩方(subject)/平台 分组。
 
+        统计总体只包含项目首个 brand（目标品牌）的判定；历史上已经生成的竞品
+        判定也在查询层排除，避免旧数据继续进入客户风险指标。
         只统计 judgment_status='ok' 的窗级判定（validation_failure 判分已丢弃，
         绝不入分布）；experimental_count 暴露词典兜底行占比，便于消费方区分
         LLM 判定与 experimental 弱判定混口径。
@@ -777,6 +933,13 @@ class AnalyticsService:
                          AS experimental_count
                 FROM platform.disparagement_judgment j
                 JOIN platform.project p ON p.id = j.project_id
+                JOIN LATERAL (
+                  SELECT b.name
+                  FROM platform.brand b
+                  WHERE b.project_id = p.id
+                  ORDER BY b.created_at, b.pub_id
+                  LIMIT 1
+                ) target ON target.name = j.target_brand
                 WHERE j.tenant_id = NULLIF(current_setting('app.tenant_id', true), '')::uuid
                   AND p.pub_id = %s
                   AND j.judgment_status = 'ok'
@@ -811,6 +974,7 @@ class AnalyticsService:
     ) -> list[dict[str, Any]]:
         """W3 典型案例清单：disparagement=true 按 confidence 降序（证据+出处链接）。
 
+        只返回项目目标品牌作为被核查对象的案例；历史竞品案例不外露。
         出处链接：subject_type=source_document 时取 source_document.url；answer
         判定的出处是答案本身（subject_pub_id，即 collection_task/answer pub_id）。
         fact_check：按 judgment_pub_id 左联契约表 T1（platform.disparagement_
@@ -830,6 +994,13 @@ class AnalyticsService:
                        d.url AS source_url
                 FROM platform.disparagement_judgment j
                 JOIN platform.project p ON p.id = j.project_id
+                JOIN LATERAL (
+                  SELECT b.name
+                  FROM platform.brand b
+                  WHERE b.project_id = p.id
+                  ORDER BY b.created_at, b.pub_id
+                  LIMIT 1
+                ) target ON target.name = j.target_brand
                 LEFT JOIN platform.source_document d
                   ON d.tenant_id = j.tenant_id AND d.pub_id = j.subject_pub_id
                  AND j.subject_type = 'source_document'

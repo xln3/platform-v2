@@ -425,6 +425,7 @@ class _ResponsesApiSuggestionsJudge:
                     base_url=_normalize_base_url(base),
                     headers={"Authorization": f"Bearer {self._config.api_key}"},
                     timeout=_LLM_TIMEOUT_S,
+                    trust_env=False,
                 ) as client:
                     return self._post_with(client, body)
             except SuggestionsError as exc:

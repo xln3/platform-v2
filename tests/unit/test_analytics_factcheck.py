@@ -105,6 +105,48 @@ def _cases(
     )
 
 
+def test_rate_scope_is_limited_to_project_target_brand(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class _RateConnection:
+        statements: list[str] = []
+
+        def execute(self, sql: str, params: tuple[Any, ...] | None = None) -> _Result:
+            normalized = " ".join(sql.split())
+            self.statements.append(normalized)
+            return _Result(
+                [
+                    {
+                        "value": "盛邦安全",
+                        "judgments": 10,
+                        "disparagement_count": 2,
+                        "negative_count": 3,
+                        "support_count": 4,
+                        "experimental_count": 0,
+                    }
+                ]
+            )
+
+    connection = _RateConnection()
+
+    @contextmanager
+    def fake_platform_connection(dsn: str, tenant_pub_id: str) -> Any:
+        yield connection
+
+    monkeypatch.setattr(service_module, "_platform_tenant_connection", fake_platform_connection)
+    rows = AnalyticsService(dsn="postgresql://fake").aggregate_disparagement(
+        tenant_pub_id=_TENANT,
+        project_pub_id=_PROJECT,
+        start=_START,
+        end=_END,
+        dimension="target_brand",
+    )
+
+    assert float(rows[0]["disparagement_rate"]) == 0.2
+    assert "JOIN LATERAL" in connection.statements[0]
+    assert "target.name = j.target_brand" in connection.statements[0]
+
+
 def test_cases_carry_fact_check_when_present(monkeypatch: pytest.MonkeyPatch) -> None:
     checked_at = datetime(2026, 8, 9, 13, 0, tzinfo=UTC)
     connection = _CasesFakeConnection(
@@ -134,6 +176,8 @@ def test_cases_carry_fact_check_when_present(monkeypatch: pytest.MonkeyPatch) ->
     )
     assert "j.content_origin = 'collection'" in main_query
     assert "OR j.content_origin = 'own_content'" not in main_query
+    assert "JOIN LATERAL" in main_query
+    assert "target.name = j.target_brand" in main_query
 
 
 def test_cases_degrade_when_factcheck_table_missing(

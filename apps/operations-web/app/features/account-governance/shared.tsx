@@ -32,7 +32,8 @@ export function formatCountdown(iso: string | null | undefined, now: number): st
   if (remain <= 0) return null;
   const totalMinutes = Math.ceil(remain / 60_000);
   if (totalMinutes >= 60 * 48) return `剩余 ${Math.round(totalMinutes / (60 * 24))} 天`;
-  if (totalMinutes >= 60) return `剩余 ${Math.floor(totalMinutes / 60)} 小时 ${totalMinutes % 60} 分`;
+  if (totalMinutes >= 60)
+    return `剩余 ${Math.floor(totalMinutes / 60)} 小时 ${totalMinutes % 60} 分`;
   return `剩余 ${totalMinutes} 分钟`;
 }
 
@@ -61,7 +62,12 @@ export function LinkLight({ state, label }: { state: string; label: string }) {
   const tone = state === 'ok' ? 'ok' : state === 'down' ? 'bad' : 'untested';
   const text = state === 'ok' ? '通' : state === 'down' ? '断' : '未测';
   return (
-    <span className={`acct-gov-light ${tone}`} role="img" aria-label={`${label}${text}`} title={`${label}${text}`} />
+    <span
+      className={`acct-gov-light ${tone}`}
+      role="img"
+      aria-label={`${label}${text}`}
+      title={`${label}${text}`}
+    />
   );
 }
 

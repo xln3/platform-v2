@@ -42,6 +42,44 @@ def test_answer_analysis_and_shared_kpis_are_traceable() -> None:
     )
 
 
+def test_answer_analysis_derives_and_validates_platform_citation_ordinals() -> None:
+    result = analyze_answer(
+        answer_pub_id="ans_ordinal_01ABCDEFGHIJKLMN",
+        text="回答 [citation:0]",
+        brand="Acme",
+        competitors=(),
+        citations=(
+            CitationInput(
+                "https://example.com/source",
+                platform_ordinal=0,
+                ordinal_base=0,
+            ),
+        ),
+        dimensions={},
+    )
+
+    assert result.citations[0]["ordinal"] == 1
+    assert result.citations[0]["platform_ordinal"] == 0
+    assert result.citations[0]["ordinal_base"] == 0
+
+    with pytest.raises(ValueError, match="ordinal mapping"):
+        analyze_answer(
+            answer_pub_id="ans_ordinal_02ABCDEFGHIJKLMN",
+            text="回答",
+            brand="Acme",
+            competitors=(),
+            citations=(
+                CitationInput(
+                    "https://example.com/source",
+                    ordinal=1,
+                    platform_ordinal=1,
+                    ordinal_base=0,
+                ),
+            ),
+            dimensions={},
+        )
+
+
 def test_chinese_explicit_ranks_drive_brand_and_competitor_topn() -> None:
     result = analyze_answer(
         answer_pub_id="ans_rank_01ABCDEFGHIJKLMNOP",

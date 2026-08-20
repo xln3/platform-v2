@@ -312,6 +312,41 @@ async def test_start_idempotent_and_stop_closes(monkeypatch: pytest.MonkeyPatch,
     )
 
 
+async def test_feishu_app_start_only_enqueues_local_outbox(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    _browser, _handle, legacy_pushes = _wire(monkeypatch, tmp_path, [_FakePage()])
+    monkeypatch.setenv("GEO_ASSIST_NOTIFY_FLAVOR", "feishu_app")
+    monkeypatch.setenv("GEO_FEISHU_CHAT_ID", "oc_test")
+    monkeypatch.delenv("GEO_ASSIST_NOTIFY_URL", raising=False)
+    enqueued: list[dict] = []
+
+    def enqueue(**kwargs):  # type: ignore[no-untyped-def]
+        enqueued.append(kwargs)
+        return "ntf_test_assist"
+
+    state_changes: list[tuple[str, str]] = []
+    monkeypatch.setattr(captcha_assist, "_enqueue_feishu_app_assist", enqueue)
+    monkeypatch.setattr(
+        captcha_assist,
+        "_mark_feishu_app_assist_state",
+        lambda ticket_hash, state: state_changes.append((ticket_hash, state)) or True,
+    )
+    started = await captcha_assist_start(_input("run_feishu_app"))
+    assert started.pushed is True
+    assert started.assist_url == ""  # raw ticket never enters Temporal activity result
+    assert legacy_pushes == []  # no webhook/OpenAPI network call in activity
+    assert enqueued[0]["session_kind"] == "workflow_captcha"
+    record = json.loads(next(tmp_path.glob("*.json")).read_text(encoding="utf-8"))
+    assert record["session_kind"] == "workflow_captcha"
+    assert record["notification_id"] == "ntf_test_assist"
+    assert record["delivery_enqueued"] is True
+    await captcha_assist_stop(
+        CaptchaAssistStopInput(run_pub_id="run_feishu_app", session_id=started.session_id)
+    )
+    assert state_changes == [(record["ticket_hash"], "closed")]
+
+
 async def test_cdp_url_missing_non_retryable(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     _wire(monkeypatch, tmp_path, [_FakePage()], cdp_url=None)
     with pytest.raises(ApplicationError) as exc_info:

@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
-import time
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -257,20 +256,6 @@ def test_media_wemedia_dataset_does_not_reject_customer_session(datasets_dir: Pa
     assert response.status_code == 200
 
 
-_STUB_REFRESH_SCRIPT = """\
-import json, os, pathlib
-base = pathlib.Path(os.environ["MEDIA_PRICES_DATASETS_DIR"])
-payload = {
-    "state": "done",
-    "started_at": "2026-07-27 16:00:00",
-    "updated_at": "2026-07-27 16:00:01",
-    "message": "stub 1",
-    "sources": {"prfabu": {"status": "ok", "rows": 1, "note": ""}},
-}
-(base / "media-prices.refresh.json").write_text(json.dumps(payload), encoding="utf-8")
-"""
-
-
 def _write_refresh_status(directory: Path, state: str = "done") -> None:
     payload = {
         "state": state,
@@ -310,14 +295,7 @@ def test_media_prices_refresh_conflict_when_lock_present(datasets_dir: Path) -> 
     assert response.json()["error"]["code"] == "refresh_already_running"
 
 
-def test_media_prices_refresh_spawns_pipeline_and_reports_done(
-    datasets_dir: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    stub = datasets_dir / "stub_refresh.py"
-    stub.write_text(_STUB_REFRESH_SCRIPT, encoding="utf-8")
-    monkeypatch.setattr(datasets_router, "_REFRESH_SCRIPT", stub)
-    monkeypatch.setenv("MEDIA_PRICES_DATASETS_DIR", str(datasets_dir))
+def test_media_prices_refresh_queues_durable_worker_request(datasets_dir: Path) -> None:
     client = TestClient(app)
     suffix = secrets.token_hex(6)
     _tenant, admin_headers = _bootstrap(client, f"datasets-admin-{suffix}")
@@ -326,20 +304,24 @@ def test_media_prices_refresh_spawns_pipeline_and_reports_done(
     response = client.post("/api/v2/datasets/media-prices/refresh", headers=operator)
     assert response.status_code == 202, response.text
     assert response.json()["state"] == "running"
+    assert response.json()["message"] == "refresh_queued"
 
-    status_file = datasets_dir / "media-prices.refresh.json"
-    for _ in range(100):
-        if status_file.exists():
-            break
-        time.sleep(0.1)
-    assert status_file.exists(), "stub refresh pipeline did not write refresh.json"
+    request_file = datasets_dir / "media-prices.refresh.request.json"
+    request = json.loads(request_file.read_text(encoding="utf-8"))
+    assert request["version"] == 1
+    assert request["requested_at"] == response.json()["started_at"]
+    assert request["tenant_pub_id"] == operator["X-Tenant-Id"]
 
     status = client.get("/api/v2/datasets/media-prices/refresh-status", headers=operator)
     assert status.status_code == 200
     assert status.headers["cache-control"] == "private, no-store"
     payload = status.json()
-    assert payload["state"] == "done"
-    assert payload["sources"]["prfabu"] == {"status": "ok", "rows": 1, "note": ""}
+    assert payload["state"] == "running"
+    assert payload["message"] == "refresh_queued"
+
+    conflict = client.post("/api/v2/datasets/media-prices/refresh", headers=operator)
+    assert conflict.status_code == 409
+    assert conflict.json()["error"]["code"] == "refresh_already_running"
 
 
 def test_media_prices_refresh_status_never_and_done(datasets_dir: Path) -> None:
@@ -360,3 +342,20 @@ def test_media_prices_refresh_status_never_and_done(datasets_dir: Path) -> None:
     assert payload["message"] == "prfabu 19087 · 投媒网 10004(限流)"
     assert payload["sources"]["toumeiw"]["status"] == "partial"
     assert payload["sources"]["toumeiw"]["rows"] == 10004
+
+
+def test_media_prices_refresh_status_marks_orphaned_running_state_failed(
+    datasets_dir: Path,
+) -> None:
+    _write_refresh_status(datasets_dir, state="running")
+    client = TestClient(app)
+    suffix = secrets.token_hex(6)
+    _tenant, admin_headers = _bootstrap(client, f"datasets-admin-{suffix}")
+    operator = _member_headers(client, admin_headers, f"datasets-operator-{suffix}", "operator")
+
+    status = client.get("/api/v2/datasets/media-prices/refresh-status", headers=operator)
+
+    assert status.status_code == 200
+    payload = status.json()
+    assert payload["state"] == "failed"
+    assert payload["message"] == "refresh_interrupted_published_dataset_unchanged"

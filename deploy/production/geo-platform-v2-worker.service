@@ -13,6 +13,7 @@ EnvironmentFile=/etc/geo-platform-v2/platform.env
 # Worker-only browser profiles and proxy credentials. Install from
 # worker-adapters.env.example as root:root mode 0600; do not inline secrets here.
 EnvironmentFile=/etc/geo-platform-v2/worker-adapters.env
+EnvironmentFile=-/etc/geo-platform-v2/feishu-bot.env
 EnvironmentFile=-/etc/geo-platform-v2/wukong.env
 ExecStart=/home/xln/geo-system/platform-v2/.venv/bin/python -m workflows.workers.main
 Restart=on-failure

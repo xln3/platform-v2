@@ -117,9 +117,7 @@ def _visible_external_links(payload: bytes) -> tuple[tuple[str, str], ...]:
     except (KeyError, ET.ParseError, OSError):
         return ()
     relationship_ns = "http://schemas.openxmlformats.org/package/2006/relationships"
-    office_relationship_ns = (
-        "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
-    )
+    office_relationship_ns = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
     word_ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
     targets = {
         str(node.attrib.get("Id")): str(node.attrib.get("Target"))
@@ -132,9 +130,7 @@ def _visible_external_links(payload: bytes) -> tuple[tuple[str, str], ...]:
     for link in document.iter(f"{{{word_ns}}}hyperlink"):
         relation_id = link.attrib.get(f"{{{office_relationship_ns}}}id")
         target = targets.get(str(relation_id))
-        label = "".join(
-            node.text or "" for node in link.iter(f"{{{word_ns}}}t")
-        ).strip()
+        label = "".join(node.text or "" for node in link.iter(f"{{{word_ns}}}t")).strip()
         if target and label.startswith(("http://", "https://")):
             output.append((label, target))
     return tuple(output)

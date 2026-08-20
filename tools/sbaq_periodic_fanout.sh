@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# 盛邦正式一轮周期补扇出（待办 C，零代码方案 1）：对项目内所有有完成题的 run
-# 做幂等 mint（ON CONFLICT 空操作 + 漂移校验），让在途 run 已落库的问答尽早进入
-# analytics/运营端可见。不做侧车（重活只跑一轮）。crontab 每 30 分钟一次。
+# 盛邦正式一轮周期补扇出（待办 C，零代码方案 1）：对项目内所有有完成题的
+# 在途/异常 run，以及最近两小时完成的 G07-G34 渐进 run，做幂等 mint
+#（ON CONFLICT 空操作 + 漂移校验），让已落库的问答尽早进入 analytics/运营端
+# 可见。不做侧车（重活只跑一轮）。crontab 每 30 分钟一次。
 set -euo pipefail
 cd /home/xln/geo-system/platform-v2
 
@@ -11,7 +12,14 @@ RUNS=$(/usr/bin/psql "$DSN" -t -A -c "
   join platform.project p on p.id=r.project_id
   where p.pub_id='prj_68ER9J6QBX054EAX52G7BEF7PH'
     and r.completed_tasks>0
-    and r.state in ('running','paused','failed','cancelled')
+    and (
+      r.state in ('running','paused','failed','cancelled')
+      or (
+        r.idempotency_key like 'sbaq-g0734-gradual-%'
+        and r.state in ('completed','completed_with_failures')
+        and r.updated_at >= now() - interval '2 hours'
+      )
+    )
     and r.created_at >= '2026-08-12'::timestamptz
   order by r.created_at" | /usr/bin/paste -sd, -)
 if [ -z "$RUNS" ]; then
