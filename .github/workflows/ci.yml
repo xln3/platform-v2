@@ -24,9 +24,9 @@ jobs:
       - run: python -m venv .venv && .venv/bin/pip install -e '.[dev]'
       - run: docker compose -f compose.yaml -f deploy/s02/compose.pgvector.yaml up -d --wait
       - run: .venv/bin/alembic upgrade head
-      # 报告 PDF 渲染对非拉丁字符 fail-loud 要求 CJK 字体（GEO_REPORT_PDF_FONT_PATH →
-      # DroidSansFallbackFull → SimHei → SimSun）；生产/开发机有 Droid，CI 干净镜像没有，先装再上 pytest。
-      - run: sudo apt-get install -y fonts-droid-fallback
+      # 两条报告渲染路径都对非拉丁字符 fail-loud：PDF 回退链使用 Droid，
+      # DOCX 图表和证据标注固定使用 Noto CJK。CI 干净镜像必须同时具备两者。
+      - run: sudo apt-get install -y fonts-droid-fallback fonts-noto-cjk
       - run: .venv/bin/ruff check api domain workflows migrations tests tools scripts
       - run: .venv/bin/ruff format --check api domain workflows migrations tests tools scripts
       - run: .venv/bin/mypy api workflows domain

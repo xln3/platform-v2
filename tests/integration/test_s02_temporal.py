@@ -104,12 +104,30 @@ async def temporal(gateway_server: str) -> tuple[Client, str]:
         yield client, queue
 
 
+def _seed_platform_tenant(tenant_pub_id: str) -> None:
+    with psycopg.connect(
+        os.getenv(
+            "S02_POSTGRES_DSN",
+            "postgresql://geo:geo_dev_only@127.0.0.1:55433/geo_platform",
+        )
+    ) as connection:
+        connection.execute(
+            """
+            INSERT INTO platform.tenant (id,pub_id,name,state,created_at,updated_at)
+            VALUES (%s,%s,'S02 Temporal integration','active',now(),now())
+            """,
+            (uuid4(), tenant_pub_id),
+        )
+
+
 @pytest.mark.asyncio
 async def test_answer_analysis_workflow_runs_on_real_temporal(
     temporal: tuple[Client, str],
 ) -> None:
     client, queue = temporal
     suffix = uuid4().hex
+    tenant_pub_id = f"tnt_{suffix}"
+    _seed_platform_tenant(tenant_pub_id)
     answer_pub_id = f"ans_{suffix}"
     result = await client.execute_workflow(
         AnswerAnalysisWorkflow.run,
@@ -126,7 +144,7 @@ async def test_answer_analysis_workflow_runs_on_real_temporal(
             "model_version": "rules-v1",
             "fail_until_attempt": 1,
             "persist": True,
-            "tenant_pub_id": f"tnt_{suffix}",
+            "tenant_pub_id": tenant_pub_id,
             "project_pub_id": f"prj_{suffix}",
             "adapter_version": "temporal-test-v1",
             "capture_time": datetime.now(UTC).isoformat(),
