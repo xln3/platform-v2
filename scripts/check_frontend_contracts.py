@@ -776,26 +776,24 @@ customer_monitoring_integrity_e2e = (
     root / "tests/e2e/customer-monitoring-integrity.spec.ts"
 ).read_text(encoding="utf-8")
 for fragment in (
-    "oversized monitoring facts stay bounded and disclose malformed rows",
-    "filter changes discard slower monitoring auxiliary and breakdown responses",
-    "KPI 概览：服务返回 5 条，浏览器安全视图展示 3 条",
-    "问题级表现：服务返回 101 条，浏览器安全视图展示 99 条",
+    "oversized atomic dashboard collections fail closed without exposing rejected rows",
+    "operational fields fail the atomic customer dashboard snapshot closed",
+    "a malformed nested dimension fails atomically instead of claiming an empty window",
+    "filter changes discard an older customer dashboard snapshot response",
+    "models: Array.from({ length: 101 }",
     "expectAccessible(page)",
-    "stale-monitoring-canary",
-    "currentOverviewGate",
-    "getByText('50.0%', { exact: true })).toHaveCount(0)",
-    "getByText('95.0%', { exact: true })).toBeVisible()",
-    "overview-visible-canary",
-    "monitoring-delta-proxy-password",
-    "monitoring-competitor-proxy-password",
-    "a wholly invalid delta fails only its local panel instead of claiming an empty window",
-    "delta-invalid-current-canary",
-    "a zero-row metric export receipt fails locally without a false artifact claim",
-    "zero-row-export-canary",
+    "atomic-dashboard-oversize-canary",
+    "wf_customer_dashboard_forbidden",
+    "customer-dashboard-token-canary",
+    "oldRequestCount",
+    "currentRequestCount",
+    "getByText('95.0%', { exact: true }).first()).toBeVisible()",
+    "getByText('10.0%', { exact: true })).toHaveCount(0)",
 ):
     if fragment not in customer_monitoring_integrity_e2e:
         errors.append(
-            "tests/e2e/customer-monitoring-integrity.spec.ts is missing bounded/race/DLP "
+            "tests/e2e/customer-monitoring-integrity.spec.ts is missing atomic "
+            "bounded/race/DLP "
             f"coverage: {fragment}"
         )
 
@@ -2397,7 +2395,7 @@ for fragment in (
     "expect(writes).toHaveLength(1)",
     "'x-actor-id': 'tenant-admin-integrity'",
     "'x-actor-role': 'admin'",
-    "await page.getByRole('button', { name: '经营总览' }).click()",
+    "await page.getByRole('button', { name: '经营总览', exact: true }).click()",
     "getByRole('button', { name: '项目成员', exact: true })",
     "expect(memberReads).toBe(1)",
     "expect(oidcReads).toBe(1)",

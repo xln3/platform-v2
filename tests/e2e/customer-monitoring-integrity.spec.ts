@@ -43,6 +43,43 @@ async function installMonitoringExperience(page: Page) {
 
 const dashboardRoute = '**/api/v2/customer-dashboard/projects/*';
 
+test('oversized atomic dashboard collections fail closed without exposing rejected rows', async ({
+  page,
+}) => {
+  await installMonitoringExperience(page);
+  await page.route(dashboardRoute, (route) => {
+    const projectPubId = new URL(route.request().url()).pathname.split('/').at(-1) ?? '';
+    const fixture = buildCustomerDashboardFixture(projectPubId);
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ...fixture,
+        models: Array.from({ length: 101 }, (_, index) => ({
+          ...fixture.models[0]!,
+          key: `model-${index}`,
+          label: index === 100 ? 'Bearer atomic-dashboard-oversize-canary' : `安全模型 ${index}`,
+        })),
+      }),
+    });
+  });
+
+  await page.goto('/platform/customer/?section=monitoring');
+  await expect(page.getByText('加载失败', { exact: true })).toBeVisible();
+  await expect(page.getByText('暂无数据', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: /品牌可见度与模型表现/ })).toHaveCount(0);
+  await expectAccessible(page);
+  const surfaces = await page.evaluate(() =>
+    JSON.stringify({
+      dom: document.documentElement.outerHTML,
+      url: location.href,
+      localStorage: { ...localStorage },
+      sessionStorage: { ...sessionStorage },
+    }),
+  );
+  expect(surfaces).not.toMatch(/atomic-dashboard-oversize-canary|Bearer /i);
+});
+
 test('operational fields fail the atomic customer dashboard snapshot closed', async ({ page }) => {
   await installMonitoringExperience(page);
   await page.route(dashboardRoute, (route) => {
