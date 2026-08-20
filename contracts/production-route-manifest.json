@@ -5,7 +5,19 @@
   },
   "v2_include": {
     "path": "deploy/production/nginx-v2-locations.conf",
-    "sha256": "ea2152e3bf4061c15211dad22ae0f6c64aa2f040fdd4509136c256349d9ac82c"
+    "sha256": "8b45ccfd48089a48885d8f0425099e5e8857ea9f7fb65acf645c71a9c6b6ce38"
+  },
+  "customer_answer_http": {
+    "path": "deploy/production/geo-platform-v2-customer-answer-http.conf",
+    "sha256": "eef676dc2f72b24be800b4e55cd4ec0a237f10827acece2aad3e35bd74d15b84"
+  },
+  "customer_answer_edge": {
+    "path": "deploy/production/geo-platform-v2-customer-answer-edge.conf",
+    "sha256": "2e0d92bda1b7594c0ea23907f3d5117ede99a5f5c9a4f1b0568e827fcfeeabe2"
+  },
+  "customer_answer_backend": {
+    "path": "deploy/production/geo-platform-v2-customer-answer-backend.conf",
+    "sha256": "023cc3a315747ba77a3a05503e22df8acf76725a8c10dcd7b1cb60ac5c98980b"
   },
   "required_routes": [
     "/api/v2/",
