@@ -56,9 +56,7 @@ def test_captcha_challenge_is_actor_bound_and_stored_with_restricted_permissions
     )
 
     assert base64.b64decode(challenge.image_base64) == _PNG
-    challenge_path = (
-        tmp_path / ".provider-login" / "prfabu" / f"{challenge.challenge_id}.json"
-    )
+    challenge_path = tmp_path / ".provider-login" / "prfabu" / f"{challenge.challenge_id}.json"
     assert stat.S_IMODE(challenge_path.parent.stat().st_mode) == 0o700
     assert stat.S_IMODE(challenge_path.stat().st_mode) == 0o600
     with pytest.raises(provider_auth.PrfabuChallengeInvalid):

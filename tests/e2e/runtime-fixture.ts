@@ -1,4 +1,5 @@
 import { expect, test as base } from '@playwright/test';
+import { installDefaultCustomerDashboardRoutes } from './customer-dashboard-fixture';
 import { collectBrowserRuntimeIssues, summarizeBrowserRuntimeIssues } from './runtime-guard';
 
 export { expect };
@@ -235,6 +236,9 @@ export const test = base.extend<{ browserRuntimeGuard: void }>({
             body: JSON.stringify({ models: ['fixture-draft-model'] }),
           }),
         );
+        if (testInfo.project.name.startsWith('customer-')) {
+          await installDefaultCustomerDashboardRoutes(page);
+        }
         if (testInfo.project.name.startsWith('operations-')) {
           await page.route('**/api/v2/operations/lifecycle**', (route) =>
             route.fulfill({

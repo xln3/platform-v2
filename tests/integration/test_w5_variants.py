@@ -270,9 +270,15 @@ def _seed_analytics(
                 sql_text(
                     "INSERT INTO analytics.answer "
                     "(pub_id, tenant_pub_id, project_pub_id, query_text, response_text,"
-                    " model, region, mode, channel, adapter_version, capture_time) "
+                    " model, region, mode, channel, adapter_version, capture_time,"
+                    " response_raw,response_markdown_normalized,response_ast,"
+                    " response_html_sanitized,response_plain_text,response_hash,"
+                    " render_parser_version) "
                     "VALUES (:pub, :tp, :pp, :qt, 'r', 'doubao', '上海', 'web', 'web',"
-                    " 'v1', now())"
+                    " 'v1', now(), 'r', 'r',"
+                    ' \'[{"type":"paragraph","text":"r"}]\'::jsonb,'
+                    " '<pre>r</pre>', 'r', encode(digest('r','sha256'),'hex'),"
+                    " 'w5-fixture-v1')"
                 ),
                 {"pub": answer_pub, "tp": tenant_pub_id, "pp": project_pub_id, "qt": query_text},
             )

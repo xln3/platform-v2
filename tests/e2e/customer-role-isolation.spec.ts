@@ -82,14 +82,10 @@ test('validated live session supplies tenant, project and role context', async (
       body: JSON.stringify({ status: 'ok', service: 'geo-platform-v2', version: 'contract-v1' }),
     }),
   );
-  await page.route('**/api/v2/analytics/overview**', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
-  );
-
   await page.goto('/platform/customer/');
   await expect(page.getByRole('button', { name: /真实联调项目/ })).toBeVisible();
-  await expect(page.getByRole('heading', { name: '项目监测概览' })).toBeVisible();
-  await expect(page.getByText('暂无数据')).toBeVisible();
+  await expect(page.getByRole('heading', { name: '云岫智能 · AI 认知资产总览' })).toBeVisible();
+  await expect(page.getByText('50.0%', { exact: true }).first()).toBeVisible();
   await expect(page.getByText('无权查看')).toHaveCount(0);
 });
 

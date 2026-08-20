@@ -594,7 +594,7 @@ class FormalDocument:
                 "数据补齐与人工复核、批准完成后，方可成为客户交付候选稿。",
                 kind="info",
             )
-        self.document.add_page_break()
+        self.page_break()
 
     def heading(self, text: str, *, level: int = 1) -> None:
         paragraph = self.document.add_heading(text, level=level)
@@ -747,7 +747,8 @@ class FormalDocument:
         paragraph.add_run().add_picture(picture, width=Cm(16.7))
 
     def page_break(self) -> None:
-        self.document.add_page_break()
+        # python-docx exposes this stable API without a typed signature.
+        self.document.add_page_break()  # type: ignore[no-untyped-call]
 
     def save(self) -> bytes:
         output = BytesIO()

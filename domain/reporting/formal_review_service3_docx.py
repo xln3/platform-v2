@@ -521,14 +521,11 @@ def render_service3_v2_docx(
                 )
         elif model == "doubao":
             if int(row["opened_stage_observed"]) < int(row["answers"]):
-                current_window += (
-                    "该平台当前没有可观察的页面打开事件，不能区分候选后是否实际打开。"
-                )
+                current_window += "该平台当前没有可观察的页面打开事件，不能区分候选后是否实际打开。"
         elif model == "yiyan":
             if int(row["candidate_stage_observed"]) < int(row["answers"]):
                 current_window += (
-                    "该平台当前主要能观察到最终引用，不能完整区分“未进候选”和"
-                    "“候选后未选用”。"
+                    "该平台当前主要能观察到最终引用，不能完整区分“未进候选”和“候选后未选用”。"
                 )
         observability_notes.append(current_window)
     observability_notes.append(

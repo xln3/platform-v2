@@ -161,12 +161,15 @@ def test_signed_filename_uses_governed_approval_date(monkeypatch: pytest.MonkeyP
         dsn="postgresql://unit", evidence=SimpleNamespace(store=SimpleNamespace())
     )
 
-    assert service.artifact_filename(
-        tenant_pub_id="ten_unit",
-        production_pub_id="frp_unit",
-        service_number=1,
-        format_name="pdf",
-    ) == "客户项目_服务1_V1.0_已批准签发版_20260815.pdf"
+    assert (
+        service.artifact_filename(
+            tenant_pub_id="ten_unit",
+            production_pub_id="frp_unit",
+            service_number=1,
+            format_name="pdf",
+        )
+        == "客户项目_服务1_V1.0_已批准签发版_20260815.pdf"
+    )
     statement, params = statements[0]
     assert "JOIN platform.project" not in statement
     assert "jsonb_extract_path_text" in statement

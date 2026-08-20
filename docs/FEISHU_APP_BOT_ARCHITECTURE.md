@@ -56,13 +56,13 @@ outbox。`InteractionService` 管身份、CAS、事件幂等和完成语义。HT
 
 迁移 `s06_0025` 新增 channel-neutral 的 `notification` schema：
 
-| 表 | 用途 | 敏感数据边界 |
-| --- | --- | --- |
-| `notice` | 通知公开 ID、状态、fingerprint、message_id、脱敏摘要、认领人哈希 | 只存 assist ticket SHA-256，不存 ticket 原文 |
-| `delivery_command` | send/update outbox、确定性 UUID、尝试次数、退避、dead letter | 不存渲染卡片、token 或响应正文 |
-| `interaction` | `event_id` 唯一幂等、动作、脱敏 actor、稳定响应 | 不存完整回调 payload |
-| `callback_replay` | timestamp/nonce 哈希与过期时间 | 不存 nonce 原文 |
-| `audit_event` | actor hash、动作、结果、时间、关联通知 | 不存手机号、账号原文或秘密 |
+| 表                 | 用途                                                             | 敏感数据边界                                 |
+| ------------------ | ---------------------------------------------------------------- | -------------------------------------------- |
+| `notice`           | 通知公开 ID、状态、fingerprint、message_id、脱敏摘要、认领人哈希 | 只存 assist ticket SHA-256，不存 ticket 原文 |
+| `delivery_command` | send/update outbox、确定性 UUID、尝试次数、退避、dead letter     | 不存渲染卡片、token 或响应正文               |
+| `interaction`      | `event_id` 唯一幂等、动作、脱敏 actor、稳定响应                  | 不存完整回调 payload                         |
+| `callback_replay`  | timestamp/nonce 哈希与过期时间                                   | 不存 nonce 原文                              |
+| `audit_event`      | actor hash、动作、结果、时间、关联通知                           | 不存手机号、账号原文或秘密                   |
 
 人工接管状态为：
 

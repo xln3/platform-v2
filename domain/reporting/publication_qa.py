@@ -79,7 +79,9 @@ def _docx_text(payload: bytes) -> tuple[str, list[str]]:
         text = paragraph.text.strip()
         if text:
             blocks.append(text)
-        if text and str(paragraph.style.name).startswith(("Heading", "标题")):
+        style = paragraph.style
+        style_name = style.name if style is not None else ""
+        if text and style_name.startswith(("Heading", "标题")):
             headings.append(text)
     for table in document.tables:
         for row in table.rows:

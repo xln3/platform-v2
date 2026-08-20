@@ -118,10 +118,7 @@ def test_feishu_text_payload(server: _CaptureServer) -> None:
 
 def test_feishu_business_error_returns_false(server: _CaptureServer) -> None:
     server.response_body = b'{"code":9499,"msg":"Bad Request"}'
-    assert (
-        push_captcha_assist(flavor="feishu", url=server.base, title=_TITLE, body=_BODY)
-        is False
-    )
+    assert push_captcha_assist(flavor="feishu", url=server.base, title=_TITLE, body=_BODY) is False
 
 
 def test_wecom_text_payload(server: _CaptureServer) -> None:

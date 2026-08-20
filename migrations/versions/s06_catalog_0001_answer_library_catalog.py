@@ -46,11 +46,11 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.CheckConstraint(
             "campaign_started_at <= activated_at",
-            name="ck_answer_library_catalog_campaign_before_activation",
+            name="campaign_before_activation",
         ),
         sa.CheckConstraint(
             "retired_at IS NULL OR retired_at > activated_at",
-            name="ck_answer_library_catalog_retired_after_activation",
+            name="retired_after_activation",
         ),
         sa.PrimaryKeyConstraint("id"),
         schema="platform",

@@ -223,9 +223,7 @@ def _citation_table(doc: FormalDocument, citations: list[dict[str, Any]]) -> Non
     rest = citations[len(visible) :]
     if not rest:
         return
-    doc.paragraph(
-        f"其余 {len(rest)} 条链接的完整地址见随附样本明细文件与证据包："
-    )
+    doc.paragraph(f"其余 {len(rest)} 条链接的完整地址见随附样本明细文件与证据包：")
     doc.table(
         ["序", "网站域名", "页面标题"],
         [
@@ -460,8 +458,7 @@ def render_service1_delivery_docx(
     doc.heading("1.2 对客户的含义", level=2)
     doc.bullets(
         [
-            f"品牌在三类场景中已有出现，但覆盖不均：“{weakest_group_name}”"
-            "是当前最明显的空白场景。",
+            f"品牌在三类场景中已有出现，但覆盖不均：“{weakest_group_name}”是当前最明显的空白场景。",
             f"同一问题集下，品牌在{strongest_platform_label}的提及率明显高于"
             f"{weakest_platform_label}；该差异只对应本批问题和窗口，不推断平台机制。",
             (
@@ -501,8 +498,7 @@ def render_service1_delivery_docx(
             (
                 "业务场景",
                 scope_label,
-                "报价单按业务线组织核心问题，本次服务 1 选取其中三个资产治理相关场景，"
-                "逐组列于 2.1",
+                "报价单按业务线组织核心问题，本次服务 1 选取其中三个资产治理相关场景，逐组列于 2.1",
             ),
             (
                 "问题",
@@ -758,8 +754,7 @@ def render_service1_delivery_docx(
         doc,
         f"场景维度：“{weakest_group_name}”提及率最低；平台维度：{weakest_platform_label}最低。"
         "知识型问题的低提及不属于短板。",
-        "按“场景×平台”定位下一批内容盘点与复测的优先级；单一组合样本很小，"
-        "不要据单个问题下结论。",
+        "按“场景×平台”定位下一批内容盘点与复测的优先级；单一组合样本很小，不要据单个问题下结论。",
     )
 
     # ---------------------------------------------------- 5. 竞品表现（范围内）
@@ -877,8 +872,7 @@ def render_service1_delivery_docx(
         ["本批观察依据", "建议动作", "责任方", "如何验证"],
         [
             (
-                f"“{weakest_group_name}”提及率最低"
-                f"（{_fraction(weakest_group)}）",
+                f"“{weakest_group_name}”提及率最低（{_fraction(weakest_group)}）",
                 "先盘点该场景下品牌公开材料是否存在、是否清楚说明品牌定位与产品能力，"
                 "再决定内容建设投入",
                 "客户内容团队，评测方提供清单",
@@ -892,8 +886,7 @@ def render_service1_delivery_docx(
             ),
             (
                 f"{weakest_platform_label}提及率明显低于{strongest_platform_label}",
-                "暂不直接按平台投入；先结合服务 2 的链接内容核查和服务 3 的官网引用"
-                "能效定位原因",
+                "暂不直接按平台投入；先结合服务 2 的链接内容核查和服务 3 的官网引用能效定位原因",
                 "评测方",
                 "服务 2/3 结果出来后，再决定是否需要平台级动作",
             ),
@@ -936,9 +929,7 @@ def render_service1_delivery_docx(
                 ),
                 item["citation_count"],
                 str(
-                    sample_by_answer.get(str(item.get("answer_pub_id") or ""), {}).get(
-                        "sample_id"
-                    )
+                    sample_by_answer.get(str(item.get("answer_pub_id") or ""), {}).get("sample_id")
                     or "—"
                 ),
             )
@@ -966,12 +957,9 @@ def render_service1_delivery_docx(
     _page(doc, "9. 结果使用说明与交付物")
     doc.bullets(
         [
-            f"适用范围：结论只对应{scope_label}和本次采集窗口；扩展到其他业务场景需要"
-            "另行评估。",
-            "证据口径：每条结论都可回溯到具体回答、截图和样本编号；AI 回答原文均"
-            "未经事实核验。",
-            "统计口径：所有比例都给出分子与分母；本批为固定问题集，结果不能外推到"
-            "整体市场。",
+            f"适用范围：结论只对应{scope_label}和本次采集窗口；扩展到其他业务场景需要另行评估。",
+            "证据口径：每条结论都可回溯到具体回答、截图和样本编号；AI 回答原文均未经事实核验。",
+            "统计口径：所有比例都给出分子与分母；本批为固定问题集，结果不能外推到整体市场。",
             "品牌口径：品牌写法合并与对比品牌入选规则见附录 A、附录 C。",
         ]
     )
@@ -1156,9 +1144,7 @@ def render_service1_delivery_docx(
     # ------------------------------------------------------------ 附录 C
     _page(doc, "附录 C · 品牌对比口径与同题差值明细")
     doc.heading("C.1 对比品牌入选规则与别名", level=2)
-    entity_rows = {
-        str(row["canonical_name"]): row for row in delivery.get("entity_ranking") or []
-    }
+    entity_rows = {str(row["canonical_name"]): row for row in delivery.get("entity_ranking") or []}
     doc.bullets(
         [
             "入选规则：本批全部回答中，按出现次数取前 5 个已确认为厂商品牌的名称；"
@@ -1214,9 +1200,7 @@ def render_service1_delivery_docx(
         else:
             bucket["even"] += 1
         bucket["max_gap"] = max(bucket["max_gap"], abs(gap))
-    doc.paragraph(
-        "先给出全部组合的全景分布，再列出差值最大的组合明细；不挑选极端值单独展示。"
-    )
+    doc.paragraph("先给出全部组合的全景分布，再列出差值最大的组合明细；不挑选极端值单独展示。")
     doc.table(
         ["对比品牌", "组合数", "目标更高", "对比品牌更高", "持平", "最大单项差值"],
         [

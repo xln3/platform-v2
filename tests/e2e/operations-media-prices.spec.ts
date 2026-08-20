@@ -29,7 +29,7 @@ test('media prices uses the shared shell, URL history, pagination and safe CSV e
   );
   await expect(page.getByRole('link', { name: '会话健康' })).toHaveAttribute(
     'href',
-    '/platform/operations/?section=sessions',
+    '/platform/operations/?section=sessions&project=prj_media_prices_live',
   );
   await expect(page.getByText('价差媒体', { exact: true })).toBeVisible();
   await expect(page.getByText('人民网', { exact: true })).toHaveCount(0);
@@ -91,7 +91,7 @@ test('media prices distinguishes missing, forbidden, failed retry and authoritat
   );
 
   await page.goto('/platform/operations/media-prices');
-  await expect(page.getByText(/数据集未生成，请先运行离线刷新脚本/)).toBeVisible();
+  await expect(page.getByText('数据集尚未生成，可直接在本页启动首次生成。')).toBeVisible();
 
   await page.reload();
   await expect(page.getByText('无权查看')).toBeVisible();

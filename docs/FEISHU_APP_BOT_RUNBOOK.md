@@ -25,13 +25,13 @@
 
 在 root-only 目录准备以下文件，owner `root:root`、目录 0700、文件 0600、每个文件末尾允许一个换行：
 
-| 文件 | 内容 |
-| --- | --- |
-| `/etc/geo-platform-v2/credentials/feishu-app-secret` | App Secret |
-| `.../feishu-verification-token` | Verification Token |
-| `.../feishu-encrypt-key` | Encrypt Key |
-| `.../feishu-allowed-open-ids` | 每行一个获准 open ID，可含 `#` 注释 |
-| `.../feishu-link-signing-key` | 至少 32 字节的独立随机 HMAC key |
+| 文件                                                 | 内容                                |
+| ---------------------------------------------------- | ----------------------------------- |
+| `/etc/geo-platform-v2/credentials/feishu-app-secret` | App Secret                          |
+| `.../feishu-verification-token`                      | Verification Token                  |
+| `.../feishu-encrypt-key`                             | Encrypt Key                         |
+| `.../feishu-allowed-open-ids`                        | 每行一个获准 open ID，可含 `#` 注释 |
+| `.../feishu-link-signing-key`                        | 至少 32 字节的独立随机 HMAC key     |
 
 link key 必须独立生成，不能复用 App Secret 或 Encrypt Key。可以在 root shell 以 `umask 077` 将
 `openssl rand -base64 48` 直接重定向到目标文件；不要先输出到屏幕。

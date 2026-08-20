@@ -339,7 +339,7 @@ def _xlsx_styles() -> str:
         '<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFill="1" '
         'applyFont="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>'
         '</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/>'
-        '</cellStyles></styleSheet>'
+        "</cellStyles></styleSheet>"
     )
 
 

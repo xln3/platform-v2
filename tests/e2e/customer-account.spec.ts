@@ -632,14 +632,12 @@ test('monitoring filters stay in content flow, are URL-bound and restore through
     }),
   );
   await page.goto('/platform/customer/');
-  await page.getByRole('button', { name: '品牌可见度' }).click();
+  await page.getByRole('button', { name: '品牌可见度', exact: true }).click();
   await expect(page).toHaveURL(/section=monitoring/);
   await expect(
     page.getByRole('heading', { name: '云岫智能 · 品牌可见度与模型表现' }),
   ).toBeVisible();
-  await expect(
-    page.getByRole('img', { name: '品牌提及率、Top3 率和引用覆盖率趋势' }),
-  ).toBeVisible();
+  await expect(page.getByRole('img', { name: '云岫智能提及率趋势' })).toBeVisible();
   await expect(page.getByLabel('模型表现数据表')).toBeVisible();
   await expect(page.getByLabel('地区表现数据表')).toBeVisible();
   await expect(page.getByLabel('回答模式表现数据表')).toBeVisible();
@@ -654,7 +652,7 @@ test('monitoring filters stay in content flow, are URL-bound and restore through
     .locator('select');
   const windowFilter = analysisFilters
     .locator('label')
-    .filter({ hasText: /^观察窗口/ })
+    .filter({ hasText: /^统计区间/ })
     .locator('select');
   const regionFilter = analysisFilters
     .locator('label')
@@ -752,7 +750,7 @@ test('customer reviews evidence, exports, questions reports and manages members'
     }),
   );
   await page.goto('/platform/customer/');
-  await page.getByRole('button', { name: '前往报告' }).click();
+  await page.getByRole('button', { name: '报告', exact: true }).click();
   await expect(page).toHaveURL(/section=reports/);
   await expect(page.getByRole('heading', { name: '2026 Q3 GEO 监测与优化建议' })).toBeVisible();
 

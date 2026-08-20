@@ -26,7 +26,10 @@ type ScreenshotSurface = {
   textLines: string[];
   textNodes: string[];
   attributeNames: string[];
-  attributes: string[];
+  attributes: Array<{
+    value: string;
+    isSameOriginBlobImageSource: boolean;
+  }>;
   controls: string[];
   machineReadableVisuals: Array<{ payloadFree: boolean }>;
   computedGeneratedContentSafe: boolean;
@@ -58,7 +61,7 @@ function screenshotSurfaceIssues(value: ScreenshotSurface): string[] {
     value.url,
     value.windowName,
     ...value.attributeNames,
-    ...value.attributes,
+    ...value.attributes.map(({ value: attributeValue }) => attributeValue),
     ...value.controls,
     ...(value.historyState === null ? [] : [value.historyState]),
     ...value.localStorage.flatMap(({ key, value: item }) => [key, item]),
@@ -73,7 +76,14 @@ function screenshotSurfaceIssues(value: ScreenshotSurface): string[] {
     issues.push('text-line');
   }
   if (value.attributeNames.some(containsClientSecretKey)) issues.push('attribute-names');
-  if (value.attributes.some(containsClientSecret)) issues.push('attributes');
+  if (
+    value.attributes.some(
+      ({ value: attributeValue, isSameOriginBlobImageSource }) =>
+        !isSameOriginBlobImageSource && containsClientSecret(attributeValue),
+    )
+  ) {
+    issues.push('attributes');
+  }
   if (value.controls.some(containsClientSecret)) issues.push('controls');
   if (value.scriptReadableCookieLength !== 0) issues.push('script-readable-cookie');
   if (value.cookieStoreEntryCount !== 0) issues.push('cookie-store');
@@ -172,7 +182,10 @@ async function inspectScreenshotSurface(page: Page): Promise<string[]> {
       'title',
     ]);
     const attributeNames: string[] = [];
-    const attributes: string[] = [];
+    const attributes: Array<{
+      value: string;
+      isSameOriginBlobImageSource: boolean;
+    }> = [];
     const textNodes: string[] = [];
     let computedGeneratedContentSafe = true;
     let computedGeneratedContentSize = 0;
@@ -212,13 +225,31 @@ async function inspectScreenshotSurface(page: Page): Promise<string[]> {
           attribute.name.startsWith('data-')
         ) {
           attributeNames.push(attribute.name);
-          attributes.push(attribute.value);
+          let isSameOriginBlobImageSource = false;
+          if (element instanceof HTMLImageElement && attribute.name === 'src') {
+            try {
+              const resourceUrl = new URL(attribute.value);
+              isSameOriginBlobImageSource =
+                resourceUrl.protocol === 'blob:' && resourceUrl.origin === location.origin;
+            } catch {
+              // Invalid resource attributes remain subject to the normal secret scan.
+            }
+          }
+          attributes.push({
+            value: attribute.value,
+            isSameOriginBlobImageSource,
+          });
         }
       }
       if (element instanceof HTMLElement) {
         for (const property of element.style) {
           const styleValue = element.style.getPropertyValue(property);
-          if (styleValue.includes('url(')) attributes.push(styleValue);
+          if (styleValue.includes('url(')) {
+            attributes.push({
+              value: styleValue,
+              isSameOriginBlobImageSource: false,
+            });
+          }
         }
       }
       for (const pseudo of [null, '::before', '::after']) {

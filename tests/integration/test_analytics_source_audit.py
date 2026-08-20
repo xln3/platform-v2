@@ -165,9 +165,10 @@ class _Seeder:
         self.connection.execute(
             "INSERT INTO platform.source_document (id,pub_id,tenant_id,project_id,run_id,"
             "url,url_hash,host,final_url,http_status,fetched_at,extract_status,extractor,"
-            "bytes,created_at,updated_at) "
+            "bytes,canonical_url,first_seen_at,last_verified_at,metadata_parser_version,"
+            "created_at,updated_at) "
             "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'density-extract-v1',100,"
-            "now(),now())",
+            "%s,%s,%s,'source-audit-fixture-v1',now(),now())",
             (
                 document_id,
                 new_pub_id("srd"),
@@ -181,6 +182,9 @@ class _Seeder:
                 http_status,
                 fetched_at,
                 extract_status,
+                final_url or url,
+                fetched_at,
+                fetched_at,
             ),
         )
         return document_id

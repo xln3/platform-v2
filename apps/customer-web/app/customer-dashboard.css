@@ -15,6 +15,9 @@ main:has(> .geo-customer-dashboard) > .page-heading {
   gap: 18px;
   min-width: 0;
 }
+.geo-customer-dashboard > * {
+  min-width: 0;
+}
 .geo-dashboard-hero {
   position: relative;
   overflow: hidden;
@@ -102,11 +105,13 @@ main:has(> .geo-customer-dashboard) > .page-heading {
 .geo-dashboard-filters label {
   display: grid;
   gap: 5px;
+  min-width: 0;
   color: var(--muted);
   font-size: 11px;
 }
 .geo-dashboard-filters select {
   width: 100%;
+  min-width: 0;
   min-height: 39px;
   border: 1px solid var(--line);
   border-radius: 9px;
@@ -1200,8 +1205,9 @@ main:has(> .geo-customer-dashboard) > .page-heading {
   display: inline-grid;
   z-index: 3;
   flex: 0 0 auto;
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
   place-items: center;
   border: 1px solid #94a3b8;
   border-radius: 50%;
@@ -1301,8 +1307,8 @@ main:has(> .geo-customer-dashboard) > .page-heading {
 
 .geo-kpi-label .geo-help-tip,
 .geo-score-card .geo-help-tip {
-  width: 17px;
-  height: 17px;
+  width: 24px;
+  height: 24px;
   border-color: var(--geo-card-border);
   color: var(--geo-card-accent);
 }

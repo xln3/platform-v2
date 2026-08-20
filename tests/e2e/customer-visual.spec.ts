@@ -41,7 +41,7 @@ const workspaces = [
   {
     section: 'opportunities',
     snapshot: 'customer-opportunities.png',
-    ready: '云岫智能 · 问题机会与增长缺口',
+    ready: '云岫智能 · 问题覆盖明细',
   },
   {
     section: 'evidence',

@@ -181,9 +181,7 @@ def main() -> int:
         for service_number in request.services:
             service_facts = bundle.facts[service_number]
             client_name = str(
-                service_facts.get("project_name")
-                or service_facts.get("account_name")
-                or "客户项目"
+                service_facts.get("project_name") or service_facts.get("account_name") or "客户项目"
             )
             client_name = re.sub(r"[^0-9A-Za-z\u4e00-\u9fff_-]+", "_", client_name).strip("_")
             scope_label = ""
@@ -191,9 +189,9 @@ def main() -> int:
                 scope_label = str(
                     service_facts["service1"]["delivery_v3"]["scope"].get("scope_label") or ""
                 )
-                scope_label = "_" + re.sub(
-                    r"[^0-9A-Za-z\u4e00-\u9fff_-]+", "_", scope_label
-                ).strip("_")
+                scope_label = "_" + re.sub(r"[^0-9A-Za-z\u4e00-\u9fff_-]+", "_", scope_label).strip(
+                    "_"
+                )
             stem = (
                 f"{client_name}_服务{service_number}{scope_label}_"
                 f"{args.version}_{status_label}_{stamp}"

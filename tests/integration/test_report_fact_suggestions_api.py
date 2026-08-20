@@ -77,8 +77,14 @@ def _seed_answer(
             """
             INSERT INTO analytics.answer
               (pub_id, tenant_pub_id, project_pub_id, query_text, response_text,
-               model, region, mode, channel, adapter_version, capture_time)
-            VALUES (%s, %s, %s, %s, 'r', %s, %s, 'normal', 'web', 'v1', now())
+               model, region, mode, channel, adapter_version, capture_time,
+               response_raw, response_markdown_normalized, response_ast,
+               response_html_sanitized, response_plain_text, response_hash,
+               render_parser_version)
+            VALUES (%s, %s, %s, %s, 'r', %s, %s, 'normal', 'web', 'v1', now(),
+                    'r', 'r', '[{"type":"paragraph","text":"r"}]'::jsonb,
+                    '<pre>r</pre>', 'r', encode(digest('r','sha256'),'hex'),
+                    'report-fact-fixture-v1')
             """,
             (pub_id, tenant_pub_id, project_pub_id, query, model, region),
         )

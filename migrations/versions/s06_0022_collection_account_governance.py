@@ -195,9 +195,7 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("pub_id", name="uq_collection_account_event_pub_id"),
-        sa.ForeignKeyConstraint(
-            ["phone_account_id"], ["platform.collection_phone_account.id"]
-        ),
+        sa.ForeignKeyConstraint(["phone_account_id"], ["platform.collection_phone_account.id"]),
         sa.ForeignKeyConstraint(
             ["platform_account_id"], ["platform.collection_platform_account.id"]
         ),

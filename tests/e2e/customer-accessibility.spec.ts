@@ -52,16 +52,27 @@ test('customer shell is keyboard reachable and WCAG AA clean', async ({ page }) 
   await page.getByRole('button', { name: '终端已连接' }).click();
   await expect(page.getByRole('heading', { name: '请在豆包原生页面完成验证' })).toBeVisible();
   await expectAccessible(page);
-  await page.getByRole('button', { name: '品牌可见度' }).click();
+  await page.getByRole('button', { name: '品牌可见度', exact: true }).click();
   await page.getByRole('heading', { name: '云岫智能 · 品牌可见度与模型表现' }).waitFor();
   await expect(page.getByLabel('AI 操作面板')).toHaveCount(0);
   await expectAccessible(page);
-  await page.getByRole('button', { name: '真实 AI 回答' }).click();
+  await page.getByRole('button', { name: '真实 AI 回答', exact: true }).click();
   await page.getByRole('heading', { name: '云岫智能 · 真实 AI 回答与模型语境' }).waitFor();
-  await expect(page.getByRole('button', { name: '按 AI 平台' })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
+  await expectAccessible(page);
+  await page
+    .getByRole('button', { name: /进入 4 条问题/ })
+    .first()
+    .click();
+  await page.getByRole('heading', { name: '制造企业如何选择可信的私有化知识库？' }).waitFor();
+  await expectAccessible(page);
+  await page.getByRole('button', { name: '选择采集条件' }).first().click();
+  await page.getByRole('heading', { name: /制造企业如何选择可信的私有化知识库/ }).waitFor();
+  await expectAccessible(page);
+  await page.getByRole('button', { name: '查看完整答案' }).first().click();
+  await page
+    .getByRole('heading', { name: /第 1 遍/ })
+    .first()
+    .waitFor();
   await expectAccessible(page);
   await page.getByRole('button', { name: '证据中心' }).click();
   const evidenceTrigger = page.getByRole('button', { name: '查看回答截图' }).first();

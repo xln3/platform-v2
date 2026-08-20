@@ -71,12 +71,9 @@ def test_classify_query_intent_distinguishes_knowledge_from_recommendation() -> 
     assert classify_query_intent("高校信息化部门如何选择未备案资产排查供应商") == "selection"
     assert classify_query_intent("互联网暴露面资产收敛与攻击面管理平台选型") == "selection"
     assert (
-        classify_query_intent("甲方安全团队评估攻击面管理（ASM）产品应关注哪些指标")
-        == "knowledge"
+        classify_query_intent("甲方安全团队评估攻击面管理（ASM）产品应关注哪些指标") == "knowledge"
     )
-    assert (
-        classify_query_intent("采购资产与漏洞联动治理平台时如何评估厂商能力") == "selection"
-    )
+    assert classify_query_intent("采购资产与漏洞联动治理平台时如何评估厂商能力") == "selection"
     assert classify_query_intent("资产台账和漏洞管理想一个平台搞定，国内谁家做得好？") == (
         "recommend"
     )

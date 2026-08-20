@@ -153,7 +153,8 @@ describe('BrowsersPage', () => {
     expect(toast.textContent).toContain('已登记，需运维窗口执行');
     expect(
       calls.some(
-        (call) => call.method === 'POST' && call.path === '/api/v2/collection-browsers/doubao_bj/restart',
+        (call) =>
+          call.method === 'POST' && call.path === '/api/v2/collection-browsers/doubao_bj/restart',
       ),
     ).toBe(true);
   });

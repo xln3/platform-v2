@@ -33,5 +33,5 @@ def test_systemd_network_policy_clears_proxy_and_pins_llm_gateway() -> None:
         assert f'Environment="{key}=*"' in policy
     assert "aihubmix" not in policy.lower()
     for family in ("RESEARCH", "AUDIT", "POST_ANALYSIS", "BRANDRANK"):
-        assert f'GEO_{family}_LLM_BASE_URL={APPROVED_LLM_GATEWAY}' in policy
-        assert f'GEO_{family}_LLM_BASE_URL_FALLBACK={APPROVED_LLM_GATEWAY}' in policy
+        assert f"GEO_{family}_LLM_BASE_URL={APPROVED_LLM_GATEWAY}" in policy
+        assert f"GEO_{family}_LLM_BASE_URL_FALLBACK={APPROVED_LLM_GATEWAY}" in policy

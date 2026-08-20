@@ -71,19 +71,13 @@ QUOTA_PHRASES: dict[str, tuple[_QuotaRule, ...]] = {
         _QuotaRule("开通豆包专业版", ("免等待", "继续为你服务")),
     ),
     # 以下四平台为保守子串（常见付费/限流文案），待 P1 attach 实证扩充。
-    "deepseek": (
-        _QuotaRule("免费额度已用完", ("今日", "本月")),
-    ),
+    "deepseek": (_QuotaRule("免费额度已用完", ("今日", "本月")),),
     "yiyan": (
         _QuotaRule("今日额度已用完", ()),
         _QuotaRule("开通文心一言会员", ("畅享", "免等待", "无限")),
     ),
-    "yuanbao": (
-        _QuotaRule("今日免费对话次数已用完", ()),
-    ),
-    "tongyi": (
-        _QuotaRule("体验次数已用完", ("今日", "开通")),
-    ),
+    "yuanbao": (_QuotaRule("今日免费对话次数已用完", ()),),
+    "tongyi": (_QuotaRule("体验次数已用完", ("今日", "开通")),),
 }
 
 # ---------------------------------------------------------------------------
@@ -126,26 +120,16 @@ REFUSAL_PHRASES: dict[str, tuple[str, ...]] = {
         # 可以通过扩容解决」类科普答案误伤——截断到「请稍后再试」才是平台口吻）。
         "当前请求人数过多，请稍后再试",
     ),
-    "doubao": (
-        "我们换个话题",
-    ),
+    "doubao": ("我们换个话题",),
     # 以下四平台为保守子串（各平台经典拒答/过载文案），待 P1 attach 实证扩充。
-    "deepseek": (
-        "服务器繁忙，请稍后再试",
-    ),
-    "yiyan": (
-        "很抱歉，我无法回答该问题",
-    ),
-    "yuanbao": (
-        "很抱歉，我无法回答你的问题",
-    ),
-    "tongyi": (
-        "很抱歉，我暂时无法回答",
-    ),
+    "deepseek": ("服务器繁忙，请稍后再试",),
+    "yiyan": ("很抱歉，我无法回答该问题",),
+    "yuanbao": ("很抱歉，我无法回答你的问题",),
+    "tongyi": ("很抱歉，我暂时无法回答",),
 }
 
 
-def _platform_rules(table: dict[str, tuple], platform: str) -> tuple:
+def _platform_rules[RuleT](table: dict[str, tuple[RuleT, ...]], platform: str) -> tuple[RuleT, ...]:
     """平台特定规则优先（证据更精确），通用表兜底；未知平台只用通用表。"""
     return table.get(platform, ()) + table.get("common", ())
 
@@ -159,9 +143,7 @@ def classify_answer_text(platform: str, text: str) -> WallVerdict | None:
     if not text:
         return None
     for rule in _platform_rules(QUOTA_PHRASES, platform):
-        if rule.phrase in text and (
-            not rule.context or any(ctx in text for ctx in rule.context)
-        ):
+        if rule.phrase in text and (not rule.context or any(ctx in text for ctx in rule.context)):
             return WallVerdict("wall_quota", rule.phrase)
     muted = detect_muted_banner(platform, text)
     if muted is not None:
@@ -180,9 +162,7 @@ def detect_muted_banner(platform: str, page_text: str) -> WallVerdict | None:
     for pattern in _platform_rules(MUTED_PATTERNS, platform):
         match = pattern.search(page_text)
         if match is not None:
-            return WallVerdict(
-                "wall_muted", match.group(0), until=_parse_muted_until(match)
-            )
+            return WallVerdict("wall_muted", match.group(0), until=_parse_muted_until(match))
     return None
 
 

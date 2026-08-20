@@ -187,9 +187,10 @@ def _seed_source_document(seeded_run: Any, store: ContentAddressedObjectStore) -
         connection.execute(
             "INSERT INTO platform.source_document (id,pub_id,tenant_id,project_id,run_id,"
             "url,url_hash,host,fetched_at,extract_status,extractor,bytes,text_cas_key,"
-            "text_sha256,created_at,updated_at) "
+            "text_sha256,canonical_url,first_seen_at,last_verified_at,metadata_parser_version,"
+            "created_at,updated_at) "
             "SELECT gen_random_uuid(),%s,%s,r.project_id,r.id,%s,%s,%s,now(),'ok',"
-            "'density-extract-v1',%s,%s,%s,now(),now() "
+            "'density-extract-v1',%s,%s,%s,%s,now(),now(),'w3-fixture-v1',now(),now() "
             "FROM platform.collection_run r WHERE r.pub_id=%s",
             (
                 new_pub_id("srd"),
@@ -200,6 +201,7 @@ def _seed_source_document(seeded_run: Any, store: ContentAddressedObjectStore) -
                 len(_DOC_TEXT.encode("utf-8")),
                 stored.key,
                 stored.sha256,
+                _DOC_URL,
                 seeded_run.run,
             ),
         )

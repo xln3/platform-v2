@@ -28,9 +28,7 @@ def upsert_phone_account(
 ) -> CollectionPhoneAccount:
     """按 phone 唯一 upsert 手机号行。已存在只更新 owner_note（注册动作更新、更近），
     状态/链路字段一律不动（不覆盖 OTP push 回填的 last_sms_at）。"""
-    row = conn.scalar(
-        select(CollectionPhoneAccount).where(CollectionPhoneAccount.phone == phone)
-    )
+    row = conn.scalar(select(CollectionPhoneAccount).where(CollectionPhoneAccount.phone == phone))
     now = now_utc()
     if row is None:
         row = CollectionPhoneAccount(
@@ -56,9 +54,7 @@ def upsert_phone_account(
 def record_sms_received(conn: Session, *, phone: str) -> bool:
     """回填收码事实：last_sms_at=now + sms_link_state='ok'。无行（未在册号）
     → False 如实返回（不建档——建档是注册/管理页动作的职责）。"""
-    row = conn.scalar(
-        select(CollectionPhoneAccount).where(CollectionPhoneAccount.phone == phone)
-    )
+    row = conn.scalar(select(CollectionPhoneAccount).where(CollectionPhoneAccount.phone == phone))
     if row is None:
         return False
     now = now_utc()

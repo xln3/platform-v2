@@ -607,9 +607,7 @@ class _FailoverFakeClient:
     instances: list[str] = []
     trust_env_values: list[bool] = []
 
-    def __init__(
-        self, *, base_url: str, headers: dict, timeout: float, trust_env: bool
-    ) -> None:
+    def __init__(self, *, base_url: str, headers: dict, timeout: float, trust_env: bool) -> None:
         self.base_url = base_url
         _FailoverFakeClient.instances.append(base_url)
         _FailoverFakeClient.trust_env_values.append(trust_env)

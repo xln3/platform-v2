@@ -285,6 +285,9 @@
 
 .geo-answer-dossier__citation-host,
 .geo-answer-dossier__citation-article {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
   color: #172033;
   font-weight: 750;
   line-height: 1.45;
@@ -298,7 +301,7 @@
 }
 
 .geo-answer-dossier__citation-article {
-  display: block;
+  display: flex;
   font-size: 11px;
 }
 
@@ -340,7 +343,7 @@
 .geo-answer-dossier__citation-table td > small {
   display: block;
   margin-top: 4px;
-  color: #94a3b8;
+  color: #596275;
   font-size: 9px;
   line-height: 1.5;
 }
@@ -808,7 +811,7 @@
 }
 
 .geo-answer-row__body > header time {
-  color: #94a3b8;
+  color: #596275;
   font-size: 10px;
   font-variant-numeric: tabular-nums;
 }
@@ -854,7 +857,7 @@
 }
 
 .geo-answer-row__dimensions small {
-  color: #94a3b8;
+  color: #596275;
   font-size: 9px;
 }
 
@@ -899,7 +902,7 @@
 }
 
 .geo-answer-row__result > small {
-  color: #94a3b8;
+  color: #596275;
   font-size: 9px;
   line-height: 1.5;
 }
@@ -1209,12 +1212,12 @@
 }
 
 .geo-answer-dossier__run-copy time {
-  color: #94a3b8;
+  color: #596275;
   font-size: 7px;
 }
 
 .geo-answer-dossier__run-index {
-  color: #94a3b8;
+  color: #596275;
   font-size: 8px;
   font-variant-numeric: tabular-nums;
 }
@@ -1222,7 +1225,7 @@
 .geo-answer-dossier__run-rail > footer {
   padding: 9px 11px;
   border-top: 1px solid var(--dossier-line);
-  color: #94a3b8;
+  color: #596275;
   font-size: 7px;
   line-height: 1.5;
 }
@@ -1324,8 +1327,8 @@
 
 .geo-answer-dossier__markdown a[href^='#citation-'] {
   display: inline-grid;
-  min-width: 19px;
-  min-height: 19px;
+  min-width: 24px;
+  min-height: 24px;
   place-items: center;
   margin-inline: 2px;
   border-radius: 5px;
@@ -1403,7 +1406,7 @@
   padding: 12px 20px;
   border-top: 1px solid var(--dossier-line);
   background: #fafbfc;
-  color: #94a3b8;
+  color: #596275;
   font-size: 9px;
 }
 
@@ -1515,6 +1518,9 @@
 }
 
 .geo-answer-dossier__citation-title a {
+  display: flex;
+  min-height: 24px;
+  align-items: center;
   overflow: hidden;
   color: #172033;
   font-size: 11px;
@@ -1581,7 +1587,7 @@
 .geo-answer-dossier__citation-list footer {
   display: grid;
   gap: 2px;
-  color: #94a3b8;
+  color: #596275;
   font-size: 7px;
   line-height: 1.45;
 }

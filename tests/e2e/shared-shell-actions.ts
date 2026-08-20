@@ -78,9 +78,12 @@ export function verifySharedShellActions({
     await page.goto(path);
     if (internalLink) {
       const link = page.getByRole('link', { name: internalLink.label, exact: true });
-      await expect(link).toHaveAttribute('href', internalLink.href);
-      expect(new URL(await link.getAttribute('href')!, page.url()).search).toBe('');
-      expect(new URL(await link.getAttribute('href')!, page.url()).hash).toBe('');
+      const expected = new URL(internalLink.href, page.url());
+      expected.searchParams.set('project', 'prj_shared_shell');
+      await expect(link).toHaveAttribute('href', `${expected.pathname}${expected.search}`);
+      const projected = new URL(await link.getAttribute('href')!, page.url());
+      expect([...projected.searchParams]).toEqual([['project', 'prj_shared_shell']]);
+      expect(projected.hash).toBe('');
     }
     for (const label of liveNavLabelsWithoutBadges) {
       await expect(page.getByRole('button', { name: new RegExp(label) }).locator('em')).toHaveCount(

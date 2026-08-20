@@ -668,6 +668,7 @@ class _FakeSession:
                 "adapter_version",
                 "image_width",
                 "image_height",
+                "customer_visible",
             )
             return _FakeMappings({key: inserted[key] for key in keys})
         if "INSERT INTO evidence.evidence_relation" in sql:
@@ -741,6 +742,7 @@ def test_persist_collection_failure_persists_raw_evidence(
         ("har", "application/har+json"),
     ]
     assert all(item["project_pub_id"] == "prj_x" for item in db.asset_inserts)
+    assert all(item["customer_visible"] is False for item in db.asset_inserts)
     assert [(item["relation_type"]) for item in db.relation_inserts] == [
         "answer_sse_raw",
         "answer_har",

@@ -67,7 +67,10 @@ def test_assist_capability_is_bound_tamper_evident_and_expires() -> None:
             notification_id="ntf_other", capability=cap, key="k" * 32, now=expiry - 1
         )
     with pytest.raises(CallbackSecurityError):
-        verify_assist_capability(notification_id="ntf_one", capability=cap[:-1] + "A", key="k" * 32)
+        replacement = "A" if cap[-1] != "A" else "B"
+        verify_assist_capability(
+            notification_id="ntf_one", capability=cap[:-1] + replacement, key="k" * 32
+        )
     with pytest.raises(CallbackSecurityError, match="expired"):
         verify_assist_capability(
             notification_id="ntf_one", capability=cap, key="k" * 32, now=expiry

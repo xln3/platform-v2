@@ -13,11 +13,24 @@ POSTGRES_DSN = os.getenv(
 )
 
 
+def _seed_platform_tenant(tenant_pub_id: str) -> None:
+    with psycopg.connect(POSTGRES_DSN) as connection:
+        connection.execute(
+            """
+            INSERT INTO platform.tenant (id,pub_id,name,state,created_at,updated_at)
+            VALUES (%s,%s,%s,'active',now(),now())
+            ON CONFLICT (pub_id) DO NOTHING
+            """,
+            (uuid4(), tenant_pub_id, tenant_pub_id),
+        )
+
+
 def test_full_and_incremental_aggregation_match_and_replay_does_not_drift() -> None:
     service = AnalyticsService(dsn=POSTGRES_DSN)
     suffix = uuid4().hex
-    tenant = f"tnt_{suffix}"
+    tenant = f"tnt_{suffix[:26]}"
     project = f"prj_{suffix}"
+    _seed_platform_tenant(tenant)
     captured = datetime.now(UTC)
     provenance = RedactedProvenance(
         platform_account_pub_id=None,

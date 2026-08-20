@@ -97,9 +97,7 @@ def test_service1_sidecars_locate_complete_answer_and_hashed_visual() -> None:
     sidecars = render_service1_sidecars(
         facts,
         blob_loader=lambda key, digest: (
-            image
-            if key == "sha256/unit-image" and digest == sha256(image).hexdigest()
-            else b""
+            image if key == "sha256/unit-image" and digest == sha256(image).hexdigest() else b""
         ),
     )
 

@@ -1179,7 +1179,7 @@ test('validated customer reads mounted data and serializes every write without s
     fullPage: true,
     animations: 'disabled',
   });
-  await page.getByRole('button', { name: '真实 AI 回答' }).click();
+  await page.getByRole('button', { name: '真实 AI 回答', exact: true }).click();
   await expect(
     page.getByRole('heading', { name: '真实客户品牌 · 真实 AI 回答与模型语境' }),
   ).toBeVisible();
@@ -1444,7 +1444,7 @@ test('validated customer reads mounted data and serializes every write without s
     fullPage: true,
     animations: 'disabled',
   });
-  await page.getByRole('button', { name: '品牌可见度' }).click();
+  await page.getByRole('button', { name: '品牌可见度', exact: true }).click();
   await expect(
     page.getByRole('heading', { name: '真实客户品牌 · 品牌可见度与模型表现' }),
   ).toBeVisible();
@@ -1461,7 +1461,7 @@ test('validated customer reads mounted data and serializes every write without s
     fullPage: true,
     animations: 'disabled',
   });
-  await page.getByRole('button', { name: '信源与内容' }).click();
+  await page.getByRole('button', { name: '信源与内容', exact: true }).click();
   await expect(
     page.getByRole('heading', { name: '真实客户品牌 · 信源权威与内容准备度' }),
   ).toBeVisible();
@@ -1719,7 +1719,7 @@ test('customer product 404 fails closed without revealing whether analytics exis
     }),
   );
   await page.goto('/platform/customer/');
-  await page.getByRole('button', { name: '品牌可见度' }).click();
+  await page.getByRole('button', { name: '品牌可见度', exact: true }).click();
   await expect(page.getByText('无权查看')).toBeVisible();
   await expect(page.getByText('Cookie=forbidden-customer-canary')).toHaveCount(0);
   await expect(page.getByText('customer-dashboard-forbidden-canary')).toHaveCount(0);

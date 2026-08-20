@@ -849,9 +849,9 @@ const fallbackMetricHelp: Readonly<Record<string, string>> = {
 
 function HelpTip({ label, children }: { label: string; children: string }) {
   return (
-    <span
+    <button
+      type="button"
       className="geo-help-tip"
-      tabIndex={0}
       aria-label={`${label}说明：${children}`}
       onClick={(event) => event.stopPropagation()}
     >
@@ -860,7 +860,7 @@ function HelpTip({ label, children }: { label: string; children: string }) {
         <strong>{label}</strong>
         {children}
       </span>
-    </span>
+    </button>
   );
 }
 
