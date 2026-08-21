@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Dialog } from '@geo/design-system';
 import type { SessionContext } from '../execution/api';
 import {
+  accountPhoneLabel,
   accountGovApi,
   COLLECTION_PLATFORMS,
   PLATFORM_LABELS,
@@ -52,6 +53,7 @@ export function AccountsPage({ session }: { session: SessionContext }) {
   const [smsTestRow, setSmsTestRow] = useState<CollectionAccountRow | null>(null);
   const [addAccountOpen, setAddAccountOpen] = useState(false);
   const [addRegionOpen, setAddRegionOpen] = useState(false);
+  const [syncingNumbers, setSyncingNumbers] = useState(false);
   const toastSeq = useRef(0);
   const now = useNow();
 
@@ -96,7 +98,7 @@ export function AccountsPage({ session }: { session: SessionContext }) {
     try {
       const result = await accountGovApi.linkTest(session, row.phone_account_pub_id, 'push');
       if (result.ok) {
-        pushToast('positive', `接管测试推送已发出（${row.phone_masked}），请留意手机回执。`);
+        pushToast('positive', `接管测试推送已发出（${accountPhoneLabel(row)}），请留意手机回执。`);
       } else {
         pushToast('negative', `接管测试未通过：${result.detail ?? '未知原因'}`);
       }
@@ -106,19 +108,47 @@ export function AccountsPage({ session }: { session: SessionContext }) {
     void refresh();
   }
 
+  async function syncOtpNumbers() {
+    setSyncingNumbers(true);
+    try {
+      const result = await accountGovApi.syncOtpRegistry(session);
+      pushToast(
+        'positive',
+        `号码刷新完成：新增 ${result.created}、更新 ${result.updated}、无变化 ${result.unchanged}`,
+      );
+      await refresh();
+    } catch (cause) {
+      pushToast('negative', describeApiError(cause));
+    } finally {
+      setSyncingNumbers(false);
+    }
+  }
+
   return (
     <main className="acct-gov-page">
       <header className="acct-gov-heading">
         <div>
           <h1>采集账号管理</h1>
-          <p>行 = 手机号；五平台格分别维护地域绑定、采集额度与运行状态。每 15 秒自动刷新。</p>
+          <p>
+            行 = 手机号；五平台格分别维护地域绑定、采集额度与运行状态。每 15 秒自动刷新。
+          </p>
         </div>
         <div className="acct-gov-actions">
+          {session.role === 'operator' || session.role === 'admin' ? (
+            <button onClick={() => void syncOtpNumbers()} disabled={syncingNumbers}>
+              {syncingNumbers ? '刷新中…' : '刷新号码'}
+            </button>
+          ) : null}
           <button onClick={() => setAddAccountOpen(true)}>添加帐号</button>
           <button onClick={() => setAddRegionOpen(true)}>添加地域</button>
         </div>
       </header>
-      <QuotaObservationPanel observations={quotaObservations} regions={regions} now={now} />
+      <QuotaObservationPanel
+        observations={quotaObservations}
+        accounts={accounts}
+        regions={regions}
+        now={now}
+      />
       {state === 'loading' ? (
         <p className="acct-gov-empty">正在加载账号列表…</p>
       ) : state === 'failed' ? (
@@ -258,27 +288,32 @@ const QUOTA_SOURCE_LABELS: Record<AccountQuotaObservation['source'], string> = {
 
 function QuotaObservationPanel({
   observations,
+  accounts,
   regions,
   now,
 }: {
   observations: AccountQuotaObservation[];
+  accounts: CollectionAccountRow[];
   regions: CollectionRegionRow[];
   now: number;
 }) {
   if (observations.length === 0) return null;
   const regionNames = new Map(regions.map((region) => [region.region_gb, region.name]));
+  const phoneLabels = new Map(
+    accounts.map((account) => [account.phone_account_pub_id, accountPhoneLabel(account)]),
+  );
   return (
     <section className="acct-gov-quota-overview" aria-labelledby="account-quota-heading">
       <div className="acct-gov-section-heading">
         <div>
-          <h2 id="account-quota-heading">平台账号额度</h2>
-          <p>展示平台明确状态与日志估算；估算条数不会作为官方固定上限。</p>
+          <h2 id="account-quota-heading">平台账号额度（按手机号）</h2>
+          <p>额度按“手机号 × 平台 × 模式”归集；地域只表示最近一次观测出口。</p>
         </div>
       </div>
       <div className="acct-gov-quota-cards">
         {observations.map((observation) => {
-          const regionName = observation.region_gb
-            ? (regionNames.get(observation.region_gb) ?? observation.region_gb)
+          const observedRegionName = observation.observed_region_gb
+            ? (regionNames.get(observation.observed_region_gb) ?? observation.observed_region_gb)
             : '地域未登记';
           const roundedDaily =
             observation.daily_equivalent === null
@@ -292,14 +327,19 @@ function QuotaObservationPanel({
           return (
             <article
               className="acct-gov-quota-card"
-              key={`${observation.browser_instance_key}-${observation.mode}`}
+              key={`${observation.phone_account_pub_id}-${observation.platform}-${observation.mode}`}
             >
               <header>
                 <div>
                   <strong>
-                    {PLATFORM_LABELS[observation.platform]} · {regionName}
+                    <a href={`#acct-${observation.phone_account_pub_id}`}>
+                      {phoneLabels.get(observation.phone_account_pub_id) ?? observation.phone_masked}
+                    </a>{' '}
+                    · {PLATFORM_LABELS[observation.platform]}
                   </strong>
-                  <small>{observation.browser_instance_key}</small>
+                  <small>
+                    最近观测：{observedRegionName} · {observation.observed_browser_instance_key}
+                  </small>
                 </div>
                 <span
                   className={`acct-gov-badge ${
@@ -373,7 +413,7 @@ function QuotaObservationPanel({
       </div>
       <p className="acct-gov-note">
         “约 N
-        条/天”由滚动窗口内已确认发送数折算；复杂任务可能加权。豆包快速模式不占用这里展示的专家模式额度。
+        条/天”由该手机号滚动窗口内已确认发送数折算；复杂任务可能加权。同一手机号切换地域不会新增额度；豆包快速模式不占用这里展示的专家模式额度。
       </p>
     </section>
   );
@@ -420,7 +460,7 @@ function AccountRow({
     <>
       <tr id={`acct-${row.phone_account_pub_id}`}>
         <td data-label="手机号">
-          <span title={row.owner_note ?? undefined}>{row.phone_masked}</span>
+          <span title={row.owner_note ?? undefined}>{accountPhoneLabel(row)}</span>
           {row.state !== 'active' ? (
             <span className="acct-gov-badge neutral">{row.state}</span>
           ) : null}
@@ -625,7 +665,7 @@ function RegionConfirmDialog({
         <p>
           该手机号在该平台的地域绑定变更：
           <strong>
-            {request.row.phone_masked} · {PLATFORM_LABELS[request.platform]}
+            {accountPhoneLabel(request.row)} · {PLATFORM_LABELS[request.platform]}
           </strong>
         </p>
         <p>
@@ -696,7 +736,7 @@ function QuotaEditDialog({
     <Dialog title="编辑额度预算" closeLabel="关闭" onClose={onClose}>
       <div className="acct-gov-dialog-body">
         <p>
-          {request.row.phone_masked} · {PLATFORM_LABELS[request.platform]}
+          {accountPhoneLabel(request.row)} · {PLATFORM_LABELS[request.platform]}
           （今日已用 {request.cell.used_today} / 本周 {request.cell.used_week} / 今年{' '}
           {request.cell.used_year}）
         </p>
@@ -793,7 +833,7 @@ function SmsTestDialog({
     <Dialog title="转码链路测试" closeLabel="关闭" onClose={onClose}>
       <div className="acct-gov-dialog-body">
         <p>
-          手机号：<strong>{row.phone_masked}</strong>（smsforwarder 自动转发验证码链路）
+          手机号：<strong>{accountPhoneLabel(row)}</strong>（smsforwarder 自动转发验证码链路）
         </p>
         {error ? (
           <p className="acct-gov-error" role="alert">

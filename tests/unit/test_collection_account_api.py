@@ -12,6 +12,7 @@ from __future__ import annotations
 import itertools
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -130,7 +131,9 @@ def _seed_phone(session: _FakeSession, **over: Any) -> CollectionPhoneAccount:
     return row
 
 
-def _seed_platform(session: _FakeSession, phone_id: int, **over: Any) -> CollectionPlatformAccount:
+def _seed_platform(
+    session: _FakeSession, phone_id: int, **over: Any
+) -> CollectionPlatformAccount:
     fields: dict[str, Any] = {
         "pub_id": new_pub_id("ppa"),
         "phone_account_id": phone_id,
@@ -197,6 +200,7 @@ def _events(session: _FakeSession, event_type: str | None = None) -> list[Collec
 def _seed_quota_observation(
     session: _FakeSession,
     browser_id: int,
+    phone_id: int | None,
     *,
     created_at: datetime,
     payload: dict[str, Any],
@@ -204,6 +208,7 @@ def _seed_quota_observation(
     row = CollectionAccountEvent(
         pub_id=new_pub_id("aev"),
         browser_id=browser_id,
+        phone_account_id=phone_id,
         event_type="quota_observation",
         actor="quota_reconstruction",
         new_value=payload,
@@ -230,9 +235,11 @@ def test_list_accounts_forbidden_role_403(session: _FakeSession) -> None:
     assert client.get("/api/v2/collection-accounts").status_code == 403
 
 
-def test_quota_observations_latest_per_browser_mode_and_safe_projection(
+def test_quota_observations_latest_per_phone_platform_mode_and_safe_projection(
     session: _FakeSession,
 ) -> None:
+    sh_phone = _seed_phone(session)
+    bj_phone = _seed_phone(session, phone="18810936058", owner_note="北京豆包号")
     sh = _seed_browser(session)
     bj = _seed_browser(
         session,
@@ -256,19 +263,22 @@ def test_quota_observations_latest_per_browser_mode_and_safe_projection(
     }
     _seed_quota_observation(
         session,
-        sh.id,
+        bj.id,
+        sh_phone.id,
         created_at=_NOW,
         payload={**base, "observed_window_count": 20},
     )
     latest = _seed_quota_observation(
         session,
         sh.id,
+        sh_phone.id,
         created_at=_NOW + timedelta(minutes=1),
         payload={**base, "observed_window_count": 26},
     )
     _seed_quota_observation(
         session,
         bj.id,
+        bj_phone.id,
         created_at=_NOW + timedelta(minutes=2),
         payload={
             "schema_version": 1,
@@ -284,8 +294,17 @@ def test_quota_observations_latest_per_browser_mode_and_safe_projection(
     _seed_quota_observation(
         session,
         sh.id,
+        sh_phone.id,
         created_at=_NOW + timedelta(minutes=3),
         payload={"schema_version": 0, "mode": "deep_think"},
+    )
+    # 即使 browser/region 与有效观测相同，没有手机号归属也绝不能展示成账号额度。
+    _seed_quota_observation(
+        session,
+        sh.id,
+        None,
+        created_at=_NOW + timedelta(minutes=4),
+        payload={**base, "observed_window_count": 999},
     )
 
     _bind(session)
@@ -293,12 +312,14 @@ def test_quota_observations_latest_per_browser_mode_and_safe_projection(
     assert resp.status_code == 200
     rows = resp.json()
     assert len(rows) == 2
-    sh_row = next(row for row in rows if row["browser_instance_key"] == "doubao_sh")
+    sh_row = next(row for row in rows if row["phone_account_pub_id"] == sh_phone.pub_id)
     assert sh_row == {
         "observation_pub_id": latest.pub_id,
-        "browser_instance_key": "doubao_sh",
+        "phone_account_pub_id": sh_phone.pub_id,
+        "phone_masked": "131***2231",
         "platform": "doubao",
-        "region_gb": "310000",
+        "observed_browser_instance_key": "doubao_sh",
+        "observed_region_gb": "310000",
         "mode": "deep_think",
         "account_tier": "free",
         "quota_state": "exhausted",
@@ -311,7 +332,10 @@ def test_quota_observations_latest_per_browser_mode_and_safe_projection(
         "observed_at": "2026-08-13T12:01:00Z",
         "source": "platform_and_logs",
     }
-    bj_row = next(row for row in rows if row["browser_instance_key"] == "doubao_bj")
+    bj_row = next(row for row in rows if row["phone_account_pub_id"] == bj_phone.pub_id)
+    assert bj_row["phone_masked"] == "188***6058"
+    assert bj_row["observed_browser_instance_key"] == "doubao_bj"
+    assert bj_row["observed_region_gb"] == "110000"
     assert bj_row["account_tier"] == "subscriber"
     assert bj_row["quota_state"] == "available"
     assert bj_row["observed_window_count"] is None
@@ -340,6 +364,7 @@ def test_list_accounts_fixed_five_platform_columns(session: _FakeSession) -> Non
     assert len(rows) == 1
     row = rows[0]
     assert row["phone_account_pub_id"] == phone.pub_id
+    assert row["phone"] == "13121622231"
     assert row["phone_masked"] == "131***2231"
     assert row["owner_note"] == "SIM1 联通"
     assert row["state"] == "active"
@@ -360,11 +385,24 @@ def test_list_accounts_fixed_five_platform_columns(session: _FakeSession) -> Non
         assert row["platforms"][slug] is None
 
 
+def test_read_only_reviewer_keeps_phone_masked(session: _FakeSession) -> None:
+    _seed_phone(session)
+    _bind(session, role=Role.REVIEWER)
+
+    resp = client.get("/api/v2/collection-accounts")
+
+    assert resp.status_code == 200
+    assert resp.json()[0]["phone"] is None
+    assert resp.json()[0]["phone_masked"] == "131***2231"
+    assert "13121622231" not in resp.text
+
+
 def test_create_account_then_conflict_409(session: _FakeSession) -> None:
     _bind(session)
     resp = client.post("/api/v2/collection-accounts", json={"phone": "13121622231"})
     assert resp.status_code == 201
     body = resp.json()
+    assert body["phone"] == "13121622231"
     assert body["phone_masked"] == "131***2231"
     assert set(body["platforms"]) == {"doubao", "yiyan", "deepseek", "yuanbao", "tongyi"}
     assert all(cell is None for cell in body["platforms"].values())
@@ -379,6 +417,59 @@ def test_create_account_then_conflict_409(session: _FakeSession) -> None:
     bad = client.post("/api/v2/collection-accounts", json={"phone": "123"})
     assert bad.status_code == 400
     assert bad.json()["error"]["code"] == "bad_phone"
+
+
+def test_sync_otp_registry_backfills_legacy_numbers_without_exposing_them(
+    session: _FakeSession,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = tmp_path / "otp_registered_numbers.json"
+    registry.write_text(
+        '[{"phone":"18810936058","carrier":"中国移动","slot":"eSIM",'
+        '"remark":"eSIM_中国移动_+8618810936058","ts":1}]',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("GEO_OTP_REGISTRY_PATH", str(registry))
+    _bind(session)
+
+    first = client.post("/api/v2/collection-accounts/sync-otp-registry", json={})
+
+    assert first.status_code == 200
+    assert first.json() == {"scanned": 1, "created": 1, "updated": 0, "unchanged": 0}
+    assert "18810936058" not in first.text
+    phone = session.rows[CollectionPhoneAccount][0]
+    assert phone.phone == "18810936058"
+    assert phone.owner_note == "eSIM 中国移动"
+    events = _events(session, "otp_registry_sync")
+    assert len(events) == 1
+    assert events[0].new_value == {
+        "source": "otp_registry",
+        "change": "created",
+        "phone_masked": "188***6058",
+    }
+
+    second = client.post("/api/v2/collection-accounts/sync-otp-registry", json={})
+    assert second.status_code == 200
+    assert second.json() == {"scanned": 1, "created": 0, "updated": 0, "unchanged": 1}
+    assert len(_events(session, "otp_registry_sync")) == 1
+
+
+def test_sync_otp_registry_requires_operate_and_reports_corruption(
+    session: _FakeSession,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = tmp_path / "otp_registered_numbers.json"
+    registry.write_text("{broken", encoding="utf-8")
+    monkeypatch.setenv("GEO_OTP_REGISTRY_PATH", str(registry))
+    _bind(session, role=Role.REVIEWER)
+    assert client.post("/api/v2/collection-accounts/sync-otp-registry", json={}).status_code == 403
+
+    _bind(session)
+    resp = client.post("/api/v2/collection-accounts/sync-otp-registry", json={})
+    assert resp.status_code == 503
+    assert resp.json()["error"]["code"] == "otp_registry_unreadable"
 
 
 # ── PATCH /collection-platform-accounts/{pub_id} ────────────────────────────
@@ -473,7 +564,9 @@ def test_patch_browser_bind_region_ip_mismatch_409(session: _FakeSession) -> Non
 
 def test_patch_unknown_account_404(session: _FakeSession) -> None:
     _bind(session)
-    resp = client.patch("/api/v2/collection-platform-accounts/ppa_missing", json={"quota_day": 1})
+    resp = client.patch(
+        "/api/v2/collection-platform-accounts/ppa_missing", json={"quota_day": 1}
+    )
     assert resp.status_code == 404
     assert resp.json()["error"]["code"] == "platform_account_not_found"
 
@@ -761,7 +854,9 @@ def test_regions_create_list_and_validation(session: _FakeSession) -> None:
     assert [row["region_gb"] for row in listed.json()] == ["110000"]
 
 
-def test_region_probe_endpoint(session: _FakeSession, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_region_probe_endpoint(
+    session: _FakeSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _seed_region(session, region_gb="110000")
     calls: list[str] = []
 

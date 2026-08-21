@@ -18,10 +18,12 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import subprocess
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Literal
 
 import structlog
@@ -46,6 +48,7 @@ from .account_models import (
 )
 from .collection_browser_sync import sync_collection_browsers
 from .models import BrowserFence
+from .otp_bridge import upsert_phone_account
 from .relay_probe import probe_collection_region
 
 log = structlog.get_logger()
@@ -104,9 +107,14 @@ class PlatformAccountView(PlatformAccountCell):
 
 
 class PhoneAccountRow(StrictModel):
-    """账号管理页行 = 手机号（platforms 五平台固定列，无行 = null）。"""
+    """账号管理页行。
+
+    ``phone`` 只对具备 ``account:operate`` 的管理员/操作员返回；只读审核角色
+    继续只拿 ``phone_masked``，避免扩大完整号码的可见范围。
+    """
 
     phone_account_pub_id: str
+    phone: str | None
     phone_masked: str
     owner_note: str | None
     state: str
@@ -120,6 +128,13 @@ class PhoneAccountRow(StrictModel):
 class PhoneAccountCreate(StrictModel):
     phone: str
     owner_note: str | None = None
+
+
+class OtpRegistrySyncResult(StrictModel):
+    scanned: int
+    created: int
+    updated: int
+    unchanged: int
 
 
 class PlatformAccountPatch(StrictModel):
@@ -166,14 +181,17 @@ class AccountQuotaObservationView(StrictModel):
     """账号管理页的平台额度安全投影。
 
     真源是 ``collection_account_event(event_type='quota_observation')``；响应只暴露
-    白名单字段，绝不透传平台原始响应、账号标识或探测证据。``observed_window_count``
-    可以是日志下限/估算值，精度由 ``count_kind`` 明示，不能冒充官方固定额度。
+    白名单字段，绝不透传平台原始响应、完整手机号、平台用户标识或探测证据。
+    ``observed_window_count`` 可以是日志下限/估算值，精度由 ``count_kind`` 明示，
+    不能冒充官方固定额度。
     """
 
     observation_pub_id: str
-    browser_instance_key: str
+    phone_account_pub_id: str
+    phone_masked: str
     platform: str
-    region_gb: str | None
+    observed_browser_instance_key: str
+    observed_region_gb: str | None
     mode: Literal["normal", "deep_think", "unknown"]
     account_tier: Literal["free", "subscriber", "unknown"]
     quota_state: Literal["available", "exhausted", "unknown"]
@@ -308,7 +326,9 @@ def _quota_datetime(value: object) -> datetime | None:
 
 
 def _quota_observation_view(
-    event: CollectionAccountEvent, browser: CollectionBrowser
+    event: CollectionAccountEvent,
+    phone: CollectionPhoneAccount,
+    browser: CollectionBrowser,
 ) -> AccountQuotaObservationView | None:
     payload = event.new_value
     if not isinstance(payload, dict) or payload.get("schema_version") != 1:
@@ -332,9 +352,11 @@ def _quota_observation_view(
     )
     return AccountQuotaObservationView(
         observation_pub_id=event.pub_id,
-        browser_instance_key=browser.instance_key,
+        phone_account_pub_id=phone.pub_id,
+        phone_masked=mask_phone(phone.phone),
         platform=browser.platform,
-        region_gb=browser.region_gb,
+        observed_browser_instance_key=browser.instance_key,
+        observed_region_gb=browser.region_gb,
         mode=mode,  # type: ignore[arg-type]
         account_tier=tier,  # type: ignore[arg-type]
         quota_state=state,  # type: ignore[arg-type]
@@ -350,11 +372,15 @@ def _quota_observation_view(
 
 
 def _phone_row(
-    phone: CollectionPhoneAccount, platform_rows: list[CollectionPlatformAccount]
+    phone: CollectionPhoneAccount,
+    platform_rows: list[CollectionPlatformAccount],
+    *,
+    reveal_phone: bool,
 ) -> PhoneAccountRow:
     by_platform = {row.platform: row for row in platform_rows}
     return PhoneAccountRow(
         phone_account_pub_id=phone.pub_id,
+        phone=phone.phone if reveal_phone else None,
         phone_masked=mask_phone(phone.phone),
         owner_note=phone.owner_note,
         state=phone.state,
@@ -481,7 +507,13 @@ def list_collection_accounts(
                 )
             )
         )
-        rows.append(_phone_row(phone, platform_rows))
+        rows.append(
+            _phone_row(
+                phone,
+                platform_rows,
+                reveal_phone=principal.allows("account:operate"),
+            )
+        )
     return rows
 
 
@@ -493,11 +525,12 @@ def list_collection_account_quota_observations(
     principal: Principal = Depends(get_principal),
     session: Session = Depends(get_db),
 ) -> list[AccountQuotaObservationView]:
-    """返回每个浏览器账号 × mode 最新一条额度观测。
+    """返回每个手机号 × 平台 × mode 最新一条额度观测。
 
-    浏览器实例在账号尚未登记为 ``phone × platform`` 时仍是有效的独立登录账号，
-    因而额度观测以 browser 为最小安全锚点。接口最多扫描最近 200 条审计事件，按
-    ``(instance_key, mode)`` 去重；不返回 ``new_value`` 原文。
+    额度属于登录账号而不是出口地域，因此事件必须显式关联 ``phone_account_id``；
+    browser/region 仅作为最近观测来源。接口最多扫描最近 200 条审计事件，按
+    ``(phone, platform, mode)`` 去重；不返回 ``new_value`` 原文，也不再把没有
+    手机号归属的历史 browser-only 事件展示成账号额度。
     """
 
     principal.require("account:read")
@@ -509,21 +542,27 @@ def list_collection_account_quota_observations(
             .limit(200)
         )
     )
+    phone_cache: dict[int, CollectionPhoneAccount | None] = {}
     browser_cache: dict[int, CollectionBrowser | None] = {}
     views: list[AccountQuotaObservationView] = []
-    seen: set[tuple[str, str]] = set()
+    seen: set[tuple[str, str, str]] = set()
     for event in events:
-        if event.browser_id is None:
+        if event.phone_account_id is None or event.browser_id is None:
             continue
+        if event.phone_account_id not in phone_cache:
+            phone_cache[event.phone_account_id] = session.get(
+                CollectionPhoneAccount, event.phone_account_id
+            )
         if event.browser_id not in browser_cache:
             browser_cache[event.browser_id] = session.get(CollectionBrowser, event.browser_id)
+        phone = phone_cache[event.phone_account_id]
         browser = browser_cache[event.browser_id]
-        if browser is None:
+        if phone is None or browser is None:
             continue
-        view = _quota_observation_view(event, browser)
+        view = _quota_observation_view(event, phone, browser)
         if view is None:
             continue
-        key = (view.browser_instance_key, view.mode)
+        key = (view.phone_account_pub_id, view.platform, view.mode)
         if key in seen:
             continue
         seen.add(key)
@@ -531,9 +570,8 @@ def list_collection_account_quota_observations(
     return sorted(
         views,
         key=lambda view: (
+            view.phone_masked,
             view.platform,
-            view.region_gb or "",
-            view.browser_instance_key,
             view.mode,
         ),
     )
@@ -575,7 +613,92 @@ def create_collection_account(
         new_value={"phone_masked": mask_phone(phone), "owner_note": body.owner_note},
     )
     session.commit()
-    return _phone_row(row, [])
+    return _phone_row(row, [], reveal_phone=True)
+
+
+def _otp_registry_entries() -> list[dict[str, Any]]:
+    """Read the persistent OTP registry for an explicit admin reconciliation.
+
+    The setup page is deliberately unable to enumerate this file. Only the
+    authenticated ``account:operate`` endpoint below may consume it, and its
+    response contains counts rather than phone numbers.
+    """
+
+    configured = os.environ.get("GEO_OTP_REGISTRY_PATH", "").strip()
+    path = Path(configured or "runtime/otp_registered_numbers.json")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return []
+    except (OSError, ValueError) as exc:
+        log.warning("otp_registry_admin_sync_unreadable", path=str(path), error=repr(exc))
+        raise HTTPException(status_code=503, detail={"code": "otp_registry_unreadable"}) from exc
+    if not isinstance(payload, list):
+        raise HTTPException(status_code=503, detail={"code": "otp_registry_unreadable"})
+    return [entry for entry in payload if isinstance(entry, dict)]
+
+
+@router.post(
+    "/collection-accounts/sync-otp-registry",
+    response_model=OtpRegistrySyncResult,
+)
+def sync_otp_registry_accounts(
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db),
+) -> OtpRegistrySyncResult:
+    """Reconcile config-page registrations into the account-governance table.
+
+    Normal registrations already upsert this table. This idempotent repair path
+    covers legacy registrations and temporary DB failures, then the UI reloads
+    ``GET /collection-accounts`` to show the result immediately.
+    """
+
+    principal.require("account:operate")
+    entries = _otp_registry_entries()
+    created = 0
+    updated = 0
+    unchanged = 0
+    scanned = 0
+    for entry in entries:
+        phone = str(entry.get("phone") or "").strip()
+        if not PHONE_RE.fullmatch(phone):
+            continue
+        scanned += 1
+        slot = re.sub(r"\s+", " ", str(entry.get("slot") or "")).strip()[:16]
+        carrier = re.sub(r"\s+", " ", str(entry.get("carrier") or "")).strip()[:24]
+        owner_note = " ".join(part for part in (slot, carrier) if part) or "OTP 配置页注册"
+        existing = session.scalar(
+            select(CollectionPhoneAccount).where(CollectionPhoneAccount.phone == phone)
+        )
+        old_note = existing.owner_note if existing is not None else None
+        row = upsert_phone_account(session, phone=phone, owner_note=owner_note)
+        if existing is None:
+            created += 1
+            change = "created"
+        elif old_note != row.owner_note:
+            updated += 1
+            change = "updated"
+        else:
+            unchanged += 1
+            continue
+        _emit_event(
+            session,
+            "otp_registry_sync",
+            actor=_actor(principal),
+            phone_account_id=row.id,
+            new_value={
+                "source": "otp_registry",
+                "change": change,
+                "phone_masked": mask_phone(phone),
+            },
+        )
+    session.commit()
+    return OtpRegistrySyncResult(
+        scanned=scanned,
+        created=created,
+        updated=updated,
+        unchanged=unchanged,
+    )
 
 
 @router.patch("/collection-platform-accounts/{pub_id}", response_model=PlatformAccountView)
@@ -825,7 +948,9 @@ def list_collection_browsers(
                 )
             )
         )
-        bindings = {account.platform: _phone_pub_id(session, account) for account in bound_accounts}
+        bindings = {
+            account.platform: _phone_pub_id(session, account) for account in bound_accounts
+        }
         views.append(
             CollectionBrowserView(
                 browser_pub_id=browser.pub_id,
@@ -875,7 +1000,9 @@ def restart_browser(
     TODO(P1): 审批流 + fence 释放 → systemctl restart → 探活闭环。
     """
     principal.require("account:operate")
-    browser = session.scalar(select(CollectionBrowser).where(CollectionBrowser.instance_key == key))
+    browser = session.scalar(
+        select(CollectionBrowser).where(CollectionBrowser.instance_key == key)
+    )
     if browser is None:
         raise HTTPException(status_code=404, detail={"code": "browser_not_found"})
     _emit_event(
@@ -900,7 +1027,9 @@ def release_browser_lock(
     """释放实例 fence 锁（platform.browser_fence.released_at=now）——现有手工
     SQL 回收的产品化；stale lease 回收语义不变（本操作即「人工回收」）。"""
     principal.require("account:operate")
-    browser = session.scalar(select(CollectionBrowser).where(CollectionBrowser.instance_key == key))
+    browser = session.scalar(
+        select(CollectionBrowser).where(CollectionBrowser.instance_key == key)
+    )
     fence = session.scalar(select(BrowserFence).where(BrowserFence.platform == key))
     if browser is None and fence is None:
         raise HTTPException(status_code=404, detail={"code": "browser_not_found"})
@@ -960,7 +1089,9 @@ def list_collection_regions(
     session: Session = Depends(get_db),
 ) -> list[CollectionRegionView]:
     principal.require("account:read")
-    regions = list(session.scalars(select(CollectionRegion).order_by(CollectionRegion.created_at)))
+    regions = list(
+        session.scalars(select(CollectionRegion).order_by(CollectionRegion.created_at))
+    )
     return [_region_view(region) for region in regions]
 
 

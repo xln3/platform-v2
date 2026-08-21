@@ -45,6 +45,7 @@ function makeCell(overrides: Partial<PlatformAccountCell> = {}): PlatformAccount
 function makeAccountRow(overrides: Record<string, unknown> = {}): CollectionAccountRow {
   return {
     phone_account_pub_id: 'phone_1',
+    phone: '13300002231',
     phone_masked: '133****2231',
     owner_note: '号主老张',
     state: 'active',
@@ -89,14 +90,28 @@ const REGIONS: CollectionRegionRow[] = [
     state: 'ok',
     note: null,
   },
+  {
+    region_pub_id: 'rgn_2',
+    region_gb: '310000',
+    name: '上海',
+    source: 'wukong',
+    proxy_env_key: 'GEO_PROXY_SH_URL',
+    relay_unit: 'proxy-relay@sh.service',
+    exit_ip_last: null,
+    last_probe_at: null,
+    state: 'ok',
+    note: null,
+  },
 ];
 
 const QUOTA_OBSERVATIONS: AccountQuotaObservation[] = [
   {
     observation_pub_id: 'aev_quota_sh',
-    browser_instance_key: 'doubao_sh',
+    phone_account_pub_id: 'phone_131',
+    phone_masked: '131***2231',
     platform: 'doubao',
-    region_gb: '310000',
+    observed_browser_instance_key: 'doubao_sh',
+    observed_region_gb: '310000',
     mode: 'deep_think',
     account_tier: 'free',
     quota_state: 'exhausted',
@@ -111,9 +126,11 @@ const QUOTA_OBSERVATIONS: AccountQuotaObservation[] = [
   },
   {
     observation_pub_id: 'aev_quota_bj',
-    browser_instance_key: 'doubao_bj',
+    phone_account_pub_id: 'phone_188',
+    phone_masked: '188***6058',
     platform: 'doubao',
-    region_gb: '110000',
+    observed_browser_instance_key: 'doubao_bj',
+    observed_region_gb: '110000',
     mode: 'deep_think',
     account_tier: 'subscriber',
     quota_state: 'available',
@@ -137,6 +154,7 @@ function installFetch(handlers: {
   patch?: { status: number; body: unknown };
   linkTest?: { status: number; body: unknown };
   createAccount?: { status: number; body: unknown };
+  syncOtp?: { status: number; body: unknown };
   events?: unknown;
 }) {
   const calls: FetchCall[] = [];
@@ -164,6 +182,13 @@ function installFetch(handlers: {
       const linkTest = handlers.linkTest ?? { status: 200, body: { ok: true, channel: 'sms' } };
       return json(linkTest.status, linkTest.body);
     }
+    if (method === 'POST' && path === '/api/v2/collection-accounts/sync-otp-registry') {
+      const syncOtp = handlers.syncOtp ?? {
+        status: 200,
+        body: { scanned: 0, created: 0, updated: 0, unchanged: 0 },
+      };
+      return json(syncOtp.status, syncOtp.body);
+    }
     if (method === 'POST' && path === '/api/v2/collection-accounts') {
       const created = handlers.createAccount ?? { status: 201, body: {} };
       return json(created.status, created.body);
@@ -182,15 +207,39 @@ afterEach(() => {
 
 describe('AccountsPage', () => {
   it('展示平台额度状态，并明确区分日志下限估算与平台固定额度', async () => {
-    installFetch({ accounts: [makeAccountRow()], regions: REGIONS, quotas: QUOTA_OBSERVATIONS });
+    installFetch({
+      accounts: [
+        makeAccountRow({
+          phone_account_pub_id: 'phone_131',
+          phone: '13121622231',
+          phone_masked: '131***2231',
+        }),
+        makeAccountRow({
+          phone_account_pub_id: 'phone_188',
+          phone: '18810936058',
+          phone_masked: '188***6058',
+        }),
+      ],
+      regions: REGIONS,
+      quotas: QUOTA_OBSERVATIONS,
+    });
     render(<AccountsPage session={session} />);
 
-    const panel = await screen.findByRole('region', { name: '平台账号额度' });
+    const panel = await screen.findByRole('region', { name: '平台账号额度（按手机号）' });
+    expect(within(panel).getByRole('link', { name: '13121622231' }).getAttribute('href')).toBe(
+      '#acct-phone_131',
+    );
+    expect(within(panel).getByRole('link', { name: '18810936058' }).getAttribute('href')).toBe(
+      '#acct-phone_188',
+    );
+    expect(within(panel).getByText('最近观测：上海 · doubao_sh')).toBeTruthy();
+    expect(within(panel).getByText('最近观测：北京 · doubao_bj')).toBeTruthy();
     expect(within(panel).getByText('约 4 条/天')).toBeTruthy();
     expect(within(panel).getByText(/已确认 26 条 ÷ 7 天 = 3.7；下限估算/)).toBeTruthy();
     expect(within(panel).getByText('平台未公开固定条数')).toBeTruthy();
     expect(within(panel).getByText('免费版 · 专家模式')).toBeTruthy();
     expect(within(panel).getByText('专业版 · 专家模式')).toBeTruthy();
+    expect(within(panel).getByText(/同一手机号切换地域不会新增额度/)).toBeTruthy();
     expect(within(panel).getByText(/快速模式不占用这里展示的专家模式额度/)).toBeTruthy();
   });
 
@@ -199,7 +248,7 @@ describe('AccountsPage', () => {
     render(<AccountsPage session={session} />);
 
     const table = await screen.findByRole('table', { name: '采集账号列表' });
-    expect(within(table).getByText('133****2231')).toBeTruthy();
+    expect(within(table).getByText('13300002231')).toBeTruthy();
     // null 格（文心一言未登记）
     expect(within(table).getAllByText('—').length).toBeGreaterThan(0);
     // 状态徽章映射
@@ -212,6 +261,45 @@ describe('AccountsPage', () => {
     expect(within(table).getByText(/剩余 1 小时/)).toBeTruthy();
     // 额度显示 used/quota
     expect(within(table).getAllByText('3/10').length).toBeGreaterThan(0);
+  });
+
+  it('刷新号码会同步 OTP 注册表并立即重拉账号列表', async () => {
+    const calls = installFetch({
+      accounts: [makeAccountRow()],
+      regions: REGIONS,
+      syncOtp: {
+        status: 200,
+        body: { scanned: 1, created: 1, updated: 0, unchanged: 0 },
+      },
+    });
+    render(<AccountsPage session={session} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '刷新号码' }));
+
+    expect(await screen.findByText(/号码刷新完成：新增 1、更新 0、无变化 0/)).toBeTruthy();
+    expect(
+      calls.some(
+        (call) =>
+          call.method === 'POST' &&
+          call.path === '/api/v2/collection-accounts/sync-otp-registry',
+      ),
+    ).toBe(true);
+    await waitFor(() => {
+      expect(
+        calls.filter(
+          (call) => call.method === 'GET' && call.path === '/api/v2/collection-accounts',
+        ).length,
+      ).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  it('只读审核角色回退显示掩码且不显示刷新号码按钮', async () => {
+    installFetch({ accounts: [makeAccountRow({ phone: null })], regions: REGIONS });
+    render(<AccountsPage session={{ ...session, role: 'reviewer' }} />);
+
+    const table = await screen.findByRole('table', { name: '采集账号列表' });
+    expect(within(table).getByText('133****2231')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '刷新号码' })).toBeNull();
   });
 
   it('RuntimeStateBadge 覆盖 running/captcha 映射', () => {

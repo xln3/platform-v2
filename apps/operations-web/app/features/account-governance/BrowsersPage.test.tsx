@@ -42,6 +42,7 @@ function makeBrowser(overrides: Partial<CollectionBrowserRow> = {}): CollectionB
 const ACCOUNTS = [
   {
     phone_account_pub_id: 'phone_1',
+    phone: '13300002231',
     phone_masked: '133****2231',
     owner_note: null,
     state: 'active',
@@ -138,8 +139,8 @@ describe('BrowsersPage', () => {
     // 地域名拼接 + 未探测 IP
     expect(within(table).getByText('110000 北京')).toBeTruthy();
     expect(within(table).getByText('未探测')).toBeTruthy();
-    // 绑定账号 → 脱敏手机号 + 跳账号管理页锚点；未绑定平台 → —
-    const link = within(table).getByRole('link', { name: '133****2231' });
+    // 运营员看到完整手机号，并可跳账号管理页锚点；未绑定平台 → —
+    const link = within(table).getByRole('link', { name: '13300002231' });
     expect(link.getAttribute('href')).toBe('/platform/operations/accounts#acct-phone_1');
     expect(within(table).getAllByText('—').length).toBe(4);
   });

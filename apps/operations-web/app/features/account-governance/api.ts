@@ -119,6 +119,8 @@ export type PlatformAccountCell = {
 /** 账号管理页的行 = 手机号。platforms 五键固定，未登记平台为 null。 */
 export type CollectionAccountRow = {
   phone_account_pub_id: string;
+  /** 完整号码只向 account:operate 的管理员/操作员返回；只读角色为 null。 */
+  phone: string | null;
   phone_masked: string;
   owner_note: string | null;
   state: string;
@@ -129,11 +131,26 @@ export type CollectionAccountRow = {
   platforms: Record<CollectionPlatform, PlatformAccountCell | null>;
 };
 
+export function accountPhoneLabel(
+  row: Pick<CollectionAccountRow, 'phone' | 'phone_masked'>,
+): string {
+  return row.phone ?? row.phone_masked;
+}
+
+export type OtpRegistrySyncResult = {
+  scanned: number;
+  created: number;
+  updated: number;
+  unchanged: number;
+};
+
 export type AccountQuotaObservation = {
   observation_pub_id: string;
-  browser_instance_key: string;
+  phone_account_pub_id: string;
+  phone_masked: string;
   platform: CollectionPlatform;
-  region_gb: string | null;
+  observed_browser_instance_key: string;
+  observed_region_gb: string | null;
   mode: 'normal' | 'deep_think' | 'unknown';
   account_tier: 'free' | 'subscriber' | 'unknown';
   quota_state: 'available' | 'exhausted' | 'unknown';
@@ -234,6 +251,14 @@ export const accountGovApi = {
       '/api/v2/collection-accounts',
       { phone: input.phone, ...(input.owner_note ? { owner_note: input.owner_note } : {}) },
       `collection-account-create-${crypto.randomUUID()}`,
+    ),
+  syncOtpRegistry: (session: SessionContext) =>
+    govSend<OtpRegistrySyncResult>(
+      session,
+      'POST',
+      '/api/v2/collection-accounts/sync-otp-registry',
+      {},
+      `collection-account-otp-sync-${crypto.randomUUID()}`,
     ),
   patchPlatformAccount: (
     session: SessionContext,

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SessionContext } from '../execution/api';
 import {
+  accountPhoneLabel,
   accountGovApi,
   COLLECTION_PLATFORMS,
   PLATFORM_LABELS,
@@ -241,7 +242,7 @@ function BrowserRow({
               href={`/platform/operations/accounts#acct-${boundPubId}`}
               title="跳转到账号管理页查看该手机号"
             >
-              {phone ? phone.phone_masked : boundPubId}
+              {phone ? accountPhoneLabel(phone) : boundPubId}
             </a>
           </td>
         );

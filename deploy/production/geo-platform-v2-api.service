@@ -13,6 +13,8 @@ EnvironmentFile=/etc/geo-platform-v2/platform.env
 EnvironmentFile=-/etc/geo-platform-v2/feishu-bot.env
 # Dataset artifacts and provider sessions live outside immutable release snapshots.
 Environment=GEO_DATASETS_DIR=/home/xln/geo-system/platform-v2/.datasets
+# The application logging setup redacts /otp/latest query strings before Uvicorn
+# emits them, preserving useful access diagnostics without logging phone numbers.
 ExecStart=/home/xln/geo-system/platform-v2/.venv/bin/uvicorn geo_platform.main:app --app-dir api --host 127.0.0.1 --port 8020 --workers 2 --proxy-headers --forwarded-allow-ips=127.0.0.1
 Restart=on-failure
 RestartSec=3

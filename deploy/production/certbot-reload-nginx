@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+
+# Certbot invokes deploy hooks only after a certificate was renewed. Refuse to
+# reload a broken configuration and keep the currently running workers intact.
+# Nginx writes successful `-t` diagnostics to stderr, so emit the captured text
+# only on failure; otherwise Certbot misleadingly labels a healthy hook noisy.
+if nginx_check=$(/usr/sbin/nginx -t 2>&1); then
+    :
+else
+    printf '%s\n' "$nginx_check" >&2
+    exit 1
+fi
+/usr/bin/systemctl reload nginx.service

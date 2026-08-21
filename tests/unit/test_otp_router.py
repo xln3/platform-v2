@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -38,6 +39,12 @@ def _otp_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setenv("GEO_OTP_REGISTRY_PATH", str(tmp_path / "reg" / "registered.json"))
     monkeypatch.setenv("GEO_OTP_RELAY_TOKEN", "relay-secret")
     monkeypatch.setenv("GEO_OTP_OPERATOR_TOKEN", "operator-secret")
+    monkeypatch.setenv("GEO_ENV", "development")
+    monkeypatch.setenv("GEO_OTP_APK_PATH", str(tmp_path / "missing.apk"))
+    monkeypatch.delenv("GEO_PUBLIC_BASE_URL", raising=False)
+    monkeypatch.delenv("GEO_OTP_APK_SHA256", raising=False)
+    monkeypatch.delenv("GEO_OTP_APK_VERSION", raising=False)
+    monkeypatch.delenv("GEO_OTP_APK_SIGNER_SHA256", raising=False)
     with otp_router._rate_lock:
         otp_router._rate_buckets.clear()
     yield
@@ -121,6 +128,26 @@ def test_push_json_slot_template_routed_and_schema(tmp_path: Path) -> None:
     assert event["phone"] == PHONE and event["code"] == CODE
     assert event["platform"] == "豆包" and event["code_source"] == "extracted"
     assert "raw" not in event  # 台账不留原文（同旧链缺省口径）
+
+
+def test_push_ios_shortcuts_json_routes_fixed_phone(tmp_path: Path) -> None:
+    """Apple 快捷指令免费路径：固定 phone + 短信输入变量，无 Android 卡槽字段。"""
+    resp = _push({"phone": PHONE, "sms": SMS})
+
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "ok": True,
+        "have_code": True,
+        "code_len": 6,
+        "phone": "131***2231",
+        "routed": True,
+        "platform": "豆包",
+    }
+    record = json.loads((tmp_path / f"{PHONE}.json").read_text(encoding="utf-8"))
+    assert record["phone"] == PHONE
+    assert record["raw"] == SMS
+    assert record["code"] == CODE
+    assert record["meta"] == {"extract_method": "regex"}
 
 
 def test_push_form_urlencoded(tmp_path: Path) -> None:
@@ -222,6 +249,23 @@ def test_push_platform_brand_prefix() -> None:
     # 无【品牌】前缀 → 空串；URL ?platform= 显式覆盖（每平台单独转发规则用）
     assert _push({"slot": SLOT, "sms": "代码 778899"}).json()["platform"] == ""
     resp = _push({"slot": SLOT, "sms": "代码 778899"}, query="?platform=deepseek")
+    assert resp.json()["platform"] == "deepseek"
+
+
+def test_push_unknown_platform_is_quarantined_without_dropping_sms(tmp_path: Path) -> None:
+    """Untrusted labels are discarded, but a valid OTP push must still be accepted."""
+    for platform in ('<img src=x onerror="alert(1)">', "unknown-brand", "豆包\u0000evil"):
+        resp = _push({"slot": SLOT, "sms": "验证码 778899", "platform": platform})
+        assert resp.status_code == 200
+        assert resp.json()["platform"] == ""
+        record = json.loads((tmp_path / f"{PHONE}.json").read_text(encoding="utf-8"))
+        assert record["code"] == "778899"
+        assert record["platform"] == ""
+
+
+def test_push_platform_enum_accepts_known_case_alias() -> None:
+    resp = _push({"slot": SLOT, "sms": "验证码 778899", "platform": "DeepSeek"})
+    assert resp.status_code == 200
     assert resp.json()["platform"] == "deepseek"
 
 
@@ -472,6 +516,77 @@ def test_setup_page_public_and_secret_free() -> None:
     assert "setup-info" in html  # 解锁后经受门端点拉配置
     assert "relay-secret" not in html and "operator-secret" not in html
     assert "73mOY3" not in html  # 生产 token 片段同样不得出现
+    assert resp.headers["cache-control"] == "private, no-store"
+
+
+def test_setup_page_has_nonce_csp_and_no_html_injection_sinks() -> None:
+    resp = client.get("/api/v2/otp/setup")
+    csp = resp.headers["content-security-policy"]
+    assert "default-src 'none'" in csp
+    assert "connect-src 'self'" in csp
+    assert "'unsafe-inline'" not in csp
+    nonce = re.search(r"script-src 'nonce-([^']+)'", csp)
+    assert nonce is not None
+    assert f'<script nonce="{nonce.group(1)}">' in resp.text
+    assert f'<style nonce="{nonce.group(1)}">' in resp.text
+    assert "__CSP_NONCE__" not in resp.text
+    assert "innerHTML" not in resp.text
+    assert "style=" not in resp.text
+
+
+def test_setup_page_has_short_lived_operator_session_and_honest_copy_feedback() -> None:
+    html = client.get("/api/v2/otp/setup").text
+    assert "IDLE_LOCK_MS = 20 * 60 * 1000" in html
+    assert "闲置 20 分钟自动锁定" in html
+    assert 'window.addEventListener("pagehide"' in html
+    assert "event.persisted" in html
+    assert 'cache: "no-store"' in html
+    assert 'credentials: "omit"' in html
+    assert "localStorage" not in html and "sessionStorage" not in html
+    assert 'copied ? "已复制" : "复制失败，请手动选择"' in html
+    assert "请点击下方复制按钮" in html  # async 注册完成后不假装仍有剪贴板激活
+    assert 'download="SmsForwarder.apk"' in html  # 下载 APK 不应导航离开并触发重新鉴权
+    assert 'bindGate("iosUrl", "cpIosUrl", payload.push_url)' in html
+    assert 'bindGate("iosTok", "cpIosTok", payload.relay_token)' in html
+    assert '["iosUrl", "cpIosUrl"]' in html and '["iosTok", "cpIosTok"]' in html
+
+
+def test_setup_page_has_free_ios_shortcuts_workflow() -> None:
+    html = client.get("/api/v2/otp/setup").text
+
+    assert "iPhone · 免费转发（Apple 快捷指令）" in html
+    assert "无需下载第三方转发器" in html
+    assert "无订阅费" in html
+    assert "立即运行" in html and "运行前询问" in html
+    assert "获取 URL 内容" in html and "请求正文选 <b>JSON</b>" in html
+    assert "X-Relay-Token" in html
+    assert "快捷指令输入" in html
+    assert "phone</span> = 刚刚注册的 11 位接码号码" in html
+    assert "一台 iPhone 只配置一个接码号码" in html
+    assert "当前入口使用系统信任的公共 CA 证书" in html
+    assert "不需要安装自签证书或描述文件" in html
+    assert "不要改用 HTTP 或关闭校验" in html
+    assert "当前自签证书" not in html
+    assert "iPhone/iOS 无法安装，也不能按本页流程" not in html
+
+
+def test_setup_page_has_accessible_device_switch_and_no_registry_listing() -> None:
+    html = client.get("/api/v2/otp/setup").text
+
+    assert 'role="group" aria-label="选择短信转发手机系统"' in html
+    assert 'id="deviceIos" aria-pressed="true" aria-controls="iosGuide"' in html
+    assert 'id="deviceAndroid" aria-pressed="false"' in html
+    assert 'id="iosGuide" aria-labelledby="iphone"' in html
+    assert 'id="androidGuide" aria-labelledby="android" hidden' in html
+    assert 'selectDevice("ios")' in html and 'selectDevice("android")' in html
+    assert 'byId("iosGuide").hidden = !iosSelected' in html
+    assert 'byId("androidGuide").hidden = iosSelected' in html
+
+    assert "本页不显示或枚举在册号码" in html
+    assert 'id="btnSlots"' not in html
+    assert 'id="slots"' not in html
+    assert "fillSlots" not in html
+    assert "刷新获取在册号码" not in html
 
 
 def test_setup_info_gate(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -489,21 +604,115 @@ def test_setup_info_gate(monkeypatch: pytest.MonkeyPatch) -> None:
     assert data["relay_token"] == "relay-secret"
     assert data["push_url"].endswith("/api/v2/otp/push")
     assert data["body_template"] == '{"slot":"{{CARD_SLOT}}","sms":"{{SMS}}"}'
-    assert "豆包" in data["whitelist_regex"] and data["whitelist_regex"].startswith("(?s).*")
-    assert any("13121622231" in s for s in data["slot_remarks"])
+    assert "豆包" in data["whitelist_regex"]
+    assert data["whitelist_regex"].startswith("(?is)^")
+    assert "验证码" in data["whitelist_regex"]
+    assert "|腾讯|" not in data["whitelist_regex"]
+    rule = re.compile(data["whitelist_regex"])
+    assert rule.fullmatch("【豆包】您的验证码为 123456")
+    assert rule.fullmatch("【百度】验证码 123456")  # 现役文心短信签名，但不能单独放行
+    assert not rule.fullmatch("【百度】地图行程已经开始")
+    assert not rule.fullmatch("【腾讯】支付验证码 123456")
+    assert not rule.fullmatch("【豆包】新品营销活动")
+    assert not rule.fullmatch("这条非平台短信提到豆包验证码 123456")
+    assert "slot_remarks" not in data
+    assert "13121622231" not in resp.text
 
 
-def test_setup_info_slot_remarks_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
-    """在册卡槽备注的静态真源是 env GEO_OTP_SLOT_REMARKS（换号改一处，页面刷新即得）。"""
+def test_setup_info_uses_explicit_public_base(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GEO_PUBLIC_BASE_URL", "https://39.105.175.14:8443/")
+    resp = client.get("/api/v2/otp/setup-info", headers={"X-Operator-Token": "operator-secret"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["push_url"] == "https://39.105.175.14:8443/api/v2/otp/push"
+    assert data["apk_url"] == "https://39.105.175.14:8443/api/v2/otp/smsforwarder.apk"
+    assert "latest_example" not in data
+
+
+@pytest.mark.parametrize(
+    "public_base",
+    (
+        "http://public.example:8443",
+        "https://user:secret@example.test",
+        "https://example.test/path",
+        "https://example.test/?token=secret",
+        "https://example.test:99999",
+        "https://bad host.example",
+    ),
+)
+def test_setup_info_rejects_unsafe_public_base(
+    monkeypatch: pytest.MonkeyPatch, public_base: str
+) -> None:
+    monkeypatch.setenv("GEO_PUBLIC_BASE_URL", public_base)
+    resp = client.get("/api/v2/otp/setup-info", headers={"X-Operator-Token": "operator-secret"})
+    assert resp.status_code == 503
+    assert resp.json()["error"]["code"] == "otp_public_base_invalid"
+    assert resp.headers["cache-control"] == "private, no-store"
+
+
+def test_setup_info_requires_public_base_in_production(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("GEO_ENV", "production")
+    resp = client.get("/api/v2/otp/setup-info", headers={"X-Operator-Token": "operator-secret"})
+    assert resp.status_code == 503
+    assert resp.json()["error"]["code"] == "otp_public_base_missing"
+
+
+def test_operator_responses_are_never_cacheable(tmp_path: Path) -> None:
+    _write_inbox(tmp_path, PHONE, ts=time.time())
+    responses = (
+        _latest(),
+        client.get("/api/v2/otp/status", headers={"X-Operator-Token": "operator-secret"}),
+        client.get("/api/v2/otp/setup-info", headers={"X-Operator-Token": "operator-secret"}),
+        _register({"phone": NEW_PHONE}),
+        client.get("/api/v2/otp/status", headers={"X-Operator-Token": "wrong"}),
+    )
+    for response in responses:
+        assert response.headers["cache-control"] == "private, no-store"
+        assert response.headers["pragma"] == "no-cache"
+        assert response.headers["expires"] == "0"
+
+
+def test_latest_poll_does_not_duplicate_success_audit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class LogSpy:
+        def __init__(self) -> None:
+            self.info_events: list[str] = []
+            self.warning_events: list[str] = []
+
+        def info(self, event: str, **_fields: object) -> None:
+            self.info_events.append(event)
+
+        def warning(self, event: str, **_fields: object) -> None:
+            self.warning_events.append(event)
+
+    spy = LogSpy()
+    monkeypatch.setattr(otp_router, "log", spy)
+
+    assert _latest().status_code == 200
+    assert "otp_operator_access" not in spy.info_events
+
+    status = client.get("/api/v2/otp/status", headers={"X-Operator-Token": "operator-secret"})
+    assert status.status_code == 200
+    assert spy.info_events == ["otp_operator_access"]
+
+    assert _latest(token="wrong").status_code == 401
+    assert spy.warning_events == ["otp_operator_auth_failed"]
+
+
+def test_setup_info_never_exposes_registered_or_env_numbers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """装机配置只下发通道参数，不能枚举注册表或历史 env 号码。"""
     monkeypatch.setenv(
         "GEO_OTP_SLOT_REMARKS", "SIM1_中国移动_+8613900001111, SIM2_联通_+8613900002222"
     )
+    assert _register({"phone": NEW_PHONE, "slot": "eSIM"}).status_code == 200
     resp = client.get("/api/v2/otp/setup-info", headers={"X-Operator-Token": "operator-secret"})
     assert resp.status_code == 200
-    assert resp.json()["slot_remarks"] == [
-        "SIM1_中国移动_+8613900001111",
-        "SIM2_联通_+8613900002222",
-    ]
+    assert "slot_remarks" not in resp.json()
+    assert NEW_PHONE not in resp.text
+    assert "13900001111" not in resp.text
 
 
 # ── register：在册号码注册入口（卡槽自由文本，不限 SIM1/2） ──────────────────────
@@ -541,7 +750,7 @@ def test_register_bad_phone_400() -> None:
     assert _register("not-json").status_code == 400
 
 
-def test_register_persists_and_shows_in_setup_info(tmp_path: Path) -> None:
+def test_register_persists_without_becoming_enumerable_in_setup_info(tmp_path: Path) -> None:
     resp = _register({"phone": NEW_PHONE, "carrier": "中国联通", "slot": "SIM1"})
     assert resp.status_code == 200
     body = resp.json()
@@ -553,11 +762,13 @@ def test_register_persists_and_shows_in_setup_info(tmp_path: Path) -> None:
     assert [e["phone"] for e in entries] == [NEW_PHONE]
     assert entries[0]["remark"] == body["remark"]
     assert not any(p.name.endswith(".tmp") for p in (tmp_path / "reg").iterdir())
-    # setup-info 合并下发（env 缺省两号 + 注册新号）
-    remarks = client.get(
+    # setup-info 不再下发整张注册表；刚提交的 remark 只存在本次 POST 响应。
+    setup = client.get(
         "/api/v2/otp/setup-info", headers={"X-Operator-Token": "operator-secret"}
-    ).json()["slot_remarks"]
-    assert remarks[-1] == body["remark"] and len(remarks) == 3
+    )
+    assert setup.status_code == 200
+    assert "slot_remarks" not in setup.json()
+    assert NEW_PHONE not in setup.text
     # 注册备注可被卡槽反解回真号（路由契约不破）
     assert otp_router.phone_from_slot(body["remark"]) == NEW_PHONE
 
@@ -587,30 +798,34 @@ def test_register_upsert_same_phone(tmp_path: Path) -> None:
     assert entries[0]["remark"] == f"SIM2_中国移动_+86{NEW_PHONE}"
 
 
-def test_register_merges_with_env_dedupe_by_phone(monkeypatch: pytest.MonkeyPatch) -> None:
-    """setup-info = env 备注 ∪ 注册表：按手机号去重，同号以注册表（更新的动作）为准。"""
+def test_register_does_not_reintroduce_env_or_registry_listing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv(
         "GEO_OTP_SLOT_REMARKS", f"SIM1_中国移动_+86{NEW_PHONE}, SIM2_联通_+8613900002222"
     )
     _register({"phone": NEW_PHONE, "slot": "eSIM", "carrier": "中国电信"})
-    remarks = client.get(
+    response = client.get(
         "/api/v2/otp/setup-info", headers={"X-Operator-Token": "operator-secret"}
-    ).json()["slot_remarks"]
-    assert remarks == ["SIM2_联通_+8613900002222", f"eSIM_中国电信_+86{NEW_PHONE}"]
+    )
+    assert response.status_code == 200
+    assert "slot_remarks" not in response.json()
+    assert NEW_PHONE not in response.text
+    assert "13900002222" not in response.text
 
 
 def test_setup_info_registry_corrupt_best_effort(tmp_path: Path) -> None:
-    """注册表损坏 → setup-info 不挂（best-effort 空表回落，env 备注照常下发）。"""
+    """setup-info 不读取注册表，因此损坏文件既不泄露也不影响通道配置。"""
     reg = tmp_path / "reg" / "registered.json"
     reg.parent.mkdir(parents=True)
     reg.write_text("{broken", encoding="utf-8")
     resp = client.get("/api/v2/otp/setup-info", headers={"X-Operator-Token": "operator-secret"})
     assert resp.status_code == 200
-    assert any("13121622231" in s for s in resp.json()["slot_remarks"])  # env 缺省仍在
+    assert "slot_remarks" not in resp.json()
 
 
 def test_setup_page_register_form_no_sim_restriction() -> None:
-    """装机页第 2 步：注册入口走受门端点，卡槽是自由文本（页面不再内嵌 SIM 二选一）。"""
+    """通用注册入口走受门端点，卡槽是自由文本（页面不再内嵌 SIM 二选一）。"""
     html = client.get("/api/v2/otp/setup").text
     assert "/api/v2/otp/register" in html
     assert 'id="simSel"' not in html  # 旧 SIM1/SIM2 下拉已移除
@@ -649,8 +864,9 @@ def test_setup_page_channel_rule_mirror_app_form() -> None:
         assert frag in html, frag
     # 第 0 步必查项：全局免打扰=00:00~00:00（20260810 实测 00:00~24:00 全天禁转发案例）
     assert "全天禁转发" in html
-    # 推送地址由浏览器 location.origin 拼出（反代 Host $host 丢 8443 端口的实测教训）
-    assert 'location.origin + "/api/v2/otp/push"' in html
+    # 推送地址只采用 setup-info 的显式公网基址契约，不再让浏览器/代理各自猜端口。
+    assert 'bindGate("vUrl", "cpUrl", payload.push_url)' in html
+    assert "location.origin" not in html
     # v3.5.0 无「忽略 SSL 证书」开关（自托管 APK strings 实证），旧指令不得再出现
     # （页面保留一句「该开关不存在」的废止说明是有意的——旧 SmsForwarder 文档仍写着要勾）
     assert "必须勾选" not in html
@@ -658,6 +874,13 @@ def test_setup_page_channel_rule_mirror_app_form() -> None:
     # 解锁前点击绝不可能把 "null" 复制进剪贴板
     assert 'id="vUrl"' in html and 'id="cpTok"' in html
     assert 'querySelectorAll(".cp[data-t]")' in html
+    assert "平台签名 + 验证码业务词" in html
+    assert "iPhone 快捷指令 / Android SmsForwarder" in html
+    assert "选择：苹果自带「快捷指令」" in html
+    assert "当前显示 Android SmsForwarder 方案" in html
+    assert "公网入口应由系统信任的公共 CA 正常验证" in html
+    assert "不要绕过警告" in html
+    assert "文件哈希一致只证明拿到既定 APK，不代表手机传输已安全" in html
 
 
 def test_status_masked_and_gated(tmp_path: Path) -> None:
@@ -673,6 +896,20 @@ def test_status_masked_and_gated(tmp_path: Path) -> None:
     assert CODE not in resp.text and "458213" not in resp.text  # 码绝不出现在 status
 
 
+def test_status_quarantines_legacy_unknown_platform(tmp_path: Path) -> None:
+    """Pre-fix inbox files cannot reintroduce attacker-controlled markup into status."""
+    _write_inbox(
+        tmp_path,
+        PHONE,
+        ts=time.time(),
+        platform='<img src=x onerror="globalThis.pwned=true">',
+    )
+    resp = client.get("/api/v2/otp/status", headers={"X-Operator-Token": "operator-secret"})
+    assert resp.status_code == 200
+    assert resp.json()["recent"][0]["platform"] == "-"
+    assert "onerror" not in resp.text
+
+
 def test_apk_download(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """APK 公开下载：文件缺失 404，存在则 200 + 安卓包 MIME。"""
     monkeypatch.setenv("GEO_OTP_APK_PATH", str(tmp_path / "nope.apk"))
@@ -684,3 +921,57 @@ def test_apk_download(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert resp.status_code == 200
     assert resp.headers["content-type"] == "application/vnd.android.package-archive"
     assert resp.content == b"PK\x03\x04-fake-apk"
+    assert resp.headers["x-apk-sha256"] == hashlib.sha256(resp.content).hexdigest()
+    assert resp.headers["cache-control"] == "public, max-age=300, must-revalidate"
+
+
+def test_apk_readiness_and_integrity_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    apk = tmp_path / "SmsForwarder.apk"
+    apk.write_bytes(b"PK\x03\x04-release-apk")
+    digest = hashlib.sha256(apk.read_bytes()).hexdigest()
+    monkeypatch.setenv("GEO_OTP_APK_PATH", str(apk))
+    monkeypatch.setenv("GEO_OTP_APK_SHA256", digest)
+    monkeypatch.setenv("GEO_OTP_APK_VERSION", "3.5.0.260224")
+    monkeypatch.setenv("GEO_OTP_APK_SIGNER_SHA256", "AA:" * 31 + "AA")
+
+    info = client.get("/api/v2/otp/apk-info")
+    assert info.status_code == 200
+    state = info.json()["apk"]
+    assert state["ready"] is True and state["integrity"] == "verified"
+    assert state["sha256"] == digest and state["size_bytes"] == apk.stat().st_size
+    assert state["version"] == "3.5.0.260224"
+    assert "GEO_OTP_APK_PATH" not in info.text and str(tmp_path) not in info.text
+
+    download = client.get("/api/v2/otp/smsforwarder.apk")
+    assert download.status_code == 200
+    assert download.headers["x-apk-sha256"] == digest
+
+
+def test_apk_hash_mismatch_disables_download(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    apk = tmp_path / "SmsForwarder.apk"
+    apk.write_bytes(b"PK\x03\x04-tampered")
+    monkeypatch.setenv("GEO_OTP_APK_PATH", str(apk))
+    monkeypatch.setenv("GEO_OTP_APK_SHA256", "0" * 64)
+
+    state = client.get("/api/v2/otp/apk-info").json()["apk"]
+    assert state["ready"] is False
+    assert state["reason"] == "apk_integrity_failed"
+    response = client.get("/api/v2/otp/smsforwarder.apk")
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "apk_integrity_failed"
+    assert b"tampered" not in response.content
+
+
+def test_smsforwarder_license_notice_is_distributed_with_apk() -> None:
+    response = client.get("/api/v2/otp/smsforwarder-license")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/plain")
+    assert "BSD 2-Clause License" in response.text
+    assert "Copyright (c) 2021, pppscn" in response.text
+    page = client.get("/api/v2/otp/setup").text
+    assert "/api/v2/otp/smsforwarder-license" in page
+    assert "商业使用边界须由权利人或法务书面确认" in page

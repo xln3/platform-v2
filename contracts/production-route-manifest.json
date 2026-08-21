@@ -1,11 +1,11 @@
 {
   "deployment_template": {
     "path": "deploy/production/geo-platform-v2.conf",
-    "sha256": "c235df1bbbc84b80713065a84a9942eab310d34ba903d34f0646268d7076f84e"
+    "sha256": "d89c17ccbc8985a31b2079dc3268791da41bac8f5c50bbe16f5110ca39fee06c"
   },
   "v2_include": {
     "path": "deploy/production/nginx-v2-locations.conf",
-    "sha256": "8b45ccfd48089a48885d8f0425099e5e8857ea9f7fb65acf645c71a9c6b6ce38"
+    "sha256": "33ebc6e106839307e879ebe06197d5b36b4e84236e67ffbc2ef6e6301bbc369a"
   },
   "customer_answer_http": {
     "path": "deploy/production/geo-platform-v2-customer-answer-http.conf",

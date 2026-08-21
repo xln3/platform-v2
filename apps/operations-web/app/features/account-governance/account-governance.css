@@ -87,6 +87,11 @@
 .acct-gov-quota-card dd small {
   display: block;
 }
+.acct-gov-quota-card > header strong a {
+  color: inherit;
+  text-decoration-color: #9caf9f;
+  text-underline-offset: 2px;
+}
 .acct-gov-quota-card > header small {
   margin-top: 2px;
   color: #758078;
