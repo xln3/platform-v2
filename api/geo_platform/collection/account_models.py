@@ -19,6 +19,7 @@ from typing import Any
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     DateTime,
     ForeignKey,
     Index,
@@ -26,6 +27,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -62,6 +64,12 @@ class CollectionPlatformAccount(Base):
     __table_args__ = (
         UniqueConstraint("phone_account_id", "platform"),
         Index("ix_collection_platform_account_dispatch", "platform", "region_gb", "runtime_state"),
+        Index(
+            "uq_collection_platform_account_browser_instance_key",
+            "browser_instance_key",
+            unique=True,
+            postgresql_where=text("browser_instance_key IS NOT NULL"),
+        ),
     )
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     pub_id: Mapped[str] = mapped_column(String(40), unique=True)
@@ -111,6 +119,11 @@ class CollectionRegion(Base):
     relay_unit: Mapped[str | None] = mapped_column(Text)
     exit_ip_last: Mapped[str | None] = mapped_column(Text)
     last_probe_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # relay 原始探测结果与连续计数持久化，保证 exporter 重启不丢防抖状态。
+    probe_success_streak: Mapped[int] = mapped_column(Integer, default=0)
+    probe_failure_streak: Mapped[int] = mapped_column(Integer, default=0)
+    last_probe_ok: Mapped[bool | None] = mapped_column(Boolean)
+    last_probe_note: Mapped[str | None] = mapped_column(Text)
     state: Mapped[str] = mapped_column(Text, default="ok")
     note: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)

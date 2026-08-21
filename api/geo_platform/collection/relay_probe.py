@@ -4,9 +4,10 @@
   → 读该 env 键指向的代理地址（凭证明文在 env，不落库）→ 经代理请求 IP echo
   服务 → 结果经 ``AccountGovernor.record_region_probe`` 落库（状态翻转自动记
   relay_probe 事件；人工标注 arrears 不被探测覆盖）。
-- 地域状态翻转时通知：``feishu_app`` 在调用方事务内写 durable outbox，并以同一 fingerprint
-  更新 down/recovered 卡片；兼容模式仅在 ``ok -> down`` 时调用旧 webhook。已经是 ``down`` /
-  ``arrears`` 的周期复检不重复刷屏。任何通知失败都不改变 relay 权威状态。
+- 地域状态经持久化滞回后翻转时通知：连续失败 3 次才 down、连续成功 2 次
+  才 recovered。``feishu_app`` 在调用方事务内写 durable outbox，并以同一
+  fingerprint 更新卡片；兼容模式仅在实际 ``ok -> down`` 时调用旧 webhook。
+  任何通知失败都不改变 relay 权威状态。
 - HTTP 用 httpx 显式 ``proxy=`` 参数 + ``trust_env=False``：免疫 shell/进程
   环境里的 http_proxy 系变量（本机 mihomo 代理 env 污染教训，2026-08-10）。
 - 调度：API 端点（立即巡检）与 business_metrics 15s 循环（每 region 10min）
@@ -132,7 +133,7 @@ def probe_collection_region(conn: Session, region_gb: str) -> dict[str, Any]:
                 status="firing",
                 note="proxy_env_missing",
             )
-            if previous_state == "ok"
+            if previous_state == "ok" and region.state == "down"
             else False
         )
         return {
@@ -146,8 +147,9 @@ def probe_collection_region(conn: Session, region_gb: str) -> dict[str, Any]:
         exit_ip = _fetch_exit_ip(proxy_url)
     except Exception as exc:  # noqa: BLE001 — 任何探测失败都如实落库 + 告警
         note = f"probe_failed:{type(exc).__name__}"
-        should_alert = region.state == "ok"
+        previous_state = region.state
         governor.record_region_probe(region_gb=region_gb, ok=False, note=note)
+        should_alert = previous_state == "ok" and region.state == "down"
         if should_alert:
             alert_channel = os.environ.get("GEO_ALERT_NOTIFY_CHANNEL", "serverchan").strip().lower()
             if alert_channel == "feishu_app":

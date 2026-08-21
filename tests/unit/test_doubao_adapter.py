@@ -1077,6 +1077,11 @@ def test_deep_think_toggle_uses_human_pacing() -> None:
     # 弹层水合等待（候选 wait_for，不假时钟）之后、选项点击之前存在读菜单停顿 400-1000ms
     mid_waits = [(i, e[1]) for i, e in enumerate(events) if e[0] == "wait" and pc < i < oc]
     assert any(400.0 <= w <= 1_000.0 for _, w in mid_waits)
+    # 切换后连续两拍都读到专家态才成功；一次乐观翻标不能放行发送。
+    post_click_state_probes = [
+        e for e in events[oc + 1 :] if e == ("evaluate", doubao_adapter._PICKER_STATE_JS)
+    ]
+    assert len(post_click_state_probes) == 2
 
 
 def test_quick_mode_toggle_switches_inherited_expert_state() -> None:
@@ -1092,6 +1097,127 @@ def test_quick_mode_toggle_switches_inherited_expert_state() -> None:
         if event[0] == "mouse_click" and _in_bb(_QUICK_OPTION_BB, event[1], event[2])
     ]
     assert len(quick_clicks) == 1
+    quick_click_index = page.events.index(quick_clicks[0])
+    # normal 同样要求切换后连续两拍确认，不能只凭点击或一帧标签变化放行。
+    post_click_state_probes = [
+        e
+        for e in page.events[quick_click_index + 1 :]
+        if e == ("evaluate", doubao_adapter._PICKER_STATE_JS)
+    ]
+    assert len(post_click_state_probes) == 2
+
+
+def test_compound_doubao_quick_label_is_recognized_without_click(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """2026-08-20 北京 live DOM：trigger 文本为「豆包 快速」，已经是目标态。
+
+    旧代码只认 startswith("快速")，把它误判成 mode_toggle_failed 后仍重复点菜单。
+    """
+    page = _FakePage(deep_think=True)
+    original_evaluate = page.evaluate
+
+    def evaluate(script: str, *args: Any) -> Any:
+        if script == doubao_adapter._PICKER_STATE_JS:
+            return [f"{doubao_adapter._SCOPED_PICKER_PREFIX}豆包 快速"]
+        return original_evaluate(script, *args)
+
+    monkeypatch.setattr(page, "evaluate", evaluate)
+
+    assert _try_enable_quick_mode(page, random.Random(41)) is True
+    assert doubao_adapter._quick_mode_engaged(page) is True
+    assert doubao_adapter._deep_think_engaged(page) is False
+    assert not [event for event in page.events if event[0] in {"mouse_click", "locator_click"}]
+
+
+def test_compound_doubao_expert_label_is_recognized_without_click(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """新版复合标签的专家态也必须可确认，且绝不能同时判成快速态。"""
+    page = _FakePage(deep_think=True)
+    original_evaluate = page.evaluate
+
+    def evaluate(script: str, *args: Any) -> Any:
+        if script == doubao_adapter._PICKER_STATE_JS:
+            return [f"{doubao_adapter._SCOPED_PICKER_PREFIX}豆包 专家"]
+        return original_evaluate(script, *args)
+
+    monkeypatch.setattr(page, "evaluate", evaluate)
+
+    assert _try_enable_deep_think(page, random.Random(43)) is True
+    assert doubao_adapter._deep_think_engaged(page) is True
+    assert doubao_adapter._quick_mode_engaged(page) is False
+    assert not [event for event in page.events if event[0] in {"mouse_click", "locator_click"}]
+
+
+def test_picker_state_is_fail_closed_when_quick_and_expert_are_both_visible(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """重复/过渡 DOM 同时暴露两种 scoped trigger 时不得按 DOM 顺序猜模式。"""
+    page = _FakePage(deep_think=True)
+    original_evaluate = page.evaluate
+
+    def evaluate(script: str, *args: Any) -> Any:
+        if script == doubao_adapter._PICKER_STATE_JS:
+            prefix = doubao_adapter._SCOPED_PICKER_PREFIX
+            return [f"{prefix}豆包 快速", f"{prefix}豆包 专家"]
+        return original_evaluate(script, *args)
+
+    monkeypatch.setattr(page, "evaluate", evaluate)
+
+    assert doubao_adapter._quick_mode_engaged(page) is False
+    assert doubao_adapter._deep_think_engaged(page) is False
+
+
+def test_picker_probe_prefers_scoped_model_trigger() -> None:
+    """当前 live 语义属性优先，答案区/推荐卡片的模式词只允许作旧版兜底。"""
+    script = doubao_adapter._PICKER_STATE_JS
+    assert 'data-valid-btn="model-select-action-btn"' in script
+    # 状态读取只依赖豆包的稳定语义键；aria-haspopup 是当前 DOM 实证，但不应成为
+    # 未来属性微调后再次误判「豆包 快速」的必要条件。
+    assert '[data-valid-btn="model-select-action-btn"][aria-haspopup="menu"]' not in script
+    assert "composer-model:" in script
+
+
+def test_quick_mode_final_fallback_rejects_one_frame_optimistic_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """菜单路径异常后的最终兜底也必须两拍；真→假回退不得返回成功。"""
+    page = _FakePage(deep_think=False)
+    observed = iter([False, True, False])  # 初始非目标；最终兜底第一拍真、第二拍假
+    samples: list[bool] = []
+
+    def engaged(_page: Any) -> bool:
+        value = next(observed)
+        samples.append(value)
+        return value
+
+    monkeypatch.setattr(doubao_adapter, "_quick_mode_engaged", engaged)
+    # 让函数进入菜单 try 后在 human_click 处失败，随后只走 Escape + 最终兜底。
+    monkeypatch.setattr(doubao_adapter, "_mode_picker", lambda _page: object())
+
+    assert _try_enable_quick_mode(page, random.Random(47)) is False
+    assert samples == [False, True, False]
+
+
+def test_deep_mode_final_fallback_rejects_one_frame_optimistic_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """专家函数末尾同样不能把单拍乐观翻标当成稳定启用。"""
+    page = _FakePage(deep_think=False)
+    observed = iter([False, True, False])
+    samples: list[bool] = []
+
+    def engaged(_page: Any) -> bool:
+        value = next(observed)
+        samples.append(value)
+        return value
+
+    monkeypatch.setattr(doubao_adapter, "_deep_think_engaged", engaged)
+    monkeypatch.setattr(doubao_adapter, "_mode_picker", lambda _page: None)
+
+    assert _try_enable_deep_think(page, random.Random(53)) is False
+    assert samples == [False, True, False]
 
 
 def test_deep_think_toggle_uses_native_fallback_after_swallowed_coordinate_click(

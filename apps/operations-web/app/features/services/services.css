@@ -607,6 +607,14 @@
   font-weight: 400;
   white-space: nowrap;
 }
+.services-page .sampling-progress-table td .sampling-progress-mode-breakdown {
+  display: block;
+  margin-top: 4px;
+  color: #5f7066;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.35;
+}
 .services-page .sampling-progress-table td strong {
   color: #17613a;
   font-size: 13px;

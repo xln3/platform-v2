@@ -1,8 +1,9 @@
 """browser_router × 采集账号治理消费单测（2026-08-14 起，caiji-0813 §1.3 派题链 / §6.2）。
 
-决策矩阵覆盖：命中（用绑定实例，含 lazy resume）/ 无账号行 env 回退 / 全忙或
-region_down → account_unavailable / 地域IP不匹配 fail-closed / 治理层 DB 异常
-env 回退 / GEO_ACCOUNT_GOVERNANCE=off 跳过治理层。
+决策矩阵覆盖：命中（用绑定实例，含 lazy resume）/ 豆包无账号 fail-closed /
+非豆包无账号 legacy env 回退 / 全忙或 region_down → account_unavailable /
+地域IP不匹配 fail-closed / 治理层 DB 异常 fail-closed /
+GEO_ACCOUNT_GOVERNANCE=off 显式跳过治理层。
 
 fake DB 先例照 test_account_governor.py 的 _FakeSession（select 结构路由到内存
 行；governor 全部查询都是这个形状），外加 Session 上下文管理器/事务假面。
@@ -56,13 +57,13 @@ def _prod_topology(monkeypatch: pytest.MonkeyPatch):
     _instance(monkeypatch, "yuanbao_tj", port=19227, exit_gb="120000")
 
 
-def _task(key: str, adapter: str, region: str) -> CollectionTaskInput:
+def _task(key: str, adapter: str, region: str, *, mode: str = "normal") -> CollectionTaskInput:
     return CollectionTaskInput(
         business_key=key,
         query=f"q-{key}",
         model="m",
         region=region,
-        mode="normal",
+        mode=mode,
         adapter=adapter,
     )
 
@@ -239,6 +240,7 @@ def test_governor_hit_key_not_in_instance_list_fail_closed(
     """治理绑定键不在 GEO_BROWSER_INSTANCES 清单：治理与部署真源不一致，fail-closed。"""
     _instances(monkeypatch, ["tongyi_bj"])
     _seed_gov_region(governance_db)
+    _seed_gov_browser(governance_db)
     _seed_gov_account(governance_db, browser_instance_key="doubao_sh")
     with pytest.raises(ApplicationError) as exc_info:
         resolve_browser_instance("doubao", "CN-SH")
@@ -246,12 +248,27 @@ def test_governor_hit_key_not_in_instance_list_fail_closed(
 
 
 @pytest.mark.usefixtures("_prod_topology")
-def test_governor_no_account_registered_env_fallback(
+def test_governor_doubao_no_account_registered_is_fail_closed(
     governance_db: _FakeGovernanceDb,
 ) -> None:
-    """该平台该地域一行账号都没有 → env 清单回退（过渡期保命，行为同旧版）。"""
-    route = resolve_browser_instance("doubao", "CN-SH")
-    assert route.instance_key == "doubao_sh"
+    """豆包已正式治理：无账号行也不得被手工 run 绕过到 env 浏览器。"""
+    with pytest.raises(ApplicationError) as exc_info:
+        resolve_browser_instance("doubao", "CN-SH")
+    assert exc_info.value.type == "account_unavailable"
+    assert "account_unregistered" in str(exc_info.value)
+
+    with pytest.raises(ApplicationError) as batch_exc:
+        resolve_batch_instance([_task("missing", "doubao", "CN-SH")])
+    assert batch_exc.value.type == "account_unavailable"
+
+
+@pytest.mark.usefixtures("_prod_topology")
+def test_governor_legacy_platform_no_account_registered_env_fallback(
+    governance_db: _FakeGovernanceDb,
+) -> None:
+    """尚未迁移的 Yiyan 无账号行仍带审计日志走 legacy env，避免全腿饿死。"""
+    route = resolve_browser_instance("yiyan", "CN-SH", "deep_think")
+    assert route.instance_key == "yiyan_sh"
 
 
 @pytest.mark.usefixtures("_prod_topology")
@@ -276,6 +293,50 @@ def test_governor_all_accounts_busy_account_unavailable(
 
 
 @pytest.mark.usefixtures("_prod_topology")
+@pytest.mark.parametrize("activity", ["busy", "captcha"])
+def test_governor_non_idle_browser_is_account_unavailable(
+    activity: str, governance_db: _FakeGovernanceDb
+) -> None:
+    _seed_gov_region(governance_db)
+    _seed_gov_browser(governance_db, activity=activity)
+    _seed_gov_account(governance_db)
+    with pytest.raises(ApplicationError) as exc_info:
+        resolve_browser_instance("doubao", "CN-SH", "normal")
+    assert exc_info.value.type == "account_unavailable"
+    assert f"browser_{activity}" in str(exc_info.value)
+
+
+@pytest.mark.usefixtures("_prod_topology")
+def test_governor_mode_quota_block_allows_quick_fallback(
+    governance_db: _FakeGovernanceDb,
+) -> None:
+    _seed_gov_region(governance_db)
+    _seed_gov_browser(governance_db)
+    _seed_gov_account(
+        governance_db,
+        quota_probe_json={
+            "mode_quota_blocks": {
+                "deep_think": {"resume_at": (datetime.now(UTC) + timedelta(hours=1)).isoformat()}
+            }
+        },
+    )
+    with pytest.raises(ApplicationError) as exc_info:
+        resolve_browser_instance("doubao", "CN-SH", "deep_think")
+    assert exc_info.value.type == "account_unavailable"
+    assert "mode_quota_exhausted" in str(exc_info.value)
+    route = resolve_browser_instance("doubao", "CN-SH", "normal")
+    assert route.instance_key == "doubao_sh"
+
+    # Batch 路由必须把 item.mode 传到治理层，不能退回无 mode 的全局阻断语义。
+    quick = resolve_batch_instance([_task("quick", "doubao", "CN-SH", mode="normal")])
+    assert quick is not None
+    assert quick.instance_key == "doubao_sh"
+    with pytest.raises(ApplicationError) as batch_exc:
+        resolve_batch_instance([_task("expert", "doubao", "CN-SH", mode="deep_think")])
+    assert batch_exc.value.type == "account_unavailable"
+
+
+@pytest.mark.usefixtures("_prod_topology")
 def test_governor_region_down_unavailable_no_env_fallback(
     governance_db: _FakeGovernanceDb,
 ) -> None:
@@ -293,18 +354,20 @@ def test_governor_region_down_unavailable_no_env_fallback(
 
 
 @pytest.mark.usefixtures("_prod_topology")
-def test_governor_error_env_fallback(
+def test_governor_error_is_fail_closed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """治理层 DB 异常 → env 回退（治理故障不阻断采集主链；表未迁移同路）。"""
+    """治理层 DB 异常 → fail-closed；未知健康状态不得隐式降级成 env 直派。"""
     monkeypatch.setenv("GEO_ACCOUNT_GOVERNANCE", "db")
 
     def _boom() -> Any:
         raise RuntimeError("pg unreachable")
 
     monkeypatch.setattr(browser_router, "_worker_session", _boom)
-    route = resolve_browser_instance("doubao", "CN-SH")
-    assert route.instance_key == "doubao_sh"
+    with pytest.raises(ApplicationError) as exc_info:
+        resolve_browser_instance("doubao", "CN-SH")
+    assert exc_info.value.type == "account_unavailable"
+    assert "governor_error" in str(exc_info.value)
 
 
 @pytest.mark.usefixtures("_prod_topology")

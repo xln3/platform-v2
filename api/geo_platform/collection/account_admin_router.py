@@ -30,6 +30,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from workflows.activities.assist_notify import push_captcha_assist
@@ -128,6 +129,22 @@ class PhoneAccountRow(StrictModel):
 class PhoneAccountCreate(StrictModel):
     phone: str
     owner_note: str | None = None
+
+
+class PlatformAccountCreate(StrictModel):
+    """Create the missing phone x platform dispatch row.
+
+    Binding is deliberately explicit: a phone registration or quota observation must
+    never silently become a dispatchable collection account.
+    """
+
+    platform: Literal["doubao", "yiyan", "deepseek", "yuanbao", "tongyi"]
+    region_gb: str
+    browser_instance_key: str
+    quota_day: int | None = Field(default=None, ge=0)
+    quota_week: int | None = Field(default=None, ge=0)
+    quota_year: int | None = Field(default=None, ge=0)
+    confirm: bool = False
 
 
 class OtpRegistrySyncResult(StrictModel):
@@ -428,6 +445,27 @@ def _emit_event(
     return event
 
 
+def _binding_conflict_code(exc: IntegrityError) -> str | None:
+    """Map the two dispatch-binding uniqueness guards to stable API errors."""
+
+    original = getattr(exc, "orig", None)
+    diagnostic = getattr(original, "diag", None)
+    constraint_name = getattr(diagnostic, "constraint_name", None)
+    if constraint_name == "uq_collection_platform_account_phone_platform":
+        return "platform_account_already_exists"
+    if constraint_name == "uq_collection_platform_account_browser_instance_key":
+        return "browser_already_bound"
+    return None
+
+
+def _raise_binding_integrity_error(session: Session, exc: IntegrityError) -> None:
+    session.rollback()
+    code = _binding_conflict_code(exc)
+    if code is not None:
+        raise HTTPException(status_code=409, detail={"code": code}) from exc
+    raise exc
+
+
 def _systemctl_property(unit: str, prop: str) -> str | None:
     """单属性只读查询（多属性 -P 输出顺序不稳定，2026-08-13 实测逐属性调）。"""
     try:
@@ -616,6 +654,111 @@ def create_collection_account(
     return _phone_row(row, [], reveal_phone=True)
 
 
+@router.post(
+    "/collection-accounts/{pub_id}/platform-accounts",
+    response_model=PlatformAccountView,
+    status_code=201,
+)
+def create_platform_account(
+    pub_id: str,
+    body: PlatformAccountCreate,
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db),
+) -> PlatformAccountView:
+    """Create an audited phone x platform dispatch binding.
+
+    The browser, platform and egress region must agree in the same request.  This is
+    intentionally separate from phone registration and quota observations so neither
+    operation can unexpectedly change collection routing.
+    """
+
+    principal.require("account:operate")
+    if not body.confirm:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "platform_account_binding_requires_confirmation"},
+        )
+    phone = _find_phone(session, pub_id)
+    if phone.state != "active":
+        raise HTTPException(status_code=409, detail={"code": "phone_account_not_active"})
+    existing = session.scalar(
+        select(CollectionPlatformAccount).where(
+            CollectionPlatformAccount.phone_account_id == phone.id,
+            CollectionPlatformAccount.platform == body.platform,
+        )
+    )
+    if existing is not None:
+        raise HTTPException(status_code=409, detail={"code": "platform_account_already_exists"})
+
+    region = session.scalar(
+        select(CollectionRegion).where(CollectionRegion.region_gb == body.region_gb)
+    )
+    if region is None or region.state != "ok":
+        raise HTTPException(status_code=400, detail={"code": "region_not_available"})
+    browser = session.scalar(
+        select(CollectionBrowser).where(CollectionBrowser.instance_key == body.browser_instance_key)
+    )
+    if browser is None:
+        raise HTTPException(status_code=404, detail={"code": "browser_not_found"})
+    if browser.platform != body.platform:
+        raise HTTPException(status_code=409, detail={"code": "browser_platform_mismatch"})
+    if browser.region_gb != body.region_gb:
+        raise HTTPException(status_code=409, detail={"code": "region_ip_mismatch"})
+    bound = session.scalar(
+        select(CollectionPlatformAccount).where(
+            CollectionPlatformAccount.browser_instance_key == body.browser_instance_key
+        )
+    )
+    if bound is not None:
+        raise HTTPException(status_code=409, detail={"code": "browser_already_bound"})
+
+    now = now_utc()
+    account = CollectionPlatformAccount(
+        pub_id=new_pub_id("pac"),
+        phone_account_id=phone.id,
+        platform=body.platform,
+        region_gb=body.region_gb,
+        quota_day=body.quota_day,
+        quota_week=body.quota_week,
+        quota_year=body.quota_year,
+        used_today=0,
+        used_week=0,
+        used_year=0,
+        runtime_state="idle",
+        state_reason="created_by_operator",
+        state_updated_at=now,
+        browser_instance_key=body.browser_instance_key,
+        created_at=now,
+        updated_at=now,
+    )
+    try:
+        session.add(account)
+        session.flush()
+        _emit_event(
+            session,
+            "platform_account_created",
+            actor=_actor(principal),
+            phone_account_id=phone.id,
+            platform_account_id=account.id,
+            browser_id=browser.id,
+            region_id=region.id,
+            new_value={
+                "platform": body.platform,
+                "region_gb": body.region_gb,
+                "browser_instance_key": body.browser_instance_key,
+                "quota_day": body.quota_day,
+                "quota_week": body.quota_week,
+                "quota_year": body.quota_year,
+            },
+        )
+        session.commit()
+    except IntegrityError as exc:
+        _raise_binding_integrity_error(session, exc)
+    return PlatformAccountView(
+        **_platform_cell(account).model_dump(), phone_account_pub_id=phone.pub_id
+    )
+
+
 def _otp_registry_entries() -> list[dict[str, Any]]:
     """Read the persistent OTP registry for an explicit admin reconciliation.
 
@@ -734,41 +877,58 @@ def patch_platform_account(
         effective_region = body.region_gb
         old_value["region_gb"] = account.region_gb
         new_value["region_gb"] = body.region_gb
-    if (
+    browser_changed = (
         "browser_instance_key" in provided
         and body.browser_instance_key != account.browser_instance_key
-    ):
-        if body.browser_instance_key is not None:
-            browser = session.scalar(
-                select(CollectionBrowser).where(
-                    CollectionBrowser.instance_key == body.browser_instance_key
-                )
-            )
-            if browser is None:
-                raise HTTPException(status_code=404, detail={"code": "browser_not_found"})
-            if browser.region_gb != effective_region:
-                raise HTTPException(status_code=409, detail={"code": "region_ip_mismatch"})
+    )
+    if browser_changed:
         old_value["browser_instance_key"] = account.browser_instance_key
         new_value["browser_instance_key"] = body.browser_instance_key
+    region_changed = "region_gb" in new_value
+    effective_browser_key = (
+        body.browser_instance_key
+        if "browser_instance_key" in provided
+        else account.browser_instance_key
+    )
+    if (region_changed or browser_changed) and effective_browser_key is not None:
+        browser = session.scalar(
+            select(CollectionBrowser).where(CollectionBrowser.instance_key == effective_browser_key)
+        )
+        if browser is None:
+            raise HTTPException(status_code=404, detail={"code": "browser_not_found"})
+        if browser.platform != account.platform:
+            raise HTTPException(status_code=409, detail={"code": "browser_platform_mismatch"})
+        if browser.region_gb != effective_region:
+            raise HTTPException(status_code=409, detail={"code": "region_ip_mismatch"})
+        bound = session.scalar(
+            select(CollectionPlatformAccount).where(
+                CollectionPlatformAccount.browser_instance_key == effective_browser_key
+            )
+        )
+        if bound is not None and bound.id != account.id:
+            raise HTTPException(status_code=409, detail={"code": "browser_already_bound"})
     for field_name in ("quota_day", "quota_week", "quota_year"):
         if field_name in provided and getattr(body, field_name) != getattr(account, field_name):
             old_value[field_name] = getattr(account, field_name)
             new_value[field_name] = getattr(body, field_name)
-    if new_value:
-        for field_name, value in new_value.items():
-            setattr(account, field_name, value)
-        account.updated_at = now_utc()
-        session.flush()
-        _emit_event(
-            session,
-            "config_change",
-            actor=_actor(principal),
-            phone_account_id=account.phone_account_id,
-            platform_account_id=account.id,
-            old_value=old_value,
-            new_value=new_value,
-        )
-    session.commit()
+    try:
+        if new_value:
+            for field_name, value in new_value.items():
+                setattr(account, field_name, value)
+            account.updated_at = now_utc()
+            session.flush()
+            _emit_event(
+                session,
+                "config_change",
+                actor=_actor(principal),
+                phone_account_id=account.phone_account_id,
+                platform_account_id=account.id,
+                old_value=old_value,
+                new_value=new_value,
+            )
+        session.commit()
+    except IntegrityError as exc:
+        _raise_binding_integrity_error(session, exc)
     return PlatformAccountView(
         **_platform_cell(account).model_dump(), phone_account_pub_id=_phone_pub_id(session, account)
     )

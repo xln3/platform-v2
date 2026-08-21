@@ -7,8 +7,8 @@ test_doubao_mode_evidence，单一出处绝不复制漂移；真实浏览器绝�
    走既有墙管道（batch 与 per-task 两路径）；
 2. 软墙/实名扫描无条件执行（`if not answer_text:` 门已删），且已出答案时
    答案正文从扫描文本剔除（旧零误伤不变量保持）；
-3. batch 连坐三语义：wall_muted 全连坐 / wall_quota 只连坐同 mode /
-   wall_refusal 不连坐；
+3. batch 连坐四语义：wall_muted 全连坐 / wall_quota 只连坐同 mode /
+   模式控件失败只熔断同 mode / wall_refusal 不连坐；
 4. composer 不可得路径的禁言 banner → wall_muted（带 until）；
 5. deep_think 无 SSE 思考证据 → mode_unconfirmed（non_retryable，不落
    completed；trace 先落盘取证）。
@@ -277,6 +277,30 @@ def test_batch_refusal_does_not_cascade(tmp_path: Path, monkeypatch: pytest.Monk
     assert outcomes[0].error_type == "wall_refusal"
     keys = [e[1] for e in page.events if e[0] == "key"]
     assert keys == list(specs[0].query) + list(specs[1].query) + list(specs[2].query)
+
+
+def test_batch_mode_toggle_failure_opens_same_mode_session_circuit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """模式 trigger 在单题内穷尽重试仍不可用时，同 session 后续同 mode 零交互。
+
+    这避免一次 selector 漂移让四题依次产生四个同源 mode_toggle 失败；结果仍与
+    输入等长，未执行题明确记 aborted_after_failure，绝不伪造回答。
+    """
+    page = _FakePage(messages=0, deep_think=False)
+    session, _evidence = _make_session(tmp_path, monkeypatch, page)
+    specs = [_spec(i, mode="deep_think") for i in range(1, 5)]
+
+    outcomes = session.collect_batch(specs, on_stage=lambda s: None)
+
+    assert [outcome.status for outcome in outcomes] == ["wall", "aborted", "aborted", "aborted"]
+    assert outcomes[0].error_type == "deep_think_toggle_failed"
+    assert all(outcome.error_type == "aborted_after_failure" for outcome in outcomes[1:])
+    assert all(
+        "same-mode mode-toggle circuit" in (outcome.error_message or "") for outcome in outcomes[1:]
+    )
+    # 模式确认失败发生在输入前；后续三题也没有任何键盘/发送交互。
+    assert [event for event in page.events if event[0] == "key"] == []
 
 
 # ---------------------------------------------------------------------------

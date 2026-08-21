@@ -170,6 +170,7 @@ def plan_collection_segments(
 # 为静默挂起，2026-08-06 实测坑）；不在词表的 slug（如测试用 "fixed"）保持
 # per-task 老路径。
 BATCH_CAPABLE_ADAPTERS = frozenset({"doubao", "deepseek", "tongyi", "yiyan", "yuanbao"})
+ADAPTER_BATCH_MODE_SEGMENTS_PATCH = "adapter-batch-mode-segments-v3"
 BATCH_ACTIVITY_BY_SLUG: dict[
     str, Callable[[CollectionBatchInput], Coroutine[Any, Any, CollectionBatchResult]]
 ] = {
@@ -218,6 +219,29 @@ def plan_instance_segments(
     return segments
 
 
+def plan_mode_instance_segments(
+    tasks: list[CollectionTaskInput],
+) -> list[tuple[tuple[str, str, str], list[CollectionTaskInput]]]:
+    """新执行的 batch 分组：连续 ``(adapter, region, mode)`` 各自成段。
+
+    mode 是账号治理/额度墙的一部分；把 normal 与 deep_think 放进同一 activity，
+    任一模式不可用都会令整个 activity 在浏览器交互前失败，错误地连坐另一模式。
+    因此 v3 在 v2 的实例键上追加 mode，保持题序但隔离模式级失败边界。
+    """
+    segments: list[tuple[tuple[str, str, str], list[CollectionTaskInput]]] = []
+    for item in tasks:
+        key = (
+            (item.adapter or "").strip().lower(),
+            (item.region or "").strip(),
+            (item.mode or "").strip().lower(),
+        )
+        if segments and segments[-1][0] == key:
+            segments[-1][1].append(item)
+        else:
+            segments.append((key, [item]))
+    return segments
+
+
 def plan_batch_segments(
     patched_v2: bool,
     tasks: list[CollectionTaskInput],
@@ -236,6 +260,24 @@ def plan_batch_segments(
     if not patched_v2:
         return plan_adapter_segments(tasks)
     return [(key[0], items) for key, items in plan_instance_segments(tasks)]
+
+
+def plan_versioned_batch_segments(
+    patched_v2: bool,
+    patched_mode_v3: bool,
+    tasks: list[CollectionTaskInput],
+) -> list[tuple[str, list[CollectionTaskInput]]]:
+    """Preserve both published histories while enabling mode-isolated new batches.
+
+    - pre-v2 replay: adapter-only grouping;
+    - v2 history replay without the new marker: adapter+region grouping unchanged;
+    - new v3 execution: adapter+region+mode grouping.
+
+    ``plan_batch_segments`` remains untouched as the published v2 semantic anchor.
+    """
+    if not patched_mode_v3:
+        return plan_batch_segments(patched_v2, tasks)
+    return [(key[0], items) for key, items in plan_mode_instance_segments(tasks)]
 
 
 def task_result_from_batch_item(item_result: CollectionBatchItemResult) -> CollectionTaskResult:
@@ -580,14 +622,19 @@ class GeoCollectionWorkflow:
         BATCH_ACTIVITY_BY_SLUG 具名 callable 分发；非 batch 词表 slug（如测试
         "fixed"）保持 per-task 老调用。返回非 None 表示已提前终止（cancelled）。
 
-        adapter-batch-collect-v2（2026-08-09，浏览器矩阵化）：v1 路径内再开一道
-        门——已 patch 的 run 按 (adapter, region) 切段（同平台不同地域 = 不同
-        batch，activity 侧各路由到对应地域的常驻实例）；未 patch 的历史重放走
-        旧 (adapter) 分组零变化。patch 在段循环前恰好调一次（重放确定性），
-        判定走纯函数 plan_batch_segments。"""
+        adapter-batch-collect-v2（2026-08-09，浏览器矩阵化）：按
+        (adapter, region) 切段；未 patch 的历史重放仍按 adapter。
+
+        adapter-batch-mode-segments-v3：新执行追加 mode 分段，隔离模式级额度墙。
+        v2 marker 仍先调用且语义不变；新 marker 在其后恰好调用一次。v2-era 历史
+        重放时新 marker=False，继续走原 (adapter, region) 分段。"""
         processed = 0
-        for slug, segment_items in plan_batch_segments(
-            workflow.patched("adapter-batch-collect-v2"), data.tasks
+        patched_v2 = workflow.patched("adapter-batch-collect-v2")
+        patched_mode_v3 = workflow.patched(ADAPTER_BATCH_MODE_SEGMENTS_PATCH)
+        for slug, segment_items in plan_versioned_batch_segments(
+            patched_v2,
+            patched_mode_v3,
+            data.tasks,
         ):
             if slug in BATCH_CAPABLE_ADAPTERS:
                 await workflow.wait_condition(lambda: not self._paused or self._cancelled)

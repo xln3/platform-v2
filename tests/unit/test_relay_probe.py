@@ -78,6 +78,10 @@ def _seed_region(session: _FakeSession, **over: Any) -> CollectionRegion:
         "pub_id": new_pub_id("rgn"),
         "region_gb": "110000",
         "state": "ok",
+        "probe_success_streak": 0,
+        "probe_failure_streak": 0,
+        "last_probe_ok": None,
+        "last_probe_note": None,
         "proxy_env_key": "GEO_PROXY_BJ",
         "created_at": _NOW,
         "updated_at": _NOW,
@@ -114,7 +118,11 @@ def test_probe_proxy_env_missing(
         "note": "proxy_env_missing",
         "alerted": False,
     }
-    assert region.state == "down"  # governor 落库：ok=False → down
+    assert region.state == "ok"  # 单次失败只暂停渐进调度，不翻转地域权威状态
+    assert region.probe_failure_streak == 1
+    probe_collection_region(session, "110000")  # type: ignore[arg-type]
+    probe_collection_region(session, "110000")  # type: ignore[arg-type]
+    assert region.state == "down"
     assert region.last_probe_at is not None
     # env 键配了但值缺失同口径
     region2 = _seed_region(session, region_gb="120000", proxy_env_key="GEO_PROXY_MISSING")
@@ -122,7 +130,8 @@ def test_probe_proxy_env_missing(
     result2 = probe_collection_region(session, "120000")  # type: ignore[arg-type]
     assert result2["ok"] is False
     assert result2["note"] == "proxy_env_missing"
-    assert region2.state == "down"
+    assert region2.state == "ok"
+    assert region2.probe_failure_streak == 1
 
 
 def test_probe_success_records_exit_ip(
@@ -140,13 +149,22 @@ def test_probe_success_records_exit_ip(
         "note": None,
         "alerted": False,
     }
+    assert region.state == "down"
+    assert region.probe_success_streak == 1
+    result = probe_collection_region(session, "110000")  # type: ignore[arg-type]
+    assert result["ok"] is True
     assert region.state == "ok"
     assert region.exit_ip_last == "106.37.143.183"
     events = _events(session)
     assert len(events) == 1  # 状态翻转 → relay_probe 事件
     assert events[0].event_type == "relay_probe"
     assert events[0].old_value == {"state": "down"}
-    assert events[0].new_value == {"state": "ok", "exit_ip": "106.37.143.183"}
+    assert events[0].new_value == {
+        "state": "ok",
+        "exit_ip": "106.37.143.183",
+        "probe_success_streak": 2,
+        "probe_failure_streak": 0,
+    }
 
 
 def test_probe_failure_pushes_alert(
@@ -166,7 +184,11 @@ def test_probe_failure_pushes_alert(
     monkeypatch.setattr(
         relay_probe, "push_captcha_assist", lambda **kw: sent.append(kw) is None or True
     )
+    first = probe_collection_region(session, "110000")  # type: ignore[arg-type]
+    second = probe_collection_region(session, "110000")  # type: ignore[arg-type]
     result = probe_collection_region(session, "110000")  # type: ignore[arg-type]
+    assert first["alerted"] is False
+    assert second["alerted"] is False
     assert result["ok"] is False
     assert result["note"] == "probe_failed:TimeoutError"
     assert result["alerted"] is True

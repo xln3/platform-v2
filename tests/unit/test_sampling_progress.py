@@ -22,6 +22,7 @@ def _row(
     model: str = "doubao",
     region: str = "北京",
     mode: str = "deep_think",
+    modes: list[str] | None = None,
 ) -> dict[str, object]:
     return {
         "pub_id": f"cfv_{revision}",
@@ -39,7 +40,7 @@ def _row(
                 ],
                 "models": [model],
                 "regions": [region],
-                "modes": [mode],
+                "modes": modes or [mode],
             }
         ),
     }
@@ -95,6 +96,18 @@ def test_select_sampling_campaign_bridges_quick_topup_to_deep_think_full_plan() 
             ),
             _row(
                 40,
+                ["问题一", "问题二", "问题三"],
+                model="doubao",
+                region="上海",
+            ),
+            _row(
+                39,
+                ["问题一", "问题二", "问题三"],
+                model="doubao",
+                region="北京",
+            ),
+            _row(
+                38,
                 ["旧批次问题"],
                 model="yiyan",
                 region="北京",
@@ -107,14 +120,15 @@ def test_select_sampling_campaign_bridges_quick_topup_to_deep_think_full_plan() 
 
     assert baseline is not None
     assert baseline.revision == 42
-    assert [config.revision for config in campaign] == [44, 43, 42, 41]
+    assert [config.revision for config in campaign] == [44, 43, 42, 41, 40, 39]
     assert [
-        (column.model, column.region, column.mode) for column in sampling_columns(campaign)
+        (column.model, column.region, column.mode, column.modes)
+        for column in sampling_columns(campaign, baseline=baseline)
     ] == [
-        ("doubao", "北京", "normal"),
-        ("doubao", "上海", "normal"),
-        ("deepseek", "北京", "deep_think"),
-        ("deepseek", "上海", "deep_think"),
+        ("doubao", "北京", "deep_think", ("deep_think", "normal")),
+        ("doubao", "上海", "deep_think", ("deep_think", "normal")),
+        ("deepseek", "北京", "deep_think", ("deep_think",)),
+        ("deepseek", "上海", "deep_think", ("deep_think",)),
     ]
 
 
@@ -145,11 +159,11 @@ def test_select_sampling_campaign_ignores_interleaved_independent_configs() -> N
     assert baseline is not None
     assert baseline.revision == 42
     assert [config.revision for config in campaign] == [48, 45, 42, 41]
+    # Partial configs can contribute answers, but cannot invent formal sampling legs.
     assert [
-        (column.model, column.region, column.mode) for column in sampling_columns(campaign)
+        (column.model, column.region, column.mode)
+        for column in sampling_columns(campaign, baseline=baseline)
     ] == [
-        ("doubao", "北京", "normal"),
-        ("doubao", "上海", "deep_think"),
         ("deepseek", "北京", "deep_think"),
         ("deepseek", "上海", "deep_think"),
     ]
@@ -236,6 +250,51 @@ def test_sampling_columns_use_product_and_product_display_order() -> None:
     assert [column.key for column in columns] == ["leg-1", "leg-2", "leg-3", "leg-4"]
 
 
+def test_sampling_columns_keep_six_formal_legs_and_merge_doubao_fallback_modes() -> None:
+    queries = [f"问题{index:03d}" for index in range(136)]
+    rows = [
+        _row(48, [queries[0]], model="doubao", region="北京", mode="normal"),
+        _row(47, [queries[1]], model="doubao", region="上海", mode="normal"),
+    ]
+    revision = 42
+    for model in ("doubao", "deepseek", "yiyan"):
+        for region in ("北京", "上海"):
+            rows.append(_row(revision, queries, model=model, region=region))
+            revision -= 1
+    configs = parse_sampling_configs(rows)
+    baseline = next(config for config in configs if config.revision == 42)
+
+    columns = sampling_columns(configs, baseline=baseline)
+
+    assert len(columns) == 6
+    assert len(queries) * len(columns) == 816
+    assert {(column.model, column.region, column.mode, column.modes) for column in columns} == {
+        ("doubao", "北京", "deep_think", ("deep_think", "normal")),
+        ("doubao", "上海", "deep_think", ("deep_think", "normal")),
+        ("deepseek", "北京", "deep_think", ("deep_think",)),
+        ("deepseek", "上海", "deep_think", ("deep_think",)),
+        ("yiyan", "北京", "deep_think", ("deep_think",)),
+        ("yiyan", "上海", "deep_think", ("deep_think",)),
+    }
+
+
+def test_sampling_columns_preserve_genuine_dual_mode_formal_targets() -> None:
+    queries = ["问题一", "问题二"]
+    configs = parse_sampling_configs(
+        [
+            _row(3, ["问题一"], mode="experimental"),
+            _row(2, queries, modes=["normal", "deep_think"]),
+        ]
+    )
+
+    columns = sampling_columns(configs, baseline=configs[1])
+
+    assert [(column.mode, column.modes) for column in columns] == [
+        ("normal", ("normal",)),
+        ("deep_think", ("deep_think",)),
+    ]
+
+
 def test_quotation_shape_and_variant_labels_match_progress_document() -> None:
     snapshot = {
         "query_groups": [
@@ -271,7 +330,61 @@ def test_sampling_progress_route_projects_counts_and_establishes_both_tenant_con
     monkeypatch: Any,
 ) -> None:
     captured_at = datetime(2026, 8, 13, 0, 53, tzinfo=UTC)
+    quick_captured_at = captured_at.replace(hour=1)
+    deep_latest_captured_at = captured_at.replace(hour=2)
     calls: list[tuple[str, object]] = []
+    source_answers: list[dict[str, Any]] = [
+        {
+            "pub_id": "ans_newest",
+            "query_text": "问题一",
+            "model": "doubao",
+            "region": "北京",
+            "mode": "deep_think",
+            "eligible": True,
+            "degraded": False,
+            "capture_time": deep_latest_captured_at,
+        },
+        {
+            "pub_id": "ans_oldest",
+            "query_text": "问题一",
+            "model": "doubao",
+            "region": "北京",
+            "mode": "deep_think",
+            "eligible": True,
+            "degraded": False,
+            "capture_time": captured_at,
+        },
+        {
+            "pub_id": "ans_quick",
+            "query_text": "问题一",
+            "model": "doubao",
+            "region": "北京",
+            "mode": "normal",
+            "eligible": True,
+            "degraded": False,
+            "capture_time": quick_captured_at,
+        },
+        {
+            "pub_id": "ans_ineligible",
+            "query_text": "问题一",
+            "model": "doubao",
+            "region": "北京",
+            "mode": "normal",
+            "eligible": False,
+            "degraded": False,
+            "capture_time": captured_at.replace(hour=3),
+        },
+        {
+            "pub_id": "ans_degraded_only_cell",
+            "query_text": "问题二",
+            "model": "doubao",
+            "region": "北京",
+            "mode": "deep_think",
+            "eligible": True,
+            "degraded": True,
+            "capture_time": captured_at.replace(hour=4),
+        },
+    ]
 
     class Result:
         def __init__(self, *, rows: list[dict[str, object]] | None = None) -> None:
@@ -300,21 +413,44 @@ def test_sampling_progress_route_projects_counts_and_establishes_both_tenant_con
                     ]
                 )
             if "FROM platform.monitoring_config_version" in sql:
-                return Result(rows=[_row(7, ["问题一", "问题二"])])
-            if "FROM analytics.answer" in sql:
                 return Result(
                     rows=[
-                        {
-                            "query_text": "问题一",
-                            "model": "doubao",
-                            "region": "北京",
-                            "mode": "deep_think",
-                            "completed_samples": 2,
-                            "latest_capture_time": captured_at,
-                            "answer_pub_ids": ["ans_newest", "ans_oldest"],
-                        }
+                        _row(8, ["问题一"], mode="normal"),
+                        _row(7, ["问题一", "问题二"]),
                     ]
                 )
+            if "FROM analytics.answer" in sql:
+                assert "eligible IS TRUE AND degraded IS FALSE" in sql
+                grouped: dict[tuple[str, str, str, str], list[dict[str, Any]]] = {}
+                for answer in source_answers:
+                    if answer["eligible"] is not True or answer["degraded"] is not False:
+                        continue
+                    key = (
+                        str(answer["query_text"]),
+                        str(answer["model"]),
+                        str(answer["region"]),
+                        str(answer["mode"]),
+                    )
+                    grouped.setdefault(key, []).append(answer)
+                rows: list[dict[str, object]] = []
+                for (query_text, model, region, mode), answers in grouped.items():
+                    answers.sort(
+                        key=lambda answer: (answer["capture_time"], answer["pub_id"]),
+                        reverse=True,
+                    )
+                    rows.append(
+                        {
+                            "query_text": query_text,
+                            "model": model,
+                            "region": region,
+                            "mode": mode,
+                            "completed_samples": len(answers),
+                            "latest_capture_time": answers[0]["capture_time"],
+                            "answer_pub_ids": [answer["pub_id"] for answer in answers],
+                            "answer_capture_times": [answer["capture_time"] for answer in answers],
+                        }
+                    )
+                return Result(rows=rows)
             if "AS live_runs" in sql:
                 return Result(rows=[{"live_runs": 1}])
             raise AssertionError(sql)
@@ -336,15 +472,31 @@ def test_sampling_progress_route_projects_counts_and_establishes_both_tenant_con
     )
 
     assert result.config_revision_start == 7
-    assert result.config_revision_end == 7
-    assert result.answer_count == 2
+    assert result.config_revision_end == 8
+    assert result.answer_count == 3
     assert result.observed_cells == 1
     assert result.total_cells == 2
     assert result.live_runs == 1
-    assert result.rows[0].cells[0].latest_capture_time == captured_at
-    assert result.rows[0].cells[0].answer_pub_ids == ["ans_newest", "ans_oldest"]
+    assert len(result.columns) == 1
+    assert result.columns[0].mode == "deep_think"
+    assert result.columns[0].modes == ["deep_think", "normal"]
+    cell = result.rows[0].cells[0]
+    assert cell.completed_samples == 3
+    assert cell.latest_capture_time == deep_latest_captured_at
+    assert cell.answer_pub_ids == ["ans_newest", "ans_quick", "ans_oldest"]
+    assert result.rows[1].cells == []
+    assert {"ans_ineligible", "ans_degraded_only_cell"}.isdisjoint(cell.answer_pub_ids)
+    assert [
+        (breakdown.mode, breakdown.completed_samples, breakdown.answer_pub_ids)
+        for breakdown in cell.mode_breakdown
+    ] == [
+        ("deep_think", 2, ["ans_newest", "ans_oldest"]),
+        ("normal", 1, ["ans_quick"]),
+    ]
     answer_sql = next(sql for sql, _ in calls if "FROM analytics.answer" in sql)
     assert "array_agg(pub_id ORDER BY capture_time DESC,pub_id DESC)" in answer_sql
+    assert "array_agg(capture_time ORDER BY capture_time DESC,pub_id DESC)" in answer_sql
+    assert "eligible IS TRUE AND degraded IS FALSE" in answer_sql
     assert any("set_config('app.tenant_id'" in sql for sql, _ in calls)
     config_sql = next(sql for sql, _ in calls if "FROM platform.monitoring_config_version" in sql)
     assert "LIMIT 100" not in config_sql

@@ -30,12 +30,14 @@ resolve 先经 ``AccountGovernor.resolve_collectable(platform, region_gb)`` 读�
 - 命中 → 用其绑定实例键（env 仍是 CDP/出口真源，须仍在 ``GEO_BROWSER_INSTANCES``
   清单内），并校验出口省码与派题地域一致，不一致 fail-closed ``region_ip_mismatch``
   （配置错误，绝不带错地域出口硬采）；
-- 该平台该地域一行账号都没有（no_account_registered）→ **env 清单回退**
-  （过渡期保命，structlog 记 fallback）；
+- 豆包一行账号都没有 → ``account_unavailable(account_unregistered)``；豆包已进入
+  正式治理，任何入口都不得绕过账号/模式额度墙；其他尚未迁移的平台才允许
+  **env 清单回退**（过渡期保命，structlog 记 ``legacy_unmanaged``）；
 - 有账号但全不可用（全忙/额度尽/禁言/region_down）→ ``account_unavailable``
   non_retryable（带 reason；workflow 侧转等长占位落库——绝不回退 env 硬撞，
   也绝不让整批 run failed）；
-- 治理层 DB 异常 → env 回退 + warning（治理故障不阻断采集主链）。
+- 治理层 DB 异常 → ``account_unavailable(governor_error)`` fail-closed；只有显式
+  ``GEO_ACCOUNT_GOVERNANCE=off`` 应急开关可以绕过治理。
 
 开关 ``GEO_ACCOUNT_GOVERNANCE=db|off``（缺省 db；off=跳过治理层直走 env 清单，
 单测/应急 kill switch——与 ``GEO_BROWSER_FENCING`` 同款闸门先例）。
@@ -48,8 +50,8 @@ region→GB 归一词表 vendored 自旧链 ``geosys.wiring.normalize_region`` �
 （``_ISO_TO_GB_31`` + 中文城市名 + 6 位 GB 原样透传，2026-08-09 对齐），与
 ``region_proxy_router`` 的 wukong 路径同口径；本模块不 import 旧链——worker
 env 可能无 ``GEO_WUKONG_MODULE_ROOT``。env 清单解析保持纯函数（无 IO/时钟）；
-治理消费段新增 worker DB 依赖（``WorkerSessionLocal``，异常一律 fail-open
-回退 env 路径）。
+治理消费段新增 worker DB 依赖（``WorkerSessionLocal``，异常一律 fail-closed；
+显式 ``GEO_ACCOUNT_GOVERNANCE=off`` 才走无治理 env 路径）。
 """
 
 from __future__ import annotations
@@ -62,6 +64,7 @@ from typing import Any
 import structlog
 from geo_platform.collection.account_governor import AccountGovernor
 from geo_platform.collection.account_models import (
+    CollectionBrowser,
     CollectionPlatformAccount,
     CollectionRegion,
 )
@@ -77,6 +80,10 @@ ENV_BROWSER_INSTANCES = "GEO_BROWSER_INSTANCES"
 # 采集账号治理消费开关（2026-08-14 起）：db=先消费 AccountGovernor 实体状态
 # （缺省）；off=跳过治理层直走 env 清单（单测/应急 kill switch）。
 ENV_ACCOUNT_GOVERNANCE = "GEO_ACCOUNT_GOVERNANCE"
+
+# 豆包已进入正式账号治理；其他平台按账号表分阶段迁移，暂无账号行时仍可走
+# legacy env 路由。显式 GEO_ACCOUNT_GOVERNANCE=off 仍是唯一应急绕过方式。
+_GOVERNANCE_REQUIRED_PLATFORMS = frozenset({"doubao"})
 
 # 与 tools/resident_browser.py 的 RESIDENT_PLATFORM 同一正则：实例键可以直接
 # 当 opaque platform 进 browser-%i.env / fence / 锁（不含连字符，systemd 实例名安全）。
@@ -236,8 +243,7 @@ def _load_instance(key: str) -> InstanceRoute:
 def account_governance_enabled() -> bool:
     """GEO_ACCOUNT_GOVERNANCE=db|off（缺省 db）：off = 跳过治理层直走 env 清单。
 
-    任何非 "off" 值按 db 处理（治理层自身的 DB 异常仍 fail-open 回退 env，
-    不在此处引入新失败模式）。
+    任何非 "off" 值按 db 处理；治理层自身的 DB 异常 fail-closed。
     """
     return os.environ.get(ENV_ACCOUNT_GOVERNANCE, "db").strip().lower() != "off"
 
@@ -247,50 +253,64 @@ def _worker_session() -> Session:
     return WorkerSessionLocal()
 
 
-def _governor_decision(slug: str, region_gb: str) -> tuple[str, dict[str, Any] | None]:
+def _governor_decision(
+    slug: str, region_gb: str, mode: str | None = None
+) -> tuple[str, dict[str, Any] | None]:
     """治理层派题判定（读实体表；governor 的 lazy resume/reset 随之提交落库）。
 
     返回 (decision, payload)：
 
     - ``("hit", payload)``：resolve_collectable 命中（payload 含
       browser_instance_key / platform_account_pub_id / remaining_today）；
-    - ``("no_account_registered", None)``：该平台该地域一行账号都没有
+    - ``("no_account_registered", None)``：尚未强制治理的平台一行账号都没有
       → 调用方 env 回退（过渡期保命）；
+    - 豆包一行账号都没有 → ``("unavailable", {"reason":
+      "account_unregistered"})``，任何采集入口都不得绕过正式治理；
     - ``("unavailable", {"reason": ...})``：region_down / 有账号但全不可用
       （全忙/额度尽/禁言/实例熔断）→ 调用方 account_unavailable 信号，
       绝不 env 回退硬撞；
-    - ``("governor_error", None)``：治理层 DB 异常 → 调用方 env 回退 + warning
-      （治理故障不阻断采集主链；表未迁移的环境也走这条路，行为与旧版一致）。
+    - ``("unavailable", {"reason": "governor_error"})``：治理层 DB 异常也
+      fail-closed；隐式故障绝不等价于显式关闭治理。
     """
     try:
         with _worker_session() as session:
             governor = AccountGovernor(session)
-            resolved = governor.resolve_collectable(platform=slug, region_gb=region_gb)
+            resolved = governor.resolve_collectable(platform=slug, region_gb=region_gb, mode=mode)
             if resolved is not None:
                 session.commit()
                 return "hit", resolved
-            reason = _unavailable_reason(session, slug, region_gb)
+            reason = _unavailable_reason(session, slug, region_gb, mode=mode)
             session.commit()
-    except Exception as exc:  # noqa: BLE001 — 治理层故障不阻断采集主链
+    except Exception as exc:  # noqa: BLE001 — 治理状态未知必须 fail-closed
         log.warning(
             "account_governor_resolve_error",
             platform=slug,
             region_gb=region_gb,
             error=repr(exc),
         )
-        return "governor_error", None
+        return "unavailable", {"reason": "governor_error"}
     if reason == "no_account_registered":
+        if slug in _GOVERNANCE_REQUIRED_PLATFORMS:
+            log.warning(
+                "account_resolve_required_account_missing",
+                platform=slug,
+                region_gb=region_gb,
+                reason="account_unregistered",
+            )
+            return "unavailable", {"reason": "account_unregistered"}
         log.warning(
             "account_resolve_env_fallback",
             platform=slug,
             region_gb=region_gb,
-            reason=reason,
+            reason="legacy_unmanaged",
         )
         return "no_account_registered", None
     return "unavailable", {"reason": reason}
 
 
-def _unavailable_reason(session: Session, slug: str, region_gb: str) -> str:
+def _unavailable_reason(
+    session: Session, slug: str, region_gb: str, *, mode: str | None = None
+) -> str:
     """governor 返回 None 后的原因甄别（governor 读路径只落 structlog 不落审计，
     调度侧需要机器可读 reason 决定 env 回退还是 account_unavailable 占位）。
 
@@ -300,18 +320,33 @@ def _unavailable_reason(session: Session, slug: str, region_gb: str) -> str:
     region = session.scalar(select(CollectionRegion).where(CollectionRegion.region_gb == region_gb))
     if region is not None and region.state != "ok":
         return "region_down"
-    registered = next(
-        iter(
-            session.scalars(
-                select(CollectionPlatformAccount).where(
-                    CollectionPlatformAccount.platform == slug,
-                    CollectionPlatformAccount.region_gb == region_gb,
-                )
+    registered = list(
+        session.scalars(
+            select(CollectionPlatformAccount).where(
+                CollectionPlatformAccount.platform == slug,
+                CollectionPlatformAccount.region_gb == region_gb,
             )
-        ),
-        None,
+        )
     )
-    return "no_collectable_account" if registered is not None else "no_account_registered"
+    if not registered:
+        return "no_account_registered"
+    for account in registered:
+        snapshot = account.quota_probe_json or {}
+        raw_blocks = snapshot.get("mode_quota_blocks") if isinstance(snapshot, dict) else None
+        if isinstance(raw_blocks, dict) and (mode in raw_blocks if mode else bool(raw_blocks)):
+            return "mode_quota_exhausted"
+        if not account.browser_instance_key:
+            return "no_bound_browser"
+        browser = session.scalar(
+            select(CollectionBrowser).where(
+                CollectionBrowser.instance_key == account.browser_instance_key
+            )
+        )
+        if browser is None:
+            return "browser_unregistered"
+        if browser.activity != "idle":
+            return f"browser_{browser.activity}"
+    return "no_collectable_account"
 
 
 def _route_from_governor_hit(slug: str, region_gb: str, payload: dict[str, Any]) -> InstanceRoute:
@@ -355,12 +390,13 @@ def _route_from_governor_hit(slug: str, region_gb: str, payload: dict[str, Any])
     return route
 
 
-def resolve_browser_instance(platform: str, region: str) -> InstanceRoute:
-    """(adapter slug, task region) → 常驻实例路由。
+def resolve_browser_instance(platform: str, region: str, mode: str | None = None) -> InstanceRoute:
+    """(adapter slug, task region, mode) → 常驻实例路由。
 
     派题链（2026-08-14 起）：先消费 AccountGovernor 实体状态（命中用其绑定实例；
-    无账号行/治理层故障回退 env 清单序逻辑；有账号全不可用 → account_unavailable
-    non_retryable，由 workflow 侧转等长占位，绝不回退 env 硬撞、绝不拖垮整批）。
+    豆包无账号行直接 account_unavailable；尚未迁移的平台无账号行才回退 env；
+    治理故障或有账号全不可用 → account_unavailable non_retryable，由 workflow
+    侧转等长占位，绝不回退 env 硬撞、绝不拖垮整批）。
     env 路径保持纯函数：平台段匹配 = 实例键第一段（``{platform}_{regiontag}``）；
     地域匹配 = 省码（region 归一 GB 与实例 exit_gb 的前两位相等）。同省多实例
     取清单序首个。
@@ -368,7 +404,7 @@ def resolve_browser_instance(platform: str, region: str) -> InstanceRoute:
     slug = str(platform or "").strip().lower()
     region_gb = normalize_region_gb(region)
     if region_gb and account_governance_enabled():
-        decision, payload = _governor_decision(slug, region_gb)
+        decision, payload = _governor_decision(slug, region_gb, mode)
         if decision == "hit" and payload is not None:
             return _route_from_governor_hit(slug, region_gb, payload)
         if decision == "unavailable":
@@ -379,7 +415,7 @@ def resolve_browser_instance(platform: str, region: str) -> InstanceRoute:
                 f"gb={region_gb} (reason={reason}) — refusing env fallback "
                 "(never burn another account's session)",
             )
-        # no_account_registered / governor_error → env 清单回退（fallback 已记日志）
+        # 只有 no_account_registered → env 清单回退（fallback 已记日志）。
     candidates = [_load_instance(key) for key in _instance_keys() if key.split("_", 1)[0] == slug]
     if not candidates:
         raise _fail(
@@ -412,7 +448,7 @@ def resolve_batch_instance(items: Any) -> InstanceRoute | None:
     """
     routes: dict[str, InstanceRoute] = {}
     for item in items:
-        route = resolve_browser_instance(item.adapter, item.region)
+        route = resolve_browser_instance(item.adapter, item.region, item.mode)
         routes.setdefault(route.instance_key, route)
     if not routes:
         return None
@@ -420,6 +456,6 @@ def resolve_batch_instance(items: Any) -> InstanceRoute | None:
         raise _fail(
             "batch_region_mixed",
             f"batch segment spans multiple browser instances: {sorted(routes)} "
-            "(expected a uniform (adapter, region) segment)",
+            "(expected a uniform (adapter, region, mode) segment)",
         )
     return next(iter(routes.values()))

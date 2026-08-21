@@ -452,13 +452,13 @@ persisted_items: list[tuple[str, str]] = []
 persisted_error_types: list[tuple[str, str | None]] = []
 
 
-def _batch_task(key: str, adapter: str) -> CollectionTaskInput:
+def _batch_task(key: str, adapter: str, mode: str = "fast") -> CollectionTaskInput:
     return CollectionTaskInput(
         business_key=key,
         query=f"query-{key}",
         model="doubao" if adapter == "doubao" else "fixed",
         region="CN-BJ",
-        mode="fast",
+        mode=mode,
         adapter=adapter,
     )
 
@@ -701,6 +701,79 @@ async def test_batch_account_unavailable_persists_placeholders_and_run_completes
     # 占位题不进 completed（零合成），run 终态正常完成
     assert [item.business_key for item in result.completed] == ["g-3"]
     assert terminal_run_states == [("tnt_batch_gov", "run_batch_gov", "completed", None)]
+
+
+@activity.defn(name="collect_doubao_batch")
+async def collect_doubao_batch_with_deep_mode_block(
+    batch: CollectionBatchInput,
+) -> CollectionBatchResult:
+    """Only deep_think is unavailable; normal must remain an independent batch."""
+    batch_calls.append([item.business_key for item in batch.items])
+    if any(item.mode == "deep_think" for item in batch.items):
+        raise ApplicationError(
+            "mode-scoped quota exhausted (reason=mode_quota_exhausted)",
+            type="account_unavailable",
+            non_retryable=True,
+        )
+    return CollectionBatchResult(
+        results=[
+            CollectionBatchItemResult(
+                business_key=item.business_key,
+                status="ok",
+                answer_text=f"[normal-fixture] {item.query}",
+                screenshot_ref="fixture://screenshots/normal.png",
+                quality_state="fixture_valid",
+            )
+            for item in batch.items
+        ]
+    )
+
+
+async def test_v3_mode_segments_isolate_deep_quota_from_normal() -> None:
+    """A deep-mode quota block cannot turn an adjacent normal task into a placeholder."""
+    batch_calls.clear()
+    persisted_items.clear()
+    persisted_error_types.clear()
+    terminal_run_states.clear()
+    async with await WorkflowEnvironment.start_time_skipping() as environment:
+        async with Worker(
+            environment.client,
+            task_queue="s01-v3-mode-segments-test",
+            workflows=[GeoCollectionWorkflow],
+            activities=[
+                collect_doubao_batch_with_deep_mode_block,
+                persist_collection_result_fixture,
+                publish_downstream_event,
+                mark_collection_run_terminal,
+            ],
+        ):
+            result = await environment.client.execute_workflow(
+                GeoCollectionWorkflow.run,
+                GeoCollectionInput(
+                    tenant_pub_id="tnt_v3_mode",
+                    project_pub_id="prj_v3_mode",
+                    run_pub_id="run_v3_mode",
+                    config_version_pub_id="cfv_v3_mode",
+                    tasks=[
+                        _batch_task("mode-normal", "doubao", "normal"),
+                        _batch_task("mode-deep", "doubao", "deep_think"),
+                    ],
+                    persist_results=True,
+                    inter_task_delay_max_s=0.0,
+                ),
+                id="geo-collection/v3-mode-segments-test",
+                task_queue="s01-v3-mode-segments-test",
+            )
+
+    assert result.state == "completed"
+    assert batch_calls == [["mode-normal"], ["mode-deep"]]
+    assert persisted_items == [("mode-normal", "ok"), ("mode-deep", "wall")]
+    assert persisted_error_types == [
+        ("mode-normal", None),
+        ("mode-deep", "account_unavailable"),
+    ]
+    assert [item.business_key for item in result.completed] == ["mode-normal"]
+    assert terminal_run_states == [("tnt_v3_mode", "run_v3_mode", "completed", None)]
 
 
 @activity.defn(name="collect_deepseek_batch")

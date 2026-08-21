@@ -12,12 +12,15 @@ import argparse
 import json
 import os
 import sys
-from datetime import UTC, datetime
+from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import cast
+from zoneinfo import ZoneInfo
 
 import httpx
 import psycopg
+from psycopg.rows import dict_row
 
 sys.path.insert(0, str(Path(__file__).parent))
 from launch_sbaq_formal_20260813 import ALL_GROUPS  # noqa: E402
@@ -30,6 +33,8 @@ TARGET = 2
 DATE_TAG = "20260816"
 DEFAULT_BATCH_SIZE = 4
 MAX_BATCH_SIZE = 8
+REGION_PROBE_MAX_AGE = timedelta(minutes=25)
+_SHANGHAI = ZoneInfo("Asia/Shanghai")
 
 GROUPS: list[tuple[int, str, list[str]]] = [
     (group_number, name, questions)
@@ -44,6 +49,235 @@ LEGS: dict[str, tuple[str, str]] = {
     "yiyan-sh": ("yiyan", "上海"),
 }
 MODE_LABELS = {"normal": "快速模式", "deep_think": "深度思考"}
+
+
+class LaunchHealthError(RuntimeError):
+    """The gradual top-up admission gate rejected a leg."""
+
+
+def _as_utc(value: datetime) -> datetime:
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+def _quota_value(
+    account: Mapping[str, object],
+    *,
+    used_key: str,
+    quota_key: str,
+    now: datetime,
+) -> tuple[int, int | None]:
+    used = int(str(account.get(used_key) or 0))
+    quota_raw = account.get(quota_key)
+    quota = int(str(quota_raw)) if quota_raw is not None else None
+    reset_at = account.get("quota_reset_at")
+    if isinstance(reset_at, datetime) and _as_utc(reset_at) <= now:
+        if used_key == "used_today":
+            used = 0
+        else:
+            previous = reset_at.astimezone(_SHANGHAI)
+            current = now.astimezone(_SHANGHAI)
+            if used_key == "used_week" and previous.isocalendar()[:2] != current.isocalendar()[:2]:
+                used = 0
+            if used_key == "used_year" and previous.year != current.year:
+                used = 0
+    return used, quota
+
+
+def evaluate_launch_health(
+    *,
+    region: Mapping[str, object] | None,
+    browser: Mapping[str, object] | None,
+    accounts: Sequence[Mapping[str, object]],
+    expected_browser_key: str,
+    platform: str,
+    region_gb: str,
+    mode: str,
+    now: datetime,
+) -> dict[str, object]:
+    """Pure, fail-closed health policy used before mint/freeze/run.
+
+    The latest relay sample must itself be recent and successful even while the durable
+    region state is protected by hysteresis.  A browser whose breaker TTL elapsed remains
+    blocked once its failure streak reached the breaker threshold; only an explicit
+    recovery/success that clears the streak can re-admit unattended work.
+    """
+    now = _as_utc(now)
+    reasons: list[str] = []
+    warnings: list[str] = []
+    if region is None:
+        reasons.append("region_unregistered")
+    else:
+        if region.get("state") != "ok":
+            reasons.append(f"region_state_{region.get('state') or 'unknown'}")
+        last_probe_at = region.get("last_probe_at")
+        if region.get("last_probe_ok") is not True:
+            reasons.append("region_latest_probe_not_ok")
+        if not isinstance(last_probe_at, datetime):
+            reasons.append("region_probe_missing")
+        elif now - _as_utc(last_probe_at) > REGION_PROBE_MAX_AGE:
+            reasons.append("region_probe_stale")
+
+    if browser is None:
+        reasons.append("browser_unregistered")
+    else:
+        if browser.get("instance_key") != expected_browser_key:
+            reasons.append("browser_key_mismatch")
+        if browser.get("platform") != platform:
+            reasons.append("browser_platform_mismatch")
+        if browser.get("region_gb") != region_gb:
+            reasons.append("browser_region_mismatch")
+        if browser.get("activity") != "idle":
+            reasons.append(f"browser_activity_{browser.get('activity') or 'unknown'}")
+        if int(str(browser.get("error_streak") or 0)) >= 3:
+            reasons.append("browser_failure_unrecovered")
+        breaker_until = browser.get("breaker_until")
+        if isinstance(breaker_until, datetime) and _as_utc(breaker_until) > now:
+            reasons.append("browser_breaker_active")
+        muted_until = browser.get("muted_until")
+        if muted_until is None and browser.get("activity") == "muted":
+            reasons.append("browser_muted_manual")
+        elif isinstance(muted_until, datetime) and _as_utc(muted_until) > now:
+            reasons.append("browser_muted")
+
+    if not accounts:
+        if platform.strip().lower() == "doubao":
+            # 豆包已经进入正式账号治理：缺少 platform_account 代表绑定尚未完成，
+            # 不得退回 env 路径撞浏览器。其他平台仍处于分阶段迁移期，暂保留
+            # legacy 路径并显式告警，避免 DeepSeek/Yiyan 因全表初始为空被饿死。
+            reasons.append("account_unregistered")
+        else:
+            warnings.append("legacy_unmanaged")
+    else:
+        collectable = False
+        for account in accounts:
+            if account.get("phone_state") != "active":
+                continue
+            if account.get("browser_instance_key") != expected_browser_key:
+                continue
+            state = str(account.get("runtime_state") or "")
+            if state == "muted":
+                resume_at = account.get("muted_until")
+                state = (
+                    "idle"
+                    if isinstance(resume_at, datetime) and _as_utc(resume_at) <= now
+                    else state
+                )
+            elif state == "quota_exhausted":
+                resume_at = account.get("quota_resume_at")
+                state = (
+                    "idle"
+                    if isinstance(resume_at, datetime) and _as_utc(resume_at) <= now
+                    else state
+                )
+            if state != "idle" or account.get("current_run_pub_id"):
+                continue
+            snapshot = account.get("quota_probe_json")
+            raw_blocks = snapshot.get("mode_quota_blocks") if isinstance(snapshot, dict) else None
+            if isinstance(raw_blocks, dict):
+                raw_block = raw_blocks.get(mode)
+                if isinstance(raw_block, dict):
+                    resume_raw = raw_block.get("resume_at")
+                    try:
+                        resume_at = datetime.fromisoformat(str(resume_raw))
+                        if _as_utc(resume_at) > now:
+                            continue
+                    except (TypeError, ValueError):
+                        continue
+            quota_ok = True
+            for used_key, quota_key in (
+                ("used_today", "quota_day"),
+                ("used_week", "quota_week"),
+                ("used_year", "quota_year"),
+            ):
+                used, quota = _quota_value(
+                    account,
+                    used_key=used_key,
+                    quota_key=quota_key,
+                    now=now,
+                )
+                if quota is not None and used >= quota:
+                    quota_ok = False
+                    break
+            if quota_ok:
+                collectable = True
+                break
+        if not collectable:
+            reasons.append("no_collectable_account")
+
+    return {
+        "ok": not reasons,
+        "reason": reasons[0] if reasons else None,
+        "reasons": reasons,
+        "warnings": warnings,
+        "governance": (
+            "managed"
+            if accounts
+            else "required_unmanaged"
+            if platform.strip().lower() == "doubao"
+            else "legacy_unmanaged"
+        ),
+    }
+
+
+def launch_health(leg: str, *, now: datetime | None = None) -> dict[str, object]:
+    """Read one consistent DB snapshot and evaluate unattended-launch eligibility."""
+    platform, region_name = LEGS[leg]
+    region_gb = "110000" if region_name == "北京" else "310000"
+    browser_key = leg.replace("-", "_")
+    with psycopg.connect(_dsn(), row_factory=dict_row) as connection:
+        connection.execute("SET TRANSACTION READ ONLY")
+        region = connection.execute(
+            """
+            SELECT region_gb, state, last_probe_at, last_probe_ok,
+                   probe_success_streak, probe_failure_streak
+            FROM platform.collection_region
+            WHERE region_gb = %s
+            """,
+            (region_gb,),
+        ).fetchone()
+        browser = connection.execute(
+            """
+            SELECT instance_key, platform, region_gb, activity, error_streak,
+                   breaker_until, muted_until
+            FROM platform.collection_browser
+            WHERE instance_key = %s
+            """,
+            (browser_key,),
+        ).fetchone()
+        accounts = connection.execute(
+            """
+            SELECT account.runtime_state, account.current_run_pub_id,
+                   account.muted_until, account.quota_resume_at,
+                   account.browser_instance_key, account.quota_day,
+                   account.quota_week, account.quota_year, account.used_today,
+                   account.used_week, account.used_year, account.quota_reset_at,
+                   account.quota_probe_json,
+                   phone.state AS phone_state
+            FROM platform.collection_platform_account AS account
+            JOIN platform.collection_phone_account AS phone
+              ON phone.id = account.phone_account_id
+            WHERE account.platform = %s AND account.region_gb = %s
+            """,
+            (platform, region_gb),
+        ).fetchall()
+    return evaluate_launch_health(
+        region=region,
+        browser=browser,
+        accounts=accounts,
+        expected_browser_key=browser_key,
+        platform=platform,
+        region_gb=region_gb,
+        mode=requested_mode(leg),
+        now=now or datetime.now(UTC),
+    )
+
+
+def require_launch_health(leg: str, *, phase: str) -> dict[str, object]:
+    health = launch_health(leg)
+    if not health["ok"]:
+        reasons = ",".join(cast(list[str], health["reasons"]))
+        raise LaunchHealthError(f"{phase}:{leg}:{reasons}")
+    return health
 
 
 def requested_mode(leg: str) -> str:
@@ -126,6 +360,7 @@ def launch(leg: str, pass_id: str, groups: list[dict[str, object]]) -> tuple[str
     model, region = LEGS[leg]
     mode = requested_mode(leg)
     key = f"sbaq-g0134-gradual-{leg}-{pass_id}-{DATE_TAG}"
+    require_launch_health(leg, phase="pre_freeze")
     with _client() as client:
         client.get("/api/v2/identity/session").raise_for_status()
         frozen = client.post(
@@ -142,6 +377,9 @@ def launch(leg: str, pass_id: str, groups: list[dict[str, object]]) -> tuple[str
         )
         frozen.raise_for_status()
         config_pub_id = str(frozen.json()["pub_id"])
+        # Recheck after the immutable freeze.  A health change in this narrow window may
+        # leave an unused config snapshot, but must never create a collection run.
+        require_launch_health(leg, phase="pre_run")
         started = client.post(
             "/api/v2/collection/runs",
             headers={"Idempotency-Key": f"{key}-run"},
@@ -170,6 +408,7 @@ def main() -> None:
 
     counts = coverage(args.leg)
     groups = deficit_groups(counts, args.max_queries)
+    health = launch_health(args.leg)
     plan: dict[str, object] = {
         "scope": "G01-G34",
         "leg": args.leg,
@@ -182,12 +421,16 @@ def main() -> None:
             len(cast(list[dict[str, object]], group["items"])) for group in groups
         ),
         "query_groups": groups,
+        "health": health,
     }
     if not args.launch:
         print(json.dumps(plan, ensure_ascii=False))
         return
     if not groups:
         raise SystemExit("coverage already complete; refusing empty launch")
+    if not health["ok"]:
+        reasons = ",".join(cast(list[str], health["reasons"]))
+        raise SystemExit(f"launch health gate blocked: {reasons}")
     config_pub_id, run_pub_id = launch(args.leg, str(args.pass_id), groups)
     plan.update({"config_pub_id": config_pub_id, "run_pub_id": run_pub_id})
     print(json.dumps(plan, ensure_ascii=False))

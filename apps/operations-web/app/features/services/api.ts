@@ -196,7 +196,17 @@ export type SamplingProgressColumn = {
   key: string;
   model: string;
   region: string;
+  /** Formal planned mode retained for compatibility. */
   mode: string;
+  /** Effective modes accepted into this formal model×region sampling leg. */
+  modes?: string[];
+};
+
+export type SamplingProgressModeBreakdown = {
+  mode: string;
+  completed_samples: number;
+  latest_capture_time: string;
+  answer_pub_ids: string[];
 };
 
 export type SamplingProgressCell = {
@@ -204,6 +214,7 @@ export type SamplingProgressCell = {
   completed_samples: number;
   latest_capture_time: string;
   answer_pub_ids: string[];
+  mode_breakdown?: SamplingProgressModeBreakdown[];
 };
 
 export type SamplingProgressRow = {

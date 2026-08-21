@@ -109,7 +109,17 @@ class SamplingProgressColumnView(StrictModel):
     key: str
     model: str
     region: str
+    # Planned mode retained for backward-compatible clients. ``modes`` contains
+    # every effective mode accepted into this formal sampling leg.
     mode: str
+    modes: list[str]
+
+
+class SamplingProgressModeBreakdownView(StrictModel):
+    mode: str
+    completed_samples: int
+    latest_capture_time: datetime
+    answer_pub_ids: list[str]
 
 
 class SamplingProgressCellView(StrictModel):
@@ -117,6 +127,7 @@ class SamplingProgressCellView(StrictModel):
     completed_samples: int
     latest_capture_time: datetime
     answer_pub_ids: list[str]
+    mode_breakdown: list[SamplingProgressModeBreakdownView]
 
 
 class SamplingProgressRowView(StrictModel):
@@ -592,11 +603,13 @@ def sampling_progress(
     project_pub_id: str,
     principal: Principal = Depends(get_principal),
 ) -> SamplingProgressView:
-    """Latest logical sampling batch as query × platform/region/mode coverage.
+    """Latest logical sampling batch as query × formal sampling-leg coverage.
 
     Formal runs may be split into one frozen config per sampling leg and followed by
     small top-up configs. ``select_sampling_campaign`` joins those revisions back to
-    their latest complete query plan; older probes remain outside the count.
+    their latest complete query plan; ``sampling_columns`` derives target legs only from
+    complete configs. Effective fallback modes remain traceable inside each cell instead
+    of inflating the target denominator.
     """
 
     principal.require("project:read")
@@ -672,10 +685,14 @@ def sampling_progress(
             """
             SELECT query_text,model,region,mode,count(*)::bigint AS completed_samples,
                    max(capture_time) AS latest_capture_time,
-                   array_agg(pub_id ORDER BY capture_time DESC,pub_id DESC) AS answer_pub_ids
+                   array_agg(pub_id ORDER BY capture_time DESC,pub_id DESC) AS answer_pub_ids,
+                   array_agg(capture_time ORDER BY capture_time DESC,pub_id DESC)
+                     AS answer_capture_times
             FROM analytics.answer
             WHERE tenant_pub_id=%s AND project_pub_id=%s
               AND config_version_pub_id=ANY(%s::text[])
+              -- INV-1: quarantined, pending and degraded captures are not progress.
+              AND eligible IS TRUE AND degraded IS FALSE
             GROUP BY query_text,model,region,mode
             """,
             (principal.tenant_pub_id, project_pub_id, campaign_pub_ids),
@@ -695,39 +712,87 @@ def sampling_progress(
         live_runs = int(live_run_row["live_runs"]) if live_run_row is not None else 0
 
     plan_items = sampling_plan_items(baseline)
-    columns = sampling_columns(campaign)
-    column_keys = {(column.model, column.region, column.mode): column.key for column in columns}
+    columns = sampling_columns(campaign, baseline=baseline)
+    column_keys = {
+        (column.model, column.region, effective_mode): column.key
+        for column in columns
+        for effective_mode in column.modes
+    }
+    columns_by_key = {column.key: column for column in columns}
+    column_order = {column.key: index for index, column in enumerate(columns)}
     plan_queries = {item.query_text for item in plan_items}
-    cells_by_query: dict[str, list[SamplingProgressCellView]] = {}
+    mode_rows_by_cell: dict[tuple[str, str], list[dict[str, Any]]] = {}
     answer_count = 0
     latest_capture_time: datetime | None = None
-    observed_cells = 0
     for answer_row in answer_rows:
         query_text = answer_row["query_text"]
-        column_key = column_keys.get(
-            (answer_row["model"], answer_row["region"], answer_row["mode"])
-        )
+        mode = answer_row["mode"]
+        column_key = column_keys.get((answer_row["model"], answer_row["region"], mode))
         captured_at = answer_row["latest_capture_time"]
         if (
             not isinstance(query_text, str)
             or query_text not in plan_queries
+            or not isinstance(mode, str)
             or column_key is None
             or not isinstance(captured_at, datetime)
         ):
             continue
         completed_samples = int(answer_row["completed_samples"])
-        cells_by_query.setdefault(query_text, []).append(
-            SamplingProgressCellView(
-                column_key=column_key,
-                completed_samples=completed_samples,
-                latest_capture_time=captured_at,
-                answer_pub_ids=[str(pub_id) for pub_id in answer_row["answer_pub_ids"]],
-            )
+        mode_rows_by_cell.setdefault((query_text, column_key), []).append(
+            {
+                "mode": mode,
+                "completed_samples": completed_samples,
+                "latest_capture_time": captured_at,
+                "answer_pub_ids": [str(pub_id) for pub_id in answer_row["answer_pub_ids"]],
+                "answer_capture_times": list(answer_row["answer_capture_times"]),
+            }
         )
-        observed_cells += 1
         answer_count += completed_samples
         if latest_capture_time is None or captured_at > latest_capture_time:
             latest_capture_time = captured_at
+
+    cells_by_query: dict[str, list[SamplingProgressCellView]] = {}
+    for (query_text, column_key), mode_rows in mode_rows_by_cell.items():
+        column = columns_by_key[column_key]
+        mode_order = {mode: index for index, mode in enumerate(column.modes)}
+        ordered_mode_rows = sorted(
+            mode_rows,
+            key=lambda row: mode_order.get(str(row["mode"]), len(mode_order)),
+        )
+        newest_first_answers = sorted(
+            (
+                (answer_capture_time, str(answer_pub_id))
+                for row in mode_rows
+                for answer_capture_time, answer_pub_id in zip(
+                    row["answer_capture_times"], row["answer_pub_ids"], strict=True
+                )
+            ),
+            reverse=True,
+        )
+        cells_by_query.setdefault(query_text, []).append(
+            SamplingProgressCellView(
+                column_key=column_key,
+                completed_samples=sum(int(row["completed_samples"]) for row in mode_rows),
+                latest_capture_time=max(
+                    row["latest_capture_time"]
+                    for row in mode_rows
+                    if isinstance(row["latest_capture_time"], datetime)
+                ),
+                answer_pub_ids=[pub_id for _, pub_id in newest_first_answers],
+                mode_breakdown=[
+                    SamplingProgressModeBreakdownView(
+                        mode=str(row["mode"]),
+                        completed_samples=int(row["completed_samples"]),
+                        latest_capture_time=row["latest_capture_time"],
+                        answer_pub_ids=[str(pub_id) for pub_id in row["answer_pub_ids"]],
+                    )
+                    for row in ordered_mode_rows
+                ],
+            )
+        )
+    for cells in cells_by_query.values():
+        cells.sort(key=lambda cell: column_order[cell.column_key])
+    observed_cells = len(mode_rows_by_cell)
 
     quotation_appendices = uses_quotation_appendices(plan_items)
     rows = [
@@ -754,6 +819,7 @@ def sampling_progress(
                 model=column.model,
                 region=column.region,
                 mode=column.mode,
+                modes=list(column.modes),
             )
             for column in columns
         ],

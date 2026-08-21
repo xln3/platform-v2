@@ -77,6 +77,36 @@ function cellByColumn(cells: SamplingProgressCell[]): Map<string, SamplingProgre
   return new Map(cells.map((cell) => [cell.column_key, cell]));
 }
 
+function effectiveModes(column: SamplingProgressColumn, cell: SamplingProgressCell): string[] {
+  if (column.modes?.length) return [...new Set(column.modes)];
+  if (cell.mode_breakdown?.length) {
+    return [...new Set(cell.mode_breakdown.map((item) => item.mode))];
+  }
+  return [column.mode];
+}
+
+function modeBreakdownLabel(column: SamplingProgressColumn, cell: SamplingProgressCell): string {
+  const breakdown = cell.mode_breakdown?.length
+    ? cell.mode_breakdown
+    : [{ mode: column.mode, completed_samples: cell.completed_samples }];
+  return breakdown
+    .map((item) => `${MODE_LABELS[item.mode] ?? item.mode} ${item.completed_samples}遍`)
+    .join(' · ');
+}
+
+function newestSamplingAnswerFirst(left: AnswerRow, right: AnswerRow): number {
+  const leftTime = Date.parse(left.capture_time);
+  const rightTime = Date.parse(right.capture_time);
+  if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) {
+    return rightTime - leftTime;
+  }
+  if (Number.isFinite(leftTime) !== Number.isFinite(rightTime)) {
+    return Number.isFinite(rightTime) ? 1 : -1;
+  }
+  if (left.pub_id === right.pub_id) return 0;
+  return left.pub_id < right.pub_id ? 1 : -1;
+}
+
 function SamplingAnswersDialog({
   session,
   projectPubId,
@@ -96,6 +126,7 @@ function SamplingAnswersDialog({
     let cancelled = false;
     setState({ kind: 'loading' });
     const answerPubIds = [...new Set(target.cell.answer_pub_ids ?? [])];
+    const acceptedModes = new Set(effectiveModes(target.column, target.cell));
     void Promise.all(
       answerPubIds.map(async (answerPubId) => {
         try {
@@ -112,7 +143,7 @@ function SamplingAnswersDialog({
                 answer.query_text === target.queryText &&
                 answer.model === target.column.model &&
                 answer.region === target.column.region &&
-                answer.mode === target.column.mode,
+                acceptedModes.has(answer.mode),
             ) ?? null
           );
         } catch {
@@ -121,7 +152,9 @@ function SamplingAnswersDialog({
       }),
     ).then((loaded) => {
       if (cancelled) return;
-      const answers = loaded.filter((answer): answer is AnswerRow => answer !== null);
+      const answers = loaded
+        .filter((answer): answer is AnswerRow => answer !== null)
+        .sort(newestSamplingAnswerFirst);
       setState(
         answers.length > 0
           ? { kind: 'ready', answers, missing: answerPubIds.length - answers.length }
@@ -138,7 +171,6 @@ function SamplingAnswersDialog({
   }
 
   const platform = PLATFORM_LABELS[target.column.model] ?? target.column.model;
-  const mode = MODE_LABELS[target.column.mode] ?? target.column.mode;
   return (
     <div
       className="answer-detail-overlay"
@@ -152,7 +184,8 @@ function SamplingAnswersDialog({
           <button onClick={onClose}>关闭</button>
         </div>
         <p className="sampling-answer-context">
-          {platform}×{target.column.region} · {mode} · {target.cell.completed_samples}遍
+          {platform}×{target.column.region} · 有效合计 {target.cell.completed_samples}遍 ·{' '}
+          {modeBreakdownLabel(target.column, target.cell)}
         </p>
         {state.kind === 'loading' ? (
           <p className="empty">正在加载具体回答…</p>
@@ -217,11 +250,14 @@ export function SamplingProgressPanel({ session, projectPubId }: Props) {
     return () => window.clearInterval(timer);
   }, [progress, refresh]);
 
-  const modes = useMemo(
-    () => [...new Set(progress?.columns.map((column) => column.mode) ?? [])],
-    [progress],
-  );
-  const showModeInColumn = modes.length > 1;
+  const multiModeFormalLegs = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const column of progress?.columns ?? []) {
+      const leg = `${column.model}\u0000${column.region}`;
+      counts.set(leg, (counts.get(leg) ?? 0) + 1);
+    }
+    return new Set([...counts.entries()].filter(([, count]) => count > 1).map(([leg]) => leg));
+  }, [progress]);
 
   return (
     <section className="execution-card sampling-progress-panel">
@@ -250,10 +286,11 @@ export function SamplingProgressPanel({ session, projectPubId }: Props) {
             <span>
               已观测 {progress.observed_cells}/{progress.total_cells} 格
             </span>
-            <span>共 {progress.answer_count} 条回答</span>
-            {modes.length === 1 ? <span>模式：{MODE_LABELS[modes[0]!] ?? modes[0]}</span> : null}
+            <span>共 {progress.answer_count} 条有效回答</span>
           </div>
-          <p className="sampling-progress-note">每格：重复遍数 / 最近测评时间；— = 尚无观测</p>
+          <p className="sampling-progress-note">
+            每格仅汇总合格且非降级的有效回答，并保留平台×地域及实际模式明细；— = 尚无有效观测
+          </p>
           <div className="table-scroll sampling-progress-table-scroll">
             <table className="sampling-progress-table" aria-label="问题采样进度总览">
               <thead>
@@ -267,7 +304,7 @@ export function SamplingProgressPanel({ session, projectPubId }: Props) {
                       <span>
                         {PLATFORM_LABELS[column.model] ?? column.model}×{column.region}
                       </span>
-                      {showModeInColumn ? (
+                      {multiModeFormalLegs.has(`${column.model}\u0000${column.region}`) ? (
                         <small>{MODE_LABELS[column.mode] ?? column.mode}</small>
                       ) : null}
                     </th>
@@ -298,7 +335,7 @@ export function SamplingProgressPanel({ session, projectPubId }: Props) {
                                   <button
                                     type="button"
                                     className="sampling-progress-count"
-                                    aria-label={`${row.query_text}，${PLATFORM_LABELS[column.model] ?? column.model}×${column.region}，${cell.completed_samples}遍，查看具体回答`}
+                                    aria-label={`${row.query_text}，${PLATFORM_LABELS[column.model] ?? column.model}×${column.region}，${cell.completed_samples}遍，${modeBreakdownLabel(column, cell)}，查看具体回答`}
                                     onClick={() =>
                                       setAnswerTarget({
                                         queryText: row.query_text,
@@ -318,6 +355,9 @@ export function SamplingProgressPanel({ session, projectPubId }: Props) {
                                 >
                                   {formatSamplingTime(cell.latest_capture_time)}
                                 </time>
+                                <small className="sampling-progress-mode-breakdown">
+                                  {modeBreakdownLabel(column, cell)}
+                                </small>
                               </>
                             ) : (
                               <span aria-label="尚无观测">—</span>

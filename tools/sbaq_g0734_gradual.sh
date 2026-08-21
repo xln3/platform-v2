@@ -182,6 +182,16 @@ for offset in "${!legs[@]}"; do
   fi
 
   candidate_plan=$(GEO_POSTGRES_DSN="$dsn_raw" "$PYTHON" "$PLANNER" --leg "$candidate" --max-queries 4)
+  health_ok=$("$PYTHON" -c 'import json, sys; print(1 if json.load(sys.stdin)["health"]["ok"] else 0)' <<<"$candidate_plan")
+  if (( health_ok == 0 )); then
+    health_reason=$("$PYTHON" -c 'import json, sys; print(",".join(json.load(sys.stdin)["health"]["reasons"]))' <<<"$candidate_plan")
+    log "candidate_skip reason=health_gate leg=$candidate detail=$health_reason"
+    continue
+  fi
+  health_warning=$("$PYTHON" -c 'import json, sys; print(",".join(json.load(sys.stdin)["health"].get("warnings", [])))' <<<"$candidate_plan")
+  if [[ -n "$health_warning" ]]; then
+    log "candidate_allow reason=health_warning leg=$candidate detail=$health_warning"
+  fi
   launch_count=$("$PYTHON" -c 'import json, sys; print(json.load(sys.stdin)["launch_query_count"])' <<<"$candidate_plan")
   if (( launch_count == 0 )); then
     log "candidate_skip reason=leg_complete leg=$candidate"
@@ -218,6 +228,16 @@ except Exception:
   /usr/bin/unlink "$TOKEN_FILE" || true
 }
 trap cleanup_token EXIT
+
+# Re-read the DB health snapshot immediately before minting a privileged session.  The
+# planner repeats the same fail-closed gate immediately before freeze and before run.
+pre_mint_plan=$(GEO_POSTGRES_DSN="$dsn_raw" "$PYTHON" "$PLANNER" --leg "$leg" --max-queries 4)
+pre_mint_health_ok=$("$PYTHON" -c 'import json, sys; print(1 if json.load(sys.stdin)["health"]["ok"] else 0)' <<<"$pre_mint_plan")
+if (( pre_mint_health_ok == 0 )); then
+  pre_mint_health_reason=$("$PYTHON" -c 'import json, sys; print(",".join(json.load(sys.stdin)["health"]["reasons"]))' <<<"$pre_mint_plan")
+  log "skip reason=pre_mint_health_gate leg=$leg detail=$pre_mint_health_reason"
+  exit 0
+fi
 
 GEO_POSTGRES_DSN="$dsn_raw" "$PYTHON" "$ROOT/tools/mint_acceptance_session.py" >/dev/null
 pass_id="auto-$(date '+%Y%m%dT%H%M')"

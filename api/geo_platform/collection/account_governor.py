@@ -41,11 +41,24 @@ _QUOTA_RESET_JITTER_S = 1800  # 重置点抖动上限（秒）
 _ERROR_STREAK_BREAKER = 3
 _INSTANCE_BREAKER_TTL = timedelta(hours=2)
 
+# relay 瞬时网络抖动不应直接封锁地域；down 的恢复也要经过独立确认。
+# 连续计数落 collection_region，进程重启不会重置滞回状态。
+REGION_PROBE_FAILURE_THRESHOLD = 3
+REGION_PROBE_SUCCESS_THRESHOLD = 2
+
 # 墙命中证据截断（命中原文进审计，防整段答案灌库）
 _EVIDENCE_MAX = 500
 
 # record_task_outcome 去重扫描窗（同 task 重试重放在时间上相邻，窗口足够）
 _OUTCOME_DEDUP_WINDOW = 50
+_FAILURE_STREAK_PAGE_SIZE = 50
+_FAILURE_STREAK_RELEVANT_WINDOW = 10
+
+# Workflow 为保持等长结果，会把同一段里未执行的后续题落成该占位。它是审计
+# 事实，不是新的浏览器失败，不能放大根因或打断真实同类失败 streak。
+_NEUTRAL_TASK_OUTCOMES = frozenset({("aborted", "aborted_after_failure")})
+
+_MODE_QUOTA_BLOCKS_KEY = "mode_quota_blocks"
 
 # runtime_state 合法迁移表（程序层校验，列不加 CHECK——词表演进不该要 migration）。
 # 同态迁移（X→X）恒合法 = 幂等重申（更新 reason/until 字段并照记事件）。
@@ -102,9 +115,10 @@ class AccountGovernor:
     ) -> dict[str, Any]:
         """墙命中统一出口（验收门词表/banner 解析撞墙后调用）。
 
-        - wall_quota → 账号 quota_exhausted + quota_resume_at（until 缺省 =
-          北京时间次日 00:00+0~30min 抖动）；wall_muted → muted + muted_until=until；
-          wall_captcha → captcha；wall_refusal 只记事件不改状态。
+        - wall_quota + mode → 在 quota_probe_json 持久化该模式的额度封锁，不封
+          整账号（如 deep_think 用尽后 normal 仍可派）；无 mode 的旧调用仍走账号
+          quota_exhausted。until 缺省 = 北京时间次日 00:00+0~30min 抖动。
+          wall_muted → muted；wall_captcha → captcha；wall_refusal 只记事件。
         - 优先落 platform_account（经 browser_instance_key 匹配）；无账号行则落
           collection_browser 实例级兜底（wall_quota→breaker_until、
           wall_muted→muted_until、wall_captcha→activity='captcha'）。
@@ -128,9 +142,20 @@ class AccountGovernor:
         if account is not None:
             new_state: str | None = None
             effective_until: datetime | None = None
+            mode_scoped = False
             if wall_type == "wall_quota":
                 effective_until = until if until is not None else _next_quota_reset(now)
-                new_state = "quota_exhausted"
+                if mode:
+                    mode_scoped = True
+                    self._set_mode_quota_block(
+                        account,
+                        mode=mode,
+                        until=effective_until,
+                        evidence=evidence_cut,
+                        now=now,
+                    )
+                else:
+                    new_state = "quota_exhausted"
             elif wall_type == "wall_muted":
                 effective_until = until
                 new_state = "muted"
@@ -162,7 +187,12 @@ class AccountGovernor:
                 "wall_hit",
                 phone_account_id=account.phone_account_id,
                 platform_account_id=account.id,
-                new_value=wall_payload | {"runtime_state": new_state},
+                new_value=wall_payload
+                | {
+                    "runtime_state": new_state,
+                    "mode_scoped": mode_scoped,
+                    "until": _iso(effective_until),
+                },
                 evidence=evidence_cut,
                 actor="wall_detector",
                 run_pub_id=run_pub_id,
@@ -174,6 +204,7 @@ class AccountGovernor:
                 "wall_type": wall_type,
                 "runtime_state": new_state,
                 "until": effective_until,
+                "mode_scoped": mode_scoped,
                 "event_pub_id": event.pub_id,
             }
 
@@ -255,6 +286,8 @@ class AccountGovernor:
         - 失败（outcome != "success"）→ 账号路径：同类失败连续 ≥3 →
           runtime_state='error' + breaker 事件；实例路径（无账号行）：
           error_streak+1，≥3 → breaker_until = now+2h + breaker 事件。
+          ``aborted/aborted_after_failure`` 是等长占位，只审计、不计数且不断链；
+          已声明 mode 的 wall_quota 由模式额度封锁收敛，不升级成整账号 error。
         - lazy reset：读写用量前若过 quota_reset_at 则 used_today 清零并重排
           下一重置点；跨 ISO 周/年一并清 used_week/used_year（见 _lazy_quota_reset）。
         - 幂等：同 task 重复上报（Temporal activity 重试/重放）不重复计数。
@@ -266,6 +299,9 @@ class AccountGovernor:
           去重扫描窗 = 最近 50 条 task_outcome 事件（重试重放时间相邻，窗口足够）。
         """
         now = now_utc()
+        neutral_outcome = (outcome, error_type) in _NEUTRAL_TASK_OUTCOMES
+        # 已明确 mode 的额度墙由 mode_quota_blocks 收敛，不能再升级成整账号 error。
+        mode_quota_outcome = bool(mode) and error_type == "wall_quota"
         account = self._find_account(platform=platform, browser_instance_key=browser_instance_key)
         if account is not None:
             if self._outcome_already_recorded(
@@ -310,6 +346,7 @@ class AccountGovernor:
                     "task_pub_id": task_pub_id,
                     "outcome": outcome,
                     "error_type": error_type,
+                    "breaker_eligible": not (neutral_outcome or mode_quota_outcome),
                     "used_today": account.used_today,
                     # Immutable, privacy-preserving sampling provenance.  Reports use
                     # this event payload, never the account/browser's later state.
@@ -327,7 +364,7 @@ class AccountGovernor:
                 actor="worker",
                 run_pub_id=run_pub_id,
             )
-            if outcome != "success":
+            if outcome != "success" and not (neutral_outcome or mode_quota_outcome):
                 streak = self._failure_streak(account.id, error_type)
                 if streak >= _ERROR_STREAK_BREAKER and account.runtime_state != "error":
                     self.set_runtime_state(
@@ -370,7 +407,7 @@ class AccountGovernor:
             browser.activity = "idle"
             browser.error_streak = 0
             browser.breaker_until = None
-        else:
+        elif not neutral_outcome:
             browser.error_streak += 1
         browser.updated_at = now
         self._conn.flush()
@@ -384,6 +421,7 @@ class AccountGovernor:
                 "outcome": outcome,
                 "error_type": error_type,
                 "error_streak": browser.error_streak,
+                "breaker_eligible": not neutral_outcome,
                 "account_id_masked": None,
                 "browser_instance": browser.instance_key,
                 "egress_region_gb": browser.region_gb,
@@ -396,7 +434,11 @@ class AccountGovernor:
             actor="worker",
             run_pub_id=run_pub_id,
         )
-        if outcome != "success" and browser.error_streak >= _ERROR_STREAK_BREAKER:
+        if (
+            outcome != "success"
+            and not neutral_outcome
+            and browser.error_streak >= _ERROR_STREAK_BREAKER
+        ):
             browser.breaker_until = now + _INSTANCE_BREAKER_TTL
             browser.updated_at = now
             self._conn.flush()
@@ -416,8 +458,10 @@ class AccountGovernor:
     # 调度消费入口
     # ------------------------------------------------------------------
 
-    def resolve_collectable(self, *, platform: str, region_gb: str) -> dict[str, Any] | None:
-        """派题解析：platform ∧ region_gb ∧ idle ∧ 未超 quota ∧ 无熔断。
+    def resolve_collectable(
+        self, *, platform: str, region_gb: str, mode: str | None = None
+    ) -> dict[str, Any] | None:
+        """派题解析：platform ∧ region_gb ∧ mode ∧ idle ∧ 未超 quota ∧ 无熔断。
 
         命中 → dict {platform_account_pub_id, browser_instance_key, region_gb,
         remaining_today}（remaining_today=None 表示日预算不限）。
@@ -426,7 +470,9 @@ class AccountGovernor:
         不拦截）/ no_account_registered（该平台该地域一行账号都没有）/
         region_ip_mismatch（账号绑定的浏览器行 region 与派题地域不一致 =
         配置错误 fail-closed，设计文档 §1.2 硬约束）/ no_collectable_account
-        （有账号但全部不可用：非 idle、超预算、实例熔断/禁言中）。
+        （有账号但全部不可用：非 idle、超预算、模式额度封锁、浏览器非 idle 或
+        实例熔断/禁言中）。``mode=None`` 保持旧调用兼容且 fail-closed：任一仍
+        生效的模式额度封锁都会阻断未声明模式的派题。
 
         注意：本方法会写库——对过期 muted/quota_exhausted 做 lazy resume、对过
         quota_reset_at 的账号做 lazy 用量清零（「重置点后 lazy 清零」的读侧落点）。
@@ -468,11 +514,42 @@ class AccountGovernor:
                 continue
             if not self._quota_available(account):
                 continue
+            if self._mode_quota_blocked(account, mode=mode, now=now):
+                log.warning(
+                    "account_resolve_failed",
+                    reason="mode_quota_exhausted",
+                    platform=platform,
+                    region_gb=region_gb,
+                    mode=mode,
+                    platform_account_pub_id=account.pub_id,
+                )
+                continue
+            if not account.browser_instance_key:
+                log.warning(
+                    "account_resolve_failed",
+                    reason="no_bound_browser",
+                    platform=platform,
+                    region_gb=region_gb,
+                    mode=mode,
+                    platform_account_pub_id=account.pub_id,
+                )
+                continue
             browser = (
                 self._find_browser(account.browser_instance_key)
                 if account.browser_instance_key
                 else None
             )
+            if account.browser_instance_key and browser is None:
+                log.warning(
+                    "account_resolve_failed",
+                    reason="browser_unregistered",
+                    platform=platform,
+                    region_gb=region_gb,
+                    mode=mode,
+                    platform_account_pub_id=account.pub_id,
+                    browser_instance_key=account.browser_instance_key,
+                )
+                continue
             if browser is not None:
                 if browser.region_gb and browser.region_gb != region_gb:
                     # 实例出口地域 ≠ 账号绑定地域 = 配置错误，fail-closed
@@ -484,6 +561,18 @@ class AccountGovernor:
                         platform_account_pub_id=account.pub_id,
                         browser_instance_key=browser.instance_key,
                         browser_region_gb=browser.region_gb,
+                    )
+                    continue
+                if browser.activity != "idle":
+                    log.warning(
+                        "account_resolve_failed",
+                        reason="browser_not_idle",
+                        platform=platform,
+                        region_gb=region_gb,
+                        mode=mode,
+                        platform_account_pub_id=account.pub_id,
+                        browser_instance_key=browser.instance_key,
+                        browser_activity=browser.activity,
                     )
                     continue
                 if (browser.breaker_until is not None and browser.breaker_until > now) or (
@@ -573,21 +662,30 @@ class AccountGovernor:
         exit_ip: str | None = None,
         note: str | None = None,
     ) -> None:
-        """relay 巡检结果落 collection_region；状态翻转写 relay_probe 事件。
+        """relay 巡检结果落 collection_region；经滞回后翻转并写事件。
 
-        region 行不存在则建档（来源缺省 wukong）。state 只在 ok/down 间自动
-        翻转；人工标注的 arrears（欠费）不被探测覆盖（须人工恢复）。note 只进
-        事件 evidence，不覆盖 region.note（人工备注）。
+        ``ok`` 状态连续失败 3 次才转 ``down``，``down`` 状态连续成功 2 次才
+        恢复 ``ok``。连续计数和最近原始结果都持久化，进程重启不改变语义。
+        人工标注的 ``arrears`` 不被探测覆盖，且不继承欠费期间累计的 streak；
+        ``note`` 只写最近探测字段/事件 evidence，不覆盖人工 ``region.note``。
         """
         now = now_utc()
         region = self._conn.scalar(
-            select(CollectionRegion).where(CollectionRegion.region_gb == region_gb)
+            select(CollectionRegion)
+            .where(CollectionRegion.region_gb == region_gb)
+            .with_for_update()
+            # relay_probe resolves the same ORM row before doing the HTTP probe.
+            # After waiting on a concurrent writer's lock, force-refresh that
+            # identity-map object so the streak increment uses the committed value.
+            .execution_options(populate_existing=True)
         )
         if region is None:
             region = CollectionRegion(
                 pub_id=new_pub_id("rgn"),
                 region_gb=region_gb,
                 state="ok",
+                probe_success_streak=0,
+                probe_failure_streak=0,
                 created_at=now,
                 updated_at=now,
             )
@@ -597,8 +695,34 @@ class AccountGovernor:
         if exit_ip is not None:
             region.exit_ip_last = exit_ip
         region.last_probe_at = now
-        if region.state != "arrears":
-            region.state = "ok" if ok else "down"
+        region.last_probe_ok = ok
+        region.last_probe_note = note
+        if region.state == "arrears":
+            # 欠费是人工硬状态。期间的探测只作实况记录，人工恢复后须重新积累确认。
+            region.probe_success_streak = 0
+            region.probe_failure_streak = 0
+        elif ok:
+            region.probe_failure_streak = 0
+            region.probe_success_streak = min(
+                int(region.probe_success_streak or 0) + 1,
+                REGION_PROBE_SUCCESS_THRESHOLD,
+            )
+            if (
+                region.state == "down"
+                and region.probe_success_streak >= REGION_PROBE_SUCCESS_THRESHOLD
+            ):
+                region.state = "ok"
+        else:
+            region.probe_success_streak = 0
+            region.probe_failure_streak = min(
+                int(region.probe_failure_streak or 0) + 1,
+                REGION_PROBE_FAILURE_THRESHOLD,
+            )
+            if (
+                region.state == "ok"
+                and region.probe_failure_streak >= REGION_PROBE_FAILURE_THRESHOLD
+            ):
+                region.state = "down"
         region.updated_at = now
         self._conn.flush()
         if region.state != old_state:
@@ -606,7 +730,12 @@ class AccountGovernor:
                 "relay_probe",
                 region_id=region.id,
                 old_value={"state": old_state},
-                new_value={"state": region.state, "exit_ip": exit_ip},
+                new_value={
+                    "state": region.state,
+                    "exit_ip": exit_ip,
+                    "probe_success_streak": region.probe_success_streak,
+                    "probe_failure_streak": region.probe_failure_streak,
+                },
                 evidence=note,
                 actor="relay_probe",
             )
@@ -650,6 +779,72 @@ class AccountGovernor:
             or (account.quota_week is not None and account.used_week >= account.quota_week)
             or (account.quota_year is not None and account.used_year >= account.quota_year)
         )
+
+    def _set_mode_quota_block(
+        self,
+        account: CollectionPlatformAccount,
+        *,
+        mode: str,
+        until: datetime,
+        evidence: str,
+        now: datetime,
+    ) -> None:
+        snapshot = dict(account.quota_probe_json or {})
+        raw_blocks = snapshot.get(_MODE_QUOTA_BLOCKS_KEY)
+        blocks = dict(raw_blocks) if isinstance(raw_blocks, dict) else {}
+        blocks[mode] = {
+            "wall_type": "wall_quota",
+            "blocked_at": _iso(now),
+            "resume_at": _iso(until),
+            "reason": evidence,
+        }
+        snapshot[_MODE_QUOTA_BLOCKS_KEY] = blocks
+        account.quota_probe_json = snapshot
+        account.probed_at = now
+        account.updated_at = now
+        self._conn.flush()
+
+    def _mode_quota_blocked(
+        self,
+        account: CollectionPlatformAccount,
+        *,
+        mode: str | None,
+        now: datetime,
+    ) -> bool:
+        """Return active mode block; prune expired entries as part of the read-side write."""
+        snapshot = dict(account.quota_probe_json or {})
+        raw_blocks = snapshot.get(_MODE_QUOTA_BLOCKS_KEY)
+        if not isinstance(raw_blocks, dict):
+            return False
+        blocks = dict(raw_blocks)
+        changed = False
+        active: set[str] = set()
+        for blocked_mode, raw in list(blocks.items()):
+            if not isinstance(raw, dict):
+                del blocks[blocked_mode]
+                changed = True
+                continue
+            resume_raw = raw.get("resume_at")
+            try:
+                resume_at = datetime.fromisoformat(str(resume_raw))
+                if resume_at.tzinfo is None:
+                    resume_at = resume_at.replace(tzinfo=UTC)
+            except (TypeError, ValueError):
+                # 畸形/无恢复点的 quota 证据 fail-closed，等待人工修复。
+                active.add(str(blocked_mode))
+                continue
+            if resume_at <= now:
+                del blocks[blocked_mode]
+                changed = True
+            else:
+                active.add(str(blocked_mode))
+        if changed:
+            snapshot[_MODE_QUOTA_BLOCKS_KEY] = blocks
+            account.quota_probe_json = snapshot
+            account.updated_at = now
+            self._conn.flush()
+        # 未声明 mode 的旧调用不能猜测安全模式：任一 active block 都阻断。
+        return bool(active) if not mode else mode in active
 
     def _lazy_quota_reset(self, account: CollectionPlatformAccount, now: datetime) -> None:
         """日重置点 lazy 清零：过 quota_reset_at → used_today=0 并重排下一重置点。
@@ -725,12 +920,14 @@ class AccountGovernor:
         platform_account_id: int | None = None,
         browser_id: int | None = None,
         window: int = _OUTCOME_DEDUP_WINDOW,
+        offset: int = 0,
     ) -> list[CollectionAccountEvent]:
         stmt = (
             select(CollectionAccountEvent)
             .where(CollectionAccountEvent.event_type == "task_outcome")
             .order_by(CollectionAccountEvent.id.desc())
             .limit(window)
+            .offset(offset)
         )
         if platform_account_id is not None:
             stmt = stmt.where(CollectionAccountEvent.platform_account_id == platform_account_id)
@@ -764,15 +961,35 @@ class AccountGovernor:
         return False
 
     def _failure_streak(self, account_id: int, error_type: str | None) -> int:
-        """最近同类失败连续次数（含刚落的本次；success 或异类 error_type 断链）。"""
+        """最近同类根因连续次数；等长 aborted 占位既不计数也不断链。"""
         streak = 0
-        for event in self._recent_outcome_events(platform_account_id=account_id, window=10):
-            payload = event.new_value or {}
-            if payload.get("outcome") == "success":
+        relevant = 0
+        offset = 0
+        while relevant < _FAILURE_STREAK_RELEVANT_WINDOW:
+            events = self._recent_outcome_events(
+                platform_account_id=account_id,
+                window=_FAILURE_STREAK_PAGE_SIZE,
+                offset=offset,
+            )
+            if not events:
                 break
-            if payload.get("error_type") != error_type:
+            for event in events:
+                payload = event.new_value or {}
+                if (payload.get("outcome"), payload.get("error_type")) in _NEUTRAL_TASK_OUTCOMES:
+                    continue
+                if payload.get("mode") and payload.get("error_type") == "wall_quota":
+                    continue
+                relevant += 1
+                if payload.get("outcome") == "success":
+                    return streak
+                if payload.get("error_type") != error_type:
+                    return streak
+                streak += 1
+                if streak >= _ERROR_STREAK_BREAKER or relevant >= _FAILURE_STREAK_RELEVANT_WINDOW:
+                    return streak
+            if len(events) < _FAILURE_STREAK_PAGE_SIZE:
                 break
-            streak += 1
+            offset += len(events)
         return streak
 
     def _emit(

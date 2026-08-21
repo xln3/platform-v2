@@ -16,6 +16,8 @@ from workflows.definitions.collection import (
     plan_batch_segments,
     plan_collection_segments,
     plan_instance_segments,
+    plan_mode_instance_segments,
+    plan_versioned_batch_segments,
     task_result_from_batch_item,
 )
 
@@ -145,13 +147,18 @@ def test_plan_adapter_segments_edge_cases() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _region_task(key: str, adapter: str, region: str) -> CollectionTaskInput:
+def _region_task(
+    key: str,
+    adapter: str,
+    region: str,
+    mode: str = "normal",
+) -> CollectionTaskInput:
     return CollectionTaskInput(
         business_key=key,
         query=f"q-{key}",
         model="m",
         region=region,
-        mode="normal",
+        mode=mode,
         adapter=adapter,
     )
 
@@ -207,3 +214,48 @@ def test_plan_batch_segments_empty_and_blank_region() -> None:
     # 诚实报错；分组层不吞不编）
     segments = plan_batch_segments(True, [_region_task("a", "doubao", "")])
     assert [(slug, len(items)) for slug, items in segments] == [("doubao", 1)]
+
+
+# ---------------------------------------------------------------------------
+# adapter-batch-mode-segments-v3：模式额度墙不能连坐同实例的另一模式
+# ---------------------------------------------------------------------------
+
+
+def test_plan_mode_instance_segments_splits_same_instance_on_mode_change() -> None:
+    tasks = [
+        _region_task("n-1", "doubao", "CN-BJ", "normal"),
+        _region_task("n-2", "doubao", "CN-BJ", "normal"),
+        _region_task("d-1", "doubao", "CN-BJ", "deep_think"),
+        _region_task("n-3", "doubao", "CN-BJ", "normal"),
+    ]
+
+    segments = plan_mode_instance_segments(tasks)
+
+    assert [(key, [item.business_key for item in items]) for key, items in segments] == [
+        (("doubao", "CN-BJ", "normal"), ["n-1", "n-2"]),
+        (("doubao", "CN-BJ", "deep_think"), ["d-1"]),
+        (("doubao", "CN-BJ", "normal"), ["n-3"]),
+    ]
+
+
+def test_versioned_batch_segments_preserves_v1_v2_and_enables_v3() -> None:
+    tasks = [
+        _region_task("n", "doubao", "CN-BJ", "normal"),
+        _region_task("d", "doubao", "CN-BJ", "deep_think"),
+        _region_task("s", "doubao", "CN-SH", "normal"),
+    ]
+
+    v1 = plan_versioned_batch_segments(False, False, tasks)
+    v2 = plan_versioned_batch_segments(True, False, tasks)
+    v3 = plan_versioned_batch_segments(True, True, tasks)
+
+    assert [[item.business_key for item in items] for _, items in v1] == [["n", "d", "s"]]
+    assert [[item.business_key for item in items] for _, items in v2] == [
+        ["n", "d"],
+        ["s"],
+    ]
+    assert [[item.business_key for item in items] for _, items in v3] == [
+        ["n"],
+        ["d"],
+        ["s"],
+    ]

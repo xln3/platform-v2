@@ -1405,9 +1405,11 @@ class _PlaywrightDoubaoSession:
     等长同序；连坐按失败类型分级——真墙（captcha/login/send/muted/cloak）=
     账号级阻断，后续题全 aborted（零浏览器交互：真人撞墙后会停下，不编造不
     硬闯）；wall_quota=配额按 (账号×mode) 计费，只连坐同 mode 余题；
-    wall_refusal/incomplete/toggle 失败/mode_unconfirmed=题级 flake 或内容
-    失败，不连坐，本题诚实失败后续跑。session 建立阶段（launch/navigate/登录
-    墙检查）的异常原样逃出，由 activity 层按 session 级语义处理（一题未发）。
+    wall_refusal/incomplete/mode_unconfirmed=题级 flake 或内容失败，不连坐；模式
+    toggle 已在单题内穷尽两轮 trigger/option + native fallback 仍失败时，视为当前
+    session 的同 mode 控件不可用，后续同 mode 题 aborted（零浏览器交互），其他
+    mode 仍可继续。session 建立阶段（launch/navigate/登录墙检查）的异常原样逃出，
+    由 activity 层按 session 级语义处理（一题未发）。
     """
 
     def __init__(self, config: DoubaoAdapterConfig, evidence_dir: Path, file_stem: str) -> None:
@@ -1441,8 +1443,18 @@ class _PlaywrightDoubaoSession:
         # 余题——记录已撞配额的 mode，轮到其余题位次时零浏览器交互追加 aborted
         # 占位（结果列表与输入等长同序的契约不变）。
         quota_blocked: dict[str, DoubaoBatchItemSpec] = {}
+        # 模式控件失败同样按 mode 建 session 级小熔断。_try_enable_* 单题内部已经
+        # 穷尽两轮菜单打开、语义候选点击和 native fallback；同一 DOM/session 中
+        # 继续逐题重复只会制造同源失败并触发平台风控。不同 mode 不连坐。
+        mode_toggle_blocked: dict[str, tuple[DoubaoBatchItemSpec, str]] = {}
         with self._browser_session(on_stage) as (context, page, pw_timeout, driver):
             for index, spec in enumerate(items):
+                if spec.mode in mode_toggle_blocked:
+                    failed_spec, error_type = mode_toggle_blocked[spec.mode]
+                    outcomes.append(
+                        self._aborted_outcome(spec, failed_spec, error_type, batch_stopped=False)
+                    )
+                    continue
                 if spec.mode in quota_blocked:
                     outcomes.append(
                         self._aborted_outcome(
@@ -1479,20 +1491,21 @@ class _PlaywrightDoubaoSession:
                     outcomes.append(self._failure_outcome(spec, "wall", "mode_unconfirmed", mu))
                     continue
                 except _DeepThinkToggleFailed as toggle:
-                    # 2026-08-13 起不连坐：toggle 失败是页面态 flake（点击未命中/
-                    # 水合时序），非账号墙；大段批量下一中止会把百余未执行题全部
-                    # 连坐成 aborted。本题诚实失败、继续下一题（fresh_chat 会在下
-                    # 题开头重新校验页面态）。真墙（验证码/登录）仍走上面的中止。
+                    # 单题内两轮 trigger/option + native fallback 均失败后，当前
+                    # session 的专家控件不可确认；本题诚实失败，后续同 mode 零交互
+                    # aborted。normal 题仍可继续，避免专家不可用拖死快速补齐。
                     outcomes.append(
                         self._failure_outcome(spec, "wall", "deep_think_toggle_failed", toggle)
                     )
+                    mode_toggle_blocked[spec.mode] = (spec, "deep_think_toggle_failed")
                     continue
                 except _QuickModeToggleFailed as toggle:
-                    # 快速态 picker 失败也是题级页面 flake；本题诚实失败，下一题
-                    # fresh_chat 后重新确认目标态，避免把整批未执行题连坐掉。
+                    # 与专家同款 session×mode 小熔断；绝不把未确认的专家态答案
+                    # 按快速落库，也不让同批后续题重复撞同一个漂移控件。
                     outcomes.append(
                         self._failure_outcome(spec, "wall", "mode_toggle_failed", toggle)
                     )
+                    mode_toggle_blocked[spec.mode] = (spec, "mode_toggle_failed")
                     continue
                 except _IncompleteCapture as inc:
                     # 同上：截图为题级 flake，记 incomplete 后续跑，不中止整批。
@@ -1552,11 +1565,18 @@ class _PlaywrightDoubaoSession:
                 f"failed ({error_type or 'unknown'}) — no browser interaction for this item"
             )
         else:
-            # 配额连坐（wall_quota）：批次未停，仅同 mode 余题占位。
-            reason = (
-                f"not executed: same-mode quota wall at item {failed_spec.business_key!r} "
-                f"({error_type or 'unknown'}) — no browser interaction for this item"
-            )
+            # 批次未停，仅同 mode 余题占位：quota 或模式控件 session 小熔断。
+            if error_type == "wall_quota":
+                reason = (
+                    f"not executed: same-mode quota wall at item {failed_spec.business_key!r} "
+                    f"({error_type}) — no browser interaction for this item"
+                )
+            else:
+                reason = (
+                    f"not executed: same-mode mode-toggle circuit opened at item "
+                    f"{failed_spec.business_key!r} ({error_type or 'unknown'}) — "
+                    "no browser interaction for this item"
+                )
         return DoubaoBatchItemOutcome(
             business_key=spec.business_key,
             status="aborted",
@@ -3818,13 +3838,25 @@ _DEEP_MODE_LABELS = ("专家", "思考", "深度思考")
 _DEEP_MODE_SUBTITLES = ("研究级智能模型", "擅长解决更难的问题")
 _QUICK_MODE_LABELS = ("快速", "快速模式")
 
-# Picker 状态探针（selector 漂移防护，旧链 T-03）：读全部可见短按钮文本并筛
-# picker 候选——长度 <12 字符以免答案区长 chip 混入；思考块按钮（思考过程/已完成
-# 思考/思考中/查看/收起）显式排除，否则旧式 button:has-text("思考") 子串探测会把
-# picker 仍显示「快速」的页面误报为已启用（false-positive = normal 答案错标 deep_think）。
+# Picker 状态探针（selector 漂移防护，旧链 T-03）。2026-08-20 北京账号命中新版
+# composer：模式 trigger 从短文本「快速/专家」变成「豆包 快速/豆包 专家」，但保留
+# 稳定语义属性 data-valid-btn="model-select-action-btn"。优先只读这个 composer-scoped
+# trigger，并给结果加内部前缀；旧页面没有该属性时才回退扫描可见短按钮。这样既能
+# 识别新版复合标签，也不会把推荐卡片/答案区的「思考」按钮冒充模式状态。
+_SCOPED_PICKER_PREFIX = "composer-model:"
 _PICKER_STATE_JS = r"""() => {
+  const visible = b => b.offsetParent !== null;
+  const scoped = [...document.querySelectorAll(
+    '[data-valid-btn="model-select-action-btn"]'
+  )].filter(visible);
+  if (scoped.length) {
+    return scoped.map(b => {
+      const t = (b.innerText || '').replace(/\s+/g, ' ').trim();
+      return t ? `composer-model:${t}` : '';
+    }).filter(Boolean);
+  }
   const btns = [...document.querySelectorAll('button, [role="button"]')]
-    .filter(b => b.offsetParent !== null);
+    .filter(visible);
   const hits = [];
   for (const b of btns) {
     const t = (b.innerText || '').replace(/\s+/g, ' ').trim();
@@ -3852,13 +3884,43 @@ def _picker_state(page: Any) -> list[str]:
     return [str(t).strip() for t in hits if str(t).strip()]
 
 
+def _picker_mode(hits: list[str]) -> str | None:
+    """把模式 trigger 文本归一成 ``normal`` / ``deep_think``。
+
+    新版 scoped trigger 允许平台名前缀（实证为「豆包 快速」）；旧版非 scoped
+    探针继续只接受精确标签或标签开头。若同屏同时出现快速和专家证据，返回 None
+    fail-closed，绝不靠顺序猜模式。
+    """
+    modes: set[str] = set()
+    for raw in hits:
+        scoped = raw.startswith(_SCOPED_PICKER_PREFIX)
+        text = raw[len(_SCOPED_PICKER_PREFIX) :] if scoped else raw
+        text = " ".join(text.split())
+        if not text:
+            continue
+        if scoped:
+            quick = any(
+                text == label or text.endswith(f" {label}") for label in _QUICK_PICKER_TEXTS
+            )
+            deep = any(text == label or text.endswith(f" {label}") for label in _DEEP_PICKER_TEXTS)
+        else:
+            quick = any(text == label or text.startswith(label) for label in _QUICK_PICKER_TEXTS)
+            deep = any(text == label or text.startswith(label) for label in _DEEP_PICKER_TEXTS)
+        if quick:
+            modes.add("normal")
+        if deep:
+            modes.add("deep_think")
+    return next(iter(modes)) if len(modes) == 1 else None
+
+
 def _mode_picker(page: Any) -> Any | None:
     """composer 的模式 picker 按钮（当前显示 快速 / 专家 / 思考 / …）。可见则返回 Locator。
 
-    选择器顺序有意 快速/专家 在前：当前构建 picker 总是显示二者之一，提前返回
-    可避开 has-text("思考") 子串风险（答案区的思考块按钮也匹配它，点它会展开思考
-    块而不是打开模式弹层）。思考条目留给回滚到旧版的构建。"""
+    当前构建优先用 composer 专属 ``data-valid-btn``；旧版回退选择器仍把
+    快速/专家放在思考前，避免 has-text("思考") 命中答案区思考块并误点展开。
+    """
     for sel in (
+        '[data-valid-btn="model-select-action-btn"][aria-haspopup="menu"]',
         'button:has-text("快速")',
         'button:has-text("专家")',
         '[role="button"]:has-text("快速")',
@@ -3879,39 +3941,51 @@ def _deep_think_engaged(page: Any) -> bool:
     """后置校验：picker 现在显示深度推理模式（专家/思考），即不再是「快速」。
     只验证切换结果而非点击动作——静默无生效的点击必须返回 False。
 
-    主路径是 JS picker 状态探针（精确文本匹配，思考块按钮无法冒充 picker）。
-    仅当探针不可用/为空时回退旧子串选择器（此时页面已属异常状态，接受其
-    思考 false-positive 风险）。"""
+    主路径是 composer-scoped JS 状态探针；仅当探针不可用/为空时回退定位旧版
+    trigger，再把其文本送入同一精确/歧义分类器。两路都 fail-closed。
+    """
     hits = _picker_state(page)
     if hits:
-        if any(t.startswith("快速") for t in hits):
-            return False  # 快速仍在屏上 → 未启用
-        return any(t in _DEEP_PICKER_TEXTS or t.startswith(("专家", "深度思考")) for t in hits)
-    for label in _DEEP_MODE_LABELS:
-        try:
-            btn = page.locator(f'button:has-text("{label}")').first
-            if btn.count() > 0 and btn.is_visible(timeout=400):
-                return True
-        except Exception:
-            continue
-    return False
+        return _picker_mode(hits) == "deep_think"
+    # 探针异常时仍只读 _mode_picker 的精确短文本，并经同一歧义判定；不再用任意
+    # button:has-text("思考") 的存在性直接判真，避免答案区思考块 false-positive。
+    picker = _mode_picker(page)
+    if picker is None:
+        return False
+    try:
+        return _picker_mode([picker.inner_text(timeout=400)]) == "deep_think"
+    except Exception:
+        return False
 
 
 def _quick_mode_engaged(page: Any) -> bool:
     """后置校验：composer picker 当前显示「快速」，且没有仍显示专家/深思态。"""
     hits = _picker_state(page)
     if hits:
-        if any(t in _DEEP_PICKER_TEXTS or t.startswith(("专家", "思考", "深度思考")) for t in hits):
+        return _picker_mode(hits) == "normal"
+    picker = _mode_picker(page)
+    if picker is None:
+        return False
+    try:
+        return _picker_mode([picker.inner_text(timeout=400)]) == "normal"
+    except Exception:
+        return False
+
+
+def _mode_stably_engaged(page: Any, engaged: Callable[[Any], bool]) -> bool:
+    """连续两拍确认目标模式；任一拍或拍间等待异常都 fail-closed。
+
+    豆包曾出现 picker 标签先乐观翻转、随后回退的 T-03 行为。所有成功出口
+    （已经处于目标态、菜单点击、native fallback、函数末尾兜底）必须共用本门，
+    避免某个尾部分支退化成单拍放行。
+    """
+    try:
+        if not engaged(page):
             return False
-        return any(t in _QUICK_PICKER_TEXTS or t.startswith("快速") for t in hits)
-    for label in _QUICK_MODE_LABELS:
-        try:
-            btn = page.locator(f'button:has-text("{label}")').first
-            if btn.count() > 0 and btn.is_visible(timeout=400):
-                return True
-        except Exception:
-            continue
-    return False
+        page.wait_for_timeout(400)
+        return engaged(page)
+    except Exception:
+        return False
 
 
 def _try_enable_quick_mode(page: Any, rng: random.Random) -> bool:
@@ -3924,7 +3998,7 @@ def _try_enable_quick_mode(page: Any, rng: random.Random) -> bool:
     def _pace(lo: float, hi: float) -> float:
         return human_pause(rng, lo, hi, sleep=lambda s: page.wait_for_timeout(int(s * 1000)))
 
-    if _quick_mode_engaged(page):
+    if _mode_stably_engaged(page, _quick_mode_engaged):
         return True
 
     picker = _mode_picker(page)
@@ -3980,17 +4054,13 @@ def _try_enable_quick_mode(page: Any, rng: random.Random) -> bool:
                     continue
                 human_click(option, page, rng)
                 page.wait_for_timeout(400)
-                if _quick_mode_engaged(page):
-                    page.wait_for_timeout(400)
-                    if _quick_mode_engaged(page):
-                        return True
+                if _mode_stably_engaged(page, _quick_mode_engaged):
+                    return True
                 if option.is_visible(timeout=300):
                     option.click(timeout=2_000)
                     page.wait_for_timeout(400)
-                    if _quick_mode_engaged(page):
-                        page.wait_for_timeout(400)
-                        if _quick_mode_engaged(page):
-                            return True
+                    if _mode_stably_engaged(page, _quick_mode_engaged):
+                        return True
             except Exception:
                 continue
     except Exception:
@@ -4000,7 +4070,7 @@ def _try_enable_quick_mode(page: Any, rng: random.Random) -> bool:
         page.wait_for_timeout(150)
     except Exception:
         pass
-    return _quick_mode_engaged(page)
+    return _mode_stably_engaged(page, _quick_mode_engaged)
 
 
 def _try_enable_deep_think(page: Any, rng: random.Random) -> bool:
@@ -4016,7 +4086,7 @@ def _try_enable_deep_think(page: Any, rng: random.Random) -> bool:
     def _pace(lo: float, hi: float) -> float:
         return human_pause(rng, lo, hi, sleep=lambda s: page.wait_for_timeout(int(s * 1000)))
 
-    if _deep_think_engaged(page):
+    if _mode_stably_engaged(page, _deep_think_engaged):
         return True
 
     picker = _mode_picker(page)
@@ -4083,21 +4153,16 @@ def _try_enable_deep_think(page: Any, rng: random.Random) -> bool:
                     if opt.count() > 0 and opt.is_visible(timeout=400):
                         human_click(opt, page, rng)
                         page.wait_for_timeout(400)
-                        if _deep_think_engaged(page):
-                            # 隔拍二次确认（T-03）：picker 标签可能先乐观翻转再回退。
-                            page.wait_for_timeout(400)
-                            if _deep_think_engaged(page):
-                                return True
+                        if _mode_stably_engaged(page, _deep_think_engaged):
+                            return True
                         # Same calibrated fallback for a visible menu item whose
                         # coordinate click was swallowed.  Never use it after the
                         # state changed, so a successful human click is not doubled.
                         if opt.is_visible(timeout=300):
                             opt.click(timeout=2_000)
                             page.wait_for_timeout(400)
-                            if _deep_think_engaged(page):
-                                page.wait_for_timeout(400)
-                                if _deep_think_engaged(page):
-                                    return True
+                            if _mode_stably_engaged(page, _deep_think_engaged):
+                                return True
                 except Exception:
                     continue
         except Exception:
@@ -4120,10 +4185,8 @@ def _try_enable_deep_think(page: Any, rng: random.Random) -> bool:
             if loc.count() > 0 and loc.is_visible(timeout=400):
                 human_click(loc, page, rng)
                 page.wait_for_timeout(300)
-                if _deep_think_engaged(page):
-                    page.wait_for_timeout(400)  # 同款回退二次确认（T-03）
-                    if _deep_think_engaged(page):
-                        return True
+                if _mode_stably_engaged(page, _deep_think_engaged):
+                    return True
         except Exception:
             continue
-    return _deep_think_engaged(page)
+    return _mode_stably_engaged(page, _deep_think_engaged)

@@ -13,6 +13,7 @@ import itertools
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -30,6 +31,7 @@ from geo_platform.identity.policy import Principal, Role, get_principal
 from geo_platform.main import app
 from geo_platform.tenancy.database import get_db
 from geo_platform.tenancy.ids import new_pub_id
+from sqlalchemy.exc import IntegrityError
 
 _NOW = datetime(2026, 8, 13, 12, 0, tzinfo=UTC)
 
@@ -417,6 +419,149 @@ def test_create_account_then_conflict_409(session: _FakeSession) -> None:
     assert bad.json()["error"]["code"] == "bad_phone"
 
 
+def test_create_platform_account_requires_confirmation_and_binds_safely(
+    session: _FakeSession,
+) -> None:
+    phone = _seed_phone(session)
+    region = _seed_region(session)
+    browser = _seed_browser(session)
+    _bind(session)
+    payload = {
+        "platform": "doubao",
+        "region_gb": "310000",
+        "browser_instance_key": "doubao_sh",
+        "quota_day": 30,
+    }
+
+    refused = client.post(
+        f"/api/v2/collection-accounts/{phone.pub_id}/platform-accounts",
+        json=payload,
+    )
+    assert refused.status_code == 400
+    assert refused.json()["error"]["code"] == "platform_account_binding_requires_confirmation"
+
+    created = client.post(
+        f"/api/v2/collection-accounts/{phone.pub_id}/platform-accounts",
+        json=payload | {"confirm": True},
+    )
+    assert created.status_code == 201
+    body = created.json()
+    assert body["phone_account_pub_id"] == phone.pub_id
+    assert body["platform_account_pub_id"].startswith("pac_")
+    assert body["region_gb"] == "310000"
+    assert body["browser_instance_key"] == "doubao_sh"
+    assert body["quota_day"] == 30
+    assert body["runtime_state"] == "idle"
+    event = _events(session, "platform_account_created")[0]
+    assert event.phone_account_id == phone.id
+    assert event.platform_account_id is not None
+    assert event.browser_id == browser.id
+    assert event.region_id == region.id
+    assert event.actor == "usr_ops"
+    assert event.new_value == {
+        "platform": "doubao",
+        "region_gb": "310000",
+        "browser_instance_key": "doubao_sh",
+        "quota_day": 30,
+        "quota_week": None,
+        "quota_year": None,
+    }
+
+    duplicate = client.post(
+        f"/api/v2/collection-accounts/{phone.pub_id}/platform-accounts",
+        json=payload | {"confirm": True},
+    )
+    assert duplicate.status_code == 409
+    assert duplicate.json()["error"]["code"] == "platform_account_already_exists"
+
+
+def test_create_platform_account_maps_concurrent_browser_binding_to_409(
+    session: _FakeSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    phone = _seed_phone(session)
+    _seed_region(session)
+    _seed_browser(session)
+    _bind(session)
+    original_flush = session.flush
+    rolled_back: list[bool] = []
+
+    def conflicting_flush() -> None:
+        pending = [row for row in session.rows.get(CollectionPlatformAccount, []) if row.id is None]
+        if pending:
+            original = RuntimeError("unique violation")
+            original.diag = SimpleNamespace(  # type: ignore[attr-defined]
+                constraint_name="uq_collection_platform_account_browser_instance_key"
+            )
+            raise IntegrityError("INSERT", {}, original)
+        original_flush()
+
+    monkeypatch.setattr(session, "flush", conflicting_flush)
+    monkeypatch.setattr(session, "rollback", lambda: rolled_back.append(True))
+
+    response = client.post(
+        f"/api/v2/collection-accounts/{phone.pub_id}/platform-accounts",
+        json={
+            "platform": "doubao",
+            "region_gb": "310000",
+            "browser_instance_key": "doubao_sh",
+            "confirm": True,
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "browser_already_bound"
+    assert rolled_back == [True]
+
+
+@pytest.mark.parametrize(
+    ("setup", "expected_status", "expected_code"),
+    [
+        ("region_down", 400, "region_not_available"),
+        ("browser_missing", 404, "browser_not_found"),
+        ("platform_mismatch", 409, "browser_platform_mismatch"),
+        ("region_mismatch", 409, "region_ip_mismatch"),
+        ("browser_bound", 409, "browser_already_bound"),
+        ("phone_suspended", 409, "phone_account_not_active"),
+    ],
+)
+def test_create_platform_account_rejects_unsafe_binding(
+    session: _FakeSession,
+    setup: str,
+    expected_status: int,
+    expected_code: str,
+) -> None:
+    phone = _seed_phone(session, state="suspended" if setup == "phone_suspended" else "active")
+    _seed_region(session, state="down" if setup == "region_down" else "ok")
+    if setup != "browser_missing":
+        _seed_browser(
+            session,
+            platform="yiyan" if setup == "platform_mismatch" else "doubao",
+            region_gb="110000" if setup == "region_mismatch" else "310000",
+        )
+    if setup == "browser_bound":
+        other = _seed_phone(session, phone="18810936058")
+        _seed_platform(session, other.id)
+    _bind(session)
+
+    response = client.post(
+        f"/api/v2/collection-accounts/{phone.pub_id}/platform-accounts",
+        json={
+            "platform": "doubao",
+            "region_gb": "310000",
+            "browser_instance_key": "doubao_sh",
+            "confirm": True,
+        },
+    )
+
+    assert response.status_code == expected_status
+    assert response.json()["error"]["code"] == expected_code
+    assert not [
+        row
+        for row in session.rows.get(CollectionPlatformAccount, [])
+        if row.phone_account_id == phone.id
+    ]
+
+
 def test_sync_otp_registry_backfills_legacy_numbers_without_exposing_them(
     session: _FakeSession,
     tmp_path: Path,
@@ -511,10 +656,17 @@ def test_patch_region_and_quota_ok_writes_audit(session: _FakeSession) -> None:
     phone = _seed_phone(session)
     account = _seed_platform(session, phone.id)
     _seed_region(session, region_gb="110000", state="ok")
+    _seed_browser(session, instance_key="doubao_bj", region_gb="110000")
     _bind(session)
     resp = client.patch(
         f"/api/v2/collection-platform-accounts/{account.pub_id}",
-        json={"region_gb": "110000", "quota_day": 30, "quota_week": 200, "confirm": True},
+        json={
+            "region_gb": "110000",
+            "browser_instance_key": "doubao_bj",
+            "quota_day": 30,
+            "quota_week": 200,
+            "confirm": True,
+        },
     )
     assert resp.status_code == 200
     body = resp.json()
@@ -529,8 +681,52 @@ def test_patch_region_and_quota_ok_writes_audit(session: _FakeSession) -> None:
     assert event.actor == "usr_ops"
     assert event.phone_account_id == phone.id
     assert event.platform_account_id == account.id
-    assert event.old_value == {"region_gb": "310000", "quota_day": None, "quota_week": None}
-    assert event.new_value == {"region_gb": "110000", "quota_day": 30, "quota_week": 200}
+    assert event.old_value == {
+        "region_gb": "310000",
+        "browser_instance_key": "doubao_sh",
+        "quota_day": None,
+        "quota_week": None,
+    }
+    assert event.new_value == {
+        "region_gb": "110000",
+        "browser_instance_key": "doubao_bj",
+        "quota_day": 30,
+        "quota_week": 200,
+    }
+
+
+def test_patch_region_validates_unchanged_browser_and_platform(session: _FakeSession) -> None:
+    phone = _seed_phone(session)
+    account = _seed_platform(session, phone.id)
+    _seed_region(session, region_gb="110000", state="ok")
+    _seed_browser(session, instance_key="doubao_sh", region_gb="310000")
+    _bind(session)
+
+    mismatch = client.patch(
+        f"/api/v2/collection-platform-accounts/{account.pub_id}",
+        json={"region_gb": "110000", "confirm": True},
+    )
+
+    assert mismatch.status_code == 409
+    assert mismatch.json()["error"]["code"] == "region_ip_mismatch"
+    assert account.region_gb == "310000"
+
+    browser = session.rows[CollectionBrowser][0]
+    browser.platform = "yiyan"
+    platform_mismatch = client.patch(
+        f"/api/v2/collection-platform-accounts/{account.pub_id}",
+        json={"browser_instance_key": "doubao_sh"},
+    )
+    # No effective change means no new binding is attempted.
+    assert platform_mismatch.status_code == 200
+
+    _seed_browser(session, instance_key="wrong_platform", platform="yiyan", region_gb="310000")
+    platform_mismatch = client.patch(
+        f"/api/v2/collection-platform-accounts/{account.pub_id}",
+        json={"browser_instance_key": "wrong_platform"},
+    )
+    assert platform_mismatch.status_code == 409
+    assert platform_mismatch.json()["error"]["code"] == "browser_platform_mismatch"
 
 
 def test_patch_browser_bind_region_ip_mismatch_409(session: _FakeSession) -> None:

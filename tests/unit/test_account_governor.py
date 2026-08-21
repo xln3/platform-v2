@@ -36,6 +36,7 @@ class _FakeSession:
     def __init__(self) -> None:
         self.rows: dict[type, list[Any]] = {}
         self._ids: dict[type, itertools.count] = {}
+        self.scalar_statements: list[Any] = []
 
     def get(self, cls: type, pk: int) -> Any | None:
         for row in self.rows.get(cls, []):
@@ -44,6 +45,7 @@ class _FakeSession:
         return None
 
     def scalar(self, stmt: Any) -> Any | None:
+        self.scalar_statements.append(stmt)
         rows = self._select(stmt)
         return rows[0] if rows else None
 
@@ -61,6 +63,8 @@ class _FakeSession:
             key = order.element.key
             desc = "desc" in str(order.modifier)
             rows.sort(key=lambda row: getattr(row, key), reverse=desc)
+        if stmt._offset is not None:
+            rows = rows[stmt._offset :]
         if stmt._limit is not None:
             rows = rows[: stmt._limit]
         return rows
@@ -144,6 +148,10 @@ def _seed_region(session: _FakeSession, **overrides: Any) -> CollectionRegion:
         "pub_id": new_pub_id("rgn"),
         "region_gb": "310000",
         "state": "ok",
+        "probe_success_streak": 0,
+        "probe_failure_streak": 0,
+        "last_probe_ok": None,
+        "last_probe_note": None,
         "created_at": _FIXED_NOW,
         "updated_at": _FIXED_NOW,
     }
@@ -245,17 +253,35 @@ def test_report_wall_quota_default_resume_next_midnight_with_jitter(
     )
     # _FIXED_NOW = 2026-08-13 20:00 北京 → 下一重置点 ∈ [08-14 00:00, 00:30] 北京
     floor = datetime(2026, 8, 13, 16, 0, tzinfo=UTC)  # = 08-14 00:00 北京
-    assert account.runtime_state == "quota_exhausted"
-    assert account.quota_resume_at is not None
-    assert floor <= account.quota_resume_at <= floor + timedelta(minutes=30)
+    assert account.runtime_state == "idle"
+    assert account.quota_resume_at is None
+    mode_block = account.quota_probe_json["mode_quota_blocks"]["deep_think"]
+    resume_at = datetime.fromisoformat(mode_block["resume_at"])
+    assert floor <= resume_at <= floor + timedelta(minutes=30)
     assert result["target"] == "platform_account"
-    assert result["runtime_state"] == "quota_exhausted"
-    assert result["until"] == account.quota_resume_at
+    assert result["runtime_state"] is None
+    assert result["mode_scoped"] is True
+    assert result["until"] == resume_at
     events = _events(session, "wall_hit")
     assert len(events) == 1
     assert events[0].new_value["wall_type"] == "wall_quota"
     assert events[0].new_value["mode"] == "deep_think"
-    # 状态迁移事件也在（经 set_runtime_state）
+    assert len(_events(session, "state_transition")) == 0
+
+
+def test_report_wall_quota_without_mode_keeps_legacy_account_block(
+    session: _FakeSession, governor: AccountGovernor, fixed_clock: None
+) -> None:
+    account = _seed_account(session)
+    result = governor.report_wall(
+        platform="doubao",
+        wall_type="wall_quota",
+        evidence="未标明模式的旧探测",
+        browser_instance_key="doubao_sh",
+    )
+    assert account.runtime_state == "quota_exhausted"
+    assert account.quota_resume_at is not None
+    assert result["mode_scoped"] is False
     assert len(_events(session, "state_transition")) == 1
 
 
@@ -542,6 +568,80 @@ def test_record_task_outcome_browser_fallback_breaker(
     assert browser.breaker_until is None
 
 
+def test_aborted_after_failure_is_audited_but_neutral_for_account_streak(
+    session: _FakeSession, governor: AccountGovernor, fixed_clock: None
+) -> None:
+    account = _seed_account(session)
+    for index in range(3):
+        governor.record_task_outcome(
+            platform="doubao",
+            browser_instance_key="doubao_sh",
+            outcome="failed",
+            error_type="mode_toggle_failed",
+            run_pub_id=f"root_{index}",
+            task_pub_id=f"root_task_{index}",
+        )
+        for aborted_index in range(7):
+            governor.record_task_outcome(
+                platform="doubao",
+                browser_instance_key="doubao_sh",
+                outcome="aborted",
+                error_type="aborted_after_failure",
+                run_pub_id=f"root_{index}",
+                task_pub_id=f"aborted_task_{index}_{aborted_index}",
+            )
+    # root + 7 aborted 连续三批：占位既没放大根因，也没把真实根因 streak 断开。
+    assert account.runtime_state == "error"
+    assert len(_events(session, "breaker")) == 1
+    aborted = [
+        event
+        for event in _events(session, "task_outcome")
+        if event.new_value["error_type"] == "aborted_after_failure"
+    ]
+    assert len(aborted) == 21
+    assert all(event.new_value["breaker_eligible"] is False for event in aborted)
+
+
+def test_aborted_after_failure_does_not_increment_browser_fallback_streak(
+    session: _FakeSession, governor: AccountGovernor, fixed_clock: None
+) -> None:
+    browser = _seed_browser(session, error_streak=2)
+    governor.record_task_outcome(
+        platform="doubao",
+        browser_instance_key="doubao_sh",
+        outcome="aborted",
+        error_type="aborted_after_failure",
+        run_pub_id="run_aborted",
+        task_pub_id="task_aborted",
+    )
+    assert browser.error_streak == 2
+    assert browser.breaker_until is None
+    assert len(_events(session, "task_outcome")) == 1
+    assert _events(session, "task_outcome")[0].new_value["breaker_eligible"] is False
+    assert _events(session, "breaker") == []
+
+
+def test_mode_quota_outcome_does_not_escalate_to_global_account_error(
+    session: _FakeSession, governor: AccountGovernor, fixed_clock: None
+) -> None:
+    account = _seed_account(session)
+    for index in range(4):
+        governor.record_task_outcome(
+            platform="doubao",
+            browser_instance_key="doubao_sh",
+            outcome="wall",
+            error_type="wall_quota",
+            mode="deep_think",
+            run_pub_id=f"quota_{index}",
+            task_pub_id=f"quota_task_{index}",
+        )
+    assert account.runtime_state == "idle"
+    assert _events(session, "breaker") == []
+    assert all(
+        event.new_value["breaker_eligible"] is False for event in _events(session, "task_outcome")
+    )
+
+
 def test_record_task_outcome_orphan_is_logged_noop(
     session: _FakeSession, governor: AccountGovernor, fixed_clock: None
 ) -> None:
@@ -682,6 +782,7 @@ def test_resolve_collectable_hit(
 def test_resolve_collectable_unlimited_quota_remaining_none(
     session: _FakeSession, governor: AccountGovernor, fixed_clock: None
 ) -> None:
+    _seed_browser(session)
     _seed_account(session, quota_day=None)
     result = governor.resolve_collectable(platform="doubao", region_gb="310000")
     assert result is not None
@@ -699,6 +800,7 @@ def test_resolve_collectable_region_down(
 def test_resolve_collectable_region_unregistered_is_not_blocked(
     session: _FakeSession, governor: AccountGovernor, fixed_clock: None
 ) -> None:
+    _seed_browser(session)
     _seed_account(session)
     assert governor.resolve_collectable(platform="doubao", region_gb="310000") is not None
 
@@ -764,6 +866,65 @@ def test_resolve_collectable_skips_browser_breaker(
     assert governor.resolve_collectable(platform="doubao", region_gb="310000") is None
 
 
+@pytest.mark.parametrize("activity", ["busy", "captcha"])
+def test_resolve_collectable_requires_idle_browser(
+    activity: str,
+    session: _FakeSession,
+    governor: AccountGovernor,
+    fixed_clock: None,
+) -> None:
+    _seed_browser(session, activity=activity)
+    _seed_account(session)
+    assert governor.resolve_collectable(platform="doubao", region_gb="310000") is None
+
+
+def test_resolve_collectable_mode_quota_block_only_blocks_that_mode(
+    session: _FakeSession, governor: AccountGovernor, fixed_clock: None
+) -> None:
+    _seed_browser(session)
+    account = _seed_account(session)
+    governor.report_wall(
+        platform="doubao",
+        wall_type="wall_quota",
+        evidence="专家次数已用完",
+        browser_instance_key="doubao_sh",
+        mode="deep_think",
+        until=_FIXED_NOW + timedelta(hours=1),
+    )
+    assert (
+        governor.resolve_collectable(platform="doubao", region_gb="310000", mode="deep_think")
+        is None
+    )
+    assert (
+        governor.resolve_collectable(platform="doubao", region_gb="310000", mode="normal")
+        is not None
+    )
+    # 无 mode 的旧调用不能猜测安全模式，仍 fail-closed。
+    assert governor.resolve_collectable(platform="doubao", region_gb="310000") is None
+    assert account.runtime_state == "idle"
+
+
+def test_resolve_collectable_prunes_expired_mode_quota_block(
+    session: _FakeSession, governor: AccountGovernor, fixed_clock: None
+) -> None:
+    _seed_browser(session)
+    account = _seed_account(
+        session,
+        quota_probe_json={
+            "vendor_probe": {"kept": True},
+            "mode_quota_blocks": {
+                "deep_think": {"resume_at": (_FIXED_NOW - timedelta(seconds=1)).isoformat()}
+            },
+        },
+    )
+    assert (
+        governor.resolve_collectable(platform="doubao", region_gb="310000", mode="deep_think")
+        is not None
+    )
+    assert account.quota_probe_json["mode_quota_blocks"] == {}
+    assert account.quota_probe_json["vendor_probe"] == {"kept": True}
+
+
 def test_resolve_collectable_lazy_resumes_expired_mute(
     session: _FakeSession, governor: AccountGovernor, fixed_clock: None
 ) -> None:
@@ -785,6 +946,7 @@ def test_resolve_collectable_lazy_resumes_expired_mute(
 def test_resolve_collectable_lazy_resumes_quota_and_resets_usage(
     session: _FakeSession, governor: AccountGovernor, fixed_clock: None
 ) -> None:
+    _seed_browser(session)
     account = _seed_account(
         session,
         runtime_state="quota_exhausted",
@@ -824,6 +986,14 @@ def test_record_region_probe_creates_row_then_flips_with_event(
     assert _events(session, "relay_probe") == []
 
     governor.record_region_probe(region_gb="110000", ok=False, note="timeout")
+    assert region.state == "ok"
+    assert region.probe_failure_streak == 1
+    assert region.last_probe_ok is False
+    assert region.last_probe_note == "timeout"
+    # 新 governor 模拟 exporter 重启：连续计数仍随 DB 行保存。
+    AccountGovernor(session).record_region_probe(region_gb="110000", ok=False, note="timeout")
+    assert region.state == "ok"
+    governor.record_region_probe(region_gb="110000", ok=False, note="timeout")
     assert region.state == "down"
     events = _events(session, "relay_probe")
     assert len(events) == 1
@@ -837,6 +1007,9 @@ def test_record_region_probe_creates_row_then_flips_with_event(
     assert len(_events(session, "relay_probe")) == 1
     assert region.exit_ip_last == "5.6.7.8"
 
+    governor.record_region_probe(region_gb="110000", ok=True)
+    assert region.state == "down"
+    assert len(_events(session, "relay_probe")) == 1
     governor.record_region_probe(region_gb="110000", ok=True)
     assert region.state == "ok"
     assert len(_events(session, "relay_probe")) == 2
@@ -852,3 +1025,21 @@ def test_record_region_probe_does_not_override_arrears_or_note(
     assert region.note == "人工标注欠费 8 月"
     assert region.exit_ip_last == "9.9.9.9"
     assert _events(session, "relay_probe") == []
+
+
+def test_record_region_probe_locks_existing_region_before_updating_streak(
+    session: _FakeSession, governor: AccountGovernor, fixed_clock: None
+) -> None:
+    """Concurrent probes must serialize the persisted read/modify/write streak."""
+    _seed_region(session)
+
+    governor.record_region_probe(region_gb="310000", ok=False, note="timeout")
+
+    region_selects = [
+        stmt
+        for stmt in session.scalar_statements
+        if stmt.column_descriptions[0]["entity"] is CollectionRegion
+    ]
+    assert len(region_selects) == 1
+    assert region_selects[0]._for_update_arg is not None
+    assert region_selects[0].get_execution_options()["populate_existing"] is True

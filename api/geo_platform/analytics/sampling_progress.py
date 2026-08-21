@@ -34,7 +34,10 @@ class SamplingColumn:
     key: str
     model: str
     region: str
+    # ``mode`` is the mode declared by the complete formal plan. ``modes`` also
+    # includes any effective fallback modes observed in partial top-up configs.
     mode: str
+    modes: tuple[str, ...]
 
 
 _MODEL_ORDER = {
@@ -196,13 +199,34 @@ def sampling_plan_items(config: SamplingConfig) -> list[SamplingPlanItem]:
     return items
 
 
-def sampling_columns(configs: Iterable[SamplingConfig]) -> list[SamplingColumn]:
-    combinations: set[tuple[str, str, str]] = set()
+def sampling_columns(
+    configs: Iterable[SamplingConfig],
+    *,
+    baseline: SamplingConfig | None = None,
+) -> list[SamplingColumn]:
+    """Return formal sampling legs while retaining effective fallback modes.
+
+    A mode in a partial top-up config is an implementation detail, not a new target
+    dimension. Formal columns therefore come only from configs containing the complete
+    catalog query set. If a complete plan genuinely declares two modes, both remain
+    distinct formal columns. A different mode from a partial config can be attached as a
+    fallback only when the model/region has exactly one formal mode, which avoids guessing
+    between real dual-mode targets.
+    """
+
+    config_list = list(configs)
+    if not config_list:
+        return []
+    if baseline is None:
+        baseline = max(config_list, key=lambda config: len(config.query_texts))
+    full_configs = [config for config in config_list if config.query_texts == baseline.query_texts]
+
+    planned_combinations: set[tuple[str, str, str]] = set()
     region_order: dict[str, int] = {}
     unknown_model_order: dict[str, int] = {}
     unknown_mode_order: dict[str, int] = {}
-    # Oldest full-plan legs usually preserve the user's region order most faithfully.
-    for config in reversed(list(configs)):
+    # Oldest full-plan legs preserve the user's intended display order most faithfully.
+    for config in reversed(full_configs):
         for region in config.regions:
             region_order.setdefault(region, len(region_order))
         for model in config.models:
@@ -211,7 +235,30 @@ def sampling_columns(configs: Iterable[SamplingConfig]) -> list[SamplingColumn]:
         for mode in config.modes:
             if mode not in _MODE_ORDER:
                 unknown_mode_order.setdefault(mode, len(unknown_mode_order))
-        combinations.update(product(config.models, config.regions, config.modes))
+        planned_combinations.update(product(config.models, config.regions, config.modes))
+
+    planned_modes_by_leg: dict[tuple[str, str], set[str]] = {}
+    for model, region, mode in planned_combinations:
+        planned_modes_by_leg.setdefault((model, region), set()).add(mode)
+
+    effective_modes: dict[tuple[str, str, str], list[str]] = {
+        combination: [combination[2]] for combination in planned_combinations
+    }
+    for config in reversed(config_list):
+        if config in full_configs:
+            continue
+        for model, region, effective_mode in product(config.models, config.regions, config.modes):
+            planned_modes = planned_modes_by_leg.get((model, region), set())
+            if effective_mode in planned_modes:
+                target = (model, region, effective_mode)
+            elif len(planned_modes) == 1:
+                target = (model, region, next(iter(planned_modes)))
+            else:
+                # A partial config must neither create a formal leg nor be guessed into
+                # one of multiple genuine planned modes.
+                continue
+            if effective_mode not in effective_modes[target]:
+                effective_modes[target].append(effective_mode)
 
     def sort_key(value: tuple[str, str, str]) -> tuple[int, int, int, int, int]:
         model, region, mode = value
@@ -224,8 +271,16 @@ def sampling_columns(configs: Iterable[SamplingConfig]) -> list[SamplingColumn]:
         )
 
     return [
-        SamplingColumn(key=f"leg-{index}", model=model, region=region, mode=mode)
-        for index, (model, region, mode) in enumerate(sorted(combinations, key=sort_key), start=1)
+        SamplingColumn(
+            key=f"leg-{index}",
+            model=model,
+            region=region,
+            mode=mode,
+            modes=tuple(effective_modes[(model, region, mode)]),
+        )
+        for index, (model, region, mode) in enumerate(
+            sorted(planned_combinations, key=sort_key), start=1
+        )
     ]
 
 
