@@ -71,8 +71,10 @@ import {
   listInvestigations,
   listInternalSourceOccurrences,
   listInternalSourceSites,
+  listInternalSourceWChunks,
   listModelAdmissions,
   resolveInvestigationAppeal,
+  reviewInternalWChunk,
   updateReportAction,
   listIdentityMembers,
   listOidcBindings,
@@ -9184,5 +9186,144 @@ describe('UVW security-domain projections', () => {
       expect(result.data.data[0]?.uOccurrenceCount).toBe(0);
       expect(result.data.data[0]?.uObservation).toBe('unobserved');
     }
+  });
+
+  it('projects exact W spans and submits a scoped human review receipt', async () => {
+    const urlPubId = `url_${'d'.repeat(26)}`;
+    const chunkPubId = `wch_${'e'.repeat(26)}`;
+    const client = createGeoApiClient('http://127.0.0.1:45200');
+    const chunkPayload = {
+      chunk_pub_id: chunkPubId,
+      analysis_pub_id: `wca_${'f'.repeat(26)}`,
+      occurrence_pub_id: `uoc_${'g'.repeat(26)}`,
+      snapshot_pub_id: `snp_${'h'.repeat(26)}`,
+      analysis_created_at: '2026-08-20T02:00:00Z',
+      ordinal: 1,
+      source_text_start: 10,
+      source_text_end: 18,
+      source_quote: '逐字来源证据',
+      source_quote_hash: 'a'.repeat(64),
+      answer_text_start: 20,
+      answer_text_end: 28,
+      answer_quote: '逐字答案证据',
+      answer_quote_hash: 'b'.repeat(64),
+      basis: 'explicit_citation',
+      contribution_score: 0.82,
+      confidence: 0.94,
+      model: 'deterministic',
+      prompt_version: 'prompt-v1',
+      policy_version: 'policy-v1',
+      algorithm_version: 'algorithm-v1',
+      verification_state: 'exact',
+      review_state: 'unreviewed',
+      review_count: 0,
+      latest_review: null,
+    } as const;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse({
+          schema_version: 'internal-source-w-chunks-v1',
+          project_pub_id: projectPubId,
+          url_pub_id: urlPubId,
+          data: [chunkPayload],
+          page: { next_cursor: null, has_more: false },
+        }),
+      ),
+    );
+
+    const chunks = await listInternalSourceWChunks(headers, projectPubId, urlPubId, null, client);
+    expect(chunks.kind).toBe('ready');
+    if (chunks.kind === 'ready') {
+      expect(chunks.data.data[0]).toMatchObject({
+        chunkPubId,
+        sourceTextStart: 10,
+        sourceTextEnd: 18,
+        contributionScore: 0.82,
+        latestReview: null,
+      });
+    }
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse({
+          schema_version: 'internal-source-w-chunks-v1',
+          project_pub_id: projectPubId,
+          url_pub_id: urlPubId,
+          data: [{ ...chunkPayload, review_state: 'accepted' }],
+          page: { next_cursor: null, has_more: false },
+        }),
+      ),
+    );
+    await expect(
+      listInternalSourceWChunks(headers, projectPubId, urlPubId, null, client),
+    ).resolves.toEqual({ kind: 'unavailable' });
+
+    const reviewReceipt = {
+      schema_version: 'internal-w-chunk-review-v1' as const,
+      project_pub_id: projectPubId,
+      chunk_pub_id: chunkPubId,
+      review_pub_id: `wcr_${'i'.repeat(26)}`,
+      decision: 'rejected' as const,
+      rationale: '逐字证据与答案事实承接不成立。',
+      reviewer_pub_id: `usr_${'j'.repeat(26)}`,
+      reviewed_at: '2026-08-20T03:00:00Z',
+    };
+    const reviewFetch = vi.fn(async (input: RequestInfo | URL) => {
+      const outbound = input as Request;
+      expect(outbound.method).toBe('POST');
+      expect(await outbound.clone().json()).toEqual({
+        decision: 'rejected',
+        rationale: reviewReceipt.rationale,
+      });
+      return jsonResponse(reviewReceipt, 201);
+    });
+    vi.stubGlobal('fetch', reviewFetch);
+    const review = await reviewInternalWChunk(
+      headers,
+      projectPubId,
+      chunkPubId,
+      'rejected',
+      ` ${reviewReceipt.rationale} `,
+      'w-review-idempotency-0001',
+      client,
+    );
+    expect(review).toEqual({
+      kind: 'ready',
+      data: {
+        reviewPubId: reviewReceipt.review_pub_id,
+        decision: 'rejected',
+        rationale: reviewReceipt.rationale,
+        reviewerPubId: reviewReceipt.reviewer_pub_id,
+        reviewedAt: reviewReceipt.reviewed_at,
+      },
+    });
+    const request = reviewFetch.mock.calls[0]?.[0] as Request;
+    expect(request.headers.get('Idempotency-Key')).toBe('w-review-idempotency-0001');
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse(
+          {
+            ...reviewReceipt,
+            decision: 'accepted',
+          },
+          201,
+        ),
+      ),
+    );
+    await expect(
+      reviewInternalWChunk(
+        headers,
+        projectPubId,
+        chunkPubId,
+        'rejected',
+        reviewReceipt.rationale,
+        'w-review-idempotency-0002',
+        client,
+      ),
+    ).resolves.toEqual({ kind: 'unavailable' });
   });
 });

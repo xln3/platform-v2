@@ -92,7 +92,8 @@ def _load_subjects(
                    snapshot.pub_id AS snapshot_pub_id,
                    snapshot.body_object_key AS text_cas_key,snapshot.text_sha256,
                    weighted.pub_id AS w_analysis_pub_id,
-                   weighted.result_state AS w_analysis_state,weighted.w_score
+                   weighted.result_state AS w_analysis_state,weighted.w_score,
+                   weighted.w_review_facts
             FROM platform.answer_source_occurrence occurrence
             LEFT JOIN LATERAL (
               SELECT candidate.*
@@ -110,8 +111,24 @@ def _load_subjects(
                      (SELECT max(chunk.contribution_score)
                       FROM platform.weighted_content_chunk chunk
                       WHERE chunk.analysis_id=analysis.id
-                        AND chunk.verification_state='exact'
-                        AND chunk.review_state<>'rejected') AS w_score
+                        AND (
+                          (chunk.verification_state='exact'
+                           AND chunk.review_state<>'rejected')
+                          OR chunk.review_state='accepted'
+                        )) AS w_score,
+                     (SELECT COALESCE(jsonb_agg(jsonb_build_object(
+                               'chunk_pub_id',reviewed_chunk.pub_id,
+                               'review_state',reviewed_chunk.review_state,
+                               'latest_review_pub_id',COALESCE((
+                                 SELECT review.pub_id
+                                 FROM platform.weighted_content_chunk_review review
+                                 WHERE review.chunk_id=reviewed_chunk.id
+                                 ORDER BY review.reviewed_at DESC,review.pub_id DESC
+                                 LIMIT 1
+                               ),'')
+                             ) ORDER BY reviewed_chunk.ordinal,reviewed_chunk.pub_id),'[]'::jsonb)
+                      FROM platform.weighted_content_chunk reviewed_chunk
+                      WHERE reviewed_chunk.analysis_id=analysis.id) AS w_review_facts
               FROM platform.content_contribution_analysis analysis
               WHERE analysis.occurrence_id=occurrence.id
                 AND analysis.snapshot_id=snapshot.id
@@ -183,6 +200,7 @@ def _input_hash(rows: list[dict[str, Any]], item: ContentStrategyInput) -> str:
                 "w_score": float(row["w_score"]) if row["w_score"] is not None else None,
                 "w_analysis_pub_id": str(row.get("w_analysis_pub_id") or ""),
                 "w_analysis_state": str(row.get("w_analysis_state") or ""),
+                "w_review_facts": row.get("w_review_facts") or [],
                 "snapshot_pub_id": str(row["snapshot_pub_id"] or ""),
                 "text_sha256": str(row["text_sha256"] or ""),
             }

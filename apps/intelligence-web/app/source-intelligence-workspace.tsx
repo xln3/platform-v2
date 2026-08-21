@@ -8,6 +8,8 @@ import {
   listInternalSourceSites,
   listInternalSourceSnapshots,
   listInternalSourceUrls,
+  listInternalSourceWChunks,
+  reviewInternalWChunk,
   type InternalAnswerUvw,
   type InternalSourceInspection,
   type InternalSourceInspectionEvidence,
@@ -16,6 +18,7 @@ import {
   type InternalSourceSnapshot,
   type InternalSourceUrl,
   type InternalSourceUrlDetail,
+  type InternalWChunk,
 } from '@geo/api-client';
 import { getValidatedIdentityHeaders } from '@geo/auth';
 import { Badge, StatePanel, useOptionalExperienceContext } from '@geo/design-system';
@@ -163,6 +166,36 @@ const fixtureInspections: InternalSourceInspection[] = [
   },
 ];
 
+const fixtureWChunks: InternalWChunk[] = [
+  {
+    chunkPubId: 'wch_fixture_article',
+    analysisPubId: 'wca_fixture_article',
+    occurrencePubId: 'uoc_fixture_a',
+    snapshotPubId: 'snp_fixture_article',
+    analysisCreatedAt: '2026-08-20T02:02:00Z',
+    ordinal: 1,
+    sourceTextStart: 20,
+    sourceTextEnd: 36,
+    sourceQuote: '目标品牌在该项对比中排名靠后。',
+    sourceQuoteHash: 'b'.repeat(64),
+    answerTextStart: 8,
+    answerTextEnd: 24,
+    answerQuote: '目标品牌在该项对比中排名靠后。',
+    answerQuoteHash: 'b'.repeat(64),
+    basis: 'explicit_citation',
+    contributionScore: 0.82,
+    confidence: 0.94,
+    model: 'deterministic',
+    promptVersion: 'content-contribution-prompt-v1',
+    policyVersion: 'content-contribution-exact-v1',
+    algorithmVersion: 'exact-span-v1',
+    verificationState: 'exact',
+    reviewState: 'unreviewed',
+    reviewCount: 0,
+    latestReview: null,
+  },
+];
+
 const fixtureInspectionEvidence: InternalSourceInspectionEvidence = {
   inspectionPubId: 'pgi_fixture_article',
   sourceDocumentPubId: 'srd_fixture_article',
@@ -238,6 +271,12 @@ export function SourceIntelligenceWorkspace() {
   const [inspections, setInspections] = useState<InternalSourceInspection[]>([]);
   const [inspectionCursor, setInspectionCursor] = useState<string | null>(null);
   const [historyState, setHistoryState] = useState<LoadState>('idle');
+  const [wChunks, setWChunks] = useState<InternalWChunk[]>([]);
+  const [wChunkCursor, setWChunkCursor] = useState<string | null>(null);
+  const [wChunkState, setWChunkState] = useState<LoadState>('idle');
+  const [reviewRationales, setReviewRationales] = useState<Record<string, string>>({});
+  const [reviewingChunk, setReviewingChunk] = useState<string | null>(null);
+  const [reviewMessage, setReviewMessage] = useState<string>('');
   const [inspectionEvidence, setInspectionEvidence] =
     useState<InternalSourceInspectionEvidence | null>(null);
   const [inspectionEvidenceState, setInspectionEvidenceState] = useState<LoadState>('idle');
@@ -253,6 +292,9 @@ export function SourceIntelligenceWorkspace() {
     setOccurrences([]);
     setSnapshots([]);
     setInspections([]);
+    setWChunks([]);
+    setReviewRationales({});
+    setReviewMessage('');
     setInspectionEvidence(null);
     setAnswer(null);
     if (fixture) {
@@ -290,6 +332,9 @@ export function SourceIntelligenceWorkspace() {
     setOccurrences([]);
     setSnapshots([]);
     setInspections([]);
+    setWChunks([]);
+    setReviewRationales({});
+    setReviewMessage('');
     setInspectionEvidence(null);
     setAnswer(null);
     if (!selectedSite) {
@@ -335,8 +380,10 @@ export function SourceIntelligenceWorkspace() {
       setOccurrences([]);
       setSnapshots([]);
       setInspections([]);
+      setWChunks([]);
       setUrlState('idle');
       setHistoryState('idle');
+      setWChunkState('idle');
       return;
     }
     if (fixture) {
@@ -347,25 +394,31 @@ export function SourceIntelligenceWorkspace() {
       setSnapshotCursor(null);
       setInspections(fixtureInspections);
       setInspectionCursor(null);
+      setWChunks(fixtureWChunks);
+      setWChunkCursor(null);
       setUrlState('ready');
       setHistoryState('ready');
+      setWChunkState('ready');
       return;
     }
     const headers = getValidatedIdentityHeaders();
     if (!headers || !projectPubId) {
       setUrlState('failed');
       setHistoryState('failed');
+      setWChunkState('failed');
       return;
     }
     let cancelled = false;
     setUrlState('loading');
     setHistoryState('loading');
+    setWChunkState('loading');
     void Promise.all([
       getInternalSourceUrlDetail(headers, projectPubId, selectedUrl),
       listInternalSourceOccurrences(headers, projectPubId, selectedUrl),
       listInternalSourceSnapshots(headers, projectPubId, selectedUrl),
       listInternalSourceInspections(headers, projectPubId, selectedUrl),
-    ]).then(([detailResult, occurrenceResult, snapshotResult, inspectionResult]) => {
+      listInternalSourceWChunks(headers, projectPubId, selectedUrl),
+    ]).then(([detailResult, occurrenceResult, snapshotResult, inspectionResult, wChunkResult]) => {
       if (cancelled) return;
       if (detailResult.kind === 'ready' && occurrenceResult.kind === 'ready') {
         setDetail(detailResult.data);
@@ -395,6 +448,14 @@ export function SourceIntelligenceWorkspace() {
             ? 'forbidden'
             : 'failed',
         );
+      }
+      if (wChunkResult.kind === 'ready') {
+        setWChunks(wChunkResult.data.data);
+        setWChunkCursor(wChunkResult.data.nextCursor);
+        setWChunkState('ready');
+      } else {
+        setWChunks([]);
+        setWChunkState(wChunkResult.kind === 'forbidden' ? 'forbidden' : 'failed');
       }
     });
     return () => {
@@ -465,6 +526,115 @@ export function SourceIntelligenceWorkspace() {
       setInspections((current) => [...current, ...result.data.data]);
       setInspectionCursor(result.data.nextCursor);
     }
+  }
+
+  async function loadMoreWChunks() {
+    const headers = getValidatedIdentityHeaders();
+    if (!headers || !projectPubId || !selectedUrl || !wChunkCursor) return;
+    const result = await listInternalSourceWChunks(
+      headers,
+      projectPubId,
+      selectedUrl,
+      wChunkCursor,
+    );
+    if (result.kind === 'ready') {
+      setWChunks((current) => [...current, ...result.data.data]);
+      setWChunkCursor(result.data.nextCursor);
+    }
+  }
+
+  async function reviewChunk(chunkPubId: string, decision: 'accepted' | 'rejected') {
+    const rationale = (reviewRationales[chunkPubId] ?? '').trim();
+    if (!rationale) {
+      setReviewMessage('请先填写复核依据。');
+      return;
+    }
+    if (fixture) {
+      const reviewedAt = new Date().toISOString();
+      const reviewedChunk = wChunks.find((chunk) => chunk.chunkPubId === chunkPubId);
+      setWChunks((current) =>
+        current.map((chunk) =>
+          chunk.chunkPubId === chunkPubId
+            ? {
+                ...chunk,
+                reviewState: decision,
+                reviewCount: chunk.reviewCount + 1,
+                latestReview: {
+                  reviewPubId: 'wcr_fixture_review',
+                  decision,
+                  rationale,
+                  reviewerPubId: 'usr_fixture_reviewer',
+                  reviewedAt,
+                },
+              }
+            : chunk,
+        ),
+      );
+      if (reviewedChunk) {
+        setOccurrences((current) =>
+          current.map((occurrence) =>
+            occurrence.occurrencePubId === reviewedChunk.occurrencePubId
+              ? {
+                  ...occurrence,
+                  wState: decision === 'accepted' ? 'confirmed' : 'no_evidence',
+                  wWeight: decision === 'accepted' ? reviewedChunk.contributionScore : null,
+                }
+              : occurrence,
+          ),
+        );
+      }
+      setReviewMessage(decision === 'accepted' ? 'W 片段已复核通过。' : 'W 片段已复核驳回。');
+      return;
+    }
+    const headers = getValidatedIdentityHeaders();
+    if (!headers || !projectPubId || !selectedUrl) return;
+    setReviewingChunk(chunkPubId);
+    setReviewMessage('');
+    const result = await reviewInternalWChunk(
+      headers,
+      projectPubId,
+      chunkPubId,
+      decision,
+      rationale,
+      `w-review-${globalThis.crypto.randomUUID()}`,
+    );
+    setReviewingChunk(null);
+    if (result.kind !== 'ready') {
+      setReviewMessage(
+        result.kind === 'forbidden' ? '当前账号没有 W 人工复核权限。' : '复核提交失败，请重试。',
+      );
+      return;
+    }
+    const [refreshedChunks, refreshedOccurrences, refreshedDetail] = await Promise.all([
+      listInternalSourceWChunks(headers, projectPubId, selectedUrl),
+      listInternalSourceOccurrences(headers, projectPubId, selectedUrl),
+      getInternalSourceUrlDetail(headers, projectPubId, selectedUrl),
+    ]);
+    if (refreshedChunks.kind === 'ready') {
+      setWChunks(refreshedChunks.data.data);
+      setWChunkCursor(refreshedChunks.data.nextCursor);
+    } else {
+      setWChunks((current) =>
+        current.map((chunk) =>
+          chunk.chunkPubId === chunkPubId
+            ? {
+                ...chunk,
+                reviewState: result.data.decision,
+                reviewCount: chunk.reviewCount + 1,
+                latestReview: result.data,
+              }
+            : chunk,
+        ),
+      );
+    }
+    if (refreshedOccurrences.kind === 'ready') {
+      setOccurrences(refreshedOccurrences.data.data);
+      setOccurrenceCursor(refreshedOccurrences.data.nextCursor);
+    }
+    if (refreshedDetail.kind === 'ready') setDetail(refreshedDetail.data);
+    setReviewMessage(
+      result.data.decision === 'accepted' ? 'W 片段已复核通过。' : 'W 片段已复核驳回。',
+    );
   }
 
   async function openInspection(inspectionPubId: string) {
@@ -834,6 +1004,125 @@ export function SourceIntelligenceWorkspace() {
                   ) : null}
                 </>
               )}
+            </section>
+
+            <section className="panel">
+              <h2>W 内容片段、版本与人工复核</h2>
+              <p className="panel-subtitle">
+                W 只展示可回校验的页面正文片段；最终引用 URL 本身不会自动成为
+                W。复核记录追加保存，历史分析版本不会被覆盖。
+              </p>
+              {wChunkState === 'loading' ? (
+                <StatePanel state="loading" />
+              ) : wChunkState === 'failed' ? (
+                <StatePanel state="failed" />
+              ) : wChunkState === 'forbidden' ? (
+                <StatePanel state="forbidden" />
+              ) : wChunks.length === 0 ? (
+                <p className="panel-subtitle">当前页面没有可验证的 W 内容片段。</p>
+              ) : (
+                <div className="workspace-stack">
+                  {wChunks.map((chunk) => (
+                    <article className="case-card" key={chunk.chunkPubId}>
+                      <div className="account-head">
+                        <div>
+                          <h3>
+                            W #{chunk.ordinal} · {chunk.basis}
+                          </h3>
+                          <p className="panel-subtitle">
+                            {chunk.policyVersion} / {chunk.promptVersion} / {chunk.model}
+                          </p>
+                        </div>
+                        <Badge
+                          tone={
+                            chunk.reviewState === 'rejected'
+                              ? 'warning'
+                              : chunk.reviewState === 'accepted'
+                                ? 'positive'
+                                : 'neutral'
+                          }
+                        >
+                          {chunk.verificationState} · {chunk.reviewState}
+                        </Badge>
+                      </div>
+                      <blockquote>
+                        “{chunk.sourceQuote}”
+                        <footer className="evidence-digest">
+                          source exact [{chunk.sourceTextStart}, {chunk.sourceTextEnd}) ·{' '}
+                          {chunk.sourceQuoteHash}
+                        </footer>
+                      </blockquote>
+                      {chunk.answerQuote ? (
+                        <blockquote>
+                          答案：“{chunk.answerQuote}”
+                          <footer className="evidence-digest">
+                            answer [{chunk.answerTextStart}, {chunk.answerTextEnd}) ·{' '}
+                            {chunk.answerQuoteHash}
+                          </footer>
+                        </blockquote>
+                      ) : null}
+                      <p className="panel-subtitle">
+                        贡献 {chunk.contributionScore.toFixed(2)} · 置信度{' '}
+                        {chunk.confidence.toFixed(2)} · 算法 {chunk.algorithmVersion} · 分析时间{' '}
+                        {chunk.analysisCreatedAt}
+                      </p>
+                      {chunk.latestReview ? (
+                        <p className="panel-subtitle">
+                          最近复核：{chunk.latestReview.decision} · {chunk.latestReview.rationale} ·{' '}
+                          {chunk.latestReview.reviewerPubId} · {chunk.latestReview.reviewedAt}（累计{' '}
+                          {chunk.reviewCount} 次）
+                        </p>
+                      ) : (
+                        <p className="panel-subtitle">尚未人工复核。</p>
+                      )}
+                      <label>
+                        复核依据
+                        <textarea
+                          aria-label={`复核依据 ${chunk.chunkPubId}`}
+                          value={reviewRationales[chunk.chunkPubId] ?? ''}
+                          maxLength={4000}
+                          onChange={(event) => {
+                            const value = event.currentTarget.value;
+                            setReviewRationales((current) => ({
+                              ...current,
+                              [chunk.chunkPubId]: value,
+                            }));
+                          }}
+                        />
+                      </label>
+                      <div className="action-row">
+                        <button
+                          type="button"
+                          disabled={
+                            reviewingChunk === chunk.chunkPubId ||
+                            chunk.verificationState === 'rejected'
+                          }
+                          onClick={() => void reviewChunk(chunk.chunkPubId, 'accepted')}
+                        >
+                          复核通过
+                        </button>
+                        <button
+                          type="button"
+                          className="button button-secondary"
+                          disabled={
+                            reviewingChunk === chunk.chunkPubId ||
+                            chunk.verificationState === 'rejected'
+                          }
+                          onClick={() => void reviewChunk(chunk.chunkPubId, 'rejected')}
+                        >
+                          复核驳回
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+              {reviewMessage ? <p role="status">{reviewMessage}</p> : null}
+              {wChunkCursor ? (
+                <button type="button" className="button button-secondary" onClick={loadMoreWChunks}>
+                  加载更多 W 版本
+                </button>
+              ) : null}
             </section>
 
             <section className="panel">

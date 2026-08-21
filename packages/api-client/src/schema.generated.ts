@@ -4621,6 +4621,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/internal/source-intelligence/projects/{project_pub_id}/urls/{url_pub_id}/w-chunks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Url W Chunks */
+        get: operations["list_url_w_chunks_api_v2_internal_source_intelligence_projects__project_pub_id__urls__url_pub_id__w_chunks_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/internal/source-intelligence/projects/{project_pub_id}/w-chunks/{chunk_pub_id}/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Review W Chunk */
+        post: operations["review_w_chunk_api_v2_internal_source_intelligence_projects__project_pub_id__w_chunks__chunk_pub_id__reviews_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/internal/source-intelligence/projects/{project_pub_id}/urls/{url_pub_id}/occurrences": {
         parameters: {
             query?: never;
@@ -12408,6 +12442,139 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+        };
+        /** WChunkPage */
+        WChunkPage: {
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "internal-source-w-chunks-v1";
+            /** Project Pub Id */
+            project_pub_id: string;
+            /** Url Pub Id */
+            url_pub_id: string;
+            /** Data */
+            data: components["schemas"]["WChunkSummary"][];
+            page: components["schemas"]["CursorPage"];
+        };
+        /** WChunkReviewCreate */
+        WChunkReviewCreate: {
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "accepted" | "rejected";
+            /** Rationale */
+            rationale: string;
+        };
+        /** WChunkReviewReceipt */
+        WChunkReviewReceipt: {
+            /** Review Pub Id */
+            review_pub_id: string;
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "accepted" | "rejected";
+            /** Rationale */
+            rationale: string;
+            /** Reviewer Pub Id */
+            reviewer_pub_id: string;
+            /**
+             * Reviewed At
+             * Format: date-time
+             */
+            reviewed_at: string;
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "internal-w-chunk-review-v1";
+            /** Project Pub Id */
+            project_pub_id: string;
+            /** Chunk Pub Id */
+            chunk_pub_id: string;
+        };
+        /** WChunkReviewSummary */
+        WChunkReviewSummary: {
+            /** Review Pub Id */
+            review_pub_id: string;
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "accepted" | "rejected";
+            /** Rationale */
+            rationale: string;
+            /** Reviewer Pub Id */
+            reviewer_pub_id: string;
+            /**
+             * Reviewed At
+             * Format: date-time
+             */
+            reviewed_at: string;
+        };
+        /** WChunkSummary */
+        WChunkSummary: {
+            /** Chunk Pub Id */
+            chunk_pub_id: string;
+            /** Analysis Pub Id */
+            analysis_pub_id: string;
+            /** Occurrence Pub Id */
+            occurrence_pub_id: string;
+            /** Snapshot Pub Id */
+            snapshot_pub_id: string;
+            /**
+             * Analysis Created At
+             * Format: date-time
+             */
+            analysis_created_at: string;
+            /** Ordinal */
+            ordinal: number;
+            /** Source Text Start */
+            source_text_start: number;
+            /** Source Text End */
+            source_text_end: number;
+            /** Source Quote */
+            source_quote: string;
+            /** Source Quote Hash */
+            source_quote_hash: string;
+            /** Answer Text Start */
+            answer_text_start: number | null;
+            /** Answer Text End */
+            answer_text_end: number | null;
+            /** Answer Quote */
+            answer_quote: string | null;
+            /** Answer Quote Hash */
+            answer_quote_hash: string | null;
+            /** Basis */
+            basis: string;
+            /** Contribution Score */
+            contribution_score: number;
+            /** Confidence */
+            confidence: number;
+            /** Model */
+            model: string;
+            /** Prompt Version */
+            prompt_version: string;
+            /** Policy Version */
+            policy_version: string;
+            /** Algorithm Version */
+            algorithm_version: string;
+            /**
+             * Verification State
+             * @enum {string}
+             */
+            verification_state: "exact" | "needs_review" | "rejected";
+            /**
+             * Review State
+             * @enum {string}
+             */
+            review_state: "unreviewed" | "accepted" | "rejected";
+            /** Review Count */
+            review_count: number;
+            latest_review: components["schemas"]["WChunkReviewSummary"] | null;
         };
         /** WindowView */
         WindowView: {
@@ -34334,6 +34501,152 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UrlInspectionPage"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_url_w_chunks_api_v2_internal_source_intelligence_projects__project_pub_id__urls__url_pub_id__w_chunks_get: {
+        parameters: {
+            query?: {
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+                url_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WChunkPage"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    review_w_chunk_api_v2_internal_source_intelligence_projects__project_pub_id__w_chunks__chunk_pub_id__reviews_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+                chunk_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WChunkReviewCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WChunkReviewReceipt"];
                 };
             };
             /** @description Bad Request */

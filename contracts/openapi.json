@@ -61931,6 +61931,473 @@
         }
       }
     },
+    "/api/v2/internal/source-intelligence/projects/{project_pub_id}/urls/{url_pub_id}/w-chunks": {
+      "get": {
+        "tags": [
+          "internal-source-intelligence"
+        ],
+        "summary": "List Url W Chunks",
+        "operationId": "list_url_w_chunks_api_v2_internal_source_intelligence_projects__project_pub_id__urls__url_pub_id__w_chunks_get",
+        "parameters": [
+          {
+            "name": "project_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Pub Id"
+            }
+          },
+          {
+            "name": "url_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Url Pub Id"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WChunkPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/internal/source-intelligence/projects/{project_pub_id}/w-chunks/{chunk_pub_id}/reviews": {
+      "post": {
+        "tags": [
+          "internal-source-intelligence"
+        ],
+        "summary": "Review W Chunk",
+        "operationId": "review_w_chunk_api_v2_internal_source_intelligence_projects__project_pub_id__w_chunks__chunk_pub_id__reviews_post",
+        "parameters": [
+          {
+            "name": "project_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Pub Id"
+            }
+          },
+          {
+            "name": "chunk_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Chunk Pub Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 128,
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WChunkReviewCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WChunkReviewReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/internal/source-intelligence/projects/{project_pub_id}/urls/{url_pub_id}/occurrences": {
       "get": {
         "tags": [
@@ -85045,6 +85512,349 @@
           "created_at"
         ],
         "title": "VisualDiffView"
+      },
+      "WChunkPage": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "internal-source-w-chunks-v1",
+            "title": "Schema Version"
+          },
+          "project_pub_id": {
+            "type": "string",
+            "title": "Project Pub Id"
+          },
+          "url_pub_id": {
+            "type": "string",
+            "title": "Url Pub Id"
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/WChunkSummary"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "page": {
+            "$ref": "#/components/schemas/CursorPage"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "schema_version",
+          "project_pub_id",
+          "url_pub_id",
+          "data",
+          "page"
+        ],
+        "title": "WChunkPage"
+      },
+      "WChunkReviewCreate": {
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "rejected"
+            ],
+            "title": "Decision"
+          },
+          "rationale": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Rationale"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "decision",
+          "rationale"
+        ],
+        "title": "WChunkReviewCreate"
+      },
+      "WChunkReviewReceipt": {
+        "properties": {
+          "review_pub_id": {
+            "type": "string",
+            "title": "Review Pub Id"
+          },
+          "decision": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "rejected"
+            ],
+            "title": "Decision"
+          },
+          "rationale": {
+            "type": "string",
+            "title": "Rationale"
+          },
+          "reviewer_pub_id": {
+            "type": "string",
+            "title": "Reviewer Pub Id"
+          },
+          "reviewed_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Reviewed At"
+          },
+          "schema_version": {
+            "type": "string",
+            "const": "internal-w-chunk-review-v1",
+            "title": "Schema Version"
+          },
+          "project_pub_id": {
+            "type": "string",
+            "title": "Project Pub Id"
+          },
+          "chunk_pub_id": {
+            "type": "string",
+            "title": "Chunk Pub Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "review_pub_id",
+          "decision",
+          "rationale",
+          "reviewer_pub_id",
+          "reviewed_at",
+          "schema_version",
+          "project_pub_id",
+          "chunk_pub_id"
+        ],
+        "title": "WChunkReviewReceipt"
+      },
+      "WChunkReviewSummary": {
+        "properties": {
+          "review_pub_id": {
+            "type": "string",
+            "title": "Review Pub Id"
+          },
+          "decision": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "rejected"
+            ],
+            "title": "Decision"
+          },
+          "rationale": {
+            "type": "string",
+            "title": "Rationale"
+          },
+          "reviewer_pub_id": {
+            "type": "string",
+            "title": "Reviewer Pub Id"
+          },
+          "reviewed_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Reviewed At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "review_pub_id",
+          "decision",
+          "rationale",
+          "reviewer_pub_id",
+          "reviewed_at"
+        ],
+        "title": "WChunkReviewSummary"
+      },
+      "WChunkSummary": {
+        "properties": {
+          "chunk_pub_id": {
+            "type": "string",
+            "title": "Chunk Pub Id"
+          },
+          "analysis_pub_id": {
+            "type": "string",
+            "title": "Analysis Pub Id"
+          },
+          "occurrence_pub_id": {
+            "type": "string",
+            "title": "Occurrence Pub Id"
+          },
+          "snapshot_pub_id": {
+            "type": "string",
+            "title": "Snapshot Pub Id"
+          },
+          "analysis_created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Analysis Created At"
+          },
+          "ordinal": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Ordinal"
+          },
+          "source_text_start": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Source Text Start"
+          },
+          "source_text_end": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Source Text End"
+          },
+          "source_quote": {
+            "type": "string",
+            "title": "Source Quote"
+          },
+          "source_quote_hash": {
+            "type": "string",
+            "title": "Source Quote Hash"
+          },
+          "answer_text_start": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Text Start"
+          },
+          "answer_text_end": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Text End"
+          },
+          "answer_quote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Quote"
+          },
+          "answer_quote_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Quote Hash"
+          },
+          "basis": {
+            "type": "string",
+            "title": "Basis"
+          },
+          "contribution_score": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Contribution Score"
+          },
+          "confidence": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "prompt_version": {
+            "type": "string",
+            "title": "Prompt Version"
+          },
+          "policy_version": {
+            "type": "string",
+            "title": "Policy Version"
+          },
+          "algorithm_version": {
+            "type": "string",
+            "title": "Algorithm Version"
+          },
+          "verification_state": {
+            "type": "string",
+            "enum": [
+              "exact",
+              "needs_review",
+              "rejected"
+            ],
+            "title": "Verification State"
+          },
+          "review_state": {
+            "type": "string",
+            "enum": [
+              "unreviewed",
+              "accepted",
+              "rejected"
+            ],
+            "title": "Review State"
+          },
+          "review_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Review Count"
+          },
+          "latest_review": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WChunkReviewSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "chunk_pub_id",
+          "analysis_pub_id",
+          "occurrence_pub_id",
+          "snapshot_pub_id",
+          "analysis_created_at",
+          "ordinal",
+          "source_text_start",
+          "source_text_end",
+          "source_quote",
+          "source_quote_hash",
+          "answer_text_start",
+          "answer_text_end",
+          "answer_quote",
+          "answer_quote_hash",
+          "basis",
+          "contribution_score",
+          "confidence",
+          "model",
+          "prompt_version",
+          "policy_version",
+          "algorithm_version",
+          "verification_state",
+          "review_state",
+          "review_count",
+          "latest_review"
+        ],
+        "title": "WChunkSummary"
       },
       "WindowView": {
         "properties": {

@@ -37,3 +37,21 @@ for (const workspace of workspaces) {
     });
   });
 }
+
+test('intelligence source insight W review visual baseline has no page overflow', async ({
+  page,
+}) => {
+  await prepareVisualPage(page, '/platform/intelligence/?section=source-insight');
+  await page.getByRole('heading', { name: '信源洞察', exact: true }).waitFor();
+  await page.getByRole('button', { name: '查看 URL' }).first().click();
+  await page.getByRole('button', { name: '查看详情' }).first().click();
+  await page.getByRole('heading', { name: 'W 内容片段、版本与人工复核' }).waitFor();
+  await expect
+    .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1))
+    .toBe(true);
+  await expectSafePageScreenshot(page, 'intelligence-source-insight-w-review.png', {
+    fullPage: true,
+    animations: 'disabled',
+    maxDiffPixelRatio: 0.005,
+  });
+});

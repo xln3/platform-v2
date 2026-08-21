@@ -5,6 +5,7 @@ from domain.source_analysis.content_strategy import (
     build_content_strategy,
     observable_page_features,
 )
+from workflows.activities.content_strategy import ContentStrategyInput, _input_hash
 
 
 def _signal(
@@ -112,3 +113,42 @@ def test_observable_features_are_deterministic_and_content_only() -> None:
     assert first["list_line_rate"] > 0
     assert first["digit_rate"] > 0
     assert first["source_markers_per_kchars"] > 0
+
+
+def test_service5_frozen_input_changes_when_w_review_is_accepted() -> None:
+    item = ContentStrategyInput(
+        tenant_pub_id="tnt_test",
+        project_pub_id="prj_test",
+        run_pub_id="run_test",
+        content_contribution_policy_version="w-policy-v1",
+    )
+    row = {
+        "occurrence_pub_id": "uoc_test",
+        "u_state": "observed",
+        "v_state": "entered",
+        "w_state": "confirmed",
+        "w_score": 0.8,
+        "w_analysis_pub_id": "wca_test",
+        "w_analysis_state": "confirmed",
+        "w_review_facts": [],
+        "snapshot_pub_id": "snp_test",
+        "text_sha256": "a" * 64,
+    }
+    before_review = _input_hash([row], item)
+    after_review = _input_hash(
+        [
+            {
+                **row,
+                "w_review_facts": [
+                    {
+                        "chunk_pub_id": "wch_test",
+                        "review_state": "accepted",
+                        "latest_review_pub_id": "wcr_test",
+                    }
+                ],
+            }
+        ],
+        item,
+    )
+
+    assert after_review != before_review

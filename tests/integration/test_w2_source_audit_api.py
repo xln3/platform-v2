@@ -216,6 +216,7 @@ def seeded_run() -> Any:
             ("evidence.evidence_relation", "tenant_pub_id"),
             ("evidence.evidence_asset", "tenant_pub_id"),
             ("platform.source_audit", "tenant_id"),
+            ("platform.weighted_content_chunk_review", "tenant_id"),
             ("platform.weighted_content_chunk", "tenant_id"),
             ("platform.content_contribution_analysis", "tenant_id"),
             ("platform.source_page_snapshot", "tenant_id"),

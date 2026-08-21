@@ -768,6 +768,107 @@ def test_w_and_content_strategy_recalculations_are_immutable_versions() -> None:
         assert answer["final_reference_observation"] == "observed"
         assert answer["occurrences"][0]["url_pub_id"] == url_pub_id
 
+        chunks_response = client.get(
+            f"{base}/urls/{url_pub_id}/w-chunks",
+            headers=headers,
+        )
+        assert chunks_response.status_code == 200, chunks_response.text
+        chunks = chunks_response.json()["data"]
+        assert len(chunks) >= 2
+        assert {item["policy_version"] for item in chunks} == {
+            "content-contribution-exact-v1",
+            "content-contribution-exact-v2",
+        }
+        reviewed_chunk = next(
+            item for item in chunks if item["policy_version"] == "content-contribution-exact-v2"
+        )
+        assert (
+            source_text[reviewed_chunk["source_text_start"] : reviewed_chunk["source_text_end"]]
+            == reviewed_chunk["source_quote"]
+        )
+
+        review_key = "w-review-" + secrets.token_hex(16)
+        review_body = {
+            "decision": "rejected",
+            "rationale": "人工逐字复核后确认该自动贡献关系不应进入当前 W。",
+        }
+        review_response = client.post(
+            f"{base}/w-chunks/{reviewed_chunk['chunk_pub_id']}/reviews",
+            headers={**headers, "Idempotency-Key": review_key},
+            json=review_body,
+        )
+        assert review_response.status_code == 201, review_response.text
+        replay_response = client.post(
+            f"{base}/w-chunks/{reviewed_chunk['chunk_pub_id']}/reviews",
+            headers={**headers, "Idempotency-Key": review_key},
+            json=review_body,
+        )
+        assert replay_response.status_code == 201, replay_response.text
+        assert replay_response.json()["review_pub_id"] == review_response.json()["review_pub_id"]
+        conflict_response = client.post(
+            f"{base}/w-chunks/{reviewed_chunk['chunk_pub_id']}/reviews",
+            headers={**headers, "Idempotency-Key": review_key},
+            json={**review_body, "decision": "accepted"},
+        )
+        assert conflict_response.status_code == 409
+        assert conflict_response.json()["error"]["code"] == "w_chunk_review_idempotency_conflict"
+
+        reviewed_chunks_response = client.get(
+            f"{base}/urls/{url_pub_id}/w-chunks",
+            headers=headers,
+        )
+        assert reviewed_chunks_response.status_code == 200, reviewed_chunks_response.text
+        reviewed = next(
+            item
+            for item in reviewed_chunks_response.json()["data"]
+            if item["chunk_pub_id"] == reviewed_chunk["chunk_pub_id"]
+        )
+        assert reviewed["review_state"] == "rejected"
+        assert reviewed["review_count"] == 1
+        assert reviewed["latest_review"]["rationale"] == review_body["rationale"]
+
+        reviewed_occurrences_response = client.get(
+            f"{base}/urls/{url_pub_id}/occurrences",
+            headers=headers,
+        )
+        assert reviewed_occurrences_response.status_code == 200
+        reviewed_occurrence = reviewed_occurrences_response.json()["data"][0]
+        assert reviewed_occurrence["w_state"] == "no_evidence"
+        assert reviewed_occurrence["w_weight"] is None
+
+    reviewed_strategy = execute_content_strategy(
+        ContentStrategyInput(
+            tenant_pub_id=tenant,
+            project_pub_id=project_pub_id,
+            run_pub_id=run_pub_id,
+            content_contribution_policy_version="content-contribution-exact-v2",
+        ),
+        dsn=POSTGRES_DSN,
+        text_store=text_store,  # type: ignore[arg-type]
+    )
+    assert reviewed_strategy.u_occurrences == 1
+    assert reviewed_strategy.snapshot_available == 1
+
+    with psycopg.connect(POSTGRES_DSN) as connection:
+        review_facts, strategy_versions = connection.execute(
+            """
+            SELECT
+              (SELECT count(*)
+               FROM platform.weighted_content_chunk_review review
+               JOIN platform.weighted_content_chunk chunk ON chunk.id=review.chunk_id
+               JOIN platform.answer_source_occurrence occurrence
+                 ON occurrence.id=chunk.occurrence_id
+               WHERE occurrence.run_id=run.id),
+              (SELECT count(*) FROM platform.content_strategy_analysis strategy
+               WHERE strategy.run_id=run.id)
+            FROM platform.collection_run run
+            WHERE run.pub_id=%s
+            """,
+            (run_pub_id,),
+        ).fetchone()
+    assert review_facts == 1
+    assert strategy_versions == 3
+
 
 class ReconciliationHandle:
     async def describe(self) -> object:

@@ -2,18 +2,20 @@
 from __future__ import annotations
 
 import base64
+import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, Literal
 
 import psycopg
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from psycopg.rows import dict_row
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ..config import get_settings
 from ..identity.policy import Principal, get_principal
+from ..tenancy.ids import new_pub_id
 
 router = APIRouter(
     prefix="/api/v2/internal/source-intelligence",
@@ -189,6 +191,69 @@ class UrlInspectionPage(StrictModel):
     url_pub_id: str
     data: list[UrlInspectionSummary]
     page: CursorPage
+
+
+class WChunkReviewSummary(StrictModel):
+    review_pub_id: str
+    decision: Literal["accepted", "rejected"]
+    rationale: str
+    reviewer_pub_id: str
+    reviewed_at: datetime
+
+
+class WChunkSummary(StrictModel):
+    chunk_pub_id: str
+    analysis_pub_id: str
+    occurrence_pub_id: str
+    snapshot_pub_id: str
+    analysis_created_at: datetime
+    ordinal: int = Field(ge=1)
+    source_text_start: int = Field(ge=0)
+    source_text_end: int = Field(ge=1)
+    source_quote: str
+    source_quote_hash: str
+    answer_text_start: int | None
+    answer_text_end: int | None
+    answer_quote: str | None
+    answer_quote_hash: str | None
+    basis: str
+    contribution_score: float = Field(ge=0, le=1)
+    confidence: float = Field(ge=0, le=1)
+    model: str
+    prompt_version: str
+    policy_version: str
+    algorithm_version: str
+    verification_state: Literal["exact", "needs_review", "rejected"]
+    review_state: Literal["unreviewed", "accepted", "rejected"]
+    review_count: int = Field(ge=0)
+    latest_review: WChunkReviewSummary | None
+
+
+class WChunkPage(StrictModel):
+    schema_version: Literal["internal-source-w-chunks-v1"]
+    project_pub_id: str
+    url_pub_id: str
+    data: list[WChunkSummary]
+    page: CursorPage
+
+
+class WChunkReviewCreate(StrictModel):
+    decision: Literal["accepted", "rejected"]
+    rationale: str = Field(min_length=1, max_length=4000)
+
+    @field_validator("rationale")
+    @classmethod
+    def normalize_rationale(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("rationale must not be blank")
+        return normalized
+
+
+class WChunkReviewReceipt(WChunkReviewSummary):
+    schema_version: Literal["internal-w-chunk-review-v1"]
+    project_pub_id: str
+    chunk_pub_id: str
 
 
 def _dsn() -> str:
@@ -540,6 +605,231 @@ def list_url_inspections(
     )
 
 
+def _w_review_summary(row: dict[str, Any]) -> WChunkReviewSummary | None:
+    if row.get("latest_review_pub_id") is None:
+        return None
+    return WChunkReviewSummary(
+        review_pub_id=str(row["latest_review_pub_id"]),
+        decision=row["latest_review_decision"],
+        rationale=str(row["latest_review_rationale"]),
+        reviewer_pub_id=str(row["latest_reviewer_pub_id"]),
+        reviewed_at=row["latest_reviewed_at"],
+    )
+
+
+@router.get(
+    "/projects/{project_pub_id}/urls/{url_pub_id}/w-chunks",
+    response_model=WChunkPage,
+)
+def list_url_w_chunks(
+    project_pub_id: str,
+    url_pub_id: str,
+    cursor: str | None = None,
+    limit: int = Query(default=50, ge=1, le=100),
+    principal: Principal = Depends(get_principal),
+) -> WChunkPage:
+    principal.require("intelligence:read")
+    offset = _offset(cursor)
+    with _connection(principal.tenant_pub_id) as connection:
+        project_id = _project_id(connection, project_pub_id)
+        rows = connection.execute(
+            """
+            SELECT chunk.pub_id AS chunk_pub_id,analysis.pub_id AS analysis_pub_id,
+                   occurrence.pub_id AS occurrence_pub_id,
+                   snapshot.pub_id AS snapshot_pub_id,
+                   analysis.created_at AS analysis_created_at,chunk.ordinal,
+                   chunk.source_text_start,chunk.source_text_end,chunk.source_quote,
+                   chunk.source_quote_hash,chunk.answer_text_start,chunk.answer_text_end,
+                   chunk.answer_quote,chunk.answer_quote_hash,chunk.basis,
+                   chunk.contribution_score,chunk.confidence,chunk.model,
+                   chunk.prompt_version,chunk.policy_version,chunk.algorithm_version,
+                   chunk.verification_state,chunk.review_state,
+                   (SELECT count(*)::int
+                    FROM platform.weighted_content_chunk_review review_count
+                    WHERE review_count.chunk_id=chunk.id) AS review_count,
+                   latest_review.pub_id AS latest_review_pub_id,
+                   latest_review.decision AS latest_review_decision,
+                   latest_review.rationale AS latest_review_rationale,
+                   latest_review.reviewer_pub_id AS latest_reviewer_pub_id,
+                   latest_review.reviewed_at AS latest_reviewed_at
+            FROM platform.weighted_content_chunk chunk
+            JOIN platform.content_contribution_analysis analysis
+              ON analysis.id=chunk.analysis_id
+            JOIN platform.answer_source_occurrence occurrence
+              ON occurrence.id=chunk.occurrence_id
+            JOIN platform.source_page_snapshot snapshot ON snapshot.id=chunk.snapshot_id
+            JOIN platform.source_url url ON url.id=occurrence.source_url_id
+            LEFT JOIN LATERAL (
+              SELECT review.pub_id,review.decision,review.rationale,
+                     review.reviewer_pub_id,review.reviewed_at
+              FROM platform.weighted_content_chunk_review review
+              WHERE review.chunk_id=chunk.id
+              ORDER BY review.reviewed_at DESC,review.pub_id DESC
+              LIMIT 1
+            ) latest_review ON true
+            WHERE chunk.project_id=%s AND url.pub_id=%s
+            ORDER BY analysis.created_at DESC,analysis.pub_id DESC,
+                     chunk.ordinal ASC,chunk.pub_id ASC
+            LIMIT %s OFFSET %s
+            """,
+            (project_id, url_pub_id, limit + 1, offset),
+        ).fetchall()
+    visible, page = _page(rows, limit=limit, offset=offset)
+    data: list[WChunkSummary] = []
+    for raw_row in visible:
+        row = dict(raw_row)
+        latest_review = _w_review_summary(row)
+        for key in (
+            "latest_review_pub_id",
+            "latest_review_decision",
+            "latest_review_rationale",
+            "latest_reviewer_pub_id",
+            "latest_reviewed_at",
+        ):
+            row.pop(key, None)
+        data.append(WChunkSummary(**row, latest_review=latest_review))
+    return WChunkPage(
+        schema_version="internal-source-w-chunks-v1",
+        project_pub_id=project_pub_id,
+        url_pub_id=url_pub_id,
+        data=data,
+        page=page,
+    )
+
+
+@router.post(
+    "/projects/{project_pub_id}/w-chunks/{chunk_pub_id}/reviews",
+    response_model=WChunkReviewReceipt,
+    status_code=201,
+)
+def review_w_chunk(
+    project_pub_id: str,
+    chunk_pub_id: str,
+    body: WChunkReviewCreate,
+    idempotency_key: str = Header(alias="Idempotency-Key", min_length=16, max_length=128),
+    principal: Principal = Depends(get_principal),
+) -> WChunkReviewReceipt:
+    principal.require("intelligence:review")
+    reviewer_pub_id = principal.actor_pub_id
+    with _connection(principal.tenant_pub_id) as connection:
+        project_id = _project_id(connection, project_pub_id)
+        chunk = connection.execute(
+            """
+            SELECT chunk.id,chunk.tenant_id,chunk.project_id,chunk.occurrence_id,
+                   chunk.verification_state
+            FROM platform.weighted_content_chunk chunk
+            WHERE chunk.pub_id=%s AND chunk.project_id=%s
+            FOR UPDATE
+            """,
+            (chunk_pub_id, project_id),
+        ).fetchone()
+        if chunk is None:
+            raise HTTPException(status_code=404, detail={"code": "w_chunk_not_found"})
+        if chunk["verification_state"] == "rejected":
+            raise HTTPException(status_code=409, detail={"code": "w_chunk_not_reviewable"})
+
+        review_pub_id = new_pub_id("wcr")
+        review = connection.execute(
+            """
+            INSERT INTO platform.weighted_content_chunk_review
+              (id,pub_id,tenant_id,project_id,chunk_id,decision,rationale,
+               reviewer_pub_id,idempotency_key,reviewed_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,now())
+            ON CONFLICT (tenant_id,idempotency_key) DO NOTHING
+            RETURNING pub_id,decision,rationale,reviewer_pub_id,reviewed_at
+            """,
+            (
+                uuid.uuid4(),
+                review_pub_id,
+                chunk["tenant_id"],
+                chunk["project_id"],
+                chunk["id"],
+                body.decision,
+                body.rationale,
+                reviewer_pub_id,
+                idempotency_key,
+            ),
+        ).fetchone()
+        created = review is not None
+        if review is None:
+            review = connection.execute(
+                """
+                SELECT review.pub_id,review.decision,review.rationale,
+                       review.reviewer_pub_id,review.reviewed_at,
+                       reviewed_chunk.pub_id AS chunk_pub_id,
+                       review.project_id
+                FROM platform.weighted_content_chunk_review review
+                JOIN platform.weighted_content_chunk reviewed_chunk
+                  ON reviewed_chunk.id=review.chunk_id
+                WHERE review.tenant_id=%s AND review.idempotency_key=%s
+                """,
+                (chunk["tenant_id"], idempotency_key),
+            ).fetchone()
+            if review is None or (
+                str(review["chunk_pub_id"]),
+                str(review["project_id"]),
+                review["decision"],
+                review["rationale"],
+                review["reviewer_pub_id"],
+            ) != (
+                chunk_pub_id,
+                str(project_id),
+                body.decision,
+                body.rationale,
+                reviewer_pub_id,
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail={"code": "w_chunk_review_idempotency_conflict"},
+                )
+
+        if created:
+            connection.execute(
+                """
+                UPDATE platform.weighted_content_chunk
+                SET review_state=%s
+                WHERE id=%s
+                """,
+                (body.decision, chunk["id"]),
+            )
+            # occurrence.w_state is a replaceable current projection. The
+            # immutable analysis/chunk/review rows remain the authority.
+            connection.execute(
+                """
+                UPDATE platform.answer_source_occurrence occurrence
+                SET w_state=CASE WHEN EXISTS (
+                  SELECT 1
+                  FROM platform.weighted_content_chunk candidate
+                  WHERE candidate.analysis_id=(
+                    SELECT analysis.id
+                    FROM platform.content_contribution_analysis analysis
+                    WHERE analysis.occurrence_id=occurrence.id
+                    ORDER BY analysis.created_at DESC,analysis.pub_id DESC
+                    LIMIT 1
+                  )
+                    AND (
+                      (candidate.verification_state='exact'
+                       AND candidate.review_state<>'rejected')
+                      OR candidate.review_state='accepted'
+                    )
+                ) THEN 'confirmed' ELSE 'no_evidence' END
+                WHERE occurrence.id=%s AND occurrence.w_state<>'unobserved'
+                """,
+                (chunk["occurrence_id"],),
+            )
+
+    return WChunkReviewReceipt(
+        schema_version="internal-w-chunk-review-v1",
+        project_pub_id=project_pub_id,
+        chunk_pub_id=chunk_pub_id,
+        review_pub_id=str(review["pub_id"]),
+        decision=review["decision"],
+        rationale=str(review["rationale"]),
+        reviewer_pub_id=str(review["reviewer_pub_id"]),
+        reviewed_at=review["reviewed_at"],
+    )
+
+
 _OCCURRENCE_SELECT = """
     SELECT occurrence.pub_id AS occurrence_pub_id,task.pub_id AS answer_pub_id,
            url.pub_id AS url_pub_id,url.canonical_url,site.host,
@@ -556,8 +846,10 @@ _OCCURRENCE_SELECT = """
               SELECT analysis.id FROM platform.content_contribution_analysis analysis
               WHERE analysis.occurrence_id=occurrence.id
               ORDER BY analysis.created_at DESC,analysis.pub_id DESC LIMIT 1
-            ) AND chunk.verification_state='exact'
-              AND chunk.review_state<>'rejected') AS w_weight,
+            ) AND (
+              (chunk.verification_state='exact' AND chunk.review_state<>'rejected')
+              OR chunk.review_state='accepted'
+            )) AS w_weight,
            CASE WHEN occurrence.evidence_pub_id IS NOT NULL THEN 'linked'
                 ELSE 'unobserved' END AS evidence_state
     FROM platform.answer_source_occurrence occurrence

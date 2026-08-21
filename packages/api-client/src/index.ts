@@ -15393,6 +15393,42 @@ export type InternalSourceInspectionEvidence = {
   findings: InternalSourceFinding[];
 };
 
+export type InternalWChunkReview = {
+  reviewPubId: string;
+  decision: 'accepted' | 'rejected';
+  rationale: string;
+  reviewerPubId: string;
+  reviewedAt: string;
+};
+
+export type InternalWChunk = {
+  chunkPubId: string;
+  analysisPubId: string;
+  occurrencePubId: string;
+  snapshotPubId: string;
+  analysisCreatedAt: string;
+  ordinal: number;
+  sourceTextStart: number;
+  sourceTextEnd: number;
+  sourceQuote: string;
+  sourceQuoteHash: string;
+  answerTextStart: number | null;
+  answerTextEnd: number | null;
+  answerQuote: string | null;
+  answerQuoteHash: string | null;
+  basis: string;
+  contributionScore: number;
+  confidence: number;
+  model: string;
+  promptVersion: string;
+  policyVersion: string;
+  algorithmVersion: string;
+  verificationState: 'exact' | 'needs_review' | 'rejected';
+  reviewState: 'unreviewed' | 'accepted' | 'rejected';
+  reviewCount: number;
+  latestReview: InternalWChunkReview | null;
+};
+
 export type InternalSourceCursorPage<T> = {
   data: T[];
   nextCursor: string | null;
@@ -15450,6 +15486,9 @@ const evidenceConnectors = ['because', 'and', 'but', 'compared_with', 'therefore
 const evidenceFactTypes = ['source_quote', 'authority_fact', 'recomputable', 'absence'] as const;
 const findingLedgers = ['statement', 'exposure'] as const;
 const findingStatuses = ['confirmed', 'needs_review'] as const;
+const wChunkVerificationStates = ['exact', 'needs_review', 'rejected'] as const;
+const wChunkReviewStates = ['unreviewed', 'accepted', 'rejected'] as const;
+const wChunkReviewDecisions = ['accepted', 'rejected'] as const;
 const entitlementStates = ['inactive', 'active', 'suspended', 'expired'] as const;
 const customerServiceCatalog = [
   [1, 'ranking_test'],
@@ -15684,6 +15723,135 @@ const projectInternalInspection = (value: unknown): InternalSourceInspection | n
         createdAt,
       }
     : null;
+};
+
+const projectInternalWChunkReview = (value: unknown): InternalWChunkReview | null => {
+  if (!isBrowserRecord(value)) return null;
+  const reviewPubId = projectAnalyticsPubId(value.review_pub_id, 'wcr_');
+  const decision = safeBrowserEnum(value.decision, wChunkReviewDecisions);
+  const rationale = projectInternalText(value.rationale, 4_000);
+  const reviewerPubId = projectAnalyticsPubId(value.reviewer_pub_id, 'usr_');
+  const reviewedAt = projectSafeIsoTimestamp(value.reviewed_at);
+  return reviewPubId && decision && rationale && reviewerPubId && reviewedAt
+    ? { reviewPubId, decision, rationale, reviewerPubId, reviewedAt }
+    : null;
+};
+
+const projectInternalWChunk = (value: unknown): InternalWChunk | null => {
+  if (!isBrowserRecord(value)) return null;
+  const chunkPubId = projectAnalyticsPubId(value.chunk_pub_id, 'wch_');
+  const analysisPubId = projectAnalyticsPubId(value.analysis_pub_id, 'wca_');
+  const occurrencePubId = projectAnalyticsPubId(value.occurrence_pub_id, 'uoc_');
+  const snapshotPubId = projectAnalyticsPubId(value.snapshot_pub_id, 'snp_');
+  const analysisCreatedAt = projectSafeIsoTimestamp(value.analysis_created_at);
+  const ordinal = safeCount(value.ordinal);
+  const sourceTextStart = safeCount(value.source_text_start);
+  const sourceTextEnd = safeCount(value.source_text_end);
+  const sourceQuote = projectInternalText(value.source_quote, 100_000);
+  const sourceQuoteHash = safeHash(value.source_quote_hash);
+  const answerTextStart = projectNullableCount(value.answer_text_start);
+  const answerTextEnd = projectNullableCount(value.answer_text_end);
+  const answerQuote = projectNullableText(value.answer_quote, 100_000);
+  const answerQuoteHash =
+    value.answer_quote_hash === null ? null : safeHash(value.answer_quote_hash);
+  const basis = projectInternalText(value.basis, 64);
+  const contributionScore =
+    typeof value.contribution_score === 'number' &&
+    Number.isFinite(value.contribution_score) &&
+    value.contribution_score >= 0 &&
+    value.contribution_score <= 1
+      ? value.contribution_score
+      : null;
+  const confidence =
+    typeof value.confidence === 'number' &&
+    Number.isFinite(value.confidence) &&
+    value.confidence >= 0 &&
+    value.confidence <= 1
+      ? value.confidence
+      : null;
+  const model = projectInternalText(value.model, 120);
+  const promptVersion = projectInternalText(value.prompt_version, 120);
+  const policyVersion = projectInternalText(value.policy_version, 120);
+  const algorithmVersion = projectInternalText(value.algorithm_version, 120);
+  const verificationState = safeBrowserEnum(value.verification_state, wChunkVerificationStates);
+  const reviewState = safeBrowserEnum(value.review_state, wChunkReviewStates);
+  const reviewCount = safeCount(value.review_count);
+  const latestReview =
+    value.latest_review === null ? null : projectInternalWChunkReview(value.latest_review);
+  const answerSpanIsNull =
+    answerTextStart === null &&
+    answerTextEnd === null &&
+    answerQuote === null &&
+    answerQuoteHash === null;
+  const answerSpanIsComplete =
+    typeof answerTextStart === 'number' &&
+    typeof answerTextEnd === 'number' &&
+    answerTextEnd > answerTextStart &&
+    typeof answerQuote === 'string' &&
+    typeof answerQuoteHash === 'string';
+  if (
+    !chunkPubId ||
+    !analysisPubId ||
+    !occurrencePubId ||
+    !snapshotPubId ||
+    !analysisCreatedAt ||
+    ordinal === null ||
+    ordinal < 1 ||
+    sourceTextStart === null ||
+    sourceTextEnd === null ||
+    sourceTextEnd <= sourceTextStart ||
+    !sourceQuote ||
+    !sourceQuoteHash ||
+    answerTextStart === undefined ||
+    answerTextEnd === undefined ||
+    answerQuote === undefined ||
+    (answerQuoteHash === null && value.answer_quote_hash !== null) ||
+    (!answerSpanIsNull && !answerSpanIsComplete) ||
+    !basis ||
+    contributionScore === null ||
+    confidence === null ||
+    !model ||
+    !promptVersion ||
+    !policyVersion ||
+    !algorithmVersion ||
+    !verificationState ||
+    !reviewState ||
+    reviewCount === null ||
+    (value.latest_review !== null && latestReview === null) ||
+    (reviewCount === 0) !== (latestReview === null) ||
+    (reviewState === 'unreviewed'
+      ? reviewCount !== 0 || latestReview !== null
+      : reviewCount < 1 || latestReview?.decision !== reviewState)
+  ) {
+    return null;
+  }
+  return {
+    chunkPubId,
+    analysisPubId,
+    occurrencePubId,
+    snapshotPubId,
+    analysisCreatedAt,
+    ordinal,
+    sourceTextStart,
+    sourceTextEnd,
+    sourceQuote,
+    sourceQuoteHash,
+    answerTextStart,
+    answerTextEnd,
+    answerQuote,
+    answerQuoteHash,
+    basis,
+    contributionScore,
+    confidence,
+    model,
+    promptVersion,
+    policyVersion,
+    algorithmVersion,
+    verificationState,
+    reviewState,
+    reviewCount,
+    latestReview,
+  };
 };
 
 const projectCustomerFiveService = (value: unknown): CustomerFiveService | null => {
@@ -16123,6 +16291,95 @@ export async function listInternalSourceInspections(
       return { kind: 'unavailable' };
     }
     return { kind: 'ready', data: { data: data as InternalSourceInspection[], ...page } };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+export async function listInternalSourceWChunks(
+  headers: IdentitySessionHeaders,
+  projectPubId: string,
+  urlPubId: string,
+  cursor: string | null = null,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<ProjectResourceResult<InternalSourceCursorPage<InternalWChunk>>> {
+  try {
+    if (!projectAnalyticsPubId(projectPubId, 'prj_') || !projectAnalyticsPubId(urlPubId, 'url_'))
+      return { kind: 'unavailable' };
+    const result = await projectedApiClient(client).GET(
+      '/api/v2/internal/source-intelligence/projects/{project_pub_id}/urls/{url_pub_id}/w-chunks',
+      {
+        params: {
+          path: { project_pub_id: projectPubId, url_pub_id: urlPubId },
+          query: { limit: 100, ...(cursor ? { cursor } : {}) },
+          header: headers,
+        },
+      },
+    );
+    if (!result.data) return classifyResourceFailure(result.response.status);
+    const page = projectInternalCursor(result.data.page);
+    const data = result.data.data.map(projectInternalWChunk);
+    if (
+      !page ||
+      result.data.schema_version !== 'internal-source-w-chunks-v1' ||
+      result.data.project_pub_id !== projectPubId ||
+      result.data.url_pub_id !== urlPubId ||
+      data.some((value) => value === null)
+    ) {
+      return { kind: 'unavailable' };
+    }
+    return { kind: 'ready', data: { data: data as InternalWChunk[], ...page } };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+export async function reviewInternalWChunk(
+  headers: IdentitySessionHeaders,
+  projectPubId: string,
+  chunkPubId: string,
+  decision: 'accepted' | 'rejected',
+  rationale: string,
+  idempotencyKey: string,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<ProjectResourceResult<InternalWChunkReview>> {
+  try {
+    const normalizedRationale = rationale.trim();
+    if (
+      !projectAnalyticsPubId(projectPubId, 'prj_') ||
+      !projectAnalyticsPubId(chunkPubId, 'wch_') ||
+      !wChunkReviewDecisions.includes(decision) ||
+      normalizedRationale.length < 1 ||
+      normalizedRationale.length > 4_000 ||
+      idempotencyKey.length < 16 ||
+      idempotencyKey.length > 128 ||
+      !/^[A-Za-z0-9._:-]+$/u.test(idempotencyKey)
+    ) {
+      return { kind: 'unavailable' };
+    }
+    const result = await projectedApiClient(client).POST(
+      '/api/v2/internal/source-intelligence/projects/{project_pub_id}/w-chunks/{chunk_pub_id}/reviews',
+      {
+        params: {
+          path: { project_pub_id: projectPubId, chunk_pub_id: chunkPubId },
+          header: { ...headers, 'Idempotency-Key': idempotencyKey },
+        },
+        body: { decision, rationale: normalizedRationale },
+      },
+    );
+    if (!result.data) return classifyResourceFailure(result.response.status);
+    const review = projectInternalWChunkReview(result.data);
+    if (
+      result.data.schema_version !== 'internal-w-chunk-review-v1' ||
+      result.data.project_pub_id !== projectPubId ||
+      result.data.chunk_pub_id !== chunkPubId ||
+      !review ||
+      review.decision !== decision ||
+      review.rationale !== normalizedRationale
+    ) {
+      return { kind: 'unavailable' };
+    }
+    return { kind: 'ready', data: review };
   } catch {
     return { kind: 'unavailable' };
   }

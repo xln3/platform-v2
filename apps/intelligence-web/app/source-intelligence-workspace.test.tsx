@@ -20,8 +20,15 @@ describe('SourceIntelligenceWorkspace', () => {
     await user.click(screen.getAllByRole('button', { name: '查看详情' })[0]!);
 
     expect(screen.getByText('页面快照、历史版本与风险体检')).toBeTruthy();
+    expect(screen.getByText('W 内容片段、版本与人工复核')).toBeTruthy();
+    expect(screen.getByText(/source exact \[20, 36\)/)).toBeTruthy();
     expect(screen.getAllByText(/目标品牌评测/).length).toBeGreaterThan(0);
     expect(screen.getAllByRole('button', { name: '查看问答' })).toHaveLength(2);
+
+    await user.type(screen.getByLabelText(/复核依据 wch_fixture_article/), '逐字证据复核不通过');
+    await user.click(screen.getByRole('button', { name: '复核驳回' }));
+    expect(screen.getByRole('status').textContent).toContain('W 片段已复核驳回');
+    expect(screen.getByText(/最近复核：rejected · 逐字证据复核不通过/)).toBeTruthy();
 
     await user.click(screen.getByRole('button', { name: '查看逐字证据' }));
     expect(screen.getByText('风险发现与逐字证据')).toBeTruthy();

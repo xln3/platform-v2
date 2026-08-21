@@ -10,7 +10,7 @@ from geo_platform.customer_services.router import (
     _safe_delivery,
 )
 from geo_platform.identity.policy import Principal, Role
-from geo_platform.source_intelligence.router import list_sites
+from geo_platform.source_intelligence.router import WChunkReviewCreate, list_sites, review_w_chunk
 
 
 def test_customer_cannot_cross_internal_source_directory_permission_boundary() -> None:
@@ -23,6 +23,27 @@ def test_customer_cannot_cross_internal_source_directory_permission_boundary() -
 
     with pytest.raises(HTTPException) as raised:
         list_sites("prj_test", cursor=None, limit=50, principal=principal)
+
+    assert raised.value.status_code == 403
+    assert raised.value.detail == {"code": "permission_denied"}
+
+
+def test_customer_cannot_review_internal_w_evidence() -> None:
+    principal = Principal(
+        subject="customer-subject",
+        role=Role.CUSTOMER,
+        tenant_pub_id="tnt_test",
+        user_pub_id="usr_customer",
+    )
+
+    with pytest.raises(HTTPException) as raised:
+        review_w_chunk(
+            "prj_test",
+            "wch_test",
+            WChunkReviewCreate(decision="accepted", rationale="复核通过"),
+            "review-idempotency-key",
+            principal,
+        )
 
     assert raised.value.status_code == 403
     assert raised.value.detail == {"code": "permission_denied"}
