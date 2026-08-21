@@ -10,14 +10,14 @@
 
 ## 数据与任务链
 
-| 层          | 权威事实                                                                                  | 关键状态/版本                                                           |
-| ----------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| 现场采集    | `collection_task`、`answer_retrieval_event`、`answer_source_occurrence`、evidence、outbox | U/V/final 各自 observed/partial/unobserved                              |
-| URL 身份    | `source_site`、`source_url`                                                               | 原始 URL、规范 URL、规范化版本                                          |
-| 公开页      | `source_fetch_attempt`、`source_page_snapshot`、CAS                                       | queued/fetching/succeeded/partial/blocked/gone/retry_wait/failed        |
+| 层          | 权威事实                                                                                  | 关键状态/版本                                                                          |
+| ----------- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| 现场采集    | `collection_task`、`answer_retrieval_event`、`answer_source_occurrence`、evidence、outbox | U/V/final 各自 observed/partial/unobserved                                             |
+| URL 身份    | `source_site`、`source_url`                                                               | 原始 URL、规范 URL、规范化版本                                                         |
+| 公开页      | `source_fetch_attempt`、`source_page_snapshot`、CAS                                       | queued/fetching/succeeded/partial/blocked/gone/retry_wait/failed                       |
 | W           | `content_contribution_analysis`、`weighted_content_chunk`                                 | 正/负分析版本、页面/答案 span、哈希、分数、置信度、模型/提示词/策略/算法版本、复核状态 |
-| 服务 5 策略 | `content_strategy_analysis`                                                               | V 对 U−V、高 W 对低 W、输入哈希和因果边界                               |
-| 服务授权    | `project_service_entitlement`                                                             | 五个独立 service code、catalog version 和授权状态                       |
+| 服务 5 策略 | `content_strategy_analysis`                                                               | V 对 U−V、高 W 对低 W、输入哈希和因果边界                                              |
+| 服务授权    | `project_service_entitlement`                                                             | 五个独立 service code、catalog version 和授权状态                                      |
 
 采集事务先原子提交回答、现场证据、检索事件、全部 occurrence、`answer.capture.completed` 和只引用该事实的分析任务。公开页抓取及所有分析异步运行；失败只改变自己的任务或抓取状态，不能污染已完成采集。W 的 `confirmed` 与 `no_evidence` 都有绑定 occurrence、页面快照、输入哈希和策略版本的不可变分析行；没有分析行仍是未知/待处理，不能用“没有 chunk”反推为零。
 

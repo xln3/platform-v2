@@ -305,7 +305,9 @@ terminal_release_certifier = (root / "tools/certify_customer_terminal_release.py
     encoding="utf-8"
 )
 artifact_guard = (root / "scripts/check_e2e_artifacts.py").read_text(encoding="utf-8")
-terminal_nginx = (root / "deploy/production/nginx-v2-locations.conf").read_text(encoding="utf-8")
+terminal_nginx = (root / "deploy/production/geo-platform-v2-port-edges.conf").read_text(
+    encoding="utf-8"
+)
 production_browser_acceptance = (root / "tools/production_browser_acceptance.mjs").read_text(
     encoding="utf-8"
 )
