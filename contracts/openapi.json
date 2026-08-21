@@ -3243,6 +3243,11 @@
                   "type": "string"
                 }
               },
+              "X-Quotation-Template-Compliance": {
+                "schema": {
+                  "type": "string"
+                }
+              },
               "X-Quotation-SHA256": {
                 "schema": {
                   "type": "string"
@@ -13504,6 +13509,217 @@
         }
       }
     },
+    "/api/v2/collection-accounts/{pub_id}/platform-accounts": {
+      "post": {
+        "tags": [
+          "collection-account-governance"
+        ],
+        "summary": "Create Platform Account",
+        "description": "Create an audited phone x platform dispatch binding.\n\nThe browser, platform and egress region must agree in the same request.  This is\nintentionally separate from phone registration and quota observations so neither\noperation can unexpectedly change collection routing.",
+        "operationId": "create_platform_account_api_v2_collection_accounts__pub_id__platform_accounts_post",
+        "parameters": [
+          {
+            "name": "pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pub Id"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlatformAccountCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformAccountView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/collection-accounts/sync-otp-registry": {
       "post": {
         "tags": [
@@ -22402,7 +22618,7 @@
           "analytics"
         ],
         "summary": "Sampling Progress",
-        "description": "Latest logical sampling batch as query × platform/region/mode coverage.\n\nFormal runs may be split into one frozen config per sampling leg and followed by\nsmall top-up configs. ``select_sampling_campaign`` joins those revisions back to\ntheir latest complete query plan; older probes remain outside the count.",
+        "description": "Latest logical sampling batch as query × formal sampling-leg coverage.\n\nFormal runs may be split into one frozen config per sampling leg and followed by\nsmall top-up configs. ``select_sampling_campaign`` joins those revisions back to\ntheir latest complete query plan; ``sampling_columns`` derives target legs only from\ncomplete configs. Effective fallback modes remain traceable inside each cell instead\nof inflating the target denominator.",
         "operationId": "sampling_progress_api_v2_analytics_sampling_progress_get",
         "parameters": [
           {
@@ -74279,6 +74495,79 @@
         "title": "PlatformAccountCell",
         "description": "手机号 × 平台格（五平台格同构三子列：地域/额度/状态 + 实例绑定）。"
       },
+      "PlatformAccountCreate": {
+        "properties": {
+          "platform": {
+            "type": "string",
+            "enum": [
+              "doubao",
+              "yiyan",
+              "deepseek",
+              "yuanbao",
+              "tongyi"
+            ],
+            "title": "Platform"
+          },
+          "region_gb": {
+            "type": "string",
+            "title": "Region Gb"
+          },
+          "browser_instance_key": {
+            "type": "string",
+            "title": "Browser Instance Key"
+          },
+          "quota_day": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quota Day"
+          },
+          "quota_week": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quota Week"
+          },
+          "quota_year": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quota Year"
+          },
+          "confirm": {
+            "type": "boolean",
+            "title": "Confirm",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "platform",
+          "region_gb",
+          "browser_instance_key"
+        ],
+        "title": "PlatformAccountCreate",
+        "description": "Create the missing phone x platform dispatch row.\n\nBinding is deliberately explicit: a phone registration or quota observation must\nnever silently become a dispatchable collection account."
+      },
       "PlatformAccountPatch": {
         "properties": {
           "region_gb": {
@@ -78545,6 +78834,13 @@
             },
             "type": "array",
             "title": "Answer Pub Ids"
+          },
+          "mode_breakdown": {
+            "items": {
+              "$ref": "#/components/schemas/SamplingProgressModeBreakdownView"
+            },
+            "type": "array",
+            "title": "Mode Breakdown"
           }
         },
         "additionalProperties": false,
@@ -78553,7 +78849,8 @@
           "column_key",
           "completed_samples",
           "latest_capture_time",
-          "answer_pub_ids"
+          "answer_pub_ids",
+          "mode_breakdown"
         ],
         "title": "SamplingProgressCellView"
       },
@@ -78574,6 +78871,13 @@
           "mode": {
             "type": "string",
             "title": "Mode"
+          },
+          "modes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Modes"
           }
         },
         "additionalProperties": false,
@@ -78582,9 +78886,43 @@
           "key",
           "model",
           "region",
-          "mode"
+          "mode",
+          "modes"
         ],
         "title": "SamplingProgressColumnView"
+      },
+      "SamplingProgressModeBreakdownView": {
+        "properties": {
+          "mode": {
+            "type": "string",
+            "title": "Mode"
+          },
+          "completed_samples": {
+            "type": "integer",
+            "title": "Completed Samples"
+          },
+          "latest_capture_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Latest Capture Time"
+          },
+          "answer_pub_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Answer Pub Ids"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "mode",
+          "completed_samples",
+          "latest_capture_time",
+          "answer_pub_ids"
+        ],
+        "title": "SamplingProgressModeBreakdownView"
       },
       "SamplingProgressRowView": {
         "properties": {

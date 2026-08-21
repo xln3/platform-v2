@@ -902,6 +902,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/collection-accounts/{pub_id}/platform-accounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Platform Account
+         * @description Create an audited phone x platform dispatch binding.
+         *
+         *     The browser, platform and egress region must agree in the same request.  This is
+         *     intentionally separate from phone registration and quota observations so neither
+         *     operation can unexpectedly change collection routing.
+         */
+        post: operations["create_platform_account_api_v2_collection_accounts__pub_id__platform_accounts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/collection-accounts/sync-otp-registry": {
         parameters: {
             query?: never;
@@ -1893,11 +1917,13 @@ export interface paths {
         };
         /**
          * Sampling Progress
-         * @description Latest logical sampling batch as query × platform/region/mode coverage.
+         * @description Latest logical sampling batch as query × formal sampling-leg coverage.
          *
          *     Formal runs may be split into one frozen config per sampling leg and followed by
          *     small top-up configs. ``select_sampling_campaign`` joins those revisions back to
-         *     their latest complete query plan; older probes remain outside the count.
+         *     their latest complete query plan; ``sampling_columns`` derives target legs only from
+         *     complete configs. Effective fallback modes remain traceable inside each cell instead
+         *     of inflating the target denominator.
          */
         get: operations["sampling_progress_api_v2_analytics_sampling_progress_get"];
         put?: never;
@@ -9231,6 +9257,35 @@ export interface components {
             /** Browser Instance Key */
             browser_instance_key: string | null;
         };
+        /**
+         * PlatformAccountCreate
+         * @description Create the missing phone x platform dispatch row.
+         *
+         *     Binding is deliberately explicit: a phone registration or quota observation must
+         *     never silently become a dispatchable collection account.
+         */
+        PlatformAccountCreate: {
+            /**
+             * Platform
+             * @enum {string}
+             */
+            platform: "doubao" | "yiyan" | "deepseek" | "yuanbao" | "tongyi";
+            /** Region Gb */
+            region_gb: string;
+            /** Browser Instance Key */
+            browser_instance_key: string;
+            /** Quota Day */
+            quota_day?: number | null;
+            /** Quota Week */
+            quota_week?: number | null;
+            /** Quota Year */
+            quota_year?: number | null;
+            /**
+             * Confirm
+             * @default false
+             */
+            confirm: boolean;
+        };
         /** PlatformAccountPatch */
         PlatformAccountPatch: {
             /** Region Gb */
@@ -10731,6 +10786,8 @@ export interface components {
             latest_capture_time: string;
             /** Answer Pub Ids */
             answer_pub_ids: string[];
+            /** Mode Breakdown */
+            mode_breakdown: components["schemas"]["SamplingProgressModeBreakdownView"][];
         };
         /** SamplingProgressColumnView */
         SamplingProgressColumnView: {
@@ -10742,6 +10799,22 @@ export interface components {
             region: string;
             /** Mode */
             mode: string;
+            /** Modes */
+            modes: string[];
+        };
+        /** SamplingProgressModeBreakdownView */
+        SamplingProgressModeBreakdownView: {
+            /** Mode */
+            mode: string;
+            /** Completed Samples */
+            completed_samples: number;
+            /**
+             * Latest Capture Time
+             * Format: date-time
+             */
+            latest_capture_time: string;
+            /** Answer Pub Ids */
+            answer_pub_ids: string[];
         };
         /** SamplingProgressRowView */
         SamplingProgressRowView: {
@@ -13206,6 +13279,7 @@ export interface operations {
                     "X-Quotation-Total-Cents"?: string;
                     "X-Quotation-Maximum-Total-Cents"?: string;
                     "X-Quotation-Query-Appendix"?: string;
+                    "X-Quotation-Template-Compliance"?: string;
                     "X-Quotation-SHA256"?: string;
                     "Cache-Control"?: string;
                     [name: string]: unknown;
@@ -16433,6 +16507,78 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccountQuotaObservationView"][];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_platform_account_api_v2_collection_accounts__pub_id__platform_accounts_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlatformAccountCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformAccountView"];
                 };
             };
             /** @description Bad Request */
