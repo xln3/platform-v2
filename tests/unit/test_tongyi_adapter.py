@@ -246,8 +246,7 @@ def test_composer_value_empty_recognizes_qianwen_placeholder() -> None:
 
 
 def test_build_tongyi_trace_shape() -> None:
-    """normal 回归：refs → search_blocks 折叠（DeepSeek 形态）；thinking_chain/
-    queries 空（thinking=None 时与旧版行为完全一致）。"""
+    """normal：最终引用独立保存；没有检索现场时 U/V 保持不可观察。"""
     refs = [
         {"url": "https://example.com/a", "title": "标题A", "sitename": "站点A"},
         {"url": "https://example.com/b", "title": None, "sitename": None},
@@ -258,25 +257,24 @@ def test_build_tongyi_trace_shape() -> None:
     assert trace["deep_think_active"] is False
     assert trace["thinking_chain"] == []
     assert trace["queries"] == []
-    block = trace["search_blocks"][0]
-    assert block["scene"] is None
-    assert block["queries"] == []
-    assert block["summary"] == ""
-    assert [r["url"] for r in block["results"]] == [
+    assert trace["search_blocks"] == []
+    references = trace["answer_reference_pages"]
+    assert [r["url"] for r in references] == [
         "https://example.com/a",
         "https://example.com/b",
     ]
-    assert block["results"][0]["rank"] == 1
-    assert block["results"][0]["site"] == "站点A"
-    assert block["results"][1]["title"] == "未命名来源"
-    assert block["results"][1]["summary"] == ""
+    assert references[0]["rank"] == 1
+    assert references[0]["site"] == "站点A"
+    assert references[1]["title"] == "未命名来源"
+    assert references[1]["summary"] == ""
     empty = _build_tongyi_trace([])
     assert empty["search_blocks"] == []
+    assert empty["answer_reference_pages"] == []
 
 
 def test_build_tongyi_trace_deep_think_full_shape() -> None:
     """deep_think 全量：reasoning/search 步骤进 thinking_chain，搜索步骤 results
-    折叠为独立 search_block，references 折叠照常保留，queries 放平台真实检索词，
+    折叠为独立 search_block，references 作为最终引用独立保留，queries 放平台真实检索词，
     deep_think_active 以实际抽到思考卡为准。"""
     thinking = {
         "card_found": True,
@@ -314,7 +312,7 @@ def test_build_tongyi_trace_deep_think_full_shape() -> None:
         "summary": "搜索 2 个关键词，参考 3 篇资料",
     }
     blocks = trace["search_blocks"]
-    assert len(blocks) == 2  # 搜索步骤块 + references 折叠块
+    assert len(blocks) == 1  # 只有可观察的搜索步骤属于 U
     step_block = blocks[0]
     assert step_block["queries"] == ["资产搜索引擎对比", "测绘引擎排名"]
     assert step_block["summary"] == "搜索 2 个关键词，参考 3 篇资料"
@@ -326,7 +324,7 @@ def test_build_tongyi_trace_deep_think_full_shape() -> None:
         "summary": "",
     }
     assert step_block["results"][1]["url"] is None  # 无锚点诚实缺省
-    assert [r["url"] for r in blocks[1]["results"]] == ["https://example.com/a"]
+    assert [r["url"] for r in trace["answer_reference_pages"]] == ["https://example.com/a"]
     # 无 references 时思考卡内容照样出 trace（写盘门由 card_found 决定）
     no_refs = _build_tongyi_trace([], thinking=thinking)
     assert len(no_refs["search_blocks"]) == 1

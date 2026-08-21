@@ -375,6 +375,7 @@ def execute_own_content_disparagement(
     """读 DB → 安静跳过门 → 确定性切窗 → 窗级 LLM/词典判定 → verbatim 校验 → 落库。"""
     if not enabled:
         return OwnContentDisparagementResult(disabled=True)
+    del window_limit  # replay-compatible batch hint; proposed-content facts are complete
     progress = on_progress if on_progress is not None else _noop_progress
     progress("load_context", "")
     context = loader.load(item.tenant_pub_id, item.article_version_pub_id)
@@ -415,15 +416,6 @@ def execute_own_content_disparagement(
             result.skipped_idempotent += 1
             continue
         pending.append(window)
-    if len(pending) > window_limit:
-        result.truncated = len(pending) - window_limit
-        pending = pending[:window_limit]
-        log.warning(
-            "own_content_disparagement_windows_truncated",
-            article_version_pub_id=context.article_version_pub_id,
-            truncated=result.truncated,
-            window_limit=window_limit,
-        )
 
     def _persist(window: Window, record: DisparagementRecord) -> None:
         progress("persist", f"{window.target_brand}:{window.window_hash[:8]}")

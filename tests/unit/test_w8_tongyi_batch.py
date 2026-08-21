@@ -1218,7 +1218,8 @@ def test_collect_batch_persists_trace_when_references_present(
     assert record["deep_think_active"] is False
     assert record["thinking_chain"] == []
     assert record["queries"] == []
-    assert [r["url"] for r in record["search_blocks"][0]["results"]] == ["https://example.com/a"]
+    assert record["search_blocks"] == []
+    assert [r["url"] for r in record["answer_reference_pages"]] == ["https://example.com/a"]
 
 
 def test_collect_batch_without_references_writes_no_trace(

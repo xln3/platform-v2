@@ -290,6 +290,7 @@ def task_result_from_batch_item(item_result: CollectionBatchItemResult) -> Colle
         citations=list(item_result.citations),
         evidence=list(item_result.evidence),
         search_queries=list(item_result.search_queries),
+        retrieval_events=list(item_result.retrieval_events),
     )
 
 

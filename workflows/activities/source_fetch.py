@@ -1,16 +1,16 @@
-"""W2 抓取层 activity（``fetch_run_sources``）：回答级信源正文抓取。
+"""All-U public-page fetch activity (``fetch_run_sources``).
 
 需求规格：developlog/specs/geo-evaluation-improvement-20260805.md W2 节。
 workflow 挂接由协调者集成，本模块只提供 activity 与可单测核心：
 
-- 每份回答独立规划引用 URL：优先有逐字引文的来源，再按 citation ordinal 稳定排序，
-  每回答取前 N（``GEO_SOURCE_FETCH_LIMIT`` 缺省 200、硬夹 1..500）；全 run 另设
-  ``GEO_SOURCE_FETCH_RUN_LIMIT`` 安全上限（缺省 20000、硬夹 1..50000）。相同 URL 只抓
-  一次，但会扇出关联到每份引用它的回答，避免旧版“全 run Top-N”只覆盖最早回答。
+- 每份回答的全部 U URL 都进入计划。旧 ``GEO_SOURCE_FETCH_LIMIT`` 与
+  ``GEO_SOURCE_FETCH_RUN_LIMIT`` 仅保留为调度批量提示，不再缩小业务全集。相同
+  URL 身份可复用一次页面快照，但每条问答 occurrence 仍由事实表完整保留。
 - 每条：httpx 优先（15s 超时、正常浏览器 UA、跟随重定向、按域限速 2s）；
   正文 <200 字符 / 明显 JS 壳 / 超时 / 401·403·429 → patchright 浏览器回退（只取正文）。
   httpx 路径用 stdlib 密度抽取（``density-extract-v1``），浏览器路径 innerText
-  （``innertext-v1``，与 own_site_snapshot 同款 JS），正文截 ≤20000 字符。
+  （``innertext-v1``，与 own_site_snapshot 同款 JS）；大正文由后续分析切窗，
+  抓取层不再静默截掉尾部。
 - 产物：正文 bytes 进 evidence CAS（kind=``source_text``，text/plain;charset=utf-8）+
   ``platform.source_document`` 行（(run_id,url_hash) 唯一幂等；重跑已存在的 URL 直接复用）。
 - 品牌证据严格二次取证：只有抓到的 ``source_document`` 正文逐字包含项目
@@ -26,9 +26,8 @@ workflow 挂接由协调者集成，本模块只提供 activity 与可单测核�
   source_document pub_id 按 ``sha256(tenant|run|url_hash)`` 派生、capture_time 用
   run.created_at（own_site_snapshot.py 同模式）；EvidenceService 漂移规则要求同
   evidence_pub_id 再 capture 全部字段一致，写入前先查既存资产直接复用。
-- env：``GEO_SOURCE_FETCH_ENABLED``（缺省 true，false 时两 W2 activity 都 skipped=
-  "disabled" 零 IO）；``GEO_SOURCE_FETCH_LIMIT``（每回答缺省 200、硬夹 1..500）；
-  ``GEO_SOURCE_FETCH_RUN_LIMIT``（全 run 安全上限，缺省 20000、硬夹 1..50000）。
+- env：``GEO_SOURCE_FETCH_ENABLED``（缺省 true，false 时 activity skipped=
+  "disabled" 零 IO）；两个历史 limit 配置仅作为兼容的 batch hint 返回。
 - 执行模型与 own_site_snapshot 同款：sync 抓取包在 ``asyncio.to_thread`` 里跑，
   activity 协程侧每 10s 泵一次 heartbeat；公开页普通 launch+new_context（无需登录态
   profile），驱动首选 patchright（browser_driver 延迟加载）。
@@ -42,10 +41,11 @@ import math
 import os
 import re
 import time
+import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from html.parser import HTMLParser
 from io import BytesIO
@@ -64,6 +64,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from domain.collection.source_metadata import SourceMetadata, extract_source_metadata
+from domain.collection.uvw import URL_NORMALIZATION_VERSION
 from domain.evidence.provenance import AccessClass, CaptureChannel, RedactedProvenance
 from domain.scoring.analyzer import canonicalize_url
 from workflows.activities.browser_driver import load_sync_browser_driver
@@ -79,9 +80,7 @@ ENV_FETCH_LIMIT = "GEO_SOURCE_FETCH_LIMIT"
 ENV_RUN_LIMIT = "GEO_SOURCE_FETCH_RUN_LIMIT"
 
 _DEFAULT_LIMIT = 200
-_HARD_CAP_LIMIT = 500
 _DEFAULT_RUN_LIMIT = 20_000
-_HARD_CAP_RUN_LIMIT = 50_000
 
 _HEARTBEAT_INTERVAL_S = 10.0  # 与 own_site_snapshot 同款泵频
 _HTTP_TIMEOUT_S = 15.0
@@ -89,7 +88,6 @@ _PER_DOMAIN_DELAY_S = 2.0  # 限速纪律：同域请求间隔 ≥2s（抓取触
 _GOTO_TIMEOUT_MS = 20_000
 _SETTLE_MS = 1_500
 _MIN_TEXT_CHARS = 200  # 低于此视为 JS 壳/空页 → 浏览器回退
-_MAX_TEXT_CHARS = 20_000
 
 _EVIDENCE_KIND = "source_text"
 _EVIDENCE_ASSET = "text"
@@ -206,7 +204,7 @@ class SourceFetchResult:
 @dataclass(frozen=True)
 class SourceFetchConfig:
     enabled: bool
-    limit: int  # 每份回答的正文抓取上限
+    limit: int  # 兼容字段：调度 batch hint，不得作为业务全集上限
     headless: bool = True
     run_limit: int = _DEFAULT_RUN_LIMIT
 
@@ -228,7 +226,7 @@ def _env_limit() -> int:
         value = int(raw)
     except ValueError:
         return _DEFAULT_LIMIT
-    return max(1, min(value, _HARD_CAP_LIMIT))
+    return max(1, value)
 
 
 def _env_run_limit() -> int:
@@ -239,7 +237,7 @@ def _env_run_limit() -> int:
         value = int(raw)
     except ValueError:
         return _DEFAULT_RUN_LIMIT
-    return max(1, min(value, _HARD_CAP_RUN_LIMIT))
+    return max(1, value)
 
 
 # ---------------------------------------------------------------------------
@@ -254,6 +252,7 @@ class SourceTarget:
     url_hash: str  # sha256(key)，source_document 幂等键成分
     host: str
     task_pub_ids: tuple[str, ...]  # 引用此 URL 的回答；同 URL 只抓一次但关系扇出
+    source_url_id: str | None = None
 
 
 def normalize_host(url: str) -> str | None:
@@ -301,7 +300,7 @@ def url_dedupe_key(url: str) -> str | None:
 
 
 def is_static_resource_url(url: str) -> bool:
-    """静态资源（图片/样式/脚本/文档等）抽不出正文，规划层直接丢弃。"""
+    """Classify a likely non-HTML asset without removing it from U coverage."""
     try:
         path = urlsplit(url).path.lower()
     except ValueError:
@@ -314,20 +313,18 @@ def plan_source_targets(
     limit: int,
     run_limit: int = _DEFAULT_RUN_LIMIT,
 ) -> list[SourceTarget]:
-    """按回答规划、跨回答去重，并保留 URL→全部引用回答的关系。
+    """Plan every distinct U URL while preserving answer fan-out.
 
-    每回答优先选择带 ``cited_text`` 的 URL，再按原 citation ordinal，最多
-    ``limit`` 条；跨回答相同 URL 只生成一个抓取目标，但 ``task_pub_ids`` 会
-    扇出。目标按回答轮询（每份回答先取第 1 条，再取第 2 条），避免
-    ``run_limit`` 安全阀被最早回答独占。非 http(s)/不可归一化/静态资源 URL
-    直接丢弃（不立项、不造假状态行）。
+    ``limit`` and ``run_limit`` are accepted for Temporal/config replay
+    compatibility but intentionally do not truncate facts.  Non-page/static
+    URLs remain in the denominator and will receive an explicit fetch outcome.
     """
-    per_answer_limit = max(1, min(limit, _HARD_CAP_LIMIT))
-    safe_run_limit = max(1, min(run_limit, _HARD_CAP_RUN_LIMIT))
+    del limit, run_limit
     targets: list[SourceTarget] = []
     target_index_by_key: dict[str, int] = {}
     task_order = {task_pub_id: index for index, (task_pub_id, _citations) in enumerate(tasks)}
     first_url_by_key: dict[str, str] = {}
+    source_url_id_by_key: dict[str, str | None] = {}
     planned_by_answer: list[tuple[str, list[tuple[int, int, str, str, str]]]] = []
     for task_pub_id, citations in tasks:
         candidates: list[tuple[int, int, str, str, str]] = []
@@ -339,8 +336,6 @@ def plan_source_targets(
             key = url_dedupe_key(url)
             if key is None or key in seen_for_answer:
                 continue
-            if is_static_resource_url(key):
-                continue
             host = normalize_host(key)
             if host is None:
                 continue
@@ -349,13 +344,18 @@ def plan_source_targets(
             priority = 0 if isinstance(cited_text, str) and cited_text.strip() else 1
             clean_url = url.strip()
             first_url_by_key.setdefault(key, clean_url)
+            raw_source_url_id = citation.get("source_url_id")
+            source_url_id_by_key.setdefault(
+                key, str(raw_source_url_id) if raw_source_url_id is not None else None
+            )
             candidates.append((priority, ordinal, clean_url, key, host))
-        planned_by_answer.append((task_pub_id, sorted(candidates)[:per_answer_limit]))
+        planned_by_answer.append((task_pub_id, sorted(candidates)))
 
     # Round-robin by citation rank so a run safety cap cannot be monopolized by
     # the earliest answers.  First give each answer one planned source, then its
     # second source, and so on.
-    for citation_rank in range(per_answer_limit):
+    max_candidates = max((len(candidates) for _task, candidates in planned_by_answer), default=0)
+    for citation_rank in range(max_candidates):
         for task_pub_id, candidates in planned_by_answer:
             if citation_rank >= len(candidates):
                 continue
@@ -376,9 +376,8 @@ def plan_source_targets(
                         url_hash=existing.url_hash,
                         host=existing.host,
                         task_pub_ids=linked_task_pub_ids,
+                        source_url_id=existing.source_url_id,
                     )
-                continue
-            if len(targets) >= safe_run_limit:
                 continue
             target_index_by_key[key] = len(targets)
             targets.append(
@@ -388,6 +387,7 @@ def plan_source_targets(
                     url_hash=sha256(key.encode()).hexdigest(),
                     host=host,
                     task_pub_ids=(task_pub_id,),
+                    source_url_id=source_url_id_by_key[key],
                 )
             )
     return targets
@@ -402,14 +402,13 @@ def source_plan_coverage(
 ) -> list[SourceFetchPlanCoverage]:
     """Explain every answer's URL planning coverage and any protection truncation.
 
-    Counts use unique, parseable, non-static HTTP(S) citation URLs.  They are
+    Counts use unique, parseable HTTP(S) occurrence URLs.  They are
     planning counts, not fetch-success/document counts.  The result is returned by
     the Temporal activity, making configured protection effects durable and
     inspectable instead of a hidden Top-N.
     """
 
-    per_answer_limit = max(1, min(limit, _HARD_CAP_LIMIT))
-    safe_run_limit = max(1, min(run_limit, _HARD_CAP_RUN_LIMIT))
+    del limit, run_limit
     planned_by_answer: dict[str, set[str]] = {answer_pub_id: set() for answer_pub_id, _ in tasks}
     for target in targets:
         for answer_pub_id in target.task_pub_ids:
@@ -423,16 +422,11 @@ def source_plan_coverage(
             if not isinstance(url, str) or not url.strip():
                 continue
             key = url_dedupe_key(url)
-            if key is None or is_static_resource_url(key):
+            if key is None:
                 continue
             eligible.add(key)
         eligible_count = len(eligible)
         planned_count = len(planned_by_answer.get(answer_pub_id, set()))
-        reasons: list[str] = []
-        if eligible_count > per_answer_limit:
-            reasons.append("per_answer_limit")
-        if planned_count < min(eligible_count, per_answer_limit) and len(targets) >= safe_run_limit:
-            reasons.append("run_limit")
         rows.append(
             SourceFetchPlanCoverage(
                 answer_pub_id=answer_pub_id,
@@ -442,7 +436,7 @@ def source_plan_coverage(
                 coverage_rate=(
                     round(planned_count / eligible_count, 4) if eligible_count else None
                 ),
-                truncation_reason="+".join(reasons) or None,
+                truncation_reason=None,
             )
         )
     return rows
@@ -470,6 +464,14 @@ def derive_brand_evidence_pub_id(tenant_pub_id: str, run_pub_id: str, url_hash: 
 def derive_brand_anchor_pub_id(evidence_pub_id: str, matched_text: str) -> str:
     stable_key = "|".join((evidence_pub_id, matched_text.casefold(), "dom-range-v1"))
     return f"anch_{sha256(stable_key.encode()).hexdigest()[:26]}"
+
+
+def _stable_source_uuid(value: str) -> uuid.UUID:
+    return uuid.uuid5(uuid.NAMESPACE_URL, f"geo-platform-v2:{value}")
+
+
+def _stable_source_pub_id(prefix: str, value: str) -> str:
+    return f"{prefix}_{sha256(value.encode()).hexdigest()[:26]}"
 
 
 # ---------------------------------------------------------------------------
@@ -563,15 +565,15 @@ class _BlockTextParser(HTMLParser):
         self._flush(False)
 
 
-def clean_text(raw: str, limit: int = _MAX_TEXT_CHARS) -> str:
-    """去多余空白（行内空白压单格、空行压一行、行首尾 strip），截 ≤20000 字符。"""
+def clean_text(raw: str, limit: int | None = None) -> str:
+    """Normalize whitespace; only explicitly scoped callers may request a slice."""
     lines = [_INLINE_WS_RE.sub(" ", line).strip() for line in raw.splitlines()]
     text = "\n".join(lines)
     text = _BLANK_RUN_RE.sub("\n\n", text).strip()
-    return text[:limit]
+    return text if limit is None else text[: max(0, limit)]
 
 
-def extract_text_from_html(html: str, limit: int = _MAX_TEXT_CHARS) -> str:
+def extract_text_from_html(html: str, limit: int | None = None) -> str:
     """密度抽取 v1：去 chrome 后实质块（≥40 字符或标题）聚合；无实质块回退全部块。"""
     parser = _BlockTextParser()
     try:
@@ -912,8 +914,29 @@ class _PostgresSourceLoader:
                 )
             task_rows = connection.execute(
                 """
-                SELECT pub_id, citations_json FROM platform.collection_task
-                WHERE run_id = %s ORDER BY created_at, pub_id
+                SELECT task.id,task.pub_id,task.citations_json,
+                       EXISTS (
+                         SELECT 1 FROM platform.answer_retrieval_event event
+                         WHERE event.answer_task_id=task.id
+                       ) AS has_uvw_events
+                FROM platform.collection_task task
+                WHERE task.run_id = %s ORDER BY task.created_at, task.pub_id
+                """,
+                (run_row["id"],),
+            ).fetchall()
+            occurrence_rows = connection.execute(
+                """
+                SELECT occurrence.answer_task_id,occurrence.occurrence_ordinal,
+                       occurrence.raw_url,occurrence.title,occurrence.summary,
+                       occurrence.u_state,occurrence.final_reference_state
+                       ,occurrence.source_url_id
+                FROM platform.answer_source_occurrence occurrence
+                WHERE occurrence.run_id=%s
+                  AND (
+                    occurrence.u_state='observed'
+                    OR occurrence.final_reference_state='referenced'
+                  )
+                ORDER BY occurrence.answer_task_id,occurrence.occurrence_ordinal
                 """,
                 (run_row["id"],),
             ).fetchall()
@@ -943,19 +966,38 @@ class _PostgresSourceLoader:
             )
         if created_at.tzinfo is None:
             created_at = created_at.replace(tzinfo=UTC)
-        tasks: list[tuple[str, list[dict[str, Any]]]] = []
+        rows_by_task: dict[str, list[dict[str, Any]]] = {str(row["id"]): [] for row in task_rows}
+        for row in occurrence_rows:
+            rows_by_task.setdefault(str(row["answer_task_id"]), []).append(
+                {
+                    "url": str(row["raw_url"]),
+                    "title": row["title"],
+                    "cited_text": (
+                        row["summary"] if row["final_reference_state"] == "referenced" else None
+                    ),
+                    "ordinal": int(row["occurrence_ordinal"]),
+                    "u_state": str(row["u_state"]),
+                    "source_url_id": str(row["source_url_id"]),
+                }
+            )
+        # Rolling deployments can briefly leave tasks written by the legacy
+        # collector after the UVW migration has run.  Use citations_json only
+        # when the task has no UVW retrieval event at all; once a modern event
+        # exists, an empty occurrence set is an observed fact and must not be
+        # replaced with inferred legacy rows.
         for row in task_rows:
-            raw = row["citations_json"] or "[]"
+            task_id = str(row["id"])
+            if rows_by_task.get(task_id) or bool(row["has_uvw_events"]):
+                continue
+            raw_citations = row["citations_json"] or "[]"
             try:
-                citations = json.loads(raw)
+                citations = json.loads(raw_citations)
             except (TypeError, ValueError):
                 log.warning("source_citations_unparseable", task_pub_id=row["pub_id"])
                 citations = []
-            if not isinstance(citations, list):
-                citations = []
-            tasks.append(
-                (str(row["pub_id"]), [item for item in citations if isinstance(item, dict)])
-            )
+            if isinstance(citations, list):
+                rows_by_task[task_id] = [item for item in citations if isinstance(item, dict)]
+        tasks = [(str(row["pub_id"]), rows_by_task.get(str(row["id"]), [])) for row in task_rows]
         existing = {
             str(row["url_hash"]): ExistingDocument(
                 pub_id=str(row["pub_id"]),
@@ -1061,6 +1103,97 @@ class _EvidenceServiceSink:
         text_sha256: str | None = None
         metadata = metadata or SourceMetadata(canonical_url=final_url or target.url)
         with _platform_connection(self._dsn, context) as connection:
+            source_url_id = target.source_url_id
+            if source_url_id is None:
+                source_url_row = connection.execute(
+                    """
+                    SELECT id FROM platform.source_url
+                    WHERE tenant_id=%s
+                      AND canonical_url=ANY(%s::text[])
+                    ORDER BY created_at,id LIMIT 1
+                    """,
+                    (
+                        context.tenant_id,
+                        list(
+                            {
+                                canonicalize_url(target.url),
+                                canonicalize_url(metadata.canonical_url or target.url),
+                            }
+                        ),
+                    ),
+                ).fetchone()
+                source_url_id = str(source_url_row[0]) if source_url_row is not None else None
+            if source_url_id is None:
+                # Compatibility path for a task written by a legacy collector
+                # during a rolling deployment.  Modern tasks already carry the
+                # immutable source_url_id on every occurrence.
+                canonical_url = canonicalize_url(target.url)
+                host = (urlsplit(canonical_url).hostname or "").lower().rstrip(".")
+                if not host:
+                    raise ApplicationError(
+                        "source URL identity is missing",
+                        type="source_url_identity_missing",
+                        non_retryable=True,
+                    )
+                site_key = f"{context.tenant_id}|{host}"
+                site_row = connection.execute(
+                    """
+                    INSERT INTO platform.source_site
+                      (id,pub_id,tenant_id,host,created_at,updated_at)
+                    VALUES (%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (tenant_id,host)
+                    DO UPDATE SET updated_at=GREATEST(
+                      platform.source_site.updated_at,EXCLUDED.updated_at)
+                    RETURNING id
+                    """,
+                    (
+                        _stable_source_uuid(site_key),
+                        _stable_source_pub_id("sit", site_key),
+                        context.tenant_id,
+                        host,
+                        context.created_at,
+                        context.created_at,
+                    ),
+                ).fetchone()
+                if site_row is None:
+                    raise ApplicationError(
+                        "source site identity was not persisted",
+                        type="source_url_identity_missing",
+                        non_retryable=True,
+                    )
+                canonical_hash = sha256(canonical_url.encode()).hexdigest()
+                url_key = f"{context.tenant_id}|{canonical_hash}|{canonical_url}"
+                source_url_row = connection.execute(
+                    """
+                    INSERT INTO platform.source_url
+                      (id,pub_id,tenant_id,site_id,canonical_url,canonical_url_hash,
+                       normalization_version,first_raw_url,created_at,updated_at)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (tenant_id,canonical_url_hash,canonical_url)
+                    DO UPDATE SET updated_at=GREATEST(
+                      platform.source_url.updated_at,EXCLUDED.updated_at)
+                    RETURNING id
+                    """,
+                    (
+                        _stable_source_uuid(url_key),
+                        _stable_source_pub_id("url", url_key),
+                        context.tenant_id,
+                        site_row[0],
+                        canonical_url,
+                        canonical_hash,
+                        URL_NORMALIZATION_VERSION,
+                        target.url,
+                        context.created_at,
+                        context.created_at,
+                    ),
+                ).fetchone()
+                if source_url_row is None:
+                    raise ApplicationError(
+                        "source URL identity was not persisted",
+                        type="source_url_identity_missing",
+                        non_retryable=True,
+                    )
+                source_url_id = str(source_url_row[0])
             if payload:
                 evidence_pub_id = derive_evidence_pub_id(
                     context.tenant_pub_id, context.run_pub_id, target.url
@@ -1086,10 +1219,10 @@ class _EvidenceServiceSink:
                 )
                 text_cas_key = stored.key
                 text_sha256 = stored.sha256
-            connection.execute(
+            document_row = connection.execute(
                 """
                 INSERT INTO platform.source_document
-                  (id,pub_id,tenant_id,project_id,run_id,url,url_hash,host,final_url,
+                  (id,pub_id,tenant_id,project_id,run_id,source_url_id,url,url_hash,host,final_url,
                    http_status,fetched_at,extract_status,extractor,bytes,text_cas_key,
                    text_sha256,canonical_url,redirect_chain,page_title,site_name,publisher,
                    authors,language,content_format,published_at_raw,published_at,
@@ -1097,16 +1230,45 @@ class _EvidenceServiceSink:
                    published_at_confidence,published_at_candidates,modified_at,first_seen_at,
                    last_verified_at,metadata_parser_version,created_at,updated_at)
                 VALUES
-                  (gen_random_uuid(),%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+                  (gen_random_uuid(),%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
                    %s,%s::jsonb,%s,%s,%s,%s::jsonb,%s,'html',%s,%s,%s,%s,%s,%s,
                    %s::jsonb,%s,%s,%s,%s,now(),now())
-                ON CONFLICT (run_id,url_hash) DO NOTHING
+                ON CONFLICT (run_id,url_hash) DO UPDATE SET
+                  source_url_id=EXCLUDED.source_url_id,
+                  final_url=EXCLUDED.final_url,
+                  http_status=EXCLUDED.http_status,
+                  fetched_at=EXCLUDED.fetched_at,
+                  extract_status=EXCLUDED.extract_status,
+                  extractor=EXCLUDED.extractor,
+                  bytes=EXCLUDED.bytes,
+                  text_cas_key=EXCLUDED.text_cas_key,
+                  text_sha256=EXCLUDED.text_sha256,
+                  canonical_url=EXCLUDED.canonical_url,
+                  redirect_chain=EXCLUDED.redirect_chain,
+                  page_title=EXCLUDED.page_title,
+                  site_name=EXCLUDED.site_name,
+                  publisher=EXCLUDED.publisher,
+                  authors=EXCLUDED.authors,
+                  language=EXCLUDED.language,
+                  published_at_raw=EXCLUDED.published_at_raw,
+                  published_at=EXCLUDED.published_at,
+                  published_at_timezone=EXCLUDED.published_at_timezone,
+                  published_at_precision=EXCLUDED.published_at_precision,
+                  published_at_source=EXCLUDED.published_at_source,
+                  published_at_confidence=EXCLUDED.published_at_confidence,
+                  published_at_candidates=EXCLUDED.published_at_candidates,
+                  modified_at=EXCLUDED.modified_at,
+                  last_verified_at=EXCLUDED.last_verified_at,
+                  metadata_parser_version=EXCLUDED.metadata_parser_version,
+                  updated_at=now()
+                RETURNING id
                 """,
                 (
                     document_pub_id,
                     context.tenant_id,
                     context.project_id,
                     context.run_id,
+                    source_url_id,
                     target.url,
                     target.url_hash,
                     target.host,
@@ -1141,6 +1303,138 @@ class _EvidenceServiceSink:
                     fetched_at,
                     fetched_at,
                     metadata.parser_version,
+                ),
+            ).fetchone()
+            if document_row is None:
+                raise RuntimeError("source document upsert returned no identity")
+            source_document_id = str(document_row[0])
+            if extract_status == "ok":
+                attempt_state = "succeeded"
+            elif extract_status == "blocked":
+                attempt_state = "blocked"
+            elif http_status in {404, 410}:
+                attempt_state = "gone"
+            elif extract_status == "extract_empty":
+                attempt_state = "partial"
+            elif extract_status == "timeout" or http_status is None or http_status >= 500:
+                attempt_state = "retry_wait"
+            else:
+                attempt_state = "failed"
+            connection.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",
+                (f"source-fetch-attempt:{context.tenant_pub_id}:{source_url_id}",),
+            )
+            attempt_ordinal_row = connection.execute(
+                """
+                SELECT COALESCE(max(attempt_ordinal),0)+1
+                FROM platform.source_fetch_attempt WHERE source_url_id=%s
+                """,
+                (source_url_id,),
+            ).fetchone()
+            if attempt_ordinal_row is None:
+                raise ApplicationError(
+                    "source fetch attempt ordinal was not returned",
+                    type="source_fetch_persistence_error",
+                    non_retryable=True,
+                )
+            attempt_ordinal = int(attempt_ordinal_row[0])
+            attempt_pub_id = (
+                "fat_"
+                + sha256(
+                    f"{context.tenant_pub_id}|{source_url_id}|{attempt_ordinal}".encode()
+                ).hexdigest()[:26]
+            )
+            attempt_row = connection.execute(
+                """
+                INSERT INTO platform.source_fetch_attempt
+                  (id,pub_id,tenant_id,project_id,source_url_id,run_id,attempt_ordinal,
+                   fetcher,state,requested_url,final_url,redirect_chain,http_status,
+                   error_code,error_detail,started_at,finished_at,next_retry_at)
+                VALUES
+                  (gen_random_uuid(),%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::jsonb,%s,
+                   %s,%s,%s,%s,%s)
+                RETURNING id
+                """,
+                (
+                    attempt_pub_id,
+                    context.tenant_id,
+                    context.project_id,
+                    source_url_id,
+                    context.run_id,
+                    attempt_ordinal,
+                    extractor or "httpx-browser-v2",
+                    attempt_state,
+                    target.url,
+                    final_url,
+                    json.dumps(list(redirect_chain), ensure_ascii=False, separators=(",", ":")),
+                    http_status,
+                    None if extract_status == "ok" else extract_status,
+                    None if extract_status == "ok" else "public page was not fully extracted",
+                    fetched_at,
+                    fetched_at,
+                    fetched_at + timedelta(minutes=15) if attempt_state == "retry_wait" else None,
+                ),
+            ).fetchone()
+            if attempt_row is None:
+                raise ApplicationError(
+                    "source fetch attempt was not persisted",
+                    type="source_fetch_persistence_error",
+                    non_retryable=True,
+                )
+            snapshot_key = "|".join(
+                (
+                    context.tenant_pub_id,
+                    source_url_id,
+                    text_sha256 or extract_status,
+                    extractor or "none",
+                    fetched_at.isoformat(),
+                )
+            )
+            connection.execute(
+                """
+                INSERT INTO platform.source_page_snapshot
+                  (id,pub_id,tenant_id,project_id,source_url_id,source_document_id,
+                   fetch_attempt_id,snapshot_state,final_url,http_status,title,site_name,
+                   author,account_name,published_at,metadata,body_object_key,body_sha256,
+                   text_sha256,extractor_version,captured_at,created_at)
+                VALUES
+                  (gen_random_uuid(),%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NULL,%s,
+                   %s::jsonb,%s,%s,%s,%s,%s,now())
+                ON CONFLICT DO NOTHING
+                """,
+                (
+                    "snp_" + sha256(snapshot_key.encode()).hexdigest()[:26],
+                    context.tenant_id,
+                    context.project_id,
+                    source_url_id,
+                    source_document_id,
+                    attempt_row[0],
+                    attempt_state
+                    if attempt_state in {"succeeded", "partial", "blocked", "gone"}
+                    else "failed",
+                    final_url,
+                    http_status,
+                    metadata.title,
+                    metadata.site_name,
+                    metadata.authors[0] if metadata.authors else None,
+                    metadata.published_at,
+                    json.dumps(
+                        {
+                            "publisher": metadata.publisher,
+                            "language": metadata.language,
+                            "published_at_precision": metadata.published_at_precision,
+                            "published_at_source": metadata.published_at_source,
+                            "redirect_chain": list(redirect_chain),
+                        },
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
+                    text_cas_key,
+                    text_sha256,
+                    text_sha256,
+                    extractor,
+                    fetched_at,
                 ),
             )
             self._link_with_connection(
@@ -1852,8 +2146,9 @@ def execute_source_fetch(
 
     for target in targets:
         existing = context.existing.get(target.url_hash)
-        if existing is not None:
-            # 幂等复用：同 run 重跑不重复抓取/不重复 capture
+        if existing is not None and existing.extract_status == "ok":
+            # Successful immutable snapshots are reusable.  Failed/blocked
+            # documents are retried and produce a new source_fetch_attempt.
             try:
                 sink.link(
                     context=context,

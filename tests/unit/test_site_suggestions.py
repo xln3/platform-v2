@@ -349,6 +349,25 @@ def test_execute_happy_path_persists_batch() -> None:
     assert drafts[0].evidence_document_pub_id == "srd_own"  # 证据映射到本项目文档
 
 
+def test_execute_batches_more_than_ten_official_pages_without_dropping_scope() -> None:
+    documents = [_doc_row("srd_own", _OWN_URL, "www.webray.com.cn")]
+    documents.extend(
+        _doc_row(
+            f"srd_{index}",
+            f"https://www.webray.com.cn/page-{index}",
+            "www.webray.com.cn",
+        )
+        for index in range(1, 25)
+    )
+
+    result, sink, judge = _execute(context=_context(documents=documents))
+
+    assert result.own_site_documents == 25
+    assert judge.calls == 3
+    assert result.truncated == 0
+    assert len(sink.batches) == 1
+
+
 def test_execute_drops_invalid_and_counts_honestly() -> None:
     judge = _FakeJudge(
         items=[

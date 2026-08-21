@@ -466,6 +466,44 @@ def test_sse_taxonomy_keeps_48_search_hits_separate_from_6_opened_pages() -> Non
     assert trace["opened_pages_observed"] is True
 
 
+def test_sse_taxonomy_preserves_repeated_open_and_reference_occurrences() -> None:
+    url = "https://example.com/repeated"
+    event = {
+        "v": {
+            "response": {
+                "fragments": [
+                    {
+                        "id": 1,
+                        "type": "TOOL_SEARCH",
+                        "queries": [{"query": "重复页面"}],
+                        "results": [{"url": url, "title": "同一页面"}],
+                    },
+                    {"id": 2, "type": "TOOL_OPEN", "result": {"url": url, "title": "同一页面"}},
+                    {"id": 3, "type": "TOOL_OPEN", "result": {"url": url, "title": "同一页面"}},
+                    {
+                        "id": 4,
+                        "type": "RESPONSE",
+                        "content": "最终答案",
+                        "references": [
+                            {"id": 2, "type": "TOOL_OPEN"},
+                            {"id": 3, "type": "TOOL_OPEN"},
+                        ],
+                    },
+                ]
+            }
+        }
+    }
+
+    rich = _rich_record_from_sse("data: " + json.dumps(event, ensure_ascii=False) + "\n\n")
+
+    assert rich is not None
+    assert [row["url"] for row in rich["opened_pages"]] == [url, url]
+    assert [row["url"] for row in rich["references"]] == [url, url]
+    occurrences = rich["retrieval_events"][0]
+    assert [row["url"] for row in occurrences["opened_pages"]] == [url, url]
+    assert [row["url"] for row in occurrences["final_references"]] == [url, url]
+
+
 # ---------------------------------------------------------------------------
 # SSE 结构化 trace（思考链/检索词落证据，20260810）与结构化信源映射
 # ---------------------------------------------------------------------------

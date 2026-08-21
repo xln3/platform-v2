@@ -567,7 +567,7 @@ def clamp_max_documents(value: str | None) -> int:
         parsed = int(value or "500")
     except ValueError:
         parsed = 500
-    return max(1, min(parsed, 10_000))
+    return max(1, parsed)
 
 
 def clamp_max_chars(value: str | None) -> int:
@@ -575,11 +575,15 @@ def clamp_max_chars(value: str | None) -> int:
         parsed = int(value or "120000")
     except ValueError:
         parsed = 120_000
-    return max(_WINDOW_CHARS, min(parsed, 500_000))
+    return max(_WINDOW_CHARS, parsed)
 
 
 def build_analysis_windows(text: str, *, max_chars: int) -> tuple[list[AnalysisWindow], int]:
-    allowed = min(len(text), max_chars)
+    # ``max_chars`` is retained in the Temporal signature for replay.  It no
+    # longer shrinks the business scope; fixed-size overlapping windows provide
+    # the engineering bound while the whole snapshot remains in the denominator.
+    del max_chars
+    allowed = len(text)
     windows: list[AnalysisWindow] = []
     start = 0
     while start < allowed:
@@ -588,7 +592,7 @@ def build_analysis_windows(text: str, *, max_chars: int) -> tuple[list[AnalysisW
         if end >= allowed:
             break
         start = end - _WINDOW_OVERLAP
-    return windows, max(0, len(text) - allowed)
+    return windows, 0
 
 
 def page_stats(text: str, profile: SourceAnalysisProfile) -> dict[str, Any]:
@@ -1405,8 +1409,9 @@ def execute_page_inspection(
     if effective_judge is None:
         result.llm_unavailable = True
 
-    documents = context.documents[:max_documents]
-    result.truncated += max(0, len(context.documents) - len(documents))
+    # ``max_documents`` is a historical batch hint, never a Top-N business cap.
+    del max_documents
+    documents = context.documents
     for document in documents:
         if document.extract_status != "ok" or not document.text_cas_key or not document.text_sha256:
             result.skipped_documents += 1

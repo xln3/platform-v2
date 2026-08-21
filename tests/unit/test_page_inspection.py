@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from hashlib import sha256
 from typing import Any
 
@@ -261,11 +262,12 @@ def test_transmission_metrics_and_deterministic_c1_variant() -> None:
     assert finding.ledger == "exposure"
 
 
-def test_window_builder_reports_unseen_tail() -> None:
+def test_window_builder_covers_the_entire_snapshot_despite_legacy_hint() -> None:
     windows, truncated = build_analysis_windows("x" * 30_000, max_chars=20_000)
-    assert len(windows) == 2
+    assert len(windows) == 3
     assert windows[1].start < windows[0].end
-    assert truncated == 10_000
+    assert windows[-1].end == 30_000
+    assert truncated == 0
 
 
 class _FakeLoader:
@@ -382,6 +384,41 @@ def test_execute_persists_only_validated_finding_and_attribution() -> None:
     assert record.quality["candidate_quotes"] == 1
     assert record.quality["verified_quotes"] == 1
     assert record.quality["quote_hit_rate"] == 1.0
+
+
+def test_more_than_five_hundred_u_pages_are_all_in_the_inspection_denominator() -> None:
+    text = "公开页面正文"
+    base = _context(text)
+    document = base.documents[0]
+    context = replace(
+        base,
+        documents=tuple(
+            replace(
+                document,
+                pub_id=f"src_{index:04d}",
+                url=f"https://source-{index}.example.test/article",
+                host=f"source-{index}.example.test",
+            )
+            for index in range(501)
+        ),
+    )
+    sink = _FakeSink()
+
+    result = execute_page_inspection(
+        PageInspectionInput(_TENANT, _PROJECT, _RUN, _PROFILE_PUB),
+        enabled=True,
+        llm=AuditLlmConfig("key", "model", "https://example.com"),
+        loader=_FakeLoader(context),
+        text_store=_FakeTextStore(text),
+        sink=sink,
+        judge=_FakeJudge(PageCandidateBatch(findings=(), attributions=())),
+        max_documents=1,
+        max_chars=120_000,
+    )
+
+    assert len(result.inspected) == 501
+    assert len(sink.records) == 501
+    assert result.skipped_documents == 0
 
 
 def test_no_profile_is_explicitly_not_requested() -> None:

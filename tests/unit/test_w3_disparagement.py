@@ -644,12 +644,13 @@ def test_execute_idempotent_skip_existing() -> None:
     assert result.skipped == len(keys)
 
 
-def test_execute_window_limit_truncates() -> None:
+def test_execute_legacy_window_hint_does_not_truncate() -> None:
     judge = _FakeJudge(LlmJudgment("", "", "neutral", False, "中意人寿", 0.5))
     result, sink = _execute(context=_context(), judge=judge, window_limit=1)
     assert result.windows > 1
-    assert len(sink.records) == 1
-    assert result.truncated == result.windows - 1
+    assert len(sink.records) == result.windows
+    assert result.judged == result.windows
+    assert result.truncated == 0
 
 
 def test_execute_cas_read_failure_goes_to_failures() -> None:

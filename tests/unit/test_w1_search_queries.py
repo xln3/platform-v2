@@ -1,7 +1,7 @@
 """W1：search_queries 结构化落库的纯函数层单元测试。
 
 持久化（persist_collection_result 写 search_queries_json）需要 PG，属集成测试
-范畴；这里锁纯函数契约：_normalize_search_queries 的校验/截断/DLP 语义。
+范畴；这里锁纯函数契约：_normalize_search_queries 的校验/完整保留语义。
 """
 
 from __future__ import annotations
@@ -9,7 +9,6 @@ from __future__ import annotations
 import pytest
 
 from workflows.activities.collection import (
-    _MAX_SEARCH_QUERIES,
     CollectionTaskResult,
     _normalize_search_queries,
 )
@@ -43,10 +42,11 @@ def test_normalize_search_queries_rejects_bad_shapes() -> None:
         _normalize_search_queries([{"query": "q", "ordinal": "1"}])
     with pytest.raises(ValueError, match="ordinal is invalid"):
         _normalize_search_queries([{"query": "q", "ordinal": True}])
-    with pytest.raises(ValueError, match="too many search queries"):
-        _normalize_search_queries(
-            [{"query": f"q{i}", "ordinal": i + 1} for i in range(_MAX_SEARCH_QUERIES + 1)]
-        )
+
+
+def test_normalize_search_queries_does_not_truncate_observed_queries() -> None:
+    items = [{"query": f"q{i}", "ordinal": i + 1} for i in range(750)]
+    assert _normalize_search_queries(items) == items
 
 
 def test_normalize_search_queries_secret_like_text_stored_raw() -> None:

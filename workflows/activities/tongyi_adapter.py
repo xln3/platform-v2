@@ -169,6 +169,7 @@ import structlog
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from domain.collection.uvw import retrieval_events_from_trace_path
 from workflows.activities.answer_dom_anchor import capture_answer_evidence
 from workflows.activities.browser_driver import load_sync_browser_driver
 from workflows.activities.browser_router import resolve_batch_instance
@@ -951,6 +952,7 @@ def _batch_item_result(
             citations=base.citations,
             evidence=base.evidence,
             search_queries=base.search_queries,
+            retrieval_events=base.retrieval_events,
         )
     return _failure_batch_item(
         item,
@@ -1081,6 +1083,7 @@ def _task_result_from_collected(
         quality_state="live_valid",
         evidence=evidence,
         search_queries=collected.search_queries,
+        retrieval_events=retrieval_events_from_trace_path(collected.trace_path),
     )
 
 
@@ -2495,7 +2498,6 @@ _THINKING_EXTRACT_JS = r"""() => {
       }
     }
     const results = [];
-    const seenResults = new Set();
     for (const box of stepEl.querySelectorAll('div.flex.flex-wrap.gap-x-1.gap-y-2')) {
       if ((box.className || '').includes('invisible')) continue;  // 隐藏副本跳过
       const anchors = box.querySelectorAll('a[href^="http"]');
@@ -2504,16 +2506,13 @@ _THINKING_EXTRACT_JS = r"""() => {
           const tEl = a.querySelector('span.truncate');
           const title = ((tEl ? tEl.textContent : a.textContent) || '').trim();
           const url = a.getAttribute('href') || null;
-          const k = title + '|' + (url || '');
-          if (!title || seenResults.has(k)) continue;
-          seenResults.add(k);
+          if (!title) continue;
           results.push({title, url});
         }
       } else {
         for (const s of box.querySelectorAll('span.truncate')) {
           const title = (s.textContent || '').trim();
-          if (!title || seenResults.has(title)) continue;
-          seenResults.add(title);
+          if (!title) continue;
           results.push({title, url: null});
         }
       }
@@ -2608,9 +2607,9 @@ def _build_tongyi_trace(
     ``_extract_tongyi_thinking``（reasoning 步骤 → {kind:"reasoning", text:
     标题+正文}；搜索步骤 → {kind:"search", queries, summary: 标题}，其
     results 折叠为独立 search_block）；``deep_think_active`` 以实际抽到思考卡
-    为准（卡片缺货 = False 诚实标注，绝不按请求模式硬标）。references 折叠
-    形态照 DeepSeek _build_sse_trace。normal（thinking=None）行为与旧版完全
-    一致：refs-only，无引用即全空。
+    为准（卡片缺货 = False 诚实标注，绝不按请求模式硬标）。references 单独保存
+    为 ``answer_reference_pages``，不能冒充完整 U 候选。normal（thinking=None）
+    因此保持 U/V 不可观察，只保存最终引用。
     """
     thinking_chain: list[dict[str, Any]] = []
     search_blocks: list[dict[str, Any]] = []
@@ -2650,24 +2649,16 @@ def _build_tongyi_trace(
                         }
                     )
         queries = [str(q) for q in thinking.get("queries") or []]
-    if references:
-        search_blocks.append(
-            {
-                "scene": None,
-                "queries": [],
-                "summary": "",
-                "results": [
-                    {
-                        "title": str(ref.get("title") or "未命名来源"),
-                        "url": ref.get("url"),
-                        "site": ref.get("sitename"),
-                        "rank": index,
-                        "summary": str(ref.get("summary") or ""),
-                    }
-                    for index, ref in enumerate(references, 1)
-                ],
-            }
-        )
+    answer_reference_pages = [
+        {
+            "title": str(ref.get("title") or "未命名来源"),
+            "url": ref.get("url"),
+            "site": ref.get("sitename"),
+            "rank": index,
+            "summary": str(ref.get("summary") or ""),
+        }
+        for index, ref in enumerate(references, 1)
+    ]
     return {
         "engine": "tongyi",
         "transport": "dom",
@@ -2675,6 +2666,9 @@ def _build_tongyi_trace(
         "thinking_chain": thinking_chain,
         "search_blocks": search_blocks,
         "queries": queries,
+        "opened_pages_observed": False,
+        "opened_pages": [],
+        "answer_reference_pages": answer_reference_pages,
     }
 
 

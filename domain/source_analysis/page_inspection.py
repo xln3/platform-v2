@@ -182,6 +182,28 @@ def _resolve_quote(
     )
 
 
+def validate_exact_interval(
+    *, text: str, quote: str, start: int, end: int, quote_hash: str
+) -> bool:
+    """Shared persona-scan-compatible exact-span gate.
+
+    Page findings and W contributions both use this one byte-for-byte rule.  A
+    normalized/fuzzy match is never silently promoted to exact evidence.
+    """
+
+    return (
+        isinstance(start, int)
+        and not isinstance(start, bool)
+        and isinstance(end, int)
+        and not isinstance(end, bool)
+        and start >= 0
+        and end > start
+        and end <= len(text)
+        and text[start:end] == quote
+        and sha256(quote.encode()).hexdigest() == quote_hash
+    )
+
+
 def _validate_authority_fact(link: Mapping[str, Any], profile: SourceAnalysisProfile) -> str | None:
     required = ("authority_source", "authority_url", "publisher", "published_at")
     if any(not str(link.get(key) or "").strip() for key in required):
@@ -422,6 +444,7 @@ __all__ = [
     "SourceAnalysisProfile",
     "ValidatedFinding",
     "ValidatedSpan",
+    "validate_exact_interval",
     "derive_profile_type",
     "derive_page_inspection_version",
     "profile_fingerprint",

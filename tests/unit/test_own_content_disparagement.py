@@ -361,11 +361,11 @@ def test_execute_idempotent_skip_existing_keys() -> None:
     assert judge.calls == [] and sink.records == []
 
 
-def test_execute_window_limit_truncates() -> None:
+def test_execute_legacy_window_hint_does_not_truncate() -> None:
     result, _ = _execute(context=_context(), window_limit=1)
     assert result.windows > 1
-    assert result.judged == 1
-    assert result.truncated == result.windows - 1
+    assert result.judged == result.windows
+    assert result.truncated == 0
 
 
 def test_window_hash_stable_for_verbatim_check() -> None:

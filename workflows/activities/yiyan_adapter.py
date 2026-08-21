@@ -139,6 +139,7 @@ import structlog
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from domain.collection.uvw import retrieval_events_from_trace_path
 from workflows.activities.answer_dom_anchor import capture_answer_evidence
 from workflows.activities.browser_driver import load_sync_browser_driver
 from workflows.activities.browser_router import resolve_batch_instance
@@ -1184,6 +1185,7 @@ def _batch_item_result(
             citations=base.citations,
             evidence=base.evidence,
             search_queries=base.search_queries,
+            retrieval_events=base.retrieval_events,
         )
     return _failure_batch_item(
         item,
@@ -1336,6 +1338,7 @@ def _task_result_from_collected(
         quality_state="live_valid",
         citations=citations,
         evidence=evidence,
+        retrieval_events=retrieval_events_from_trace_path(collected.trace_path),
     )
 
 

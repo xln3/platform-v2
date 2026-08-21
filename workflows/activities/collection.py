@@ -43,6 +43,12 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from domain.collection.answer_content import project_answer_content
+from domain.collection.uvw import (
+    URL_NORMALIZATION_VERSION,
+    legacy_reference_event,
+    normalize_retrieval_events,
+    occurrence_rows,
+)
 from domain.evidence.dlp import assert_secret_free
 from domain.source_analysis.page_inspection import (
     PAGE_INSPECTION_POLICY_VERSION,
@@ -113,6 +119,9 @@ class CollectionTaskResult:
     evidence: list[CollectionEvidenceRef] = field(default_factory=list)
     # 平台真实检索词（W1）：[{"query": ..., "ordinal": ...}]；无检索词为空列表。
     search_queries: list[dict[str, Any]] = field(default_factory=list)
+    # 一次回答内逐次检索的 U/V/最终引用现场事实。URL 身份可在落库时聚合，
+    # 这里的事件和候选 occurrence 永不去重或按总量截断。
+    retrieval_events: list[dict[str, Any]] = field(default_factory=list)
 
 
 # collect_doubao_batch 的 per-item 结果状态词表：ok=采集成功；wall=平台墙/阻断性
@@ -148,6 +157,7 @@ class CollectionBatchItemResult:
     citations: list[dict[str, Any]] = field(default_factory=list)
     evidence: list[CollectionEvidenceRef] = field(default_factory=list)
     search_queries: list[dict[str, Any]] = field(default_factory=list)
+    retrieval_events: list[dict[str, Any]] = field(default_factory=list)
     browser_instance: str | None = None
 
 
@@ -315,17 +325,14 @@ _EVIDENCE_RELATIONS = {
 }
 _SAFE_TOKEN_RE = re.compile(r"^[a-z][a-z0-9_]{1,79}$")
 _MAX_EVIDENCE_BYTES = 30 * 1024 * 1024
-_MAX_SEARCH_QUERIES = 200
 
 
 def _normalize_search_queries(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """平台真实检索词（W1）规范化：[{"query": str, "ordinal": int}]，上限 200 条。
+    """平台真实检索词（W1）规范化：[{"query": str, "ordinal": int}]。
 
     原始采集原则：平台输出是测量原料，**原文存储、不做任何脱敏**
     （2026-08-06 用户拍板；DLP 只管会话侧秘密/intake 边界，不碰公开内容）。
     """
-    if len(items) > _MAX_SEARCH_QUERIES:
-        raise ValueError("collection result has too many search queries")
     normalized: list[dict[str, Any]] = []
     for item in items:
         if not isinstance(item, dict):
@@ -365,8 +372,6 @@ def _normalize_citations(
     the same source and are still two answer→source relations.  W2 performs its
     own URL-level fetch deduplication without destroying those relations.
     """
-    if len(items) > 500:  # deep_think 检索流实测引用卡片可破百（20260810）
-        raise ValueError("collection result has too many citations")
     markers = [int(value) for value in re.findall(r"\[citation:(\d+)\]", answer_text, re.I)]
     declared_ordinals = [
         item.get("platform_ordinal", item.get("ordinal"))
@@ -1693,6 +1698,316 @@ def _persist_answer_capture_event(
     return str(persisted["event_id"])
 
 
+def _stable_uuid(value: str) -> uuid.UUID:
+    """Deterministic relational identity for idempotent capture retries."""
+
+    return uuid.uuid5(uuid.NAMESPACE_URL, f"geo-platform-v2:{value}")
+
+
+def _stable_pub_id(prefix: str, value: str) -> str:
+    return f"{prefix}_{sha256(value.encode()).hexdigest()[:26]}"
+
+
+def _persist_uvw_facts(
+    *,
+    session: Any,
+    run: CollectionRun,
+    project: Project,
+    task: CollectionTask,
+    retrieval_events: list[dict[str, Any]],
+    evidence_ids_by_relation: dict[str, str],
+    allow_legacy_identity: bool = False,
+) -> None:
+    """Persist every U occurrence and its observed V/final-reference state.
+
+    Identity upserts are allowed for sites and normalized URLs.  Retrieval
+    events and occurrences are immutable answer-capture facts: a Temporal retry
+    must reproduce the same rows byte-for-byte or fail loudly as payload drift.
+    """
+
+    event_id_by_ordinal: dict[int, uuid.UUID] = {}
+    for event in retrieval_events:
+        ordinal = int(event["ordinal"])
+        stable_key = f"{task.pub_id}|retrieval|{ordinal}"
+        event_id = _stable_uuid(stable_key)
+        event_pub_id = _stable_pub_id("ret", stable_key)
+        evidence_pub_id = evidence_ids_by_relation.get(event.get("evidence_relation") or "")
+        queries_json = json.dumps(event["queries"], ensure_ascii=False, separators=(",", ":"))
+        persisted = (
+            session.execute(
+                text(
+                    """
+                    INSERT INTO platform.answer_retrieval_event
+                      (id,pub_id,tenant_id,project_id,run_id,answer_task_id,ordinal,
+                       queries,u_observation,v_observation,final_reference_observation,
+                       evidence_pub_id,created_at)
+                    VALUES
+                      (:id,:pub_id,:tenant_id,:project_id,:run_id,:answer_task_id,:ordinal,
+                       CAST(:queries AS jsonb),:u_observation,:v_observation,
+                       :final_observation,:evidence_pub_id,:created_at)
+                    ON CONFLICT (answer_task_id,ordinal) DO NOTHING
+                    RETURNING id,pub_id,queries,u_observation,v_observation,
+                              final_reference_observation,evidence_pub_id
+                    """
+                ),
+                {
+                    "id": event_id,
+                    "pub_id": event_pub_id,
+                    "tenant_id": run.tenant_id,
+                    "project_id": project.id,
+                    "run_id": run.id,
+                    "answer_task_id": task.id,
+                    "ordinal": ordinal,
+                    "queries": queries_json,
+                    "u_observation": event["u_observation"],
+                    "v_observation": event["v_observation"],
+                    "final_observation": event["final_reference_observation"],
+                    "evidence_pub_id": evidence_pub_id,
+                    "created_at": task.created_at,
+                },
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if persisted is None:
+            persisted = (
+                session.execute(
+                    text(
+                        """
+                        SELECT id,pub_id,queries,u_observation,v_observation,
+                               final_reference_observation,evidence_pub_id
+                        FROM platform.answer_retrieval_event
+                        WHERE answer_task_id=:answer_task_id AND ordinal=:ordinal
+                        """
+                    ),
+                    {"answer_task_id": task.id, "ordinal": ordinal},
+                )
+                .mappings()
+                .one()
+            )
+        expected_event = {
+            "pub_id": event_pub_id,
+            "queries": event["queries"],
+            "u_observation": event["u_observation"],
+            "v_observation": event["v_observation"],
+            "final_reference_observation": event["final_reference_observation"],
+            "evidence_pub_id": evidence_pub_id,
+        }
+        if {key: persisted[key] for key in expected_event} != expected_event:
+            raise ApplicationError(
+                "retrieval event replay payload drifted",
+                type="retrieval_event_payload_drift",
+                non_retryable=True,
+            )
+        event_id_by_ordinal[ordinal] = persisted["id"]
+
+    for occurrence in occurrence_rows(retrieval_events):
+        if allow_legacy_identity:
+            historical = (
+                session.execute(
+                    text(
+                        """
+                        SELECT raw_url,u_state,u_rank,v_state,v_open_order,
+                               final_reference_state,final_reference_ordinal,w_state,
+                               title,summary
+                        FROM platform.answer_source_occurrence
+                        WHERE answer_task_id=:answer_task_id
+                          AND occurrence_ordinal=:occurrence_ordinal
+                        """
+                    ),
+                    {
+                        "answer_task_id": task.id,
+                        "occurrence_ordinal": occurrence.occurrence_ordinal,
+                    },
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if historical is not None:
+                expected_historical = {
+                    "raw_url": occurrence.raw_url,
+                    "u_state": occurrence.u_state,
+                    "u_rank": occurrence.u_rank,
+                    "v_state": occurrence.v_state,
+                    "v_open_order": occurrence.v_open_order,
+                    "final_reference_state": occurrence.final_reference_state,
+                    "final_reference_ordinal": occurrence.final_reference_ordinal,
+                    "title": occurrence.title,
+                    "summary": occurrence.summary,
+                }
+                if {key: historical[key] for key in expected_historical} != expected_historical:
+                    raise ApplicationError(
+                        "historical source occurrence replay payload drifted",
+                        type="source_occurrence_payload_drift",
+                        non_retryable=True,
+                    )
+                continue
+        site_key = f"{run.tenant_id}|{occurrence.host}"
+        site_row = (
+            session.execute(
+                text(
+                    """
+                    INSERT INTO platform.source_site
+                      (id,pub_id,tenant_id,host,created_at,updated_at)
+                    VALUES (:id,:pub_id,:tenant_id,:host,:captured_at,:captured_at)
+                    ON CONFLICT (tenant_id,host)
+                    DO UPDATE SET updated_at=GREATEST(
+                      platform.source_site.updated_at,EXCLUDED.updated_at)
+                    RETURNING id
+                    """
+                ),
+                {
+                    "id": _stable_uuid(site_key),
+                    "pub_id": _stable_pub_id("sit", site_key),
+                    "tenant_id": run.tenant_id,
+                    "host": occurrence.host,
+                    "captured_at": task.created_at,
+                },
+            )
+            .mappings()
+            .one()
+        )
+        canonical_hash = sha256(occurrence.canonical_url.encode()).hexdigest()
+        url_key = f"{run.tenant_id}|{canonical_hash}|{occurrence.canonical_url}"
+        url_row = (
+            session.execute(
+                text(
+                    """
+                    INSERT INTO platform.source_url
+                      (id,pub_id,tenant_id,site_id,canonical_url,canonical_url_hash,
+                       normalization_version,first_raw_url,created_at,updated_at)
+                    VALUES
+                      (:id,:pub_id,:tenant_id,:site_id,:canonical_url,:canonical_hash,
+                       :normalization_version,:raw_url,:captured_at,:captured_at)
+                    ON CONFLICT (tenant_id,canonical_url_hash,canonical_url)
+                    DO UPDATE SET updated_at=GREATEST(
+                      platform.source_url.updated_at,EXCLUDED.updated_at)
+                    RETURNING id
+                    """
+                ),
+                {
+                    "id": _stable_uuid(url_key),
+                    "pub_id": _stable_pub_id("url", url_key),
+                    "tenant_id": run.tenant_id,
+                    "site_id": site_row["id"],
+                    "canonical_url": occurrence.canonical_url,
+                    "canonical_hash": canonical_hash,
+                    "normalization_version": URL_NORMALIZATION_VERSION,
+                    "raw_url": occurrence.raw_url,
+                    "captured_at": task.created_at,
+                },
+            )
+            .mappings()
+            .one()
+        )
+        occurrence_key = f"{task.pub_id}|occurrence|{occurrence.occurrence_ordinal}"
+        event_ordinal = occurrence.retrieval_event_ordinal
+        occurrence_event_id = (
+            event_id_by_ordinal.get(event_ordinal) if event_ordinal is not None else None
+        )
+        occurrence_event: dict[str, Any] | None = None
+        for candidate_event in retrieval_events:
+            if candidate_event["ordinal"] == occurrence.retrieval_event_ordinal:
+                occurrence_event = candidate_event
+                break
+        evidence_pub_id = evidence_ids_by_relation.get(
+            (occurrence_event or {}).get("evidence_relation") or ""
+        )
+        values = {
+            "id": _stable_uuid(occurrence_key),
+            "pub_id": _stable_pub_id("uoc", occurrence_key),
+            "tenant_id": run.tenant_id,
+            "project_id": project.id,
+            "run_id": run.id,
+            "answer_task_id": task.id,
+            "retrieval_event_id": occurrence_event_id,
+            "source_url_id": url_row["id"],
+            "occurrence_ordinal": occurrence.occurrence_ordinal,
+            "query_text": occurrence.query,
+            "raw_url": occurrence.raw_url,
+            "u_state": occurrence.u_state,
+            "u_rank": occurrence.u_rank,
+            "v_state": occurrence.v_state,
+            "v_open_order": occurrence.v_open_order,
+            "final_reference_state": occurrence.final_reference_state,
+            "final_reference_ordinal": occurrence.final_reference_ordinal,
+            "w_state": occurrence.w_state,
+            "title": occurrence.title,
+            "summary": occurrence.summary,
+            "evidence_pub_id": evidence_pub_id,
+            "captured_at": task.created_at,
+        }
+        persisted = (
+            session.execute(
+                text(
+                    """
+                    INSERT INTO platform.answer_source_occurrence
+                      (id,pub_id,tenant_id,project_id,run_id,answer_task_id,
+                       retrieval_event_id,source_url_id,occurrence_ordinal,query_text,
+                       raw_url,u_state,u_rank,v_state,v_open_order,final_reference_state,
+                       final_reference_ordinal,w_state,title,summary,evidence_pub_id,
+                       captured_at,created_at)
+                    VALUES
+                      (:id,:pub_id,:tenant_id,:project_id,:run_id,:answer_task_id,
+                       :retrieval_event_id,:source_url_id,:occurrence_ordinal,:query_text,
+                       :raw_url,:u_state,:u_rank,:v_state,:v_open_order,
+                       :final_reference_state,:final_reference_ordinal,:w_state,:title,
+                       :summary,:evidence_pub_id,:captured_at,:captured_at)
+                    ON CONFLICT (answer_task_id,occurrence_ordinal) DO NOTHING
+                    RETURNING pub_id,retrieval_event_id,source_url_id,query_text,raw_url,
+                              u_state,u_rank,v_state,v_open_order,final_reference_state,
+                              final_reference_ordinal,w_state,title,summary,evidence_pub_id
+                    """
+                ),
+                values,
+            )
+            .mappings()
+            .one_or_none()
+        )
+        comparison_keys = (
+            "pub_id",
+            "retrieval_event_id",
+            "source_url_id",
+            "query_text",
+            "raw_url",
+            "u_state",
+            "u_rank",
+            "v_state",
+            "v_open_order",
+            "final_reference_state",
+            "final_reference_ordinal",
+            "title",
+            "summary",
+            "evidence_pub_id",
+        )
+        if persisted is None:
+            persisted = (
+                session.execute(
+                    text(
+                        """
+                        SELECT pub_id,retrieval_event_id,source_url_id,query_text,raw_url,
+                               u_state,u_rank,v_state,v_open_order,final_reference_state,
+                               final_reference_ordinal,w_state,title,summary,evidence_pub_id
+                        FROM platform.answer_source_occurrence
+                        WHERE answer_task_id=:answer_task_id
+                          AND occurrence_ordinal=:occurrence_ordinal
+                        """
+                    ),
+                    values,
+                )
+                .mappings()
+                .one()
+            )
+        if {key: persisted[key] for key in comparison_keys} != {
+            key: values[key] for key in comparison_keys
+        }:
+            raise ApplicationError(
+                "source occurrence replay payload drifted",
+                type="source_occurrence_payload_drift",
+                non_retryable=True,
+            )
+
+
 @activity.defn
 def publish_downstream_event(
     run_pub_id: str,
@@ -2076,6 +2391,12 @@ def persist_collection_result(
         search_queries = _normalize_search_queries(
             list(getattr(result, "search_queries", []) or [])
         )
+        raw_retrieval_events = list(getattr(result, "retrieval_events", []) or [])
+        retrieval_events = (
+            normalize_retrieval_events(raw_retrieval_events)
+            if raw_retrieval_events
+            else legacy_reference_event(citations)
+        )
     except ValueError as error:
         raise ApplicationError(
             f"collection result failed structural validation: {error}",
@@ -2214,6 +2535,15 @@ def persist_collection_result(
         # does not commit.  The capture row, evidence links, versioned analysis
         # job and workflow-start command therefore become durable together.
         session.flush()
+        _persist_uvw_facts(
+            session=session,
+            run=run,
+            project=project,
+            task=task,
+            retrieval_events=retrieval_events,
+            evidence_ids_by_relation=evidence_ids_by_relation,
+            allow_legacy_identity=not raw_retrieval_events,
+        )
         _enqueue_answer_analysis(
             session=session,
             tenant_pub_id=tenant_pub_id,

@@ -296,13 +296,13 @@ def test_execute_case_failure_does_not_block_others() -> None:
     assert [row[0] for row in sink.rows] == ["dpj_b"]
 
 
-def test_execute_truncates_over_limit() -> None:
+def test_execute_legacy_case_hint_does_not_truncate() -> None:
     result, sink = _execute(
         context=_context([_case("dpj_a"), _case("dpj_b"), _case("dpj_c")]),
         case_limit=2,
     )
-    assert result.candidates == 3 and result.checked == 2 and result.truncated == 1
-    assert len(sink.rows) == 2
+    assert result.candidates == 3 and result.checked == 3 and result.truncated == 0
+    assert len(sink.rows) == 3
 
 
 def test_prompt_version_constant() -> None:

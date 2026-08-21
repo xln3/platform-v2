@@ -160,6 +160,7 @@ from PIL import Image, UnidentifiedImageError
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from domain.collection.uvw import normalize_retrieval_events, retrieval_events_from_trace_path
 from workflows.activities.answer_dom_anchor import capture_answer_evidence
 from workflows.activities.browser_driver import load_sync_browser_driver
 from workflows.activities.browser_router import resolve_batch_instance
@@ -779,6 +780,7 @@ class CollectedAnswer:
     # 平台真实检索词（W1）：[{"query": ..., "ordinal": ...}]，按 SSE 出现顺序；
     # 无检索词/解析失败为空列表（诚实，不编造）。
     search_queries: list[dict[str, Any]] = field(default_factory=list)
+    retrieval_events: list[dict[str, Any]] = field(default_factory=list)
     answer_evidence: CollectionEvidenceRef | None = None
 
 
@@ -1138,6 +1140,7 @@ def _batch_item_result(
             citations=base.citations,
             evidence=base.evidence,
             search_queries=base.search_queries,
+            retrieval_events=base.retrieval_events,
         )
     return _failure_batch_item(
         item,
@@ -1276,6 +1279,14 @@ def _task_result_from_collected(
         None,
     )
     screenshot_ref = f"file://{official_share_image or collected.screenshot_path}"
+    trace_path = next(
+        (
+            ref.path
+            for ref in evidence
+            if ref.kind == "sse" and ref.relation_type == "answer_sse_trace"
+        ),
+        None,
+    )
     # DLP 统一由 persist 层脱敏处理（单一权威边界，2026-08-06 起）。
     return CollectionTaskResult(
         business_key=item.business_key,
@@ -1285,6 +1296,9 @@ def _task_result_from_collected(
         citations=citations,
         evidence=evidence,
         search_queries=collected.search_queries,
+        retrieval_events=(
+            collected.retrieval_events or retrieval_events_from_trace_path(trace_path)
+        ),
     )
 
 
@@ -1328,7 +1342,7 @@ def _external_http_url(value: object) -> str | None:
 def _citation_payloads(references: list[dict[str, Any]]) -> list[dict[str, str | None]]:
     citations: list[dict[str, str | None]] = []
     seen: set[str] = set()
-    for reference in references[:100]:
+    for reference in references:
         url = _external_http_url(reference.get("url"))
         if not url or url in seen:
             continue
@@ -1885,6 +1899,7 @@ class _PlaywrightDoubaoSession:
             answer_text = ""
             references: list[dict[str, Any]] = []
             search_queries: list[dict[str, Any]] = []
+            retrieval_events: list[dict[str, Any]] = []
             sse_trace: dict[str, Any] | None = None
             sse_body = capture.latest_body()
             if sse_body:
@@ -1892,6 +1907,7 @@ class _PlaywrightDoubaoSession:
                 if rich is not None:
                     answer_text = str(rich.get("answer_text") or "").strip()
                     references = list(rich.get("references") or [])
+                    retrieval_events = list(rich.get("retrieval_events") or [])
                     # W1：结构化 trace（thinking/search/queries/stats，非全量原文）
                     sse_trace = _sse_trace_from_body(sse_body)
                     if sse_trace is not None:
@@ -2184,6 +2200,7 @@ class _PlaywrightDoubaoSession:
                     "mode": mode_evidence,
                 },
                 search_queries=search_queries,
+                retrieval_events=retrieval_events,
                 answer_evidence=answer_evidence,
             )
         except (
@@ -3570,7 +3587,70 @@ def _build_rich_record(assembled: dict[str, Any]) -> dict[str, Any]:
         "conversation_id": assembled.get("conversation_id"),
         "section_id": assembled.get("section_id"),
         "message_id": assembled.get("message_id"),
+        "retrieval_events": _retrieval_events_from_assembled(assembled),
     }
+
+
+def _retrieval_events_from_assembled(assembled: dict[str, Any]) -> list[dict[str, Any]]:
+    """Extract every Doubao search-result occurrence before trace truncation.
+
+    Doubao currently exposes search-result blocks but no separate, reliable
+    TOOL_OPEN stage.  V and final-reference stages therefore remain unobserved;
+    legacy ``references`` projections are not promoted into either stage.
+    """
+
+    events: list[dict[str, Any]] = []
+    for block in assembled.get("content_block") or []:
+        if not isinstance(block, dict) or block.get("block_type") != 10025:
+            continue
+        content = block.get("content")
+        search = (
+            content.get("search_query_result_block")
+            if isinstance(content, dict)
+            else None
+        )
+        if not isinstance(search, dict):
+            continue
+        queries = [
+            " ".join(value.split())
+            for value in (search.get("queries") or [])
+            if isinstance(value, str) and value.strip()
+        ]
+        candidates: list[dict[str, Any]] = []
+        for fallback_rank, result in enumerate(search.get("results") or [], 1):
+            if not isinstance(result, dict):
+                continue
+            card = result.get("text_card")
+            if not isinstance(card, dict) or not _is_real_url(card.get("url")):
+                continue
+            raw_rank = card.get("index", result.get("index"))
+            rank = (
+                raw_rank
+                if isinstance(raw_rank, int) and not isinstance(raw_rank, bool) and raw_rank >= 1
+                else fallback_rank
+            )
+            candidates.append(
+                {
+                    "url": card["url"],
+                    "title": card.get("title"),
+                    "summary": card.get("summary"),
+                    "u_rank": rank,
+                }
+            )
+        events.append(
+            {
+                "ordinal": len(events) + 1,
+                "queries": queries,
+                "u_observation": "observed",
+                "v_observation": "unobserved",
+                "final_reference_observation": "unobserved",
+                "candidates": candidates,
+                "opened_pages": [],
+                "final_references": [],
+                "evidence_relation": "answer_sse_trace",
+            }
+        )
+    return normalize_retrieval_events(events) if events else []
 
 
 # ---------------------------------------------------------------------------

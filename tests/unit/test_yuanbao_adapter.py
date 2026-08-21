@@ -222,7 +222,7 @@ def test_default_evidence_dir_points_at_adapter_evidence() -> None:
 
 def test_build_yuanbao_trace_shape() -> None:
     """trace 词表对齐文心/DeepSeek（router build_task_trace_view 消费同一词表）：
-    思考链单块 reasoning + references 折叠 search_blocks（DeepSeek 形态）。"""
+    思考链单块 reasoning + 最终引用独立保存，不能把引用反推为 U。"""
     refs = [
         {
             "url": "https://example.com/a",
@@ -237,18 +237,16 @@ def test_build_yuanbao_trace_shape() -> None:
     assert trace["transport"] == "dom"
     assert trace["deep_think_active"] is True
     assert trace["thinking_chain"] == [{"kind": "reasoning", "text": "想了一下"}]
-    block = trace["search_blocks"][0]
-    assert block["scene"] is None
-    assert block["queries"] == []  # 检索词平台未暴露，诚实留空
-    assert block["summary"] == ""
-    assert [r["url"] for r in block["results"]] == [
+    assert trace["search_blocks"] == []
+    references = trace["answer_reference_pages"]
+    assert [r["url"] for r in references] == [
         "https://example.com/a",
         "https://example.com/b",
     ]
-    assert block["results"][0]["rank"] == 1
-    assert block["results"][0]["site"] == "站点A"
-    assert block["results"][1]["title"] == "未命名来源"
-    assert block["results"][1]["summary"] == ""
+    assert references[0]["rank"] == 1
+    assert references[0]["site"] == "站点A"
+    assert references[1]["title"] == "未命名来源"
+    assert references[1]["summary"] == ""
     empty = _build_yuanbao_trace("", [], deep_think_active=False)
     assert empty["thinking_chain"] == []
     assert empty["search_blocks"] == []

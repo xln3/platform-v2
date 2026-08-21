@@ -22,10 +22,9 @@
 - LLM 调用：OpenAI Responses API 非流式 + text.format json_schema 严格结构化
   输出，每窗 60s 超时；key 只走 settings（GEO_AUDIT_LLM_*，缺省复用
   GEO_RESEARCH_LLM_*，与 W2 同口径），严禁入库/日志。
-- env：``GEO_DISPARAGEMENT_ENABLED``（缺省 true，false → disabled 零 IO）；
-  ``GEO_DISPARAGEMENT_WINDOW_LIMIT``（缺省 1000，硬夹 1..10000，超出如实记
-  truncated，绝不暗吞；20260810 起缺省 50→1000——50 窗对正式 run 必然截断，
-  配合幂等 resume 与 sidecar 120min 预算，上限只当防爆安全阀）。
+- env：``GEO_DISPARAGEMENT_ENABLED``（缺省 true，false → disabled 零 IO）；历史
+  ``GEO_DISPARAGEMENT_WINDOW_LIMIT`` 仅作为兼容的调度提示，不再缩小相关问答的
+  全部 U 风险核查全集。
 """
 
 from __future__ import annotations
@@ -649,6 +648,7 @@ def execute_disparagement(
     """读 DB → 确定性切窗 → 窗级 LLM/词典判定 → verbatim 校验 → 落库。"""
     if not enabled:
         return DisparagementResult(disabled=True)
+    del window_limit  # replay-compatible batch hint; never a business-scope cap
     progress = on_progress if on_progress is not None else _noop_progress
     progress("load_context", "")
     context = loader.load(item.tenant_pub_id, item.run_pub_id, item.project_pub_id)
@@ -711,7 +711,7 @@ def execute_disparagement(
     candidates = dedupe_windows(candidates)
     result.windows = len(candidates)
 
-    # 幂等跳过 + 窗数上限（cap 只夹待判定窗，已判定的不占位）
+    # 幂等跳过；所有尚未判定的窗口都留在本次处理分母中。
     model = llm.model or "unknown"
     llm_available = bool(llm.api_key) and judge is not None
     prompt_version = PROMPT_VERSION if llm_available else DICTIONARY_VERSION
@@ -730,15 +730,6 @@ def execute_disparagement(
             result.skipped += 1
             continue
         pending.append(window)
-    if len(pending) > window_limit:
-        result.truncated = len(pending) - window_limit
-        pending = pending[:window_limit]
-        log.warning(
-            "disparagement_windows_truncated",
-            run_pub_id=context.run_pub_id,
-            truncated=result.truncated,
-            window_limit=window_limit,
-        )
 
     def _persist(window: Window, record: DisparagementRecord) -> None:
         progress("persist", f"{window.target_brand}:{window.subject_pub_id}")

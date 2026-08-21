@@ -120,6 +120,7 @@ import structlog
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from domain.collection.uvw import normalize_retrieval_events, retrieval_events_from_trace_path
 from workflows.activities.answer_dom_anchor import capture_answer_evidence
 from workflows.activities.browser_driver import load_sync_browser_driver
 from workflows.activities.browser_router import resolve_batch_instance
@@ -620,6 +621,7 @@ class CollectedAnswer:
     trace_path: Path | None = None
     # 平台真实检索词（W1）：[{"query": ..., "ordinal": ...}]；无检索词为空列表。
     search_queries: list[dict[str, Any]] = field(default_factory=list)
+    retrieval_events: list[dict[str, Any]] = field(default_factory=list)
     # 原始流量证据 ref（2026-08-10 起：sse_raw/har；GEO_RAW_CAPTURE=0 或写盘
     # 失败为空——诚实缺省）。_task_result_from_collected 并入 evidence。
     raw_evidence: list[CollectionEvidenceRef] = field(default_factory=list)
@@ -931,6 +933,7 @@ def _batch_item_result(
             citations=base.citations,
             evidence=base.evidence,
             search_queries=base.search_queries,
+            retrieval_events=base.retrieval_events,
         )
     return _failure_batch_item(
         item,
@@ -1085,6 +1088,9 @@ def _task_result_from_collected(
         citations=citations,
         evidence=evidence,
         search_queries=collected.search_queries,
+        retrieval_events=(
+            collected.retrieval_events or retrieval_events_from_trace_path(collected.trace_path)
+        ),
     )
 
 
@@ -1511,6 +1517,7 @@ class _PlaywrightDeepseekSession:
             references: list[dict[str, Any]] = []
             trace_path: Path | None = None
             search_queries: list[dict[str, Any]] = []
+            retrieval_events: list[dict[str, Any]] = []
             opened_source_previews: list[CollectionEvidenceRef] = []
             sse_body = capture.latest_body()
             rich: dict[str, Any] | None = None
@@ -1520,6 +1527,7 @@ class _PlaywrightDeepseekSession:
                     answer_text = str(rich.get("answer_text") or "").strip()
                     references = list(rich.get("references") or [])
                     search_queries = list(rich.get("search_queries") or [])
+                    retrieval_events = list(rich.get("retrieval_events") or [])
                     # SSE 结构化 trace 落盘进证据链（kind="sse"，豆包同款流程）：
                     # 思考链/检索词等结构化产物序列化落证据目录。写盘失败不拖垮
                     # 已成功的采集——如实 warning 且不出该证据（绝不出残缺/编造）。
@@ -1730,6 +1738,7 @@ class _PlaywrightDeepseekSession:
                 },
                 trace_path=trace_path,
                 search_queries=search_queries,
+                retrieval_events=retrieval_events,
                 raw_evidence=raw_evidence,
                 opened_source_previews=opened_source_previews,
                 evidence=evidence,
@@ -2713,17 +2722,32 @@ def _assemble_deepseek_record(events: list[dict[str, Any]]) -> dict[str, Any] | 
     opened_pages: list[dict[str, Any]] = []
     direct_answer_references: list[dict[str, Any]] = []
     seen_search_urls: set[str] = set()
-    seen_opened_urls: set[str] = set()
-    seen_answer_urls: set[str] = set()
     opened_by_fragment_id: dict[str, dict[str, Any]] = {}
     answer_reference_ids: list[str] = []
     source_activity_observed = False
     frag_ids: list[str | None] = []
+    search_events: list[dict[str, Any]] = []
+    search_event_by_fragment_index: dict[int, dict[str, Any]] = {}
 
     def _card(value: Any) -> dict[str, Any] | None:
         cards: list[dict[str, Any]] = []
         _append_reference_card(value, cards, set())
         return cards[0] if cards else None
+
+    def _all_cards(value: Any) -> list[dict[str, Any]]:
+        """Return cards in wire order without URL deduplication."""
+
+        card = _card(value)
+        if card is not None:
+            return [card]
+        cards: list[dict[str, Any]] = []
+        if isinstance(value, dict):
+            for child in value.values():
+                cards.extend(_all_cards(child))
+        elif isinstance(value, list):
+            for child in value:
+                cards.extend(_all_cards(child))
+        return cards
 
     def _record_answer_references(value: Any) -> None:
         if not isinstance(value, list):
@@ -2731,13 +2755,14 @@ def _assemble_deepseek_record(events: list[dict[str, Any]]) -> dict[str, Any] | 
         for reference in value:
             card = _card(reference)
             if card is not None:
-                _append_reference_card(card, direct_answer_references, seen_answer_urls)
+                # A repeated final-reference card is a repeated answer fact.
+                # URL identity is deduplicated later; the occurrence is not.
+                direct_answer_references.append(dict(card))
                 continue
             if not isinstance(reference, dict) or reference.get("id") is None:
                 continue
             fragment_id = str(reference["id"])
-            if fragment_id not in answer_reference_ids:
-                answer_reference_ids.append(fragment_id)
+            answer_reference_ids.append(fragment_id)
 
     def _record_opened(value: Any, fragment_id: str | None = None) -> None:
         nonlocal source_activity_observed
@@ -2745,7 +2770,8 @@ def _assemble_deepseek_record(events: list[dict[str, Any]]) -> dict[str, Any] | 
         card = _card(value)
         if card is None:
             return
-        _append_reference_card(card, opened_pages, seen_opened_urls)
+        # Multiple TOOL_OPEN events for one URL are distinct V occurrences.
+        opened_pages.append(dict(card))
         if fragment_id is not None:
             opened_by_fragment_id[fragment_id] = card
 
@@ -2767,14 +2793,38 @@ def _assemble_deepseek_record(events: list[dict[str, Any]]) -> dict[str, Any] | 
                 thinking_parts.append(content)
             elif frag_types[-1] == "TOOL_SEARCH":
                 source_activity_observed = True
+                event_queries: list[str] = []
                 for query in frag.get("queries") or []:
                     if not isinstance(query, dict):
                         continue
                     text = query.get("query")
                     if isinstance(text, str) and text.strip():
+                        event_queries.append(text.strip())
                         search_queries.append(
                             {"query": text.strip(), "ordinal": len(search_queries) + 1}
                         )
+                event_candidates = [
+                    {
+                        "url": card["url"],
+                        "title": card.get("title"),
+                        "summary": card.get("summary"),
+                        "u_rank": rank,
+                    }
+                    for rank, card in enumerate(_all_cards(frag.get("results")), 1)
+                ]
+                retrieval_event = {
+                    "ordinal": len(search_events) + 1,
+                    "queries": event_queries,
+                    "u_observation": "observed",
+                    "v_observation": "observed",
+                    "final_reference_observation": "observed",
+                    "candidates": event_candidates,
+                    "opened_pages": [],
+                    "final_references": [],
+                    "evidence_relation": "answer_sse_trace",
+                }
+                search_events.append(retrieval_event)
+                search_event_by_fragment_index[len(frag_types) - 1] = retrieval_event
                 _walk_references(frag.get("results"), search_results, seen_search_urls)
             elif frag_types[-1] == "TOOL_OPEN":
                 _record_opened(frag.get("result"), fragment_id)
@@ -2826,6 +2876,20 @@ def _assemble_deepseek_record(events: list[dict[str, Any]]) -> dict[str, Any] | 
         target_idx = _target_index(p) if "fragments/" in p else None
         if p.rstrip("/").endswith("/results"):
             source_activity_observed = True
+            search_event = search_event_by_fragment_index.get(
+                target_idx if target_idx is not None else -1
+            )
+            if search_event is not None:
+                start_rank = len(search_event["candidates"])
+                search_event["candidates"].extend(
+                    {
+                        "url": card["url"],
+                        "title": card.get("title"),
+                        "summary": card.get("summary"),
+                        "u_rank": start_rank + rank,
+                    }
+                    for rank, card in enumerate(_all_cards(v), 1)
+                )
             _walk_references(v, search_results, seen_search_urls)
         elif p.rstrip("/").endswith("/result"):
             fragment_id = frag_ids[target_idx] if target_idx is not None else None
@@ -2863,7 +2927,42 @@ def _assemble_deepseek_record(events: list[dict[str, Any]]) -> dict[str, Any] | 
     for fragment_id in answer_reference_ids:
         opened = opened_by_fragment_id.get(fragment_id)
         if opened is not None:
-            _append_reference_card(opened, references, seen_answer_urls)
+            references.append(dict(opened))
+    opened_rows = [
+        {
+            "url": row["url"],
+            "title": row.get("title"),
+            "summary": row.get("summary"),
+            "v_open_order": index,
+        }
+        for index, row in enumerate(opened_pages, 1)
+    ]
+    final_rows = [
+        {
+            "url": row["url"],
+            "title": row.get("title"),
+            "summary": row.get("summary"),
+            "final_reference_ordinal": index,
+        }
+        for index, row in enumerate(references, 1)
+    ]
+    if search_events:
+        search_events[0]["opened_pages"] = opened_rows
+        search_events[0]["final_references"] = final_rows
+    else:
+        search_events.append(
+            {
+                "ordinal": 1,
+                "queries": [],
+                "u_observation": "observed",
+                "v_observation": "observed",
+                "final_reference_observation": "observed",
+                "candidates": [],
+                "opened_pages": opened_rows,
+                "final_references": final_rows,
+                "evidence_relation": "answer_sse_trace",
+            }
+        )
     return {
         "answer_text": answer_text,
         "references": references,
@@ -2875,6 +2974,7 @@ def _assemble_deepseek_record(events: list[dict[str, Any]]) -> dict[str, Any] | 
         "thinking_text": _recover_mojibake("".join(thinking_parts)).strip(),
         "search_queries": search_queries,
         "deep_think_active": deep_think_active,
+        "retrieval_events": normalize_retrieval_events(search_events),
     }
 
 
@@ -2902,7 +3002,27 @@ def _build_sse_trace(record: dict[str, Any]) -> dict[str, Any]:
             }
         )
     search_blocks: list[dict[str, Any]] = []
-    if search_queries or search_results:
+    retrieval_events = list(record.get("retrieval_events") or [])
+    if retrieval_events:
+        search_blocks = [
+            {
+                "scene": event.get("ordinal"),
+                "queries": list(event.get("queries") or []),
+                "summary": "",
+                "results": [
+                    {
+                        "title": str(ref.get("title") or "未命名来源"),
+                        "url": ref.get("url"),
+                        "site": None,
+                        "rank": ref.get("u_rank"),
+                        "summary": str(ref.get("summary") or ""),
+                    }
+                    for ref in event.get("candidates") or []
+                ],
+            }
+            for event in retrieval_events
+        ]
+    elif search_queries or search_results:
         search_blocks.append(
             {
                 "scene": None,

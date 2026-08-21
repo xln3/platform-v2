@@ -73,7 +73,7 @@ CATEGORIES = ("content_coverage", "citability", "fact_consistency", "crawlabilit
 SEVERITIES = ("high", "medium", "low")
 
 _MAX_SUGGESTIONS = 10  # 契约上限：整批 ≤10 条
-_MAX_OWN_SITE_DOCS = 10  # 送审 own_site 文档上限（超出记 truncated）
+_DOCS_PER_SUGGESTION_REQUEST = 10  # 单次提示词批量；不得作为官网事实全集上限
 _MAX_DOC_EXCERPT_CHARS = 3_000  # 每文档正文要点截断
 _MAX_TITLE_CHARS = 200
 _MAX_DETAIL_CHARS = 2_000
@@ -665,14 +665,6 @@ def execute_site_suggestions(
     if not own_site_rows:
         result.skipped = "no_own_site_documents"
         return result
-    if len(own_site_rows) > _MAX_OWN_SITE_DOCS:
-        result.truncated += len(own_site_rows) - _MAX_OWN_SITE_DOCS
-        own_site_rows = own_site_rows[:_MAX_OWN_SITE_DOCS]
-        log.warning(
-            "site_suggestions_documents_truncated",
-            run_pub_id=item.run_pub_id,
-            truncated=result.truncated,
-        )
     result.own_site_documents = len(own_site_rows)
 
     # CAS 读正文要点：读失败的文档如实记 failures 并剔除（绝不拿残缺正文送审）
@@ -719,18 +711,23 @@ def execute_site_suggestions(
         result.skipped = "already_generated"
         return result
 
-    progress("suggest", context.own_site_host)
-    try:
-        raw_items = judge.suggest(
-            brand=context.brand or "",
-            own_site_host=context.own_site_host,
-            documents=documents,
-        )
-    except SuggestionsError as exc:
-        result.failures.append(f"llm_error: {exc}")
-        return result
-    except Exception as exc:
-        result.failures.append(f"{type(exc).__name__}: {exc}")
+    raw_items: list[dict[str, Any]] = []
+    for batch_start in range(0, len(documents), _DOCS_PER_SUGGESTION_REQUEST):
+        document_batch = documents[batch_start : batch_start + _DOCS_PER_SUGGESTION_REQUEST]
+        progress("suggest", f"{context.own_site_host}:{batch_start}")
+        try:
+            raw_items.extend(
+                judge.suggest(
+                    brand=context.brand or "",
+                    own_site_host=context.own_site_host,
+                    documents=document_batch,
+                )
+            )
+        except SuggestionsError as exc:
+            result.failures.append(f"llm_error: batch={batch_start}: {exc}")
+        except Exception as exc:
+            result.failures.append(f"batch={batch_start}: {type(exc).__name__}: {exc}")
+    if not raw_items:
         return result
     drafts, dropped, evidence_dropped, truncated = validate_suggestions(
         raw_items,

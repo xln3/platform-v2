@@ -106,6 +106,7 @@ import structlog
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from domain.collection.uvw import retrieval_events_from_trace_path
 from workflows.activities.answer_dom_anchor import capture_answer_evidence
 from workflows.activities.browser_driver import load_sync_browser_driver
 from workflows.activities.browser_router import resolve_batch_instance
@@ -842,6 +843,7 @@ def _batch_item_result(
             citations=base.citations,
             evidence=base.evidence,
             search_queries=base.search_queries,
+            retrieval_events=base.retrieval_events,
         )
     return _failure_batch_item(
         item,
@@ -965,6 +967,7 @@ def _task_result_from_collected(
         screenshot_ref=screenshot_ref,
         quality_state="live_valid",
         evidence=evidence,
+        retrieval_events=retrieval_events_from_trace_path(collected.trace_path),
     )
 
 
@@ -2100,38 +2103,34 @@ def _build_yuanbao_trace(
     DeepSeek：collection router 的 build_task_trace_view 消费同一词表）。
 
     transport="dom" 如实标注：元宝 /api/chat/ 流只当完成信号（CDP 不读 body），
-    思考链来自 DOM 实渲染。references 折叠形态照 DeepSeek _build_sse_trace
-    （检索词平台未暴露 → queries 诚实留空）。思考文本单块截
+    思考链来自 DOM 实渲染。references 单独保存为 ``answer_reference_pages``，
+    不能冒充完整 U 候选（检索词和 V 均未暴露）。思考文本单块截
     _THINKING_TEXT_LIMIT 字符（对齐豆包水位）。
     """
     thinking_chain: list[dict[str, Any]] = []
     if thinking_text:
         thinking_chain.append({"kind": "reasoning", "text": thinking_text[:_THINKING_TEXT_LIMIT]})
-    search_blocks: list[dict[str, Any]] = []
-    if references:
-        search_blocks.append(
-            {
-                "scene": None,
-                "queries": [],
-                "summary": "",
-                "results": [
-                    {
-                        "title": str(ref.get("title") or "未命名来源"),
-                        "url": ref.get("url"),
-                        "site": ref.get("sitename"),
-                        "rank": index,
-                        "summary": str(ref.get("summary") or ""),
-                    }
-                    for index, ref in enumerate(references, 1)
-                ],
-            }
-        )
+    answer_reference_pages = [
+        {
+            "title": str(ref.get("title") or "未命名来源"),
+            "url": ref.get("url"),
+            "site": ref.get("sitename"),
+            "rank": index,
+            "summary": str(ref.get("summary") or ""),
+        }
+        for index, ref in enumerate(references, 1)
+    ]
     return {
         "engine": "yuanbao",
         "transport": "dom",
         "deep_think_active": deep_think_active,
         "thinking_chain": thinking_chain,
-        "search_blocks": search_blocks,
+        # Yuanbao's DOM card is a final document/reference list, not proof of
+        # the complete search candidate set.  U and V therefore stay unknown.
+        "search_blocks": [],
+        "opened_pages_observed": False,
+        "opened_pages": [],
+        "answer_reference_pages": answer_reference_pages,
     }
 
 

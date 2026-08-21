@@ -226,16 +226,16 @@ def test_is_static_resource_url() -> None:
     assert not is_static_resource_url("https://example.com/article?x=1")
 
 
-def test_plan_source_targets_dedupes_orders_and_caps() -> None:
+def test_plan_source_targets_dedupes_identity_without_dropping_observed_urls() -> None:
     tasks = [
         (
             "tsk_1",
             [
                 _citation("https://a.example.com/1"),
                 _citation("https://b.example.com/2#x"),
-                _citation("https://a.example.com/1"),  # 重复 → 丢弃
-                _citation("https://static.example.com/x.css"),  # 静态资源 → 丢弃
-                _citation("ftp://bad.example.com/x"),  # 非 http → 丢弃
+                _citation("https://a.example.com/1"),  # 重复 identity → 单次抓取
+                _citation("https://static.example.com/x.css"),  # 仍需显式抓取结果
+                _citation("ftp://bad.example.com/x"),  # 非 HTTP URL 不是 U identity
             ],
         ),
         ("tsk_2", [_citation("https://b.example.com/2"), _citation("https://c.example.com/3")]),
@@ -245,18 +245,19 @@ def test_plan_source_targets_dedupes_orders_and_caps() -> None:
         "https://a.example.com/1",
         "https://b.example.com/2#x",
         "https://c.example.com/3",
+        "https://static.example.com/x.css",
     ]
     # 去重键忽略 fragment：b.example.com/2 与 b.example.com/2#x 应视为同一条
-    assert len({t.key for t in targets}) == 3
+    assert len({t.key for t in targets}) == 4
 
 
-def test_plan_source_targets_respects_limit() -> None:
+def test_plan_source_targets_legacy_batch_hints_do_not_truncate_business_scope() -> None:
     tasks = [("tsk_1", [_citation(f"https://{i}.example.com/a") for i in range(10)])]
-    assert len(plan_source_targets(tasks, limit=5)) == 5
-    assert len(plan_source_targets(tasks, limit=1)) == 1
+    assert len(plan_source_targets(tasks, limit=5)) == 10
+    assert len(plan_source_targets(tasks, limit=1, run_limit=1)) == 10
 
 
-def test_plan_source_targets_applies_limit_per_answer_and_fans_out_shared_url() -> None:
+def test_plan_source_targets_preserves_all_answers_and_fans_out_shared_url() -> None:
     shared = "https://shared.example.com/article"
     tasks = [
         (
@@ -283,12 +284,14 @@ def test_plan_source_targets_applies_limit_per_answer_and_fans_out_shared_url() 
         "https://a.example.com/1",
         shared,
         "https://b.example.com/2",
+        "https://a.example.com/3",
+        "https://b.example.com/3",
     ]
     shared_target = next(target for target in targets if target.url == shared)
     assert shared_target.task_pub_ids == ("ans_1", "ans_2")
 
 
-def test_plan_source_targets_prioritizes_verbatim_citations_and_honors_run_cap() -> None:
+def test_plan_source_targets_prioritizes_verbatim_without_honoring_legacy_cap() -> None:
     tasks = [
         (
             "ans_1",
@@ -302,11 +305,15 @@ def test_plan_source_targets_prioritizes_verbatim_citations_and_honors_run_cap()
 
     targets = plan_source_targets(tasks, limit=1, run_limit=1)
 
-    assert [target.url for target in targets] == ["https://quoted.example.com/2"]
+    assert [target.url for target in targets] == [
+        "https://quoted.example.com/2",
+        "https://second.example.com/1",
+        "https://plain.example.com/1",
+    ]
     assert targets[0].task_pub_ids == ("ans_1",)
 
 
-def test_plan_source_targets_run_cap_is_round_robin_across_answers() -> None:
+def test_plan_source_targets_round_robins_all_answers_without_run_truncation() -> None:
     tasks = [
         (
             "ans_1",
@@ -323,6 +330,7 @@ def test_plan_source_targets_run_cap_is_round_robin_across_answers() -> None:
     assert [target.url for target in targets] == [
         "https://first.example.com/1",
         "https://second.example.com/1",
+        "https://first.example.com/2",
     ]
 
 
@@ -339,7 +347,19 @@ def test_normal_protection_limits_preserve_thirty_urls_from_one_answer() -> None
     assert coverage[0].truncation_reason is None
 
 
-def test_source_plan_coverage_records_per_answer_truncation_reason() -> None:
+def test_more_than_five_hundred_u_urls_all_enter_fetch_planning() -> None:
+    citations = [_citation(f"https://source-{index}.example.com/article") for index in range(750)]
+
+    targets = plan_source_targets([("ans_750", citations)], limit=5, run_limit=500)
+    coverage = source_plan_coverage([("ans_750", citations)], targets, limit=5, run_limit=500)
+
+    assert len(targets) == 750
+    assert coverage[0].eligible_urls == 750
+    assert coverage[0].planned_urls == 750
+    assert coverage[0].truncated_urls == 0
+
+
+def test_source_plan_coverage_is_complete_even_with_legacy_small_hints() -> None:
     tasks = [
         (
             "ans_1",
@@ -357,12 +377,13 @@ def test_source_plan_coverage_records_per_answer_truncation_reason() -> None:
     coverage = source_plan_coverage(tasks, targets, limit=2, run_limit=2)
 
     assert coverage[0].eligible_urls == 3
-    assert coverage[0].planned_urls == 1
-    assert coverage[0].truncated_urls == 2
-    assert coverage[0].truncation_reason == "per_answer_limit+run_limit"
+    assert coverage[0].planned_urls == 3
+    assert coverage[0].truncated_urls == 0
+    assert coverage[0].truncation_reason is None
     assert coverage[1].coverage_rate == 1.0
     assert coverage[1].truncation_reason is None
-    assert coverage[2].coverage_rate is None
+    assert coverage[2].coverage_rate == 1.0
+    assert coverage[2].truncation_reason is None
 
 
 # ---------------------------------------------------------------------------
@@ -414,9 +435,10 @@ def test_extract_text_from_html_empty_page() -> None:
     assert extract_text_from_html("<html><body></body></html>") == ""
 
 
-def test_extract_text_truncates_at_limit() -> None:
+def test_extract_text_is_complete_by_default_and_supports_explicit_windowing() -> None:
     html = f"<html><body><p>{'长' * 30000}</p></body></html>"
-    assert len(extract_text_from_html(html)) == 20_000
+    assert len(extract_text_from_html(html)) == 30_000
+    assert len(extract_text_from_html(html, limit=20_000)) == 20_000
 
 
 def test_looks_like_js_shell_short_text_long_html() -> None:

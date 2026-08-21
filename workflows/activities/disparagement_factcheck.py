@@ -459,6 +459,7 @@ def execute_factcheck(
     """读 DB → 逐条联网核查 → verdict 程序校验 → 落 T1（judgment_pub_id 幂等）。"""
     if not enabled:
         return FactcheckResult(disabled=True)
+    del case_limit  # replay-compatible batch hint; all pending cases remain in scope
     progress = on_progress if on_progress is not None else _noop_progress
     progress("load_context", "")
     context = loader.load(item.tenant_pub_id, item.run_pub_id, item.project_pub_id)
@@ -477,15 +478,6 @@ def execute_factcheck(
         return result
 
     pending = context.cases
-    if len(pending) > case_limit:
-        result.truncated = len(pending) - case_limit
-        pending = pending[:case_limit]
-        log.warning(
-            "disparagement_factcheck_truncated",
-            run_pub_id=item.run_pub_id,
-            truncated=result.truncated,
-            case_limit=case_limit,
-        )
     model = llm.model or "unknown"
     for case in pending:
         progress("verify", case.judgment_pub_id)
