@@ -516,6 +516,8 @@ def test_setup_page_public_and_secret_free() -> None:
     assert "setup-info" in html  # 解锁后经受门端点拉配置
     assert "relay-secret" not in html and "operator-secret" not in html
     assert "73mOY3" not in html  # 生产 token 片段同样不得出现
+    assert "管理 VPN 或固定出口 IP" not in html
+    assert "含密配置、号码注册和状态查询仍须 operator token 鉴权" in html
     assert resp.headers["cache-control"] == "private, no-store"
 
 

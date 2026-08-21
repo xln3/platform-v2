@@ -1012,7 +1012,7 @@ _SETUP_PAGE_HTML = r"""<!DOCTYPE html>
   <div class="critical">
     <b>HTTPS 校验：</b>公网入口应由系统信任的公共 CA 正常验证，无需安装自签证书或
     描述文件。浏览器若出现证书警告，立即停止，不要输入 operator token；不要绕过警告。
-    操作入口还应通过管理 VPN 或固定出口 IP 限制。
+    页面本体不含秘密；含密配置、号码注册和状态查询仍须 operator token 鉴权。
   </div>
 
   <h2 id="device-choice">选择手机系统</h2>

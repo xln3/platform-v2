@@ -32,9 +32,10 @@ def test_production_otp_paths_are_pinned_outside_release_snapshots() -> None:
     assert "ReadWritePaths=/home/xln/geo-system/platform-v2" in api_service
 
 
-def test_operator_routes_are_separate_fail_closed_and_rate_limited() -> None:
+def test_operator_routes_are_publicly_routed_token_gated_and_rate_limited() -> None:
     server = (ROOT / "deploy/production/geo-platform-v2.conf").read_text(encoding="utf-8")
     locations = (ROOT / "deploy/production/nginx-v2-locations.conf").read_text(encoding="utf-8")
+    edges = (ROOT / "deploy/production/geo-platform-v2-port-edges.conf").read_text(encoding="utf-8")
     api_service = (ROOT / "deploy/production/geo-platform-v2-api.service").read_text(
         encoding="utf-8"
     )
@@ -45,9 +46,9 @@ def test_operator_routes_are_separate_fail_closed_and_rate_limited() -> None:
     log_format = server.split("log_format geo_otp_operator", 1)[1].split(";", 1)[0]
     assert "$uri" in log_format
     assert "$request " not in log_format and "$args" not in log_format
-    geo_block = server.split("geo $geo_otp_operator_allowed {", 1)[1].split("}", 1)[0]
-    assert "default 0;" in geo_block
-    assert "127.0.0.1/32 1;" in geo_block and "::1/128 1;" in geo_block
+    assert "$geo_otp_operator_allowed" not in server
+    assert "$geo_otp_operator_allowed" not in locations
+    assert "management-VPN" not in server
 
     protected = {
         "/api/v2/otp/setup": "geo_otp_operator_ui",
@@ -60,7 +61,7 @@ def test_operator_routes_are_separate_fail_closed_and_rate_limited() -> None:
         marker = f"location = {path} {{"
         assert locations.count(marker) == 1
         block = locations.split(marker, 1)[1].split("\n}", 1)[0]
-        assert "if ($geo_otp_operator_allowed = 0) { return 403; }" in block
+        assert "return 403" not in block
         assert "geo-otp-operator-access.log geo_otp_operator" in block
         assert f"limit_req zone={zone}" in block
         assert "proxy_set_header X-Forwarded-Host $http_host;" in block
@@ -68,6 +69,10 @@ def test_operator_routes_are_separate_fail_closed_and_rate_limited() -> None:
 
     assert "location = /api/v2/otp/push" not in locations
     assert "location = /api/v2/otp/smsforwarder.apk" not in locations
+    configuration_server = edges.split("listen 8080 ssl;", 1)[1].split("\n}\n", 1)[0]
+    assert "smsforwarder\\.apk)$" in configuration_server
+    assert "|push|" not in configuration_server
+    assert "geo-platform-v2-public-backend-proxy.conf" in configuration_server
     # Scoped app filter preserves non-sensitive diagnostics.
     assert "--no-access-log" not in api_service
 
