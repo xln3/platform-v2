@@ -47,11 +47,13 @@ import { useSearchParams } from 'react-router';
 import { z } from 'zod';
 import { useIntelligenceMutationGuard } from './mutation-guard';
 import { CalibrationWorkspace as GovernedCalibrationWorkspace } from './calibration-workspace';
+import { SourceIntelligenceWorkspace } from './source-intelligence-workspace';
 
 const nav = [
   { id: 'cases', label: '案件' },
   { id: 'claims', label: 'Claim 矩阵' },
   { id: 'sources', label: '多源证据' },
+  { id: 'source-insight', label: '信源洞察' },
   { id: 'graph', label: '传播关系' },
   { id: 'history', label: '页面历史' },
   { id: 'calibration', label: '模型准入' },
@@ -2827,7 +2829,9 @@ export default function Shell() {
       nav={experience?.source === 'live' ? liveNav : nav}
     >
       {(active) =>
-        active === 'cases' ? (
+        active === 'source-insight' ? (
+          <SourceIntelligenceWorkspace />
+        ) : active === 'cases' ? (
           <CasesWorkspace
             livePage={livePage}
             liveState={effectiveLiveState}

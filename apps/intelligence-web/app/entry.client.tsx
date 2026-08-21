@@ -7,6 +7,7 @@ installClientBrowserSecurity([
   'cases',
   'claims',
   'sources',
+  'source-insight',
   'graph',
   'history',
   'calibration',

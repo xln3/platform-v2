@@ -35,6 +35,12 @@ type Pages = {
   "/service-visibility": {
     params: {};
   };
+  "/service-outbound-risk": {
+    params: {};
+  };
+  "/service-inbound-risk": {
+    params: {};
+  };
   "/service-risk": {
     params: {};
   };
@@ -74,7 +80,7 @@ type Pages = {
 type RouteFiles = {
   "root.tsx": {
     id: "root";
-    page: "/" | "/login" | "/execution" | "/media-prices" | "/posting" | "/quotations" | "/onboarding" | "/service-visibility" | "/service-risk" | "/service-site-audit" | "/service-pilot" | "/formal-reports" | "/sop" | "/sop/projects/:projectPubId" | "/post-analysis" | "/post-analysis/tasks/:taskPubId" | "/accounts" | "/browsers";
+    page: "/" | "/login" | "/execution" | "/media-prices" | "/posting" | "/quotations" | "/onboarding" | "/service-visibility" | "/service-outbound-risk" | "/service-inbound-risk" | "/service-risk" | "/service-site-audit" | "/service-pilot" | "/formal-reports" | "/sop" | "/sop/projects/:projectPubId" | "/post-analysis" | "/post-analysis/tasks/:taskPubId" | "/accounts" | "/browsers";
   };
   "shell.tsx": {
     id: "shell";
@@ -107,6 +113,14 @@ type RouteFiles = {
   "features/services/service-visibility/route.tsx": {
     id: "features/services/service-visibility/route";
     page: "/service-visibility";
+  };
+  "features/services/service-outbound-risk/route.tsx": {
+    id: "features/services/service-outbound-risk/route";
+    page: "/service-outbound-risk";
+  };
+  "features/services/service-inbound-risk/route.tsx": {
+    id: "features/services/service-inbound-risk/route";
+    page: "/service-inbound-risk";
   };
   "features/services/service-risk/route.tsx": {
     id: "features/services/service-risk/route";
@@ -160,6 +174,8 @@ type RouteModules = {
   "features/quotations/route": typeof import("./app/features/quotations/route.tsx");
   "features/onboarding/route": typeof import("./app/features/onboarding/route.tsx");
   "features/services/service-visibility/route": typeof import("./app/features/services/service-visibility/route.tsx");
+  "features/services/service-outbound-risk/route": typeof import("./app/features/services/service-outbound-risk/route.tsx");
+  "features/services/service-inbound-risk/route": typeof import("./app/features/services/service-inbound-risk/route.tsx");
   "features/services/service-risk/route": typeof import("./app/features/services/service-risk/route.tsx");
   "features/services/service-site-audit/route": typeof import("./app/features/services/service-site-audit/route.tsx");
   "features/services/service-pilot/route": typeof import("./app/features/services/service-pilot/route.tsx");

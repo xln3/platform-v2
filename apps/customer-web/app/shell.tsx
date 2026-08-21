@@ -140,24 +140,30 @@ import {
   type CustomerAccountMutationTicket,
 } from './account-mutation-guard';
 import { CustomerAnalyticsWorkspace } from './customer-dashboard';
+import { CustomerServicesWorkspace } from './customer-services-workspace';
 import './ai-dock.css';
 
 const nav = [
-  { id: 'home', label: '经营总览', group: '数据洞察' },
-  { id: 'monitoring', label: '品牌可见度', group: '数据洞察' },
-  { id: 'answers', label: '真实 AI 回答', group: '数据洞察' },
-  { id: 'competition', label: '竞品对标', group: '数据洞察' },
-  { id: 'sources', label: '信源与内容', group: '数据洞察' },
-  { id: 'reputation', label: '口碑与风险', group: '数据洞察' },
-  { id: 'opportunities', label: '增长机会', group: '数据洞察' },
-  { id: 'evidence', label: '证据中心', group: '成果交付' },
-  { id: 'reports', label: '报告', group: '成果交付' },
-  { id: 'profile', label: '客户资料', group: '项目配置' },
-  { id: 'intake', label: '客户信息表', group: '项目配置' },
-  { id: 'assets', label: '品牌产品与竞品', group: '项目配置' },
-  { id: 'questions', label: '监测问题与目标', group: '项目配置' },
-  { id: 'members', label: '项目成员', group: '项目配置' },
-  { id: 'accounts', label: 'AI 平台账号与授权', group: '项目配置', badge: '2' },
+  { id: 'home', label: '经营总览', group: '项目首页' },
+  { id: 'services', label: '服务总览', group: '我的服务' },
+  { id: 'service-1', label: '1 · AI 推荐排名测试', group: '我的服务' },
+  { id: 'service-2', label: '2 · 主动拉踩核查', group: '我的服务' },
+  { id: 'service-3', label: '3 · 被拉踩核查', group: '我的服务' },
+  { id: 'service-4', label: '4 · 官网引用效率', group: '我的服务' },
+  { id: 'service-5', label: '5 · 内容发布试点', group: '我的服务' },
+  { id: 'evidence', label: '证据中心', group: '报告与交付物' },
+  { id: 'reports', label: '报告', group: '报告与交付物' },
+  { id: 'profile', label: '客户资料', group: '项目资料与授权' },
+  { id: 'intake', label: '客户信息表', group: '项目资料与授权' },
+  { id: 'assets', label: '品牌产品与竞品', group: '项目资料与授权' },
+  { id: 'questions', label: '监测问题与目标', group: '项目资料与授权' },
+  { id: 'members', label: '项目成员', group: '项目资料与授权' },
+  {
+    id: 'accounts',
+    label: 'AI 平台账号与授权',
+    group: '项目资料与授权',
+    badge: '2',
+  },
 ];
 const liveNav = nav.map((item) =>
   item.id === 'accounts' ? { id: item.id, label: item.label, group: item.group } : item,
@@ -10158,7 +10164,7 @@ export default function Shell() {
       <ProductShell
         product="Customer Web"
         title="客户工作台"
-        description="从项目资料到监测、证据、报告与平台账号授权的安全协作入口。"
+        description="围绕已授权五项服务、报告交付和项目资料的客户安全入口。"
         nav={experience?.source === 'live' ? liveNav : nav}
         probe={getHealth}
       >
@@ -10167,6 +10173,12 @@ export default function Shell() {
             {experience?.source === 'live' &&
             ![
               'home',
+              'services',
+              'service-1',
+              'service-2',
+              'service-3',
+              'service-4',
+              'service-5',
               'answers',
               'profile',
               'intake',
@@ -10185,6 +10197,18 @@ export default function Shell() {
               <StatePanel state="insufficient" />
             ) : active === 'home' ? (
               <CustomerAnalyticsWorkspace focus="overview" />
+            ) : active === 'services' ? (
+              <CustomerServicesWorkspace />
+            ) : active === 'service-1' ? (
+              <CustomerServicesWorkspace focus={1} />
+            ) : active === 'service-2' ? (
+              <CustomerServicesWorkspace focus={2} />
+            ) : active === 'service-3' ? (
+              <CustomerServicesWorkspace focus={3} />
+            ) : active === 'service-4' ? (
+              <CustomerServicesWorkspace focus={4} />
+            ) : active === 'service-5' ? (
+              <CustomerServicesWorkspace focus={5} />
             ) : active === 'monitoring' ? (
               <CustomerAnalyticsWorkspace focus="visibility" />
             ) : active === 'answers' ? (

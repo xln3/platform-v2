@@ -93,6 +93,26 @@
   gap: 8px;
   flex-wrap: wrap;
 }
+.services-page .actions a.button {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #b9c7be;
+  border-radius: 8px;
+  background: #fff;
+  color: #17211b;
+  padding: 8px 12px;
+  text-decoration: none;
+}
+.services-page .actions a.button:hover {
+  background: #edf5ef;
+}
+.service-production-steps {
+  display: grid;
+  gap: 10px;
+  padding-left: 24px;
+  color: #415047;
+  line-height: 1.7;
+}
 .services-page .actions .danger,
 .services-page button.danger {
   color: #a22323;
