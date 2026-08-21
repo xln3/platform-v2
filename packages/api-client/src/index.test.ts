@@ -38,6 +38,7 @@ import {
   getCustomerAnswerLibraryQuestionRuns,
   getCustomerAnswerPage,
   getCustomerDashboard,
+  getCustomerFiveServices,
   getCustomerMetricCatalog,
   getEvidenceAssetContent,
   getHealth,
@@ -68,6 +69,8 @@ import {
   listEvaluationDatasets,
   listEvaluationRuns,
   listInvestigations,
+  listInternalSourceOccurrences,
+  listInternalSourceSites,
   listModelAdmissions,
   resolveInvestigationAppeal,
   updateReportAction,
@@ -8964,5 +8967,222 @@ describe('production identity header boundary', () => {
     expect(allowsFixtureIdentityHeaders({ DEV: false, VITE_ALLOW_CONTRACT_FIXTURES: 'true' })).toBe(
       true,
     );
+  });
+});
+
+describe('UVW security-domain projections', () => {
+  const headers: IdentitySessionHeaders = {
+    'X-Tenant-Id': 'tnt_safe',
+    'X-Actor-Id': 'usr_safe',
+    'X-Actor-Role': 'analyst',
+  };
+  const projectPubId = `prj_${'a'.repeat(26)}`;
+  const jsonResponse = (payload: unknown, status = 200) =>
+    new Response(JSON.stringify(payload), {
+      status,
+      headers: { 'content-type': 'application/json' },
+    });
+
+  it('keeps the five service entitlements independent and rejects unsafe delivery text', async () => {
+    const catalog = [
+      [1, 'ranking_test', 'AI 推荐排名效果测试'],
+      [2, 'outbound_disparagement_audit', '主动拉踩内容核查'],
+      [3, 'inbound_disparagement_audit', '被拉踩内容核查'],
+      [4, 'official_site_audit', '官网内容 AI 引用效率分析'],
+      [5, 'content_publishing_pilot', '内容发布与排名提升试点'],
+    ] as const;
+    const services = catalog.map(([service_number, service_code, name]) => ({
+      service_number,
+      service_code,
+      name,
+      entitlement_state: service_number === 1 ? 'active' : 'inactive',
+      catalog_version: service_number === 1 ? 'catalog-v1' : null,
+      summary:
+        service_number === 1
+          ? {
+              answer_count: 12,
+              official_site_stage: null,
+              official_site_u_occurrences: null,
+              official_site_v_occurrences: null,
+              official_site_w_occurrences: null,
+              u_observation: null,
+              v_observation: null,
+              w_observation: null,
+            }
+          : null,
+      latest_delivery:
+        service_number === 1
+          ? {
+              report_pub_id: `rpt_${'b'.repeat(26)}`,
+              report_version_pub_id: `rptv_${'c'.repeat(26)}`,
+              title: '排名测试正式报告',
+              published_at: '2026-08-20T02:00:00Z',
+              delivered_at: null,
+              confirmed_at: null,
+            }
+          : null,
+    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse({
+          schema_version: 'customer-five-services-v1',
+          project_pub_id: projectPubId,
+          services,
+        }),
+      ),
+    );
+    const client = createGeoApiClient('http://127.0.0.1:45200');
+
+    const ready = await getCustomerFiveServices(headers, projectPubId, client);
+
+    expect(ready.kind).toBe('ready');
+    if (ready.kind === 'ready') {
+      expect(ready.data.services.map((service) => service.serviceCode)).toEqual(
+        catalog.map(([, code]) => code),
+      );
+      expect(ready.data.services[1]?.serviceCode).not.toBe(ready.data.services[2]?.serviceCode);
+      expect(ready.data.services[1]?.summary).toBeNull();
+    }
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse({
+          schema_version: 'customer-five-services-v1',
+          project_pub_id: projectPubId,
+          services: services.map((service, index) =>
+            index === 0
+              ? {
+                  ...service,
+                  latest_delivery: {
+                    ...service.latest_delivery!,
+                    title: 'Authorization: Bearer customer-secret',
+                  },
+                }
+              : service,
+          ),
+        }),
+      ),
+    );
+    await expect(getCustomerFiveServices(headers, projectPubId, client)).resolves.toEqual({
+      kind: 'unavailable',
+    });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse({
+          schema_version: 'customer-five-services-v1',
+          project_pub_id: projectPubId,
+          services: services.map((service, index) =>
+            index === 0
+              ? {
+                  ...service,
+                  summary: { ...service.summary!, u_observation: 'zero' },
+                }
+              : service,
+          ),
+        }),
+      ),
+    );
+    await expect(getCustomerFiveServices(headers, projectPubId, client)).resolves.toEqual({
+      kind: 'unavailable',
+    });
+  });
+
+  it('preserves repeated URL occurrences and projects unobserved V as unknown', async () => {
+    const urlPubId = `url_${'d'.repeat(26)}`;
+    const occurrence = (suffix: string, rank: number) => ({
+      occurrence_pub_id: `uoc_${suffix.repeat(26)}`,
+      answer_pub_id: `ans_${suffix.repeat(26)}`,
+      url_pub_id: urlPubId,
+      canonical_url: 'https://example.com/article',
+      host: 'example.com',
+      captured_at: '2026-08-20T02:00:00Z',
+      platform: 'doubao',
+      model: 'doubao-search',
+      region: 'cn-east',
+      mode: 'search',
+      question: `问题 ${suffix}`,
+      query: `检索词 ${suffix}`,
+      u_state: 'observed',
+      u_rank: rank,
+      v_state: 'unobserved',
+      v_open_order: null,
+      final_reference_state: 'unobserved',
+      w_state: 'unobserved',
+      w_weight: null,
+      evidence_state: 'linked',
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse({
+          schema_version: 'internal-source-occurrences-v1',
+          project_pub_id: projectPubId,
+          url_pub_id: urlPubId,
+          data: [occurrence('e', 1), occurrence('f', 2)],
+          page: { next_cursor: null, has_more: false },
+        }),
+      ),
+    );
+
+    const result = await listInternalSourceOccurrences(
+      headers,
+      projectPubId,
+      urlPubId,
+      null,
+      createGeoApiClient('http://127.0.0.1:45200'),
+    );
+
+    expect(result.kind).toBe('ready');
+    if (result.kind === 'ready') {
+      expect(result.data.data).toHaveLength(2);
+      expect(result.data.data.map((row) => row.uRank)).toEqual([1, 2]);
+      expect(result.data.data.every((row) => row.vState === 'unobserved')).toBe(true);
+      expect(result.data.data.every((row) => row.vOpenOrder === null)).toBe(true);
+    }
+  });
+
+  it('keeps an unobserved aggregate U distinct from a measured zero', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse({
+          schema_version: 'internal-source-sites-v1',
+          project_pub_id: projectPubId,
+          data: [
+            {
+              site_pub_id: `sit_${'a'.repeat(26)}`,
+              host: 'legacy.example.com',
+              distinct_url_count: 1,
+              u_occurrence_count: 0,
+              distinct_answer_count: 1,
+              v_count: 0,
+              w_count: 0,
+              u_observation: 'unobserved',
+              v_observation: 'unobserved',
+              w_observation: 'unobserved',
+              latest_capture_at: '2026-08-20T02:00:00Z',
+            },
+          ],
+          page: { next_cursor: null, has_more: false },
+        }),
+      ),
+    );
+
+    const result = await listInternalSourceSites(
+      headers,
+      projectPubId,
+      null,
+      createGeoApiClient('http://127.0.0.1:45200'),
+    );
+
+    expect(result.kind).toBe('ready');
+    if (result.kind === 'ready') {
+      expect(result.data.data[0]?.uOccurrenceCount).toBe(0);
+      expect(result.data.data[0]?.uObservation).toBe('unobserved');
+    }
   });
 });

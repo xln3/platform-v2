@@ -257,7 +257,7 @@ def put_profile(
     response: Response,
     principal: Principal = Depends(get_principal),
 ) -> SourceProfileView:
-    principal.require("project:write")
+    principal.require("intelligence:write")
     with _errors():
         row, created = _service().put_profile(
             tenant_pub_id=principal.tenant_pub_id,
@@ -274,7 +274,7 @@ def get_profile(
     project_pub_id: str,
     principal: Principal = Depends(get_principal),
 ) -> SourceProfileView:
-    principal.require("project:read")
+    principal.require("intelligence:read")
     with _errors():
         row = _service().get_active_profile(
             tenant_pub_id=principal.tenant_pub_id, project_pub_id=project_pub_id
@@ -287,7 +287,7 @@ def list_profiles(
     project_pub_id: str,
     principal: Principal = Depends(get_principal),
 ) -> list[SourceProfileView]:
-    principal.require("project:read")
+    principal.require("intelligence:read")
     with _errors():
         rows = _service().list_profiles(
             tenant_pub_id=principal.tenant_pub_id, project_pub_id=project_pub_id
@@ -309,7 +309,7 @@ def enqueue_run_inspection(
 ) -> AnalysisJobView:
     """Re-run page inspection for an existing source snapshot with a frozen profile."""
 
-    principal.require("project:write")
+    principal.require("intelligence:write")
     settings = get_settings()
     with _errors():
         row, created = _service().enqueue_run_inspection(
@@ -332,7 +332,7 @@ def list_inspections(
     limit: int = Query(default=50, ge=1, le=100),
     principal: Principal = Depends(get_principal),
 ) -> InspectionPage:
-    principal.require("project:read")
+    principal.require("intelligence:read")
     with _errors():
         rows = _service().list_inspections(
             tenant_pub_id=principal.tenant_pub_id,
@@ -361,7 +361,7 @@ def get_inspection(
     inspection_pub_id: str,
     principal: Principal = Depends(get_principal),
 ) -> InspectionDetail:
-    principal.require("project:read")
+    principal.require("intelligence:read")
     with _errors():
         row = _service().get_inspection(
             tenant_pub_id=principal.tenant_pub_id,

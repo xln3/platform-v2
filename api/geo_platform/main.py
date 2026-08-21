@@ -24,6 +24,7 @@ from .collection.terminal_router import router as terminal_router
 from .config import get_settings
 from .contracts import ApiError, Health, Readiness
 from .customer_dashboard.router import router as customer_dashboard_router
+from .customer_services.router import router as customer_services_router
 from .datasets.router import router as datasets_router
 from .identity.router import router as identity_router
 from .intake.router import public_router as intake_public_router
@@ -43,6 +44,7 @@ from .projects.router import router as projects_router
 from .quotations.router import router as quotations_router
 from .s02_routers import router as s02_router
 from .source_analysis.router import router as source_analysis_router
+from .source_intelligence.router import router as source_intelligence_router
 from .variants.router import router as variants_router
 
 settings = get_settings()
@@ -184,6 +186,7 @@ app.include_router(project_catalog_router)
 app.include_router(confirmation_router)
 app.include_router(customer_router)
 app.include_router(customer_dashboard_router)
+app.include_router(customer_services_router)
 app.include_router(onboarding_router)
 app.include_router(collection_router)
 app.include_router(account_admin_router)
@@ -206,6 +209,7 @@ app.include_router(variants_router)
 app.include_router(post_analysis_router)
 app.include_router(brandrank_router)
 app.include_router(source_analysis_router)
+app.include_router(source_intelligence_router)
 
 
 @app.get("/api/v2/health", response_model=Health, tags=["platform"], operation_id="getHealth")

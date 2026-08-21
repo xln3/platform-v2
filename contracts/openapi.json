@@ -3243,11 +3243,6 @@
                   "type": "string"
                 }
               },
-              "X-Quotation-Template-Compliance": {
-                "schema": {
-                  "type": "string"
-                }
-              },
               "X-Quotation-SHA256": {
                 "schema": {
                   "type": "string"
@@ -7880,6 +7875,206 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/CustomerAnswerLibraryDetailView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/customer/projects/{project_pub_id}/services": {
+      "get": {
+        "tags": [
+          "customer-services"
+        ],
+        "summary": "Get Customer Services",
+        "operationId": "getCustomerFiveServices",
+        "parameters": [
+          {
+            "name": "project_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Pub Id"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerServicesView"
                 }
               }
             }
@@ -60588,6 +60783,1628 @@
         }
       }
     },
+    "/api/v2/internal/source-intelligence/projects/{project_pub_id}/sites": {
+      "get": {
+        "tags": [
+          "internal-source-intelligence"
+        ],
+        "summary": "List Sites",
+        "operationId": "list_sites_api_v2_internal_source_intelligence_projects__project_pub_id__sites_get",
+        "parameters": [
+          {
+            "name": "project_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Pub Id"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SitePage"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/internal/source-intelligence/projects/{project_pub_id}/sites/{site_pub_id}/urls": {
+      "get": {
+        "tags": [
+          "internal-source-intelligence"
+        ],
+        "summary": "List Site Urls",
+        "operationId": "list_site_urls_api_v2_internal_source_intelligence_projects__project_pub_id__sites__site_pub_id__urls_get",
+        "parameters": [
+          {
+            "name": "project_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Pub Id"
+            }
+          },
+          {
+            "name": "site_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Site Pub Id"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UrlPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/internal/source-intelligence/projects/{project_pub_id}/urls/{url_pub_id}": {
+      "get": {
+        "tags": [
+          "internal-source-intelligence"
+        ],
+        "summary": "Get Url Detail",
+        "operationId": "get_url_detail_api_v2_internal_source_intelligence_projects__project_pub_id__urls__url_pub_id__get",
+        "parameters": [
+          {
+            "name": "project_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Pub Id"
+            }
+          },
+          {
+            "name": "url_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Url Pub Id"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UrlDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/internal/source-intelligence/projects/{project_pub_id}/urls/{url_pub_id}/snapshots": {
+      "get": {
+        "tags": [
+          "internal-source-intelligence"
+        ],
+        "summary": "List Url Snapshots",
+        "operationId": "list_url_snapshots_api_v2_internal_source_intelligence_projects__project_pub_id__urls__url_pub_id__snapshots_get",
+        "parameters": [
+          {
+            "name": "project_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Pub Id"
+            }
+          },
+          {
+            "name": "url_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Url Pub Id"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/internal/source-intelligence/projects/{project_pub_id}/urls/{url_pub_id}/inspections": {
+      "get": {
+        "tags": [
+          "internal-source-intelligence"
+        ],
+        "summary": "List Url Inspections",
+        "operationId": "list_url_inspections_api_v2_internal_source_intelligence_projects__project_pub_id__urls__url_pub_id__inspections_get",
+        "parameters": [
+          {
+            "name": "project_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Pub Id"
+            }
+          },
+          {
+            "name": "url_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Url Pub Id"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UrlInspectionPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/internal/source-intelligence/projects/{project_pub_id}/urls/{url_pub_id}/occurrences": {
+      "get": {
+        "tags": [
+          "internal-source-intelligence"
+        ],
+        "summary": "List Url Occurrences",
+        "operationId": "list_url_occurrences_api_v2_internal_source_intelligence_projects__project_pub_id__urls__url_pub_id__occurrences_get",
+        "parameters": [
+          {
+            "name": "project_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Pub Id"
+            }
+          },
+          {
+            "name": "url_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Url Pub Id"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OccurrencePage"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/internal/source-intelligence/projects/{project_pub_id}/answers/{answer_pub_id}/uvw": {
+      "get": {
+        "tags": [
+          "internal-source-intelligence"
+        ],
+        "summary": "Get Answer Uvw",
+        "operationId": "get_answer_uvw_api_v2_internal_source_intelligence_projects__project_pub_id__answers__answer_pub_id__uvw_get",
+        "parameters": [
+          {
+            "name": "project_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Pub Id"
+            }
+          },
+          {
+            "name": "answer_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Answer Pub Id"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnswerUvwView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/health": {
       "get": {
         "tags": [
@@ -61905,6 +63722,89 @@
           "capture_time"
         ],
         "title": "AnswerShareImageView"
+      },
+      "AnswerUvwView": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "internal-answer-uvw-v1",
+            "title": "Schema Version"
+          },
+          "project_pub_id": {
+            "type": "string",
+            "title": "Project Pub Id"
+          },
+          "answer_pub_id": {
+            "type": "string",
+            "title": "Answer Pub Id"
+          },
+          "question": {
+            "type": "string",
+            "title": "Question"
+          },
+          "platform": {
+            "type": "string",
+            "title": "Platform"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "region": {
+            "type": "string",
+            "title": "Region"
+          },
+          "mode": {
+            "type": "string",
+            "title": "Mode"
+          },
+          "capture_time": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Capture Time"
+          },
+          "u_observation": {
+            "type": "string",
+            "title": "U Observation"
+          },
+          "v_observation": {
+            "type": "string",
+            "title": "V Observation"
+          },
+          "final_reference_observation": {
+            "type": "string",
+            "title": "Final Reference Observation"
+          },
+          "occurrences": {
+            "items": {
+              "$ref": "#/components/schemas/OccurrenceView"
+            },
+            "type": "array",
+            "title": "Occurrences"
+          },
+          "occurrences_page": {
+            "$ref": "#/components/schemas/CursorPage"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "schema_version",
+          "project_pub_id",
+          "answer_pub_id",
+          "question",
+          "platform",
+          "model",
+          "region",
+          "mode",
+          "capture_time",
+          "u_observation",
+          "v_observation",
+          "final_reference_observation",
+          "occurrences",
+          "occurrences_page"
+        ],
+        "title": "AnswerUvwView"
       },
       "AnswerView": {
         "properties": {
@@ -66194,6 +68094,32 @@
         ],
         "title": "CoverageResponse"
       },
+      "CursorPage": {
+        "properties": {
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "has_more": {
+            "type": "boolean",
+            "title": "Has More"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "next_cursor",
+          "has_more"
+        ],
+        "title": "CursorPage"
+      },
       "CustomerAccountCreate": {
         "properties": {
           "platform_slug": {
@@ -68109,6 +70035,278 @@
           "by_model"
         ],
         "title": "CustomerRiskView"
+      },
+      "CustomerServiceDelivery": {
+        "properties": {
+          "report_pub_id": {
+            "type": "string",
+            "title": "Report Pub Id"
+          },
+          "report_version_pub_id": {
+            "type": "string",
+            "title": "Report Version Pub Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "published_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Published At"
+          },
+          "delivered_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivered At"
+          },
+          "confirmed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmed At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "report_pub_id",
+          "report_version_pub_id",
+          "title",
+          "published_at",
+          "delivered_at",
+          "confirmed_at"
+        ],
+        "title": "CustomerServiceDelivery"
+      },
+      "CustomerServiceSummary": {
+        "properties": {
+          "answer_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Count"
+          },
+          "official_site_stage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Official Site Stage"
+          },
+          "official_site_u_occurrences": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Official Site U Occurrences"
+          },
+          "official_site_v_occurrences": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Official Site V Occurrences"
+          },
+          "official_site_w_occurrences": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Official Site W Occurrences"
+          },
+          "u_observation": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "observed",
+                  "partial",
+                  "unobserved"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "U Observation"
+          },
+          "v_observation": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "observed",
+                  "partial",
+                  "unobserved"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "V Observation"
+          },
+          "w_observation": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "observed",
+                  "partial",
+                  "unobserved",
+                  "not_applicable"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "W Observation"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "CustomerServiceSummary"
+      },
+      "CustomerServiceView": {
+        "properties": {
+          "service_number": {
+            "type": "integer",
+            "maximum": 5.0,
+            "minimum": 1.0,
+            "title": "Service Number"
+          },
+          "service_code": {
+            "type": "string",
+            "title": "Service Code"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "entitlement_state": {
+            "type": "string",
+            "enum": [
+              "inactive",
+              "active",
+              "suspended",
+              "expired"
+            ],
+            "title": "Entitlement State"
+          },
+          "catalog_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Catalog Version"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CustomerServiceSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "latest_delivery": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CustomerServiceDelivery"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "service_number",
+          "service_code",
+          "name",
+          "entitlement_state",
+          "catalog_version",
+          "summary",
+          "latest_delivery"
+        ],
+        "title": "CustomerServiceView"
+      },
+      "CustomerServicesView": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "customer-five-services-v1",
+            "title": "Schema Version"
+          },
+          "project_pub_id": {
+            "type": "string",
+            "title": "Project Pub Id"
+          },
+          "services": {
+            "items": {
+              "$ref": "#/components/schemas/CustomerServiceView"
+            },
+            "type": "array",
+            "maxItems": 5,
+            "minItems": 5,
+            "title": "Services"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "schema_version",
+          "project_pub_id",
+          "services"
+        ],
+        "title": "CustomerServicesView"
       },
       "CustomerSourceAuditView": {
         "properties": {
@@ -73086,6 +75284,181 @@
           "created_at"
         ],
         "title": "ObservationView"
+      },
+      "OccurrencePage": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "internal-source-occurrences-v1",
+            "title": "Schema Version"
+          },
+          "project_pub_id": {
+            "type": "string",
+            "title": "Project Pub Id"
+          },
+          "url_pub_id": {
+            "type": "string",
+            "title": "Url Pub Id"
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/OccurrenceView"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "page": {
+            "$ref": "#/components/schemas/CursorPage"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "schema_version",
+          "project_pub_id",
+          "url_pub_id",
+          "data",
+          "page"
+        ],
+        "title": "OccurrencePage"
+      },
+      "OccurrenceView": {
+        "properties": {
+          "occurrence_pub_id": {
+            "type": "string",
+            "title": "Occurrence Pub Id"
+          },
+          "answer_pub_id": {
+            "type": "string",
+            "title": "Answer Pub Id"
+          },
+          "url_pub_id": {
+            "type": "string",
+            "title": "Url Pub Id"
+          },
+          "canonical_url": {
+            "type": "string",
+            "title": "Canonical Url"
+          },
+          "host": {
+            "type": "string",
+            "title": "Host"
+          },
+          "captured_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Captured At"
+          },
+          "platform": {
+            "type": "string",
+            "title": "Platform"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "region": {
+            "type": "string",
+            "title": "Region"
+          },
+          "mode": {
+            "type": "string",
+            "title": "Mode"
+          },
+          "question": {
+            "type": "string",
+            "title": "Question"
+          },
+          "query": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Query"
+          },
+          "u_state": {
+            "type": "string",
+            "title": "U State"
+          },
+          "u_rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "U Rank"
+          },
+          "v_state": {
+            "type": "string",
+            "title": "V State"
+          },
+          "v_open_order": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "V Open Order"
+          },
+          "final_reference_state": {
+            "type": "string",
+            "title": "Final Reference State"
+          },
+          "w_state": {
+            "type": "string",
+            "title": "W State"
+          },
+          "w_weight": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "W Weight"
+          },
+          "evidence_state": {
+            "type": "string",
+            "title": "Evidence State"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "occurrence_pub_id",
+          "answer_pub_id",
+          "url_pub_id",
+          "canonical_url",
+          "host",
+          "captured_at",
+          "platform",
+          "model",
+          "region",
+          "mode",
+          "question",
+          "query",
+          "u_state",
+          "u_rank",
+          "v_state",
+          "v_open_order",
+          "final_reference_state",
+          "w_state",
+          "w_weight",
+          "evidence_state"
+        ],
+        "title": "OccurrenceView"
       },
       "OidcBindingCreate": {
         "properties": {
@@ -79552,6 +81925,379 @@
         ],
         "title": "SiteAuditSuggestionsView"
       },
+      "SitePage": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "internal-source-sites-v1",
+            "title": "Schema Version"
+          },
+          "project_pub_id": {
+            "type": "string",
+            "title": "Project Pub Id"
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/SiteSummary"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "page": {
+            "$ref": "#/components/schemas/CursorPage"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "schema_version",
+          "project_pub_id",
+          "data",
+          "page"
+        ],
+        "title": "SitePage"
+      },
+      "SiteSummary": {
+        "properties": {
+          "site_pub_id": {
+            "type": "string",
+            "title": "Site Pub Id"
+          },
+          "host": {
+            "type": "string",
+            "title": "Host"
+          },
+          "distinct_url_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Distinct Url Count"
+          },
+          "u_occurrence_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "U Occurrence Count"
+          },
+          "distinct_answer_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Distinct Answer Count"
+          },
+          "v_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "V Count"
+          },
+          "w_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "W Count"
+          },
+          "u_observation": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "partial",
+              "unobserved"
+            ],
+            "title": "U Observation"
+          },
+          "v_observation": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "partial",
+              "unobserved"
+            ],
+            "title": "V Observation"
+          },
+          "w_observation": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "partial",
+              "unobserved"
+            ],
+            "title": "W Observation"
+          },
+          "latest_capture_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Latest Capture At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "site_pub_id",
+          "host",
+          "distinct_url_count",
+          "u_occurrence_count",
+          "distinct_answer_count",
+          "v_count",
+          "w_count",
+          "u_observation",
+          "v_observation",
+          "w_observation",
+          "latest_capture_at"
+        ],
+        "title": "SiteSummary"
+      },
+      "SnapshotDetailSummary": {
+        "properties": {
+          "snapshot_pub_id": {
+            "type": "string",
+            "title": "Snapshot Pub Id"
+          },
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "captured_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Captured At"
+          },
+          "text_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text Sha256"
+          },
+          "extractor_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extractor Version"
+          },
+          "final_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Final Url"
+          },
+          "http_status": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Http Status"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "site_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Site Name"
+          },
+          "author": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Author"
+          },
+          "account_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Name"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published At"
+          },
+          "fetch_attempt_pub_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fetch Attempt Pub Id"
+          },
+          "fetch_state": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fetch State"
+          },
+          "fetch_error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fetch Error Code"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "snapshot_pub_id",
+          "state",
+          "captured_at",
+          "text_sha256",
+          "extractor_version",
+          "final_url",
+          "http_status",
+          "title",
+          "site_name",
+          "author",
+          "account_name",
+          "published_at",
+          "fetch_attempt_pub_id",
+          "fetch_state",
+          "fetch_error_code"
+        ],
+        "title": "SnapshotDetailSummary"
+      },
+      "SnapshotPage": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "internal-source-snapshots-v1",
+            "title": "Schema Version"
+          },
+          "project_pub_id": {
+            "type": "string",
+            "title": "Project Pub Id"
+          },
+          "url_pub_id": {
+            "type": "string",
+            "title": "Url Pub Id"
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/SnapshotDetailSummary"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "page": {
+            "$ref": "#/components/schemas/CursorPage"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "schema_version",
+          "project_pub_id",
+          "url_pub_id",
+          "data",
+          "page"
+        ],
+        "title": "SnapshotPage"
+      },
+      "SnapshotSummary": {
+        "properties": {
+          "snapshot_pub_id": {
+            "type": "string",
+            "title": "Snapshot Pub Id"
+          },
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "captured_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Captured At"
+          },
+          "text_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text Sha256"
+          },
+          "extractor_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extractor Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "snapshot_pub_id",
+          "state",
+          "captured_at",
+          "text_sha256",
+          "extractor_version"
+        ],
+        "title": "SnapshotSummary"
+      },
       "SopPage_ArticleView_": {
         "properties": {
           "data": {
@@ -81660,6 +84406,348 @@
           "created_at"
         ],
         "title": "TriggerView"
+      },
+      "UrlDetail": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "internal-source-url-detail-v1",
+            "title": "Schema Version"
+          },
+          "project_pub_id": {
+            "type": "string",
+            "title": "Project Pub Id"
+          },
+          "url_pub_id": {
+            "type": "string",
+            "title": "Url Pub Id"
+          },
+          "host": {
+            "type": "string",
+            "title": "Host"
+          },
+          "canonical_url": {
+            "type": "string",
+            "title": "Canonical Url"
+          },
+          "normalization_version": {
+            "type": "string",
+            "title": "Normalization Version"
+          },
+          "u_occurrence_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "U Occurrence Count"
+          },
+          "distinct_answer_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Distinct Answer Count"
+          },
+          "v_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "V Count"
+          },
+          "w_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "W Count"
+          },
+          "u_observation": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "partial",
+              "unobserved"
+            ],
+            "title": "U Observation"
+          },
+          "v_observation": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "partial",
+              "unobserved"
+            ],
+            "title": "V Observation"
+          },
+          "w_observation": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "partial",
+              "unobserved"
+            ],
+            "title": "W Observation"
+          },
+          "fetch_attempt_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Fetch Attempt Count"
+          },
+          "latest_snapshot": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SnapshotSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "page_inspection_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Page Inspection Count"
+          },
+          "finding_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Finding Count"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "schema_version",
+          "project_pub_id",
+          "url_pub_id",
+          "host",
+          "canonical_url",
+          "normalization_version",
+          "u_occurrence_count",
+          "distinct_answer_count",
+          "v_count",
+          "w_count",
+          "u_observation",
+          "v_observation",
+          "w_observation",
+          "fetch_attempt_count",
+          "latest_snapshot",
+          "page_inspection_count",
+          "finding_count"
+        ],
+        "title": "UrlDetail"
+      },
+      "UrlInspectionPage": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "internal-source-url-inspections-v1",
+            "title": "Schema Version"
+          },
+          "project_pub_id": {
+            "type": "string",
+            "title": "Project Pub Id"
+          },
+          "url_pub_id": {
+            "type": "string",
+            "title": "Url Pub Id"
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/UrlInspectionSummary"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "page": {
+            "$ref": "#/components/schemas/CursorPage"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "schema_version",
+          "project_pub_id",
+          "url_pub_id",
+          "data",
+          "page"
+        ],
+        "title": "UrlInspectionPage"
+      },
+      "UrlInspectionSummary": {
+        "properties": {
+          "inspection_pub_id": {
+            "type": "string",
+            "title": "Inspection Pub Id"
+          },
+          "source_document_pub_id": {
+            "type": "string",
+            "title": "Source Document Pub Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "policy_version": {
+            "type": "string",
+            "title": "Policy Version"
+          },
+          "prompt_version": {
+            "type": "string",
+            "title": "Prompt Version"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "content_sha256": {
+            "type": "string",
+            "title": "Content Sha256"
+          },
+          "finding_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Finding Count"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "inspection_pub_id",
+          "source_document_pub_id",
+          "status",
+          "policy_version",
+          "prompt_version",
+          "model",
+          "content_sha256",
+          "finding_count",
+          "created_at"
+        ],
+        "title": "UrlInspectionSummary"
+      },
+      "UrlPage": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "internal-source-urls-v1",
+            "title": "Schema Version"
+          },
+          "project_pub_id": {
+            "type": "string",
+            "title": "Project Pub Id"
+          },
+          "site_pub_id": {
+            "type": "string",
+            "title": "Site Pub Id"
+          },
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/UrlSummary"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "page": {
+            "$ref": "#/components/schemas/CursorPage"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "schema_version",
+          "project_pub_id",
+          "site_pub_id",
+          "data",
+          "page"
+        ],
+        "title": "UrlPage"
+      },
+      "UrlSummary": {
+        "properties": {
+          "url_pub_id": {
+            "type": "string",
+            "title": "Url Pub Id"
+          },
+          "canonical_url": {
+            "type": "string",
+            "title": "Canonical Url"
+          },
+          "u_occurrence_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "U Occurrence Count"
+          },
+          "distinct_answer_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Distinct Answer Count"
+          },
+          "v_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "V Count"
+          },
+          "w_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "W Count"
+          },
+          "u_observation": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "partial",
+              "unobserved"
+            ],
+            "title": "U Observation"
+          },
+          "v_observation": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "partial",
+              "unobserved"
+            ],
+            "title": "V Observation"
+          },
+          "w_observation": {
+            "type": "string",
+            "enum": [
+              "observed",
+              "partial",
+              "unobserved"
+            ],
+            "title": "W Observation"
+          },
+          "latest_capture_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Latest Capture At"
+          },
+          "fetch_state": {
+            "type": "string",
+            "title": "Fetch State"
+          },
+          "analysis_state": {
+            "type": "string",
+            "title": "Analysis State"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "url_pub_id",
+          "canonical_url",
+          "u_occurrence_count",
+          "distinct_answer_count",
+          "v_count",
+          "w_count",
+          "u_observation",
+          "v_observation",
+          "w_observation",
+          "latest_capture_at",
+          "fetch_state",
+          "analysis_state"
+        ],
+        "title": "UrlSummary"
       },
       "ValidationError": {
         "properties": {

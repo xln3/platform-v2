@@ -15235,3 +15235,1110 @@ export async function getPostAnalysisItemAsset(
     return { kind: 'unavailable' };
   }
 }
+
+// ---------------------------------------------------------------------------
+// UVW source intelligence (internal) and five-service delivery (customer-safe)
+// ---------------------------------------------------------------------------
+
+export type InternalSourceSite = {
+  sitePubId: string;
+  host: string;
+  distinctUrlCount: number;
+  uOccurrenceCount: number;
+  distinctAnswerCount: number;
+  vCount: number;
+  wCount: number;
+  uObservation: 'observed' | 'partial' | 'unobserved';
+  vObservation: 'observed' | 'partial' | 'unobserved';
+  wObservation: 'observed' | 'partial' | 'unobserved';
+  latestCaptureAt: string;
+};
+
+export type InternalSourceUrl = {
+  urlPubId: string;
+  canonicalUrl: string;
+  uOccurrenceCount: number;
+  distinctAnswerCount: number;
+  vCount: number;
+  wCount: number;
+  uObservation: 'observed' | 'partial' | 'unobserved';
+  vObservation: 'observed' | 'partial' | 'unobserved';
+  wObservation: 'observed' | 'partial' | 'unobserved';
+  latestCaptureAt: string;
+  fetchState: string;
+  analysisState: string;
+};
+
+export type InternalSourceSnapshot = {
+  snapshotPubId: string;
+  state: string;
+  capturedAt: string;
+  textSha256: string | null;
+  extractorVersion: string | null;
+  finalUrl: string | null;
+  httpStatus: number | null;
+  title: string | null;
+  siteName: string | null;
+  author: string | null;
+  accountName: string | null;
+  publishedAt: string | null;
+  fetchAttemptPubId: string | null;
+  fetchState: string | null;
+  fetchErrorCode: string | null;
+};
+
+export type InternalSourceUrlDetail = {
+  urlPubId: string;
+  host: string;
+  canonicalUrl: string;
+  normalizationVersion: string;
+  uOccurrenceCount: number;
+  distinctAnswerCount: number;
+  vCount: number;
+  wCount: number;
+  uObservation: 'observed' | 'partial' | 'unobserved';
+  vObservation: 'observed' | 'partial' | 'unobserved';
+  wObservation: 'observed' | 'partial' | 'unobserved';
+  fetchAttemptCount: number;
+  latestSnapshot: Pick<
+    InternalSourceSnapshot,
+    'snapshotPubId' | 'state' | 'capturedAt' | 'textSha256' | 'extractorVersion'
+  > | null;
+  pageInspectionCount: number;
+  findingCount: number;
+};
+
+export type InternalSourceOccurrence = {
+  occurrencePubId: string;
+  answerPubId: string;
+  urlPubId: string;
+  canonicalUrl: string;
+  host: string;
+  capturedAt: string;
+  platform: string;
+  model: string;
+  region: string;
+  mode: string;
+  question: string;
+  query: string | null;
+  uState: 'observed' | 'unobserved';
+  uRank: number | null;
+  vState: 'entered' | 'not_entered' | 'unobserved';
+  vOpenOrder: number | null;
+  finalReferenceState: 'referenced' | 'not_referenced' | 'unobserved';
+  wState: 'pending' | 'confirmed' | 'no_evidence' | 'unobserved';
+  wWeight: number | null;
+  evidenceState: 'linked' | 'unobserved';
+};
+
+export type InternalAnswerUvw = {
+  answerPubId: string;
+  question: string;
+  platform: string;
+  model: string;
+  region: string;
+  mode: string;
+  captureTime: string;
+  uObservation: 'observed' | 'partial' | 'unobserved';
+  vObservation: 'observed' | 'partial' | 'unobserved';
+  finalReferenceObservation: 'observed' | 'partial' | 'unobserved';
+  occurrences: InternalSourceOccurrence[];
+  nextCursor: string | null;
+  hasMore: boolean;
+};
+
+export type InternalSourceInspection = {
+  inspectionPubId: string;
+  sourceDocumentPubId: string;
+  status: string;
+  policyVersion: string;
+  promptVersion: string;
+  model: string;
+  contentSha256: string;
+  findingCount: number;
+  createdAt: string;
+};
+
+export type InternalSourceEvidenceSpan = {
+  spanPubId: string;
+  quote: string;
+  textStart: number;
+  textEnd: number;
+  quoteHash: string;
+};
+
+export type InternalSourceEvidenceLink = {
+  connector: 'because' | 'and' | 'but' | 'compared_with' | 'therefore';
+  factType: 'source_quote' | 'authority_fact' | 'recomputable' | 'absence';
+  explanation: string;
+  quote: string | null;
+};
+
+export type InternalSourceFinding = {
+  findingPubId: string;
+  code: string;
+  ledger: 'statement' | 'exposure';
+  status: 'confirmed' | 'needs_review';
+  summary: string;
+  action: string;
+  evidenceChain: InternalSourceEvidenceLink[];
+  spans: InternalSourceEvidenceSpan[];
+};
+
+export type InternalSourceInspectionEvidence = {
+  inspectionPubId: string;
+  sourceDocumentPubId: string;
+  contentSha256: string;
+  status: string;
+  findings: InternalSourceFinding[];
+};
+
+export type InternalSourceCursorPage<T> = {
+  data: T[];
+  nextCursor: string | null;
+  hasMore: boolean;
+};
+
+export type CustomerFiveServiceSummary = {
+  answerCount: number | null;
+  officialSiteStage: string | null;
+  officialSiteUOccurrences: number | null;
+  officialSiteVOccurrences: number | null;
+  officialSiteWOccurrences: number | null;
+  uObservation: 'observed' | 'partial' | 'unobserved' | null;
+  vObservation: 'observed' | 'partial' | 'unobserved' | null;
+  wObservation: 'observed' | 'partial' | 'unobserved' | 'not_applicable' | null;
+};
+
+export type CustomerFiveServiceDelivery = {
+  reportPubId: string;
+  reportVersionPubId: string;
+  title: string;
+  publishedAt: string;
+  deliveredAt: string | null;
+  confirmedAt: string | null;
+};
+
+export type CustomerFiveService = {
+  serviceNumber: 1 | 2 | 3 | 4 | 5;
+  serviceCode:
+    | 'ranking_test'
+    | 'outbound_disparagement_audit'
+    | 'inbound_disparagement_audit'
+    | 'official_site_audit'
+    | 'content_publishing_pilot';
+  name: string;
+  entitlementState: 'inactive' | 'active' | 'suspended' | 'expired';
+  catalogVersion: string | null;
+  summary: CustomerFiveServiceSummary | null;
+  latestDelivery: CustomerFiveServiceDelivery | null;
+};
+
+export type CustomerFiveServices = {
+  projectPubId: string;
+  services: CustomerFiveService[];
+};
+
+const uvwObservations = ['observed', 'partial', 'unobserved'] as const;
+const customerWObservations = [...uvwObservations, 'not_applicable'] as const;
+const uvwUStates = ['observed', 'unobserved'] as const;
+const uvwVStates = ['entered', 'not_entered', 'unobserved'] as const;
+const uvwFinalStates = ['referenced', 'not_referenced', 'unobserved'] as const;
+const uvwWStates = ['pending', 'confirmed', 'no_evidence', 'unobserved'] as const;
+const sourceEvidenceStates = ['linked', 'unobserved'] as const;
+const evidenceConnectors = ['because', 'and', 'but', 'compared_with', 'therefore'] as const;
+const evidenceFactTypes = ['source_quote', 'authority_fact', 'recomputable', 'absence'] as const;
+const findingLedgers = ['statement', 'exposure'] as const;
+const findingStatuses = ['confirmed', 'needs_review'] as const;
+const entitlementStates = ['inactive', 'active', 'suspended', 'expired'] as const;
+const customerServiceCatalog = [
+  [1, 'ranking_test'],
+  [2, 'outbound_disparagement_audit'],
+  [3, 'inbound_disparagement_audit'],
+  [4, 'official_site_audit'],
+  [5, 'content_publishing_pilot'],
+] as const;
+
+const projectInternalText = (value: unknown, maxLength: number): string | null =>
+  safeCustomerAnswerText(value, maxLength);
+
+const projectInternalUrl = (value: unknown): string | null => {
+  const candidate = projectInternalText(value, 8192);
+  if (candidate === null) return null;
+  try {
+    const parsed = new URL(candidate);
+    return (parsed.protocol === 'http:' || parsed.protocol === 'https:') &&
+      !parsed.username &&
+      !parsed.password
+      ? candidate
+      : null;
+  } catch {
+    return null;
+  }
+};
+
+const projectNullableText = (value: unknown, maxLength: number): string | null | undefined =>
+  value === null ? null : (projectInternalText(value, maxLength) ?? undefined);
+
+const projectNullableTimestamp = (value: unknown): string | null | undefined =>
+  value === null ? null : (projectSafeIsoTimestamp(value) ?? undefined);
+
+const projectNullableCount = (value: unknown): number | null | undefined =>
+  value === null ? null : (safeCount(value) ?? undefined);
+
+const projectNullableEnum = <const Values extends readonly string[]>(
+  value: unknown,
+  allowed: Values,
+): Values[number] | null | undefined =>
+  value === null ? null : (safeBrowserEnum(value, allowed) ?? undefined);
+
+const projectNullablePositiveOrdinal = (value: unknown): number | null | undefined => {
+  if (value === null) return null;
+  const count = safeCount(value);
+  return count !== null && count >= 1 ? count : undefined;
+};
+
+const projectInternalCursor = (
+  value: unknown,
+): { nextCursor: string | null; hasMore: boolean } | null => {
+  if (!isBrowserRecord(value) || typeof value.has_more !== 'boolean') return null;
+  const nextCursor =
+    value.next_cursor === null
+      ? null
+      : typeof value.next_cursor === 'string' && /^c_[A-Za-z0-9_-]{1,128}$/u.test(value.next_cursor)
+        ? value.next_cursor
+        : undefined;
+  if (nextCursor === undefined || (value.has_more && nextCursor === null)) return null;
+  if (!value.has_more && nextCursor !== null) return null;
+  return { nextCursor, hasMore: value.has_more };
+};
+
+const projectInternalOccurrence = (value: unknown): InternalSourceOccurrence | null => {
+  if (!isBrowserRecord(value)) return null;
+  const occurrencePubId = projectAnalyticsPubId(value.occurrence_pub_id, 'uoc_');
+  const answerPubId = projectAnalyticsPubId(value.answer_pub_id, 'ans_');
+  const urlPubId = projectAnalyticsPubId(value.url_pub_id, 'url_');
+  const canonicalUrl = projectInternalUrl(value.canonical_url);
+  const host = safeCustomerSourceHost(value.host);
+  const capturedAt = projectSafeIsoTimestamp(value.captured_at);
+  const platform = projectInternalText(value.platform, 120);
+  const model = projectInternalText(value.model, 120);
+  const region = projectInternalText(value.region, 120);
+  const mode = projectInternalText(value.mode, 120);
+  const question = projectInternalText(value.question, 20_000);
+  const query = projectNullableText(value.query, 2_000);
+  const uState = safeBrowserEnum(value.u_state, uvwUStates);
+  const uRank = projectNullablePositiveOrdinal(value.u_rank);
+  const vState = safeBrowserEnum(value.v_state, uvwVStates);
+  const vOpenOrder = projectNullablePositiveOrdinal(value.v_open_order);
+  const finalReferenceState = safeBrowserEnum(value.final_reference_state, uvwFinalStates);
+  const wState = safeBrowserEnum(value.w_state, uvwWStates);
+  const wWeight =
+    value.w_weight === null
+      ? null
+      : typeof value.w_weight === 'number' &&
+          Number.isFinite(value.w_weight) &&
+          value.w_weight >= 0 &&
+          value.w_weight <= 1
+        ? value.w_weight
+        : undefined;
+  const evidenceState = safeBrowserEnum(value.evidence_state, sourceEvidenceStates);
+  if (
+    !occurrencePubId ||
+    !answerPubId ||
+    !urlPubId ||
+    !canonicalUrl ||
+    !host ||
+    !capturedAt ||
+    platform === null ||
+    model === null ||
+    region === null ||
+    mode === null ||
+    question === null ||
+    query === undefined ||
+    !uState ||
+    uRank === undefined ||
+    !vState ||
+    vOpenOrder === undefined ||
+    !finalReferenceState ||
+    !wState ||
+    wWeight === undefined ||
+    !evidenceState ||
+    (uState === 'observed') !== (uRank !== null) ||
+    (vState === 'entered') !== (vOpenOrder !== null)
+  ) {
+    return null;
+  }
+  return {
+    occurrencePubId,
+    answerPubId,
+    urlPubId,
+    canonicalUrl,
+    host,
+    capturedAt,
+    platform,
+    model,
+    region,
+    mode,
+    question,
+    query,
+    uState,
+    uRank,
+    vState,
+    vOpenOrder,
+    finalReferenceState,
+    wState,
+    wWeight,
+    evidenceState,
+  };
+};
+
+const projectInternalSnapshot = (value: unknown): InternalSourceSnapshot | null => {
+  if (!isBrowserRecord(value)) return null;
+  const snapshotPubId = projectAnalyticsPubId(value.snapshot_pub_id, 'snp_');
+  const state = projectInternalText(value.state, 40);
+  const capturedAt = projectSafeIsoTimestamp(value.captured_at);
+  const textSha256 = value.text_sha256 === null ? null : safeHash(value.text_sha256);
+  const extractorVersion = projectNullableText(value.extractor_version, 120);
+  const finalUrl =
+    value.final_url === null ? null : (projectInternalUrl(value.final_url) ?? undefined);
+  const httpStatus = value.http_status === null ? null : safeCount(value.http_status);
+  const title = projectNullableText(value.title, 2_000);
+  const siteName = projectNullableText(value.site_name, 500);
+  const author = projectNullableText(value.author, 500);
+  const accountName = projectNullableText(value.account_name, 500);
+  const publishedAt = projectNullableTimestamp(value.published_at);
+  const fetchAttemptPubId =
+    value.fetch_attempt_pub_id === null
+      ? null
+      : (projectAnalyticsPubId(value.fetch_attempt_pub_id, 'fat_') ?? undefined);
+  const fetchState = projectNullableText(value.fetch_state, 40);
+  const fetchErrorCode = projectNullableText(value.fetch_error_code, 120);
+  if (
+    !snapshotPubId ||
+    !state ||
+    !capturedAt ||
+    (textSha256 === null && value.text_sha256 !== null) ||
+    extractorVersion === undefined ||
+    finalUrl === undefined ||
+    httpStatus === undefined ||
+    title === undefined ||
+    siteName === undefined ||
+    author === undefined ||
+    accountName === undefined ||
+    publishedAt === undefined ||
+    fetchAttemptPubId === undefined ||
+    fetchState === undefined ||
+    fetchErrorCode === undefined
+  ) {
+    return null;
+  }
+  return {
+    snapshotPubId,
+    state,
+    capturedAt,
+    textSha256,
+    extractorVersion,
+    finalUrl,
+    httpStatus,
+    title,
+    siteName,
+    author,
+    accountName,
+    publishedAt,
+    fetchAttemptPubId,
+    fetchState,
+    fetchErrorCode,
+  };
+};
+
+const projectInternalInspection = (value: unknown): InternalSourceInspection | null => {
+  if (!isBrowserRecord(value)) return null;
+  const inspectionPubId = projectAnalyticsPubId(value.inspection_pub_id, 'pgi_');
+  const sourceDocumentPubId = projectAnalyticsPubId(value.source_document_pub_id, 'srd_');
+  const status = projectInternalText(value.status, 40);
+  const policyVersion = projectInternalText(value.policy_version, 120);
+  const promptVersion = projectInternalText(value.prompt_version, 120);
+  const model = projectInternalText(value.model, 120);
+  const contentSha256 = safeHash(value.content_sha256);
+  const findingCount = safeCount(value.finding_count);
+  const createdAt = projectSafeIsoTimestamp(value.created_at);
+  return inspectionPubId &&
+    sourceDocumentPubId &&
+    status &&
+    policyVersion &&
+    promptVersion &&
+    model &&
+    contentSha256 &&
+    findingCount !== null &&
+    createdAt
+    ? {
+        inspectionPubId,
+        sourceDocumentPubId,
+        status,
+        policyVersion,
+        promptVersion,
+        model,
+        contentSha256,
+        findingCount,
+        createdAt,
+      }
+    : null;
+};
+
+const projectCustomerFiveService = (value: unknown): CustomerFiveService | null => {
+  if (!isBrowserRecord(value)) return null;
+  const catalog = customerServiceCatalog.find(
+    ([number, code]) => value.service_number === number && value.service_code === code,
+  );
+  const name = safeBrowserString(value.name, 200);
+  const entitlementState = safeBrowserEnum(value.entitlement_state, entitlementStates);
+  const catalogVersion = projectNullableText(value.catalog_version, 120);
+  if (!catalog || !name || !entitlementState || catalogVersion === undefined) return null;
+
+  let summary: CustomerFiveServiceSummary | null = null;
+  if (value.summary !== null) {
+    if (!isBrowserRecord(value.summary)) return null;
+    const answerCount = projectNullableCount(value.summary.answer_count);
+    const officialSiteStage = projectNullableText(value.summary.official_site_stage, 80);
+    const officialSiteUOccurrences = projectNullableCount(
+      value.summary.official_site_u_occurrences,
+    );
+    const officialSiteVOccurrences = projectNullableCount(
+      value.summary.official_site_v_occurrences,
+    );
+    const officialSiteWOccurrences = projectNullableCount(
+      value.summary.official_site_w_occurrences,
+    );
+    const uObservation = projectNullableEnum(value.summary.u_observation, uvwObservations);
+    const vObservation = projectNullableEnum(value.summary.v_observation, uvwObservations);
+    const wObservation = projectNullableEnum(value.summary.w_observation, customerWObservations);
+    if (
+      answerCount === undefined ||
+      officialSiteStage === undefined ||
+      officialSiteUOccurrences === undefined ||
+      officialSiteVOccurrences === undefined ||
+      officialSiteWOccurrences === undefined ||
+      uObservation === undefined ||
+      vObservation === undefined ||
+      wObservation === undefined
+    ) {
+      return null;
+    }
+    summary = {
+      answerCount,
+      officialSiteStage,
+      officialSiteUOccurrences,
+      officialSiteVOccurrences,
+      officialSiteWOccurrences,
+      uObservation,
+      vObservation,
+      wObservation,
+    };
+  }
+
+  let latestDelivery: CustomerFiveServiceDelivery | null = null;
+  if (value.latest_delivery !== null) {
+    if (!isBrowserRecord(value.latest_delivery)) return null;
+    const reportPubId = projectAnalyticsPubId(value.latest_delivery.report_pub_id, 'rpt_');
+    const reportVersionPubId = isReportVersionPubId(value.latest_delivery.report_version_pub_id)
+      ? value.latest_delivery.report_version_pub_id
+      : null;
+    const title = safeBrowserString(value.latest_delivery.title, 500);
+    const publishedAt = projectSafeIsoTimestamp(value.latest_delivery.published_at);
+    const deliveredAt = projectNullableTimestamp(value.latest_delivery.delivered_at);
+    const confirmedAt = projectNullableTimestamp(value.latest_delivery.confirmed_at);
+    if (
+      !reportPubId ||
+      !reportVersionPubId ||
+      !title ||
+      !publishedAt ||
+      deliveredAt === undefined ||
+      confirmedAt === undefined
+    ) {
+      return null;
+    }
+    latestDelivery = {
+      reportPubId,
+      reportVersionPubId,
+      title,
+      publishedAt,
+      deliveredAt,
+      confirmedAt,
+    };
+  }
+  if (entitlementState !== 'active' && (summary !== null || latestDelivery !== null)) return null;
+  return {
+    serviceNumber: catalog[0],
+    serviceCode: catalog[1],
+    name,
+    entitlementState,
+    catalogVersion,
+    summary,
+    latestDelivery,
+  };
+};
+
+export async function getCustomerFiveServices(
+  headers: IdentitySessionHeaders,
+  projectPubId: string,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<ProjectResourceResult<CustomerFiveServices>> {
+  try {
+    if (!projectAnalyticsPubId(projectPubId, 'prj_')) return { kind: 'unavailable' };
+    const result = await projectedApiClient(client).GET(
+      '/api/v2/customer/projects/{project_pub_id}/services',
+      { params: { path: { project_pub_id: projectPubId }, header: headers } },
+    );
+    if (!result.data) return classifyResourceFailure(result.response.status);
+    if (
+      result.data.schema_version !== 'customer-five-services-v1' ||
+      result.data.project_pub_id !== projectPubId
+    ) {
+      return { kind: 'unavailable' };
+    }
+    const services = result.data.services.map(projectCustomerFiveService);
+    if (
+      services.length !== 5 ||
+      services.some((value) => value === null) ||
+      new Set(services.map((value) => value?.serviceNumber)).size !== 5
+    ) {
+      return { kind: 'unavailable' };
+    }
+    return { kind: 'ready', data: { projectPubId, services: services as CustomerFiveService[] } };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+export async function listInternalSourceSites(
+  headers: IdentitySessionHeaders,
+  projectPubId: string,
+  cursor: string | null = null,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<ProjectResourceResult<InternalSourceCursorPage<InternalSourceSite>>> {
+  try {
+    if (!projectAnalyticsPubId(projectPubId, 'prj_')) return { kind: 'unavailable' };
+    const result = await projectedApiClient(client).GET(
+      '/api/v2/internal/source-intelligence/projects/{project_pub_id}/sites',
+      {
+        params: {
+          path: { project_pub_id: projectPubId },
+          query: { limit: 100, ...(cursor ? { cursor } : {}) },
+          header: headers,
+        },
+      },
+    );
+    if (!result.data) return classifyResourceFailure(result.response.status);
+    const page = projectInternalCursor(result.data.page);
+    const data = result.data.data.map((value): InternalSourceSite | null => {
+      const sitePubId = projectAnalyticsPubId(value.site_pub_id, 'sit_');
+      const host = safeCustomerSourceHost(value.host);
+      const latestCaptureAt = projectSafeIsoTimestamp(value.latest_capture_at);
+      const uObservation = safeBrowserEnum(value.u_observation, uvwObservations);
+      const vObservation = safeBrowserEnum(value.v_observation, uvwObservations);
+      const wObservation = safeBrowserEnum(value.w_observation, uvwObservations);
+      const counts = [
+        value.distinct_url_count,
+        value.u_occurrence_count,
+        value.distinct_answer_count,
+        value.v_count,
+        value.w_count,
+      ].map(safeCount);
+      return sitePubId &&
+        host &&
+        latestCaptureAt &&
+        uObservation &&
+        vObservation &&
+        wObservation &&
+        counts.every((item) => item !== null)
+        ? {
+            sitePubId,
+            host,
+            distinctUrlCount: counts[0]!,
+            uOccurrenceCount: counts[1]!,
+            distinctAnswerCount: counts[2]!,
+            vCount: counts[3]!,
+            wCount: counts[4]!,
+            uObservation,
+            vObservation,
+            wObservation,
+            latestCaptureAt,
+          }
+        : null;
+    });
+    if (
+      !page ||
+      result.data.schema_version !== 'internal-source-sites-v1' ||
+      result.data.project_pub_id !== projectPubId ||
+      data.some((value) => value === null)
+    ) {
+      return { kind: 'unavailable' };
+    }
+    return { kind: 'ready', data: { data: data as InternalSourceSite[], ...page } };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+export async function listInternalSourceUrls(
+  headers: IdentitySessionHeaders,
+  projectPubId: string,
+  sitePubId: string,
+  cursor: string | null = null,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<ProjectResourceResult<InternalSourceCursorPage<InternalSourceUrl>>> {
+  try {
+    if (!projectAnalyticsPubId(projectPubId, 'prj_') || !projectAnalyticsPubId(sitePubId, 'sit_'))
+      return { kind: 'unavailable' };
+    const result = await projectedApiClient(client).GET(
+      '/api/v2/internal/source-intelligence/projects/{project_pub_id}/sites/{site_pub_id}/urls',
+      {
+        params: {
+          path: { project_pub_id: projectPubId, site_pub_id: sitePubId },
+          query: { limit: 100, ...(cursor ? { cursor } : {}) },
+          header: headers,
+        },
+      },
+    );
+    if (!result.data) return classifyResourceFailure(result.response.status);
+    const page = projectInternalCursor(result.data.page);
+    const data = result.data.data.map((value): InternalSourceUrl | null => {
+      const urlPubId = projectAnalyticsPubId(value.url_pub_id, 'url_');
+      const canonicalUrl = projectInternalUrl(value.canonical_url);
+      const latestCaptureAt = projectSafeIsoTimestamp(value.latest_capture_at);
+      const fetchState = projectInternalText(value.fetch_state, 40);
+      const analysisState = projectInternalText(value.analysis_state, 40);
+      const uObservation = safeBrowserEnum(value.u_observation, uvwObservations);
+      const vObservation = safeBrowserEnum(value.v_observation, uvwObservations);
+      const wObservation = safeBrowserEnum(value.w_observation, uvwObservations);
+      const counts = [
+        value.u_occurrence_count,
+        value.distinct_answer_count,
+        value.v_count,
+        value.w_count,
+      ].map(safeCount);
+      return urlPubId &&
+        canonicalUrl &&
+        latestCaptureAt &&
+        fetchState &&
+        analysisState &&
+        uObservation &&
+        vObservation &&
+        wObservation &&
+        counts.every((item) => item !== null)
+        ? {
+            urlPubId,
+            canonicalUrl,
+            uOccurrenceCount: counts[0]!,
+            distinctAnswerCount: counts[1]!,
+            vCount: counts[2]!,
+            wCount: counts[3]!,
+            uObservation,
+            vObservation,
+            wObservation,
+            latestCaptureAt,
+            fetchState,
+            analysisState,
+          }
+        : null;
+    });
+    if (
+      !page ||
+      result.data.schema_version !== 'internal-source-urls-v1' ||
+      result.data.project_pub_id !== projectPubId ||
+      result.data.site_pub_id !== sitePubId ||
+      data.some((value) => value === null)
+    ) {
+      return { kind: 'unavailable' };
+    }
+    return { kind: 'ready', data: { data: data as InternalSourceUrl[], ...page } };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+export async function getInternalSourceUrlDetail(
+  headers: IdentitySessionHeaders,
+  projectPubId: string,
+  urlPubId: string,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<ProjectResourceResult<InternalSourceUrlDetail>> {
+  try {
+    if (!projectAnalyticsPubId(projectPubId, 'prj_') || !projectAnalyticsPubId(urlPubId, 'url_'))
+      return { kind: 'unavailable' };
+    const result = await projectedApiClient(client).GET(
+      '/api/v2/internal/source-intelligence/projects/{project_pub_id}/urls/{url_pub_id}',
+      { params: { path: { project_pub_id: projectPubId, url_pub_id: urlPubId }, header: headers } },
+    );
+    if (!result.data) return classifyResourceFailure(result.response.status);
+    const host = safeCustomerSourceHost(result.data.host);
+    const canonicalUrl = projectInternalUrl(result.data.canonical_url);
+    const normalizationVersion = projectInternalText(result.data.normalization_version, 120);
+    const uObservation = safeBrowserEnum(result.data.u_observation, uvwObservations);
+    const vObservation = safeBrowserEnum(result.data.v_observation, uvwObservations);
+    const wObservation = safeBrowserEnum(result.data.w_observation, uvwObservations);
+    const counts = [
+      result.data.u_occurrence_count,
+      result.data.distinct_answer_count,
+      result.data.v_count,
+      result.data.w_count,
+      result.data.fetch_attempt_count,
+      result.data.page_inspection_count,
+      result.data.finding_count,
+    ].map(safeCount);
+    let latestSnapshot: InternalSourceUrlDetail['latestSnapshot'] = null;
+    if (result.data.latest_snapshot !== null) {
+      const snapshotPubId = projectAnalyticsPubId(
+        result.data.latest_snapshot.snapshot_pub_id,
+        'snp_',
+      );
+      const state = projectInternalText(result.data.latest_snapshot.state, 40);
+      const capturedAt = projectSafeIsoTimestamp(result.data.latest_snapshot.captured_at);
+      const textSha256 =
+        result.data.latest_snapshot.text_sha256 === null
+          ? null
+          : safeHash(result.data.latest_snapshot.text_sha256);
+      const extractorVersion = projectNullableText(
+        result.data.latest_snapshot.extractor_version,
+        120,
+      );
+      if (
+        !snapshotPubId ||
+        !state ||
+        !capturedAt ||
+        (textSha256 === null && result.data.latest_snapshot.text_sha256 !== null) ||
+        extractorVersion === undefined
+      )
+        return { kind: 'unavailable' };
+      latestSnapshot = { snapshotPubId, state, capturedAt, textSha256, extractorVersion };
+    }
+    if (
+      result.data.schema_version !== 'internal-source-url-detail-v1' ||
+      result.data.project_pub_id !== projectPubId ||
+      result.data.url_pub_id !== urlPubId ||
+      !host ||
+      !canonicalUrl ||
+      !normalizationVersion ||
+      !uObservation ||
+      !vObservation ||
+      !wObservation ||
+      counts.some((value) => value === null)
+    ) {
+      return { kind: 'unavailable' };
+    }
+    return {
+      kind: 'ready',
+      data: {
+        urlPubId,
+        host,
+        canonicalUrl,
+        normalizationVersion,
+        uOccurrenceCount: counts[0]!,
+        distinctAnswerCount: counts[1]!,
+        vCount: counts[2]!,
+        wCount: counts[3]!,
+        uObservation,
+        vObservation,
+        wObservation,
+        fetchAttemptCount: counts[4]!,
+        latestSnapshot,
+        pageInspectionCount: counts[5]!,
+        findingCount: counts[6]!,
+      },
+    };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+export async function listInternalSourceSnapshots(
+  headers: IdentitySessionHeaders,
+  projectPubId: string,
+  urlPubId: string,
+  cursor: string | null = null,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<ProjectResourceResult<InternalSourceCursorPage<InternalSourceSnapshot>>> {
+  try {
+    if (!projectAnalyticsPubId(projectPubId, 'prj_') || !projectAnalyticsPubId(urlPubId, 'url_'))
+      return { kind: 'unavailable' };
+    const result = await projectedApiClient(client).GET(
+      '/api/v2/internal/source-intelligence/projects/{project_pub_id}/urls/{url_pub_id}/snapshots',
+      {
+        params: {
+          path: { project_pub_id: projectPubId, url_pub_id: urlPubId },
+          query: { limit: 100, ...(cursor ? { cursor } : {}) },
+          header: headers,
+        },
+      },
+    );
+    if (!result.data) return classifyResourceFailure(result.response.status);
+    const page = projectInternalCursor(result.data.page);
+    const data = result.data.data.map(projectInternalSnapshot);
+    if (
+      !page ||
+      result.data.schema_version !== 'internal-source-snapshots-v1' ||
+      result.data.project_pub_id !== projectPubId ||
+      result.data.url_pub_id !== urlPubId ||
+      data.some((value) => value === null)
+    ) {
+      return { kind: 'unavailable' };
+    }
+    return { kind: 'ready', data: { data: data as InternalSourceSnapshot[], ...page } };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+export async function listInternalSourceInspections(
+  headers: IdentitySessionHeaders,
+  projectPubId: string,
+  urlPubId: string,
+  cursor: string | null = null,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<ProjectResourceResult<InternalSourceCursorPage<InternalSourceInspection>>> {
+  try {
+    if (!projectAnalyticsPubId(projectPubId, 'prj_') || !projectAnalyticsPubId(urlPubId, 'url_'))
+      return { kind: 'unavailable' };
+    const result = await projectedApiClient(client).GET(
+      '/api/v2/internal/source-intelligence/projects/{project_pub_id}/urls/{url_pub_id}/inspections',
+      {
+        params: {
+          path: { project_pub_id: projectPubId, url_pub_id: urlPubId },
+          query: { limit: 100, ...(cursor ? { cursor } : {}) },
+          header: headers,
+        },
+      },
+    );
+    if (!result.data) return classifyResourceFailure(result.response.status);
+    const page = projectInternalCursor(result.data.page);
+    const data = result.data.data.map(projectInternalInspection);
+    if (
+      !page ||
+      result.data.schema_version !== 'internal-source-url-inspections-v1' ||
+      result.data.project_pub_id !== projectPubId ||
+      result.data.url_pub_id !== urlPubId ||
+      data.some((value) => value === null)
+    ) {
+      return { kind: 'unavailable' };
+    }
+    return { kind: 'ready', data: { data: data as InternalSourceInspection[], ...page } };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+export async function getInternalSourceInspectionEvidence(
+  headers: IdentitySessionHeaders,
+  projectPubId: string,
+  inspectionPubId: string,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<ProjectResourceResult<InternalSourceInspectionEvidence>> {
+  try {
+    if (
+      !projectAnalyticsPubId(projectPubId, 'prj_') ||
+      !projectAnalyticsPubId(inspectionPubId, 'pgi_')
+    ) {
+      return { kind: 'unavailable' };
+    }
+    const result = await projectedApiClient(client).GET(
+      '/api/v2/source-analysis/projects/{project_pub_id}/inspections/{inspection_pub_id}',
+      {
+        params: {
+          path: { project_pub_id: projectPubId, inspection_pub_id: inspectionPubId },
+          header: headers,
+        },
+      },
+    );
+    if (!result.data) return classifyResourceFailure(result.response.status);
+    const sourceDocumentPubId = projectAnalyticsPubId(result.data.source_document_pub_id, 'srd_');
+    const contentSha256 = safeHash(result.data.content_sha256);
+    const status = projectInternalText(result.data.status, 40);
+    const findings: InternalSourceFinding[] = [];
+    for (const rawFinding of result.data.findings) {
+      const findingPubId = projectAnalyticsPubId(rawFinding.pub_id, 'pgf_');
+      const ledger = safeBrowserEnum(rawFinding.ledger, findingLedgers);
+      const findingStatus = safeBrowserEnum(rawFinding.finding_status, findingStatuses);
+      const summary = projectInternalText(rawFinding.summary, 20_000);
+      const action = projectInternalText(rawFinding.action, 2_000);
+      const code = projectInternalText(rawFinding.code, 8);
+      const evidenceChain: InternalSourceEvidenceLink[] = [];
+      for (const rawLink of rawFinding.evidence_chain) {
+        const connector = safeBrowserEnum(rawLink.connector, evidenceConnectors);
+        const factType = safeBrowserEnum(rawLink.fact_type, evidenceFactTypes);
+        const explanation = projectInternalText(rawLink.explanation, 20_000);
+        const quote = projectNullableText(rawLink.quote, 20_000);
+        if (!connector || !factType || explanation === null || quote === undefined) {
+          return { kind: 'unavailable' };
+        }
+        evidenceChain.push({ connector, factType, explanation, quote });
+      }
+      const spans: InternalSourceEvidenceSpan[] = [];
+      for (const rawSpan of rawFinding.spans) {
+        const spanPubId = projectAnalyticsPubId(rawSpan.pub_id, 'pgs_');
+        const quote = projectInternalText(rawSpan.quote, 20_000);
+        const textStart = safeCount(rawSpan.text_start);
+        const textEnd = safeCount(rawSpan.text_end);
+        const quoteHash = safeHash(rawSpan.quote_hash);
+        if (
+          !spanPubId ||
+          quote === null ||
+          textStart === null ||
+          textEnd === null ||
+          textEnd <= textStart ||
+          !quoteHash ||
+          rawSpan.verification !== 'exact'
+        ) {
+          return { kind: 'unavailable' };
+        }
+        spans.push({ spanPubId, quote, textStart, textEnd, quoteHash });
+      }
+      if (!findingPubId || !ledger || !findingStatus || !summary || !action || !code) {
+        return { kind: 'unavailable' };
+      }
+      findings.push({
+        findingPubId,
+        code,
+        ledger,
+        status: findingStatus,
+        summary,
+        action,
+        evidenceChain,
+        spans,
+      });
+    }
+    if (
+      result.data.pub_id !== inspectionPubId ||
+      !sourceDocumentPubId ||
+      !contentSha256 ||
+      !status
+    ) {
+      return { kind: 'unavailable' };
+    }
+    return {
+      kind: 'ready',
+      data: {
+        inspectionPubId,
+        sourceDocumentPubId,
+        contentSha256,
+        status,
+        findings,
+      },
+    };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+export async function listInternalSourceOccurrences(
+  headers: IdentitySessionHeaders,
+  projectPubId: string,
+  urlPubId: string,
+  cursor: string | null = null,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<ProjectResourceResult<InternalSourceCursorPage<InternalSourceOccurrence>>> {
+  try {
+    if (!projectAnalyticsPubId(projectPubId, 'prj_') || !projectAnalyticsPubId(urlPubId, 'url_'))
+      return { kind: 'unavailable' };
+    const result = await projectedApiClient(client).GET(
+      '/api/v2/internal/source-intelligence/projects/{project_pub_id}/urls/{url_pub_id}/occurrences',
+      {
+        params: {
+          path: { project_pub_id: projectPubId, url_pub_id: urlPubId },
+          query: { limit: 100, ...(cursor ? { cursor } : {}) },
+          header: headers,
+        },
+      },
+    );
+    if (!result.data) return classifyResourceFailure(result.response.status);
+    const page = projectInternalCursor(result.data.page);
+    const data = result.data.data.map(projectInternalOccurrence);
+    if (
+      !page ||
+      result.data.schema_version !== 'internal-source-occurrences-v1' ||
+      result.data.project_pub_id !== projectPubId ||
+      result.data.url_pub_id !== urlPubId ||
+      data.some((value) => value === null)
+    ) {
+      return { kind: 'unavailable' };
+    }
+    return { kind: 'ready', data: { data: data as InternalSourceOccurrence[], ...page } };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+export async function getInternalAnswerUvw(
+  headers: IdentitySessionHeaders,
+  projectPubId: string,
+  answerPubId: string,
+  cursor: string | null = null,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<ProjectResourceResult<InternalAnswerUvw>> {
+  try {
+    if (!projectAnalyticsPubId(projectPubId, 'prj_') || !projectAnalyticsPubId(answerPubId, 'ans_'))
+      return { kind: 'unavailable' };
+    const result = await projectedApiClient(client).GET(
+      '/api/v2/internal/source-intelligence/projects/{project_pub_id}/answers/{answer_pub_id}/uvw',
+      {
+        params: {
+          path: { project_pub_id: projectPubId, answer_pub_id: answerPubId },
+          query: { limit: 100, ...(cursor ? { cursor } : {}) },
+          header: headers,
+        },
+      },
+    );
+    if (!result.data) return classifyResourceFailure(result.response.status);
+    const page = projectInternalCursor(result.data.occurrences_page);
+    const occurrences = result.data.occurrences.map(projectInternalOccurrence);
+    const captureTime = projectSafeIsoTimestamp(result.data.capture_time);
+    const uObservation = safeBrowserEnum(result.data.u_observation, uvwObservations);
+    const vObservation = safeBrowserEnum(result.data.v_observation, uvwObservations);
+    const finalReferenceObservation = safeBrowserEnum(
+      result.data.final_reference_observation,
+      uvwObservations,
+    );
+    const question = projectInternalText(result.data.question, 20_000);
+    const platform = projectInternalText(result.data.platform, 120);
+    const model = projectInternalText(result.data.model, 120);
+    const region = projectInternalText(result.data.region, 120);
+    const mode = projectInternalText(result.data.mode, 120);
+    if (
+      !page ||
+      result.data.schema_version !== 'internal-answer-uvw-v1' ||
+      result.data.project_pub_id !== projectPubId ||
+      result.data.answer_pub_id !== answerPubId ||
+      !captureTime ||
+      !uObservation ||
+      !vObservation ||
+      !finalReferenceObservation ||
+      question === null ||
+      platform === null ||
+      model === null ||
+      region === null ||
+      mode === null ||
+      occurrences.some((value) => value === null)
+    ) {
+      return { kind: 'unavailable' };
+    }
+    return {
+      kind: 'ready',
+      data: {
+        answerPubId,
+        question,
+        platform,
+        model,
+        region,
+        mode,
+        captureTime,
+        uObservation,
+        vObservation,
+        finalReferenceObservation,
+        occurrences: occurrences as InternalSourceOccurrence[],
+        ...page,
+      },
+    };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}

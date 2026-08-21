@@ -474,6 +474,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/customer/projects/{project_pub_id}/services": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Customer Services */
+        get: operations["getCustomerFiveServices"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/onboarding": {
         parameters: {
             query?: never;
@@ -4519,6 +4536,125 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/internal/source-intelligence/projects/{project_pub_id}/sites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Sites */
+        get: operations["list_sites_api_v2_internal_source_intelligence_projects__project_pub_id__sites_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/internal/source-intelligence/projects/{project_pub_id}/sites/{site_pub_id}/urls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Site Urls */
+        get: operations["list_site_urls_api_v2_internal_source_intelligence_projects__project_pub_id__sites__site_pub_id__urls_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/internal/source-intelligence/projects/{project_pub_id}/urls/{url_pub_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Url Detail */
+        get: operations["get_url_detail_api_v2_internal_source_intelligence_projects__project_pub_id__urls__url_pub_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/internal/source-intelligence/projects/{project_pub_id}/urls/{url_pub_id}/snapshots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Url Snapshots */
+        get: operations["list_url_snapshots_api_v2_internal_source_intelligence_projects__project_pub_id__urls__url_pub_id__snapshots_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/internal/source-intelligence/projects/{project_pub_id}/urls/{url_pub_id}/inspections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Url Inspections */
+        get: operations["list_url_inspections_api_v2_internal_source_intelligence_projects__project_pub_id__urls__url_pub_id__inspections_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/internal/source-intelligence/projects/{project_pub_id}/urls/{url_pub_id}/occurrences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Url Occurrences */
+        get: operations["list_url_occurrences_api_v2_internal_source_intelligence_projects__project_pub_id__urls__url_pub_id__occurrences_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/internal/source-intelligence/projects/{project_pub_id}/answers/{answer_pub_id}/uvw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Answer Uvw */
+        get: operations["get_answer_uvw_api_v2_internal_source_intelligence_projects__project_pub_id__answers__answer_pub_id__uvw_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/health": {
         parameters: {
             query?: never;
@@ -4933,6 +5069,42 @@ export interface components {
              * Format: date-time
              */
             capture_time: string;
+        };
+        /** AnswerUvwView */
+        AnswerUvwView: {
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "internal-answer-uvw-v1";
+            /** Project Pub Id */
+            project_pub_id: string;
+            /** Answer Pub Id */
+            answer_pub_id: string;
+            /** Question */
+            question: string;
+            /** Platform */
+            platform: string;
+            /** Model */
+            model: string;
+            /** Region */
+            region: string;
+            /** Mode */
+            mode: string;
+            /**
+             * Capture Time
+             * Format: date-time
+             */
+            capture_time: string;
+            /** U Observation */
+            u_observation: string;
+            /** V Observation */
+            v_observation: string;
+            /** Final Reference Observation */
+            final_reference_observation: string;
+            /** Occurrences */
+            occurrences: components["schemas"]["OccurrenceView"][];
+            occurrences_page: components["schemas"]["CursorPage"];
         };
         /** AnswerView */
         AnswerView: {
@@ -6389,6 +6561,13 @@ export interface components {
                 [key: string]: string;
             }[];
         };
+        /** CursorPage */
+        CursorPage: {
+            /** Next Cursor */
+            next_cursor: string | null;
+            /** Has More */
+            has_more: boolean;
+        };
         /** CustomerAccountCreate */
         CustomerAccountCreate: {
             /** Platform Slug */
@@ -6993,6 +7172,73 @@ export interface components {
             metrics: components["schemas"]["CustomerMetricView"][];
             /** By Model */
             by_model: components["schemas"]["CustomerDimensionView"][];
+        };
+        /** CustomerServiceDelivery */
+        CustomerServiceDelivery: {
+            /** Report Pub Id */
+            report_pub_id: string;
+            /** Report Version Pub Id */
+            report_version_pub_id: string;
+            /** Title */
+            title: string;
+            /**
+             * Published At
+             * Format: date-time
+             */
+            published_at: string;
+            /** Delivered At */
+            delivered_at: string | null;
+            /** Confirmed At */
+            confirmed_at: string | null;
+        };
+        /** CustomerServiceSummary */
+        CustomerServiceSummary: {
+            /** Answer Count */
+            answer_count?: number | null;
+            /** Official Site Stage */
+            official_site_stage?: string | null;
+            /** Official Site U Occurrences */
+            official_site_u_occurrences?: number | null;
+            /** Official Site V Occurrences */
+            official_site_v_occurrences?: number | null;
+            /** Official Site W Occurrences */
+            official_site_w_occurrences?: number | null;
+            /** U Observation */
+            u_observation?: ("observed" | "partial" | "unobserved") | null;
+            /** V Observation */
+            v_observation?: ("observed" | "partial" | "unobserved") | null;
+            /** W Observation */
+            w_observation?: ("observed" | "partial" | "unobserved" | "not_applicable") | null;
+        };
+        /** CustomerServiceView */
+        CustomerServiceView: {
+            /** Service Number */
+            service_number: number;
+            /** Service Code */
+            service_code: string;
+            /** Name */
+            name: string;
+            /**
+             * Entitlement State
+             * @enum {string}
+             */
+            entitlement_state: "inactive" | "active" | "suspended" | "expired";
+            /** Catalog Version */
+            catalog_version: string | null;
+            summary: components["schemas"]["CustomerServiceSummary"] | null;
+            latest_delivery: components["schemas"]["CustomerServiceDelivery"] | null;
+        };
+        /** CustomerServicesView */
+        CustomerServicesView: {
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "customer-five-services-v1";
+            /** Project Pub Id */
+            project_pub_id: string;
+            /** Services */
+            services: components["schemas"]["CustomerServiceView"][];
         };
         /** CustomerSourceAuditView */
         CustomerSourceAuditView: {
@@ -8776,6 +9022,67 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+        };
+        /** OccurrencePage */
+        OccurrencePage: {
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "internal-source-occurrences-v1";
+            /** Project Pub Id */
+            project_pub_id: string;
+            /** Url Pub Id */
+            url_pub_id: string;
+            /** Data */
+            data: components["schemas"]["OccurrenceView"][];
+            page: components["schemas"]["CursorPage"];
+        };
+        /** OccurrenceView */
+        OccurrenceView: {
+            /** Occurrence Pub Id */
+            occurrence_pub_id: string;
+            /** Answer Pub Id */
+            answer_pub_id: string;
+            /** Url Pub Id */
+            url_pub_id: string;
+            /** Canonical Url */
+            canonical_url: string;
+            /** Host */
+            host: string;
+            /**
+             * Captured At
+             * Format: date-time
+             */
+            captured_at: string;
+            /** Platform */
+            platform: string;
+            /** Model */
+            model: string;
+            /** Region */
+            region: string;
+            /** Mode */
+            mode: string;
+            /** Question */
+            question: string;
+            /** Query */
+            query: string | null;
+            /** U State */
+            u_state: string;
+            /** U Rank */
+            u_rank: number | null;
+            /** V State */
+            v_state: string;
+            /** V Open Order */
+            v_open_order: number | null;
+            /** Final Reference State */
+            final_reference_state: string;
+            /** W State */
+            w_state: string;
+            /** W Weight */
+            w_weight: number | null;
+            /** Evidence State */
+            evidence_state: string;
         };
         /** OidcBindingCreate */
         OidcBindingCreate: {
@@ -11028,6 +11335,123 @@ export interface components {
             /** Suggestions */
             suggestions: components["schemas"]["SiteAuditSuggestionView"][];
         };
+        /** SitePage */
+        SitePage: {
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "internal-source-sites-v1";
+            /** Project Pub Id */
+            project_pub_id: string;
+            /** Data */
+            data: components["schemas"]["SiteSummary"][];
+            page: components["schemas"]["CursorPage"];
+        };
+        /** SiteSummary */
+        SiteSummary: {
+            /** Site Pub Id */
+            site_pub_id: string;
+            /** Host */
+            host: string;
+            /** Distinct Url Count */
+            distinct_url_count: number;
+            /** U Occurrence Count */
+            u_occurrence_count: number;
+            /** Distinct Answer Count */
+            distinct_answer_count: number;
+            /** V Count */
+            v_count: number;
+            /** W Count */
+            w_count: number;
+            /**
+             * U Observation
+             * @enum {string}
+             */
+            u_observation: "observed" | "partial" | "unobserved";
+            /**
+             * V Observation
+             * @enum {string}
+             */
+            v_observation: "observed" | "partial" | "unobserved";
+            /**
+             * W Observation
+             * @enum {string}
+             */
+            w_observation: "observed" | "partial" | "unobserved";
+            /**
+             * Latest Capture At
+             * Format: date-time
+             */
+            latest_capture_at: string;
+        };
+        /** SnapshotDetailSummary */
+        SnapshotDetailSummary: {
+            /** Snapshot Pub Id */
+            snapshot_pub_id: string;
+            /** State */
+            state: string;
+            /**
+             * Captured At
+             * Format: date-time
+             */
+            captured_at: string;
+            /** Text Sha256 */
+            text_sha256: string | null;
+            /** Extractor Version */
+            extractor_version: string | null;
+            /** Final Url */
+            final_url: string | null;
+            /** Http Status */
+            http_status: number | null;
+            /** Title */
+            title: string | null;
+            /** Site Name */
+            site_name: string | null;
+            /** Author */
+            author: string | null;
+            /** Account Name */
+            account_name: string | null;
+            /** Published At */
+            published_at: string | null;
+            /** Fetch Attempt Pub Id */
+            fetch_attempt_pub_id: string | null;
+            /** Fetch State */
+            fetch_state: string | null;
+            /** Fetch Error Code */
+            fetch_error_code: string | null;
+        };
+        /** SnapshotPage */
+        SnapshotPage: {
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "internal-source-snapshots-v1";
+            /** Project Pub Id */
+            project_pub_id: string;
+            /** Url Pub Id */
+            url_pub_id: string;
+            /** Data */
+            data: components["schemas"]["SnapshotDetailSummary"][];
+            page: components["schemas"]["CursorPage"];
+        };
+        /** SnapshotSummary */
+        SnapshotSummary: {
+            /** Snapshot Pub Id */
+            snapshot_pub_id: string;
+            /** State */
+            state: string;
+            /**
+             * Captured At
+             * Format: date-time
+             */
+            captured_at: string;
+            /** Text Sha256 */
+            text_sha256: string | null;
+            /** Extractor Version */
+            extractor_version: string | null;
+        };
         /** SopPage[ArticleView] */
         SopPage_ArticleView_: {
             /** Data */
@@ -11746,6 +12170,147 @@ export interface components {
             status: string;
             /** Created At */
             created_at: string;
+        };
+        /** UrlDetail */
+        UrlDetail: {
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "internal-source-url-detail-v1";
+            /** Project Pub Id */
+            project_pub_id: string;
+            /** Url Pub Id */
+            url_pub_id: string;
+            /** Host */
+            host: string;
+            /** Canonical Url */
+            canonical_url: string;
+            /** Normalization Version */
+            normalization_version: string;
+            /** U Occurrence Count */
+            u_occurrence_count: number;
+            /** Distinct Answer Count */
+            distinct_answer_count: number;
+            /** V Count */
+            v_count: number;
+            /** W Count */
+            w_count: number;
+            /**
+             * U Observation
+             * @enum {string}
+             */
+            u_observation: "observed" | "partial" | "unobserved";
+            /**
+             * V Observation
+             * @enum {string}
+             */
+            v_observation: "observed" | "partial" | "unobserved";
+            /**
+             * W Observation
+             * @enum {string}
+             */
+            w_observation: "observed" | "partial" | "unobserved";
+            /** Fetch Attempt Count */
+            fetch_attempt_count: number;
+            latest_snapshot: components["schemas"]["SnapshotSummary"] | null;
+            /** Page Inspection Count */
+            page_inspection_count: number;
+            /** Finding Count */
+            finding_count: number;
+        };
+        /** UrlInspectionPage */
+        UrlInspectionPage: {
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "internal-source-url-inspections-v1";
+            /** Project Pub Id */
+            project_pub_id: string;
+            /** Url Pub Id */
+            url_pub_id: string;
+            /** Data */
+            data: components["schemas"]["UrlInspectionSummary"][];
+            page: components["schemas"]["CursorPage"];
+        };
+        /** UrlInspectionSummary */
+        UrlInspectionSummary: {
+            /** Inspection Pub Id */
+            inspection_pub_id: string;
+            /** Source Document Pub Id */
+            source_document_pub_id: string;
+            /** Status */
+            status: string;
+            /** Policy Version */
+            policy_version: string;
+            /** Prompt Version */
+            prompt_version: string;
+            /** Model */
+            model: string;
+            /** Content Sha256 */
+            content_sha256: string;
+            /** Finding Count */
+            finding_count: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** UrlPage */
+        UrlPage: {
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "internal-source-urls-v1";
+            /** Project Pub Id */
+            project_pub_id: string;
+            /** Site Pub Id */
+            site_pub_id: string;
+            /** Data */
+            data: components["schemas"]["UrlSummary"][];
+            page: components["schemas"]["CursorPage"];
+        };
+        /** UrlSummary */
+        UrlSummary: {
+            /** Url Pub Id */
+            url_pub_id: string;
+            /** Canonical Url */
+            canonical_url: string;
+            /** U Occurrence Count */
+            u_occurrence_count: number;
+            /** Distinct Answer Count */
+            distinct_answer_count: number;
+            /** V Count */
+            v_count: number;
+            /** W Count */
+            w_count: number;
+            /**
+             * U Observation
+             * @enum {string}
+             */
+            u_observation: "observed" | "partial" | "unobserved";
+            /**
+             * V Observation
+             * @enum {string}
+             */
+            v_observation: "observed" | "partial" | "unobserved";
+            /**
+             * W Observation
+             * @enum {string}
+             */
+            w_observation: "observed" | "partial" | "unobserved";
+            /**
+             * Latest Capture At
+             * Format: date-time
+             */
+            latest_capture_at: string;
+            /** Fetch State */
+            fetch_state: string;
+            /** Analysis State */
+            analysis_state: string;
         };
         /** ValidationError */
         ValidationError: {
@@ -13279,7 +13844,6 @@ export interface operations {
                     "X-Quotation-Total-Cents"?: string;
                     "X-Quotation-Maximum-Total-Cents"?: string;
                     "X-Quotation-Query-Appendix"?: string;
-                    "X-Quotation-Template-Compliance"?: string;
                     "X-Quotation-SHA256"?: string;
                     "Cache-Control"?: string;
                     [name: string]: unknown;
@@ -14621,6 +15185,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CustomerAnswerLibraryDetailView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getCustomerFiveServices: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerServicesView"];
                 };
             };
             /** @description Bad Request */
@@ -33346,6 +33978,506 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InspectionDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_sites_api_v2_internal_source_intelligence_projects__project_pub_id__sites_get: {
+        parameters: {
+            query?: {
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SitePage"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_site_urls_api_v2_internal_source_intelligence_projects__project_pub_id__sites__site_pub_id__urls_get: {
+        parameters: {
+            query?: {
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+                site_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UrlPage"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_url_detail_api_v2_internal_source_intelligence_projects__project_pub_id__urls__url_pub_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+                url_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UrlDetail"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_url_snapshots_api_v2_internal_source_intelligence_projects__project_pub_id__urls__url_pub_id__snapshots_get: {
+        parameters: {
+            query?: {
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+                url_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SnapshotPage"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_url_inspections_api_v2_internal_source_intelligence_projects__project_pub_id__urls__url_pub_id__inspections_get: {
+        parameters: {
+            query?: {
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+                url_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UrlInspectionPage"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_url_occurrences_api_v2_internal_source_intelligence_projects__project_pub_id__urls__url_pub_id__occurrences_get: {
+        parameters: {
+            query?: {
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+                url_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OccurrencePage"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_answer_uvw_api_v2_internal_source_intelligence_projects__project_pub_id__answers__answer_pub_id__uvw_get: {
+        parameters: {
+            query?: {
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+                answer_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnswerUvwView"];
                 };
             };
             /** @description Bad Request */
