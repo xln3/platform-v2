@@ -280,15 +280,13 @@ describe('AccountsPage', () => {
     expect(
       calls.some(
         (call) =>
-          call.method === 'POST' &&
-          call.path === '/api/v2/collection-accounts/sync-otp-registry',
+          call.method === 'POST' && call.path === '/api/v2/collection-accounts/sync-otp-registry',
       ),
     ).toBe(true);
     await waitFor(() => {
       expect(
-        calls.filter(
-          (call) => call.method === 'GET' && call.path === '/api/v2/collection-accounts',
-        ).length,
+        calls.filter((call) => call.method === 'GET' && call.path === '/api/v2/collection-accounts')
+          .length,
       ).toBeGreaterThanOrEqual(2);
     });
   });

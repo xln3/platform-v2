@@ -325,7 +325,12 @@ def test_w2_fetch_then_audit_end_to_end(seeded_run: Any) -> None:
     # PG source_document 行 + CAS 正文可回读
     with psycopg.connect(POSTGRES_DSN, row_factory=dict_row) as connection:
         documents = connection.execute(
-            "SELECT * FROM platform.source_document ORDER BY url"
+            """
+            SELECT * FROM platform.source_document
+            WHERE tenant_id=(SELECT id FROM platform.tenant WHERE pub_id=%s)
+            ORDER BY url
+            """,
+            (seeded_run.tenant,),
         ).fetchall()
         answer_source_relations = connection.execute(
             """
@@ -368,15 +373,22 @@ def test_w2_fetch_then_audit_end_to_end(seeded_run: Any) -> None:
         e.url: e.source_document_pub_id for e in fetch_result.fetched
     }
     with psycopg.connect(POSTGRES_DSN) as connection:
-        assert connection.execute("SELECT count(*) FROM platform.source_document").fetchone() == (
-            2,
-        )
         assert connection.execute(
-            "SELECT count(*) FROM evidence.evidence_asset WHERE kind='source_text'"
+            """
+            SELECT count(*) FROM platform.source_document
+            WHERE tenant_id=(SELECT id FROM platform.tenant WHERE pub_id=%s)
+            """,
+            (seeded_run.tenant,),
+        ).fetchone() == (2,)
+        assert connection.execute(
+            "SELECT count(*) FROM evidence.evidence_asset "
+            "WHERE tenant_pub_id=%s AND kind='source_text'",
+            (seeded_run.tenant,),
         ).fetchone() == (1,)
         assert connection.execute(
             "SELECT count(*) FROM evidence.evidence_relation "
-            "WHERE relation_type='cited_source_document'"
+            "WHERE tenant_pub_id=%s AND relation_type='cited_source_document'",
+            (seeded_run.tenant,),
         ).fetchone() == (2,)
 
     # 官网快照（模拟 W4 产物）：确认官网域一页 + 外域一页（host 过滤必须剔除外域）
@@ -429,7 +441,13 @@ def test_w2_fetch_then_audit_end_to_end(seeded_run: Any) -> None:
     assert _FOREIGN_SITE_TEXT not in factual_blob
 
     with psycopg.connect(POSTGRES_DSN, row_factory=dict_row) as connection:
-        audits = connection.execute("SELECT * FROM platform.source_audit").fetchall()
+        audits = connection.execute(
+            """
+            SELECT * FROM platform.source_audit
+            WHERE tenant_id=(SELECT id FROM platform.tenant WHERE pub_id=%s)
+            """,
+            (seeded_run.tenant,),
+        ).fetchall()
         events = connection.execute(
             "SELECT * FROM integration.outbox_event "
             "WHERE event_type='source_audit.recorded' AND tenant_pub_id=%s",
@@ -465,7 +483,13 @@ def test_w2_fetch_then_audit_end_to_end(seeded_run: Any) -> None:
     assert len(rerun.audited) == 0
     assert len(rerun.skipped) == 4
     with psycopg.connect(POSTGRES_DSN) as connection:
-        assert connection.execute("SELECT count(*) FROM platform.source_audit").fetchone() == (4,)
+        assert connection.execute(
+            """
+            SELECT count(*) FROM platform.source_audit
+            WHERE tenant_id=(SELECT id FROM platform.tenant WHERE pub_id=%s)
+            """,
+            (seeded_run.tenant,),
+        ).fetchone() == (4,)
 
     # outbox → projection → CH source_audit_fact
     suffix = uuid.uuid4().hex[:8]

@@ -113,10 +113,7 @@ class PostAnalysisWorkflow:
         for start in range(0, len(begin.item_pub_ids), _ITEM_CONCURRENCY):
             batch = begin.item_pub_ids[start : start + _ITEM_CONCURRENCY]
             batch_outcomes = await asyncio.gather(
-                *(
-                    self._process_item(data, item_pub_id, source_detached)
-                    for item_pub_id in batch
-                )
+                *(self._process_item(data, item_pub_id, source_detached) for item_pub_id in batch)
             )
             outcomes.extend(batch_outcomes)
         finalize = await workflow.execute_activity(

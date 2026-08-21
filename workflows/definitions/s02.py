@@ -99,9 +99,7 @@ class AnswerAnalysisWorkflow:
             summary=(
                 {
                     "analysis_pub_id": str(persistence.get("analysis_pub_id") or ""),
-                    "analysis_run_pub_id": str(
-                        persistence.get("analysis_run_pub_id") or ""
-                    ),
+                    "analysis_run_pub_id": str(persistence.get("analysis_run_pub_id") or ""),
                 }
                 if isinstance(persistence, dict)
                 else {}

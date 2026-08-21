@@ -948,9 +948,7 @@ def list_collection_browsers(
                 )
             )
         )
-        bindings = {
-            account.platform: _phone_pub_id(session, account) for account in bound_accounts
-        }
+        bindings = {account.platform: _phone_pub_id(session, account) for account in bound_accounts}
         views.append(
             CollectionBrowserView(
                 browser_pub_id=browser.pub_id,
@@ -1000,9 +998,7 @@ def restart_browser(
     TODO(P1): 审批流 + fence 释放 → systemctl restart → 探活闭环。
     """
     principal.require("account:operate")
-    browser = session.scalar(
-        select(CollectionBrowser).where(CollectionBrowser.instance_key == key)
-    )
+    browser = session.scalar(select(CollectionBrowser).where(CollectionBrowser.instance_key == key))
     if browser is None:
         raise HTTPException(status_code=404, detail={"code": "browser_not_found"})
     _emit_event(
@@ -1027,9 +1023,7 @@ def release_browser_lock(
     """释放实例 fence 锁（platform.browser_fence.released_at=now）——现有手工
     SQL 回收的产品化；stale lease 回收语义不变（本操作即「人工回收」）。"""
     principal.require("account:operate")
-    browser = session.scalar(
-        select(CollectionBrowser).where(CollectionBrowser.instance_key == key)
-    )
+    browser = session.scalar(select(CollectionBrowser).where(CollectionBrowser.instance_key == key))
     fence = session.scalar(select(BrowserFence).where(BrowserFence.platform == key))
     if browser is None and fence is None:
         raise HTTPException(status_code=404, detail={"code": "browser_not_found"})
@@ -1089,9 +1083,7 @@ def list_collection_regions(
     session: Session = Depends(get_db),
 ) -> list[CollectionRegionView]:
     principal.require("account:read")
-    regions = list(
-        session.scalars(select(CollectionRegion).order_by(CollectionRegion.created_at))
-    )
+    regions = list(session.scalars(select(CollectionRegion).order_by(CollectionRegion.created_at)))
     return [_region_view(region) for region in regions]
 
 

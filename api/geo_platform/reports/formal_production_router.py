@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Annotated, Literal, Self
+from typing import Annotated, Any, Literal, Self
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
@@ -94,7 +94,7 @@ class _FormalProductionCreateBase(StrictModel):
         return self
 
 
-def _omit_runtime_default_from_schema(schema: dict[str, object]) -> None:
+def _omit_runtime_default_from_schema(schema: dict[str, Any]) -> None:
     # The wrapper below supplies this default before union validation.  Omitting
     # it from the property schema keeps generated clients compatible with legacy
     # callers that predate the service-catalog field.
@@ -102,16 +102,22 @@ def _omit_runtime_default_from_schema(schema: dict[str, object]) -> None:
 
 
 class LegacyFormalProductionCreate(_FormalProductionCreateBase):
-    services: list[Literal[1, 2, 3, 4]] = Field(min_length=1, max_length=4)
+    # Pydantic intentionally narrows the inherited runtime-validation field;
+    # mypy treats mutable-list attribute overrides as invariant.
+    services: list[Literal[1, 2, 3, 4]] = Field(  # type: ignore[assignment]
+        min_length=1, max_length=4
+    )
     service_catalog_version: Literal["legacy_report_services_v1"] = Field(
-        default=LEGACY_SERVICE_CATALOG,
+        default="legacy_report_services_v1",
         json_schema_extra=_omit_runtime_default_from_schema,
     )
     sop_project_pub_id: None = None
 
 
 class QuotationFormalProductionCreate(_FormalProductionCreateBase):
-    services: list[Literal[1, 2, 3, 4, 5]] = Field(min_length=1, max_length=5)
+    services: list[Literal[1, 2, 3, 4, 5]] = Field(  # type: ignore[assignment]
+        min_length=1, max_length=5
+    )
     service_catalog_version: Literal["quotation_services_v2"]
 
 

@@ -45,9 +45,7 @@ ANALYSIS_JOB_STATES = frozenset(
         "skipped",
     }
 )
-ANALYSIS_TERMINAL_STATES = frozenset(
-    {"not_requested", "completed", "partial", "failed", "skipped"}
-)
+ANALYSIS_TERMINAL_STATES = frozenset({"not_requested", "completed", "partial", "failed", "skipped"})
 _ERROR_CODE_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,119}$")
 
 
@@ -130,9 +128,10 @@ def enqueue_analysis_job(
         analyzer_kind=analyzer_kind,
         policy_version=policy_version,
     )
-    persisted = session.execute(
-        text(
-            """
+    persisted = (
+        session.execute(
+            text(
+                """
             INSERT INTO platform.analysis_job (
               id,pub_id,tenant_id,project_id,run_id,answer_task_id,
               subject_type,subject_pub_id,analyzer_kind,policy_version,
@@ -147,24 +146,27 @@ def enqueue_analysis_job(
             RETURNING pub_id,input_hash,workflow_id,subject_type,subject_pub_id,
                       analyzer_kind,policy_version
             """
-        ),
-        {
-            "id": uuid.uuid4(),
-            "pub_id": pub_id,
-            "tenant_id": tenant_id,
-            "project_id": project_id,
-            "run_id": run_id,
-            "answer_task_id": answer_task_id,
-            "subject_type": subject_type,
-            "subject_pub_id": subject_pub_id,
-            "analyzer_kind": analyzer_kind,
-            "policy_version": policy_version,
-            "input_hash": input_hash,
-            "workflow_id": workflow_id,
-            "state": state,
-            "error_code": error_code,
-        },
-    ).mappings().one()
+            ),
+            {
+                "id": uuid.uuid4(),
+                "pub_id": pub_id,
+                "tenant_id": tenant_id,
+                "project_id": project_id,
+                "run_id": run_id,
+                "answer_task_id": answer_task_id,
+                "subject_type": subject_type,
+                "subject_pub_id": subject_pub_id,
+                "analyzer_kind": analyzer_kind,
+                "policy_version": policy_version,
+                "input_hash": input_hash,
+                "workflow_id": workflow_id,
+                "state": state,
+                "error_code": error_code,
+            },
+        )
+        .mappings()
+        .one()
+    )
     expected = {
         "pub_id": pub_id,
         "input_hash": input_hash,
@@ -214,9 +216,10 @@ def _mark_analysis_job(item: AnalysisJobStateInput) -> dict[str, Any]:
     )
     with WorkerSessionLocal() as session:
         TenantRepository(session, item.tenant_pub_id)
-        current = session.execute(
-            text(
-                """
+        current = (
+            session.execute(
+                text(
+                    """
                 SELECT pub_id,state,attempt_count
                 FROM platform.analysis_job
                 WHERE subject_type=:subject_type
@@ -225,14 +228,17 @@ def _mark_analysis_job(item: AnalysisJobStateInput) -> dict[str, Any]:
                   AND policy_version=:policy_version
                 FOR UPDATE
                 """
-            ),
-            {
-                "subject_type": item.subject_type,
-                "subject_pub_id": item.subject_pub_id,
-                "analyzer_kind": item.analyzer_kind,
-                "policy_version": item.policy_version,
-            },
-        ).mappings().one_or_none()
+                ),
+                {
+                    "subject_type": item.subject_type,
+                    "subject_pub_id": item.subject_pub_id,
+                    "analyzer_kind": item.analyzer_kind,
+                    "policy_version": item.policy_version,
+                },
+            )
+            .mappings()
+            .one_or_none()
+        )
         if current is None:
             raise ApplicationError(
                 "analysis job does not exist",
@@ -248,9 +254,10 @@ def _mark_analysis_job(item: AnalysisJobStateInput) -> dict[str, Any]:
                 "state": current_state,
                 "attempt_count": int(current["attempt_count"]),
             }
-        updated = session.execute(
-            text(
-                """
+        updated = (
+            session.execute(
+                text(
+                    """
                 UPDATE platform.analysis_job
                 SET state=:state,
                     attempt_count=attempt_count+CASE
@@ -265,15 +272,18 @@ def _mark_analysis_job(item: AnalysisJobStateInput) -> dict[str, Any]:
                 WHERE pub_id=:pub_id
                 RETURNING pub_id,state,attempt_count
                 """
-            ),
-            {
-                "pub_id": current["pub_id"],
-                "state": item.state,
-                "terminal": item.state in ANALYSIS_TERMINAL_STATES,
-                "error_code": item.error_code,
-                "result_json": result_json,
-            },
-        ).mappings().one()
+                ),
+                {
+                    "pub_id": current["pub_id"],
+                    "state": item.state,
+                    "terminal": item.state in ANALYSIS_TERMINAL_STATES,
+                    "error_code": item.error_code,
+                    "result_json": result_json,
+                },
+            )
+            .mappings()
+            .one()
+        )
         session.commit()
         return dict(updated)
 

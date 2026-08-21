@@ -129,9 +129,7 @@ export function AccountsPage({ session }: { session: SessionContext }) {
       <header className="acct-gov-heading">
         <div>
           <h1>采集账号管理</h1>
-          <p>
-            行 = 手机号；五平台格分别维护地域绑定、采集额度与运行状态。每 15 秒自动刷新。
-          </p>
+          <p>行 = 手机号；五平台格分别维护地域绑定、采集额度与运行状态。每 15 秒自动刷新。</p>
         </div>
         <div className="acct-gov-actions">
           {session.role === 'operator' || session.role === 'admin' ? (
@@ -333,7 +331,8 @@ function QuotaObservationPanel({
                 <div>
                   <strong>
                     <a href={`#acct-${observation.phone_account_pub_id}`}>
-                      {phoneLabels.get(observation.phone_account_pub_id) ?? observation.phone_masked}
+                      {phoneLabels.get(observation.phone_account_pub_id) ??
+                        observation.phone_masked}
                     </a>{' '}
                     · {PLATFORM_LABELS[observation.platform]}
                   </strong>

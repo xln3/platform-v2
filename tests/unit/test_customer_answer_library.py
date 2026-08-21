@@ -326,9 +326,9 @@ def test_latest_top_up_config_resolves_to_the_complete_34_group_campaign(
     assert result.totals.meta_query_count == 34
     assert result.totals.question_count == 136
     answer_params = next(
-            params
-            for sql, params in reversed(fake_connection.calls)
-            if "SELECT task.pub_id,NULL::text AS query_pub_id" in sql
+        params
+        for sql, params in reversed(fake_connection.calls)
+        if "SELECT task.pub_id,NULL::text AS query_pub_id" in sql
     )
     assert answer_params[7] == ["cfv_top_up", "cfv_complete_new", "cfv_complete_old"]
 
@@ -376,9 +376,9 @@ def test_explicit_catalog_keeps_the_complete_directory_after_many_micro_top_ups(
         None,
     )
     answer_params = next(
-            params
-            for sql, params in reversed(fake_connection.calls)
-            if "SELECT task.pub_id,NULL::text AS query_pub_id" in sql
+        params
+        for sql, params in reversed(fake_connection.calls)
+        if "SELECT task.pub_id,NULL::text AS query_pub_id" in sql
     )
     assert answer_params[7] == [
         "cfv_catalog",

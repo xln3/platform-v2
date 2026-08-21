@@ -131,9 +131,7 @@ def _seed_phone(session: _FakeSession, **over: Any) -> CollectionPhoneAccount:
     return row
 
 
-def _seed_platform(
-    session: _FakeSession, phone_id: int, **over: Any
-) -> CollectionPlatformAccount:
+def _seed_platform(session: _FakeSession, phone_id: int, **over: Any) -> CollectionPlatformAccount:
     fields: dict[str, Any] = {
         "pub_id": new_pub_id("ppa"),
         "phone_account_id": phone_id,
@@ -564,9 +562,7 @@ def test_patch_browser_bind_region_ip_mismatch_409(session: _FakeSession) -> Non
 
 def test_patch_unknown_account_404(session: _FakeSession) -> None:
     _bind(session)
-    resp = client.patch(
-        "/api/v2/collection-platform-accounts/ppa_missing", json={"quota_day": 1}
-    )
+    resp = client.patch("/api/v2/collection-platform-accounts/ppa_missing", json={"quota_day": 1})
     assert resp.status_code == 404
     assert resp.json()["error"]["code"] == "platform_account_not_found"
 
@@ -854,9 +850,7 @@ def test_regions_create_list_and_validation(session: _FakeSession) -> None:
     assert [row["region_gb"] for row in listed.json()] == ["110000"]
 
 
-def test_region_probe_endpoint(
-    session: _FakeSession, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_region_probe_endpoint(session: _FakeSession, monkeypatch: pytest.MonkeyPatch) -> None:
     _seed_region(session, region_gb="110000")
     calls: list[str] = []
 

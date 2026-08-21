@@ -7,9 +7,7 @@ def test_production_otp_paths_are_pinned_outside_release_snapshots() -> None:
     """Mutable OTP state and ignored APK binaries must survive immutable releases."""
     drop_in = (ROOT / "deploy/production/geo-platform-v2-otp-apk.conf").read_text(encoding="utf-8")
 
-    assert (
-        "GEO_OTP_INBOX_DIR=/home/xln/geo-system/platform-v2/runtime/otp_inbox" in drop_in
-    )
+    assert "GEO_OTP_INBOX_DIR=/home/xln/geo-system/platform-v2/runtime/otp_inbox" in drop_in
     assert (
         "GEO_OTP_REGISTRY_PATH="
         "/home/xln/geo-system/platform-v2/runtime/otp_registered_numbers.json" in drop_in
@@ -76,12 +74,8 @@ def test_operator_routes_are_separate_fail_closed_and_rate_limited() -> None:
 
 def test_public_ip_tls_is_publicly_trusted_and_automatically_renewed() -> None:
     server = (ROOT / "deploy/production/geo-platform-v2.conf").read_text(encoding="utf-8")
-    acme = (ROOT / "deploy/production/geo-platform-v2-acme-http.conf").read_text(
-        encoding="utf-8"
-    )
-    deploy_hook = (ROOT / "deploy/production/certbot-reload-nginx").read_text(
-        encoding="utf-8"
-    )
+    acme = (ROOT / "deploy/production/geo-platform-v2-acme-http.conf").read_text(encoding="utf-8")
+    deploy_hook = (ROOT / "deploy/production/certbot-reload-nginx").read_text(encoding="utf-8")
 
     assert "ssl_certificate     /etc/letsencrypt/live/39.105.175.14/fullchain.pem;" in server
     assert "ssl_certificate_key /etc/letsencrypt/live/39.105.175.14/privkey.pem;" in server

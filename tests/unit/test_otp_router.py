@@ -763,9 +763,7 @@ def test_register_persists_without_becoming_enumerable_in_setup_info(tmp_path: P
     assert entries[0]["remark"] == body["remark"]
     assert not any(p.name.endswith(".tmp") for p in (tmp_path / "reg").iterdir())
     # setup-info 不再下发整张注册表；刚提交的 remark 只存在本次 POST 响应。
-    setup = client.get(
-        "/api/v2/otp/setup-info", headers={"X-Operator-Token": "operator-secret"}
-    )
+    setup = client.get("/api/v2/otp/setup-info", headers={"X-Operator-Token": "operator-secret"})
     assert setup.status_code == 200
     assert "slot_remarks" not in setup.json()
     assert NEW_PHONE not in setup.text
@@ -805,9 +803,7 @@ def test_register_does_not_reintroduce_env_or_registry_listing(
         "GEO_OTP_SLOT_REMARKS", f"SIM1_中国移动_+86{NEW_PHONE}, SIM2_联通_+8613900002222"
     )
     _register({"phone": NEW_PHONE, "slot": "eSIM", "carrier": "中国电信"})
-    response = client.get(
-        "/api/v2/otp/setup-info", headers={"X-Operator-Token": "operator-secret"}
-    )
+    response = client.get("/api/v2/otp/setup-info", headers={"X-Operator-Token": "operator-secret"})
     assert response.status_code == 200
     assert "slot_remarks" not in response.json()
     assert NEW_PHONE not in response.text

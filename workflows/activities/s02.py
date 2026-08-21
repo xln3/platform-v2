@@ -63,9 +63,10 @@ def _resolve_answer_capture(payload: dict[str, Any]) -> dict[str, Any]:
     tenant_pub_id = str(payload.get("tenant_pub_id") or "")
     with WorkerSessionLocal() as session:
         TenantRepository(session, tenant_pub_id)
-        row = session.execute(
-            sql_text(
-                """
+        row = (
+            session.execute(
+                sql_text(
+                    """
                 SELECT task.pub_id,task.business_key,task.answer_text,
                        task.response_markdown_normalized,task.response_hash,
                        task.citations_json,task.search_queries_json,
@@ -75,9 +76,12 @@ def _resolve_answer_capture(payload: dict[str, Any]) -> dict[str, Any]:
                 JOIN platform.project project ON project.id=run.project_id
                 WHERE task.pub_id=:answer_pub_id AND task.state='completed'
                 """
-            ),
-            {"answer_pub_id": str(capture_ref["answer_pub_id"])},
-        ).mappings().one_or_none()
+                ),
+                {"answer_pub_id": str(capture_ref["answer_pub_id"])},
+            )
+            .mappings()
+            .one_or_none()
+        )
     if row is None:
         raise ApplicationError(
             "captured answer does not exist",
@@ -147,9 +151,7 @@ def _resolve_answer_capture(payload: dict[str, Any]) -> dict[str, Any]:
             type="answer_capture_structure_invalid",
             non_retryable=True,
         ) from exc
-    if not isinstance(citations, list) or not all(
-        isinstance(item, dict) for item in citations
-    ):
+    if not isinstance(citations, list) or not all(isinstance(item, dict) for item in citations):
         raise ApplicationError(
             "captured citations are invalid",
             type="answer_capture_structure_invalid",
