@@ -166,6 +166,8 @@ def plan_from_payload(
     queries: Sequence[TargetQuery],
     model: str,
     tool_sources: Sequence[dict[str, str]] = (),
+    include_selected_queries: bool = True,
+    include_opportunities: bool = True,
 ) -> QuotationPlan:
     """将 LLM JSON 回绑真实 source_id，并执行数量、分组、去重与措辞底线校验。"""
     profile = payload.get("profile")
@@ -177,7 +179,7 @@ def plan_from_payload(
         raise QuotationGenerationFailed("llm_query_collections_invalid")
 
     lookup = {query.query_id: query for query in queries}
-    quotas = selection_quotas(queries)
+    quotas = selection_quotas(queries) if include_selected_queries else {}
     expected_selected = sum(quotas.values())
     if len(raw_selected) != expected_selected:
         raise QuotationGenerationFailed("llm_selected_query_count_invalid")
@@ -209,7 +211,8 @@ def plan_from_payload(
     if dict(actual_quotas) != quotas:
         raise QuotationGenerationFailed("llm_selected_group_quota_invalid")
 
-    if len(raw_opportunities) != _OPPORTUNITY_COUNT:
+    expected_opportunities = _OPPORTUNITY_COUNT if include_opportunities else 0
+    if len(raw_opportunities) != expected_opportunities:
         raise QuotationGenerationFailed("llm_opportunity_count_invalid")
     opportunities: list[OpportunityVariants] = []
     input_keys = {normalize_text(query.text) for query in queries}
@@ -259,13 +262,19 @@ def plan_from_payload(
         raise QuotationGenerationFailed("llm_plan_invalid") from exc
 
 
-def _user_prompt(brand_name: str, queries: Sequence[TargetQuery]) -> str:
-    quotas = selection_quotas(queries)
+def _user_prompt(
+    brand_name: str,
+    queries: Sequence[TargetQuery],
+    *,
+    include_selected_queries: bool,
+    include_opportunities: bool,
+) -> str:
+    quotas = selection_quotas(queries) if include_selected_queries else {}
     payload = {
         "brand_name": brand_name,
         "selected_query_count": sum(quotas.values()),
         "selection_quota_by_group": quotas,
-        "opportunity_count": _OPPORTUNITY_COUNT,
+        "opportunity_count": _OPPORTUNITY_COUNT if include_opportunities else 0,
         "target_queries": [
             {"source_id": row.query_id, "group": row.group, "text": row.text} for row in queries
         ],
@@ -285,6 +294,8 @@ def generate_plan(
     config: research.LlmConfig,
     client: httpx.Client | None = None,
     runner: StructuredRunner | None = None,
+    include_selected_queries: bool = True,
+    include_opportunities: bool = True,
 ) -> QuotationPlan:
     """联网生成并校验动态内容；格式错误最多定向重试一次。"""
     if not config.api_key and client is None:
@@ -292,7 +303,12 @@ def generate_plan(
     if not queries:
         raise QuotationGenerationFailed("target_queries_empty")
     execute = runner or research._run_with_fallback
-    prompt = _user_prompt(brand_name, queries)
+    prompt = _user_prompt(
+        brand_name,
+        queries,
+        include_selected_queries=include_selected_queries,
+        include_opportunities=include_opportunities,
+    )
     validation_error = ""
     last_error: Exception | None = None
 
@@ -318,6 +334,8 @@ def generate_plan(
                 queries=queries,
                 model=config.model,
                 tool_sources=sources,
+                include_selected_queries=include_selected_queries,
+                include_opportunities=include_opportunities,
             )
         except QuotationGenerationFailed as exc:
             validation_error = str(exc)

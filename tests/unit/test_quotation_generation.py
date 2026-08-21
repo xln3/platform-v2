@@ -5,12 +5,14 @@ from __future__ import annotations
 from collections import Counter
 from datetime import date
 from io import BytesIO
+from xml.etree import ElementTree
 from xml.sax.saxutils import escape
 from zipfile import ZIP_DEFLATED, ZipFile
 
 import geo_platform.quotations.router as quotation_router
 import pytest
 from docx import Document
+from docx.oxml.ns import qn
 from fastapi.testclient import TestClient
 from geo_platform.config import Settings
 from geo_platform.identity.policy import Principal, Role, get_principal
@@ -20,9 +22,9 @@ from geo_platform.quotations.generator import (
     plan_from_payload,
     selection_quotas,
 )
-from geo_platform.quotations.models import TargetQuery
+from geo_platform.quotations.models import QuotationConfiguration, TargetQuery
 from geo_platform.quotations.renderer import render_quotation_docx
-from geo_platform.quotations.service import generate_quotation
+from geo_platform.quotations.service import QuotationInputInvalid, generate_quotation
 from geo_platform.quotations.xlsx import TargetWorkbookInvalid, parse_target_queries
 
 
@@ -76,6 +78,55 @@ def _queries() -> list[TargetQuery]:
             )
             index += 1
     return result
+
+
+def _configuration(
+    package_code: str = "geo_effect_assessment",
+    *,
+    priced: bool = True,
+    official_site_in_citations: bool | None = True,
+    artifact_kind: str = "complete",
+) -> QuotationConfiguration:
+    if package_code == "geo_effect_assessment":
+        rows = (
+            ("ranking_test", 1, 2_000_000),
+            ("outbound_disparagement_audit", 1, 800_000),
+            ("inbound_disparagement_audit", 1, 1_200_000),
+            ("official_site_audit", 1, 1_000_000),
+        )
+    else:
+        rows = (
+            ("ranking_test", 2, 2_000_000),
+            ("inbound_disparagement_audit", 1, 1_200_000),
+            *(
+                (("official_site_audit", 1, 1_000_000),)
+                if official_site_in_citations is not False
+                else ()
+            ),
+            ("content_publishing_pilot", 1, 3_000_000),
+        )
+    return QuotationConfiguration.model_validate(
+        {
+            "package_code": package_code,
+            "artifact_kind": artifact_kind,
+            "website_url": "https://www.webray.com.cn",
+            "official_site_in_citations": official_site_in_citations,
+            "official_site_citation_url": (
+                "https://www.webray.com.cn/cited-page"
+                if package_code == "minimum_validation" and official_site_in_citations is True
+                else ""
+            ),
+            "pricing_status": "priced" if priced else "pending",
+            "service_quotes": [
+                {
+                    "service_code": code,
+                    "quantity": quantity,
+                    "unit_price_cents": price if priced else None,
+                }
+                for code, quantity, price in rows
+            ],
+        }
+    )
 
 
 def _llm_payload(queries: list[TargetQuery]) -> dict[str, object]:
@@ -162,6 +213,23 @@ def test_xlsx_parser_rejects_non_xlsx_and_archive_traversal() -> None:
         parse_target_queries(_xlsx([{"A": "目标词"}, {"A": "测试问题"}], extra_name="../x"))
 
 
+def test_service_rejects_secret_in_workbook_group_before_llm() -> None:
+    workbook = _xlsx(
+        [
+            {"B": "产线"},
+            {"A": "序号", "B": "access_token=topsecret-关键问题"},
+            {"A": "1", "B": "正常测试问题"},
+        ]
+    )
+    with pytest.raises(QuotationInputInvalid, match="target_words_contain_secret"):
+        generate_quotation(
+            brand_name="盛邦安全",
+            configuration=_configuration(),
+            workbook_payload=workbook,
+            settings=Settings(),
+        )
+
+
 def test_selection_quota_matches_reference_balance() -> None:
     assert selection_quotas(_queries()) == {
         "网空线": 4,
@@ -170,6 +238,149 @@ def test_selection_quota_matches_reference_balance() -> None:
         "检测线": 3,
         "安服线": 3,
     }
+
+
+def test_package_pricing_keeps_service_one_baseline_and_retest_separate() -> None:
+    legacy_payload = _configuration().model_dump(mode="json")
+    legacy_payload.pop("artifact_kind")
+    assert QuotationConfiguration.model_validate(legacy_payload).artifact_kind == "complete"
+
+    minimum = _configuration("minimum_validation")
+    assert minimum.service_codes == (
+        "ranking_test",
+        "inbound_disparagement_audit",
+        "official_site_audit",
+        "content_publishing_pilot",
+    )
+    assert minimum.service_quotes[0].quantity == 2
+    assert minimum.service_quotes[0].subtotal_cents == 4_000_000
+    assert minimum.total_price_cents == 9_200_000
+    assert minimum.maximum_total_price_cents == 9_200_000
+
+    conditional = _configuration(
+        "minimum_validation",
+        official_site_in_citations=None,
+    )
+    assert "official_site_audit" in conditional.service_codes
+    assert conditional.total_price_cents == 8_200_000
+    assert conditional.maximum_total_price_cents == 9_200_000
+    conditional_document = Document(
+        BytesIO(
+            render_quotation_docx(
+                brand_name="盛邦安全",
+                quote_date=date(2026, 8, 20),
+                configuration=conditional,
+                plan=None,
+            )
+        )
+    )
+    conditional_text = "\n".join(
+        [*(paragraph.text for paragraph in conditional_document.paragraphs)]
+        + [
+            cell.text
+            for table in conditional_document.tables
+            for row in table.rows
+            for cell in row.cells
+        ]
+    )
+    assert "基础服务费合计（不含条件项）" in conditional_text
+    assert "已确认服务费合计" not in conditional_text
+    rendered = Document(
+        BytesIO(
+            render_quotation_docx(
+                brand_name="盛邦安全",
+                quote_date=date(2026, 8, 20),
+                configuration=conditional,
+                plan=None,
+            )
+        )
+    )
+    rendered_text = "\n".join(
+        [*(paragraph.text for paragraph in rendered.paragraphs)]
+        + [cell.text for table in rendered.tables for row in table.rows for cell in row.cells]
+    )
+    assert "触发后 ￥10,000.00" in rendered_text
+    assert "基础服务费合计（不含条件项）" in rendered_text
+    assert "￥82,000.00" in rendered_text
+    assert "官网命中后最高服务费" in rendered_text
+    assert "￥92,000.00" in rendered_text
+
+    without_site = _configuration(
+        "minimum_validation",
+        official_site_in_citations=False,
+    )
+    assert "official_site_audit" not in without_site.service_codes
+    assert without_site.total_price_cents == 8_200_000
+    assert without_site.maximum_total_price_cents == 8_200_000
+
+
+def test_package_rejects_browser_supplied_service_shape_or_missing_website() -> None:
+    payload = _configuration().model_dump(mode="json")
+    payload["service_quotes"] = payload["service_quotes"][:-1]
+    with pytest.raises(ValueError, match="package_service_quantities_invalid"):
+        QuotationConfiguration.model_validate(payload)
+
+    payload = _configuration().model_dump(mode="json")
+    payload["website_url"] = ""
+    with pytest.raises(ValueError, match="official_website_required"):
+        QuotationConfiguration.model_validate(payload)
+
+    payload = _configuration("minimum_validation").model_dump(mode="json")
+    payload["official_site_citation_url"] = "https://not-webray.example/evidence"
+    with pytest.raises(ValueError, match="official_site_citation_evidence_required"):
+        QuotationConfiguration.model_validate(payload)
+
+    payload = {
+        "package_code": "custom",
+        "service_quotes": [
+            {
+                "service_code": "content_publishing_pilot",
+                "quantity": 1,
+                "unit_price_cents": 3_000_000,
+            }
+        ],
+    }
+    with pytest.raises(ValueError, match="publishing_requires_two_ranking_rounds"):
+        QuotationConfiguration.model_validate(payload)
+
+    payload = {
+        "package_code": "custom",
+        "official_site_in_citations": True,
+        "official_site_citation_url": "https://www.webray.com.cn/cited-page",
+        "service_quotes": [
+            {
+                "service_code": "ranking_test",
+                "quantity": 1,
+                "unit_price_cents": 2_000_000,
+            }
+        ],
+    }
+    with pytest.raises(ValueError, match="official_site_citation_evidence_not_applicable"):
+        QuotationConfiguration.model_validate(payload)
+
+
+def test_custom_two_round_ranking_without_publishing_keeps_quantity_in_sequence() -> None:
+    configuration = QuotationConfiguration.model_validate(
+        {
+            "package_code": "custom",
+            "service_quotes": [
+                {
+                    "service_code": "ranking_test",
+                    "quantity": 2,
+                    "unit_price_cents": 2_000_000,
+                }
+            ],
+        }
+    )
+    payload = render_quotation_docx(
+        brand_name="盛邦安全",
+        quote_date=date(2026, 8, 20),
+        configuration=configuration,
+        plan=None,
+    )
+    document = Document(BytesIO(payload))
+    body_text = "\n".join(paragraph.text for paragraph in document.paragraphs)
+    assert "执行顺序：1 测试（2轮）" in body_text
 
 
 def test_llm_payload_is_bound_back_to_uploaded_source_and_group_quota() -> None:
@@ -200,10 +411,20 @@ def test_renderer_keeps_reference_layout_and_honest_measurement_wording() -> Non
     payload = render_quotation_docx(
         brand_name="盛邦安全",
         quote_date=date(2026, 8, 10),
+        configuration=_configuration(),
+        plan=plan,
+    )
+    assert payload == render_quotation_docx(
+        brand_name="盛邦安全",
+        quote_date=date(2026, 8, 10),
+        configuration=_configuration(),
         plan=plan,
     )
     assert payload.startswith(b"PK")
     document = Document(BytesIO(payload))
+    assert document.core_properties.created is not None
+    assert document.core_properties.created.date() == date(2026, 8, 10)
+    assert document.core_properties.created.hour == 0
     assert len(document.sections) == 1
     section = document.sections[0]
     assert section.page_width is not None
@@ -214,34 +435,37 @@ def test_renderer_keeps_reference_layout_and_honest_measurement_wording() -> Non
     assert round(section.page_height.mm) == 297
     assert round(section.left_margin.mm) == 15
     assert round(section.top_margin.mm) == 18
-    assert len(document.tables) == 2
+    assert len(document.tables) == 1
     assert len(document.tables[0].rows) == 6
-    assert len(document.tables[0].columns) == 4
+    assert len(document.tables[0].columns) == 6
     body_text = "\n".join(paragraph.text for paragraph in document.paragraphs)
     assert "盛邦安全" in body_text
-    assert "附录一 Query优化方案说明" in body_text
-    assert "附录二 原推广Query与变体构建说明" in body_text
-    assert "附录三 新增Query优化与语义变体全表" in body_text
+    assert "附录一 服务输入、执行与交付说明" in body_text
+    assert "附录二 原推广 Query 与变体构建说明" in body_text
+    assert "新增 Query 优化与语义变体全表" not in body_text
     table_text = "\n".join(
         cell.text for table in document.tables for row in table.rows for cell in row.cells
     )
-    assert "待实测" in table_text
+    assert "￥20,000.00" in table_text
+    assert "￥50,000.00" in table_text
     assert "厂商推荐15次" not in body_text
     document_text = f"{body_text}\n{table_text}"
-    assert "己方GEO内容" not in document_text
-    assert "AI回答所列第三方信源页面" in document_text
+    assert "主动拉踩内容核查" in document_text
+    assert "被拉踩内容核查" in document_text
+    assert "API 与豆包 App" in document_text
     with ZipFile(BytesIO(payload)) as archive:
         header = archive.read("word/header1.xml").decode()
         footer = archive.read("word/footer1.xml").decode()
         document_xml = archive.read("word/document.xml").decode()
     assert "本报价为保密商业资料" in header
     assert " PAGE " in footer
-    assert document_xml.count('w:type="page"') >= 3
+    assert document_xml.count('w:type="page"') >= 2
 
 
 def test_service_runs_one_pipeline_and_returns_integrity_metadata() -> None:
     queries = _queries()
     llm_payload = _llm_payload(queries)
+    llm_payload["opportunities"] = []
     calls: list[dict[str, object]] = []
 
     def runner(
@@ -252,18 +476,161 @@ def test_service_runs_one_pipeline_and_returns_integrity_metadata() -> None:
 
     result = generate_quotation(
         brand_name="盛邦安全",
+        configuration=_configuration(),
         workbook_payload=_workbook_for_queries(queries),
         settings=Settings(research_llm_api_key="unit-test-key"),
         quote_date=date(2026, 8, 10),
         runner=runner,
     )
     assert len(calls) == 1
-    assert result.metadata.filename == "报价单-盛邦安全-20260810.docx"
+    assert result.metadata.filename == "报价单-盛邦安全-GEO效果评测-20260810.docx"
+    assert result.metadata.artifact_kind == "complete"
+    assert result.metadata.total_price_cents == 5_000_000
+    assert result.metadata.maximum_total_price_cents == 5_000_000
+    assert result.metadata.service_count == 4
     assert result.metadata.target_query_count == 20
     assert result.metadata.selected_query_count == 18
-    assert result.metadata.opportunity_count == 16
+    assert result.metadata.opportunity_count == 0
     assert len(result.metadata.sha256) == 64
     assert result.payload.startswith(b"PK")
+
+
+def test_quote_table_artifact_skips_llm_and_excludes_all_appendices() -> None:
+    def runner(
+        *_: object, **__: object
+    ) -> tuple[dict[str, object], list[dict[str, str]], dict[str, int]]:
+        raise AssertionError("quote_table_must_not_call_llm")
+
+    result = generate_quotation(
+        brand_name="盛邦安全",
+        configuration=_configuration(artifact_kind="quote_table"),
+        workbook_payload=_workbook_for_queries(_queries()),
+        settings=Settings(),
+        quote_date=date(2026, 8, 20),
+        runner=runner,
+    )
+    assert result.plan is None
+    assert result.metadata.artifact_kind == "quote_table"
+    assert result.metadata.filename == "报价单-盛邦安全-GEO效果评测-报价单表格-20260820.docx"
+    assert result.metadata.target_query_count == 20
+    assert result.metadata.query_appendix_included is False
+    document = Document(BytesIO(result.payload))
+    assert document.core_properties.title == "盛邦安全 已开展 GEO · 效果评测报价单表格"
+    assert document.core_properties.subject == "GEO 服务报价单表格"
+    text = "\n".join(paragraph.text for paragraph in document.paragraphs)
+    assert len(document.tables) == 1
+    assert "GEO 服务报价单" in text
+    assert "附录一 服务输入、执行与交付说明" not in text
+    assert "原推广 Query 与变体构建说明" not in text
+
+
+def test_query_appendix_artifact_contains_only_query_sections() -> None:
+    llm_payload = _llm_payload(_queries())
+    llm_payload["opportunities"] = []
+
+    def runner(
+        *_: object, **__: object
+    ) -> tuple[dict[str, object], list[dict[str, str]], dict[str, int]]:
+        return llm_payload, [], {"input_tokens": 10, "output_tokens": 20}
+
+    result = generate_quotation(
+        brand_name="盛邦安全",
+        configuration=_configuration(artifact_kind="query_appendix"),
+        workbook_payload=_workbook_for_queries(_queries()),
+        settings=Settings(research_llm_api_key="unit-test-key"),
+        quote_date=date(2026, 8, 20),
+        runner=runner,
+    )
+    assert result.plan is not None
+    assert result.metadata.artifact_kind == "query_appendix"
+    assert result.metadata.filename == "报价单-盛邦安全-GEO效果评测-查询附件-20260820.docx"
+    assert result.metadata.query_appendix_included is True
+    document = Document(BytesIO(result.payload))
+    assert document.core_properties.title == "盛邦安全 已开展 GEO · 效果评测查询附件"
+    assert document.core_properties.subject == "GEO 查询附件"
+    text = "\n".join(paragraph.text for paragraph in document.paragraphs)
+    assert len(document.tables) == 0
+    assert "盛邦安全 GEO 查询附件" in text
+    assert "报价日期：2026-08-20" in text
+    assert "附录一 原推广 Query 与变体构建说明" in text
+    assert "GEO 服务报价单" not in text
+    assert "服务输入、执行与交付说明" not in text
+    with ZipFile(BytesIO(result.payload)) as archive:
+        document_xml = archive.read("word/document.xml").decode()
+    assert document_xml.count('w:type="page"') == 0
+    root = ElementTree.fromstring(document_xml)
+    variant_paragraphs = []
+    for paragraph in root.iter(qn("w:p")):
+        paragraph_text = "".join(node.text or "" for node in paragraph.iter(qn("w:t")))
+        if paragraph_text.startswith(("A  ", "B  ")):
+            variant_paragraphs.append(paragraph)
+    assert len(variant_paragraphs) == 36
+    assert all(
+        paragraph.find(f"{qn('w:pPr')}/{qn('w:keepNext')}") is not None
+        for paragraph in variant_paragraphs
+    )
+
+
+def test_query_appendix_artifact_fails_closed_without_source_or_query_service() -> None:
+    with pytest.raises(QuotationInputInvalid, match="query_appendix_workbook_required"):
+        generate_quotation(
+            brand_name="盛邦安全",
+            configuration=_configuration(artifact_kind="query_appendix"),
+            workbook_payload=None,
+            settings=Settings(),
+        )
+
+    configuration = QuotationConfiguration.model_validate(
+        {
+            "package_code": "custom",
+            "artifact_kind": "query_appendix",
+            "service_quotes": [
+                {
+                    "service_code": "inbound_disparagement_audit",
+                    "quantity": 1,
+                    "unit_price_cents": 1_200_000,
+                }
+            ],
+        }
+    )
+    with pytest.raises(QuotationInputInvalid, match="query_appendix_service_required"):
+        generate_quotation(
+            brand_name="盛邦安全",
+            configuration=configuration,
+            workbook_payload=_workbook_for_queries(_queries()),
+            settings=Settings(),
+        )
+    with pytest.raises(ValueError, match="query_appendix_plan_required"):
+        render_quotation_docx(
+            brand_name="盛邦安全",
+            quote_date=date(2026, 8, 20),
+            configuration=_configuration(artifact_kind="query_appendix"),
+            plan=None,
+        )
+
+
+def test_service_generates_priced_business_quote_without_xlsx_or_llm() -> None:
+    result = generate_quotation(
+        brand_name="盛邦安全",
+        configuration=_configuration("minimum_validation"),
+        workbook_payload=None,
+        settings=Settings(),
+        quote_date=date(2026, 8, 20),
+    )
+    assert result.plan is None
+    assert result.metadata.query_appendix_included is False
+    assert result.metadata.target_query_count == 0
+    assert result.metadata.selected_query_count == 0
+    assert result.metadata.opportunity_count == 0
+    assert result.metadata.total_price_cents == 9_200_000
+    document = Document(BytesIO(result.payload))
+    text = "\n".join(
+        [*(paragraph.text for paragraph in document.paragraphs)]
+        + [cell.text for table in document.tables for row in table.rows for cell in row.cells]
+    )
+    assert "1 测试（基线） → 3 找被拉踩帖 → 4 官网分析 → 5 发帖提排名 → 1 测试（复测）" in text
+    assert "￥92,000.00" in text
+    assert "具体 Query 及语义变体将由我方提出候选，客户可补充并最终确认后冻结" in text
 
 
 def test_generate_api_returns_named_no_store_docx(
@@ -271,6 +638,7 @@ def test_generate_api_returns_named_no_store_docx(
 ) -> None:
     queries = _queries()
     llm_payload = _llm_payload(queries)
+    llm_payload["opportunities"] = []
 
     def runner(
         *args: object, **kwargs: object
@@ -279,6 +647,7 @@ def test_generate_api_returns_named_no_store_docx(
 
     generated = generate_quotation(
         brand_name="盛邦安全",
+        configuration=_configuration(),
         workbook_payload=_workbook_for_queries(queries),
         settings=Settings(research_llm_api_key="unit-test-key"),
         quote_date=date(2026, 8, 10),
@@ -295,7 +664,12 @@ def test_generate_api_returns_named_no_store_docx(
         with TestClient(app) as client:
             response = client.post(
                 "/api/v2/quotations/generate",
-                data={"brand_name": "盛邦安全", "quote_date": "2026-08-10"},
+                headers={"Origin": "http://127.0.0.1:45101"},
+                data={
+                    "brand_name": "盛邦安全",
+                    "quote_date": "2026-08-10",
+                    "quotation_config": _configuration().model_dump_json(),
+                },
                 files={
                     "target_words": (
                         "目标词.xlsx",
@@ -314,4 +688,21 @@ def test_generate_api_returns_named_no_store_docx(
     )
     assert response.headers["cache-control"] == "no-store"
     assert response.headers["x-quotation-target-query-count"] == "20"
+    assert response.headers["x-quotation-package-code"] == "geo_effect_assessment"
+    assert response.headers["x-quotation-artifact-kind"] == "complete"
+    assert response.headers["x-quotation-service-count"] == "4"
+    assert response.headers["x-quotation-total-cents"] == "5000000"
+    assert response.headers["x-quotation-maximum-total-cents"] == "5000000"
+    assert response.headers["x-quotation-query-appendix"] == "included"
     assert "UTF-8''" in response.headers["content-disposition"]
+    exposed = {
+        value.strip().lower()
+        for value in response.headers["access-control-expose-headers"].split(",")
+    }
+    assert {
+        "content-disposition",
+        "x-quotation-artifact-kind",
+        "x-quotation-total-cents",
+        "x-quotation-maximum-total-cents",
+        "x-quotation-sha256",
+    } <= exposed

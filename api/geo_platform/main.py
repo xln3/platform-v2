@@ -69,6 +69,20 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=[
+        "Content-Disposition",
+        "X-Quotation-Target-Query-Count",
+        "X-Quotation-Selected-Query-Count",
+        "X-Quotation-Opportunity-Count",
+        "X-Quotation-Package-Code",
+        "X-Quotation-Artifact-Kind",
+        "X-Quotation-Service-Count",
+        "X-Quotation-Pricing-Status",
+        "X-Quotation-Total-Cents",
+        "X-Quotation-Maximum-Total-Cents",
+        "X-Quotation-Query-Appendix",
+        "X-Quotation-SHA256",
+    ],
 )
 instrument_app(app, settings)
 

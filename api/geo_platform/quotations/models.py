@@ -10,8 +10,13 @@ import re
 import unicodedata
 from datetime import date
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from .catalog import PACKAGE_BY_CODE, PackageCode, ServiceCode, ordered_service_codes
+
+QuotationArtifactKind = Literal["quote_table", "query_appendix", "complete"]
 
 
 def normalize_text(value: str) -> str:
@@ -115,6 +120,130 @@ class SourceReference(StrictModel):
         return _one_line(str(value or ""))
 
 
+class QuotedService(StrictModel):
+    """报价单中的一项原子服务及本次客户价格。"""
+
+    service_code: ServiceCode
+    quantity: int = Field(default=1, ge=1, le=99)
+    unit_price_cents: int | None = Field(default=None, ge=0, le=999_999_999_999)
+
+    @property
+    def subtotal_cents(self) -> int | None:
+        if self.unit_price_cents is None:
+            return None
+        return self.unit_price_cents * self.quantity
+
+
+class QuotationConfiguration(StrictModel):
+    """套餐、服务选项和商务价格。
+
+    套餐只约束默认服务组合。价格始终保存在服务行上，总价永远由服务行计算，不接受调用方
+    直接传入，避免明细与合计不一致。
+    """
+
+    package_code: PackageCode
+    artifact_kind: QuotationArtifactKind = "complete"
+    website_url: str = Field(default="", max_length=2_000)
+    service_quotes: tuple[QuotedService, ...] = Field(min_length=1, max_length=5)
+    commercial_note: str = Field(default="", max_length=500)
+    pricing_status: Literal["priced", "pending"] = "priced"
+    official_site_in_citations: bool | None = None
+    official_site_citation_url: str = Field(default="", max_length=2_000)
+
+    @field_validator(
+        "website_url",
+        "official_site_citation_url",
+        "commercial_note",
+        mode="before",
+    )
+    @classmethod
+    def clean_optional_text(cls, value: object) -> str:
+        return _one_line(str(value or ""))
+
+    @model_validator(mode="after")
+    def validate_service_relationships(self) -> QuotationConfiguration:
+        codes = [line.service_code for line in self.service_quotes]
+        if len(codes) != len(set(codes)):
+            raise ValueError("service_codes_must_be_unique")
+        package = PACKAGE_BY_CODE[self.package_code]
+        expected_quantities = dict(package.service_quantities)
+        if self.package_code == "minimum_validation" and self.official_site_in_citations is False:
+            expected_quantities.pop("official_site_audit", None)
+        actual_quantities = {line.service_code: line.quantity for line in self.service_quotes}
+        if self.package_code != "custom" and actual_quantities != expected_quantities:
+            raise ValueError("package_service_quantities_invalid")
+        if self.package_code == "custom" and "content_publishing_pilot" in codes:
+            if actual_quantities.get("ranking_test") != 2:
+                raise ValueError("publishing_requires_two_ranking_rounds")
+        if tuple(codes) != ordered_service_codes(set(codes)):
+            raise ValueError("service_codes_must_follow_catalog_order")
+        if "official_site_audit" in codes:
+            parsed = urlsplit(self.website_url)
+            if (
+                parsed.scheme not in {"http", "https"}
+                or not parsed.hostname
+                or parsed.username is not None
+                or parsed.password is not None
+            ):
+                raise ValueError("official_website_required")
+        if self.package_code != "minimum_validation" and self.official_site_citation_url:
+            raise ValueError("official_site_citation_evidence_not_applicable")
+        if self.package_code == "minimum_validation":
+            if self.official_site_in_citations is True:
+                website_host = (urlsplit(self.website_url).hostname or "").rstrip(".").casefold()
+                evidence = urlsplit(self.official_site_citation_url)
+                evidence_host = (evidence.hostname or "").rstrip(".").casefold()
+                if (
+                    evidence.scheme not in {"http", "https"}
+                    or not evidence_host
+                    or evidence.username is not None
+                    or evidence.password is not None
+                    or not (
+                        evidence_host == website_host or evidence_host.endswith("." + website_host)
+                    )
+                ):
+                    raise ValueError("official_site_citation_evidence_required")
+            elif self.official_site_citation_url:
+                raise ValueError("official_site_citation_evidence_not_applicable")
+        if self.pricing_status == "priced" and any(
+            line.unit_price_cents is None for line in self.service_quotes
+        ):
+            raise ValueError("selected_service_price_required")
+        if self.pricing_status == "pending" and any(
+            line.unit_price_cents is not None for line in self.service_quotes
+        ):
+            raise ValueError("pending_service_prices_must_be_empty")
+        total = self.maximum_total_price_cents
+        if total is not None and total > 4_999_999_999_995:
+            raise ValueError("quotation_total_too_large")
+        return self
+
+    @property
+    def service_codes(self) -> tuple[ServiceCode, ...]:
+        return tuple(line.service_code for line in self.service_quotes)
+
+    @property
+    def total_price_cents(self) -> int | None:
+        if any(line.subtotal_cents is None for line in self.service_quotes):
+            return None
+        return sum(
+            line.subtotal_cents or 0
+            for line in self.service_quotes
+            if not (
+                self.package_code == "minimum_validation"
+                and self.official_site_in_citations is None
+                and line.service_code == "official_site_audit"
+            )
+        )
+
+    @property
+    def maximum_total_price_cents(self) -> int | None:
+        """所有已报价服务都触发时的上限；只有官网条件待定时可能高于基础总价。"""
+        if any(line.subtotal_cents is None for line in self.service_quotes):
+            return None
+        return sum(line.subtotal_cents or 0 for line in self.service_quotes)
+
+
 class QuotationPlan(StrictModel):
     """经校验后交给确定性 DOCX renderer 的动态内容。"""
 
@@ -160,8 +289,15 @@ class QuotationDocument(StrictModel):
     brand_name: str = Field(min_length=2, max_length=80)
     quote_date: date
     filename: str = Field(min_length=6, max_length=180)
-    target_query_count: int = Field(ge=1, le=300)
-    selected_query_count: int = Field(ge=1, le=18)
-    opportunity_count: int = Field(ge=1, le=16)
+    package_code: PackageCode
+    artifact_kind: QuotationArtifactKind
+    service_count: int = Field(ge=1, le=5)
+    pricing_status: Literal["priced", "pending"]
+    total_price_cents: int | None = Field(default=None, ge=0, le=4_999_999_999_995)
+    maximum_total_price_cents: int | None = Field(default=None, ge=0, le=4_999_999_999_995)
+    target_query_count: int = Field(ge=0, le=300)
+    selected_query_count: int = Field(ge=0, le=18)
+    opportunity_count: int = Field(ge=0, le=16)
+    query_appendix_included: bool
     model: str = Field(min_length=1, max_length=120)
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")

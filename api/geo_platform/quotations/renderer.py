@@ -8,9 +8,10 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from collections.abc import Iterable, Sequence
-from datetime import date
+from datetime import date, datetime, time
 from io import BytesIO
 from typing import Literal, cast
+from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 from docx import Document
 from docx.document import Document as DocumentObject
@@ -23,7 +24,13 @@ from docx.table import Table, _Cell, _Row
 from docx.text.paragraph import Paragraph
 from docx.text.run import Run
 
-from .models import ExistingQueryVariants, OpportunityVariants, QuotationPlan
+from .catalog import PACKAGE_BY_CODE, SERVICE_BY_CODE
+from .models import (
+    ExistingQueryVariants,
+    OpportunityVariants,
+    QuotationConfiguration,
+    QuotationPlan,
+)
 
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 ISSUER_COMPANY = "北京硅基守望科技有限公司"
@@ -41,80 +48,12 @@ _SEC_LABELS = {
     "mixed": "复合决策型产品或服务",
 }
 
-_SERVICE_ROWS: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = (
-    (
-        "品牌GEO推荐结果评测",
-        (
-            (
-                "lead",
-                "围绕品牌核心业务场景，全面评估品牌在AI回答中的认知覆盖状况，"
-                "输出品牌AI可见性总体评测报告。",
-            ),
-            ("subhead", "1）评测流程说明："),
-            (
-                "bullet",
-                "·核心业务查询设计：选3个业务问题，每个问题扩展3组语义变体问题"
-                "（具体扩展说明见附录一、扩展后问题见附录二）",
-            ),
-            ("bullet", "·覆盖3个主流AI平台：豆包、DeepSeek、文心一言"),
-            ("bullet", "·2个地域账号独立采样：北京、上海"),
-            ("bullet", "·每个问题重复2次取统计结果"),
-            ("subhead", "2）评测指标说明："),
-            ("bullet", "·品牌提及率：品牌在 AI 回答中被主动提及的比例"),
-            ("bullet", "·推荐排名分布：品牌在 AI 推荐结果中的排名位置分布"),
-            ("bullet", "·Top1/Top3/Top5出现率：品牌进入核心推荐区域的比例"),
-            ("bullet", "·竞品对比：品牌与主要竞品在AI推荐结果中的表现差异"),
-        ),
-    ),
-    (
-        "品牌GEO内容生态风险核查",
-        (
-            (
-                "lead",
-                "检测第三方GEO内容中的风险，通过识别竞品比较信息、推荐内容、来源链接等"
-                "发掘潜在涉及“抹黑、拉踩”的推广内容。",
-            ),
-            ("subhead", "1）风险内容说明："),
-            ("bullet", "· AI回答中涉及品牌、产品及竞品的负向比较与疑似“抹黑、拉踩”表述"),
-            ("bullet", "· AI回答所列第三方信源页面中涉及己方品牌与产品的风险内容"),
-            ("bullet", "· 逐条事实核查与交付证据链"),
-        ),
-    ),
-    (
-        "官网内容AI引用能效评估",
-        (
-            (
-                "lead",
-                "评估品牌官网作为AI信源的能效：分析AI检索到的官网内容是否被AI引用，"
-                "定位影响品牌AI可见性的官网内容问题，并输出优化建议。",
-            ),
-            ("subhead", "1）测试说明："),
-            ("bullet", "·官网引用率：AI回答引用官网URL作为信源的比例"),
-            ("bullet", "·内容采纳率：官网内容被AI理解并用于生成回答的比例"),
-        ),
-    ),
-    (
-        "GEO试点与效果验证",
-        (
-            (
-                "lead",
-                "通过外部信息源建设与内容优化，提升品牌在AI搜索中的提及、引用和推荐表现，"
-                "输出GEO优化试点方案及优化前后效果对比报告。",
-            ),
-            ("subhead", "1）测试说明："),
-            (
-                "bullet",
-                "·GEO试点验证查询设计：3个业务问题，每个问题扩展3组语义变体"
-                "（具体扩展说明见附录一、扩展后问题见附录三）",
-            ),
-            (
-                "bullet",
-                "·采用与服务项目1中品牌AI认知评测一致的评测方式，对优化前后 AI 品牌认知"
-                "指标进行对比分析，验证GEO优化效果",
-            ),
-        ),
-    ),
-)
+_CHINESE_NUMERALS = {1: "一", 2: "二", 3: "三", 4: "四", 5: "五"}
+
+
+def _appendix_number(value: int) -> str:
+    return _CHINESE_NUMERALS.get(value, str(value))
+
 
 _TERMS = (
     "1. 本报价有效期为30个工作日，生效日期以报价日期为准。贵单位确认后，我司将以"
@@ -130,6 +69,27 @@ _TERMS = (
     "摘抄。如因贵方泄密造成我方损失，我方有权取消本次报价效力并追究相关责任。"
     "本保密义务在报价失效后仍然持续有效。",
 )
+
+
+def _stable_docx_bytes(payload: bytes) -> bytes:
+    """Normalize OOXML ZIP metadata so equal inputs produce equal document bytes and SHA-256."""
+    output = BytesIO()
+    with (
+        ZipFile(BytesIO(payload)) as source,
+        ZipFile(
+            output,
+            mode="w",
+            compression=ZIP_DEFLATED,
+            compresslevel=9,
+        ) as target,
+    ):
+        for name in sorted(source.namelist()):
+            info = ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = ZIP_DEFLATED
+            info.create_system = 0
+            info.external_attr = 0o600 << 16
+            target.writestr(info, source.read(name))
+    return output.getvalue()
 
 
 def _set_east_asia_font(run: Run, name: str = _FONT) -> None:
@@ -297,18 +257,32 @@ def _prepare_cell(cell: _Cell, *, vertical_center: bool = True) -> None:
     _set_cell_margins(cell)
 
 
-def _add_service_table(document: DocumentObject) -> None:
-    table = document.add_table(rows=6, cols=4)
+def _format_price(cents: int | None) -> str:
+    if cents is None:
+        return "待确认"
+    return f"￥{cents / 100:,.2f}"
+
+
+def _add_service_table(document: DocumentObject, configuration: QuotationConfiguration) -> None:
+    has_pending_site_condition = (
+        configuration.package_code == "minimum_validation"
+        and configuration.official_site_in_citations is None
+        and "official_site_audit" in configuration.service_codes
+    )
+    table = document.add_table(
+        rows=len(configuration.service_quotes) + (3 if has_pending_site_condition else 2),
+        cols=6,
+    )
     table.style = "Table Grid"
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
-    _set_column_widths(table, (12.3, 21.6, 128.3, 17.8))
+    _set_column_widths(table, (10, 35, 67, 24, 14, 30))
 
     for row in table.rows:
         _cant_split(row)
         for cell in row.cells:
             _prepare_cell(cell)
 
-    headers = ("序号", "服务项目", "服务内容", "价格")
+    headers = ("编号", "服务项目", "服务范围", "单价", "数量", "小计")
     _repeat_table_header(table.rows[0])
     for cell, text in zip(table.rows[0].cells, headers, strict=True):
         _shade_cell(cell, "F0F0F0")
@@ -321,11 +295,13 @@ def _add_service_table(document: DocumentObject) -> None:
             line=1.15,
         )
 
-    for index, (service_name, content) in enumerate(_SERVICE_ROWS, start=1):
-        row = table.rows[index]
+    for row_index, quote in enumerate(configuration.service_quotes, start=1):
+        service = SERVICE_BY_CODE[quote.service_code]
+        is_conditional = has_pending_site_condition and quote.service_code == "official_site_audit"
+        row = table.rows[row_index]
         _cell_paragraph(
             row.cells[0],
-            str(index),
+            str(service.number),
             size=10.5,
             bold=True,
             align=WD_ALIGN_PARAGRAPH.CENTER,
@@ -333,28 +309,73 @@ def _add_service_table(document: DocumentObject) -> None:
         )
         _cell_paragraph(
             row.cells[1],
-            service_name,
-            size=10.5,
+            f"{service.short_name}\n{service.name}",
+            size=9.0,
+            bold=True,
+            align=WD_ALIGN_PARAGRAPH.CENTER,
+            line=1.1,
+        )
+        content_cell = row.cells[2]
+        content_cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
+        # 首页只呈现用于决策的服务摘要；完整执行范围统一放在附录一，避免报价表被长文撑散。
+        _cell_paragraph(content_cell, service.summary, size=8.5, line=1.1)
+        _cell_paragraph(
+            row.cells[3],
+            _format_price(quote.unit_price_cents),
+            size=9.0,
+            align=WD_ALIGN_PARAGRAPH.CENTER,
+            line=1.1,
+        )
+        _cell_paragraph(
+            row.cells[4],
+            f"{quote.quantity}{service.unit}" + ("\n条件" if is_conditional else ""),
+            size=9.0,
+            align=WD_ALIGN_PARAGRAPH.CENTER,
+            line=1.1,
+        )
+        _cell_paragraph(
+            row.cells[5],
+            (
+                "触发后 " + _format_price(quote.subtotal_cents)
+                if is_conditional
+                else _format_price(quote.subtotal_cents)
+            ),
+            size=9.0,
+            bold=True,
+            align=WD_ALIGN_PARAGRAPH.CENTER,
+            line=1.1,
+        )
+
+    total = table.rows[-2] if has_pending_site_condition else table.rows[-1]
+    _cell_paragraph(
+        total.cells[2],
+        "基础服务费合计（不含条件项）" if has_pending_site_condition else "服务费合计",
+        size=10.5,
+        bold=True,
+        align=WD_ALIGN_PARAGRAPH.RIGHT,
+        line=1.15,
+    )
+    if has_pending_site_condition:
+        maximum = table.rows[-1]
+        _cell_paragraph(
+            maximum.cells[2],
+            "官网命中后最高服务费",
+            size=10.0,
+            bold=True,
+            align=WD_ALIGN_PARAGRAPH.RIGHT,
+            line=1.15,
+        )
+        _cell_paragraph(
+            maximum.cells[5],
+            _format_price(configuration.maximum_total_price_cents),
+            size=10.0,
             bold=True,
             align=WD_ALIGN_PARAGRAPH.CENTER,
             line=1.15,
         )
-        content_cell = row.cells[2]
-        content_cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
-        for kind, text in content:
-            _cell_paragraph(
-                content_cell,
-                text,
-                size=10.5,
-                bold=kind == "lead",
-                underline=kind == "subhead",
-                line=1.15,
-            )
-
-    total = table.rows[5]
     _cell_paragraph(
-        total.cells[1],
-        "合计",
+        total.cells[5],
+        _format_price(configuration.total_price_cents),
         size=10.5,
         bold=True,
         align=WD_ALIGN_PARAGRAPH.CENTER,
@@ -444,11 +465,62 @@ def _format_date(value: date) -> str:
     return f"{value.year}年{value.month}月{value.day}日"
 
 
-def _add_cover(document: DocumentObject, brand_name: str, quote_date: date) -> None:
+def _execution_sequence(configuration: QuotationConfiguration) -> str:
+    package = PACKAGE_BY_CODE[configuration.package_code]
+    selected = frozenset(configuration.service_codes)
+    quantities = {line.service_code: line.quantity for line in configuration.service_quotes}
+    sequence = [code for code in package.execution_sequence if code in selected]
+    if configuration.package_code == "custom":
+        sequence = list(configuration.service_codes)
+        if "content_publishing_pilot" in selected and quantities.get("ranking_test") == 2:
+            sequence = [
+                "ranking_test",
+                *(code for code in sequence if code != "ranking_test"),
+                "ranking_test",
+            ]
+    labels: list[str] = []
+    ranking_seen = 0
+    for code in sequence:
+        service = SERVICE_BY_CODE[code]
+        label = f"{service.number} {service.short_name}"
+        if code == "ranking_test" and sequence.count(code) > 1:
+            ranking_seen += 1
+            label += "（基线）" if ranking_seen == 1 else "（复测）"
+        elif (
+            code == "ranking_test"
+            and configuration.package_code == "custom"
+            and quantities.get(code, 1) > 1
+        ):
+            label += f"（{quantities[code]}轮）"
+        if (
+            code == "official_site_audit"
+            and configuration.package_code == "minimum_validation"
+            and configuration.official_site_in_citations is None
+        ):
+            label += "（命中后）"
+        labels.append(label)
+    return " → ".join(labels)
+
+
+def _add_cover(
+    document: DocumentObject,
+    brand_name: str,
+    quote_date: date,
+    configuration: QuotationConfiguration,
+) -> None:
+    package = PACKAGE_BY_CODE[configuration.package_code]
     _add_text_paragraph(
         document,
-        "GEO验证服务报价单",
+        "GEO 服务报价单",
         size=15.0,
+        bold=True,
+        align=WD_ALIGN_PARAGRAPH.CENTER,
+        after=1,
+    )
+    _add_text_paragraph(
+        document,
+        package.name,
+        size=11.0,
         bold=True,
         align=WD_ALIGN_PARAGRAPH.CENTER,
         after=1,
@@ -462,7 +534,59 @@ def _add_cover(document: DocumentObject, brand_name: str, quote_date: date) -> N
         after=1,
         line=1.5,
     )
-    _add_service_table(document)
+    _add_text_paragraph(
+        document,
+        f"执行顺序：{_execution_sequence(configuration)}",
+        size=8.5,
+        align=WD_ALIGN_PARAGRAPH.CENTER,
+        after=2,
+        line=1.1,
+        color=_BODY_GRAY,
+    )
+    _add_service_table(document, configuration)
+    if (
+        configuration.package_code == "minimum_validation"
+        and configuration.official_site_in_citations is None
+    ):
+        _add_text_paragraph(
+            document,
+            "条件说明：服务 4 的单价已单独列示，但暂不计入基础总价。"
+            "首轮测试的引用 URL 命中客户官网后，才触发该项服务和费用。",
+            size=8.5,
+            bold=True,
+            before=3,
+            after=1,
+            line=1.1,
+        )
+    if configuration.pricing_status == "pending":
+        _add_text_paragraph(
+            document,
+            "样例说明：本文件中的服务单价与总价待商务确认，不构成正式价格承诺。",
+            size=8.5,
+            bold=True,
+            before=3,
+            after=1,
+            line=1.1,
+        )
+    if configuration.commercial_note:
+        _add_text_paragraph(
+            document,
+            "报价备注：" + configuration.commercial_note,
+            size=8.5,
+            before=2,
+            after=1,
+            line=1.1,
+        )
+    _add_text_paragraph(
+        document,
+        "商务口径：币种为人民币（CNY），文档版本为 V1.0。"
+        "含税状态、发票类型、付款节点、交付周期和第三方代采费用如未在报价备注中明确，"
+        "均待合同确认。",
+        size=8.5,
+        before=2,
+        after=1,
+        line=1.1,
+    )
     for index, term in enumerate(_TERMS):
         _add_text_paragraph(
             document,
@@ -481,6 +605,145 @@ def _add_cover(document: DocumentObject, brand_name: str, quote_date: date) -> N
         signature.add_run("报价人：__________________　　　　　　　　公司：" + ISSUER_COMPANY),
         size=10.5,
     )
+
+
+def _add_service_delivery_appendix(
+    document: DocumentObject,
+    *,
+    configuration: QuotationConfiguration,
+    query_appendix_included: bool,
+) -> None:
+    package = PACKAGE_BY_CODE[configuration.package_code]
+    _add_page_break(document)
+    _add_heading(document, "附录一 服务输入、执行与交付说明", level=1, centered=True)
+    _add_labelled_paragraph(document, "适用客户：", package.audience, size=9.0, after=2)
+    _add_labelled_paragraph(document, "套餐目标：", package.summary, size=9.0, after=2)
+    _add_labelled_paragraph(
+        document,
+        "执行顺序：",
+        _execution_sequence(configuration),
+        size=9.0,
+        after=2,
+    )
+    _add_labelled_paragraph(
+        document,
+        "计价关系：",
+        (
+            "每项小计 = 本项单价 × 数量；基础总价不包含待触发的服务 4；"
+            "官网命中后最高总价 = 基础总价 + 服务 4 小计。"
+            if (
+                configuration.package_code == "minimum_validation"
+                and configuration.official_site_in_citations is None
+            )
+            else "每项小计 = 本项单价 × 数量；服务费总报价 = 全部已选服务小计之和。"
+        )
+        + "套餐决定预设服务组合、数量、条件项和执行顺序，不覆盖任何服务单价。",
+        size=9.0,
+        after=3,
+    )
+    if package.preconditions:
+        _add_labelled_paragraph(
+            document,
+            "执行前置：",
+            "",
+            size=9.0,
+            keep_with_next=True,
+        )
+        for item in package.preconditions:
+            _add_bullet(document, "前置", item, size=8.5)
+    if package.handoffs:
+        _add_labelled_paragraph(
+            document,
+            "服务传递：",
+            "",
+            size=9.0,
+            keep_with_next=True,
+        )
+        for item in package.handoffs:
+            _add_bullet(document, "传递", item, size=8.5)
+    _add_labelled_paragraph(
+        document,
+        "范围冻结：",
+        "问题数/变体数/渠道/重复数、URL 或页面上限、发文篇数/媒体数与观察窗必须在"
+        "商务备注或合同中确认。未确认时，本报价不表示验收工作量已冻结。",
+        size=8.5,
+        after=3,
+    )
+    if "ranking_test" in configuration.service_codes:
+        _add_labelled_paragraph(
+            document,
+            "采集前置：",
+            "开放 API 与豆包 App 两类渠道必须分别接通并验证。网页结果不得标记为 App 结果，"
+            "网页内部请求不得标记为模型开放 API。前置门未通过时，双方应调整执行范围。",
+            size=8.5,
+            after=3,
+        )
+    if "official_site_audit" in configuration.service_codes:
+        _add_labelled_paragraph(
+            document,
+            "官网范围：",
+            configuration.website_url,
+            size=9.0,
+            after=3,
+        )
+    if configuration.official_site_citation_url:
+        _add_labelled_paragraph(
+            document,
+            "官网命中证据 URL：",
+            configuration.official_site_citation_url,
+            size=8.5,
+            after=3,
+        )
+    if not query_appendix_included and any(
+        code in configuration.service_codes for code in ("ranking_test", "content_publishing_pilot")
+    ):
+        query_freeze_text = {
+            "geo_effect_assessment": (
+                "具体 Query 及语义变体将在客户提供既有 GEO 目标问题、补充并确认后冻结，"
+                "不在报价阶段编造。"
+            ),
+            "minimum_validation": (
+                "具体 Query 及语义变体将由我方提出候选，客户可补充并最终确认后冻结，"
+                "不在报价阶段编造。"
+            ),
+            "custom": (
+                "具体 Query 的提出方、补充方式及语义变体将在商务备注或合同中确认后冻结，"
+                "不在报价阶段编造。"
+            ),
+        }[configuration.package_code]
+        _add_text_paragraph(
+            document,
+            "本次未上传目标词 XLSX，因此报价单只确认服务范围、输入、交付物和价格状态。"
+            + query_freeze_text,
+            size=8.5,
+            bold=True,
+            after=4,
+            line=1.1,
+        )
+
+    for quote in configuration.service_quotes:
+        block_start = len(document.paragraphs)
+        service = SERVICE_BY_CODE[quote.service_code]
+        title = f"服务 {service.number}｜{service.short_name}：{service.name}"
+        if quote.quantity > 1:
+            title += f"（{quote.quantity}{service.unit}）"
+        _add_heading(document, title, level=2)
+        _appendix_body(document, service.summary, after=2)
+        _add_labelled_paragraph(document, "客户需提供：", "", size=9.0, keep_with_next=True)
+        for item in service.inputs:
+            _add_bullet(document, "输入", item, size=8.5)
+        _add_labelled_paragraph(document, "执行范围：", "", size=9.0, keep_with_next=True)
+        for item in service.scope:
+            _add_bullet(document, "执行", item, size=8.5)
+        _add_labelled_paragraph(document, "交付物：", "", size=9.0, keep_with_next=True)
+        for item in service.outputs:
+            _add_bullet(document, "输出", item, size=8.5, after=1)
+        # A service definition is one commercial unit. Keep its heading, inputs,
+        # execution scope and deliverables together so a page break cannot detach
+        # the acceptance-facing outputs from the service they belong to.
+        block = document.paragraphs[block_start:]
+        for paragraph in block[:-1]:
+            paragraph.paragraph_format.keep_with_next = True
 
 
 def _appendix_body(document: DocumentObject, text: str, *, after: float = 3) -> Paragraph:
@@ -512,9 +775,11 @@ def _add_bullet(
     size: float = 8.5,
     bold: bool = False,
     after: float = 0,
+    keep_with_next: bool = False,
 ) -> Paragraph:
     paragraph = document.add_paragraph(style="List Bullet")
     _paragraph_spacing(paragraph, after=after, line=1.05)
+    paragraph.paragraph_format.keep_with_next = keep_with_next
     _style_run(paragraph.add_run(f"{label}  {text}"), size=size, bold=bold)
     return paragraph
 
@@ -528,10 +793,10 @@ def _add_validation_table(
     _set_column_widths(table, (49, 23, 23, 23, 23, 39))
     headers = (
         "拟新增目标词",
-        "DeepSeek\n优化前",
-        "DeepSeek\n优化后",
-        "文心一言\n优化前",
-        "文心一言\n优化后",
+        "模型 API\n优化前",
+        "模型 API\n优化后",
+        "豆包 App\n优化前",
+        "豆包 App\n优化后",
         "验证状态",
     )
     _repeat_table_header(table.rows[0])
@@ -566,9 +831,17 @@ def _add_appendix_one(
     *,
     brand_name: str,
     plan: QuotationPlan,
+    appendix_number: int,
+    page_break_before: bool = True,
 ) -> None:
-    _add_page_break(document)
-    _add_heading(document, "附录一 Query优化方案说明", level=1, centered=True)
+    if page_break_before:
+        _add_page_break(document)
+    _add_heading(
+        document,
+        f"附录{_appendix_number(appendix_number)} Query 优化方案说明",
+        level=1,
+        centered=True,
+    )
     _add_heading(document, "一、优化目标", level=2)
     _appendix_body(
         document,
@@ -612,8 +885,15 @@ def _add_appendix_one(
             opportunity.optimized_query,
             size=9.0,
             bold=True,
+            keep_with_next=True,
         )
-        _add_bullet(document, "改写目的", opportunity.rewrite_rationale, size=8.5)
+        _add_bullet(
+            document,
+            "改写目的",
+            opportunity.rewrite_rationale,
+            size=8.5,
+            keep_with_next=True,
+        )
         _add_bullet(
             document,
             "验证状态",
@@ -676,17 +956,28 @@ def _selected_by_group(
     return groups
 
 
-def _add_appendix_two(document: DocumentObject, plan: QuotationPlan) -> None:
-    _add_page_break(document)
-    _add_heading(document, "附录二 原推广Query与变体构建说明", level=1, centered=True)
+def _add_appendix_two(
+    document: DocumentObject,
+    plan: QuotationPlan,
+    *,
+    appendix_number: int,
+    page_break_before: bool = True,
+) -> None:
+    if page_break_before:
+        _add_page_break(document)
+    _add_heading(
+        document,
+        f"附录{_appendix_number(appendix_number)} 原推广 Query 与变体构建说明",
+        level=1,
+        centered=True,
+    )
     _add_heading(document, "核心检索问题库与语义变体", level=3)
     groups = _selected_by_group(plan.selected_queries)
     _add_text_paragraph(
         document,
-        f"以下为围绕品牌{len(groups)}个核心业务方向设计的{len(plan.selected_queries)}条核心"
-        "业务问题及其语义变体。变体A为正式换述，变体B为换角度表达，变体C为口语化表达，"
-        "覆盖用户实际提问的多种表述方式。选取3条问题及其语义变体为项目1·品牌AI认知"
-        "评测的查询集。",
+        f"以下为围绕品牌{len(groups)}个核心业务方向设计的{len(plan.selected_queries)}条候选"
+        "业务问题及其语义变体。变体A为正式换述，变体B为换角度表达，变体C为口语化表达。"
+        "本次实际测试问题数和变体数必须在商务备注或合同中冻结；本附录的候选库数量不自动等于计费或验收数量。",
         size=9.0,
         after=2,
         line=1.1,
@@ -711,19 +1002,31 @@ def _add_appendix_two(document: DocumentObject, plan: QuotationPlan) -> None:
                 line=1.0,
                 keep_with_next=True,
             )
-            _add_bullet(document, "A", row.variant_a)
-            _add_bullet(document, "B", row.variant_b)
+            _add_bullet(document, "A", row.variant_a, keep_with_next=True)
+            _add_bullet(document, "B", row.variant_b, keep_with_next=True)
             _add_bullet(document, "C", row.variant_c, after=1)
 
 
-def _add_appendix_three(document: DocumentObject, plan: QuotationPlan) -> None:
-    _add_page_break(document)
-    _add_heading(document, "附录三 新增Query优化与语义变体全表", level=1, centered=True)
+def _add_appendix_three(
+    document: DocumentObject,
+    plan: QuotationPlan,
+    *,
+    appendix_number: int,
+    page_break_before: bool = True,
+) -> None:
+    if page_break_before:
+        _add_page_break(document)
+    _add_heading(
+        document,
+        f"附录{_appendix_number(appendix_number)} 新增 Query 优化与语义变体全表",
+        level=1,
+        centered=True,
+    )
     _add_text_paragraph(
         document,
-        f"以下为{len(plan.opportunities)}条拟新增机会词、推荐型优化问句及其语义变体。"
+        f"以下为{len(plan.opportunities)}条候选机会词、推荐型优化问句及其语义变体。"
         "变体A为正式换述，变体B为换角度表达，变体C为口语化表达——覆盖用户实际提问的"
-        "多种表述方式。选取3条提示词及其语义变体为项目4·GEO试点与效果验证的查询集。",
+        "多种表述方式。实际发布问题集必须由客户确认并在商务备注或合同中冻结；候选库数量不自动等于发文或验收数量。",
         size=9.0,
         after=2,
         line=1.1,
@@ -736,32 +1039,128 @@ def _add_appendix_three(document: DocumentObject, plan: QuotationPlan) -> None:
             size=9.0,
             keep_with_next=True,
         )
-        _add_bullet(document, "优化", row.optimized_query, size=9.0, bold=True)
-        _add_bullet(document, "A", row.variant_a)
-        _add_bullet(document, "B", row.variant_b)
+        _add_bullet(
+            document,
+            "优化",
+            row.optimized_query,
+            size=9.0,
+            bold=True,
+            keep_with_next=True,
+        )
+        _add_bullet(document, "A", row.variant_a, keep_with_next=True)
+        _add_bullet(document, "B", row.variant_b, keep_with_next=True)
         _add_bullet(document, "C", row.variant_c, after=2)
+
+
+def _add_query_appendices(
+    document: DocumentObject,
+    *,
+    brand_name: str,
+    configuration: QuotationConfiguration,
+    plan: QuotationPlan,
+    first_appendix_number: int,
+    first_page_break: bool,
+) -> None:
+    """复用同一组 Query 章节，按制品位置决定首个分页和附录编号。"""
+    appendix_number = first_appendix_number
+    page_break_before = first_page_break
+    if "ranking_test" in configuration.service_codes:
+        _add_appendix_two(
+            document,
+            plan,
+            appendix_number=appendix_number,
+            page_break_before=page_break_before,
+        )
+        appendix_number += 1
+        page_break_before = True
+    if "content_publishing_pilot" in configuration.service_codes:
+        _add_appendix_one(
+            document,
+            brand_name=brand_name,
+            plan=plan,
+            appendix_number=appendix_number,
+            page_break_before=page_break_before,
+        )
+        appendix_number += 1
+        _add_appendix_three(
+            document,
+            plan,
+            appendix_number=appendix_number,
+            page_break_before=True,
+        )
 
 
 def render_quotation_docx(
     *,
     brand_name: str,
     quote_date: date,
-    plan: QuotationPlan,
+    configuration: QuotationConfiguration,
+    plan: QuotationPlan | None,
 ) -> bytes:
     """按固定模板渲染可直接下载的 DOCX bytes。"""
     document = Document()
     _configure_styles(document)
     _configure_page(document)
-    document.core_properties.title = f"{brand_name} GEO验证服务报价单"
-    document.core_properties.subject = "GEO验证服务报价"
+    package = PACKAGE_BY_CODE[configuration.package_code]
+    artifact_title = {
+        "complete": "报价单",
+        "quote_table": "报价单表格",
+        "query_appendix": "查询附件",
+    }[configuration.artifact_kind]
+    document.core_properties.title = f"{brand_name} {package.name}{artifact_title}"
+    document.core_properties.subject = {
+        "complete": "GEO 服务报价",
+        "quote_table": "GEO 服务报价单表格",
+        "query_appendix": "GEO 查询附件",
+    }[configuration.artifact_kind]
     document.core_properties.author = ISSUER_COMPANY
-    document.core_properties.comments = "由GEO报价单生成服务生成；报价阶段未包含平台实测结果。"
+    document.core_properties.comments = "由 GEO 报价单生成服务生成；报价阶段未包含平台实测结果。"
+    # Core properties describe the quotation's effective document date, not the
+    # wall-clock render time. Midnight keeps the date deterministic and avoids a
+    # future local timestamp when OOXML serializes the naive value as UTC.
+    document_timestamp = datetime.combine(quote_date, time())
+    document.core_properties.created = document_timestamp
+    document.core_properties.modified = document_timestamp
 
-    _add_cover(document, brand_name, quote_date)
-    _add_appendix_one(document, brand_name=brand_name, plan=plan)
-    _add_appendix_two(document, plan)
-    _add_appendix_three(document, plan)
+    if configuration.artifact_kind == "quote_table":
+        _add_cover(document, brand_name, quote_date, configuration)
+    elif configuration.artifact_kind == "query_appendix":
+        if plan is None:
+            raise ValueError("query_appendix_plan_required")
+        _add_heading(document, f"{brand_name} GEO 查询附件", level=1, centered=True)
+        _add_text_paragraph(
+            document,
+            f"报价日期：{quote_date.isoformat()} · 套餐：{package.name}",
+            size=9.0,
+            align=WD_ALIGN_PARAGRAPH.CENTER,
+            after=5,
+            color=_MUTED_GRAY,
+        )
+        _add_query_appendices(
+            document,
+            brand_name=brand_name,
+            configuration=configuration,
+            plan=plan,
+            first_appendix_number=1,
+            first_page_break=False,
+        )
+    else:
+        _add_cover(document, brand_name, quote_date, configuration)
+        _add_service_delivery_appendix(
+            document,
+            configuration=configuration,
+            query_appendix_included=plan is not None,
+        )
+        if plan is not None:
+            _add_query_appendices(
+                document,
+                brand_name=brand_name,
+                configuration=configuration,
+                plan=plan,
+                first_appendix_number=2,
+                first_page_break=True,
+            )
 
     output = BytesIO()
     document.save(output)
-    return output.getvalue()
+    return _stable_docx_bytes(output.getvalue())
