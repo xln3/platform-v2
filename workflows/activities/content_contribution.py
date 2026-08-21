@@ -17,7 +17,7 @@ from psycopg.rows import dict_row
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from domain.scoring.analyzer import canonicalize_url
+from domain.collection.uvw import citation_text_for_reference
 from domain.source_analysis.content_contribution import (
     ALGORITHM_VERSION,
     POLICY_VERSION,
@@ -98,6 +98,7 @@ def _load_subjects(dsn: str, item: ContentContributionInput) -> tuple[str, list[
             JOIN LATERAL (
               SELECT candidate.* FROM platform.source_page_snapshot candidate
               WHERE candidate.source_url_id=occurrence.source_url_id
+                AND candidate.project_id=occurrence.project_id
                 AND candidate.snapshot_state='succeeded'
                 AND candidate.text_sha256 IS NOT NULL
               ORDER BY candidate.captured_at DESC,candidate.pub_id DESC
@@ -155,28 +156,11 @@ def _citation_text(row: dict[str, Any]) -> str | None:
         return None
     if not isinstance(citations, list):
         return None
-    target_ordinal = row.get("final_reference_ordinal")
-    canonical_url = str(row.get("canonical_url") or "")
-    url_matches: list[str] = []
-    for fallback_ordinal, citation in enumerate(citations, 1):
-        if not isinstance(citation, dict):
-            continue
-        quote = citation.get("cited_text")
-        if not isinstance(quote, str) or not quote.strip():
-            continue
-        ordinal = citation.get("ordinal", fallback_ordinal)
-        try:
-            citation_url = canonicalize_url(str(citation.get("url") or ""))
-        except (TypeError, ValueError):
-            citation_url = ""
-        same_url = bool(canonical_url and citation_url == canonical_url)
-        if same_url and ordinal == target_ordinal:
-            return quote.strip()
-        if same_url:
-            url_matches.append(quote.strip())
-    # A unique URL match is still unambiguous when a platform omits or rebases
-    # its displayed ordinal. Repeated URL citations require the ordinal match.
-    return url_matches[0] if len(url_matches) == 1 else None
+    return citation_text_for_reference(
+        citations,
+        canonical_url=str(row.get("canonical_url") or ""),
+        final_reference_ordinal=row.get("final_reference_ordinal"),
+    )
 
 
 def _analysis_input_hash(

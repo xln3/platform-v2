@@ -261,6 +261,43 @@ def legacy_reference_event(citations: list[dict[str, Any]]) -> list[dict[str, An
     )
 
 
+def citation_text_for_reference(
+    citations: Any, *, canonical_url: str, final_reference_ordinal: int | None
+) -> str | None:
+    """Resolve an exact platform citation quote without using search summaries.
+
+    URL plus displayed ordinal is authoritative.  A URL-only fallback is safe
+    only when it identifies one citation row; repeated URL references remain
+    ambiguous rather than choosing an arbitrary quote.
+    """
+
+    if not isinstance(citations, list):
+        return None
+    matches: list[str] = []
+    for fallback_ordinal, citation in enumerate(citations, 1):
+        if not isinstance(citation, dict):
+            continue
+        quote = citation.get("cited_text")
+        url = citation.get("url")
+        if not isinstance(quote, str) or not quote.strip() or not isinstance(url, str):
+            continue
+        try:
+            same_url = canonicalize_url(url) == canonical_url
+        except (TypeError, ValueError):
+            same_url = False
+        if not same_url:
+            continue
+        ordinal = citation.get("ordinal", fallback_ordinal)
+        if (
+            isinstance(ordinal, int)
+            and not isinstance(ordinal, bool)
+            and ordinal == final_reference_ordinal
+        ):
+            return quote.strip()
+        matches.append(quote.strip())
+    return matches[0] if len(matches) == 1 else None
+
+
 def occurrence_rows(events: list[dict[str, Any]]) -> list[UvwOccurrence]:
     """Expand events into lossless U occurrences plus honest later-stage rows."""
 
@@ -382,6 +419,7 @@ __all__ = [
     "OBSERVATIONS",
     "URL_NORMALIZATION_VERSION",
     "UvwOccurrence",
+    "citation_text_for_reference",
     "legacy_reference_event",
     "normalize_retrieval_events",
     "occurrence_rows",

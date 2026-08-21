@@ -64,7 +64,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from domain.collection.source_metadata import SourceMetadata, extract_source_metadata
-from domain.collection.uvw import URL_NORMALIZATION_VERSION
+from domain.collection.uvw import URL_NORMALIZATION_VERSION, citation_text_for_reference
 from domain.evidence.provenance import AccessClass, CaptureChannel, RedactedProvenance
 from domain.scoring.analyzer import canonicalize_url
 from workflows.activities.browser_driver import load_sync_browser_driver
@@ -927,10 +927,12 @@ class _PostgresSourceLoader:
             occurrence_rows = connection.execute(
                 """
                 SELECT occurrence.answer_task_id,occurrence.occurrence_ordinal,
-                       occurrence.raw_url,occurrence.title,occurrence.summary,
-                       occurrence.u_state,occurrence.final_reference_state
-                       ,occurrence.source_url_id
+                       occurrence.raw_url,occurrence.title,
+                       occurrence.u_state,occurrence.final_reference_state,
+                       occurrence.final_reference_ordinal,url.canonical_url,
+                       occurrence.source_url_id
                 FROM platform.answer_source_occurrence occurrence
+                JOIN platform.source_url url ON url.id=occurrence.source_url_id
                 WHERE occurrence.run_id=%s
                   AND (
                     occurrence.u_state='observed'
@@ -966,14 +968,34 @@ class _PostgresSourceLoader:
             )
         if created_at.tzinfo is None:
             created_at = created_at.replace(tzinfo=UTC)
+        citations_by_task: dict[str, list[dict[str, Any]]] = {}
+        for task_row in task_rows:
+            raw_citations = task_row["citations_json"] or "[]"
+            try:
+                citations = json.loads(raw_citations)
+            except (TypeError, ValueError):
+                log.warning("source_citations_unparseable", task_pub_id=task_row["pub_id"])
+                citations = []
+            citations_by_task[str(task_row["id"])] = (
+                [item for item in citations if isinstance(item, dict)]
+                if isinstance(citations, list)
+                else []
+            )
         rows_by_task: dict[str, list[dict[str, Any]]] = {str(row["id"]): [] for row in task_rows}
         for row in occurrence_rows:
+            task_id = str(row["answer_task_id"])
             rows_by_task.setdefault(str(row["answer_task_id"]), []).append(
                 {
                     "url": str(row["raw_url"]),
                     "title": row["title"],
                     "cited_text": (
-                        row["summary"] if row["final_reference_state"] == "referenced" else None
+                        citation_text_for_reference(
+                            citations_by_task.get(task_id, []),
+                            canonical_url=str(row["canonical_url"]),
+                            final_reference_ordinal=row["final_reference_ordinal"],
+                        )
+                        if row["final_reference_state"] == "referenced"
+                        else None
                     ),
                     "ordinal": int(row["occurrence_ordinal"]),
                     "u_state": str(row["u_state"]),
@@ -989,14 +1011,7 @@ class _PostgresSourceLoader:
             task_id = str(row["id"])
             if rows_by_task.get(task_id) or bool(row["has_uvw_events"]):
                 continue
-            raw_citations = row["citations_json"] or "[]"
-            try:
-                citations = json.loads(raw_citations)
-            except (TypeError, ValueError):
-                log.warning("source_citations_unparseable", task_pub_id=row["pub_id"])
-                citations = []
-            if isinstance(citations, list):
-                rows_by_task[task_id] = [item for item in citations if isinstance(item, dict)]
+            rows_by_task[task_id] = citations_by_task.get(task_id, [])
         tasks = [(str(row["pub_id"]), rows_by_task.get(str(row["id"]), [])) for row in task_rows]
         existing = {
             str(row["url_hash"]): ExistingDocument(

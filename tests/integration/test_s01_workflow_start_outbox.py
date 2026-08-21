@@ -713,6 +713,61 @@ def test_w_and_content_strategy_recalculations_are_immutable_versions() -> None:
     assert versions[1] >= 2
     assert versions[2] == 2
 
+    # Exercise the real internal drill-down queries against the versioned W
+    # facts. This catches project-scope and SQL-parameter regressions that the
+    # response-schema unit tests cannot observe.
+    base = f"/api/v2/internal/source-intelligence/projects/{project_pub_id}"
+    with TestClient(app) as client:
+        sites_response = client.get(f"{base}/sites", headers=headers)
+        assert sites_response.status_code == 200, sites_response.text
+        site = next(item for item in sites_response.json()["data"] if item["host"] == "example.com")
+        assert site["u_occurrence_count"] == 1
+        assert site["v_count"] == 1
+        assert site["w_count"] == 1
+
+        urls_response = client.get(
+            f"{base}/sites/{site['site_pub_id']}/urls",
+            headers=headers,
+        )
+        assert urls_response.status_code == 200, urls_response.text
+        source_url = next(
+            item for item in urls_response.json()["data"] if item["canonical_url"] == url
+        )
+        url_pub_id = source_url["url_pub_id"]
+
+        detail_response = client.get(f"{base}/urls/{url_pub_id}", headers=headers)
+        assert detail_response.status_code == 200, detail_response.text
+        detail = detail_response.json()
+        assert detail["latest_snapshot"]["text_sha256"] == text_hash
+        assert detail["w_count"] == 1
+
+        snapshots_response = client.get(
+            f"{base}/urls/{url_pub_id}/snapshots",
+            headers=headers,
+        )
+        assert snapshots_response.status_code == 200, snapshots_response.text
+        assert snapshots_response.json()["data"][0]["text_sha256"] == text_hash
+
+        occurrences_response = client.get(
+            f"{base}/urls/{url_pub_id}/occurrences",
+            headers=headers,
+        )
+        assert occurrences_response.status_code == 200, occurrences_response.text
+        occurrence = occurrences_response.json()["data"][0]
+        assert occurrence["w_state"] == "confirmed"
+        assert occurrence["w_weight"] is not None
+
+        answer_response = client.get(
+            f"{base}/answers/{occurrence['answer_pub_id']}/uvw",
+            headers=headers,
+        )
+        assert answer_response.status_code == 200, answer_response.text
+        answer = answer_response.json()
+        assert answer["u_observation"] == "observed"
+        assert answer["v_observation"] == "observed"
+        assert answer["final_reference_observation"] == "observed"
+        assert answer["occurrences"][0]["url_pub_id"] == url_pub_id
+
 
 class ReconciliationHandle:
     async def describe(self) -> object:

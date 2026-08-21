@@ -98,6 +98,7 @@ def _load_subjects(
               SELECT candidate.*
               FROM platform.source_page_snapshot candidate
               WHERE candidate.source_url_id=occurrence.source_url_id
+                AND candidate.project_id=occurrence.project_id
                 AND candidate.snapshot_state='succeeded'
                 AND candidate.body_object_key IS NOT NULL
                 AND candidate.text_sha256 IS NOT NULL

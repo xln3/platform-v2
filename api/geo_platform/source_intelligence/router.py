@@ -343,7 +343,7 @@ def list_site_urls(
                    END AS w_observation,
                    max(occurrence.captured_at) AS latest_capture_at,
                    COALESCE((SELECT attempt.state FROM platform.source_fetch_attempt attempt
-                     WHERE attempt.source_url_id=url.id
+                     WHERE attempt.source_url_id=url.id AND attempt.project_id=%s
                      ORDER BY attempt.attempt_ordinal DESC LIMIT 1),'queued') AS fetch_state,
                    CASE
                      WHEN count(*) FILTER (WHERE occurrence.w_state='confirmed')>0
@@ -364,7 +364,7 @@ def list_site_urls(
                      latest_capture_at DESC,url.canonical_url ASC
             LIMIT %s OFFSET %s
             """,
-            (project_id, site_pub_id, limit + 1, offset),
+            (project_id, project_id, site_pub_id, limit + 1, offset),
         ).fetchall()
     visible, page = _page(rows, limit=limit, offset=offset)
     return UrlPage(
@@ -409,16 +409,19 @@ def get_url_detail(
                      ELSE 'observed'
                    END AS w_observation,
                    (SELECT count(*)::int FROM platform.source_fetch_attempt attempt
-                    WHERE attempt.source_url_id=url.id) AS fetch_attempt_count,
+                    WHERE attempt.source_url_id=url.id AND attempt.project_id=%s)
+                     AS fetch_attempt_count,
                    (SELECT count(*)::int FROM platform.page_inspection inspection
                     JOIN platform.source_document document
                       ON document.id=inspection.source_document_id
-                    WHERE document.source_url_id=url.id) AS page_inspection_count,
+                    WHERE document.source_url_id=url.id AND inspection.project_id=%s)
+                     AS page_inspection_count,
                    (SELECT count(*)::int FROM platform.page_inspection_finding finding
                     JOIN platform.page_inspection inspection ON inspection.id=finding.inspection_id
                     JOIN platform.source_document document
                       ON document.id=inspection.source_document_id
-                    WHERE document.source_url_id=url.id) AS finding_count
+                    WHERE document.source_url_id=url.id AND inspection.project_id=%s)
+                     AS finding_count
             FROM platform.source_url url
             JOIN platform.source_site site ON site.id=url.site_id
             JOIN platform.answer_source_occurrence occurrence
@@ -426,7 +429,7 @@ def get_url_detail(
             WHERE url.pub_id=%s
             GROUP BY url.id,url.pub_id,site.host,url.canonical_url,url.normalization_version
             """,
-            (project_id, url_pub_id),
+            (project_id, project_id, project_id, project_id, url_pub_id),
         ).fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail={"code": "source_url_not_found"})
@@ -434,10 +437,11 @@ def get_url_detail(
             """
             SELECT pub_id AS snapshot_pub_id,snapshot_state AS state,captured_at,
                    text_sha256,extractor_version
-            FROM platform.source_page_snapshot WHERE source_url_id=%s
+            FROM platform.source_page_snapshot
+            WHERE source_url_id=%s AND project_id=%s
             ORDER BY captured_at DESC,pub_id DESC LIMIT 1
             """,
-            (row["id"],),
+            (row["id"], project_id),
         ).fetchone()
     payload = {key: value for key, value in dict(row).items() if key != "id"}
     return UrlDetail(
@@ -474,14 +478,14 @@ def list_url_snapshots(
             FROM platform.source_page_snapshot snapshot
             JOIN platform.source_url url ON url.id=snapshot.source_url_id
             LEFT JOIN platform.source_fetch_attempt attempt ON attempt.id=snapshot.fetch_attempt_id
-            WHERE url.pub_id=%s AND EXISTS (
+            WHERE url.pub_id=%s AND snapshot.project_id=%s AND EXISTS (
               SELECT 1 FROM platform.answer_source_occurrence occurrence
               WHERE occurrence.source_url_id=url.id AND occurrence.project_id=%s
             )
             ORDER BY snapshot.captured_at DESC,snapshot.pub_id DESC
             LIMIT %s OFFSET %s
             """,
-            (url_pub_id, project_id, limit + 1, offset),
+            (url_pub_id, project_id, project_id, limit + 1, offset),
         ).fetchall()
     visible, page = _page(rows, limit=limit, offset=offset)
     return SnapshotPage(

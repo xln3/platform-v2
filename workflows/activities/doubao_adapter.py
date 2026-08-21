@@ -3604,11 +3604,7 @@ def _retrieval_events_from_assembled(assembled: dict[str, Any]) -> list[dict[str
         if not isinstance(block, dict) or block.get("block_type") != 10025:
             continue
         content = block.get("content")
-        search = (
-            content.get("search_query_result_block")
-            if isinstance(content, dict)
-            else None
-        )
+        search = content.get("search_query_result_block") if isinstance(content, dict) else None
         if not isinstance(search, dict):
             continue
         queries = [

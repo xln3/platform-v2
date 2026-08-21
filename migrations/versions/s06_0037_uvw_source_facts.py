@@ -355,7 +355,7 @@ def upgrade() -> None:
     op.create_index(
         "uq_source_page_snapshot_content",
         "source_page_snapshot",
-        ["source_url_id", "text_sha256", "extractor_version"],
+        ["project_id", "source_url_id", "text_sha256", "extractor_version"],
         unique=True,
         schema="platform",
         postgresql_where=sa.text("text_sha256 IS NOT NULL"),
