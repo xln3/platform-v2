@@ -1,17 +1,13 @@
 .geo-answer-library {
-  --answer-ink: #142822;
-  --answer-muted: #61736c;
-  --answer-line: #d9e5df;
-  --answer-soft: #f1f6f3;
-  --answer-violet: #0f766e;
-  --answer-violet-soft: #e4f3ef;
+  --answer-ink: #172033;
+  --answer-muted: #667085;
+  --answer-line: #e4e8f0;
+  --answer-soft: #f6f7fb;
+  --answer-violet: #6d4aff;
+  --answer-violet-soft: #f0ecff;
   display: grid;
   gap: 20px;
   color: var(--answer-ink);
-}
-
-.geo-answer-library > * {
-  min-width: 0;
 }
 
 .geo-answer-library button,
@@ -27,13 +23,12 @@
   align-items: end;
   padding: 28px;
   overflow: hidden;
-  border: 1px solid #31584e;
+  border: 1px solid #ded8ff;
   border-radius: 24px;
-  color: #f7fbf9;
   background:
-    radial-gradient(circle at 91% 12%, rgb(201 230 90 / 24%), transparent 31%),
-    linear-gradient(132deg, #102c27 0%, #17483e 58%, #1c6260 100%);
-  box-shadow: 0 18px 44px rgb(16 52 44 / 16%);
+    radial-gradient(circle at 92% 4%, rgb(109 74 255 / 18%), transparent 34%),
+    linear-gradient(135deg, #fff 0%, #faf9ff 65%, #f3f0ff 100%);
+  box-shadow: 0 18px 44px rgb(36 24 84 / 8%);
 }
 
 .geo-answer-library__hero > div > span,
@@ -47,7 +42,6 @@
 
 .geo-answer-library__hero h2 {
   margin: 7px 0 8px;
-  color: #fff;
   font-size: clamp(25px, 3vw, 38px);
   letter-spacing: -0.04em;
 }
@@ -59,14 +53,6 @@
   color: var(--answer-muted);
   font-size: 14px;
   line-height: 1.8;
-}
-
-.geo-answer-library__hero > div > span {
-  color: #d7ef6c;
-}
-
-.geo-answer-library__hero p {
-  color: #d5e7e1;
 }
 
 .geo-answer-library__hero ol {
@@ -83,7 +69,7 @@
   gap: 5px;
   justify-items: center;
   min-width: 72px;
-  color: #b5cdc5;
+  color: #8b93a6;
   font-size: 11px;
 }
 
@@ -92,21 +78,21 @@
   width: 29px;
   height: 29px;
   place-items: center;
-  border: 1px solid rgb(229 244 238 / 32%);
+  border: 1px solid #d9ddea;
   border-radius: 50%;
-  background: rgb(255 255 255 / 8%);
+  background: #fff;
 }
 
 .geo-answer-library__hero li[data-active] {
-  color: #e4f680;
+  color: var(--answer-violet);
   font-weight: 800;
 }
 
 .geo-answer-library__hero li[data-active] b {
-  border-color: #c9e65a;
-  color: #18332b;
-  background: #c9e65a;
-  box-shadow: 0 6px 18px rgb(201 230 90 / 24%);
+  border-color: var(--answer-violet);
+  color: #fff;
+  background: var(--answer-violet);
+  box-shadow: 0 6px 18px rgb(109 74 255 / 28%);
 }
 
 .geo-answer-library__path {
@@ -119,21 +105,20 @@
   border: 1px solid var(--answer-line);
   border-radius: 14px;
   background: #fff;
-  color: #596275;
+  color: #98a0b2;
   white-space: nowrap;
 }
 
 .geo-answer-library__path button,
 .geo-answer-library__path > span:last-child {
-  flex: 0 0 auto;
-  max-width: none;
+  max-width: min(500px, 55vw);
   padding: 5px 9px;
-  overflow: visible;
+  overflow: hidden;
   border: 0;
   border-radius: 8px;
   color: #596174;
   background: transparent;
-  text-overflow: clip;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -152,10 +137,10 @@
   gap: 11px;
   align-items: center;
   padding: 12px 15px;
-  border: 1px solid #cae2d8;
+  border: 1px solid #dbe8ff;
   border-radius: 12px;
-  color: #245e52;
-  background: #edf7f3;
+  color: #31578f;
+  background: #f4f8ff;
 }
 
 .geo-answer-library__snapshot > span {
@@ -169,7 +154,7 @@
 }
 
 .geo-answer-library__snapshot small {
-  color: #4e665e;
+  color: #607596;
   line-height: 1.55;
 }
 
@@ -266,7 +251,7 @@
   width: 84px;
   height: 84px;
   border-radius: 50%;
-  background: rgb(15 118 110 / 8%);
+  background: rgb(109 74 255 / 7%);
   content: '';
 }
 
@@ -281,7 +266,7 @@
 }
 
 .geo-answer-library__totals small {
-  color: #596275;
+  color: #8a92a4;
 }
 
 .geo-answer-library__loading,
@@ -300,7 +285,7 @@
   width: 18px;
   height: 18px;
   flex: 0 0 auto;
-  border: 2px solid #d3e9e2;
+  border: 2px solid #ded7ff;
   border-top-color: var(--answer-violet);
   border-radius: 50%;
   animation: geo-answer-library-spin 0.8s linear infinite;
@@ -409,7 +394,7 @@
 .geo-answer-library__meta-main time,
 .geo-answer-library__run-copy time {
   flex: 0 0 auto;
-  color: #596275;
+  color: #8c94a5;
   font-size: 11px;
 }
 
@@ -429,7 +414,7 @@
 
 .geo-answer-library__stats dt {
   overflow: hidden;
-  color: #596275;
+  color: #7b8497;
   font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -474,7 +459,7 @@
 }
 
 .geo-answer-library__question-preview small {
-  color: #596275;
+  color: #8c94a4;
 }
 
 .geo-answer-library__tags,
@@ -502,7 +487,7 @@
 }
 
 .geo-answer-library__tags small {
-  color: #596275;
+  color: #969daf;
 }
 
 .geo-answer-library__tags b {
@@ -510,7 +495,7 @@
 }
 
 .geo-answer-library__tags em {
-  color: #596275;
+  color: #8a92a4;
   font-size: 10px;
   font-style: normal;
 }
@@ -541,7 +526,7 @@
 
 .geo-answer-library__root-footer > small {
   max-width: 260px;
-  color: #596275;
+  color: #8c94a5;
   line-height: 1.5;
 }
 
@@ -553,7 +538,7 @@
 }
 
 .geo-answer-library__pager > span {
-  color: #596275;
+  color: #737c8f;
   font-size: 11px;
 }
 
@@ -637,7 +622,7 @@
 }
 
 .geo-answer-library__question-grid header b {
-  color: #596275;
+  color: #98a0af;
   font-size: 11px;
 }
 
@@ -686,10 +671,10 @@
   place-items: center;
   border-radius: 13px;
   color: #fff;
-  background: linear-gradient(135deg, #0f766e, #276b87);
+  background: linear-gradient(135deg, #6d4aff, #405ee8);
   font-size: 12px;
   font-weight: 900;
-  box-shadow: 0 7px 16px rgb(15 118 110 / 20%);
+  box-shadow: 0 7px 16px rgb(83 67 211 / 20%);
 }
 
 .geo-answer-library__run-copy {
@@ -712,7 +697,7 @@
 .geo-answer-library__run-copy > div span {
   padding: 4px 7px;
   border-radius: 6px;
-  color: #536072;
+  color: #687185;
   background: var(--answer-soft);
   font-size: 10px;
 }
@@ -810,7 +795,7 @@
   gap: 14px;
   padding: 9px 12px 9px 15px;
   border-bottom: 1px solid var(--answer-line);
-  background: linear-gradient(100deg, #f7faf8, #eef7f2);
+  background: linear-gradient(100deg, #fafbff, #f6f3ff);
 }
 
 .geo-answer-display > header > div {
@@ -819,7 +804,7 @@
 }
 
 .geo-answer-display > header > div > span {
-  color: #0f766e;
+  color: #7c3aed;
   font-size: 8px;
   font-weight: 850;
   letter-spacing: 0.12em;
@@ -846,7 +831,7 @@
   border: 0;
   border-radius: 7px;
   background: transparent;
-  color: #536072;
+  color: #697185;
   font-size: 11px;
   font-weight: 750;
   white-space: nowrap;

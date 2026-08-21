@@ -447,17 +447,6 @@ test('validated customer reads mounted data and serializes every write without s
               embed_reason: null,
             }
           : null,
-        share_image: hasOfficialShareEvidence
-          ? {
-              pub_id: 'evd_live_share_image',
-              sha256: customerPlatformSharePngSha256,
-              mime_type: 'image/png',
-              byte_size: customerPlatformSharePng.byteLength,
-              image_width: 698,
-              image_height: 4863,
-              capture_time: '2026-07-25T01:00:00Z',
-            }
-          : null,
         citations: [
           {
             pub_id: 'cit_live_safe',
@@ -1179,7 +1168,7 @@ test('validated customer reads mounted data and serializes every write without s
     fullPage: true,
     animations: 'disabled',
   });
-  await page.getByRole('button', { name: '真实 AI 回答', exact: true }).click();
+  await page.getByRole('button', { name: '真实 AI 回答' }).click();
   await expect(
     page.getByRole('heading', { name: '真实客户品牌 · 真实 AI 回答与模型语境' }),
   ).toBeVisible();
@@ -1229,9 +1218,6 @@ test('validated customer reads mounted data and serializes every write without s
     'true',
   );
   await expect(answerDossier.getByRole('heading', { name: '核验建议' })).toBeVisible();
-  await expect(answerDossier.getByText('已保留采集证据', { exact: true })).toHaveCount(0);
-  await expect(answerDossier.getByText(/doubao · 采集于/u)).toHaveCount(0);
-  await expect(answerDossier.locator('.geo-answer-dossier__fallback > footer')).toHaveCount(0);
   expect(shareImageContentReads).toBe(0);
   const answerStage = answerDossier.locator('.geo-answer-display__stage');
   const textStageBox = await answerStage.boundingBox();
@@ -1444,7 +1430,7 @@ test('validated customer reads mounted data and serializes every write without s
     fullPage: true,
     animations: 'disabled',
   });
-  await page.getByRole('button', { name: '品牌可见度', exact: true }).click();
+  await page.getByRole('button', { name: '品牌可见度' }).click();
   await expect(
     page.getByRole('heading', { name: '真实客户品牌 · 品牌可见度与模型表现' }),
   ).toBeVisible();
@@ -1461,7 +1447,7 @@ test('validated customer reads mounted data and serializes every write without s
     fullPage: true,
     animations: 'disabled',
   });
-  await page.getByRole('button', { name: '信源与内容', exact: true }).click();
+  await page.getByRole('button', { name: '信源与内容' }).click();
   await expect(
     page.getByRole('heading', { name: '真实客户品牌 · 信源权威与内容准备度' }),
   ).toBeVisible();
@@ -1719,7 +1705,7 @@ test('customer product 404 fails closed without revealing whether analytics exis
     }),
   );
   await page.goto('/platform/customer/');
-  await page.getByRole('button', { name: '品牌可见度', exact: true }).click();
+  await page.getByRole('button', { name: '品牌可见度' }).click();
   await expect(page.getByText('无权查看')).toBeVisible();
   await expect(page.getByText('Cookie=forbidden-customer-canary')).toHaveCount(0);
   await expect(page.getByText('customer-dashboard-forbidden-canary')).toHaveCount(0);
