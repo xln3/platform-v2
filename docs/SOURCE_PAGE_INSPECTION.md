@@ -18,7 +18,7 @@
       └─ analysis_job + workflow_start_command（同一事务）
 
 公开信源 worker
-  └─ 引用 URL 去重、抓取正文、正文哈希和页面元数据入库/CAS
+  └─ 全部可观察 U 的 URL 身份去重、抓取正文、正文哈希和页面元数据入库/CAS
 
 分析 worker
   ├─ 读取被冻结的对象画像、模型、提示词和策略版本
@@ -92,7 +92,7 @@ Content-Type: application/json
 {"profile_pub_id": "sap_..."}
 ```
 
-省略 `profile_pub_id` 时使用当前 active profile。接口只接受已经成功抓取并具有 CAS 正文和 SHA-256 的 source document；尚未就绪返回 `409 source_documents_not_ready`。任务、workflow start command 和冻结输入在同一数据库事务写入。相同输入返回原任务；画像 revision、模型或提示词任一变化都会生成新的 policy version 和 workflow ID，旧结论不被覆盖。
+省略 `profile_pub_id` 时使用当前 active profile。接口只分析已经成功抓取并具有 CAS 正文和 SHA-256 的 source document；尚未就绪返回 `409 source_documents_not_ready`。对应 U occurrence 和失败/等待重试状态仍在事实层保留。任务、workflow start command 和冻结输入在同一数据库事务写入。相同输入返回原任务；画像 revision、模型或提示词任一变化都会生成新的 policy version 和 workflow ID，旧结论不被覆盖。
 
 ## 分型和账本
 
@@ -142,7 +142,7 @@ LLM 只生成候选，程序决定能否交付。窗口里的逐字引文先被�
 
 ## 当前边界
 
-这一版分析的是 `cited_pool_snapshot`：答案已经引用且系统已经抓取的页面。它还不代表全网潜在页面召回，也不回答“模型还能被诱导写出什么”。下列能力应继续使用独立任务和结果表：
+普通 run 的输入是平台实际返回的全部可观察 U 页面，而不是最终引用列表。它仍不代表全网潜在页面召回，也不回答“模型还能被诱导写出什么”。下列能力继续使用独立任务和结果表：
 
 - `discovered_pool_snapshot`：主动检索池外页面；
 - `adversarial_query_research`：N/P1/P2 配对差分、同位对手基线和不存在对象基线；
@@ -157,6 +157,7 @@ LLM 只生成候选，程序决定能否交付。窗口里的逐字引文先被�
 
 ```dotenv
 GEO_PAGE_INSPECTION_ENABLED=1
+# 兼容旧部署；现在只作为批处理提示，不是业务全集上限
 GEO_PAGE_INSPECTION_MAX_DOCUMENTS=500
 GEO_PAGE_INSPECTION_MAX_CHARS=120000
 GEO_AUDIT_LLM_API_KEY=...
@@ -164,4 +165,4 @@ GEO_AUDIT_LLM_BASE_URL=...
 GEO_AUDIT_LLM_MODEL=...
 ```
 
-凭据或模型为空时功能如实降为 `unverifiable`。`MAX_DOCUMENTS` 超出的文档和 `MAX_CHARS` 超出的正文尾部都会进入截断计数，任务终态为 `partial`，不能显示成完整通过。
+凭据或模型为空时功能如实降为 `unverifiable`。`MAX_DOCUMENTS` 不再截断文档全集；所有已取得快照的 U 都会被遍历。长正文按重叠窗口覆盖全文，`MAX_CHARS` 只控制单个模型调用的窗口尺寸。窗口失败和仍待抓取的 U 必须分别报告，不能显示成完整通过。

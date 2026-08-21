@@ -6,7 +6,8 @@
 
 - 原始回答及规范化版本；
 - 平台分享链接、截图、HAR、SSE 等当场才能取得的证据；
-- 引用 URL、检索词和采集矩阵；
+- 检索词、每次检索事件、全部可观察 U occurrence、可观察 V 打开顺序和最终引用；
+- U、V 和最终引用三个阶段各自的可观察状态与原始证据引用；
 - `answer.capture.completed` 事件；
 - 一条只引用该采集记录、不携带回答原文的版本化分析任务。
 
@@ -16,19 +17,21 @@
 
 ```text
 登录态采集队列
-  └─ 每题：回答 + 分享链接/截图/HAR/SSE + capture event + answer_basic job（同一事务）
+  └─ 每题：回答 + 分享链接/截图/HAR/SSE + 检索事件 + U/V occurrence
+       + capture event + answer_basic job（同一事务）
        最后一题：再把轮次级 source/risk jobs 放进同一事务
        └─ 立即开始下一题，并释放上一题的分析等待
 
 分析队列
   ├─ 每题 answer_basic：按 capture_ref 回读并校验 response_hash
   └─ 每轮 post_collection_analysis
-       ├─ 信源审计 → 官网建议
-       ├─ 页面体检 A/B/C + 传导 T + 归属层
+       ├─ 全部 U 的页面抓取 → 信源审计 → 官网建议
+       ├─ 全部已取得快照的 U：页面体检 A/B/C + 传导 T + 归属层
+       ├─ V 页面 W 逐字贡献 → V/U−V 与高 W/低 W 对照
        └─ 拉踩识别 → 事实核查
 
 公开信源队列
-  ├─ 引用网页正文抓取
+  ├─ 全部可观察 U 网页正文抓取
   └─ 官网公开页快照
 ```
 
@@ -52,7 +55,7 @@
 
 ## 与全景信源分析的关系
 
-`page_inspection` 第一版已经在独立分析队列实现，但它的输入边界是本次采集答案实际引用、且已由公开信源 worker 抓取成功的 `cited_pool_snapshot`。它已经提供：
+`page_inspection` 在独立分析队列读取本 run 全部已成功抓取的 U 页面快照；没有正文的 U 仍保留抓取状态和重试记录，不会从处理分母消失。它提供：
 
 - 对象别名强制带实采记录或证据网址，并把同位对手、品类和权威锚纳入版本化画像，按修订保留历史；
 - A0–A5、B1–B3 言论账与 C1–C4 暴露账，两个账本分别计数，禁止相加；
@@ -61,16 +64,16 @@
 - 域名、站点元数据、作者/发布账号证据、受益方和项目历史同文快照；“最早快照”只叫候选，不冒充原发证明；
 - 对历史 run 的独立重算入口。画像、策略、模型、提示词和正文哈希均被冻结，升级生成新版本，不覆盖旧结论。
 
-以下两类输入仍是后续独立研究流水线，不属于这一版已完成能力：
+以下两类输入仍是独立研究流水线，不属于普通 U：
 
 1. `discovered_pool_snapshot`：主动搜索尚未被答案引用、但可能进入模型取材池的页面；
 2. `adversarial_query_research`：N 中性、P1 弱诱导、P2 强诱导的配对差分，以及同位对手和不存在对象的基线实验。
 
-因此，“已引用页面有没有危害、危害有没有传导”现在可独立重算；“外面还潜伏着什么页面”和“模型还能被诱导写出什么”仍需走另外两条任务队列，不能拿引用池结果冒充全网召回。详细接口和判据见 [SOURCE_PAGE_INSPECTION.md](SOURCE_PAGE_INSPECTION.md)。
+因此，“本次 AI 实际检索返回的全部页面有没有危害、危害有没有传导”可以独立重算；“U 之外还潜伏着什么页面”和“模型还能被诱导写出什么”仍需走另外两条研究任务队列，不能拿 U 冒充全网召回。详细接口和判据见 [SOURCE_PAGE_INSPECTION.md](SOURCE_PAGE_INSPECTION.md)。
 
 ## 生产升级顺序
 
-1. 先执行 Alembic 迁移，创建 `platform.analysis_job`、逐答案采集事件唯一索引、版本化对象画像、页面体检结论和精确证据区间；
+1. 先执行 Alembic 迁移，创建 UVW 身份与 occurrence、抓取尝试、页面版本、W、内容策略事实，以及版本化页面体检结论和精确证据区间；
 2. 安装并启动 `geo-platform-v2-source-worker.service` 与 `geo-platform-v2-analysis-worker.service`；
 3. 更新 API、workflow-start outbox 和采集 worker；
 4. 确认三个队列分别有 poller，再放入新采集任务；
