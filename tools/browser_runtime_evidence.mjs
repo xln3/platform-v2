@@ -19,7 +19,7 @@ const secretMaterialPatterns = [
   /(?:[A-Za-z]:\\|\\\\)[^\r\n]{0,1024}(?:profiles?|user[ _-]?data)(?:\\[^\r\n]{0,1024})?/iu,
   /\/[^\s]*profile(?:s?\/[^\s]*)?/iu,
   /(?<!\d)1[3-9]\d{9}(?!\d)/u,
-  /1[3-9](?:[\s().-]?\d){9}/u,
+  /1[3-9](?:[\t ().-]?\d){9}/u,
 ];
 
 function normalizeBrowserEvidenceCandidate(value) {
@@ -58,7 +58,7 @@ export async function isBrowserSurfaceSecretMaterialAbsent(page) {
           /(?:[A-Za-z]:\\|\\\\)[^\r\n]{0,1024}(?:profiles?|user[ _-]?data)(?:\\[^\r\n]{0,1024})?/iu,
           /\/[^\s]*profile(?:s?\/[^\s]*)?/iu,
           /(?<!\d)1[3-9]\d{9}(?!\d)/u,
-          /1[3-9](?:[\s().-]?\d){9}/u,
+          /1[3-9](?:[\t ().-]?\d){9}/u,
         ];
         const normalize = (value) => {
           let normalized = value.normalize('NFKC').replace(invisibleCharacters, '');

@@ -131,7 +131,7 @@ const applications = [
   {
     name: 'operations-formal-reports',
     path: 'operations/formal-reports',
-    expectedHeading: '启动正式报告生产',
+    expectedHeading: '启动受治理报告生产',
   },
   { name: 'reports', path: 'reports' },
   { name: 'intelligence', path: 'intelligence' },
@@ -241,7 +241,7 @@ async function verify({ name, path, url, expectedHeading, sharedShell = true }, 
     });
     await page.waitForTimeout(500);
     const expectedContentVisible = expectedHeading
-      ? await page.getByRole('heading', { name: expectedHeading }).isVisible()
+      ? await page.getByRole('heading', { name: expectedHeading, exact: true }).isVisible()
       : true;
     const role = await page.evaluate(async () => {
       const result = await fetch('/api/v2/identity/session');

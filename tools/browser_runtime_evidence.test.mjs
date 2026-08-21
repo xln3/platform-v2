@@ -167,6 +167,7 @@ describe('production browser runtime evidence', () => {
     ]) {
       expect(containsBrowserSecretMaterial(value)).toBe(true);
     }
+    expect(containsBrowserSecretMaterial('趋势\n13-08\n13-08\n131\n竞品')).toBe(false);
     expect(containsBrowserSecretMaterial('x'.repeat(2_000_001))).toBe(true);
   });
 
