@@ -21,6 +21,11 @@ from workflows.activities.collection import (
     persist_collection_result,
     publish_downstream_event,
 )
+from workflows.activities.content_contribution import (
+    ContentContributionInput,
+    execute_content_contribution,
+)
+from workflows.activities.content_strategy import ContentStrategyInput, execute_content_strategy
 from workflows.activities.s02 import _resolve_answer_capture
 
 POSTGRES_DSN = os.getenv(
@@ -422,6 +427,8 @@ def test_distinct_collection_results_serialize_run_completion() -> None:
         for item in analysis_commands
     )
     assert {row[0] for row in run_jobs} == {
+        "content_contribution",
+        "content_strategy",
         "own_site_snapshot",
         "risk_disparagement",
         "risk_factcheck",
@@ -431,6 +438,8 @@ def test_distinct_collection_results_serialize_run_completion() -> None:
         "source_fetch",
     }
     assert {row[0]: (row[1], row[2]) for row in run_jobs} == {
+        "content_contribution": ("queued", "post-collection-v2"),
+        "content_strategy": ("queued", "post-collection-v2"),
         "own_site_snapshot": ("queued", "post-collection-v2"),
         "page_inspection": ("not_requested", "post-collection-v2"),
         "risk_disparagement": ("queued", "post-collection-v2"),
@@ -468,6 +477,241 @@ def test_distinct_collection_results_serialize_run_completion() -> None:
     assert all(item["source_analysis_state"] == "partial" for item in settled_page.json()["data"])
     assert all(item["risk_analysis_state"] == "completed" for item in settled_page.json()["data"])
     assert first_event.endswith(events[0][0])
+
+
+def test_retrieval_events_persist_one_url_identity_and_every_occurrence() -> None:
+    with TestClient(app) as client:
+        tenant, headers = bootstrap(client, "uvw-occurrences-" + secrets.token_hex(8))
+        workflow_id, _, run_request = create_run(client, headers)
+    run_pub_id = workflow_id.rsplit("/", 1)[-1]
+    raw_url = "https://example.com/repeated#first"
+    canonical_url = "https://example.com/repeated"
+    task_input = CollectionTaskInput("uvw-business", "UVW question", "deepseek", "CN-BJ", "normal")
+    persist_collection_result(
+        tenant,
+        run_pub_id,
+        CollectionTaskResult(
+            "uvw-business",
+            "captured answer",
+            "screen",
+            "accepted",
+            retrieval_events=[
+                {
+                    "ordinal": 1,
+                    "queries": ["first query"],
+                    "u_observation": "observed",
+                    "v_observation": "observed",
+                    "final_reference_observation": "observed",
+                    "candidates": [{"url": raw_url, "u_rank": 1}],
+                    "opened_pages": [{"url": canonical_url, "v_open_order": 1}],
+                    "final_references": [],
+                },
+                {
+                    "ordinal": 2,
+                    "queries": ["second query"],
+                    "u_observation": "observed",
+                    "v_observation": "unobserved",
+                    "final_reference_observation": "unobserved",
+                    "candidates": [{"url": canonical_url, "u_rank": 2}],
+                    "opened_pages": [],
+                    "final_references": [],
+                },
+            ],
+        ),
+        task_input,
+    )
+
+    with psycopg.connect(POSTGRES_DSN) as connection:
+        facts = connection.execute(
+            """
+            SELECT
+              count(DISTINCT url.id),count(occurrence.id),count(DISTINCT event.id),
+              array_agg(occurrence.query_text ORDER BY occurrence.occurrence_ordinal),
+              array_agg(occurrence.u_rank ORDER BY occurrence.occurrence_ordinal),
+              array_agg(occurrence.v_state ORDER BY occurrence.occurrence_ordinal),
+              min(url.canonical_url)
+            FROM platform.collection_run run
+            JOIN platform.answer_source_occurrence occurrence ON occurrence.run_id=run.id
+            JOIN platform.source_url url ON url.id=occurrence.source_url_id
+            JOIN platform.answer_retrieval_event event ON event.id=occurrence.retrieval_event_id
+            WHERE run.pub_id=%s
+            """,
+            (run_pub_id,),
+        ).fetchone()
+        capture_event = connection.execute(
+            """
+            SELECT count(*) FROM integration.outbox_event
+            WHERE tenant_pub_id=%s AND aggregate_pub_id=(
+              SELECT task.pub_id FROM platform.collection_task task
+              JOIN platform.collection_run run ON run.id=task.run_id
+              WHERE run.pub_id=%s AND task.business_key='uvw-business'
+            ) AND event_type='answer.capture.completed'
+            """,
+            (tenant, run_pub_id),
+        ).fetchone()[0]
+
+    assert facts == (
+        1,
+        2,
+        2,
+        ["first query", "second query"],
+        [1, 2],
+        ["entered", "unobserved"],
+        canonical_url,
+    )
+    assert capture_event == 1
+    assert run_request["project_pub_id"]
+
+
+class _FixtureTextStore:
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+    def get_text(self, key: str, expected_sha256: str) -> str:
+        assert key == "cas/uvw-content"
+        assert hashlib.sha256(self.text.encode()).hexdigest() == expected_sha256
+        return self.text
+
+
+def test_w_and_content_strategy_recalculations_are_immutable_versions() -> None:
+    with TestClient(app) as client:
+        tenant, headers = bootstrap(client, "uvw-w-version-" + secrets.token_hex(8))
+        workflow_id, _, run_request = create_run(client, headers)
+    run_pub_id = workflow_id.rsplit("/", 1)[-1]
+    project_pub_id = str(run_request["project_pub_id"])
+    quote = "该页面提供可以逐字回校验的公开产品事实与完整来源说明。"
+    source_text = f"页面标题\n{quote}\n补充信息。"
+    url = "https://example.com/versioned-w"
+    persist_collection_result(
+        tenant,
+        run_pub_id,
+        CollectionTaskResult(
+            "uvw-w-business",
+            f"根据公开页面，{quote}",
+            "screen",
+            "accepted",
+            citations=[
+                {
+                    "url": url,
+                    "title": "版本化 W 来源",
+                    "cited_text": quote,
+                    "ordinal": 1,
+                }
+            ],
+            retrieval_events=[
+                {
+                    "ordinal": 1,
+                    "queries": ["版本化 W"],
+                    "u_observation": "observed",
+                    "v_observation": "observed",
+                    "final_reference_observation": "observed",
+                    "candidates": [
+                        {
+                            "url": url,
+                            "u_rank": 1,
+                            "summary": "这只是搜索摘要，不能作为逐字引用。",
+                        }
+                    ],
+                    "opened_pages": [{"url": url, "v_open_order": 1}],
+                    "final_references": [
+                        {"url": url, "final_reference_ordinal": 1, "summary": quote}
+                    ],
+                }
+            ],
+        ),
+        CollectionTaskInput("uvw-w-business", "UVW W question", "deepseek", "CN-BJ", "normal"),
+    )
+    text_hash = hashlib.sha256(source_text.encode()).hexdigest()
+    with psycopg.connect(POSTGRES_DSN) as connection:
+        ids = connection.execute(
+            """
+            SELECT tenant.id,project.id,occurrence.source_url_id
+            FROM platform.tenant tenant
+            JOIN platform.project project ON project.tenant_id=tenant.id
+            JOIN platform.collection_run run ON run.project_id=project.id
+            JOIN platform.answer_source_occurrence occurrence ON occurrence.run_id=run.id
+            WHERE tenant.pub_id=%s AND project.pub_id=%s AND run.pub_id=%s
+            """,
+            (tenant, project_pub_id, run_pub_id),
+        ).fetchone()
+        assert ids is not None
+        connection.execute(
+            "SELECT set_config('app.tenant_id',%s,true),set_config('app.tenant_pub_id',%s,true)",
+            (str(ids[0]), tenant),
+        )
+        connection.execute(
+            """
+            INSERT INTO platform.source_page_snapshot
+              (id,pub_id,tenant_id,project_id,source_url_id,snapshot_state,
+               final_url,http_status,metadata,body_object_key,body_sha256,text_sha256,
+               extractor_version,captured_at,created_at)
+            VALUES (%s,%s,%s,%s,%s,'succeeded',%s,200,'{}','cas/uvw-content',
+                    %s,%s,'integration-exact-v1',now(),now())
+            """,
+            (
+                uuid.uuid4(),
+                "snp_" + secrets.token_hex(10),
+                ids[0],
+                ids[1],
+                ids[2],
+                url,
+                text_hash,
+                text_hash,
+            ),
+        )
+
+    text_store = _FixtureTextStore(source_text)
+    for policy_version in ("content-contribution-exact-v1", "content-contribution-exact-v2"):
+        contribution = execute_content_contribution(
+            ContentContributionInput(
+                tenant_pub_id=tenant,
+                project_pub_id=project_pub_id,
+                run_pub_id=run_pub_id,
+                policy_version=policy_version,
+            ),
+            dsn=POSTGRES_DSN,
+            text_store=text_store,  # type: ignore[arg-type]
+        )
+        assert contribution.analyzed == 1
+        assert contribution.confirmed_occurrences == 1
+        assert contribution.chunks >= 1
+        assert contribution.failures == []
+        strategy = execute_content_strategy(
+            ContentStrategyInput(
+                tenant_pub_id=tenant,
+                project_pub_id=project_pub_id,
+                run_pub_id=run_pub_id,
+                content_contribution_policy_version=policy_version,
+            ),
+            dsn=POSTGRES_DSN,
+            text_store=text_store,  # type: ignore[arg-type]
+        )
+        assert strategy.u_occurrences == 1
+        assert strategy.snapshot_available == 1
+
+    # Same snapshot and occurrence are retained as two W policy versions; the
+    # service-5 strategy also retains both frozen-input analyses instead of
+    # treating a changed W policy as replay drift.
+    with psycopg.connect(POSTGRES_DSN) as connection:
+        versions = connection.execute(
+            """
+            SELECT
+              (SELECT count(*) FROM platform.content_contribution_analysis analysis
+               WHERE analysis.occurrence_id=occurrence.id),
+              (SELECT count(*) FROM platform.weighted_content_chunk chunk
+               WHERE chunk.occurrence_id=occurrence.id),
+              (SELECT count(*) FROM platform.content_strategy_analysis strategy
+               WHERE strategy.run_id=run.id)
+            FROM platform.collection_run run
+            JOIN platform.answer_source_occurrence occurrence ON occurrence.run_id=run.id
+            WHERE run.pub_id=%s
+            """,
+            (run_pub_id,),
+        ).fetchone()
+    assert versions is not None
+    assert versions[0] == 2
+    assert versions[1] >= 2
+    assert versions[2] == 2
 
 
 class ReconciliationHandle:

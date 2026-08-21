@@ -31,6 +31,7 @@ def render_publishing_pilot_docx(facts: dict[str, Any]) -> bytes:
     summary = publishing["summary"]
     comparison = facts.get("comparability") or {}
     metrics = list(facts.get("metrics") or [])
+    uvw_strategy = facts.get("uvw_content_strategy") or {}
     doc = FormalDocument(
         title="内容发布与排名提升试点报告",
         subtitle="服务 5 · 发布台账与服务 1 同口径前后复测",
@@ -58,6 +59,15 @@ def render_publishing_pilot_docx(facts: dict[str, Any]) -> bytes:
                 "可比" if comparison.get("status") == "comparable" else "不可比/待补",
                 f"{sum(bool(row.get('passed')) for row in comparison.get('checks', []))}/"
                 f"{len(comparison.get('checks', []))} 项检查通过",
+            ),
+            (
+                "UVW 内容依据",
+                {
+                    "ready": "完整",
+                    "partial": "部分可观察",
+                    "insufficient": "不足",
+                }.get(str(uvw_strategy.get("status") or ""), "未知"),
+                "V 对 U−V；高 W 对低 W",
             ),
         ]
     )
@@ -113,7 +123,85 @@ def render_publishing_pilot_docx(facts: dict[str, Any]) -> bytes:
         ]
     )
 
-    doc.heading("3. 前后测量矩阵")
+    doc.heading("3. UVW 内容策略依据")
+    cohort_counts = uvw_strategy.get("cohort_counts") or {}
+    if uvw_strategy.get("schema_version") != "formal-uvw-content-strategy-v1":
+        doc.callout(
+            "UVW 分析事实缺失",
+            "报告输入未绑定版本化 UVW 分析，不展示推测值，也不生成内容建议。",
+            kind="warning",
+        )
+    else:
+        doc.table(
+            ["口径", "样本量", "说明"],
+            [
+                (
+                    "全部可观察 U",
+                    _value(cohort_counts.get("u_occurrences")),
+                    "所有实际检索候选 occurrence",
+                ),
+                ("进入 V", _value(cohort_counts.get("v_entered")), "模型实际打开或读取"),
+                ("U−V", _value(cohort_counts.get("u_not_v")), "可观察 U 中未进入 V"),
+                ("高 W", _value(cohort_counts.get("high_w")), "逐字证据贡献分达到版本阈值"),
+                ("低 W", _value(cohort_counts.get("low_w")), "低于阈值或未找到逐字贡献"),
+                (
+                    "不可观察",
+                    _value(cohort_counts.get("u_observation_unavailable")),
+                    "未知不是 0；不并入 U 分母",
+                ),
+            ],
+            widths=(38, 30, 104),
+            font_size=7.5,
+        )
+        comparisons = uvw_strategy.get("feature_comparison") or {}
+        comparison_rows = []
+        for key, label in (
+            ("selection", "V 对 U−V"),
+            ("content_contribution", "高 W 对低 W"),
+        ):
+            item = comparisons.get(key) or {}
+            comparison_rows.append(
+                (
+                    label,
+                    _value(item.get("left_n")),
+                    _value(item.get("right_n")),
+                    "可比较" if item.get("left_n") and item.get("right_n") else "样本不足",
+                )
+            )
+        doc.table(
+            ["对照", "左组 n", "右组 n", "状态"],
+            comparison_rows,
+            widths=(58, 30, 30, 54),
+            font_size=7.5,
+        )
+        recommendations = list(uvw_strategy.get("recommendations") or [])
+        if recommendations:
+            doc.table(
+                ["依据", "观察", "下一轮实验", "边界"],
+                [
+                    (
+                        "V / U−V" if row.get("basis") == "v_vs_u_not_v" else "高 W / 低 W",
+                        row.get("observation") or "—",
+                        row.get("experiment") or "—",
+                        row.get("causal_boundary") or "—",
+                    )
+                    for row in recommendations
+                ],
+                widths=(27, 55, 55, 35),
+                font_size=6.8,
+            )
+        else:
+            doc.callout(
+                "暂不形成内容建议",
+                "至少一组对照缺少可观察样本。缺失值保持未知，不以 0 补齐。",
+                kind="warning",
+            )
+        doc.paragraph(
+            str(uvw_strategy.get("causal_boundary") or "未知状态不得推断。"),
+            bold_lead="解释边界：",
+        )
+
+    doc.heading("4. 前后测量矩阵")
     windows = facts.get("windows") or {}
     doc.table(
         ["测量臂", "窗口", "合格回答", "品牌抽取", "带引用", "可视证据"],
@@ -133,7 +221,7 @@ def render_publishing_pilot_docx(facts: dict[str, Any]) -> bytes:
         font_size=7.5,
     )
     checks = list(comparison.get("checks") or [])
-    doc.heading("3.1 可比性检查", level=2)
+    doc.heading("4.1 可比性检查", level=2)
     doc.table(
         ["检查项", "状态", "说明"],
         [
@@ -148,7 +236,7 @@ def render_publishing_pilot_docx(facts: dict[str, Any]) -> bytes:
         font_size=7.5,
     )
 
-    doc.heading("4. 同口径复测结果")
+    doc.heading("5. 同口径复测结果")
     if metrics and comparison.get("status") == "comparable":
         doc.table(
             ["指标", "前测", "后测", "绝对变化", "样本量/稳定性"],

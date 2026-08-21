@@ -17,6 +17,82 @@ from psycopg.rows import dict_row
 from geo_platform.tenancy.psycopg import tenant_connection
 
 
+def _json_object(value: object) -> dict[str, Any]:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            return {}
+    return dict(value) if isinstance(value, Mapping) else {}
+
+
+def _json_array(value: object) -> list[dict[str, Any]]:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            return []
+    if not isinstance(value, list):
+        return []
+    return [dict(item) for item in value if isinstance(item, Mapping)]
+
+
+def load_uvw_content_strategy_evidence(
+    *,
+    dsn: str,
+    tenant_pub_id: str,
+    project_pub_id: str,
+    window_start: date,
+    window_end: date,
+) -> dict[str, Any]:
+    """Load the latest immutable UVW cohort fact without manufacturing zeroes."""
+
+    with tenant_connection(dsn, tenant_pub_id, row_factory=dict_row) as connection:
+        row = connection.execute(
+            """
+            SELECT analysis.pub_id,analysis.input_hash,analysis.policy_version,
+                   analysis.algorithm_version,analysis.status,analysis.cohort_counts,
+                   analysis.feature_comparison,analysis.recommendations,
+                   analysis.created_at,run.pub_id AS run_pub_id
+            FROM platform.content_strategy_analysis analysis
+            JOIN platform.project project ON project.id=analysis.project_id
+            JOIN platform.collection_run run ON run.id=analysis.run_id
+            WHERE project.pub_id=%s
+              AND run.created_at::date BETWEEN %s AND %s
+            ORDER BY analysis.created_at DESC,analysis.pub_id DESC
+            LIMIT 1
+            """,
+            (project_pub_id, window_start, window_end),
+        ).fetchone()
+    if row is None:
+        return {
+            "schema_version": "formal-uvw-content-strategy-v1",
+            "status": "insufficient",
+            "reasons": ["analysis_missing"],
+            "cohort_counts": {},
+            "feature_comparison": {},
+            "recommendations": [],
+            "causal_boundary": "没有版本化 UVW 对照事实；未知状态不得展示为 0 或形成内容建议。",
+        }
+    return {
+        "schema_version": "formal-uvw-content-strategy-v1",
+        "analysis_pub_id": str(row["pub_id"]),
+        "run_pub_id": str(row["run_pub_id"]),
+        "input_hash": str(row["input_hash"]),
+        "policy_version": str(row["policy_version"]),
+        "algorithm_version": str(row["algorithm_version"]),
+        "status": str(row["status"]),
+        "created_at": row["created_at"],
+        "reasons": [],
+        "cohort_counts": _json_object(row["cohort_counts"]),
+        "feature_comparison": _json_object(row["feature_comparison"]),
+        "recommendations": _json_array(row["recommendations"]),
+        "causal_boundary": (
+            "UVW 队列差异是同一批语料中的观察性关联，只用于形成待验证假设，不证明因果。"
+        ),
+    }
+
+
 def _brand_aliases(value: object) -> tuple[str, ...]:
     if isinstance(value, str):
         try:
@@ -176,4 +252,4 @@ def build_publishing_evidence(
     }
 
 
-__all__ = ["build_publishing_evidence"]
+__all__ = ["build_publishing_evidence", "load_uvw_content_strategy_evidence"]

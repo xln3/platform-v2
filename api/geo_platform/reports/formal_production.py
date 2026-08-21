@@ -1062,10 +1062,8 @@ class _PublishingService5Adapter:
             raise FormalProductionInvalid("service5_windows_required")
         if not context.request.sop_project_pub_id:
             raise FormalProductionInvalid("service5_sop_project_required")
-        publishing_builder = import_module(
-            "geo_platform.reports.formal_review_service5"
-        ).build_publishing_evidence
-        publication_evidence = publishing_builder(
+        publishing_module = import_module("geo_platform.reports.formal_review_service5")
+        publication_evidence = publishing_module.build_publishing_evidence(
             dsn=context.dsn,
             tenant_pub_id=context.request.tenant_pub_id,
             sop_project_pub_id=context.request.sop_project_pub_id,
@@ -1074,6 +1072,13 @@ class _PublishingService5Adapter:
             window_start=context.request.window.start,
             window_end=context.request.window.end,
             generated_at=context.request.frozen_at,
+        )
+        uvw_content_strategy = publishing_module.load_uvw_content_strategy_evidence(
+            dsn=context.dsn,
+            tenant_pub_id=context.request.tenant_pub_id,
+            project_pub_id=context.request.project_pub_id,
+            window_start=context.request.window.start,
+            window_end=context.request.window.end,
         )
         raw_aliases = publication_evidence.get("brand_aliases")
         aliases = (
@@ -1104,6 +1109,7 @@ class _PublishingService5Adapter:
             ),
         )
         facts["publication_evidence"] = publication_evidence
+        facts["uvw_content_strategy"] = uvw_content_strategy
         return facts
 
     def render(self, facts: dict[str, Any], *, blob_loader: Callable[[str, str], bytes]) -> bytes:

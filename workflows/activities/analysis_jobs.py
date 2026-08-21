@@ -27,6 +27,8 @@ POST_COLLECTION_POLICY_VERSION = "post-collection-v2"
 RUN_ANALYZER_KINDS = (
     "own_site_snapshot",
     "source_fetch",
+    "content_contribution",
+    "content_strategy",
     "source_audit",
     "page_inspection",
     "site_suggestions",

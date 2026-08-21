@@ -457,9 +457,22 @@ def test_service5_adapter_uses_the_bound_sop_brand_for_comparison(
         received.update(kwargs)
         return {"target_brand": kwargs["target_brand"]}
 
+    def strategy(**kwargs: Any) -> dict[str, Any]:
+        received["strategy"] = kwargs
+        return {
+            "schema_version": "formal-uvw-content-strategy-v1",
+            "status": "insufficient",
+            "cohort_counts": {},
+            "feature_comparison": {},
+            "recommendations": [],
+        }
+
     def importer(name: str) -> object:
         if name.endswith("formal_review_service5"):
-            return SimpleNamespace(build_publishing_evidence=publishing)
+            return SimpleNamespace(
+                build_publishing_evidence=publishing,
+                load_uvw_content_strategy_evidence=strategy,
+            )
         if name.endswith("formal_review_service4"):
             return SimpleNamespace(build_service4_review_facts=comparison)
         raise AssertionError(name)
@@ -477,6 +490,37 @@ def test_service5_adapter_uses_the_bound_sop_brand_for_comparison(
 
     assert received["target_brand"] == "第二品牌"
     assert facts["publication_evidence"]["target_brand"] == "第二品牌"
+    assert received["strategy"]["project_pub_id"] == "prj_unit"
+    assert facts["uvw_content_strategy"]["status"] == "insufficient"
+
+
+def test_service5_missing_uvw_analysis_stays_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Result:
+        def fetchone(self) -> None:
+            return None
+
+    class Connection:
+        def execute(self, *_args: object, **_kwargs: object) -> Result:
+            return Result()
+
+    @contextmanager
+    def connection(*_args: object, **_kwargs: object):
+        yield Connection()
+
+    monkeypatch.setattr(formal_review_service5, "tenant_connection", connection)
+    facts = formal_review_service5.load_uvw_content_strategy_evidence(
+        dsn="postgresql://unused",
+        tenant_pub_id="ten_unit",
+        project_pub_id="prj_unit",
+        window_start=date(2026, 8, 1),
+        window_end=date(2026, 8, 20),
+    )
+
+    assert facts["status"] == "insufficient"
+    assert facts["reasons"] == ["analysis_missing"]
+    assert facts["cohort_counts"] == {}
 
 
 def test_service5_publication_boundary_is_strict(

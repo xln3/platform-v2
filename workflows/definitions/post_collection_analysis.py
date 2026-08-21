@@ -13,6 +13,14 @@ from temporalio.exceptions import CancelledError
 
 with workflow.unsafe.imports_passed_through():
     from workflows.activities.analysis_jobs import AnalysisJobStateInput, mark_analysis_job
+    from workflows.activities.content_contribution import (
+        ContentContributionInput,
+        analyze_content_contribution,
+    )
+    from workflows.activities.content_strategy import (
+        ContentStrategyInput,
+        analyze_content_strategy,
+    )
     from workflows.activities.disparagement import (
         DisparagementInput,
         judge_run_disparagement,
@@ -77,6 +85,15 @@ def _result_summary(value: Any) -> dict[str, Any]:
         "candidate_quotes",
         "verified_quotes",
         "skipped_documents",
+        "analyzed",
+        "confirmed_occurrences",
+        "chunks",
+        "no_evidence",
+        "analysis_pub_id",
+        "status",
+        "u_occurrences",
+        "snapshot_available",
+        "recommendations",
     ):
         item = getattr(value, field, None)
         if isinstance(item, bool | int | str):
@@ -96,6 +113,8 @@ def _result_state(value: Any) -> str:
         return "skipped"
     if bool(getattr(value, "llm_unavailable", False)):
         return "partial" if getattr(value, "inspected", None) else "skipped"
+    if getattr(value, "status", None) in {"partial", "insufficient"}:
+        return "partial"
     failures = getattr(value, "failures", None)
     truncated = getattr(value, "truncated", 0)
     if (isinstance(failures, list) and failures) or (isinstance(truncated, int) and truncated > 0):
@@ -199,7 +218,7 @@ class PostCollectionAnalysisWorkflow:
                 project_pub_id=data.project_pub_id,
                 run_pub_id=data.run_pub_id,
             ),
-            start_to_close=timedelta(minutes=15),
+            start_to_close=timedelta(hours=24),
         )
         if not audit_ok:
             await self._skip_dependency(data, "site_suggestions")
@@ -213,7 +232,7 @@ class PostCollectionAnalysisWorkflow:
                 project_pub_id=data.project_pub_id,
                 run_pub_id=data.run_pub_id,
             ),
-            start_to_close=timedelta(minutes=15),
+            start_to_close=timedelta(hours=24),
         )
 
     async def _risk_branch(self, data: PostCollectionAnalysisInput) -> None:
@@ -226,7 +245,7 @@ class PostCollectionAnalysisWorkflow:
                 project_pub_id=data.project_pub_id,
                 run_pub_id=data.run_pub_id,
             ),
-            start_to_close=timedelta(minutes=120),
+            start_to_close=timedelta(hours=24),
         )
         if not risk_ok:
             await self._skip_dependency(data, "risk_factcheck")
@@ -240,7 +259,7 @@ class PostCollectionAnalysisWorkflow:
                 project_pub_id=data.project_pub_id,
                 run_pub_id=data.run_pub_id,
             ),
-            start_to_close=timedelta(minutes=30),
+            start_to_close=timedelta(hours=24),
         )
 
     async def _page_inspection_branch(
@@ -271,8 +290,52 @@ class PostCollectionAnalysisWorkflow:
                 model=data.page_inspection_model,
                 prompt_version=data.page_inspection_prompt_version,
             ),
-            start_to_close=timedelta(minutes=120),
+            start_to_close=timedelta(hours=24),
         )
+
+    async def _content_contribution_branch(
+        self,
+        data: PostCollectionAnalysisInput,
+        source_fetch_ok: bool,
+    ) -> None:
+        contribution_requested = "content_contribution" in data.analysis_jobs
+        strategy_requested = "content_strategy" in data.analysis_jobs
+        if not contribution_requested and not strategy_requested:
+            return
+        if not source_fetch_ok:
+            if contribution_requested:
+                await self._skip_dependency(data, "content_contribution")
+            if strategy_requested:
+                await self._skip_dependency(data, "content_strategy")
+            return
+        contribution_ok = True
+        if contribution_requested:
+            contribution_ok = await self._stage(
+                data,
+                "content_contribution",
+                analyze_content_contribution,
+                ContentContributionInput(
+                    tenant_pub_id=data.tenant_pub_id,
+                    project_pub_id=data.project_pub_id,
+                    run_pub_id=data.run_pub_id,
+                ),
+                start_to_close=timedelta(hours=24),
+            )
+        if strategy_requested and not contribution_ok:
+            await self._skip_dependency(data, "content_strategy")
+            return
+        if strategy_requested:
+            await self._stage(
+                data,
+                "content_strategy",
+                analyze_content_strategy,
+                ContentStrategyInput(
+                    tenant_pub_id=data.tenant_pub_id,
+                    project_pub_id=data.project_pub_id,
+                    run_pub_id=data.run_pub_id,
+                ),
+                start_to_close=timedelta(hours=24),
+            )
 
     @workflow.run
     async def run(self, data: PostCollectionAnalysisInput) -> dict[str, str]:
@@ -286,7 +349,7 @@ class PostCollectionAnalysisWorkflow:
                     project_pub_id=data.project_pub_id,
                     run_pub_id=data.run_pub_id,
                 ),
-                start_to_close=timedelta(minutes=60),
+                start_to_close=timedelta(hours=24),
                 task_queue=data.source_task_queue,
             ),
             self._stage(
@@ -306,6 +369,7 @@ class PostCollectionAnalysisWorkflow:
         # it reads the immutable captured answers and any snapshots that exist.
         await asyncio.gather(
             self._source_audit_branch(data, source_fetch),
+            self._content_contribution_branch(data, source_fetch),
             self._page_inspection_branch(data, source_fetch),
             self._risk_branch(data),
         )

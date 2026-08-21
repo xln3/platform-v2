@@ -13,6 +13,8 @@ from temporalio.contrib.opentelemetry import TracingInterceptor
 from temporalio.worker import Worker
 
 from workflows.activities.analysis_jobs import mark_analysis_job
+from workflows.activities.content_contribution import analyze_content_contribution
+from workflows.activities.content_strategy import analyze_content_strategy
 from workflows.activities.disparagement import judge_run_disparagement
 from workflows.activities.disparagement_factcheck import factcheck_disparagement_cases
 from workflows.activities.own_content_disparagement import judge_own_content_disparagement
@@ -44,6 +46,8 @@ ANALYSIS_ACTIVITIES = (
     analyze_answer_activity,
     extract_brands_activity,
     audit_run_sources,
+    analyze_content_contribution,
+    analyze_content_strategy,
     inspect_run_source_pages,
     generate_site_audit_suggestions,
     judge_run_disparagement,
