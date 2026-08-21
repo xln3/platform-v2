@@ -552,36 +552,92 @@ export function SourceIntelligenceWorkspace() {
     if (fixture) {
       const reviewedAt = new Date().toISOString();
       const reviewedChunk = wChunks.find((chunk) => chunk.chunkPubId === chunkPubId);
-      setWChunks((current) =>
-        current.map((chunk) =>
-          chunk.chunkPubId === chunkPubId
-            ? {
-                ...chunk,
-                reviewState: decision,
-                reviewCount: chunk.reviewCount + 1,
-                latestReview: {
-                  reviewPubId: 'wcr_fixture_review',
-                  decision,
-                  rationale,
-                  reviewerPubId: 'usr_fixture_reviewer',
-                  reviewedAt,
-                },
-              }
-            : chunk,
-        ),
+      const nextChunks = wChunks.map((chunk) =>
+        chunk.chunkPubId === chunkPubId
+          ? {
+              ...chunk,
+              reviewState: decision,
+              reviewCount: chunk.reviewCount + 1,
+              latestReview: {
+                reviewPubId: 'wcr_fixture_review',
+                decision,
+                rationale,
+                reviewerPubId: 'usr_fixture_reviewer',
+                reviewedAt,
+              },
+            }
+          : chunk,
       );
+      setWChunks(nextChunks);
       if (reviewedChunk) {
+        const occurrenceChunks = nextChunks.filter(
+          (chunk) => chunk.occurrencePubId === reviewedChunk.occurrencePubId,
+        );
+        const latestAnalysis = [...occurrenceChunks].sort(
+          (left, right) =>
+            right.analysisCreatedAt.localeCompare(left.analysisCreatedAt) ||
+            right.analysisPubId.localeCompare(left.analysisPubId),
+        )[0];
+        const eligibleChunks = latestAnalysis
+          ? occurrenceChunks.filter(
+              (chunk) =>
+                chunk.analysisPubId === latestAnalysis.analysisPubId &&
+                ((chunk.verificationState === 'exact' && chunk.reviewState !== 'rejected') ||
+                  chunk.reviewState === 'accepted'),
+            )
+          : [];
+        const nextWeight =
+          eligibleChunks.length === 0
+            ? null
+            : Math.max(...eligibleChunks.map((chunk) => chunk.contributionScore));
+        const nextState = nextWeight === null ? 'no_evidence' : 'confirmed';
+        const previousOccurrence = occurrences.find(
+          (occurrence) => occurrence.occurrencePubId === reviewedChunk.occurrencePubId,
+        );
         setOccurrences((current) =>
           current.map((occurrence) =>
             occurrence.occurrencePubId === reviewedChunk.occurrencePubId
               ? {
                   ...occurrence,
-                  wState: decision === 'accepted' ? 'confirmed' : 'no_evidence',
-                  wWeight: decision === 'accepted' ? reviewedChunk.contributionScore : null,
+                  wState: nextState,
+                  wWeight: nextWeight,
                 }
               : occurrence,
           ),
         );
+        setAnswer((current) =>
+          current
+            ? {
+                ...current,
+                occurrences: current.occurrences.map((occurrence) =>
+                  occurrence.occurrencePubId === reviewedChunk.occurrencePubId
+                    ? { ...occurrence, wState: nextState, wWeight: nextWeight }
+                    : occurrence,
+                ),
+              }
+            : current,
+        );
+        const countDelta =
+          Number(nextState === 'confirmed') - Number(previousOccurrence?.wState === 'confirmed');
+        if (countDelta !== 0) {
+          setDetail((current) =>
+            current ? { ...current, wCount: Math.max(0, current.wCount + countDelta) } : current,
+          );
+          setUrls((current) =>
+            current.map((url) =>
+              url.urlPubId === selectedUrl
+                ? { ...url, wCount: Math.max(0, url.wCount + countDelta) }
+                : url,
+            ),
+          );
+          setSites((current) =>
+            current.map((site) =>
+              site.sitePubId === selectedSite
+                ? { ...site, wCount: Math.max(0, site.wCount + countDelta) }
+                : site,
+            ),
+          );
+        }
       }
       setReviewMessage(decision === 'accepted' ? 'W 片段已复核通过。' : 'W 片段已复核驳回。');
       return;
@@ -631,7 +687,41 @@ export function SourceIntelligenceWorkspace() {
       setOccurrences(refreshedOccurrences.data.data);
       setOccurrenceCursor(refreshedOccurrences.data.nextCursor);
     }
-    if (refreshedDetail.kind === 'ready') setDetail(refreshedDetail.data);
+    if (refreshedDetail.kind === 'ready') {
+      const countDelta =
+        refreshedDetail.data.wCount - (detail?.wCount ?? refreshedDetail.data.wCount);
+      setDetail(refreshedDetail.data);
+      setUrls((current) =>
+        current.map((url) =>
+          url.urlPubId === selectedUrl
+            ? {
+                ...url,
+                wCount: refreshedDetail.data.wCount,
+                wObservation: refreshedDetail.data.wObservation,
+              }
+            : url,
+        ),
+      );
+      if (countDelta !== 0) {
+        setSites((current) =>
+          current.map((site) =>
+            site.sitePubId === selectedSite
+              ? { ...site, wCount: Math.max(0, site.wCount + countDelta) }
+              : site,
+          ),
+        );
+      }
+    }
+    if (answer) {
+      const refreshedAnswer = await getInternalAnswerUvw(headers, projectPubId, answer.answerPubId);
+      if (refreshedAnswer.kind === 'ready') {
+        setAnswer((current) =>
+          current?.answerPubId === refreshedAnswer.data.answerPubId
+            ? refreshedAnswer.data
+            : current,
+        );
+      }
+    }
     setReviewMessage(
       result.data.decision === 'accepted' ? 'W 片段已复核通过。' : 'W 片段已复核驳回。',
     );

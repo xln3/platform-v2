@@ -29,6 +29,8 @@ describe('SourceIntelligenceWorkspace', () => {
     await user.click(screen.getByRole('button', { name: '复核驳回' }));
     expect(screen.getByRole('status').textContent).toContain('W 片段已复核驳回');
     expect(screen.getByText(/最近复核：rejected · 逐字证据复核不通过/)).toBeTruthy();
+    expect(screen.getAllByText('V 3 / W 0（部分）')).toHaveLength(2);
+    expect(screen.getByText('无可验证内容')).toBeTruthy();
 
     await user.click(screen.getByRole('button', { name: '查看逐字证据' }));
     expect(screen.getByText('风险发现与逐字证据')).toBeTruthy();
