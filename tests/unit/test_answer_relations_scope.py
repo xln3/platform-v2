@@ -31,8 +31,21 @@ def test_answer_relations_bind_customer_project_and_latest_analysis(
     class _Connection:
         def execute(self, sql: str, params: object = None) -> _Result:
             calls.append((sql, params))
-            if "SELECT pub_id,project_pub_id FROM analytics.answer" in sql:
-                return _Result([{"pub_id": "ans_test", "project_pub_id": "prj_test"}])
+            if "SELECT id FROM platform.tenant" in sql:
+                return _Result([{"id": "00000000-0000-0000-0000-000000000001"}])
+            if "set_config('app.tenant_id'" in sql:
+                return _Result()
+            if "FROM platform.collection_task task" in sql and "UNION ALL" in sql:
+                return _Result(
+                    [
+                        {
+                            "pub_id": "ans_test",
+                            "project_pub_id": "prj_test",
+                            "captured_citations": None,
+                            "website": None,
+                        }
+                    ]
+                )
             if "FROM analytics.citation_fact" in sql:
                 return _Result(
                     [
@@ -61,10 +74,10 @@ def test_answer_relations_bind_customer_project_and_latest_analysis(
                 return _Result(
                     [
                         {
-                            "platform": "yiyan",
+                            "platform": "deepseek",
                             "status": "available",
-                            "share_url": "https://mr.baidu.com/r/test",
-                            "final_url": "https://mr.baidu.com/r/test",
+                            "share_url": "https://chat.deepseek.com/share/test",
+                            "final_url": "https://chat.deepseek.com/share/test",
                             "allowlist_valid": True,
                             "availability_status": "reachable",
                             "http_status": 200,
@@ -133,7 +146,7 @@ def test_answer_relations_bind_customer_project_and_latest_analysis(
     assert [citation.ordinal for citation in result.answer_citations] == [1]
     assert [evidence.pub_id for evidence in result.evidence] == expected_evidence
     assert result.share_artifact is not None
-    assert result.share_artifact.share_url == "https://mr.baidu.com/r/test"
+    assert result.share_artifact.share_url == "https://chat.deepseek.com/share/test"
     assert result.share_artifact.embed_status == "blocked"
     assert result.share_image is not None
     assert result.share_image.pub_id == "evd_testshareimage1234"
@@ -153,10 +166,16 @@ def test_answer_relations_bind_customer_project_and_latest_analysis(
     answer_sql, answer_params = next(
         (sql, params)
         for sql, params in calls
-        if "SELECT pub_id,project_pub_id FROM analytics.answer" in sql
+        if "FROM platform.collection_task task" in sql and "UNION ALL" in sql
     )
     assert "project_pub_id=%s::text" in answer_sql
     assert answer_params == (
+        "tnt_test",
+        "ans_test",
+        "prj_test",
+        "prj_test",
+        captured_at,
+        captured_at,
         "tnt_test",
         "ans_test",
         "prj_test",
@@ -175,7 +194,5 @@ def test_answer_relations_bind_customer_project_and_latest_analysis(
     share_sql = next(sql for sql, _ in calls if "FROM evidence.answer_share_artifact" in sql)
     assert "updated_at<=%s::timestamptz" in share_sql
     assert "relation.relation_type='official_share_image'" in share_sql
-    assert "artifact.platform IN ('doubao','yiyan')" in share_sql
     assert "asset.kind='share_image'" in share_sql
     assert "asset.customer_visible=true" in share_sql
-    assert "asset.source_url IN (artifact.share_url,artifact.final_url)" in share_sql

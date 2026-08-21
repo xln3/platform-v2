@@ -9,6 +9,7 @@ from temporalio.contrib.opentelemetry import TracingInterceptor
 from temporalio.worker import Worker
 
 from domain.reporting.libreoffice import report_runtime_preflight
+from workflows.activities.analysis_jobs import mark_analysis_job
 from workflows.activities.s02 import (
     analyze_answer_activity,
     capture_evidence_activity,
@@ -38,6 +39,7 @@ S02_WORKFLOWS = (
     AntiGeoInvestigationWorkflow,
 )
 S02_ACTIVITIES = (
+    mark_analysis_job,
     analyze_answer_activity,
     extract_brands_activity,
     prepare_evidence_activity,

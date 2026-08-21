@@ -4,6 +4,7 @@ from __future__ import annotations
 import math
 import re
 from datetime import UTC, date, datetime, timedelta
+from hashlib import sha256
 from typing import Annotated, Any, Literal
 from urllib.parse import urlsplit, urlunsplit
 
@@ -45,6 +46,15 @@ IdempotencyKey = Annotated[
 ]
 
 _RUN_PUB_ID_RE = re.compile(r"run_[A-Za-z0-9_-]{1,116}")
+AnalysisState = Literal[
+    "not_requested",
+    "queued",
+    "running",
+    "completed",
+    "partial",
+    "failed",
+    "skipped",
+]
 
 
 class StrictModel(BaseModel):
@@ -74,9 +84,15 @@ class AnswerView(StrictModel):
     model: str
     region: str
     mode: str
-    eligible: bool
-    degraded: bool
+    # Eligibility is an analysis result. It is honestly null while a freshly
+    # captured answer is waiting for that independent job.
+    eligible: bool | None
+    degraded: bool | None
     capture_time: datetime
+    capture_state: Literal["completed", "legacy"]
+    answer_analysis_state: AnalysisState
+    source_analysis_state: AnalysisState
+    risk_analysis_state: AnalysisState
     mentioned: bool | None
     rank: int | None
     sentiment: str | None
@@ -734,24 +750,115 @@ def answers(
 ) -> AnswerPage:
     principal.require("project:read")
     with tenant_connection(_dsn(), principal.tenant_pub_id, row_factory=dict_row) as connection:
+        tenant_row = connection.execute(
+            "SELECT id FROM platform.tenant WHERE pub_id=%s",
+            (principal.tenant_pub_id,),
+        ).fetchone()
+        connection.execute(
+            "SELECT set_config('app.tenant_id', %s, true)",
+            (str(tenant_row["id"]) if tenant_row is not None else "",),
+        )
         rows = connection.execute(
             """
+            WITH captured AS (
+              SELECT task.pub_id,project.pub_id AS project_pub_id,
+                     run.pub_id AS run_pub_id,config.pub_id AS config_version_pub_id,
+                     answer.query_pub_id,
+                     COALESCE(task.matrix_json::jsonb->>'query',answer.query_text) AS query_text,
+                     COALESCE(
+                       task.response_markdown_normalized,task.answer_text,''
+                     ) AS response_text,
+                     COALESCE(task.matrix_json::jsonb->>'model',answer.model,'unknown') AS model,
+                     COALESCE(task.matrix_json::jsonb->>'region',answer.region,'unknown') AS region,
+                     COALESCE(task.matrix_json::jsonb->>'mode',answer.mode,'unknown') AS mode,
+                     answer.eligible,answer.degraded,task.created_at AS capture_time,
+                     'completed'::text AS capture_state,run.id AS internal_run_id,
+                     jsonb_array_length(COALESCE(task.citations_json,'[]')::jsonb)
+                       AS captured_citation_count
+              FROM platform.collection_task task
+              JOIN platform.collection_run run ON run.id=task.run_id
+              JOIN platform.project project ON project.id=run.project_id
+              JOIN platform.monitoring_config_version config ON config.id=run.config_version_id
+              JOIN platform.tenant tenant ON tenant.id=task.tenant_id
+              LEFT JOIN analytics.answer answer
+                ON answer.tenant_pub_id=tenant.pub_id AND answer.pub_id=task.pub_id
+              WHERE tenant.pub_id=%s AND project.pub_id=%s AND task.state='completed'
+            ), legacy AS (
+              SELECT answer.pub_id,answer.project_pub_id,answer.run_pub_id,
+                     answer.config_version_pub_id,answer.query_pub_id,answer.query_text,
+                     answer.response_text,answer.model,answer.region,answer.mode,
+                     answer.eligible,answer.degraded,answer.capture_time,
+                     'legacy'::text AS capture_state,NULL::uuid AS internal_run_id,
+                     (SELECT count(*)::int FROM analytics.citation_fact citation
+                      WHERE citation.tenant_pub_id=answer.tenant_pub_id
+                        AND citation.answer_pub_id=answer.pub_id) AS captured_citation_count
+              FROM analytics.answer answer
+              WHERE answer.tenant_pub_id=%s AND answer.project_pub_id=%s
+                AND NOT EXISTS (
+                  SELECT 1 FROM platform.collection_task task WHERE task.pub_id=answer.pub_id
+                )
+            ), answer_base AS (
+              SELECT * FROM captured
+              UNION ALL
+              SELECT * FROM legacy
+            )
             SELECT a.pub_id,a.project_pub_id,a.run_pub_id,a.config_version_pub_id,
-                   a.query_pub_id,a.query_text,a.response_text,
-                   a.model,a.region,a.mode,a.eligible,a.degraded,a.capture_time,
+                   a.query_pub_id,a.query_text,a.response_text,a.model,a.region,a.mode,
+                   a.eligible,a.degraded,a.capture_time,a.capture_state,
+                   COALESCE(answer_job.state,
+                     CASE WHEN aa.analysis_run_pub_id IS NOT NULL THEN 'completed'
+                          ELSE 'not_requested' END) AS answer_analysis_state,
+                   COALESCE(source_jobs.state,'not_requested') AS source_analysis_state,
+                   COALESCE(risk_jobs.state,'not_requested') AS risk_analysis_state,
                    aa.mentioned,aa.rank,aa.sentiment,aa.recommendation_state,
-                   (SELECT count(*) FROM analytics.citation_fact c
-                    WHERE c.tenant_pub_id=a.tenant_pub_id AND c.answer_pub_id=a.pub_id)
-                    AS citation_count
-            FROM analytics.answer a
+                   a.captured_citation_count AS citation_count
+            FROM answer_base a
             LEFT JOIN LATERAL (
-              SELECT mentioned,rank,sentiment,recommendation_state
+              SELECT analysis_run_pub_id,mentioned,rank,sentiment,recommendation_state
               FROM analytics.answer_analysis
-              WHERE tenant_pub_id=a.tenant_pub_id AND answer_pub_id=a.pub_id
+              WHERE tenant_pub_id=%s AND answer_pub_id=a.pub_id
               ORDER BY created_at DESC LIMIT 1
             ) aa ON true
-            WHERE a.tenant_pub_id=%s AND a.project_pub_id=%s
-              AND (%s::text IS NULL OR a.pub_id=%s::text)
+            LEFT JOIN LATERAL (
+              SELECT state FROM platform.analysis_job
+              WHERE subject_type='answer' AND subject_pub_id=a.pub_id
+                AND analyzer_kind='answer_basic'
+              ORDER BY created_at DESC LIMIT 1
+            ) answer_job ON true
+            LEFT JOIN LATERAL (
+              SELECT CASE
+                WHEN count(*)=0 THEN 'not_requested'
+                WHEN bool_or(state='running') THEN 'running'
+                WHEN bool_or(state='queued') THEN 'queued'
+                WHEN bool_or(state='failed') THEN 'failed'
+                WHEN bool_or(state='partial') THEN 'partial'
+                WHEN bool_and(state='not_requested') THEN 'not_requested'
+                WHEN bool_and(state='skipped') THEN 'skipped'
+                WHEN bool_or(state IN ('not_requested','skipped')) THEN 'partial'
+                ELSE 'completed' END AS state
+              FROM platform.analysis_job
+              WHERE run_id=a.internal_run_id
+                AND analyzer_kind IN (
+                  'own_site_snapshot','source_fetch','source_audit','page_inspection',
+                  'site_suggestions'
+                )
+            ) source_jobs ON true
+            LEFT JOIN LATERAL (
+              SELECT CASE
+                WHEN count(*)=0 THEN 'not_requested'
+                WHEN bool_or(state='running') THEN 'running'
+                WHEN bool_or(state='queued') THEN 'queued'
+                WHEN bool_or(state='failed') THEN 'failed'
+                WHEN bool_or(state='partial') THEN 'partial'
+                WHEN bool_and(state='not_requested') THEN 'not_requested'
+                WHEN bool_and(state='skipped') THEN 'skipped'
+                WHEN bool_or(state IN ('not_requested','skipped')) THEN 'partial'
+                ELSE 'completed' END AS state
+              FROM platform.analysis_job
+              WHERE run_id=a.internal_run_id
+                AND analyzer_kind IN ('risk_disparagement','risk_factcheck')
+            ) risk_jobs ON true
+            WHERE (%s::text IS NULL OR a.pub_id=%s::text)
               AND (%s::text IS NULL OR a.pub_id>%s::text)
               AND (%s::text IS NULL OR a.model=%s::text)
               AND (%s::text IS NULL OR a.region=%s::text)
@@ -762,6 +869,9 @@ def answers(
             (
                 principal.tenant_pub_id,
                 project_pub_id,
+                principal.tenant_pub_id,
+                project_pub_id,
+                principal.tenant_pub_id,
                 answer_pub_id,
                 answer_pub_id,
                 cursor,
@@ -816,14 +926,48 @@ def answer_relations(
     ):
         raise HTTPException(status_code=422, detail={"code": "invalid_answer_snapshot"})
     with tenant_connection(_dsn(), principal.tenant_pub_id, row_factory=dict_row) as connection:
+        tenant_row = connection.execute(
+            "SELECT id FROM platform.tenant WHERE pub_id=%s",
+            (principal.tenant_pub_id,),
+        ).fetchone()
+        connection.execute(
+            "SELECT set_config('app.tenant_id', %s, true)",
+            (str(tenant_row["id"]) if tenant_row is not None else "",),
+        )
         answer = connection.execute(
             """
-            SELECT pub_id,project_pub_id FROM analytics.answer
-            WHERE tenant_pub_id=%s AND pub_id=%s
-              AND (%s::text IS NULL OR project_pub_id=%s::text)
-              AND (%s::timestamptz IS NULL OR created_at<=%s::timestamptz)
+            SELECT task.pub_id,project.pub_id AS project_pub_id,
+                   task.citations_json::jsonb AS captured_citations,brand.website
+            FROM platform.collection_task task
+            JOIN platform.collection_run run ON run.id=task.run_id
+            JOIN platform.project project ON project.id=run.project_id
+            JOIN platform.tenant tenant ON tenant.id=task.tenant_id
+            LEFT JOIN LATERAL (
+              SELECT website FROM platform.brand
+              WHERE project_id=project.id
+              ORDER BY created_at,pub_id LIMIT 1
+            ) brand ON true
+            WHERE tenant.pub_id=%s AND task.pub_id=%s AND task.state='completed'
+              AND (%s::text IS NULL OR project.pub_id=%s::text)
+              AND (%s::timestamptz IS NULL OR task.created_at<=%s::timestamptz)
+            UNION ALL
+            SELECT analytics.pub_id,analytics.project_pub_id,NULL::jsonb,NULL::text
+            FROM analytics.answer analytics
+            WHERE analytics.tenant_pub_id=%s AND analytics.pub_id=%s
+              AND (%s::text IS NULL OR analytics.project_pub_id=%s::text)
+              AND (%s::timestamptz IS NULL OR analytics.created_at<=%s::timestamptz)
+              AND NOT EXISTS (
+                SELECT 1 FROM platform.collection_task task WHERE task.pub_id=analytics.pub_id
+              )
+            LIMIT 1
             """,
             (
+                principal.tenant_pub_id,
+                answer_pub_id,
+                project_pub_id,
+                project_pub_id,
+                cutoff,
+                cutoff,
                 principal.tenant_pub_id,
                 answer_pub_id,
                 project_pub_id,
@@ -891,6 +1035,79 @@ def answer_relations(
                 cutoff,
             ),
         ).fetchall()
+        if not citations and isinstance(answer.get("captured_citations"), list):
+            website_host = None
+            if isinstance(answer.get("website"), str):
+                website_value = str(answer["website"])
+                try:
+                    website_host = urlsplit(
+                        website_value if "://" in website_value else f"https://{website_value}"
+                    ).hostname
+                except ValueError:
+                    website_host = None
+            captured_rows: list[dict[str, Any]] = []
+            for index, item in enumerate(answer["captured_citations"], 1):
+                if not isinstance(item, dict):
+                    continue
+                canonical_url = _safe_source_url(item.get("url"))
+                if canonical_url is None:
+                    continue
+                host = urlsplit(canonical_url).hostname or ""
+                own_source = bool(
+                    website_host
+                    and (
+                        host == website_host
+                        or host.removeprefix("www.") == website_host.removeprefix("www.")
+                    )
+                )
+                ordinal = int(item["ordinal"]) if item.get("ordinal") is not None else index
+                platform_ordinal = (
+                    int(item["platform_ordinal"])
+                    if item.get("platform_ordinal") is not None
+                    else ordinal
+                )
+                ordinal_base = (
+                    int(item["ordinal_base"]) if item.get("ordinal_base") is not None else 1
+                )
+                stable_key = f"{answer_pub_id}|{ordinal}|{canonical_url}"
+                captured_rows.append(
+                    {
+                        "pub_id": f"cit_capture_{sha256(stable_key.encode()).hexdigest()[:20]}",
+                        "ordinal": ordinal,
+                        "platform_ordinal": platform_ordinal,
+                        "ordinal_base": ordinal_base,
+                        "canonical_url": canonical_url,
+                        "host": host,
+                        "title": item.get("title"),
+                        "cited_text": item.get("cited_text"),
+                        "own_source": own_source,
+                        "content_hash": None,
+                        "source_document_pub_id": None,
+                        "published_at_raw": None,
+                        "published_at": None,
+                        "published_at_timezone": None,
+                        "published_at_precision": None,
+                        "published_at_source": None,
+                        "published_at_confidence": "unknown",
+                        "support_mapping_status": "unmapped",
+                        "support_mapping_basis": None,
+                        "support_answer_text_start": None,
+                        "support_answer_text_end": None,
+                        "support_answer_ast_path": None,
+                        "support_answer_sentence": None,
+                        "support_source_quote": None,
+                        "support_source_text_start": None,
+                        "support_source_text_end": None,
+                        "support_source_quote_hash": None,
+                        "support_source_match_status": "not_checked",
+                        "support_source_match_version": None,
+                        "support_relation": "unverified",
+                        "support_relevance_confidence": None,
+                        "support_classifier_version": None,
+                        "support_review_status": "unreviewed",
+                    }
+                )
+            citations = captured_rows
         share_artifact = connection.execute(
             """
             SELECT platform,status,share_url,final_url,allowlist_valid,
@@ -916,14 +1133,11 @@ def answer_relations(
               WHERE asset.tenant_pub_id=artifact.tenant_pub_id
                 AND asset.project_pub_id=artifact.project_pub_id
                 AND asset.pub_id=artifact.share_image_evidence_pub_id
-                AND artifact.platform IN ('doubao','yiyan')
                 AND asset.kind='share_image'
                 AND asset.customer_visible=true
                 AND asset.deleted_at IS NULL
                 AND asset.mime_type='image/png'
                 AND asset.byte_size BETWEEN 1 AND 31457280
-                AND asset.source_url IS NOT NULL
-                AND asset.source_url IN (artifact.share_url,artifact.final_url)
               LIMIT 1
             ) share_image ON true
             WHERE artifact.tenant_pub_id=%s AND artifact.answer_pub_id=%s

@@ -840,7 +840,15 @@ class GeoCollectionWorkflow:
             if early_result is not None:
                 terminal_state = "cancelled"
                 return early_result
-            if workflow.patched("collection-completion-analysis-fanout-v1"):
+            analysis_detached = workflow.patched("collection-analysis-detached-v1")
+            if analysis_detached:
+                downstream = await workflow.execute_activity(
+                    publish_downstream_event,
+                    args=[data.run_pub_id, data.tenant_pub_id, data.tasks, True],
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RetryPolicy(maximum_attempts=5),
+                )
+            elif workflow.patched("collection-completion-analysis-fanout-v1"):
                 downstream = await workflow.execute_activity(
                     publish_downstream_event,
                     args=[data.run_pub_id, data.tenant_pub_id, data.tasks],
@@ -860,6 +868,17 @@ class GeoCollectionWorkflow:
                     data.run_pub_id,
                     start_to_close_timeout=timedelta(seconds=30),
                     retry_policy=RetryPolicy(maximum_attempts=5),
+                )
+            if analysis_detached:
+                # Every browser-only artifact is already durable. Public source
+                # acquisition and all semantic/risk work now belong to the
+                # separately queued PostCollectionAnalysisWorkflow, so return
+                # immediately and let ``finally`` release the account lease.
+                terminal_state = "completed"
+                return GeoCollectionResult(
+                    state="completed",
+                    completed=self._completed,
+                    downstream_event=downstream,
                 )
             # W4 官网素材快照：证据侧车，随 run 顺带执行。快照失败（浏览器/MinIO
             # 故障）不得拖垮采集 run——activity 内部已如实记录 failures，这里只对

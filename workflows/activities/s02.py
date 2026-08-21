@@ -7,6 +7,7 @@ import os
 import re
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from hashlib import sha256
 from typing import Any
 
 from geo_platform.analytics.service import AnalyticsService
@@ -23,8 +24,11 @@ from geo_platform.reports.formal_production import (
     formal_review_contract_hash,
 )
 from geo_platform.reports.service import ReportService
+from geo_platform.tenancy.database import WorkerSessionLocal
 from geo_platform.tenancy.ids import new_pub_id
 from geo_platform.tenancy.psycopg import tenant_connection
+from geo_platform.tenancy.repository import TenantRepository
+from sqlalchemy import text as sql_text
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
@@ -36,6 +40,136 @@ from domain.metrics.core import MetricRegistry
 from domain.reporting.freeze import freeze_report
 from domain.reporting.libreoffice import ReportRuntimeDependencyError, report_runtime_preflight
 from domain.scoring.analyzer import CitationInput, analyze_answer
+
+
+def _resolve_answer_capture(payload: dict[str, Any]) -> dict[str, Any]:
+    """Hydrate new reference-only jobs from the immutable collection record.
+
+    Legacy/direct AnswerAnalysisWorkflow callers still pass ``text`` and are
+    returned unchanged.  New collector jobs never put raw answer text on the
+    workflow queue.
+    """
+
+    capture_ref = payload.get("capture_ref")
+    if not isinstance(capture_ref, dict):
+        return payload
+    required_ref = {"answer_pub_id", "run_pub_id", "business_key", "response_hash"}
+    if set(capture_ref) != required_ref:
+        raise ApplicationError(
+            "answer capture reference is invalid",
+            type="answer_capture_ref_invalid",
+            non_retryable=True,
+        )
+    tenant_pub_id = str(payload.get("tenant_pub_id") or "")
+    with WorkerSessionLocal() as session:
+        TenantRepository(session, tenant_pub_id)
+        row = session.execute(
+            sql_text(
+                """
+                SELECT task.pub_id,task.business_key,task.answer_text,
+                       task.response_markdown_normalized,task.response_hash,
+                       task.citations_json,task.search_queries_json,
+                       run.pub_id AS run_pub_id,project.pub_id AS project_pub_id
+                FROM platform.collection_task task
+                JOIN platform.collection_run run ON run.id=task.run_id
+                JOIN platform.project project ON project.id=run.project_id
+                WHERE task.pub_id=:answer_pub_id AND task.state='completed'
+                """
+            ),
+            {"answer_pub_id": str(capture_ref["answer_pub_id"])},
+        ).mappings().one_or_none()
+    if row is None:
+        raise ApplicationError(
+            "captured answer does not exist",
+            type="answer_capture_not_found",
+            non_retryable=True,
+        )
+    expected = (
+        str(payload.get("answer_pub_id") or ""),
+        str(capture_ref["answer_pub_id"]),
+        str(capture_ref["business_key"]),
+        str(capture_ref["run_pub_id"]),
+        str(capture_ref["response_hash"]),
+        str(payload.get("project_pub_id") or ""),
+    )
+    observed = (
+        str(row["pub_id"]),
+        str(row["pub_id"]),
+        str(row["business_key"]),
+        str(row["run_pub_id"]),
+        str(row["response_hash"] or ""),
+        str(row["project_pub_id"]),
+    )
+    answer_text = row["answer_text"]
+    normalized_text = row["response_markdown_normalized"]
+    if (
+        expected != observed
+        or not isinstance(answer_text, str)
+        or not isinstance(normalized_text, str)
+    ):
+        raise ApplicationError(
+            "captured answer reference drifted",
+            type="answer_capture_ref_drift",
+            non_retryable=True,
+        )
+    # collection_task.response_hash intentionally seals the deterministic
+    # normalized Markdown projection, while analysis still receives the exact
+    # raw captured answer for compatibility with the original pipeline.
+    if sha256(normalized_text.encode()).hexdigest() != row["response_hash"]:
+        raise ApplicationError(
+            "captured answer hash is invalid",
+            type="answer_capture_hash_invalid",
+            non_retryable=True,
+        )
+    context = payload.get("analysis_context")
+    required_context = {
+        "brand",
+        "competitors",
+        "dimensions",
+        "own_domains",
+        "adapter_version",
+        "capture_time",
+        "channel",
+        "access_class",
+    }
+    if not isinstance(context, dict) or set(context) != required_context:
+        raise ApplicationError(
+            "answer analysis context is invalid",
+            type="answer_analysis_context_invalid",
+            non_retryable=True,
+        )
+    try:
+        citations = json.loads(row["citations_json"] or "[]")
+        search_queries = json.loads(row["search_queries_json"] or "[]")
+    except (TypeError, ValueError) as exc:
+        raise ApplicationError(
+            "captured answer structure is invalid",
+            type="answer_capture_structure_invalid",
+            non_retryable=True,
+        ) from exc
+    if not isinstance(citations, list) or not all(
+        isinstance(item, dict) for item in citations
+    ):
+        raise ApplicationError(
+            "captured citations are invalid",
+            type="answer_capture_structure_invalid",
+            non_retryable=True,
+        )
+    if not isinstance(search_queries, list) or not all(
+        isinstance(item, dict) for item in search_queries
+    ):
+        raise ApplicationError(
+            "captured search queries are invalid",
+            type="answer_capture_structure_invalid",
+            non_retryable=True,
+        )
+    return {
+        **payload,
+        **context,
+        "text": answer_text,
+        "citations": citations,
+        "search_queries": search_queries,
+    }
 
 
 def _temporal_json_safe(value: Any) -> Any:
@@ -57,6 +191,7 @@ def _formal_activity_result(value: dict[str, Any]) -> dict[str, Any]:
 
 @activity.defn
 async def analyze_answer_activity(payload: dict[str, Any]) -> dict[str, Any]:
+    payload = _resolve_answer_capture(payload)
     fail_until_attempt = int(payload.get("fail_until_attempt", 0))
     if activity.info().attempt <= fail_until_attempt:
         raise RuntimeError("injected retryable analysis failure")
@@ -193,6 +328,7 @@ async def extract_brands_activity(payload: dict[str, Any]) -> dict[str, Any]:
     - 非 fanout 持久化载荷（persist 缺省/缺 tenant/answer 标识，如直接起 workflow
       的调试载荷）→ skipped 不落账不烧 LLM。
     """
+    payload = _resolve_answer_capture(payload)
     tenant_pub_id = str(payload.get("tenant_pub_id") or "")
     answer_pub_id = str(payload.get("answer_pub_id") or "")
     project_pub_id = str(payload.get("project_pub_id") or "")

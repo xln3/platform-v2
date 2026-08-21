@@ -74,6 +74,7 @@ _DB_TIMEOUT = timedelta(seconds=30)
 class PostAnalysisInput:
     tenant_pub_id: str
     task_pub_id: str
+    source_task_queue: str = "geo-platform-v2-source"
 
 
 @dataclass
@@ -95,6 +96,7 @@ class PostAnalysisResult:
 class PostAnalysisWorkflow:
     @workflow.run
     async def run(self, data: PostAnalysisInput) -> PostAnalysisResult:
+        source_detached = workflow.patched("post-analysis-source-queue-v1")
         task_input = PostAnalysisTaskInput(
             tenant_pub_id=data.tenant_pub_id, task_pub_id=data.task_pub_id
         )
@@ -111,7 +113,10 @@ class PostAnalysisWorkflow:
         for start in range(0, len(begin.item_pub_ids), _ITEM_CONCURRENCY):
             batch = begin.item_pub_ids[start : start + _ITEM_CONCURRENCY]
             batch_outcomes = await asyncio.gather(
-                *(self._process_item(data, item_pub_id) for item_pub_id in batch)
+                *(
+                    self._process_item(data, item_pub_id, source_detached)
+                    for item_pub_id in batch
+                )
             )
             outcomes.extend(batch_outcomes)
         finalize = await workflow.execute_activity(
@@ -128,7 +133,10 @@ class PostAnalysisWorkflow:
         )
 
     async def _process_item(
-        self, data: PostAnalysisInput, item_pub_id: str
+        self,
+        data: PostAnalysisInput,
+        item_pub_id: str,
+        source_detached: bool,
     ) -> PostAnalysisItemOutcome:
         """单 item 流水线：fetch→analyze→annotate。任一步 ok=False/异常即终止本 item。"""
         item_input = PostAnalysisItemInput(
@@ -143,6 +151,7 @@ class PostAnalysisWorkflow:
                 start_to_close_timeout=_FETCH_TIMEOUT,
                 heartbeat_timeout=_HEARTBEAT_TIMEOUT,
                 retry_policy=_FETCH_RETRY,
+                task_queue=data.source_task_queue if source_detached else None,
             )
             if not fetch.ok:
                 return PostAnalysisItemOutcome(item_pub_id=item_pub_id, status=fetch.status)

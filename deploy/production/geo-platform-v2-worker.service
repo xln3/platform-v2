@@ -1,5 +1,5 @@
 [Unit]
-Description=GEO Platform V2 Temporal Worker
+Description=GEO Platform V2 Authenticated Collection Temporal Worker
 After=network-online.target docker.service
 Wants=network-online.target
 Requires=docker.service

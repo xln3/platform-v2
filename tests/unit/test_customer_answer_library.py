@@ -142,7 +142,7 @@ class _Connection:
             return _Result(many=self.catalog_config_rows)
         if "FROM platform.monitoring_config mc" in sql:
             return _Result(many=self.config_rows)
-        if "SELECT a.pub_id,a.query_pub_id" in sql:
+        if "SELECT task.pub_id,NULL::text AS query_pub_id" in sql:
             model = parameters[-6]
             region = parameters[-4]
             mode = parameters[-2]
@@ -160,15 +160,24 @@ class _Connection:
                     reverse=True,
                 )
             )
-        if "SELECT response_raw,response_text" in sql:
+        if "SELECT task.answer_text,task.citations_json" in sql:
             return _Result(
                 one={
-                    "response_raw": "推荐测试品牌。[citation:1]",
-                    "response_text": "推荐测试品牌。",
+                    "answer_text": "推荐测试品牌。[citation:1]",
+                    "citations_json": json.dumps(
+                        [
+                            {
+                                "url": "https://example.com/source",
+                                "title": "来源",
+                                "cited_text": "证据",
+                                "ordinal": 1,
+                                "platform_ordinal": 1,
+                                "ordinal_base": 1,
+                            }
+                        ]
+                    ),
                 }
             )
-        if "SELECT ordinal,platform_ordinal,ordinal_base" in sql:
-            return _Result(many=[{"ordinal": 1, "platform_ordinal": 1, "ordinal_base": 1}])
         raise AssertionError(sql)
 
 
@@ -317,7 +326,9 @@ def test_latest_top_up_config_resolves_to_the_complete_34_group_campaign(
     assert result.totals.meta_query_count == 34
     assert result.totals.question_count == 136
     answer_params = next(
-        params for sql, params in reversed(fake_connection.calls) if "SELECT a.pub_id" in sql
+            params
+            for sql, params in reversed(fake_connection.calls)
+            if "SELECT task.pub_id,NULL::text AS query_pub_id" in sql
     )
     assert answer_params[7] == ["cfv_top_up", "cfv_complete_new", "cfv_complete_old"]
 
@@ -365,7 +376,9 @@ def test_explicit_catalog_keeps_the_complete_directory_after_many_micro_top_ups(
         None,
     )
     answer_params = next(
-        params for sql, params in reversed(fake_connection.calls) if "SELECT a.pub_id" in sql
+            params
+            for sql, params in reversed(fake_connection.calls)
+            if "SELECT task.pub_id,NULL::text AS query_pub_id" in sql
     )
     assert answer_params[7] == [
         "cfv_catalog",
@@ -400,9 +413,14 @@ def test_library_page_only_projects_summaries_and_reports_unmapped_rows(
     assert result.data[0].questions[0].answer_count == 2
     assert "response_text" not in result.model_dump_json()
 
-    answer_sql = next(sql for sql, _ in fake_connection.calls if "SELECT a.pub_id" in sql)
-    assert "a.created_at<=%s" in answer_sql
-    assert "a.config_version_pub_id" in answer_sql
+    answer_sql = next(
+        sql
+        for sql, _ in fake_connection.calls
+        if "SELECT task.pub_id,NULL::text AS query_pub_id" in sql
+    )
+    assert "task.created_at<=%s" in answer_sql
+    assert "config.pub_id=ANY" in answer_sql
+    assert "JOIN analytics.answer answer" not in answer_sql
     assert "analytics.answer_analysis" in answer_sql and "created_at<=%s" in answer_sql
     assert "response_text" not in answer_sql
     assert "response_raw" not in answer_sql
@@ -451,7 +469,11 @@ def test_meta_runs_and_detail_are_snapshot_bound_and_lazy_loaded(
     assert detail_result.response_text == "推荐测试品牌。[1](#citation-1)"
     assert detail_result.answer.repeat_index == 1
 
-    body_calls = [sql for sql, _ in fake_connection.calls if "response_raw,response_text" in sql]
+    body_calls = [
+        sql
+        for sql, _ in fake_connection.calls
+        if "SELECT task.answer_text,task.citations_json" in sql
+    ]
     assert len(body_calls) == 1
 
 
@@ -459,10 +481,10 @@ def test_customer_library_summary_code_has_no_operational_collection_dependencie
     source = getsource(library.CustomerAnswerLibraryService).lower()
 
     for forbidden in (
-        "collection_task",
         "platform_account",
         "browser_instance",
         "workflow_id",
         "error_code",
     ):
         assert forbidden not in source
+    assert "platform.collection_task" in source

@@ -274,35 +274,36 @@ def _answer_rows(
 ) -> list[dict[str, Any]]:
     rows = connection.execute(
         """
-        SELECT a.pub_id,a.query_pub_id,a.query_text,a.model,a.region,a.mode,a.capture_time,
+        SELECT task.pub_id,NULL::text AS query_pub_id,
+               task.matrix_json::jsonb->>'query' AS query_text,
+               task.matrix_json::jsonb->>'model' AS model,
+               task.matrix_json::jsonb->>'region' AS region,
+               task.matrix_json::jsonb->>'mode' AS mode,
+               task.created_at AS capture_time,
                aa.analysis_run_pub_id,aa.mentioned,aa.rank,aa.sentiment,aa.recommended,
-               COALESCE(citations.citation_count,0) AS citation_count
-        FROM analytics.answer a
+               jsonb_array_length(COALESCE(task.citations_json,'[]')::jsonb) AS citation_count
+        FROM platform.collection_task task
+        JOIN platform.collection_run run ON run.id=task.run_id
+        JOIN platform.project project ON project.id=run.project_id
+        JOIN platform.monitoring_config_version config ON config.id=run.config_version_id
+        JOIN platform.tenant tenant ON tenant.id=task.tenant_id
         LEFT JOIN LATERAL (
           SELECT analysis_run_pub_id,mentioned,rank,sentiment,recommended
           FROM analytics.answer_analysis
-          WHERE tenant_pub_id=a.tenant_pub_id AND answer_pub_id=a.pub_id
+          WHERE tenant_pub_id=tenant.pub_id AND answer_pub_id=task.pub_id
             AND created_at<=%s
           ORDER BY created_at DESC,id DESC LIMIT 1
         ) aa ON true
-        LEFT JOIN LATERAL (
-          SELECT count(*) AS citation_count
-          FROM analytics.citation_fact cf
-          WHERE cf.tenant_pub_id=a.tenant_pub_id AND cf.answer_pub_id=a.pub_id
-            AND cf.analysis_run_pub_id=aa.analysis_run_pub_id AND cf.created_at<=%s
-        ) citations ON true
-        WHERE a.tenant_pub_id=%s AND a.project_pub_id=%s
-          AND a.capture_time::date BETWEEN %s AND %s
-          AND a.created_at<=%s AND a.eligible
-          AND (%s::text[] IS NULL OR a.config_version_pub_id IS NULL
-               OR a.config_version_pub_id=ANY(%s::text[]))
-          AND (%s::text IS NULL OR a.model=%s::text)
-          AND (%s::text IS NULL OR a.region=%s::text)
-          AND (%s::text IS NULL OR a.mode=%s::text)
-        ORDER BY a.capture_time DESC,a.pub_id DESC
+        WHERE tenant.pub_id=%s AND project.pub_id=%s AND task.state='completed'
+          AND task.created_at::date BETWEEN %s AND %s
+          AND task.created_at<=%s
+          AND (%s::text[] IS NULL OR config.pub_id=ANY(%s::text[]))
+          AND (%s::text IS NULL OR task.matrix_json::jsonb->>'model'=%s::text)
+          AND (%s::text IS NULL OR task.matrix_json::jsonb->>'region'=%s::text)
+          AND (%s::text IS NULL OR task.matrix_json::jsonb->>'mode'=%s::text)
+        ORDER BY task.created_at DESC,task.pub_id DESC
         """,
         (
-            snapshot_at,
             snapshot_at,
             tenant_pub_id,
             project_pub_id,
@@ -735,36 +736,24 @@ class CustomerAnswerLibraryService:
                 raise LookupError("answer_library_answer_not_found")
             body = connection.execute(
                 """
-                SELECT response_raw,response_text
-                FROM analytics.answer
-                WHERE tenant_pub_id=%s AND project_pub_id=%s AND pub_id=%s
-                  AND created_at<=%s AND eligible
+                SELECT task.answer_text,task.citations_json
+                FROM platform.collection_task task
+                JOIN platform.collection_run run ON run.id=task.run_id
+                JOIN platform.project project ON project.id=run.project_id
+                JOIN platform.tenant tenant ON tenant.id=task.tenant_id
+                WHERE tenant.pub_id=%s AND project.pub_id=%s AND task.pub_id=%s
+                  AND task.created_at<=%s AND task.state='completed'
                 """,
                 (tenant_pub_id, project_pub_id, answer_pub_id, snapshot_at),
             ).fetchone()
             if body is None:
                 raise LookupError("answer_library_answer_not_found")
-            citations = (
-                connection.execute(
-                    """
-                    SELECT ordinal,platform_ordinal,ordinal_base
-                    FROM analytics.citation_fact
-                    WHERE tenant_pub_id=%s AND answer_pub_id=%s
-                      AND analysis_run_pub_id=%s AND created_at<=%s
-                    ORDER BY ordinal,id
-                    """,
-                    (
-                        tenant_pub_id,
-                        answer_pub_id,
-                        selected_row["analysis_run_pub_id"],
-                        snapshot_at,
-                    ),
-                ).fetchall()
-                if selected_row.get("analysis_run_pub_id")
-                else []
-            )
-        raw_response = str(body.get("response_raw") or body.get("response_text") or "")
-        response_text = project_answer_content(raw_response, [dict(row) for row in citations])
+            try:
+                citations = json.loads(body.get("citations_json") or "[]")
+            except (TypeError, ValueError) as exc:
+                raise LookupError("answer_library_answer_not_found") from exc
+        raw_response = str(body.get("answer_text") or "")
+        response_text = project_answer_content(raw_response, citations)
         question_rows = by_question[selected_question.question_id]
         run = next(
             item for item in _run_views(question_rows) if item["answer_pub_id"] == answer_pub_id

@@ -44,6 +44,18 @@ from temporalio.exceptions import ApplicationError
 
 from domain.collection.answer_content import project_answer_content
 from domain.evidence.dlp import assert_secret_free
+from domain.source_analysis.page_inspection import (
+    PAGE_INSPECTION_POLICY_VERSION,
+    PAGE_INSPECTION_PROMPT_VERSION,
+    derive_page_inspection_version,
+)
+from workflows.activities.analysis_jobs import (
+    ANSWER_BASIC_POLICY_VERSION,
+    POST_COLLECTION_POLICY_VERSION,
+    RUN_ANALYZER_KINDS,
+    canonical_input_hash,
+    enqueue_analysis_job,
+)
 from workflows.activities.browser_router import account_governance_enabled
 
 log = structlog.get_logger()
@@ -1330,11 +1342,363 @@ def _analysis_dimensions(
     }
 
 
+def _persisted_task_input(
+    task: CollectionTask,
+    supplied: CollectionTaskInput | None,
+) -> CollectionTaskInput | None:
+    """Recover immutable collection dimensions without depending on one workflow generation.
+
+    ``Continue-As-New`` only carries the remaining input slice.  The completed
+    task row therefore has to be the source of truth when an old run reaches
+    completion after deployment.  ``supplied`` remains the compatibility path
+    for pre-matrix rows.
+    """
+
+    try:
+        matrix = json.loads(task.matrix_json or "{}")
+    except (TypeError, ValueError):
+        matrix = {}
+    required = ("query", "model", "region", "mode", "adapter")
+    if isinstance(matrix, dict) and all(isinstance(matrix.get(key), str) for key in required):
+        return CollectionTaskInput(
+            business_key=task.business_key,
+            query=matrix["query"],
+            model=matrix["model"],
+            region=matrix["region"],
+            mode=matrix["mode"],
+            adapter=matrix["adapter"],
+        )
+    return supplied
+
+
+def _enqueue_answer_analysis(
+    *,
+    session: Any,
+    tenant_pub_id: str,
+    run: CollectionRun,
+    project: Project,
+    task: CollectionTask,
+    task_input: CollectionTaskInput | None,
+) -> str:
+    """Create one answer-analysis job and command in the capture transaction.
+
+    Raw answer text is deliberately absent from the command.  The analysis
+    activity reloads it by ``capture_ref`` and verifies ``response_hash`` so a
+    retry days later still analyzes the exact captured answer.
+    """
+
+    workflow_id = f"answer-analysis/{tenant_pub_id}/{run.pub_id}/{task.pub_id}"
+    capture_ref = {
+        "answer_pub_id": task.pub_id,
+        "run_pub_id": run.pub_id,
+        "business_key": task.business_key,
+        "response_hash": task.response_hash or "",
+    }
+    config_version = session.get(MonitoringConfigVersion, run.config_version_id)
+    brand = session.scalar(
+        select(Brand)
+        .where(Brand.project_id == run.project_id)
+        .order_by(Brand.created_at, Brand.pub_id)
+    )
+    competitors = list(
+        session.scalars(
+            select(Competitor)
+            .where(Competitor.project_id == run.project_id)
+            .order_by(Competitor.created_at, Competitor.pub_id)
+        )
+    )
+
+    if task_input is None or brand is None:
+        reason = "missing_task_input" if task_input is None else "missing_brand"
+        enqueue_analysis_job(
+            session,
+            tenant_pub_id=tenant_pub_id,
+            tenant_id=run.tenant_id,
+            project_id=run.project_id,
+            run_id=run.id,
+            answer_task_id=task.id,
+            subject_type="answer",
+            subject_pub_id=task.pub_id,
+            analyzer_kind="answer_basic",
+            policy_version=ANSWER_BASIC_POLICY_VERSION,
+            input_hash=canonical_input_hash(
+                {
+                    "capture_ref": capture_ref,
+                    "policy_version": ANSWER_BASIC_POLICY_VERSION,
+                    "reason": reason,
+                }
+            ),
+            workflow_id=workflow_id,
+            state="not_requested" if task_input is None else "skipped",
+            error_code=reason,
+        )
+        return reason
+
+    analysis_context = {
+        "brand": brand.name,
+        "competitors": [item.name for item in competitors],
+        "dimensions": _analysis_dimensions(
+            task_input,
+            run_pub_id=run.pub_id,
+            config_version_pub_id=(config_version.pub_id if config_version is not None else None),
+            browser_instance=(json.loads(task.matrix_json or "{}").get("browser_instance") or None),
+        ),
+        "own_domains": [brand.website] if brand.website else [],
+        "adapter_version": task_input.adapter,
+        "capture_time": task.created_at.astimezone(UTC).isoformat(),
+        "channel": "api",
+        "access_class": "customer_private",
+    }
+    analysis_contract = {
+        "capture_ref": capture_ref,
+        "analysis_context": analysis_context,
+        "scorer_version": "scorer-v2",
+        "metric_version": "metrics-v2",
+        "model_version": "rules-v1",
+        "policy_version": ANSWER_BASIC_POLICY_VERSION,
+    }
+    input_hash = canonical_input_hash(analysis_contract)
+    job_pub_id = enqueue_analysis_job(
+        session,
+        tenant_pub_id=tenant_pub_id,
+        tenant_id=run.tenant_id,
+        project_id=run.project_id,
+        run_id=run.id,
+        answer_task_id=task.id,
+        subject_type="answer",
+        subject_pub_id=task.pub_id,
+        analyzer_kind="answer_basic",
+        policy_version=ANSWER_BASIC_POLICY_VERSION,
+        input_hash=input_hash,
+        workflow_id=workflow_id,
+    )
+    payload = {
+        "persist": True,
+        "tenant_pub_id": tenant_pub_id,
+        "project_pub_id": project.pub_id,
+        "answer_pub_id": task.pub_id,
+        **analysis_contract,
+        "analysis_job": {
+            "pub_id": job_pub_id,
+            "subject_type": "answer",
+            "subject_pub_id": task.pub_id,
+            "analyzer_kind": "answer_basic",
+            "policy_version": ANSWER_BASIC_POLICY_VERSION,
+        },
+    }
+    persisted_payload = session.execute(
+        text(
+            """
+            INSERT INTO integration.workflow_start_command (
+              command_id,tenant_pub_id,workflow_type,workflow_id,task_queue,
+              payload,trace_context
+            ) VALUES (
+              :command_id,:tenant_pub_id,'answer_analysis',:workflow_id,
+              :task_queue,CAST(:payload AS jsonb),'{}'::jsonb
+            )
+            ON CONFLICT (workflow_id)
+            DO UPDATE SET workflow_id=integration.workflow_start_command.workflow_id
+            RETURNING payload
+            """
+        ),
+        {
+            "command_id": uuid.uuid4(),
+            "tenant_pub_id": tenant_pub_id,
+            "workflow_id": workflow_id,
+            "task_queue": get_settings().analysis_temporal_task_queue,
+            "payload": json.dumps(payload, sort_keys=True, separators=(",", ":")),
+        },
+    ).scalar_one()
+    if persisted_payload != payload:
+        raise ApplicationError(
+            "answer analysis workflow replay payload drifted",
+            type="analysis_workflow_payload_drift",
+            non_retryable=True,
+        )
+    return "enqueued"
+
+
+def _enqueue_post_collection_analysis(
+    *,
+    session: Any,
+    tenant_pub_id: str,
+    run: CollectionRun,
+    project: Project,
+) -> str:
+    """Queue run-level public-source and risk work after capture has terminated."""
+
+    settings = get_settings()
+    workflow_id = f"post-collection-analysis/{tenant_pub_id}/{run.pub_id}"
+    config_version = session.get(MonitoringConfigVersion, run.config_version_id)
+    source_analysis_profile = (
+        session.execute(
+            text(
+                """
+            SELECT pub_id,profile_hash,revision FROM platform.source_analysis_profile
+            WHERE project_id=:project_id AND state='active'
+            """
+            ),
+            {"project_id": run.project_id},
+        )
+        .mappings()
+        .one_or_none()
+    )
+    source_analysis_profile_pub_id = (
+        str(source_analysis_profile["pub_id"]) if source_analysis_profile is not None else None
+    )
+    source_analysis_profile_hash = (
+        str(source_analysis_profile["profile_hash"])
+        if source_analysis_profile is not None
+        else None
+    )
+    page_inspection_model = (settings.audit_llm_model or settings.research_llm_model).strip()
+    page_inspection_policy_version = (
+        derive_page_inspection_version(
+            profile_revision=int(source_analysis_profile["revision"]),
+            model=page_inspection_model,
+            prompt_version=PAGE_INSPECTION_PROMPT_VERSION,
+        )
+        if source_analysis_profile is not None
+        else PAGE_INSPECTION_POLICY_VERSION
+    )
+    contract = {
+        "tenant_pub_id": tenant_pub_id,
+        "project_pub_id": project.pub_id,
+        "run_pub_id": run.pub_id,
+        "config_version_pub_id": (config_version.pub_id if config_version is not None else ""),
+        "policy_version": POST_COLLECTION_POLICY_VERSION,
+        "source_task_queue": settings.source_temporal_task_queue,
+        # Freeze an immutable profile revision at handoff time.  A profile
+        # created later must trigger a new analysis version; it must not alter
+        # the meaning of an already queued job.
+        "source_analysis_profile_pub_id": source_analysis_profile_pub_id,
+        "source_analysis_profile_hash": source_analysis_profile_hash,
+        "page_inspection_policy_version": page_inspection_policy_version,
+        "page_inspection_model": page_inspection_model,
+        "page_inspection_prompt_version": PAGE_INSPECTION_PROMPT_VERSION,
+    }
+    for analyzer_kind in RUN_ANALYZER_KINDS:
+        enqueue_analysis_job(
+            session,
+            tenant_pub_id=tenant_pub_id,
+            tenant_id=run.tenant_id,
+            project_id=run.project_id,
+            run_id=run.id,
+            answer_task_id=None,
+            subject_type="run",
+            subject_pub_id=run.pub_id,
+            analyzer_kind=analyzer_kind,
+            policy_version=POST_COLLECTION_POLICY_VERSION,
+            input_hash=canonical_input_hash({**contract, "analyzer_kind": analyzer_kind}),
+            workflow_id=workflow_id,
+            state=(
+                "not_requested"
+                if analyzer_kind == "page_inspection" and source_analysis_profile_pub_id is None
+                else "queued"
+            ),
+            error_code=(
+                "profile_missing"
+                if analyzer_kind == "page_inspection" and source_analysis_profile_pub_id is None
+                else None
+            ),
+        )
+    payload = {
+        **contract,
+        "analysis_jobs": list(RUN_ANALYZER_KINDS),
+    }
+    persisted_payload = session.execute(
+        text(
+            """
+            INSERT INTO integration.workflow_start_command (
+              command_id,tenant_pub_id,workflow_type,workflow_id,task_queue,
+              payload,trace_context
+            ) VALUES (
+              :command_id,:tenant_pub_id,'post_collection_analysis',:workflow_id,
+              :task_queue,CAST(:payload AS jsonb),'{}'::jsonb
+            )
+            ON CONFLICT (workflow_id)
+            DO UPDATE SET workflow_id=integration.workflow_start_command.workflow_id
+            RETURNING payload
+            """
+        ),
+        {
+            "command_id": uuid.uuid4(),
+            "tenant_pub_id": tenant_pub_id,
+            "workflow_id": workflow_id,
+            "task_queue": settings.analysis_temporal_task_queue,
+            "payload": json.dumps(payload, sort_keys=True, separators=(",", ":")),
+        },
+    ).scalar_one()
+    if persisted_payload != payload:
+        raise ApplicationError(
+            "post-collection workflow replay payload drifted",
+            type="post_collection_workflow_payload_drift",
+            non_retryable=True,
+        )
+    return "enqueued"
+
+
+def _persist_answer_capture_event(
+    *,
+    session: Any,
+    tenant_pub_id: str,
+    project_pub_id: str,
+    run: CollectionRun,
+    task: CollectionTask,
+) -> str:
+    payload = {
+        "answer_pub_id": task.pub_id,
+        "project_pub_id": project_pub_id,
+        "run_pub_id": run.pub_id,
+        "business_key": task.business_key,
+        "capture_state": "completed",
+        "quality_state": task.quality_state,
+        "response_hash": task.response_hash,
+    }
+    persisted = (
+        session.execute(
+            text(
+                """
+            INSERT INTO integration.outbox_event (
+              event_id,tenant_pub_id,event_type,aggregate_pub_id,trace_id,payload,
+              occurred_at
+            ) VALUES (
+              :event_id,:tenant_pub_id,'answer.capture.completed',:answer_pub_id,
+              :trace_id,CAST(:payload AS jsonb),:occurred_at
+            )
+            ON CONFLICT (tenant_pub_id,aggregate_pub_id)
+              WHERE event_type='answer.capture.completed'
+            DO UPDATE SET event_id=integration.outbox_event.event_id
+            RETURNING event_id,payload
+            """
+            ),
+            {
+                "event_id": new_pub_id("evt"),
+                "tenant_pub_id": tenant_pub_id,
+                "answer_pub_id": task.pub_id,
+                "trace_id": sha256(f"{run.workflow_id}|{task.pub_id}".encode()).hexdigest(),
+                "payload": json.dumps(payload, sort_keys=True, separators=(",", ":")),
+                "occurred_at": task.created_at,
+            },
+        )
+        .mappings()
+        .one()
+    )
+    if persisted["payload"] != payload:
+        raise ApplicationError(
+            "answer capture event replay payload drifted",
+            type="answer_capture_event_payload_drift",
+            non_retryable=True,
+        )
+    return str(persisted["event_id"])
+
+
 @activity.defn
 def publish_downstream_event(
     run_pub_id: str,
     tenant_pub_id: str | None = None,
     task_inputs: list[CollectionTaskInput] | None = None,
+    enqueue_post_collection: bool = False,
 ) -> str:
     """Persist the collection completion event exactly once.
 
@@ -1397,121 +1761,91 @@ def publish_downstream_event(
                 "occurred_at": datetime.now(UTC),
             },
         ).scalar_one()
-        analysis_commands = 0
-        analysis_expected = 0
-        analysis_admission = "not_requested"
+        project = session.get(Project, run.project_id)
+        if project is None:
+            raise ApplicationError("collection project not found", type="project_not_found")
+        completed = list(
+            session.scalars(
+                select(CollectionTask)
+                .where(CollectionTask.run_id == run.id, CollectionTask.state == "completed")
+                .order_by(CollectionTask.created_at, CollectionTask.pub_id)
+            )
+        )
+        task_by_key = {item.business_key: item for item in task_inputs or []}
+        # Compatibility reconciliation only. New captures enqueue in
+        # persist_collection_result, before the next browser question starts.
         if task_inputs is not None:
-            project = session.get(Project, run.project_id)
-            config_version = session.get(MonitoringConfigVersion, run.config_version_id)
-            brand = session.scalar(
-                select(Brand)
-                .where(Brand.project_id == run.project_id)
-                .order_by(Brand.created_at, Brand.pub_id)
-            )
-            competitors = list(
-                session.scalars(
-                    select(Competitor)
-                    .where(Competitor.project_id == run.project_id)
-                    .order_by(Competitor.created_at, Competitor.pub_id)
+            for task in completed:
+                if task.answer_text is None:
+                    continue
+                _enqueue_answer_analysis(
+                    session=session,
+                    tenant_pub_id=tenant_pub_id,
+                    run=run,
+                    project=project,
+                    task=task,
+                    task_input=_persisted_task_input(task, task_by_key.get(task.business_key)),
                 )
+        analysis_expected = len(completed)
+        analysis_commands = int(
+            session.execute(
+                text(
+                    """
+                    SELECT count(*)
+                    FROM platform.analysis_job job
+                    JOIN integration.workflow_start_command command
+                      ON command.tenant_pub_id=:tenant_pub_id
+                     AND command.workflow_type='answer_analysis'
+                     AND command.workflow_id=job.workflow_id
+                    WHERE job.run_id=:run_id
+                      AND job.subject_type='answer'
+                      AND job.analyzer_kind='answer_basic'
+                    """
+                ),
+                {
+                    "tenant_pub_id": tenant_pub_id,
+                    "run_id": run.id,
+                },
+            ).scalar_one()
+        )
+        if analysis_expected == 0:
+            analysis_admission = "missing_completed_answers"
+        elif analysis_commands == analysis_expected:
+            analysis_admission = "enqueued"
+        else:
+            analysis_admission = "partial_fanout"
+        post_analysis_admission = "not_requested"
+        if enqueue_post_collection:
+            post_analysis_admission = _enqueue_post_collection_analysis(
+                session=session,
+                tenant_pub_id=tenant_pub_id,
+                run=run,
+                project=project,
             )
-            task_by_key = {item.business_key: item for item in task_inputs}
-            completed = list(
-                session.scalars(
-                    select(CollectionTask)
-                    .where(CollectionTask.run_id == run.id, CollectionTask.state == "completed")
-                    .order_by(CollectionTask.created_at, CollectionTask.pub_id)
-                )
-            )
-            if brand is None:
-                analysis_admission = "missing_brand"
-            elif project is not None:
-                analysis_expected = len(completed)
-                for task in completed:
-                    task_input = task_by_key.get(task.business_key)
-                    if task_input is None or task.answer_text is None:
-                        continue
-                    analysis_workflow_id = (
-                        f"answer-analysis/{tenant_pub_id}/{run_pub_id}/{task.pub_id}"
-                    )
-                    analysis_payload = {
-                        "persist": True,
-                        "tenant_pub_id": tenant_pub_id,
-                        "project_pub_id": project.pub_id,
-                        "answer_pub_id": task.pub_id,
-                        "text": task.answer_text,
-                        "brand": brand.name,
-                        "competitors": [item.name for item in competitors],
-                        "citations": json.loads(task.citations_json or "[]"),
-                        "search_queries": json.loads(task.search_queries_json or "[]"),
-                        "dimensions": _analysis_dimensions(
-                            task_input,
-                            run_pub_id=run_pub_id,
-                            config_version_pub_id=(
-                                config_version.pub_id if config_version is not None else None
-                            ),
-                            # 实例键真源 = 落库 matrix_json（batch 采集时的实测
-                            # 常驻实例）；无记录（历史/per-task 老路径）→ None
-                            # → provenance 回退 slug 查表（旧行为）。
-                            browser_instance=(
-                                json.loads(task.matrix_json or "{}").get("browser_instance") or None
-                            ),
-                        ),
-                        "own_domains": [brand.website] if brand.website else [],
-                        "adapter_version": task_input.adapter,
-                        "capture_time": task.created_at.astimezone(UTC).isoformat(),
-                        "channel": "api",
-                        "access_class": "customer_private",
-                        "scorer_version": "scorer-v2",
-                        "metric_version": "metrics-v2",
-                        "model_version": "rules-v1",
-                    }
-                    persisted_payload = session.execute(
-                        text(
-                            """
-                            INSERT INTO integration.workflow_start_command (
-                              command_id,tenant_pub_id,workflow_type,workflow_id,task_queue,
-                              payload,trace_context
-                            ) VALUES (
-                              :command_id,:tenant_pub_id,'answer_analysis',:workflow_id,
-                              :task_queue,CAST(:payload AS jsonb),'{}'::jsonb
-                            )
-                            ON CONFLICT (workflow_id)
-                            DO UPDATE SET workflow_id=integration.workflow_start_command.workflow_id
-                            RETURNING payload
-                            """
-                        ),
-                        {
-                            "command_id": uuid.uuid4(),
-                            "tenant_pub_id": tenant_pub_id,
-                            "workflow_id": analysis_workflow_id,
-                            "task_queue": get_settings().s02_temporal_task_queue,
-                            "payload": json.dumps(
-                                analysis_payload, sort_keys=True, separators=(",", ":")
-                            ),
-                        },
-                    ).scalar_one()
-                    if persisted_payload != analysis_payload:
-                        raise ApplicationError(
-                            "answer analysis workflow replay payload drifted",
-                            type="analysis_workflow_payload_drift",
-                            non_retryable=True,
-                        )
-                    analysis_commands += 1
-                if analysis_expected == 0:
-                    analysis_admission = "missing_completed_answers"
-                elif analysis_commands == analysis_expected:
-                    analysis_admission = "enqueued"
-                else:
-                    analysis_admission = "partial_fanout"
+        else:
+            # A compatibility/manual replay must not make an already durable
+            # handoff look as though it was never requested.
+            existing_post_command = session.execute(
+                text(
+                    """
+                    SELECT 1 FROM integration.workflow_start_command
+                    WHERE tenant_pub_id=:tenant_pub_id
+                      AND workflow_type='post_collection_analysis'
+                      AND workflow_id=:workflow_id
+                    """
+                ),
+                {
+                    "tenant_pub_id": tenant_pub_id,
+                    "workflow_id": (f"post-collection-analysis/{tenant_pub_id}/{run.pub_id}"),
+                },
+            ).first()
+            if existing_post_command is not None:
+                post_analysis_admission = "enqueued"
         session.execute(
             text(
                 """
                 UPDATE integration.outbox_event
-                SET payload=payload || CAST(:admission AS jsonb),
-                    published_at=CASE WHEN :acknowledged THEN COALESCE(published_at,now())
-                                      ELSE published_at END,
-                    attempts=attempts+CASE WHEN :acknowledged THEN 1 ELSE 0 END
+                SET payload=payload || CAST(:admission AS jsonb)
                 WHERE event_id=:event_id
                 """
             ),
@@ -1522,10 +1856,10 @@ def publish_downstream_event(
                         "analysis_admission": (analysis_admission),
                         "analysis_commands": analysis_commands,
                         "analysis_expected": analysis_expected,
+                        "post_analysis_admission": post_analysis_admission,
                     },
                     separators=(",", ":"),
                 ),
-                "acknowledged": analysis_admission == "enqueued",
             },
         )
         session.commit()
@@ -1876,7 +2210,37 @@ def persist_collection_result(
             evidence=evidence,
             evidence_ids_by_relation=evidence_ids_by_relation,
         )
+        # This flush makes the immutable task identity/timestamp available, but
+        # does not commit.  The capture row, evidence links, versioned analysis
+        # job and workflow-start command therefore become durable together.
+        session.flush()
+        _enqueue_answer_analysis(
+            session=session,
+            tenant_pub_id=tenant_pub_id,
+            run=run,
+            project=project,
+            task=task,
+            task_input=_persisted_task_input(task, task_input),
+        )
+        _persist_answer_capture_event(
+            session=session,
+            tenant_pub_id=tenant_pub_id,
+            project_pub_id=project.pub_id,
+            run=run,
+            task=task,
+        )
         run.state = _derive_run_state(run)
+        if run.state in {"completed", "completed_with_failures"}:
+            # The final per-task transaction is the only gap-free place to
+            # hand off run-level work. If the Temporal collection workflow is
+            # terminated immediately after this commit, source/risk analysis
+            # is still durably queued and can proceed independently.
+            _enqueue_post_collection_analysis(
+                session=session,
+                tenant_pub_id=tenant_pub_id,
+                run=run,
+                project=project,
+            )
         session.commit()
         task_pub_id = task.pub_id
     if created:
@@ -2034,6 +2398,13 @@ def _persist_collection_failure(
             evidence=evidence,
         )
         run.state = _derive_run_state(run)
+        if run.state in {"completed", "completed_with_failures"}:
+            _enqueue_post_collection_analysis(
+                session=session,
+                tenant_pub_id=tenant_pub_id,
+                run=run,
+                project=project,
+            )
         session.commit()
         task_pub_id = task.pub_id
     if created:

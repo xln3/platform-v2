@@ -1,6 +1,8 @@
 import asyncio
 import os
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from typing import Any
 
 import structlog
 from geo_platform.config import get_settings
@@ -105,6 +107,56 @@ elif _adapter_mode == "multi":
     _collect_yuanbao_batch_impl = _live_collect_yuanbao_batch
 
 
+COLLECTION_WORKFLOWS = (
+    PlatformHealthWorkflow,
+    GeoCollectionWorkflow,
+    HumanInterventionWorkflow,
+    PlatformSessionLifecycleWorkflow,
+    AccountRevocationWorkflow,
+)
+COLLECTION_ACTIVITIES: tuple[Callable[..., Any], ...] = (
+    _collect_with_adapter_impl,
+    _collect_doubao_batch_impl,
+    _collect_deepseek_batch_impl,
+    _collect_tongyi_batch_impl,
+    _collect_yiyan_batch_impl,
+    _collect_yuanbao_batch_impl,
+    captcha_assist_start,
+    captcha_assist_stop,
+    finalize_account_revocation,
+    mark_collection_run_terminal,
+    persist_collection_result,
+    prepare_collection_session,
+    publish_downstream_event,
+    release_collection_session,
+)
+
+# Temporary drain switch for workflow histories created before
+# collection-analysis-detached-v1. New deployments leave this off; operators
+# may enable it on one collector only while old histories finish.
+_legacy_analysis_enabled = os.environ.get(
+    "GEO_LEGACY_ANALYSIS_ON_COLLECTION_WORKER", ""
+).strip().lower() in {"1", "true", "yes", "on"}
+LEGACY_ANALYSIS_WORKFLOWS = (
+    PostAnalysisWorkflow,
+    OwnContentDisparagementWorkflow,
+)
+LEGACY_ANALYSIS_ACTIVITIES: tuple[Callable[..., Any], ...] = (
+    analyze_post_content,
+    annotate_post_snapshot,
+    audit_run_sources,
+    begin_post_analysis_task,
+    capture_own_site_snapshots,
+    factcheck_disparagement_cases,
+    fetch_post_snapshot,
+    fetch_run_sources,
+    finalize_post_analysis_task,
+    generate_site_audit_suggestions,
+    judge_own_content_disparagement,
+    judge_run_disparagement,
+)
+
+
 async def run_worker() -> None:
     settings = get_settings()
     configure_logging(settings.log_level)
@@ -129,43 +181,10 @@ async def run_worker() -> None:
         worker = Worker(
             client,
             task_queue=settings.temporal_task_queue,
-            workflows=[
-                PlatformHealthWorkflow,
-                GeoCollectionWorkflow,
-                HumanInterventionWorkflow,
-                PlatformSessionLifecycleWorkflow,
-                AccountRevocationWorkflow,
-                PostAnalysisWorkflow,
-                OwnContentDisparagementWorkflow,
-            ],
-            activities=[
-                _collect_with_adapter_impl,
-                _collect_doubao_batch_impl,
-                _collect_deepseek_batch_impl,
-                _collect_tongyi_batch_impl,
-                _collect_yiyan_batch_impl,
-                _collect_yuanbao_batch_impl,
-                analyze_post_content,
-                annotate_post_snapshot,
-                audit_run_sources,
-                begin_post_analysis_task,
-                captcha_assist_start,
-                captcha_assist_stop,
-                capture_own_site_snapshots,
-                factcheck_disparagement_cases,
-                fetch_post_snapshot,
-                fetch_run_sources,
-                finalize_account_revocation,
-                finalize_post_analysis_task,
-                generate_site_audit_suggestions,
-                judge_own_content_disparagement,
-                judge_run_disparagement,
-                mark_collection_run_terminal,
-                persist_collection_result,
-                prepare_collection_session,
-                publish_downstream_event,
-                release_collection_session,
-            ],
+            workflows=list(COLLECTION_WORKFLOWS)
+            + (list(LEGACY_ANALYSIS_WORKFLOWS) if _legacy_analysis_enabled else []),
+            activities=list(COLLECTION_ACTIVITIES)
+            + (list(LEGACY_ANALYSIS_ACTIVITIES) if _legacy_analysis_enabled else []),
             activity_executor=executor,
         )
         await worker.run()

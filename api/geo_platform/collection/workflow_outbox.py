@@ -16,11 +16,20 @@ from temporalio.client import Client
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 
+from geo_platform.config import get_settings
 from workflows.activities.collection import CollectionTaskInput
 from workflows.activities.own_content_disparagement import OwnContentDisparagementInput
 from workflows.definitions.collection import GeoCollectionInput, GeoCollectionWorkflow
 from workflows.definitions.own_content import OwnContentDisparagementWorkflow
+from workflows.definitions.page_inspection import (
+    PageInspectionWorkflow,
+    PageInspectionWorkflowInput,
+)
 from workflows.definitions.post_analysis import PostAnalysisInput, PostAnalysisWorkflow
+from workflows.definitions.post_collection_analysis import (
+    PostCollectionAnalysisInput,
+    PostCollectionAnalysisWorkflow,
+)
 from workflows.definitions.s02 import AnswerAnalysisWorkflow, ReportProductionWorkflow
 from workflows.definitions.session import AccountRevocationWorkflow, RevocationInput
 
@@ -412,7 +421,9 @@ class WorkflowStartOutbox:
                   WHERE candidate.state='started'
                     AND candidate.workflow_type IN (
                       'geo_collection','geo_collection_observation','account_revocation',
-                      'answer_analysis','post_analysis','formal_report_production'
+                      'answer_analysis','post_collection_analysis','post_analysis',
+                      'page_inspection',
+                      'formal_report_production'
                     )
                     AND candidate.terminal_status IS NULL
                     AND (%s::text IS NULL OR candidate.workflow_id=%s)
@@ -511,6 +522,25 @@ class WorkflowStartOutbox:
                         """,
                         (command.workflow_id,),
                     )
+            elif command.workflow_type in {
+                "answer_analysis",
+                "page_inspection",
+                "post_collection_analysis",
+            }:
+                # Workflow code normally writes its own granular terminal
+                # states. This is the crash/retention safety net: only jobs
+                # still in an intermediate state are failed, and captured
+                # answer rows are never touched.
+                if temporal_status != "COMPLETED":
+                    connection.execute(
+                        """
+                        UPDATE platform.analysis_job
+                        SET state='failed',error_code='workflow_interrupted',
+                            completed_at=COALESCE(completed_at,now()),updated_at=now()
+                        WHERE workflow_id=%s AND state IN ('queued','running')
+                        """,
+                        (command.workflow_id,),
+                    )
             elif command.workflow_type == "formal_report_production":
                 if temporal_status != "COMPLETED":
                     connection.execute(
@@ -562,6 +592,9 @@ class WorkflowStartOutbox:
         context_token = context.attach(parent_context)
         try:
             payload = command.payload
+            settings = get_settings()
+            analysis_task_queue = settings.analysis_temporal_task_queue
+            source_task_queue = settings.source_temporal_task_queue
             temporal_run_id = None
             handle: Any
             try:
@@ -601,7 +634,59 @@ class WorkflowStartOutbox:
                         AnswerAnalysisWorkflow.run,
                         payload,
                         id=command.workflow_id,
-                        task_queue=command.task_queue,
+                        task_queue=analysis_task_queue,
+                    )
+                elif command.workflow_type == "post_collection_analysis":
+                    handle = await self.temporal.start_workflow(
+                        PostCollectionAnalysisWorkflow.run,
+                        PostCollectionAnalysisInput(
+                            tenant_pub_id=str(payload["tenant_pub_id"]),
+                            project_pub_id=str(payload["project_pub_id"]),
+                            run_pub_id=str(payload["run_pub_id"]),
+                            config_version_pub_id=str(payload.get("config_version_pub_id") or ""),
+                            policy_version=str(payload["policy_version"]),
+                            source_task_queue=str(
+                                payload.get("source_task_queue") or source_task_queue
+                            ),
+                            analysis_jobs=[str(item) for item in payload["analysis_jobs"]],
+                            source_analysis_profile_pub_id=(
+                                str(payload["source_analysis_profile_pub_id"])
+                                if payload.get("source_analysis_profile_pub_id")
+                                else None
+                            ),
+                            source_analysis_profile_hash=(
+                                str(payload["source_analysis_profile_hash"])
+                                if payload.get("source_analysis_profile_hash")
+                                else None
+                            ),
+                            page_inspection_policy_version=str(
+                                payload.get("page_inspection_policy_version")
+                                or "page-inspection-v1"
+                            ),
+                            page_inspection_model=str(payload.get("page_inspection_model") or ""),
+                            page_inspection_prompt_version=str(
+                                payload.get("page_inspection_prompt_version")
+                                or "page-hazard-evidence-v1"
+                            ),
+                        ),
+                        id=command.workflow_id,
+                        task_queue=analysis_task_queue,
+                    )
+                elif command.workflow_type == "page_inspection":
+                    handle = await self.temporal.start_workflow(
+                        PageInspectionWorkflow.run,
+                        PageInspectionWorkflowInput(
+                            tenant_pub_id=str(payload["tenant_pub_id"]),
+                            project_pub_id=str(payload["project_pub_id"]),
+                            run_pub_id=str(payload["run_pub_id"]),
+                            profile_pub_id=str(payload["profile_pub_id"]),
+                            profile_hash=str(payload["profile_hash"]),
+                            policy_version=str(payload["policy_version"]),
+                            model=str(payload.get("model") or ""),
+                            prompt_version=str(payload["prompt_version"]),
+                        ),
+                        id=command.workflow_id,
+                        task_queue=analysis_task_queue,
                     )
                 elif command.workflow_type == "post_analysis":
                     handle = await self.temporal.start_workflow(
@@ -609,9 +694,12 @@ class WorkflowStartOutbox:
                         PostAnalysisInput(
                             tenant_pub_id=str(payload["tenant_pub_id"]),
                             task_pub_id=str(payload["task_pub_id"]),
+                            source_task_queue=str(
+                                payload.get("source_task_queue") or source_task_queue
+                            ),
                         ),
                         id=command.workflow_id,
-                        task_queue=command.task_queue,
+                        task_queue=analysis_task_queue,
                     )
                 elif command.workflow_type == "formal_report_production":
                     handle = await self.temporal.start_workflow(
@@ -628,7 +716,7 @@ class WorkflowStartOutbox:
                             article_version_pub_id=str(payload["article_version_pub_id"]),
                         ),
                         id=command.workflow_id,
-                        task_queue=command.task_queue,
+                        task_queue=analysis_task_queue,
                     )
                 else:
                     raise RuntimeError("unsupported_workflow_start_type")

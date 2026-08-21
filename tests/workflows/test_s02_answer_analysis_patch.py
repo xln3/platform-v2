@@ -19,13 +19,15 @@ import uuid
 from datetime import timedelta
 from typing import Any
 
+import pytest
 from temporalio import activity, workflow
-from temporalio.client import WorkflowHistory
+from temporalio.client import WorkflowFailureError, WorkflowHistory
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
+from workflows.activities.analysis_jobs import AnalysisJobStateInput
 from workflows.definitions.s02 import AnswerAnalysisWorkflow
 
 _PAYLOAD: dict[str, Any] = {
@@ -38,6 +40,7 @@ _PAYLOAD: dict[str, Any] = {
 }
 
 extract_calls: list[dict[str, Any]] = []
+job_marks: list[tuple[str, str | None, dict[str, Any] | None]] = []
 analyze_result = {"answer_pub_id": "ans_patch", "metrics": {"mention_rate": {"value": "1"}}}
 
 
@@ -56,6 +59,31 @@ async def extract_brands_mock(payload: dict[str, Any]) -> dict[str, Any]:
 async def extract_brands_boom_mock(payload: dict[str, Any]) -> dict[str, Any]:
     extract_calls.append(dict(payload))
     raise ApplicationError("pg down", type="infra_failure", non_retryable=True)
+
+
+@activity.defn(name="mark_analysis_job")
+async def mark_job_mock(item: AnalysisJobStateInput) -> dict[str, Any]:
+    job_marks.append((item.state, item.error_code, item.result))
+    return {"state": item.state}
+
+
+@activity.defn(name="analyze_answer_activity")
+async def analyze_answer_boom_mock(payload: dict[str, Any]) -> dict[str, Any]:
+    del payload
+    raise ApplicationError("analysis fixture failed", type="fixture_failed", non_retryable=True)
+
+
+def _job_payload() -> dict[str, Any]:
+    return {
+        **_PAYLOAD,
+        "analysis_job": {
+            "pub_id": "ajb_patch",
+            "subject_type": "answer",
+            "subject_pub_id": "ans_patch",
+            "analyzer_kind": "answer_basic",
+            "policy_version": "answer-basic-v1",
+        },
+    }
 
 
 @workflow.defn(name="AnswerAnalysisWorkflow")
@@ -125,6 +153,51 @@ async def test_sidecar_infra_failure_does_not_fail_analysis() -> None:
     assert result["metrics"]["mention_rate"]["value"] == "1"
     assert result["brand_extract"] == {"state": "sidecar_failed"}
     assert extract_calls == [_PAYLOAD]
+
+
+async def test_versioned_answer_job_records_running_and_completed() -> None:
+    job_marks.clear()
+    async with await WorkflowEnvironment.start_time_skipping() as environment:
+        queue = f"s02-job-success-{uuid.uuid4().hex}"
+        async with Worker(
+            environment.client,
+            task_queue=queue,
+            workflows=[AnswerAnalysisWorkflow],
+            activities=[analyze_answer_mock, extract_brands_mock, mark_job_mock],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            await environment.client.execute_workflow(
+                AnswerAnalysisWorkflow.run,
+                _job_payload(),
+                id=f"answer-analysis/job-success/{uuid.uuid4().hex}",
+                task_queue=queue,
+            )
+    assert [state for state, _error, _result in job_marks] == ["running", "completed"]
+    assert job_marks[-1][1] is None
+
+
+async def test_versioned_answer_job_failure_never_changes_capture_state() -> None:
+    job_marks.clear()
+    async with await WorkflowEnvironment.start_time_skipping() as environment:
+        queue = f"s02-job-failure-{uuid.uuid4().hex}"
+        async with Worker(
+            environment.client,
+            task_queue=queue,
+            workflows=[AnswerAnalysisWorkflow],
+            activities=[analyze_answer_boom_mock, mark_job_mock],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await environment.client.execute_workflow(
+                    AnswerAnalysisWorkflow.run,
+                    _job_payload(),
+                    id=f"answer-analysis/job-failure/{uuid.uuid4().hex}",
+                    task_queue=queue,
+                )
+    assert [(state, error) for state, error, _result in job_marks] == [
+        ("running", None),
+        ("failed", "activity_failed"),
+    ]
 
 
 async def test_unpatched_legacy_history_replays_without_extract() -> None:

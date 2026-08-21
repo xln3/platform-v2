@@ -13,6 +13,33 @@ class AnalyticsProjection:
         self.writer = writer
 
     def publish(self, event: Mapping[str, Any]) -> None:
+        if event["event_type"] == "answer.capture.completed":
+            payload = event["payload"]
+            self.writer.insert_json_each_row(
+                "geo_analytics.run_event",
+                [
+                    {
+                        "tenant_pub_id": event["tenant_pub_id"],
+                        "project_pub_id": str(payload["project_pub_id"]),
+                        "run_pub_id": str(payload["run_pub_id"]),
+                        "event_id": event["event_id"],
+                        "event_type": event["event_type"],
+                        "event_time": _event_time(event, payload),
+                        "status": "capture_completed",
+                        "adapter_version": "",
+                        "payload_json": _canonical_json(
+                            {
+                                "answer_pub_id": payload.get("answer_pub_id"),
+                                "business_key": payload.get("business_key"),
+                                "capture_state": payload.get("capture_state"),
+                                "quality_state": payload.get("quality_state"),
+                                "response_hash": payload.get("response_hash"),
+                            }
+                        ),
+                    }
+                ],
+            )
+            return
         if event["event_type"] == "collection.run.completed":
             # 采集 run 完成事件 → run_event 一行。payload（producer 侧冻结形状）：
             # {run_pub_id, workflow_id, state, total_tasks, completed_tasks,

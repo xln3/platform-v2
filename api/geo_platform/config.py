@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     temporal_namespace: str = "default"
     temporal_task_queue: str = "geo-platform-v2"
     s02_temporal_task_queue: str = "geo-platform-v2-s02"
+    # Public-web acquisition and semantic/risk analysis must never consume the
+    # logged-in collection worker's browser slots or account session lease.
+    source_temporal_task_queue: str = "geo-platform-v2-source"
+    analysis_temporal_task_queue: str = "geo-platform-v2-analysis"
     minio_endpoint: str = "http://127.0.0.1:19000"
     minio_access_key: str = "geo"
     minio_secret_key: str = "geo_dev_only_password"

@@ -1,0 +1,26 @@
+[Unit]
+Description=GEO Platform V2 Public Source Acquisition Temporal Worker
+# This worker receives public URLs only. Logged-in AI platform cookies and
+# browser profile directories belong exclusively to geo-platform-v2-worker.
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=xln
+Group=xln
+WorkingDirectory=/home/xln/geo-system/platform-v2
+EnvironmentFile=/etc/geo-platform-v2/platform.env
+EnvironmentFile=-/etc/geo-platform-v2/source-worker.env
+ExecStart=/home/xln/geo-system/platform-v2/.venv/bin/python -m workflows.workers.source
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/xln/geo-system/platform-v2
+
+[Install]
+WantedBy=multi-user.target

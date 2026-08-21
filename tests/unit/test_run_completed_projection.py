@@ -46,6 +46,38 @@ def _event() -> dict[str, Any]:
 
 def test_run_completed_event_type_registered_in_outbox() -> None:
     assert "collection.run.completed" in ANALYTICS_EVENT_TYPES
+    assert "answer.capture.completed" in ANALYTICS_EVENT_TYPES
+
+
+def test_projection_routes_capture_completion_without_analysis_fields() -> None:
+    writer = _FakeWriter()
+    event = {
+        "event_id": "evt_answer_capture_test",
+        "tenant_pub_id": "tnt_0123456789abcdef",
+        "event_type": "answer.capture.completed",
+        "occurred_at": datetime(2026, 8, 5, 12, 31, tzinfo=UTC),
+        "payload": {
+            "answer_pub_id": "ans_0123456789abcdef",
+            "project_pub_id": "prj_0123456789abcdef",
+            "run_pub_id": "run_0123456789abcdef",
+            "business_key": "query|model|region|mode",
+            "capture_state": "completed",
+            "quality_state": "accepted",
+            "response_hash": "a" * 64,
+        },
+    }
+    AnalyticsProjection(writer).publish(event)  # type: ignore[arg-type]
+    table, rows = writer.inserts[0]
+    assert table == "geo_analytics.run_event"
+    assert rows[0]["status"] == "capture_completed"
+    assert rows[0]["project_pub_id"] == "prj_0123456789abcdef"
+    assert json.loads(rows[0]["payload_json"]) == {
+        "answer_pub_id": "ans_0123456789abcdef",
+        "business_key": "query|model|region|mode",
+        "capture_state": "completed",
+        "quality_state": "accepted",
+        "response_hash": "a" * 64,
+    }
 
 
 def test_projection_routes_run_completed_to_run_event() -> None:

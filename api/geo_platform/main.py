@@ -42,6 +42,7 @@ from .projects.onboarding_router import router as onboarding_router
 from .projects.router import router as projects_router
 from .quotations.router import router as quotations_router
 from .s02_routers import router as s02_router
+from .source_analysis.router import router as source_analysis_router
 from .variants.router import router as variants_router
 
 settings = get_settings()
@@ -204,6 +205,7 @@ app.include_router(intake_form_token_router)
 app.include_router(variants_router)
 app.include_router(post_analysis_router)
 app.include_router(brandrank_router)
+app.include_router(source_analysis_router)
 
 
 @app.get("/api/v2/health", response_model=Health, tags=["platform"], operation_id="getHealth")

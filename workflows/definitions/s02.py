@@ -7,6 +7,7 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 
 with workflow.unsafe.imports_passed_through():
+    from workflows.activities.analysis_jobs import AnalysisJobStateInput, mark_analysis_job
     from workflows.activities.s02 import (
         analyze_answer_activity,
         capture_evidence_activity,
@@ -35,12 +36,46 @@ _RETRY = RetryPolicy(
 class AnswerAnalysisWorkflow:
     @workflow.run
     async def run(self, payload: dict[str, Any]) -> dict[str, Any]:
-        result: dict[str, Any] = await workflow.execute_activity(
-            analyze_answer_activity,
-            payload,
-            start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=_RETRY,
+        track_job = workflow.patched("answer-analysis-job-state-v1") and isinstance(
+            payload.get("analysis_job"), dict
         )
+        job = payload.get("analysis_job") if track_job else None
+
+        async def mark(
+            state: str,
+            *,
+            error_code: str | None = None,
+            summary: dict[str, Any] | None = None,
+        ) -> None:
+            if not isinstance(job, dict):
+                return
+            await workflow.execute_activity(
+                mark_analysis_job,
+                AnalysisJobStateInput(
+                    tenant_pub_id=str(payload["tenant_pub_id"]),
+                    subject_type=str(job["subject_type"]),
+                    subject_pub_id=str(job["subject_pub_id"]),
+                    analyzer_kind=str(job["analyzer_kind"]),
+                    policy_version=str(job["policy_version"]),
+                    state=state,
+                    error_code=error_code,
+                    result=summary,
+                ),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=10),
+            )
+
+        await mark("running")
+        try:
+            result: dict[str, Any] = await workflow.execute_activity(
+                analyze_answer_activity,
+                payload,
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=_RETRY,
+            )
+        except Exception:
+            await mark("failed", error_code="activity_failed")
+            raise
         # brandrank-extract-v1（W3）：分析主链之后追加品牌抽取侧车。
         # 未打补丁的历史重放不含 marker → patched() 返回 False → 不排新 activity
         # （旧 history 逐字节按旧语义重放）。LLM 单条 60s 超时+线程切换开销，
@@ -58,6 +93,20 @@ class AnswerAnalysisWorkflow:
             except Exception as exc:
                 workflow.logger.warning("brandrank extract sidecar failed: %r", exc)
                 result["brand_extract"] = {"state": "sidecar_failed"}
+        persistence = result.get("persistence")
+        await mark(
+            "completed",
+            summary=(
+                {
+                    "analysis_pub_id": str(persistence.get("analysis_pub_id") or ""),
+                    "analysis_run_pub_id": str(
+                        persistence.get("analysis_run_pub_id") or ""
+                    ),
+                }
+                if isinstance(persistence, dict)
+                else {}
+            ),
+        )
         return result
 
 

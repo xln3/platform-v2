@@ -229,6 +229,7 @@ class PostAnalysisService:
         options: Mapping[str, Any],
         idempotency_key: str | None,
         task_queue: str,
+        source_task_queue: str = "geo-platform-v2-source",
     ) -> tuple[dict[str, Any], bool]:
         """→ (task 行, 是否新建)。同 key/体 重放返回 (既存行, False)；同 key 异体 409。"""
         brand = target_brand.strip()
@@ -321,7 +322,11 @@ class PostAnalysisService:
                     workflow_id,
                     task_queue,
                     json.dumps(
-                        {"tenant_pub_id": tenant_pub_id, "task_pub_id": task_pub_id},
+                        {
+                            "tenant_pub_id": tenant_pub_id,
+                            "task_pub_id": task_pub_id,
+                            "source_task_queue": source_task_queue,
+                        },
                         separators=(",", ":"),
                     ),
                     json.dumps({}, separators=(",", ":")),

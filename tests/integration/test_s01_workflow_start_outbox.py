@@ -21,6 +21,7 @@ from workflows.activities.collection import (
     persist_collection_result,
     publish_downstream_event,
 )
+from workflows.activities.s02 import _resolve_answer_capture
 
 POSTGRES_DSN = os.getenv(
     "S02_POSTGRES_DSN", "postgresql://geo:geo_dev_only@127.0.0.1:55433/geo_platform"
@@ -84,10 +85,12 @@ class StartedHandle:
 class SuccessfulTemporal:
     def __init__(self) -> None:
         self.calls = 0
+        self.task_queues: list[str] = []
 
     async def start_workflow(self, *args: object, **kwargs: object) -> StartedHandle:
-        del args, kwargs
+        del args
         self.calls += 1
+        self.task_queues.append(str(kwargs["task_queue"]))
         return StartedHandle()
 
 
@@ -117,7 +120,7 @@ class FailingTemporal:
 
 
 @pytest.mark.asyncio
-async def test_answer_analysis_workflow_start_command_dispatches_to_s02() -> None:
+async def test_legacy_answer_command_is_routed_to_detached_analysis_queue() -> None:
     with TestClient(app) as client:
         tenant, _ = bootstrap(client, "analysis-dispatch-" + secrets.token_hex(8))
     workflow_id = f"answer-analysis/{tenant}/run_probe/tsk_probe"
@@ -138,6 +141,7 @@ async def test_answer_analysis_workflow_start_command_dispatches_to_s02() -> Non
     dispatcher = WorkflowStartOutbox(dsn=POSTGRES_DSN, temporal=temporal)  # type: ignore[arg-type]
     assert await dispatcher.dispatch_one(workflow_id)
     assert temporal.calls == 1
+    assert temporal.task_queues == ["geo-platform-v2-analysis"]
     with psycopg.connect(POSTGRES_DSN) as connection:
         state = connection.execute(
             """
@@ -152,7 +156,7 @@ async def test_answer_analysis_workflow_start_command_dispatches_to_s02() -> Non
 def test_distinct_collection_results_serialize_run_completion() -> None:
     with TestClient(app) as client:
         tenant, headers = bootstrap(client, "activity-accounting-" + secrets.token_hex(8))
-        workflow_id, _, _ = create_run(client, headers)
+        workflow_id, _, run_request = create_run(client, headers)
 
     run_pub_id = workflow_id.rsplit("/", 1)[-1]
     with psycopg.connect(POSTGRES_DSN) as connection:
@@ -179,8 +183,21 @@ def test_distinct_collection_results_serialize_run_completion() -> None:
         CollectionTaskInput("business-b", "query-b", "model-b", "region-b", "mode-b"),
     )
     results = (
-        CollectionTaskResult("business-a", "answer-a", "screen-a", "accepted"),
-        CollectionTaskResult("business-b", "answer-b", "screen-b", "accepted"),
+        CollectionTaskResult(
+            "business-a",
+            "answer-a",
+            "screen-a",
+            "accepted",
+            citations=[
+                {
+                    "url": "https://example.com/captured-source",
+                    "title": "Captured source",
+                    "cited_text": "captured evidence",
+                    "ordinal": 1,
+                }
+            ],
+        ),
+        CollectionTaskResult("business-b", "answer-b  \r\n", "screen-b", "accepted"),
     )
     with ThreadPoolExecutor(max_workers=2) as pool:
         futures = [
@@ -238,9 +255,81 @@ def test_distinct_collection_results_serialize_run_completion() -> None:
             """,
             (run_pub_id,),
         ).fetchall()
+        capture_events = connection.execute(
+            """
+            SELECT payload
+            FROM integration.outbox_event
+            WHERE tenant_pub_id=%s AND event_type='answer.capture.completed'
+              AND payload->>'run_pub_id'=%s
+            ORDER BY payload->>'business_key'
+            """,
+            (tenant, run_pub_id),
+        ).fetchall()
+        admitted_jobs = connection.execute(
+            """
+            SELECT job.state,job.analyzer_kind,job.policy_version,
+                   task.business_key,command.task_queue,command.payload
+            FROM platform.analysis_job job
+            JOIN platform.collection_task task ON task.id=job.answer_task_id
+            LEFT JOIN integration.workflow_start_command command
+              ON command.workflow_id=job.workflow_id
+            WHERE job.run_id=(SELECT id FROM platform.collection_run WHERE pub_id=%s)
+              AND job.subject_type='answer'
+            ORDER BY task.business_key
+            """,
+            (run_pub_id,),
+        ).fetchall()
     assert (state, completed_tasks, task_count) == ("completed", 2, 2)
     assert {row[0]["query"] for row in matrices} == {"query-a", "query-b"}
-    publish_downstream_event(run_pub_id, tenant, [task_inputs[0]])
+    # Capture, evidence, capture event and analysis admission commit together,
+    # before the run-completion activity is called.
+    assert [row[0]["business_key"] for row in capture_events] == [
+        "business-a",
+        "business-b",
+    ]
+    assert [(row[0], row[1], row[2], row[3]) for row in admitted_jobs] == [
+        ("queued", "answer_basic", "answer-basic-v1", "business-a"),
+        ("queued", "answer_basic", "answer-basic-v1", "business-b"),
+    ]
+    assert all(row[4] == "geo-platform-v2-analysis" for row in admitted_jobs)
+    assert all("text" not in row[5] and "capture_ref" in row[5] for row in admitted_jobs)
+
+    # No semantic projection exists yet, but the captured answers are already
+    # queryable and their pending state is explicit.
+    with TestClient(app) as client:
+        captured_page = client.get(
+            "/api/v2/analytics/answers",
+            headers=headers,
+            params={"project_pub_id": run_request["project_pub_id"]},
+        )
+    assert captured_page.status_code == 200, captured_page.text
+    captured_answers = captured_page.json()["data"]
+    assert {item["response_text"] for item in captured_answers} == {
+        "answer-a",
+        "answer-b",
+    }
+    assert all(item["capture_state"] == "completed" for item in captured_answers)
+    assert all(item["answer_analysis_state"] == "queued" for item in captured_answers)
+    assert all(item["source_analysis_state"] == "queued" for item in captured_answers)
+    assert all(item["risk_analysis_state"] == "queued" for item in captured_answers)
+    assert all(item["eligible"] is None for item in captured_answers)
+    captured_with_citation = next(item for item in captured_answers if item["citation_count"] == 1)
+    with TestClient(app) as client:
+        captured_relations = client.get(
+            f"/api/v2/analytics/answers/{captured_with_citation['pub_id']}/relations",
+            headers=headers,
+            params={"project_pub_id": run_request["project_pub_id"]},
+        )
+    assert captured_relations.status_code == 200, captured_relations.text
+    citation = captured_relations.json()["citations"][0]
+    assert citation["canonical_url"] == "https://example.com/captured-source"
+    assert citation["title"] == "Captured source"
+    assert citation["cited_text"] == "captured evidence"
+    assert citation["support"]["mapping_status"] == "unmapped"
+    assert citation["support"]["relation"] == "unverified"
+    assert citation["support"]["source_match_status"] == "not_checked"
+
+    publish_downstream_event(run_pub_id, tenant, [task_inputs[0]], True)
     with psycopg.connect(POSTGRES_DSN) as connection:
         partial = connection.execute(
             """
@@ -251,9 +340,12 @@ def test_distinct_collection_results_serialize_run_completion() -> None:
             """,
             (tenant, run_pub_id),
         ).fetchone()
-    assert partial[0]["analysis_admission"] == "partial_fanout"
-    assert partial[0]["analysis_commands"] == 1
+    # Per-answer handoff already happened in each persist transaction. Passing
+    # only one final-generation input can no longer lose the earlier answer.
+    assert partial[0]["analysis_admission"] == "enqueued"
+    assert partial[0]["analysis_commands"] == 2
     assert partial[0]["analysis_expected"] == 2
+    assert partial[0]["post_analysis_admission"] == "enqueued"
     assert partial[1] is None
     first_event = publish_downstream_event(run_pub_id, tenant, list(task_inputs))
     replayed_event = publish_downstream_event(run_pub_id, tenant, list(task_inputs))
@@ -278,20 +370,103 @@ def test_distinct_collection_results_serialize_run_completion() -> None:
             """,
             (tenant, f"answer-analysis/{tenant}/{run_pub_id}/%"),
         ).fetchall()
+        run_jobs = connection.execute(
+            """
+            SELECT analyzer_kind,state,policy_version
+            FROM platform.analysis_job
+            WHERE run_id=(SELECT id FROM platform.collection_run WHERE pub_id=%s)
+              AND subject_type='run'
+            ORDER BY analyzer_kind
+            """,
+            (run_pub_id,),
+        ).fetchall()
+        post_command = connection.execute(
+            """
+            SELECT task_queue,payload
+            FROM integration.workflow_start_command
+            WHERE tenant_pub_id=%s AND workflow_type='post_collection_analysis'
+              AND workflow_id=%s
+            """,
+            (tenant, f"post-collection-analysis/{tenant}/{run_pub_id}"),
+        ).fetchone()
     assert len(events) == 1
     assert events[0][1]["completed_tasks"] == 2
     assert events[0][1]["analysis_admission"] == "enqueued"
     assert events[0][1]["analysis_commands"] == 2
     assert events[0][1]["analysis_expected"] == 2
-    assert events[0][2] is True
+    assert events[0][1]["post_analysis_admission"] == "enqueued"
+    # Projection publication belongs to the analytics outbox consumer, not the
+    # analysis-admission producer.
+    assert events[0][2] is False
     assert len(analysis_commands) == 2
-    assert {item[0]["text"] for item in analysis_commands} == {"answer-a", "answer-b"}
-    assert {item[0]["dimensions"]["query_text"] for item in analysis_commands} == {
+    assert all("text" not in item[0] for item in analysis_commands)
+    assert {_resolve_answer_capture(item[0])["text"] for item in analysis_commands} == {
+        "answer-a",
+        "answer-b  \r\n",
+    }
+    assert {item[0]["capture_ref"]["business_key"] for item in analysis_commands} == {
+        "business-a",
+        "business-b",
+    }
+    assert {
+        item[0]["analysis_context"]["dimensions"]["query_text"] for item in analysis_commands
+    } == {
         "query-a",
         "query-b",
     }
-    assert {item[0]["dimensions"]["run_pub_id"] for item in analysis_commands} == {run_pub_id}
-    assert all(item[0]["dimensions"]["config_version_pub_id"] for item in analysis_commands)
+    assert {
+        item[0]["analysis_context"]["dimensions"]["run_pub_id"] for item in analysis_commands
+    } == {run_pub_id}
+    assert all(
+        item[0]["analysis_context"]["dimensions"]["config_version_pub_id"]
+        for item in analysis_commands
+    )
+    assert {row[0] for row in run_jobs} == {
+        "own_site_snapshot",
+        "risk_disparagement",
+        "risk_factcheck",
+        "page_inspection",
+        "site_suggestions",
+        "source_audit",
+        "source_fetch",
+    }
+    assert {row[0]: (row[1], row[2]) for row in run_jobs} == {
+        "own_site_snapshot": ("queued", "post-collection-v2"),
+        "page_inspection": ("not_requested", "post-collection-v2"),
+        "risk_disparagement": ("queued", "post-collection-v2"),
+        "risk_factcheck": ("queued", "post-collection-v2"),
+        "site_suggestions": ("queued", "post-collection-v2"),
+        "source_audit": ("queued", "post-collection-v2"),
+        "source_fetch": ("queued", "post-collection-v2"),
+    }
+    assert post_command is not None
+    assert post_command[0] == "geo-platform-v2-analysis"
+    assert post_command[1]["source_task_queue"] == "geo-platform-v2-source"
+    assert post_command[1]["source_analysis_profile_pub_id"] is None
+    assert post_command[1]["source_analysis_profile_hash"] is None
+    assert post_command[1]["page_inspection_policy_version"] == "page-inspection-v1"
+
+    # Completing every requested source/risk analyzer must not hide that page
+    # inspection was never requested because the profile was absent.
+    with psycopg.connect(POSTGRES_DSN) as connection:
+        connection.execute(
+            """
+            UPDATE platform.analysis_job
+            SET state='completed'
+            WHERE run_id=(SELECT id FROM platform.collection_run WHERE pub_id=%s)
+              AND subject_type='run' AND state='queued'
+            """,
+            (run_pub_id,),
+        )
+    with TestClient(app) as client:
+        settled_page = client.get(
+            "/api/v2/analytics/answers",
+            headers=headers,
+            params={"project_pub_id": run_request["project_pub_id"], "run_pub_id": run_pub_id},
+        )
+    assert settled_page.status_code == 200, settled_page.text
+    assert all(item["source_analysis_state"] == "partial" for item in settled_page.json()["data"])
+    assert all(item["risk_analysis_state"] == "completed" for item in settled_page.json()["data"])
     assert first_event.endswith(events[0][0])
 
 
@@ -304,6 +479,70 @@ class ReconciliationTemporal:
     def get_workflow_handle(self, workflow_id: str) -> ReconciliationHandle:
         del workflow_id
         return ReconciliationHandle()
+
+
+@pytest.mark.asyncio
+async def test_post_analysis_workflow_failure_only_fails_analysis_jobs() -> None:
+    with TestClient(app) as client:
+        tenant, headers = bootstrap(client, "analysis-isolation-" + secrets.token_hex(8))
+        collection_workflow_id, _, _ = create_run(client, headers)
+    run_pub_id = collection_workflow_id.rsplit("/", 1)[-1]
+    task_input = CollectionTaskInput(
+        "isolated-business", "isolated-query", "fixed", "CN-BJ", "fast"
+    )
+    persist_collection_result(
+        tenant,
+        run_pub_id,
+        CollectionTaskResult("isolated-business", "captured answer survives", "screen", "accepted"),
+        task_input,
+    )
+    publish_downstream_event(run_pub_id, tenant, [task_input], True)
+    post_workflow_id = f"post-collection-analysis/{tenant}/{run_pub_id}"
+    with psycopg.connect(POSTGRES_DSN) as connection:
+        connection.execute(
+            """
+            UPDATE integration.workflow_start_command
+            SET state='started',temporal_run_id='fixture-run',started_at=now()
+            WHERE workflow_id=%s
+            """,
+            (post_workflow_id,),
+        )
+
+    reconciler = WorkflowStartOutbox(
+        dsn=POSTGRES_DSN,
+        temporal=ReconciliationTemporal(),  # type: ignore[arg-type]
+    )
+    assert await reconciler.reconcile_one(post_workflow_id)
+
+    with psycopg.connect(POSTGRES_DSN) as connection:
+        collection_state = connection.execute(
+            "SELECT state FROM platform.collection_run WHERE pub_id=%s",
+            (run_pub_id,),
+        ).fetchone()
+        task_state = connection.execute(
+            """
+            SELECT task.state
+            FROM platform.collection_task task
+            JOIN platform.collection_run run ON run.id=task.run_id
+            WHERE run.pub_id=%s
+            """,
+            (run_pub_id,),
+        ).fetchone()
+        analysis_states = connection.execute(
+            """
+            SELECT DISTINCT state,error_code
+            FROM platform.analysis_job
+            WHERE run_id=(SELECT id FROM platform.collection_run WHERE pub_id=%s)
+              AND subject_type='run'
+            """,
+            (run_pub_id,),
+        ).fetchall()
+    assert collection_state == ("completed",)
+    assert task_state == ("completed",)
+    assert set(analysis_states) == {
+        ("failed", "workflow_interrupted"),
+        ("not_requested", "profile_missing"),
+    }
 
 
 class MissingWorkflowHandle:

@@ -1,0 +1,26 @@
+[Unit]
+Description=GEO Platform V2 Semantic and Risk Analysis Temporal Worker
+# Install this unit together with geo-platform-v2-source-worker.service before
+# restarting the collector that contains collection-analysis-detached-v1.
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=xln
+Group=xln
+WorkingDirectory=/home/xln/geo-system/platform-v2
+EnvironmentFile=/etc/geo-platform-v2/platform.env
+EnvironmentFile=-/etc/geo-platform-v2/analysis-worker.env
+ExecStart=/home/xln/geo-system/platform-v2/.venv/bin/python -m workflows.workers.analysis
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/home/xln/geo-system/platform-v2
+
+[Install]
+WantedBy=multi-user.target

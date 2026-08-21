@@ -274,7 +274,11 @@ def test_create_task_inserts_items_and_outbox_command() -> None:
     assert command[2] == "post_analysis"
     assert command[3] == f"post-analysis/{_TENANT}/{row['pub_id']}"
     payload = json.loads(str(command[5]))
-    assert payload == {"tenant_pub_id": _TENANT, "task_pub_id": row["pub_id"]}
+    assert payload == {
+        "tenant_pub_id": _TENANT,
+        "task_pub_id": row["pub_id"],
+        "source_task_queue": "geo-platform-v2-source",
+    }
     assert fake.commits == 1
 
 

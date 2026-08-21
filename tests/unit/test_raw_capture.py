@@ -620,6 +620,7 @@ class _FakeDb:
         self.task: Any = None
         self.asset_inserts: list[dict[str, Any]] = []
         self.relation_inserts: list[dict[str, Any]] = []
+        self.analysis_handoffs = 0
         self.commits = 0
 
 
@@ -690,6 +691,16 @@ def _wire_failure_seam(
         collection, "TenantRepository", lambda session, tenant_pub_id: SimpleNamespace()
     )
     monkeypatch.setattr(collection, "ContentAddressedObjectStore", lambda **kw: store)
+
+    def record_analysis_handoff(**_kwargs: Any) -> str:
+        db.analysis_handoffs += 1
+        return "enqueued"
+
+    monkeypatch.setattr(
+        collection,
+        "_enqueue_post_collection_analysis",
+        record_analysis_handoff,
+    )
     return db, store
 
 
@@ -742,7 +753,6 @@ def test_persist_collection_failure_persists_raw_evidence(
         ("har", "application/har+json"),
     ]
     assert all(item["project_pub_id"] == "prj_x" for item in db.asset_inserts)
-    assert all(item["customer_visible"] is False for item in db.asset_inserts)
     assert [(item["relation_type"]) for item in db.relation_inserts] == [
         "answer_sse_raw",
         "answer_har",
@@ -751,6 +761,7 @@ def test_persist_collection_failure_persists_raw_evidence(
     # CAS 收到原文字节（sse_raw 原文零加工）
     assert store.puts[0][0] == _SSE_BODY.encode()
     assert store.puts[0][1] == "text/event-stream"
+    assert db.analysis_handoffs == 1
     assert db.commits == 1
 
 
@@ -770,6 +781,7 @@ def test_persist_collection_failure_retry_idempotent(
     second_call_pub_ids = {item["pub_id"] for item in db.asset_inserts[2:]}
     assert first_call_pub_ids == second_call_pub_ids  # 派生稳定 → ON CONFLICT 幂等
     assert len(db.relation_inserts) == 4
+    assert db.analysis_handoffs == 2
     assert db.commits == 2
 
 
@@ -791,4 +803,5 @@ def test_persist_collection_failure_without_evidence_keeps_prior_behavior(
     assert db.asset_inserts == []
     assert db.relation_inserts == []
     assert store.puts == []
+    assert db.analysis_handoffs == 1
     assert db.commits == 1

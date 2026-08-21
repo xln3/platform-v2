@@ -203,7 +203,8 @@ def create_task(
             urls=body.urls,
             options=body.options.model_dump(),
             idempotency_key=idempotency_key,
-            task_queue=get_settings().temporal_task_queue,
+            task_queue=get_settings().analysis_temporal_task_queue,
+            source_task_queue=get_settings().source_temporal_task_queue,
         )
     if idempotency_key is not None:
         response.headers["Idempotency-Key"] = idempotency_key

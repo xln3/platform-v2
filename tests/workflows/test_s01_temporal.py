@@ -57,8 +57,9 @@ async def publish_downstream_event(
     run_pub_id: str,
     tenant_pub_id: str | None = None,
     task_inputs: list[CollectionTaskInput] | None = None,
+    enqueue_post_collection: bool = False,
 ) -> str:
-    del tenant_pub_id, task_inputs
+    del tenant_pub_id, task_inputs, enqueue_post_collection
     return f"collection.completed:{run_pub_id}"
 
 

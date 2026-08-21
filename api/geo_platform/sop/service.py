@@ -67,7 +67,7 @@ def _enqueue_own_content_judgment(
             tenant_pub_id,
             _OWN_CONTENT_WORKFLOW_TYPE,
             f"own-content-disparagement/{tenant_pub_id}/{version_pub_id}",
-            get_settings().temporal_task_queue,
+            get_settings().analysis_temporal_task_queue,
             json.dumps(
                 {
                     "tenant_pub_id": tenant_pub_id,
