@@ -33,7 +33,8 @@ resolve 先经 ``AccountGovernor.resolve_collectable(platform, region_gb)`` 读�
 - 豆包一行账号都没有 → ``account_unavailable(account_unregistered)``；豆包已进入
   正式治理，任何入口都不得绕过账号/模式额度墙；其他尚未迁移的平台才允许
   **env 清单回退**（过渡期保命，structlog 记 ``legacy_unmanaged``）；
-- 有账号但全不可用（全忙/额度尽/禁言/region_down）→ ``account_unavailable``
+- 有账号但全不可用（全忙/额度尽/禁言/region_down/失败 streak 未恢复）→
+  ``account_unavailable``
   non_retryable（带 reason；workflow 侧转等长占位落库——绝不回退 env 硬撞，
   也绝不让整批 run failed）；
 - 治理层 DB 异常 → ``account_unavailable(governor_error)`` fail-closed；只有显式
@@ -62,7 +63,10 @@ from dataclasses import dataclass
 from typing import Any
 
 import structlog
-from geo_platform.collection.account_governor import AccountGovernor
+from geo_platform.collection.account_governor import (
+    BROWSER_FAILURE_STREAK_THRESHOLD,
+    AccountGovernor,
+)
 from geo_platform.collection.account_models import (
     CollectionBrowser,
     CollectionPlatformAccount,
@@ -267,7 +271,7 @@ def _governor_decision(
     - 豆包一行账号都没有 → ``("unavailable", {"reason":
       "account_unregistered"})``，任何采集入口都不得绕过正式治理；
     - ``("unavailable", {"reason": ...})``：region_down / 有账号但全不可用
-      （全忙/额度尽/禁言/实例熔断）→ 调用方 account_unavailable 信号，
+      （全忙/额度尽/禁言/失败 streak 未恢复/实例熔断）→ account_unavailable，
       绝不 env 回退硬撞；
     - ``("unavailable", {"reason": "governor_error"})``：治理层 DB 异常也
       fail-closed；隐式故障绝不等价于显式关闭治理。
@@ -346,6 +350,8 @@ def _unavailable_reason(
             return "browser_unregistered"
         if browser.activity != "idle":
             return f"browser_{browser.activity}"
+        if int(browser.error_streak or 0) >= BROWSER_FAILURE_STREAK_THRESHOLD:
+            return "browser_failure_unrecovered"
     return "no_collectable_account"
 
 

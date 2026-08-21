@@ -866,6 +866,36 @@ def test_resolve_collectable_skips_browser_breaker(
     assert governor.resolve_collectable(platform="doubao", region_gb="310000") is None
 
 
+def test_resolve_collectable_requires_recovery_after_breaker_ttl_expires(
+    session: _FakeSession, governor: AccountGovernor, fixed_clock: None
+) -> None:
+    browser = _seed_browser(
+        session,
+        error_streak=41,
+        breaker_until=_FIXED_NOW - timedelta(minutes=1),
+    )
+    _seed_account(session)
+
+    # Time passing is not a recovery signal: generic/manual scheduler paths must
+    # still fail closed even though the breaker timestamp is already in the past.
+    assert governor.resolve_collectable(platform="doubao", region_gb="310000") is None
+
+    # A verified successful outcome clears the persisted root condition and
+    # re-admits the browser.  Operators may also use the explicit governance-off
+    # recovery procedure before recording/resetting this state.
+    governor.record_task_outcome(
+        platform="doubao",
+        browser_instance_key="doubao_sh",
+        outcome="success",
+        run_pub_id="run_recovery",
+        mode="normal",
+        task_pub_id="tsk_recovery",
+    )
+    assert browser.error_streak == 0
+    assert browser.breaker_until is None
+    assert governor.resolve_collectable(platform="doubao", region_gb="310000") is not None
+
+
 @pytest.mark.parametrize("activity", ["busy", "captcha"])
 def test_resolve_collectable_requires_idle_browser(
     activity: str,

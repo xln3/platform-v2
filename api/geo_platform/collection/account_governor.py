@@ -38,7 +38,7 @@ _SHANGHAI = ZoneInfo("Asia/Shanghai")
 _QUOTA_RESET_JITTER_S = 1800  # 重置点抖动上限（秒）
 
 # 同类失败连续熔断阈值 / 实例级熔断时长（设计文档 §5.3：256 次硬撞 → 压到 3 次）
-_ERROR_STREAK_BREAKER = 3
+BROWSER_FAILURE_STREAK_THRESHOLD = 3
 _INSTANCE_BREAKER_TTL = timedelta(hours=2)
 
 # relay 瞬时网络抖动不应直接封锁地域；down 的恢复也要经过独立确认。
@@ -366,7 +366,7 @@ class AccountGovernor:
             )
             if outcome != "success" and not (neutral_outcome or mode_quota_outcome):
                 streak = self._failure_streak(account.id, error_type)
-                if streak >= _ERROR_STREAK_BREAKER and account.runtime_state != "error":
+                if streak >= BROWSER_FAILURE_STREAK_THRESHOLD and account.runtime_state != "error":
                     self.set_runtime_state(
                         platform_account_id=account.id,
                         new_state="error",
@@ -437,7 +437,7 @@ class AccountGovernor:
         if (
             outcome != "success"
             and not neutral_outcome
-            and browser.error_streak >= _ERROR_STREAK_BREAKER
+            and browser.error_streak >= BROWSER_FAILURE_STREAK_THRESHOLD
         ):
             browser.breaker_until = now + _INSTANCE_BREAKER_TTL
             browser.updated_at = now
@@ -470,9 +470,10 @@ class AccountGovernor:
         不拦截）/ no_account_registered（该平台该地域一行账号都没有）/
         region_ip_mismatch（账号绑定的浏览器行 region 与派题地域不一致 =
         配置错误 fail-closed，设计文档 §1.2 硬约束）/ no_collectable_account
-        （有账号但全部不可用：非 idle、超预算、模式额度封锁、浏览器非 idle 或
-        实例熔断/禁言中）。``mode=None`` 保持旧调用兼容且 fail-closed：任一仍
-        生效的模式额度封锁都会阻断未声明模式的派题。
+        （有账号但全部不可用：非 idle、超预算、模式额度封锁、浏览器非 idle、
+        未经真实成功清零的失败 streak，或实例熔断/禁言中）。breaker TTL 过期
+        只代表冷却结束，不代表根因恢复。``mode=None`` 保持旧调用兼容且
+        fail-closed：任一仍生效的模式额度封锁都会阻断未声明模式的派题。
 
         注意：本方法会写库——对过期 muted/quota_exhausted 做 lazy resume、对过
         quota_reset_at 的账号做 lazy 用量清零（「重置点后 lazy 清零」的读侧落点）。
@@ -573,6 +574,23 @@ class AccountGovernor:
                         platform_account_pub_id=account.pub_id,
                         browser_instance_key=browser.instance_key,
                         browser_activity=browser.activity,
+                    )
+                    continue
+                if int(browser.error_streak or 0) >= BROWSER_FAILURE_STREAK_THRESHOLD:
+                    # Breaker TTL only bounds the automatic cooldown; it is not proof
+                    # of recovery.  A real success (or an explicit operator repair)
+                    # must clear the persisted streak before unattended dispatch can
+                    # use this browser again.
+                    log.warning(
+                        "account_resolve_failed",
+                        reason="browser_failure_unrecovered",
+                        platform=platform,
+                        region_gb=region_gb,
+                        mode=mode,
+                        platform_account_pub_id=account.pub_id,
+                        browser_instance_key=browser.instance_key,
+                        browser_error_streak=browser.error_streak,
+                        browser_breaker_until=_iso(browser.breaker_until),
                     )
                     continue
                 if (browser.breaker_until is not None and browser.breaker_until > now) or (
@@ -985,7 +1003,10 @@ class AccountGovernor:
                 if payload.get("error_type") != error_type:
                     return streak
                 streak += 1
-                if streak >= _ERROR_STREAK_BREAKER or relevant >= _FAILURE_STREAK_RELEVANT_WINDOW:
+                if (
+                    streak >= BROWSER_FAILURE_STREAK_THRESHOLD
+                    or relevant >= _FAILURE_STREAK_RELEVANT_WINDOW
+                ):
                     return streak
             if len(events) < _FAILURE_STREAK_PAGE_SIZE:
                 break

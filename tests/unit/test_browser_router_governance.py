@@ -307,6 +307,26 @@ def test_governor_non_idle_browser_is_account_unavailable(
 
 
 @pytest.mark.usefixtures("_prod_topology")
+def test_governor_expired_breaker_with_unrecovered_failure_is_account_unavailable(
+    governance_db: _FakeGovernanceDb,
+) -> None:
+    """Manual/generic scheduler runs bypass gradual health but not the worker gate."""
+    _seed_gov_region(governance_db)
+    _seed_gov_browser(
+        governance_db,
+        error_streak=41,
+        breaker_until=datetime.now(UTC) - timedelta(minutes=1),
+    )
+    _seed_gov_account(governance_db)
+
+    with pytest.raises(ApplicationError) as exc_info:
+        resolve_browser_instance("doubao", "CN-SH", "normal")
+
+    assert exc_info.value.type == "account_unavailable"
+    assert "browser_failure_unrecovered" in str(exc_info.value)
+
+
+@pytest.mark.usefixtures("_prod_topology")
 def test_governor_mode_quota_block_allows_quick_fallback(
     governance_db: _FakeGovernanceDb,
 ) -> None:
