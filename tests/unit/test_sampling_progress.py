@@ -118,6 +118,71 @@ def test_select_sampling_campaign_bridges_quick_topup_to_deep_think_full_plan() 
     ]
 
 
+def test_select_sampling_campaign_ignores_interleaved_independent_configs() -> None:
+    configs = parse_sampling_configs(
+        [
+            _row(48, ["问题三"], model="doubao", region="北京", mode="normal"),
+            _row(47, ["无关问题一", "无关问题二"], model="yiyan", region="上海"),
+            _row(46, ["问题一", "无关问题三"], model="deepseek", region="上海"),
+            _row(45, ["问题一", "问题二"], model="doubao", region="上海"),
+            _row(
+                42,
+                ["问题一", "问题二", "问题三"],
+                model="deepseek",
+                region="上海",
+            ),
+            _row(
+                41,
+                ["问题一", "问题二", "问题三"],
+                model="deepseek",
+                region="北京",
+            ),
+        ]
+    )
+
+    baseline, campaign = select_sampling_campaign(configs)
+
+    assert baseline is not None
+    assert baseline.revision == 42
+    assert [config.revision for config in campaign] == [48, 45, 42, 41]
+    assert [
+        (column.model, column.region, column.mode) for column in sampling_columns(campaign)
+    ] == [
+        ("doubao", "北京", "normal"),
+        ("doubao", "上海", "deep_think"),
+        ("deepseek", "北京", "deep_think"),
+        ("deepseek", "上海", "deep_think"),
+    ]
+
+
+def test_select_sampling_campaign_uses_explicit_catalog_definition() -> None:
+    configs = parse_sampling_configs(
+        [
+            _row(48, ["无关问题"], model="yiyan", region="上海"),
+            _row(47, ["问题三"], model="doubao", region="北京", mode="normal"),
+            _row(46, ["问题一", "新增问题"], model="deepseek", region="上海"),
+            _row(
+                42,
+                ["问题一", "问题二", "问题三"],
+                model="deepseek",
+                region="上海",
+            ),
+        ]
+    )
+
+    baseline, campaign = select_sampling_campaign(configs, baseline_pub_id="cfv_42")
+
+    assert baseline is not None
+    assert baseline.revision == 42
+    assert [config.revision for config in campaign] == [47, 46, 42]
+
+
+def test_select_sampling_campaign_fails_closed_for_missing_catalog_definition() -> None:
+    configs = parse_sampling_configs([_row(3, ["问题"])])
+
+    assert select_sampling_campaign(configs, baseline_pub_id="cfv_missing") == (None, [])
+
+
 def test_select_sampling_campaign_recovers_plan_behind_more_than_100_topups() -> None:
     full_plan = [f"问题{index:03d}" for index in range(136)]
     topups = [
@@ -225,6 +290,15 @@ def test_sampling_progress_route_projects_counts_and_establishes_both_tenant_con
                 return Result(rows=[{"id": "00000000-0000-0000-0000-000000000001"}])
             if "set_config('app.tenant_id'" in sql:
                 return Result()
+            if "FROM platform.answer_library_catalog" in sql:
+                return Result(
+                    rows=[
+                        {
+                            "catalog_config_pub_id": "cfv_7",
+                            "campaign_started_at": captured_at,
+                        }
+                    ]
+                )
             if "FROM platform.monitoring_config_version" in sql:
                 return Result(rows=[_row(7, ["问题一", "问题二"])])
             if "FROM analytics.answer" in sql:
@@ -274,3 +348,6 @@ def test_sampling_progress_route_projects_counts_and_establishes_both_tenant_con
     assert any("set_config('app.tenant_id'" in sql for sql, _ in calls)
     config_sql = next(sql for sql, _ in calls if "FROM platform.monitoring_config_version" in sql)
     assert "LIMIT 100" not in config_sql
+    assert any("FROM platform.answer_library_catalog" in sql for sql, _ in calls)
+    config_params = next(params for sql, params in calls if sql == config_sql)
+    assert config_params == ("tnt_test", "prj_test", captured_at, captured_at)

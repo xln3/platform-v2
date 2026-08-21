@@ -610,6 +610,28 @@ def sampling_progress(
             "SELECT set_config('app.tenant_id', %s, true)",
             (str(tenant_row["id"]) if tenant_row is not None else "",),
         )
+        catalog_row = connection.execute(
+            """
+            SELECT version.pub_id AS catalog_config_pub_id,catalog.campaign_started_at
+            FROM platform.answer_library_catalog catalog
+            JOIN platform.project project ON project.id=catalog.project_id
+            JOIN platform.monitoring_config_version version
+              ON version.id=catalog.catalog_config_version_id
+            JOIN platform.tenant tenant ON tenant.id=catalog.tenant_id
+            WHERE tenant.pub_id=%s AND project.pub_id=%s
+              AND catalog.activated_at<=now()
+              AND (catalog.retired_at IS NULL OR catalog.retired_at>now())
+            ORDER BY catalog.activated_at DESC,catalog.created_at DESC,catalog.pub_id DESC
+            LIMIT 1
+            """,
+            (principal.tenant_pub_id, project_pub_id),
+        ).fetchone()
+        catalog_config_pub_id = (
+            str(catalog_row["catalog_config_pub_id"]) if catalog_row is not None else None
+        )
+        campaign_started_at = (
+            catalog_row["campaign_started_at"] if catalog_row is not None else None
+        )
         config_rows = connection.execute(
             """
             SELECT version.pub_id,version.revision,version.snapshot_json
@@ -618,11 +640,19 @@ def sampling_progress(
             JOIN platform.project project ON project.id=config.project_id
             JOIN platform.tenant tenant ON tenant.id=version.tenant_id
             WHERE tenant.pub_id=%s AND project.pub_id=%s
+              AND (%s::timestamptz IS NULL OR version.frozen_at>=%s::timestamptz)
             ORDER BY version.revision DESC
             """,
-            (principal.tenant_pub_id, project_pub_id),
+            (
+                principal.tenant_pub_id,
+                project_pub_id,
+                campaign_started_at,
+                campaign_started_at,
+            ),
         ).fetchall()
-        baseline, campaign = select_sampling_campaign(parse_sampling_configs(config_rows))
+        baseline, campaign = select_sampling_campaign(
+            parse_sampling_configs(config_rows), baseline_pub_id=catalog_config_pub_id
+        )
         if baseline is None:
             return SamplingProgressView(
                 project_pub_id=project_pub_id,
