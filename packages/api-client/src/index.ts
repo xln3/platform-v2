@@ -13242,9 +13242,33 @@ export async function getIntakeProfileDocx(
   }
 }
 
+export type QuotationServiceCode =
+  | 'ranking_test'
+  | 'outbound_disparagement_audit'
+  | 'inbound_disparagement_audit'
+  | 'official_site_audit'
+  | 'content_publishing_pilot';
+
+export type QuotationPackageCode = 'geo_effect_assessment' | 'minimum_validation' | 'custom';
+export type QuotationArtifactKind = 'quote_table' | 'query_appendix' | 'complete';
+
+export type QuotationServiceQuoteInput = {
+  serviceCode: QuotationServiceCode;
+  quantity: number;
+  unitPriceCents: number | null;
+};
+
 export type QuotationGenerationInput = {
   brandName: string;
-  targetWords: File;
+  packageCode: QuotationPackageCode;
+  artifactKind?: QuotationArtifactKind;
+  websiteUrl?: string;
+  serviceQuotes: QuotationServiceQuoteInput[];
+  officialSiteInCitations: boolean | null;
+  officialSiteCitationUrl?: string;
+  pricingStatus: 'priced' | 'pending';
+  commercialNote?: string;
+  targetWords?: File;
   quoteDate?: string;
   model?: string;
 };
@@ -13256,6 +13280,14 @@ export type GeneratedQuotationDocument = {
   targetQueryCount: number;
   selectedQueryCount: number;
   opportunityCount: number;
+  packageCode: QuotationPackageCode;
+  /** Runtime responses always include this; optional keeps existing downstream fixtures source-compatible. */
+  artifactKind?: QuotationArtifactKind;
+  serviceCount: number;
+  pricingStatus: 'priced' | 'pending';
+  totalPriceCents: number | null;
+  maximumTotalPriceCents: number | null;
+  queryAppendixIncluded: boolean;
 };
 
 export type QuotationGenerationResult =
@@ -13274,10 +13306,68 @@ const quotationXlsxMimeTypes = new Set([
 const quotationMaxWorkbookBytes = 10 * 1024 * 1024;
 const quotationMaxDocumentBytes = 20 * 1024 * 1024;
 
-const quotationHeaderCount = (value: string | null, maximum: number): number | null => {
+const quotationHeaderCount = (
+  value: string | null,
+  minimum: number,
+  maximum: number,
+): number | null => {
   if (!value || !/^(?:0|[1-9]\d*)$/u.test(value)) return null;
   const parsed = Number(value);
-  return Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= maximum ? parsed : null;
+  return Number.isSafeInteger(parsed) && parsed >= minimum && parsed <= maximum ? parsed : null;
+};
+
+const quotationServiceOrder: QuotationServiceCode[] = [
+  'ranking_test',
+  'outbound_disparagement_audit',
+  'inbound_disparagement_audit',
+  'official_site_audit',
+  'content_publishing_pilot',
+];
+const quotationPackageCodes = new Set<QuotationPackageCode>([
+  'geo_effect_assessment',
+  'minimum_validation',
+  'custom',
+]);
+const quotationArtifactKinds = new Set<QuotationArtifactKind>([
+  'quote_table',
+  'query_appendix',
+  'complete',
+]);
+
+const quotationExpectedQuantities = (
+  packageCode: QuotationPackageCode,
+  officialSiteInCitations: boolean | null,
+): Map<QuotationServiceCode, number> | null => {
+  if (packageCode === 'custom') return null;
+  if (packageCode === 'geo_effect_assessment') {
+    return new Map([
+      ['ranking_test', 1],
+      ['outbound_disparagement_audit', 1],
+      ['inbound_disparagement_audit', 1],
+      ['official_site_audit', 1],
+    ]);
+  }
+  const result = new Map<QuotationServiceCode, number>([
+    ['ranking_test', 2],
+    ['inbound_disparagement_audit', 1],
+    ['content_publishing_pilot', 1],
+  ]);
+  if (officialSiteInCitations !== false) result.set('official_site_audit', 1);
+  return result;
+};
+
+const quotationWebsiteValid = (value: string): boolean => {
+  try {
+    const url = new URL(value);
+    return (
+      (url.protocol === 'http:' || url.protocol === 'https:') &&
+      Boolean(url.hostname) &&
+      url.username === '' &&
+      url.password === ''
+    );
+  } catch {
+    return false;
+  }
 };
 
 const quotationFileName = (contentDisposition: string | null): string | null => {
@@ -13304,7 +13394,7 @@ const classifyQuotationFailure = (status: number): QuotationGenerationResult => 
 };
 
 /**
- * 运营端报价单生成：multipart 上传 XLSX，DOCX 只经受控 Blob 通道返回；同时校验
+ * 运营端报价单生成：multipart 提交报价配置和可选 XLSX，DOCX 只经受控 Blob 通道返回；同时校验
  * MIME、ZIP 签名、体积、服务端 SHA-256 与计数元数据，失败时不把响应交给下载层。
  */
 export async function generateQuotation(
@@ -13315,23 +13405,131 @@ export async function generateQuotation(
   const brandName = input.brandName.normalize('NFC').replace(/\s+/gu, ' ').trim();
   const quoteDate = input.quoteDate?.trim() ?? '';
   const model = input.model?.trim() ?? '';
+  const websiteUrl = input.websiteUrl?.normalize('NFC').trim() ?? '';
+  const artifactKind = input.artifactKind ?? 'complete';
+  const commercialNote = input.commercialNote?.normalize('NFC').replace(/\s+/gu, ' ').trim() ?? '';
+  const officialSiteInCitations = input.officialSiteInCitations;
+  const officialSiteCitationUrl = input.officialSiteCitationUrl?.normalize('NFC').trim() ?? '';
+  const codes = input.serviceQuotes.map((quote) => quote.serviceCode);
+  const codeSet = new Set(codes);
+  const hasQueryService = codeSet.has('ranking_test') || codeSet.has('content_publishing_pilot');
+  const knownCodes = codes.every((code) => quotationServiceOrder.includes(code));
+  const orderedCodes = quotationServiceOrder.filter((code) => codeSet.has(code));
+  const expectedQuantities = quotationExpectedQuantities(
+    input.packageCode,
+    officialSiteInCitations,
+  );
+  const actualQuantities = new Map(
+    input.serviceQuotes.map((quote) => [quote.serviceCode, quote.quantity]),
+  );
+  const packageMatches =
+    expectedQuantities === null ||
+    (expectedQuantities.size === actualQuantities.size &&
+      [...expectedQuantities].every(([code, quantity]) => actualQuantities.get(code) === quantity));
+  const maximumTotalPriceCents =
+    input.pricingStatus === 'priced'
+      ? input.serviceQuotes.reduce(
+          (total, quote) => total + (quote.unitPriceCents ?? 0) * quote.quantity,
+          0,
+        )
+      : null;
+  const totalPriceCents =
+    input.pricingStatus === 'priced'
+      ? input.serviceQuotes.reduce(
+          (total, quote) =>
+            total +
+            (input.packageCode === 'minimum_validation' &&
+            officialSiteInCitations === null &&
+            quote.serviceCode === 'official_site_audit'
+              ? 0
+              : (quote.unitPriceCents ?? 0) * quote.quantity),
+          0,
+        )
+      : null;
+  const expectsQueryAppendix =
+    artifactKind !== 'quote_table' && Boolean(input.targetWords) && hasQueryService;
+  const fileInvalid =
+    input.targetWords !== undefined &&
+    (!(input.targetWords instanceof File) ||
+      !input.targetWords.name.toLowerCase().endsWith('.xlsx') ||
+      input.targetWords.size <= 0 ||
+      input.targetWords.size > quotationMaxWorkbookBytes ||
+      !quotationXlsxMimeTypes.has(input.targetWords.type.toLowerCase()));
   if (
     !safeBrowserString(brandName, 80) ||
     brandName.length < 2 ||
-    !(input.targetWords instanceof File) ||
-    !input.targetWords.name.toLowerCase().endsWith('.xlsx') ||
-    input.targetWords.size <= 0 ||
-    input.targetWords.size > quotationMaxWorkbookBytes ||
-    !quotationXlsxMimeTypes.has(input.targetWords.type.toLowerCase()) ||
+    !quotationPackageCodes.has(input.packageCode) ||
+    !quotationArtifactKinds.has(artifactKind) ||
+    !['priced', 'pending'].includes(input.pricingStatus) ||
+    (officialSiteInCitations !== true &&
+      officialSiteInCitations !== false &&
+      officialSiteInCitations !== null) ||
+    input.serviceQuotes.length < 1 ||
+    input.serviceQuotes.length > 5 ||
+    !knownCodes ||
+    codeSet.size !== codes.length ||
+    codes.some((code, index) => code !== orderedCodes[index]) ||
+    input.serviceQuotes.some(
+      (quote) =>
+        !Number.isSafeInteger(quote.quantity) ||
+        quote.quantity < 1 ||
+        quote.quantity > 99 ||
+        (input.pricingStatus === 'priced'
+          ? !Number.isSafeInteger(quote.unitPriceCents) ||
+            (quote.unitPriceCents ?? -1) < 0 ||
+            (quote.unitPriceCents ?? 1_000_000_000_000) > 999_999_999_999
+          : quote.unitPriceCents !== null),
+    ) ||
+    !packageMatches ||
+    (input.pricingStatus === 'priced' &&
+      (!Number.isSafeInteger(totalPriceCents) ||
+        !Number.isSafeInteger(maximumTotalPriceCents) ||
+        (maximumTotalPriceCents ?? 4_999_999_999_996) > 4_999_999_999_995)) ||
+    (codeSet.has('official_site_audit') && !quotationWebsiteValid(websiteUrl)) ||
+    (input.packageCode === 'minimum_validation' &&
+      officialSiteInCitations === true &&
+      (!quotationWebsiteValid(officialSiteCitationUrl) ||
+        (() => {
+          const websiteHost = new URL(websiteUrl).hostname.toLowerCase();
+          const evidenceHost = new URL(officialSiteCitationUrl).hostname.toLowerCase();
+          return evidenceHost !== websiteHost && !evidenceHost.endsWith(`.${websiteHost}`);
+        })())) ||
+    (input.packageCode === 'minimum_validation' &&
+      officialSiteInCitations !== true &&
+      officialSiteCitationUrl !== '') ||
+    (input.packageCode !== 'minimum_validation' && officialSiteCitationUrl !== '') ||
+    (input.packageCode === 'custom' &&
+      codeSet.has('content_publishing_pilot') &&
+      actualQuantities.get('ranking_test') !== 2) ||
+    (commercialNote !== '' && !safeBrowserString(commercialNote, 500)) ||
+    (artifactKind === 'query_appendix' && (!input.targetWords || !hasQueryService)) ||
+    fileInvalid ||
     (quoteDate !== '' && !/^20\d{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/u.test(quoteDate)) ||
-    (model !== '' && !safeBrowserString(model, 120))
+    (model !== '' && (!input.targetWords || !safeBrowserString(model, 120)))
   ) {
     return { kind: 'invalid' };
   }
 
   const form = new FormData();
   form.set('brand_name', brandName);
-  form.set('target_words', input.targetWords);
+  form.set(
+    'quotation_config',
+    JSON.stringify({
+      package_code: input.packageCode,
+      artifact_kind: artifactKind,
+      website_url: websiteUrl,
+      service_quotes: input.serviceQuotes.map((quote) => ({
+        service_code: quote.serviceCode,
+        quantity: quote.quantity,
+        unit_price_cents: quote.unitPriceCents,
+      })),
+      commercial_note: commercialNote,
+      pricing_status: input.pricingStatus,
+      official_site_in_citations: officialSiteInCitations,
+      official_site_citation_url: officialSiteCitationUrl,
+    }),
+  );
+  if (input.targetWords) form.set('target_words', input.targetWords);
   if (quoteDate) form.set('quote_date', quoteDate);
   if (model) form.set('model', model);
   try {
@@ -13347,16 +13545,43 @@ export async function generateQuotation(
     const fileName = quotationFileName(result.response.headers.get('content-disposition'));
     const targetQueryCount = quotationHeaderCount(
       result.response.headers.get('x-quotation-target-query-count'),
+      0,
       300,
     );
     const selectedQueryCount = quotationHeaderCount(
       result.response.headers.get('x-quotation-selected-query-count'),
+      0,
       18,
     );
     const opportunityCount = quotationHeaderCount(
       result.response.headers.get('x-quotation-opportunity-count'),
+      0,
       16,
     );
+    const serviceCount = quotationHeaderCount(
+      result.response.headers.get('x-quotation-service-count'),
+      1,
+      5,
+    );
+    const returnedPricingStatus = result.response.headers.get('x-quotation-pricing-status');
+    const returnedTotalHeader = result.response.headers.get('x-quotation-total-cents');
+    const returnedMaximumTotalHeader = result.response.headers.get(
+      'x-quotation-maximum-total-cents',
+    );
+    const returnedTotalPriceCents = quotationHeaderCount(returnedTotalHeader, 0, 4_999_999_999_995);
+    const returnedMaximumTotalPriceCents = quotationHeaderCount(
+      returnedMaximumTotalHeader,
+      0,
+      4_999_999_999_995,
+    );
+    const packageCode = result.response.headers.get(
+      'x-quotation-package-code',
+    ) as QuotationPackageCode | null;
+    const returnedArtifactKind = result.response.headers.get(
+      'x-quotation-artifact-kind',
+    ) as QuotationArtifactKind | null;
+    const queryAppendixIncluded =
+      result.response.headers.get('x-quotation-query-appendix') === 'included';
     if (
       result.data.type !== quotationDocxMimeType ||
       result.data.size <= 0 ||
@@ -13365,7 +13590,16 @@ export async function generateQuotation(
       !fileName ||
       targetQueryCount === null ||
       selectedQueryCount === null ||
-      opportunityCount === null
+      opportunityCount === null ||
+      serviceCount !== input.serviceQuotes.length ||
+      (input.pricingStatus === 'priced'
+        ? returnedTotalPriceCents !== totalPriceCents ||
+          returnedMaximumTotalPriceCents !== maximumTotalPriceCents
+        : returnedTotalHeader !== 'pending' || returnedMaximumTotalHeader !== 'pending') ||
+      packageCode !== input.packageCode ||
+      returnedArtifactKind !== artifactKind ||
+      returnedPricingStatus !== input.pricingStatus ||
+      queryAppendixIncluded !== expectsQueryAppendix
     ) {
       return { kind: 'unavailable' };
     }
@@ -13394,6 +13628,14 @@ export async function generateQuotation(
         targetQueryCount,
         selectedQueryCount,
         opportunityCount,
+        packageCode,
+        artifactKind: returnedArtifactKind,
+        serviceCount,
+        pricingStatus: input.pricingStatus,
+        totalPriceCents: input.pricingStatus === 'priced' ? returnedTotalPriceCents : null,
+        maximumTotalPriceCents:
+          input.pricingStatus === 'priced' ? returnedMaximumTotalPriceCents : null,
+        queryAppendixIncluded,
       },
     };
   } catch {

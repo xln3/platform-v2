@@ -6450,6 +6450,29 @@ describe('quotation generation browser boundary', () => {
     'X-Actor-Role': 'operator',
   } as const;
   const docxMime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  const quotationInput = (targetWords: File) => ({
+    brandName: '盛邦安全',
+    quoteDate: '2026-08-12',
+    packageCode: 'geo_effect_assessment' as const,
+    websiteUrl: 'https://www.webray.com.cn',
+    officialSiteInCitations: true,
+    pricingStatus: 'priced' as const,
+    targetWords,
+    serviceQuotes: [
+      { serviceCode: 'ranking_test' as const, quantity: 1, unitPriceCents: 2_000_000 },
+      {
+        serviceCode: 'outbound_disparagement_audit' as const,
+        quantity: 1,
+        unitPriceCents: 800_000,
+      },
+      {
+        serviceCode: 'inbound_disparagement_audit' as const,
+        quantity: 1,
+        unitPriceCents: 1_200_000,
+      },
+      { serviceCode: 'official_site_audit' as const, quantity: 1, unitPriceCents: 1_000_000 },
+    ],
+  });
 
   it('uploads XLSX multipart and verifies the returned DOCX digest and metadata', async () => {
     const bytes = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00, 0x06, 0x00]);
@@ -6466,27 +6489,48 @@ describe('quotation generation browser boundary', () => {
       expect(form.get('brand_name')).toBe('盛邦安全');
       expect(form.get('quote_date')).toBe('2026-08-12');
       expect((form.get('target_words') as File).name).toBe('盛邦目标词.xlsx');
+      const quotationConfig = JSON.parse(String(form.get('quotation_config')));
+      expect(quotationConfig).toMatchObject({
+        package_code: 'geo_effect_assessment',
+        artifact_kind: 'complete',
+        website_url: 'https://www.webray.com.cn',
+        pricing_status: 'priced',
+      });
+      expect(quotationConfig.service_quotes).toHaveLength(4);
+      expect(quotationConfig.service_quotes[0]).toEqual({
+        service_code: 'ranking_test',
+        quantity: 1,
+        unit_price_cents: 2_000_000,
+      });
       return new Response(bytes, {
         status: 200,
         headers: {
           'content-type': docxMime,
           'content-disposition':
-            "attachment; filename*=UTF-8''%E6%8A%A5%E4%BB%B7%E5%8D%95-%E7%9B%9B%E9%82%A6%E5%AE%89%E5%85%A8-20260812.docx",
+            "attachment; filename*=UTF-8''%E6%8A%A5%E4%BB%B7%E5%8D%95-%E7%9B%9B%E9%82%A6%E5%AE%89%E5%85%A8-GEO%E6%95%88%E6%9E%9C%E8%AF%84%E6%B5%8B-20260812.docx",
           'x-quotation-sha256': sha256,
           'x-quotation-target-query-count': '64',
           'x-quotation-selected-query-count': '18',
-          'x-quotation-opportunity-count': '16',
+          'x-quotation-opportunity-count': '0',
+          'x-quotation-package-code': 'geo_effect_assessment',
+          'x-quotation-artifact-kind': 'complete',
+          'x-quotation-service-count': '4',
+          'x-quotation-pricing-status': 'priced',
+          'x-quotation-total-cents': '5000000',
+          'x-quotation-maximum-total-cents': '5000000',
+          'x-quotation-query-appendix': 'included',
         },
       });
     });
     vi.stubGlobal('fetch', fetchMock);
     const result = await generateQuotation(
       {
+        ...quotationInput(
+          new File(['xlsx'], '盛邦目标词.xlsx', {
+            type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          }),
+        ),
         brandName: ' 盛邦安全 ',
-        quoteDate: '2026-08-12',
-        targetWords: new File(['xlsx'], '盛邦目标词.xlsx', {
-          type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        }),
       },
       quotationHeaders,
       createGeoApiClient('https://geo.example'),
@@ -6494,14 +6538,280 @@ describe('quotation generation browser boundary', () => {
     expect(result).toMatchObject({
       kind: 'ready',
       data: {
-        fileName: '报价单-盛邦安全-20260812.docx',
+        fileName: '报价单-盛邦安全-GEO效果评测-20260812.docx',
         sha256,
         targetQueryCount: 64,
         selectedQueryCount: 18,
-        opportunityCount: 16,
+        opportunityCount: 0,
+        packageCode: 'geo_effect_assessment',
+        artifactKind: 'complete',
+        serviceCount: 4,
+        totalPriceCents: 5_000_000,
+        queryAppendixIncluded: true,
       },
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('requests quote-table and query-appendix artifacts and validates their response kind', async () => {
+    const bytes = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00]);
+    const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);
+    const sha256 = [...new Uint8Array(digest)]
+      .map((value) => value.toString(16).padStart(2, '0'))
+      .join('');
+    const fetchMock = vi.fn(async (requestInput: RequestInfo | URL) => {
+      const form = await (requestInput as Request).clone().formData();
+      const configuration = JSON.parse(String(form.get('quotation_config')));
+      const artifactKind = configuration.artifact_kind as 'quote_table' | 'query_appendix';
+      const hasAppendix = artifactKind === 'query_appendix';
+      const fileName =
+        artifactKind === 'quote_table'
+          ? '报价单-盛邦安全-GEO效果评测-报价单表格-20260812.docx'
+          : '报价单-盛邦安全-GEO效果评测-查询附件-20260812.docx';
+      return new Response(bytes, {
+        status: 200,
+        headers: {
+          'content-type': docxMime,
+          'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+          'x-quotation-sha256': sha256,
+          'x-quotation-target-query-count': '64',
+          'x-quotation-selected-query-count': hasAppendix ? '18' : '0',
+          'x-quotation-opportunity-count': '0',
+          'x-quotation-package-code': 'geo_effect_assessment',
+          'x-quotation-artifact-kind': artifactKind,
+          'x-quotation-service-count': '4',
+          'x-quotation-pricing-status': 'priced',
+          'x-quotation-total-cents': '5000000',
+          'x-quotation-maximum-total-cents': '5000000',
+          'x-quotation-query-appendix': hasAppendix ? 'included' : 'not-included',
+        },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    for (const artifactKind of ['quote_table', 'query_appendix'] as const) {
+      const result = await generateQuotation(
+        {
+          ...quotationInput(
+            new File(['xlsx'], `${artifactKind}.xlsx`, {
+              type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            }),
+          ),
+          artifactKind,
+        },
+        quotationHeaders,
+        createGeoApiClient('https://geo.example'),
+      );
+      expect(result).toMatchObject({
+        kind: 'ready',
+        data: {
+          artifactKind,
+          queryAppendixIncluded: artifactKind === 'query_appendix',
+        },
+      });
+    }
+
+    const file = new File(['xlsx'], 'removed.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    const { targetWords: _, ...withoutWorkbook } = quotationInput(file);
+    await expect(
+      generateQuotation(
+        { ...withoutWorkbook, artifactKind: 'query_appendix' },
+        quotationHeaders,
+        createGeoApiClient('https://geo.example'),
+      ),
+    ).resolves.toEqual({ kind: 'invalid' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('generates a priced business quotation without an XLSX or model dependency', async () => {
+    const bytes = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00]);
+    const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);
+    const sha256 = [...new Uint8Array(digest)]
+      .map((value) => value.toString(16).padStart(2, '0'))
+      .join('');
+    const file = new File(['xlsx'], '不应上传.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    const { targetWords: _, ...input } = quotationInput(file);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (requestInput: RequestInfo | URL) => {
+        const form = await (requestInput as Request).clone().formData();
+        expect(form.get('target_words')).toBeNull();
+        expect(form.get('model')).toBeNull();
+        return new Response(bytes, {
+          status: 200,
+          headers: {
+            'content-type': docxMime,
+            'content-disposition':
+              "attachment; filename*=UTF-8''%E6%8A%A5%E4%BB%B7%E5%8D%95-%E7%9B%9B%E9%82%A6%E5%AE%89%E5%85%A8-GEO%E6%95%88%E6%9E%9C%E8%AF%84%E6%B5%8B-20260812.docx",
+            'x-quotation-sha256': sha256,
+            'x-quotation-target-query-count': '0',
+            'x-quotation-selected-query-count': '0',
+            'x-quotation-opportunity-count': '0',
+            'x-quotation-package-code': 'geo_effect_assessment',
+            'x-quotation-artifact-kind': 'complete',
+            'x-quotation-service-count': '4',
+            'x-quotation-pricing-status': 'priced',
+            'x-quotation-total-cents': '5000000',
+            'x-quotation-maximum-total-cents': '5000000',
+            'x-quotation-query-appendix': 'not-included',
+          },
+        });
+      }),
+    );
+    expect(
+      await generateQuotation(input, quotationHeaders, createGeoApiClient('https://geo.example')),
+    ).toMatchObject({
+      kind: 'ready',
+      data: {
+        targetQueryCount: 0,
+        selectedQueryCount: 0,
+        opportunityCount: 0,
+        totalPriceCents: 5_000_000,
+        queryAppendixIncluded: false,
+      },
+    });
+  });
+
+  it('accepts a price-pending sample and verifies pending total headers', async () => {
+    const bytes = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00]);
+    const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);
+    const sha256 = [...new Uint8Array(digest)]
+      .map((value) => value.toString(16).padStart(2, '0'))
+      .join('');
+    const file = new File(['xlsx'], '不应上传.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    const { targetWords: _, ...baseInput } = quotationInput(file);
+    const input = {
+      ...baseInput,
+      pricingStatus: 'pending' as const,
+      serviceQuotes: baseInput.serviceQuotes.map((quote) => ({
+        ...quote,
+        unitPriceCents: null,
+      })),
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (requestInput: RequestInfo | URL) => {
+        const form = await (requestInput as Request).clone().formData();
+        const configuration = JSON.parse(String(form.get('quotation_config')));
+        expect(configuration.pricing_status).toBe('pending');
+        expect(configuration.service_quotes[0].unit_price_cents).toBeNull();
+        return new Response(bytes, {
+          status: 200,
+          headers: {
+            'content-type': docxMime,
+            'content-disposition':
+              "attachment; filename*=UTF-8''%E6%8A%A5%E4%BB%B7%E5%8D%95-%E7%9B%9B%E9%82%A6%E5%AE%89%E5%85%A8-GEO%E6%95%88%E6%9E%9C%E8%AF%84%E6%B5%8B-20260812.docx",
+            'x-quotation-sha256': sha256,
+            'x-quotation-target-query-count': '0',
+            'x-quotation-selected-query-count': '0',
+            'x-quotation-opportunity-count': '0',
+            'x-quotation-package-code': 'geo_effect_assessment',
+            'x-quotation-artifact-kind': 'complete',
+            'x-quotation-service-count': '4',
+            'x-quotation-pricing-status': 'pending',
+            'x-quotation-total-cents': 'pending',
+            'x-quotation-maximum-total-cents': 'pending',
+            'x-quotation-query-appendix': 'not-included',
+          },
+        });
+      }),
+    );
+    await expect(
+      generateQuotation(input, quotationHeaders, createGeoApiClient('https://geo.example')),
+    ).resolves.toMatchObject({
+      kind: 'ready',
+      data: {
+        pricingStatus: 'pending',
+        totalPriceCents: null,
+        maximumTotalPriceCents: null,
+      },
+    });
+  });
+
+  it('keeps a conditional official-site line out of the confirmed total', async () => {
+    const bytes = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00]);
+    const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);
+    const sha256 = [...new Uint8Array(digest)]
+      .map((value) => value.toString(16).padStart(2, '0'))
+      .join('');
+    const fileName = '报价单-盛邦安全-GEO最小验证-20260812.docx';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(bytes, {
+            status: 200,
+            headers: {
+              'content-type': docxMime,
+              'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+              'x-quotation-sha256': sha256,
+              'x-quotation-target-query-count': '0',
+              'x-quotation-selected-query-count': '0',
+              'x-quotation-opportunity-count': '0',
+              'x-quotation-package-code': 'minimum_validation',
+              'x-quotation-artifact-kind': 'complete',
+              'x-quotation-service-count': '4',
+              'x-quotation-pricing-status': 'priced',
+              'x-quotation-total-cents': '8200000',
+              'x-quotation-maximum-total-cents': '9200000',
+              'x-quotation-query-appendix': 'not-included',
+            },
+          }),
+      ),
+    );
+    const result = await generateQuotation(
+      {
+        brandName: '盛邦安全',
+        quoteDate: '2026-08-12',
+        packageCode: 'minimum_validation',
+        websiteUrl: 'https://www.webray.com.cn',
+        officialSiteInCitations: null,
+        pricingStatus: 'priced',
+        serviceQuotes: [
+          { serviceCode: 'ranking_test', quantity: 2, unitPriceCents: 2_000_000 },
+          { serviceCode: 'inbound_disparagement_audit', quantity: 1, unitPriceCents: 1_200_000 },
+          { serviceCode: 'official_site_audit', quantity: 1, unitPriceCents: 1_000_000 },
+          { serviceCode: 'content_publishing_pilot', quantity: 1, unitPriceCents: 3_000_000 },
+        ],
+      },
+      quotationHeaders,
+      createGeoApiClient('https://geo.example'),
+    );
+    expect(result).toMatchObject({
+      kind: 'ready',
+      data: {
+        fileName,
+        totalPriceCents: 8_200_000,
+        maximumTotalPriceCents: 9_200_000,
+      },
+    });
+  });
+
+  it('rejects stale official-site evidence outside the minimum-validation package', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const file = new File(['xlsx'], '目标词.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    expect(
+      await generateQuotation(
+        {
+          ...quotationInput(file),
+          packageCode: 'custom',
+          officialSiteCitationUrl: 'https://www.webray.com.cn/cited-page',
+          serviceQuotes: [{ serviceCode: 'ranking_test', quantity: 1, unitPriceCents: 2_000_000 }],
+        },
+        quotationHeaders,
+        createGeoApiClient('https://geo.example'),
+      ),
+    ).toEqual({ kind: 'invalid' });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('rejects a digest mismatch and classifies an unavailable model configuration', async () => {
@@ -6517,18 +6827,25 @@ describe('quotation generation browser boundary', () => {
             headers: {
               'content-type': docxMime,
               'content-disposition':
-                "attachment; filename*=UTF-8''%E6%8A%A5%E4%BB%B7%E5%8D%95-%E6%B5%8B%E8%AF%95%E5%93%81%E7%89%8C-20260812.docx",
+                "attachment; filename*=UTF-8''%E6%8A%A5%E4%BB%B7%E5%8D%95-%E7%9B%9B%E9%82%A6%E5%AE%89%E5%85%A8-GEO%E6%95%88%E6%9E%9C%E8%AF%84%E6%B5%8B-20260812.docx",
               'x-quotation-sha256': 'a'.repeat(64),
               'x-quotation-target-query-count': '10',
               'x-quotation-selected-query-count': '10',
-              'x-quotation-opportunity-count': '16',
+              'x-quotation-opportunity-count': '0',
+              'x-quotation-package-code': 'geo_effect_assessment',
+              'x-quotation-artifact-kind': 'complete',
+              'x-quotation-service-count': '4',
+              'x-quotation-pricing-status': 'priced',
+              'x-quotation-total-cents': '5000000',
+              'x-quotation-maximum-total-cents': '5000000',
+              'x-quotation-query-appendix': 'included',
             },
           }),
       ),
     );
     expect(
       await generateQuotation(
-        { brandName: '测试品牌', quoteDate: '2026-08-12', targetWords: file },
+        quotationInput(file),
         quotationHeaders,
         createGeoApiClient('https://geo.example'),
       ),
@@ -6546,7 +6863,7 @@ describe('quotation generation browser boundary', () => {
     );
     expect(
       await generateQuotation(
-        { brandName: '测试品牌', quoteDate: '2026-08-12', targetWords: file },
+        quotationInput(file),
         quotationHeaders,
         createGeoApiClient('https://geo.example'),
       ),

@@ -3039,7 +3039,7 @@
           "quotations"
         ],
         "summary": "Generate Quotation Document",
-        "description": "输入品牌名称和目标词工作簿，一次生成完整 GEO 报价单 DOCX。",
+        "description": "输入客户、套餐和逐项价格，生成报价单；XLSX 仅用于可选 Query 附录。",
         "operationId": "generateQuotation",
         "parameters": [
           {
@@ -3186,6 +3186,73 @@
             "description": "Successful Response",
             "content": {
               "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {}
+            },
+            "headers": {
+              "Content-Disposition": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Quotation-Target-Query-Count": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Quotation-Selected-Query-Count": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Quotation-Opportunity-Count": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Quotation-Package-Code": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Quotation-Artifact-Kind": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Quotation-Service-Count": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Quotation-Pricing-Status": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Quotation-Total-Cents": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Quotation-Maximum-Total-Cents": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Quotation-Query-Appendix": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Quotation-SHA256": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cache-Control": {
+                "schema": {
+                  "type": "string"
+                }
+              }
             }
           },
           "400": {
@@ -13247,7 +13314,7 @@
           "collection-account-governance"
         ],
         "summary": "List Collection Account Quota Observations",
-        "description": "返回每个浏览器账号 × mode 最新一条额度观测。\n\n浏览器实例在账号尚未登记为 ``phone × platform`` 时仍是有效的独立登录账号，\n因而额度观测以 browser 为最小安全锚点。接口最多扫描最近 200 条审计事件，按\n``(instance_key, mode)`` 去重；不返回 ``new_value`` 原文。",
+        "description": "返回每个手机号 × 平台 × mode 最新一条额度观测。\n\n额度属于登录账号而不是出口地域，因此事件必须显式关联 ``phone_account_id``；\nbrowser/region 仅作为最近观测来源。接口最多扫描最近 200 条审计事件，按\n``(phone, platform, mode)`` 去重；不返回 ``new_value`` 原文，也不再把没有\n手机号归属的历史 browser-only 事件展示成账号额度。",
         "operationId": "list_collection_account_quota_observations_api_v2_collection_account_quota_observations_get",
         "parameters": [
           {
@@ -13390,6 +13457,198 @@
                     "$ref": "#/components/schemas/AccountQuotaObservationView"
                   },
                   "title": "Response List Collection Account Quota Observations Api V2 Collection Account Quota Observations Get"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/collection-accounts/sync-otp-registry": {
+      "post": {
+        "tags": [
+          "collection-account-governance"
+        ],
+        "summary": "Sync Otp Registry Accounts",
+        "description": "Reconcile config-page registrations into the account-governance table.\n\nNormal registrations already upsert this table. This idempotent repair path\ncovers legacy registrations and temporary DB failures, then the UI reloads\n``GET /collection-accounts`` to show the result immediately.",
+        "operationId": "sync_otp_registry_accounts_api_v2_collection_accounts_sync_otp_registry_post",
+        "parameters": [
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OtpRegistrySyncResult"
                 }
               }
             }
@@ -16219,7 +16478,7 @@
           "otp"
         ],
         "summary": "Otp Push",
-        "description": "处理一条 SmsForwarder 推送（JSON ``{\"slot\",\"sms\"}`` / 表单 / 纯文本期望格式）。\n\n无法定位手机号时**软收下**存 ``unrouted.json``（绝不丢码；响应 ``routed=false``\n+ 大声记日志），对齐旧 otp_ingest.otp_push_view 的全部容错路径。",
+        "description": "处理一条手机推送（iPhone JSON ``{\"phone\",\"sms\"}``、Android\nSmsForwarder JSON ``{\"slot\",\"sms\"}`` / 表单 / 纯文本期望格式）。\n\n无法定位手机号时**软收下**存 ``unrouted.json``（绝不丢码；响应 ``routed=false``\n+ 大声记日志），对齐旧 otp_ingest.otp_push_view 的全部容错路径。",
         "operationId": "otp_push_api_v2_otp_push_post",
         "responses": {
           "200": {
@@ -16319,7 +16578,7 @@
           "otp"
         ],
         "summary": "Otp Register",
-        "description": "在册号码注册（operator 门内）：``{\"phone\",\"carrier\"?,\"slot\"?}`` → 登记进\n服务端注册表（原子写），setup-info 即刻下发。幂等：同号再注册=更新备注。\n响应带完整 remark（operator 自填自拿，装机页一键复制进手机卡槽备注）。",
+        "description": "在册号码注册（operator 门内）：``{\"phone\",\"carrier\"?,\"slot\"?}`` → 登记进\n服务端注册表（原子写）并同步账号治理表。幂等：同号再注册=更新备注。\n响应带完整 remark（operator 自填自拿，装机页一键复制进手机卡槽备注）。",
         "operationId": "otp_register_api_v2_otp_register_post",
         "responses": {
           "200": {
@@ -16369,7 +16628,7 @@
           "otp"
         ],
         "summary": "Otp Setup Info",
-        "description": "装机配置（operator 门内）：推送地址/relay token/Body 模板/白名单正则/卡槽备注。\nURL 从请求 origin 派生（供工具消费；**装机页展示不用它**——页面以浏览器\nlocation.origin 拼地址，反代 Host $host 丢端口时页面依然正确）。",
+        "description": "装机配置（operator 门内）：两端共用推送地址/relay token，以及 Android\nBody 模板/白名单正则。注册表不在此响应中暴露。\nURL 优先来自显式 ``GEO_PUBLIC_BASE_URL``；生产缺失时 fail-closed，避免反代\n``Host`` 丢端口后向操作员下发不可用地址。",
         "operationId": "otp_setup_info_api_v2_otp_setup_info_get",
         "responses": {
           "200": {
@@ -58828,6 +59087,1291 @@
         }
       }
     },
+    "/api/v2/source-analysis/projects/{project_pub_id}/profile": {
+      "put": {
+        "tags": [
+          "source_analysis"
+        ],
+        "summary": "Put Profile",
+        "operationId": "put_profile_api_v2_source_analysis_projects__project_pub_id__profile_put",
+        "parameters": [
+          {
+            "name": "project_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Pub Id"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceProfileWrite"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceProfileView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "source_analysis"
+        ],
+        "summary": "Get Profile",
+        "operationId": "get_profile_api_v2_source_analysis_projects__project_pub_id__profile_get",
+        "parameters": [
+          {
+            "name": "project_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Pub Id"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceProfileView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/source-analysis/projects/{project_pub_id}/profiles": {
+      "get": {
+        "tags": [
+          "source_analysis"
+        ],
+        "summary": "List Profiles",
+        "operationId": "list_profiles_api_v2_source_analysis_projects__project_pub_id__profiles_get",
+        "parameters": [
+          {
+            "name": "project_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Pub Id"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SourceProfileView"
+                  },
+                  "title": "Response List Profiles Api V2 Source Analysis Projects  Project Pub Id  Profiles Get"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/source-analysis/projects/{project_pub_id}/runs/{run_pub_id}/inspect": {
+      "post": {
+        "tags": [
+          "source_analysis"
+        ],
+        "summary": "Enqueue Run Inspection",
+        "description": "Re-run page inspection for an existing source snapshot with a frozen profile.",
+        "operationId": "enqueue_run_inspection_api_v2_source_analysis_projects__project_pub_id__runs__run_pub_id__inspect_post",
+        "parameters": [
+          {
+            "name": "project_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Pub Id"
+            }
+          },
+          {
+            "name": "run_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Pub Id"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunInspectionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisJobView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/source-analysis/projects/{project_pub_id}/inspections": {
+      "get": {
+        "tags": [
+          "source_analysis"
+        ],
+        "summary": "List Inspections",
+        "operationId": "list_inspections_api_v2_source_analysis_projects__project_pub_id__inspections_get",
+        "parameters": [
+          {
+            "name": "project_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Pub Id"
+            }
+          },
+          {
+            "name": "run_pub_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Run Pub Id"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InspectionPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/source-analysis/projects/{project_pub_id}/inspections/{inspection_pub_id}": {
+      "get": {
+        "tags": [
+          "source_analysis"
+        ],
+        "summary": "Get Inspection",
+        "operationId": "get_inspection_api_v2_source_analysis_projects__project_pub_id__inspections__inspection_pub_id__get",
+        "parameters": [
+          {
+            "name": "project_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Pub Id"
+            }
+          },
+          {
+            "name": "inspection_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Inspection Pub Id"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InspectionDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/health": {
       "get": {
         "tags": [
@@ -59121,15 +60665,23 @@
             "type": "string",
             "title": "Observation Pub Id"
           },
-          "browser_instance_key": {
+          "phone_account_pub_id": {
             "type": "string",
-            "title": "Browser Instance Key"
+            "title": "Phone Account Pub Id"
+          },
+          "phone_masked": {
+            "type": "string",
+            "title": "Phone Masked"
           },
           "platform": {
             "type": "string",
             "title": "Platform"
           },
-          "region_gb": {
+          "observed_browser_instance_key": {
+            "type": "string",
+            "title": "Observed Browser Instance Key"
+          },
+          "observed_region_gb": {
             "anyOf": [
               {
                 "type": "string"
@@ -59138,7 +60690,7 @@
                 "type": "null"
               }
             ],
-            "title": "Region Gb"
+            "title": "Observed Region Gb"
           },
           "mode": {
             "type": "string",
@@ -59251,9 +60803,11 @@
         "type": "object",
         "required": [
           "observation_pub_id",
-          "browser_instance_key",
+          "phone_account_pub_id",
+          "phone_masked",
           "platform",
-          "region_gb",
+          "observed_browser_instance_key",
+          "observed_region_gb",
           "mode",
           "account_tier",
           "quota_state",
@@ -59267,7 +60821,7 @@
           "source"
         ],
         "title": "AccountQuotaObservationView",
-        "description": "账号管理页的平台额度安全投影。\n\n真源是 ``collection_account_event(event_type='quota_observation')``；响应只暴露\n白名单字段，绝不透传平台原始响应、账号标识或探测证据。``observed_window_count``\n可以是日志下限/估算值，精度由 ``count_kind`` 明示，不能冒充官方固定额度。"
+        "description": "账号管理页的平台额度安全投影。\n\n真源是 ``collection_account_event(event_type='quota_observation')``；响应只暴露\n白名单字段，绝不透传平台原始响应、完整手机号、平台用户标识或探测证据。\n``observed_window_count`` 可以是日志下限/估算值，精度由 ``count_kind`` 明示，\n不能冒充官方固定额度。"
       },
       "AccountView": {
         "properties": {
@@ -59599,6 +61153,150 @@
           "brand"
         ],
         "title": "AiResearchRequest"
+      },
+      "AliasEvidence": {
+        "properties": {
+          "value": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Value"
+          },
+          "evidence_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2048
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Url"
+          },
+          "capture_pub_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Capture Pub Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "value"
+        ],
+        "title": "AliasEvidence"
+      },
+      "AnalysisJobView": {
+        "properties": {
+          "pub_id": {
+            "type": "string",
+            "title": "Pub Id"
+          },
+          "run_pub_id": {
+            "type": "string",
+            "title": "Run Pub Id"
+          },
+          "profile_pub_id": {
+            "type": "string",
+            "title": "Profile Pub Id"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "completed",
+              "partial",
+              "failed",
+              "skipped"
+            ],
+            "title": "State"
+          },
+          "policy_version": {
+            "type": "string",
+            "title": "Policy Version"
+          },
+          "input_hash": {
+            "type": "string",
+            "title": "Input Hash"
+          },
+          "workflow_id": {
+            "type": "string",
+            "title": "Workflow Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "pub_id",
+          "run_pub_id",
+          "profile_pub_id",
+          "state",
+          "policy_version",
+          "input_hash",
+          "workflow_id",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "AnalysisJobView"
+      },
+      "AnchorSource": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "publisher": {
+            "type": "string",
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Publisher"
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Url"
+          },
+          "categories": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 30,
+            "minItems": 1,
+            "title": "Categories"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "publisher",
+          "url",
+          "categories"
+        ],
+        "title": "AnchorSource"
       },
       "AnswerEvidenceView": {
         "properties": {
@@ -60063,17 +61761,78 @@
             "title": "Mode"
           },
           "eligible": {
-            "type": "boolean",
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Eligible"
           },
           "degraded": {
-            "type": "boolean",
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Degraded"
           },
           "capture_time": {
             "type": "string",
             "format": "date-time",
             "title": "Capture Time"
+          },
+          "capture_state": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "legacy"
+            ],
+            "title": "Capture State"
+          },
+          "answer_analysis_state": {
+            "type": "string",
+            "enum": [
+              "not_requested",
+              "queued",
+              "running",
+              "completed",
+              "partial",
+              "failed",
+              "skipped"
+            ],
+            "title": "Answer Analysis State"
+          },
+          "source_analysis_state": {
+            "type": "string",
+            "enum": [
+              "not_requested",
+              "queued",
+              "running",
+              "completed",
+              "partial",
+              "failed",
+              "skipped"
+            ],
+            "title": "Source Analysis State"
+          },
+          "risk_analysis_state": {
+            "type": "string",
+            "enum": [
+              "not_requested",
+              "queued",
+              "running",
+              "completed",
+              "partial",
+              "failed",
+              "skipped"
+            ],
+            "title": "Risk Analysis State"
           },
           "mentioned": {
             "anyOf": [
@@ -60140,6 +61899,10 @@
           "eligible",
           "degraded",
           "capture_time",
+          "capture_state",
+          "answer_analysis_state",
+          "source_analysis_state",
+          "risk_analysis_state",
           "mentioned",
           "rank",
           "sentiment",
@@ -61958,11 +63721,25 @@
             "minLength": 2,
             "title": "Brand Name"
           },
-          "target_words": {
+          "quotation_config": {
             "type": "string",
-            "format": "binary",
+            "maxLength": 12000,
+            "minLength": 2,
+            "title": "Quotation Config",
+            "description": "制品类型、套餐、官网、逐项单价、数量及商务备注 JSON"
+          },
+          "target_words": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "binary"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Target Words",
-            "description": "品牌方提供的优化目标词 XLSX"
+            "description": "可选：品牌方提供的优化目标词 XLSX，用于生成 Query 附录"
           },
           "quote_date": {
             "anyOf": [
@@ -61992,7 +63769,7 @@
         "type": "object",
         "required": [
           "brand_name",
-          "target_words"
+          "quotation_config"
         ],
         "title": "Body_generateQuotation"
       },
@@ -67385,6 +69162,245 @@
         ],
         "title": "EvidenceAnchorView"
       },
+      "EvidenceChainLinkView": {
+        "properties": {
+          "connector": {
+            "type": "string",
+            "enum": [
+              "because",
+              "and",
+              "but",
+              "compared_with",
+              "therefore"
+            ],
+            "title": "Connector"
+          },
+          "fact_type": {
+            "type": "string",
+            "enum": [
+              "source_quote",
+              "authority_fact",
+              "recomputable",
+              "absence"
+            ],
+            "title": "Fact Type"
+          },
+          "explanation": {
+            "type": "string",
+            "title": "Explanation"
+          },
+          "quote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quote"
+          },
+          "occurrence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurrence"
+          },
+          "text_start": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text Start"
+          },
+          "text_end": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text End"
+          },
+          "quote_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quote Hash"
+          },
+          "authority_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authority Source"
+          },
+          "authority_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authority Url"
+          },
+          "publisher": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publisher"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published At"
+          },
+          "authority_category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authority Category"
+          },
+          "algorithm": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Algorithm"
+          },
+          "inputs": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "items": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inputs"
+          },
+          "result": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result"
+          },
+          "search_terms": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Search Terms"
+          },
+          "search_scope": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Search Scope"
+          },
+          "operator": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "any",
+                  "all"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operator"
+          },
+          "match_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Match Count"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "connector",
+          "fact_type",
+          "explanation"
+        ],
+        "title": "EvidenceChainLinkView"
+      },
       "EvidenceCreate": {
         "properties": {
           "claim_text": {
@@ -67507,6 +69523,51 @@
           "insufficient"
         ],
         "title": "EvidenceRelation"
+      },
+      "EvidenceSpanView": {
+        "properties": {
+          "pub_id": {
+            "type": "string",
+            "title": "Pub Id"
+          },
+          "chain_ordinal": {
+            "type": "integer",
+            "title": "Chain Ordinal"
+          },
+          "quote": {
+            "type": "string",
+            "title": "Quote"
+          },
+          "text_start": {
+            "type": "integer",
+            "title": "Text Start"
+          },
+          "text_end": {
+            "type": "integer",
+            "title": "Text End"
+          },
+          "quote_hash": {
+            "type": "string",
+            "title": "Quote Hash"
+          },
+          "verification": {
+            "type": "string",
+            "const": "exact",
+            "title": "Verification"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "pub_id",
+          "chain_ordinal",
+          "quote",
+          "text_start",
+          "text_end",
+          "quote_hash",
+          "verification"
+        ],
+        "title": "EvidenceSpanView"
       },
       "EvidenceUpdate": {
         "properties": {
@@ -67942,6 +70003,106 @@
         ],
         "title": "ExperimentView"
       },
+      "FindingView": {
+        "properties": {
+          "pub_id": {
+            "type": "string",
+            "title": "Pub Id"
+          },
+          "ordinal": {
+            "type": "integer",
+            "title": "Ordinal"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "A0",
+              "A1",
+              "A2",
+              "A3",
+              "A4",
+              "A5",
+              "B1",
+              "B2",
+              "B3",
+              "C1",
+              "C2",
+              "C3",
+              "C4"
+            ],
+            "title": "Code"
+          },
+          "ledger": {
+            "type": "string",
+            "enum": [
+              "statement",
+              "exposure"
+            ],
+            "title": "Ledger"
+          },
+          "variant": {
+            "type": "string",
+            "title": "Variant"
+          },
+          "finding_status": {
+            "type": "string",
+            "enum": [
+              "confirmed",
+              "needs_review"
+            ],
+            "title": "Finding Status"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "evidence_chain": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceChainLinkView"
+            },
+            "type": "array",
+            "title": "Evidence Chain"
+          },
+          "self_check": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Self Check"
+          },
+          "validation": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Validation"
+          },
+          "spans": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceSpanView"
+            },
+            "type": "array",
+            "title": "Spans"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "pub_id",
+          "ordinal",
+          "code",
+          "ledger",
+          "variant",
+          "finding_status",
+          "summary",
+          "action",
+          "evidence_chain",
+          "self_check",
+          "validation",
+          "spans"
+        ],
+        "title": "FindingView"
+      },
       "FormalArtifactView": {
         "properties": {
           "format": {
@@ -67991,9 +70152,25 @@
               1,
               2,
               3,
-              4
+              4,
+              5
             ],
             "title": "Service Number"
+          },
+          "service_code": {
+            "type": "string",
+            "enum": [
+              "ranking_test",
+              "outbound_disparagement_audit",
+              "inbound_disparagement_audit",
+              "official_site_audit",
+              "content_publishing_pilot",
+              "legacy_ranking_assessment",
+              "legacy_content_ecosystem_risk",
+              "legacy_official_site_efficiency",
+              "legacy_pilot_comparison"
+            ],
+            "title": "Service Code"
           },
           "report_pub_id": {
             "type": "string",
@@ -68019,6 +70196,7 @@
         "type": "object",
         "required": [
           "service_number",
+          "service_code",
           "report_pub_id",
           "report_version_pub_id",
           "fact_snapshot_hash",
@@ -68027,128 +70205,16 @@
         "title": "FormalOutputView"
       },
       "FormalProductionCreate": {
-        "properties": {
-          "project_pub_id": {
-            "type": "string",
-            "maxLength": 120,
-            "minLength": 5,
-            "title": "Project Pub Id"
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/LegacyFormalProductionCreate"
           },
-          "services": {
-            "items": {
-              "type": "integer",
-              "enum": [
-                1,
-                2,
-                3,
-                4
-              ]
-            },
-            "type": "array",
-            "maxItems": 4,
-            "minItems": 1,
-            "title": "Services"
-          },
-          "window_start": {
-            "type": "string",
-            "format": "date",
-            "title": "Window Start"
-          },
-          "window_end": {
-            "type": "string",
-            "format": "date",
-            "title": "Window End"
-          },
-          "document_status": {
-            "type": "string",
-            "enum": [
-              "internal_review",
-              "delivery_candidate"
-            ],
-            "title": "Document Status",
-            "default": "internal_review"
-          },
-          "candidate_group_strategy": {
-            "type": "string",
-            "const": "preregistered_scope_v1",
-            "title": "Candidate Group Strategy",
-            "default": "preregistered_scope_v1"
-          },
-          "version": {
-            "type": "string",
-            "maxLength": 20,
-            "pattern": "^V[1-9]\\d*\\.\\d+$",
-            "title": "Version",
-            "default": "V1.0"
-          },
-          "prepared_by": {
-            "type": "string",
-            "maxLength": 160,
-            "minLength": 1,
-            "title": "Prepared By"
-          },
-          "prepared_date": {
-            "type": "string",
-            "format": "date",
-            "title": "Prepared Date"
-          },
-          "reviewed_by": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 160,
-                "minLength": 1
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reviewed By"
-          },
-          "reviewed_date": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reviewed Date"
-          },
-          "before_window": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/WindowView"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "after_window": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/WindowView"
-              },
-              {
-                "type": "null"
-              }
-            ]
+          {
+            "$ref": "#/components/schemas/QuotationFormalProductionCreate"
           }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "project_pub_id",
-          "services",
-          "window_start",
-          "window_end",
-          "prepared_by",
-          "prepared_date"
         ],
-        "title": "FormalProductionCreate"
+        "title": "FormalProductionCreate",
+        "description": "Versioned create contract with an explicit legacy compatibility path."
       },
       "FormalProductionPage": {
         "properties": {
@@ -68201,11 +70267,31 @@
                 1,
                 2,
                 3,
-                4
+                4,
+                5
               ]
             },
             "type": "array",
             "title": "Services"
+          },
+          "service_catalog_version": {
+            "type": "string",
+            "enum": [
+              "legacy_report_services_v1",
+              "quotation_services_v2"
+            ],
+            "title": "Service Catalog Version"
+          },
+          "sop_project_pub_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sop Project Pub Id"
           },
           "status": {
             "type": "string",
@@ -68322,6 +70408,8 @@
           "pub_id",
           "project_pub_id",
           "services",
+          "service_catalog_version",
+          "sop_project_pub_id",
           "status",
           "document_status",
           "window_start",
@@ -68647,6 +70735,451 @@
           "created_at"
         ],
         "title": "InsightView"
+      },
+      "InspectionDetail": {
+        "properties": {
+          "pub_id": {
+            "type": "string",
+            "title": "Pub Id"
+          },
+          "run_pub_id": {
+            "type": "string",
+            "title": "Run Pub Id"
+          },
+          "source_document_pub_id": {
+            "type": "string",
+            "title": "Source Document Pub Id"
+          },
+          "profile_pub_id": {
+            "type": "string",
+            "title": "Profile Pub Id"
+          },
+          "profile_revision": {
+            "type": "integer",
+            "title": "Profile Revision"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          },
+          "host": {
+            "type": "string",
+            "title": "Host"
+          },
+          "page_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Title"
+          },
+          "site_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Site Name"
+          },
+          "publisher": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publisher"
+          },
+          "authors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Authors"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published At"
+          },
+          "published_at_confidence": {
+            "type": "string",
+            "title": "Published At Confidence"
+          },
+          "policy_version": {
+            "type": "string",
+            "title": "Policy Version"
+          },
+          "prompt_version": {
+            "type": "string",
+            "title": "Prompt Version"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "content_sha256": {
+            "type": "string",
+            "title": "Content Sha256"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "partial",
+              "unverifiable"
+            ],
+            "title": "Status"
+          },
+          "page_summary": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Page Summary"
+          },
+          "transmission": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Transmission"
+          },
+          "attribution": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Attribution"
+          },
+          "quality": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Quality"
+          },
+          "object_name": {
+            "type": "string",
+            "title": "Object Name"
+          },
+          "object_kind": {
+            "type": "string",
+            "enum": [
+              "brand",
+              "product"
+            ],
+            "title": "Object Kind"
+          },
+          "categories": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Categories"
+          },
+          "aliases": {
+            "items": {
+              "$ref": "#/components/schemas/AliasEvidence"
+            },
+            "type": "array",
+            "title": "Aliases"
+          },
+          "own_domains": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Own Domains"
+          },
+          "peers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Peers"
+          },
+          "anchor_sources": {
+            "items": {
+              "$ref": "#/components/schemas/AnchorSource"
+            },
+            "type": "array",
+            "title": "Anchor Sources"
+          },
+          "linked_entities": {
+            "items": {
+              "$ref": "#/components/schemas/LinkedEntity"
+            },
+            "type": "array",
+            "title": "Linked Entities"
+          },
+          "hard_anchor_available": {
+            "type": "boolean",
+            "title": "Hard Anchor Available"
+          },
+          "decision_mode": {
+            "type": "string",
+            "enum": [
+              "selection",
+              "reputation"
+            ],
+            "title": "Decision Mode"
+          },
+          "profile_type": {
+            "type": "string",
+            "enum": [
+              "I",
+              "II",
+              "III",
+              "IV"
+            ],
+            "title": "Profile Type"
+          },
+          "profile_hash": {
+            "type": "string",
+            "title": "Profile Hash"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/FindingView"
+            },
+            "type": "array",
+            "title": "Findings"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "pub_id",
+          "run_pub_id",
+          "source_document_pub_id",
+          "profile_pub_id",
+          "profile_revision",
+          "url",
+          "host",
+          "page_title",
+          "site_name",
+          "publisher",
+          "authors",
+          "published_at",
+          "published_at_confidence",
+          "policy_version",
+          "prompt_version",
+          "model",
+          "content_sha256",
+          "status",
+          "page_summary",
+          "transmission",
+          "attribution",
+          "quality",
+          "object_name",
+          "object_kind",
+          "categories",
+          "aliases",
+          "own_domains",
+          "peers",
+          "anchor_sources",
+          "linked_entities",
+          "hard_anchor_available",
+          "decision_mode",
+          "profile_type",
+          "profile_hash",
+          "findings",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "InspectionDetail"
+      },
+      "InspectionPage": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/InspectionSummary"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "page": {
+            "$ref": "#/components/schemas/PageMeta"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "data",
+          "page"
+        ],
+        "title": "InspectionPage"
+      },
+      "InspectionSummary": {
+        "properties": {
+          "pub_id": {
+            "type": "string",
+            "title": "Pub Id"
+          },
+          "run_pub_id": {
+            "type": "string",
+            "title": "Run Pub Id"
+          },
+          "source_document_pub_id": {
+            "type": "string",
+            "title": "Source Document Pub Id"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          },
+          "host": {
+            "type": "string",
+            "title": "Host"
+          },
+          "page_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Title"
+          },
+          "publisher": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publisher"
+          },
+          "authors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Authors"
+          },
+          "profile_pub_id": {
+            "type": "string",
+            "title": "Profile Pub Id"
+          },
+          "profile_revision": {
+            "type": "integer",
+            "title": "Profile Revision"
+          },
+          "policy_version": {
+            "type": "string",
+            "title": "Policy Version"
+          },
+          "prompt_version": {
+            "type": "string",
+            "title": "Prompt Version"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "partial",
+              "unverifiable"
+            ],
+            "title": "Status"
+          },
+          "page_summary": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Page Summary"
+          },
+          "transmission": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Transmission"
+          },
+          "attribution": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Attribution"
+          },
+          "quality": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Quality"
+          },
+          "finding_count": {
+            "type": "integer",
+            "title": "Finding Count"
+          },
+          "statement_count": {
+            "type": "integer",
+            "title": "Statement Count"
+          },
+          "exposure_count": {
+            "type": "integer",
+            "title": "Exposure Count"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "pub_id",
+          "run_pub_id",
+          "source_document_pub_id",
+          "url",
+          "host",
+          "page_title",
+          "publisher",
+          "authors",
+          "profile_pub_id",
+          "profile_revision",
+          "policy_version",
+          "prompt_version",
+          "model",
+          "status",
+          "page_summary",
+          "transmission",
+          "attribution",
+          "quality",
+          "finding_count",
+          "statement_count",
+          "exposure_count",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "InspectionSummary"
       },
       "IntentGroup": {
         "properties": {
@@ -69539,6 +72072,139 @@
         ],
         "title": "LeaseView"
       },
+      "LegacyFormalProductionCreate": {
+        "properties": {
+          "project_pub_id": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 5,
+            "title": "Project Pub Id"
+          },
+          "services": {
+            "items": {
+              "type": "integer",
+              "enum": [
+                1,
+                2,
+                3,
+                4
+              ]
+            },
+            "type": "array",
+            "maxItems": 4,
+            "minItems": 1,
+            "title": "Services"
+          },
+          "sop_project_pub_id": {
+            "type": "null",
+            "title": "Sop Project Pub Id"
+          },
+          "window_start": {
+            "type": "string",
+            "format": "date",
+            "title": "Window Start"
+          },
+          "window_end": {
+            "type": "string",
+            "format": "date",
+            "title": "Window End"
+          },
+          "document_status": {
+            "type": "string",
+            "enum": [
+              "internal_review",
+              "delivery_candidate"
+            ],
+            "title": "Document Status",
+            "default": "internal_review"
+          },
+          "candidate_group_strategy": {
+            "type": "string",
+            "const": "preregistered_scope_v1",
+            "title": "Candidate Group Strategy",
+            "default": "preregistered_scope_v1"
+          },
+          "version": {
+            "type": "string",
+            "maxLength": 20,
+            "pattern": "^V[1-9]\\d*\\.\\d+$",
+            "title": "Version",
+            "default": "V1.0"
+          },
+          "prepared_by": {
+            "type": "string",
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Prepared By"
+          },
+          "prepared_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Prepared Date"
+          },
+          "reviewed_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 160,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed By"
+          },
+          "reviewed_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed Date"
+          },
+          "before_window": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WindowView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "after_window": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WindowView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "service_catalog_version": {
+            "type": "string",
+            "const": "legacy_report_services_v1",
+            "title": "Service Catalog Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "project_pub_id",
+          "services",
+          "window_start",
+          "window_end",
+          "prepared_by",
+          "prepared_date"
+        ],
+        "title": "LegacyFormalProductionCreate"
+      },
       "LinkTestRequest": {
         "properties": {
           "channel": {
@@ -69654,6 +72320,34 @@
           "channel"
         ],
         "title": "LinkTestResult"
+      },
+      "LinkedEntity": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "relation": {
+            "type": "string",
+            "enum": [
+              "parent",
+              "subsidiary",
+              "sub_brand",
+              "spokesperson",
+              "product_line"
+            ],
+            "title": "Relation"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "relation"
+        ],
+        "title": "LinkedEntity"
       },
       "MemberCreate": {
         "properties": {
@@ -71002,6 +73696,35 @@
         ],
         "title": "OptimizationActionView"
       },
+      "OtpRegistrySyncResult": {
+        "properties": {
+          "scanned": {
+            "type": "integer",
+            "title": "Scanned"
+          },
+          "created": {
+            "type": "integer",
+            "title": "Created"
+          },
+          "updated": {
+            "type": "integer",
+            "title": "Updated"
+          },
+          "unchanged": {
+            "type": "integer",
+            "title": "Unchanged"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "scanned",
+          "created",
+          "updated",
+          "unchanged"
+        ],
+        "title": "OtpRegistrySyncResult"
+      },
       "PackageAccess": {
         "properties": {
           "grant_token": {
@@ -71304,6 +74027,17 @@
             "type": "string",
             "title": "Phone Account Pub Id"
           },
+          "phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone"
+          },
           "phone_masked": {
             "type": "string",
             "title": "Phone Masked"
@@ -71374,6 +74108,7 @@
         "type": "object",
         "required": [
           "phone_account_pub_id",
+          "phone",
           "phone_masked",
           "owner_note",
           "state",
@@ -71384,7 +74119,7 @@
           "platforms"
         ],
         "title": "PhoneAccountRow",
-        "description": "账号管理页行 = 手机号（platforms 五平台固定列，无行 = null）。"
+        "description": "账号管理页行。\n\n``phone`` 只对具备 ``account:operate`` 的管理员/操作员返回；只读审核角色\n继续只拿 ``phone_masked``，避免扩大完整号码的可见范围。"
       },
       "PlatformAccountCell": {
         "properties": {
@@ -73893,6 +76628,150 @@
         ],
         "title": "QuerySuggestionsRequest"
       },
+      "QuotationFormalProductionCreate": {
+        "properties": {
+          "project_pub_id": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 5,
+            "title": "Project Pub Id"
+          },
+          "services": {
+            "items": {
+              "type": "integer",
+              "enum": [
+                1,
+                2,
+                3,
+                4,
+                5
+              ]
+            },
+            "type": "array",
+            "maxItems": 5,
+            "minItems": 1,
+            "title": "Services"
+          },
+          "sop_project_pub_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120,
+                "minLength": 5
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sop Project Pub Id"
+          },
+          "window_start": {
+            "type": "string",
+            "format": "date",
+            "title": "Window Start"
+          },
+          "window_end": {
+            "type": "string",
+            "format": "date",
+            "title": "Window End"
+          },
+          "document_status": {
+            "type": "string",
+            "enum": [
+              "internal_review",
+              "delivery_candidate"
+            ],
+            "title": "Document Status",
+            "default": "internal_review"
+          },
+          "candidate_group_strategy": {
+            "type": "string",
+            "const": "preregistered_scope_v1",
+            "title": "Candidate Group Strategy",
+            "default": "preregistered_scope_v1"
+          },
+          "version": {
+            "type": "string",
+            "maxLength": 20,
+            "pattern": "^V[1-9]\\d*\\.\\d+$",
+            "title": "Version",
+            "default": "V1.0"
+          },
+          "prepared_by": {
+            "type": "string",
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Prepared By"
+          },
+          "prepared_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Prepared Date"
+          },
+          "reviewed_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 160,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed By"
+          },
+          "reviewed_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewed Date"
+          },
+          "before_window": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WindowView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "after_window": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WindowView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "service_catalog_version": {
+            "type": "string",
+            "const": "quotation_services_v2",
+            "title": "Service Catalog Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "project_pub_id",
+          "services",
+          "window_start",
+          "window_end",
+          "prepared_by",
+          "prepared_date",
+          "service_catalog_version"
+        ],
+        "title": "QuotationFormalProductionCreate"
+      },
       "Readiness": {
         "properties": {
           "status": {
@@ -75501,6 +78380,25 @@
         ],
         "title": "RunCreate"
       },
+      "RunInspectionRequest": {
+        "properties": {
+          "profile_pub_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 30
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile Pub Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "RunInspectionRequest"
+      },
       "RunView": {
         "properties": {
           "pub_id": {
@@ -77076,6 +79974,232 @@
           "is_own_site"
         ],
         "title": "SourceCitationHostView"
+      },
+      "SourceProfileView": {
+        "properties": {
+          "pub_id": {
+            "type": "string",
+            "title": "Pub Id"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "active",
+              "retired"
+            ],
+            "title": "State"
+          },
+          "object_name": {
+            "type": "string",
+            "title": "Object Name"
+          },
+          "object_kind": {
+            "type": "string",
+            "enum": [
+              "brand",
+              "product"
+            ],
+            "title": "Object Kind"
+          },
+          "categories": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Categories"
+          },
+          "aliases": {
+            "items": {
+              "$ref": "#/components/schemas/AliasEvidence"
+            },
+            "type": "array",
+            "title": "Aliases"
+          },
+          "own_domains": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Own Domains"
+          },
+          "peers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Peers"
+          },
+          "anchor_sources": {
+            "items": {
+              "$ref": "#/components/schemas/AnchorSource"
+            },
+            "type": "array",
+            "title": "Anchor Sources"
+          },
+          "linked_entities": {
+            "items": {
+              "$ref": "#/components/schemas/LinkedEntity"
+            },
+            "type": "array",
+            "title": "Linked Entities"
+          },
+          "hard_anchor_available": {
+            "type": "boolean",
+            "title": "Hard Anchor Available"
+          },
+          "decision_mode": {
+            "type": "string",
+            "enum": [
+              "selection",
+              "reputation"
+            ],
+            "title": "Decision Mode"
+          },
+          "profile_type": {
+            "type": "string",
+            "enum": [
+              "I",
+              "II",
+              "III",
+              "IV"
+            ],
+            "title": "Profile Type"
+          },
+          "profile_hash": {
+            "type": "string",
+            "title": "Profile Hash"
+          },
+          "created_by": {
+            "type": "string",
+            "title": "Created By"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "pub_id",
+          "revision",
+          "state",
+          "object_name",
+          "object_kind",
+          "categories",
+          "aliases",
+          "own_domains",
+          "peers",
+          "anchor_sources",
+          "linked_entities",
+          "hard_anchor_available",
+          "decision_mode",
+          "profile_type",
+          "profile_hash",
+          "created_by",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "SourceProfileView"
+      },
+      "SourceProfileWrite": {
+        "properties": {
+          "object_name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Object Name"
+          },
+          "object_kind": {
+            "type": "string",
+            "enum": [
+              "brand",
+              "product"
+            ],
+            "title": "Object Kind"
+          },
+          "categories": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 30,
+            "minItems": 1,
+            "title": "Categories"
+          },
+          "aliases": {
+            "items": {
+              "$ref": "#/components/schemas/AliasEvidence"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "title": "Aliases"
+          },
+          "own_domains": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 30,
+            "title": "Own Domains"
+          },
+          "peers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Peers"
+          },
+          "anchor_sources": {
+            "items": {
+              "$ref": "#/components/schemas/AnchorSource"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "title": "Anchor Sources"
+          },
+          "linked_entities": {
+            "items": {
+              "$ref": "#/components/schemas/LinkedEntity"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Linked Entities"
+          },
+          "hard_anchor_available": {
+            "type": "boolean",
+            "title": "Hard Anchor Available"
+          },
+          "decision_mode": {
+            "type": "string",
+            "enum": [
+              "selection",
+              "reputation"
+            ],
+            "title": "Decision Mode"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "object_name",
+          "object_kind",
+          "categories",
+          "hard_anchor_available",
+          "decision_mode"
+        ],
+        "title": "SourceProfileWrite"
       },
       "StepView": {
         "properties": {

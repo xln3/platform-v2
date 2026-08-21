@@ -239,7 +239,7 @@ export interface paths {
         put?: never;
         /**
          * Generate Quotation Document
-         * @description 输入品牌名称和目标词工作簿，一次生成完整 GEO 报价单 DOCX。
+         * @description 输入客户、套餐和逐项价格，生成报价单；XLSX 仅用于可选 Query 附录。
          */
         post: operations["generateQuotation"];
         delete?: never;
@@ -886,15 +886,40 @@ export interface paths {
         };
         /**
          * List Collection Account Quota Observations
-         * @description 返回每个浏览器账号 × mode 最新一条额度观测。
+         * @description 返回每个手机号 × 平台 × mode 最新一条额度观测。
          *
-         *     浏览器实例在账号尚未登记为 ``phone × platform`` 时仍是有效的独立登录账号，
-         *     因而额度观测以 browser 为最小安全锚点。接口最多扫描最近 200 条审计事件，按
-         *     ``(instance_key, mode)`` 去重；不返回 ``new_value`` 原文。
+         *     额度属于登录账号而不是出口地域，因此事件必须显式关联 ``phone_account_id``；
+         *     browser/region 仅作为最近观测来源。接口最多扫描最近 200 条审计事件，按
+         *     ``(phone, platform, mode)`` 去重；不返回 ``new_value`` 原文，也不再把没有
+         *     手机号归属的历史 browser-only 事件展示成账号额度。
          */
         get: operations["list_collection_account_quota_observations_api_v2_collection_account_quota_observations_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/collection-accounts/sync-otp-registry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sync Otp Registry Accounts
+         * @description Reconcile config-page registrations into the account-governance table.
+         *
+         *     Normal registrations already upsert this table. This idempotent repair path
+         *     covers legacy registrations and temporary DB failures, then the UI reloads
+         *     ``GET /collection-accounts`` to show the result immediately.
+         */
+        post: operations["sync_otp_registry_accounts_api_v2_collection_accounts_sync_otp_registry_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1279,7 +1304,8 @@ export interface paths {
         put?: never;
         /**
          * Otp Push
-         * @description 处理一条 SmsForwarder 推送（JSON ``{"slot","sms"}`` / 表单 / 纯文本期望格式）。
+         * @description 处理一条手机推送（iPhone JSON ``{"phone","sms"}``、Android
+         *     SmsForwarder JSON ``{"slot","sms"}`` / 表单 / 纯文本期望格式）。
          *
          *     无法定位手机号时**软收下**存 ``unrouted.json``（绝不丢码；响应 ``routed=false``
          *     + 大声记日志），对齐旧 otp_ingest.otp_push_view 的全部容错路径。
@@ -1327,7 +1353,7 @@ export interface paths {
         /**
          * Otp Register
          * @description 在册号码注册（operator 门内）：``{"phone","carrier"?,"slot"?}`` → 登记进
-         *     服务端注册表（原子写），setup-info 即刻下发。幂等：同号再注册=更新备注。
+         *     服务端注册表（原子写）并同步账号治理表。幂等：同号再注册=更新备注。
          *     响应带完整 remark（operator 自填自拿，装机页一键复制进手机卡槽备注）。
          */
         post: operations["otp_register_api_v2_otp_register_post"];
@@ -1346,9 +1372,10 @@ export interface paths {
         };
         /**
          * Otp Setup Info
-         * @description 装机配置（operator 门内）：推送地址/relay token/Body 模板/白名单正则/卡槽备注。
-         *     URL 从请求 origin 派生（供工具消费；**装机页展示不用它**——页面以浏览器
-         *     location.origin 拼地址，反代 Host $host 丢端口时页面依然正确）。
+         * @description 装机配置（operator 门内）：两端共用推送地址/relay token，以及 Android
+         *     Body 模板/白名单正则。注册表不在此响应中暴露。
+         *     URL 优先来自显式 ``GEO_PUBLIC_BASE_URL``；生产缺失时 fail-closed，避免反代
+         *     ``Host`` 丢端口后向操作员下发不可用地址。
          */
         get: operations["otp_setup_info_api_v2_otp_setup_info_get"];
         put?: never;
@@ -4377,6 +4404,95 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/source-analysis/projects/{project_pub_id}/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Profile */
+        get: operations["get_profile_api_v2_source_analysis_projects__project_pub_id__profile_get"];
+        /** Put Profile */
+        put: operations["put_profile_api_v2_source_analysis_projects__project_pub_id__profile_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/source-analysis/projects/{project_pub_id}/profiles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Profiles */
+        get: operations["list_profiles_api_v2_source_analysis_projects__project_pub_id__profiles_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/source-analysis/projects/{project_pub_id}/runs/{run_pub_id}/inspect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enqueue Run Inspection
+         * @description Re-run page inspection for an existing source snapshot with a frozen profile.
+         */
+        post: operations["enqueue_run_inspection_api_v2_source_analysis_projects__project_pub_id__runs__run_pub_id__inspect_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/source-analysis/projects/{project_pub_id}/inspections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Inspections */
+        get: operations["list_inspections_api_v2_source_analysis_projects__project_pub_id__inspections_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/source-analysis/projects/{project_pub_id}/inspections/{inspection_pub_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Inspection */
+        get: operations["get_inspection_api_v2_source_analysis_projects__project_pub_id__inspections__inspection_pub_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/health": {
         parameters: {
             query?: never;
@@ -4476,18 +4592,23 @@ export interface components {
          * @description 账号管理页的平台额度安全投影。
          *
          *     真源是 ``collection_account_event(event_type='quota_observation')``；响应只暴露
-         *     白名单字段，绝不透传平台原始响应、账号标识或探测证据。``observed_window_count``
-         *     可以是日志下限/估算值，精度由 ``count_kind`` 明示，不能冒充官方固定额度。
+         *     白名单字段，绝不透传平台原始响应、完整手机号、平台用户标识或探测证据。
+         *     ``observed_window_count`` 可以是日志下限/估算值，精度由 ``count_kind`` 明示，
+         *     不能冒充官方固定额度。
          */
         AccountQuotaObservationView: {
             /** Observation Pub Id */
             observation_pub_id: string;
-            /** Browser Instance Key */
-            browser_instance_key: string;
+            /** Phone Account Pub Id */
+            phone_account_pub_id: string;
+            /** Phone Masked */
+            phone_masked: string;
             /** Platform */
             platform: string;
-            /** Region Gb */
-            region_gb: string | null;
+            /** Observed Browser Instance Key */
+            observed_browser_instance_key: string;
+            /** Observed Region Gb */
+            observed_region_gb: string | null;
             /**
              * Mode
              * @enum {string}
@@ -4623,6 +4744,56 @@ export interface components {
             website?: string | null;
             /** Model */
             model?: string | null;
+        };
+        /** AliasEvidence */
+        AliasEvidence: {
+            /** Value */
+            value: string;
+            /** Evidence Url */
+            evidence_url?: string | null;
+            /** Capture Pub Id */
+            capture_pub_id?: string | null;
+        };
+        /** AnalysisJobView */
+        AnalysisJobView: {
+            /** Pub Id */
+            pub_id: string;
+            /** Run Pub Id */
+            run_pub_id: string;
+            /** Profile Pub Id */
+            profile_pub_id: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "queued" | "running" | "completed" | "partial" | "failed" | "skipped";
+            /** Policy Version */
+            policy_version: string;
+            /** Input Hash */
+            input_hash: string;
+            /** Workflow Id */
+            workflow_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** AnchorSource */
+        AnchorSource: {
+            /** Name */
+            name: string;
+            /** Publisher */
+            publisher: string;
+            /** Url */
+            url: string;
+            /** Categories */
+            categories: string[];
         };
         /** AnswerEvidenceView */
         AnswerEvidenceView: {
@@ -4760,14 +4931,34 @@ export interface components {
             /** Mode */
             mode: string;
             /** Eligible */
-            eligible: boolean;
+            eligible: boolean | null;
             /** Degraded */
-            degraded: boolean;
+            degraded: boolean | null;
             /**
              * Capture Time
              * Format: date-time
              */
             capture_time: string;
+            /**
+             * Capture State
+             * @enum {string}
+             */
+            capture_state: "completed" | "legacy";
+            /**
+             * Answer Analysis State
+             * @enum {string}
+             */
+            answer_analysis_state: "not_requested" | "queued" | "running" | "completed" | "partial" | "failed" | "skipped";
+            /**
+             * Source Analysis State
+             * @enum {string}
+             */
+            source_analysis_state: "not_requested" | "queued" | "running" | "completed" | "partial" | "failed" | "skipped";
+            /**
+             * Risk Analysis State
+             * @enum {string}
+             */
+            risk_analysis_state: "not_requested" | "queued" | "running" | "completed" | "partial" | "failed" | "skipped";
             /** Mentioned */
             mentioned: boolean | null;
             /** Rank */
@@ -5461,11 +5652,15 @@ export interface components {
             /** Brand Name */
             brand_name: string;
             /**
-             * Target Words
-             * Format: binary
-             * @description 品牌方提供的优化目标词 XLSX
+             * Quotation Config
+             * @description 制品类型、套餐、官网、逐项单价、数量及商务备注 JSON
              */
-            target_words: string;
+            quotation_config: string;
+            /**
+             * Target Words
+             * @description 可选：品牌方提供的优化目标词 XLSX，用于生成 Query 附录
+             */
+            target_words?: string | null;
             /** Quote Date */
             quote_date?: string | null;
             /** Model */
@@ -7186,6 +7381,59 @@ export interface components {
             /** Quote Hash */
             quote_hash: string | null;
         };
+        /** EvidenceChainLinkView */
+        EvidenceChainLinkView: {
+            /**
+             * Connector
+             * @enum {string}
+             */
+            connector: "because" | "and" | "but" | "compared_with" | "therefore";
+            /**
+             * Fact Type
+             * @enum {string}
+             */
+            fact_type: "source_quote" | "authority_fact" | "recomputable" | "absence";
+            /** Explanation */
+            explanation: string;
+            /** Quote */
+            quote?: string | null;
+            /** Occurrence */
+            occurrence?: number | null;
+            /** Text Start */
+            text_start?: number | null;
+            /** Text End */
+            text_end?: number | null;
+            /** Quote Hash */
+            quote_hash?: string | null;
+            /** Authority Source */
+            authority_source?: string | null;
+            /** Authority Url */
+            authority_url?: string | null;
+            /** Publisher */
+            publisher?: string | null;
+            /** Published At */
+            published_at?: string | null;
+            /** Authority Category */
+            authority_category?: string | null;
+            /** Algorithm */
+            algorithm?: string | null;
+            /** Inputs */
+            inputs?: {
+                [key: string]: unknown;
+            } | {
+                [key: string]: string;
+            }[] | null;
+            /** Result */
+            result?: unknown | null;
+            /** Search Terms */
+            search_terms?: string[] | null;
+            /** Search Scope */
+            search_scope?: string | null;
+            /** Operator */
+            operator?: ("any" | "all") | null;
+            /** Match Count */
+            match_count?: number | null;
+        };
         /** EvidenceCreate */
         EvidenceCreate: {
             /** Claim Text */
@@ -7251,6 +7499,26 @@ export interface components {
          * @enum {string}
          */
         EvidenceRelation: "supports" | "contradicts" | "insufficient";
+        /** EvidenceSpanView */
+        EvidenceSpanView: {
+            /** Pub Id */
+            pub_id: string;
+            /** Chain Ordinal */
+            chain_ordinal: number;
+            /** Quote */
+            quote: string;
+            /** Text Start */
+            text_start: number;
+            /** Text End */
+            text_end: number;
+            /** Quote Hash */
+            quote_hash: string;
+            /**
+             * Verification
+             * @constant
+             */
+            verification: "exact";
+        };
         /** EvidenceUpdate */
         EvidenceUpdate: {
             /** Claim Text */
@@ -7415,6 +7683,46 @@ export interface components {
              */
             updated_at: string;
         };
+        /** FindingView */
+        FindingView: {
+            /** Pub Id */
+            pub_id: string;
+            /** Ordinal */
+            ordinal: number;
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "A0" | "A1" | "A2" | "A3" | "A4" | "A5" | "B1" | "B2" | "B3" | "C1" | "C2" | "C3" | "C4";
+            /**
+             * Ledger
+             * @enum {string}
+             */
+            ledger: "statement" | "exposure";
+            /** Variant */
+            variant: string;
+            /**
+             * Finding Status
+             * @enum {string}
+             */
+            finding_status: "confirmed" | "needs_review";
+            /** Summary */
+            summary: string;
+            /** Action */
+            action: string;
+            /** Evidence Chain */
+            evidence_chain: components["schemas"]["EvidenceChainLinkView"][];
+            /** Self Check */
+            self_check: {
+                [key: string]: unknown;
+            };
+            /** Validation */
+            validation: {
+                [key: string]: unknown;
+            };
+            /** Spans */
+            spans: components["schemas"]["EvidenceSpanView"][];
+        };
         /** FormalArtifactView */
         FormalArtifactView: {
             /**
@@ -7437,7 +7745,12 @@ export interface components {
              * Service Number
              * @enum {integer}
              */
-            service_number: 1 | 2 | 3 | 4;
+            service_number: 1 | 2 | 3 | 4 | 5;
+            /**
+             * Service Code
+             * @enum {string}
+             */
+            service_code: "ranking_test" | "outbound_disparagement_audit" | "inbound_disparagement_audit" | "official_site_audit" | "content_publishing_pilot" | "legacy_ranking_assessment" | "legacy_content_ecosystem_risk" | "legacy_official_site_efficiency" | "legacy_pilot_comparison";
             /** Report Pub Id */
             report_pub_id: string;
             /** Report Version Pub Id */
@@ -7447,53 +7760,11 @@ export interface components {
             /** Artifacts */
             artifacts: components["schemas"]["FormalArtifactView"][];
         };
-        /** FormalProductionCreate */
-        FormalProductionCreate: {
-            /** Project Pub Id */
-            project_pub_id: string;
-            /** Services */
-            services: (1 | 2 | 3 | 4)[];
-            /**
-             * Window Start
-             * Format: date
-             */
-            window_start: string;
-            /**
-             * Window End
-             * Format: date
-             */
-            window_end: string;
-            /**
-             * Document Status
-             * @default internal_review
-             * @enum {string}
-             */
-            document_status: "internal_review" | "delivery_candidate";
-            /**
-             * Candidate Group Strategy
-             * @default preregistered_scope_v1
-             * @constant
-             */
-            candidate_group_strategy: "preregistered_scope_v1";
-            /**
-             * Version
-             * @default V1.0
-             */
-            version: string;
-            /** Prepared By */
-            prepared_by: string;
-            /**
-             * Prepared Date
-             * Format: date
-             */
-            prepared_date: string;
-            /** Reviewed By */
-            reviewed_by?: string | null;
-            /** Reviewed Date */
-            reviewed_date?: string | null;
-            before_window?: components["schemas"]["WindowView"] | null;
-            after_window?: components["schemas"]["WindowView"] | null;
-        };
+        /**
+         * FormalProductionCreate
+         * @description Versioned create contract with an explicit legacy compatibility path.
+         */
+        FormalProductionCreate: components["schemas"]["LegacyFormalProductionCreate"] | components["schemas"]["QuotationFormalProductionCreate"];
         /** FormalProductionPage */
         FormalProductionPage: {
             /** Items */
@@ -7510,7 +7781,14 @@ export interface components {
             /** Project Pub Id */
             project_pub_id: string;
             /** Services */
-            services: (1 | 2 | 3 | 4)[];
+            services: (1 | 2 | 3 | 4 | 5)[];
+            /**
+             * Service Catalog Version
+             * @enum {string}
+             */
+            service_catalog_version: "legacy_report_services_v1" | "quotation_services_v2";
+            /** Sop Project Pub Id */
+            sop_project_pub_id: string | null;
             /**
              * Status
              * @enum {string}
@@ -7716,6 +7994,181 @@ export interface components {
              * Format: date-time
              */
             created_at: string;
+        };
+        /** InspectionDetail */
+        InspectionDetail: {
+            /** Pub Id */
+            pub_id: string;
+            /** Run Pub Id */
+            run_pub_id: string;
+            /** Source Document Pub Id */
+            source_document_pub_id: string;
+            /** Profile Pub Id */
+            profile_pub_id: string;
+            /** Profile Revision */
+            profile_revision: number;
+            /** Url */
+            url: string;
+            /** Host */
+            host: string;
+            /** Page Title */
+            page_title: string | null;
+            /** Site Name */
+            site_name: string | null;
+            /** Publisher */
+            publisher: string | null;
+            /** Authors */
+            authors: string[];
+            /** Published At */
+            published_at: string | null;
+            /** Published At Confidence */
+            published_at_confidence: string;
+            /** Policy Version */
+            policy_version: string;
+            /** Prompt Version */
+            prompt_version: string;
+            /** Model */
+            model: string;
+            /** Content Sha256 */
+            content_sha256: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "completed" | "partial" | "unverifiable";
+            /** Page Summary */
+            page_summary: {
+                [key: string]: unknown;
+            };
+            /** Transmission */
+            transmission: {
+                [key: string]: unknown;
+            };
+            /** Attribution */
+            attribution: {
+                [key: string]: unknown;
+            };
+            /** Quality */
+            quality: {
+                [key: string]: unknown;
+            };
+            /** Object Name */
+            object_name: string;
+            /**
+             * Object Kind
+             * @enum {string}
+             */
+            object_kind: "brand" | "product";
+            /** Categories */
+            categories: string[];
+            /** Aliases */
+            aliases: components["schemas"]["AliasEvidence"][];
+            /** Own Domains */
+            own_domains: string[];
+            /** Peers */
+            peers: string[];
+            /** Anchor Sources */
+            anchor_sources: components["schemas"]["AnchorSource"][];
+            /** Linked Entities */
+            linked_entities: components["schemas"]["LinkedEntity"][];
+            /** Hard Anchor Available */
+            hard_anchor_available: boolean;
+            /**
+             * Decision Mode
+             * @enum {string}
+             */
+            decision_mode: "selection" | "reputation";
+            /**
+             * Profile Type
+             * @enum {string}
+             */
+            profile_type: "I" | "II" | "III" | "IV";
+            /** Profile Hash */
+            profile_hash: string;
+            /** Findings */
+            findings: components["schemas"]["FindingView"][];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** InspectionPage */
+        InspectionPage: {
+            /** Data */
+            data: components["schemas"]["InspectionSummary"][];
+            page: components["schemas"]["PageMeta"];
+        };
+        /** InspectionSummary */
+        InspectionSummary: {
+            /** Pub Id */
+            pub_id: string;
+            /** Run Pub Id */
+            run_pub_id: string;
+            /** Source Document Pub Id */
+            source_document_pub_id: string;
+            /** Url */
+            url: string;
+            /** Host */
+            host: string;
+            /** Page Title */
+            page_title: string | null;
+            /** Publisher */
+            publisher: string | null;
+            /** Authors */
+            authors: string[];
+            /** Profile Pub Id */
+            profile_pub_id: string;
+            /** Profile Revision */
+            profile_revision: number;
+            /** Policy Version */
+            policy_version: string;
+            /** Prompt Version */
+            prompt_version: string;
+            /** Model */
+            model: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "completed" | "partial" | "unverifiable";
+            /** Page Summary */
+            page_summary: {
+                [key: string]: unknown;
+            };
+            /** Transmission */
+            transmission: {
+                [key: string]: unknown;
+            };
+            /** Attribution */
+            attribution: {
+                [key: string]: unknown;
+            };
+            /** Quality */
+            quality: {
+                [key: string]: unknown;
+            };
+            /** Finding Count */
+            finding_count: number;
+            /** Statement Count */
+            statement_count: number;
+            /** Exposure Count */
+            exposure_count: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /** IntentGroup */
         IntentGroup: {
@@ -8018,6 +8471,60 @@ export interface components {
             /** Released At */
             released_at: string | null;
         };
+        /** LegacyFormalProductionCreate */
+        LegacyFormalProductionCreate: {
+            /** Project Pub Id */
+            project_pub_id: string;
+            /** Services */
+            services: (1 | 2 | 3 | 4)[];
+            /** Sop Project Pub Id */
+            sop_project_pub_id?: null;
+            /**
+             * Window Start
+             * Format: date
+             */
+            window_start: string;
+            /**
+             * Window End
+             * Format: date
+             */
+            window_end: string;
+            /**
+             * Document Status
+             * @default internal_review
+             * @enum {string}
+             */
+            document_status: "internal_review" | "delivery_candidate";
+            /**
+             * Candidate Group Strategy
+             * @default preregistered_scope_v1
+             * @constant
+             */
+            candidate_group_strategy: "preregistered_scope_v1";
+            /**
+             * Version
+             * @default V1.0
+             */
+            version: string;
+            /** Prepared By */
+            prepared_by: string;
+            /**
+             * Prepared Date
+             * Format: date
+             */
+            prepared_date: string;
+            /** Reviewed By */
+            reviewed_by?: string | null;
+            /** Reviewed Date */
+            reviewed_date?: string | null;
+            before_window?: components["schemas"]["WindowView"] | null;
+            after_window?: components["schemas"]["WindowView"] | null;
+            /**
+             * Service Catalog Version
+             * @constant
+             */
+            service_catalog_version?: "legacy_report_services_v1";
+        };
         /** LinkTestRequest */
         LinkTestRequest: {
             /**
@@ -8046,6 +8553,16 @@ export interface components {
             guidance?: string | null;
             /** Detail */
             detail?: string | null;
+        };
+        /** LinkedEntity */
+        LinkedEntity: {
+            /** Name */
+            name: string;
+            /**
+             * Relation
+             * @enum {string}
+             */
+            relation: "parent" | "subsidiary" | "sub_brand" | "spokesperson" | "product_line";
         };
         /** MemberCreate */
         MemberCreate: {
@@ -8543,6 +9060,17 @@ export interface components {
             /** Effect Retests */
             effect_retests: components["schemas"]["EffectRetestView"][];
         };
+        /** OtpRegistrySyncResult */
+        OtpRegistrySyncResult: {
+            /** Scanned */
+            scanned: number;
+            /** Created */
+            created: number;
+            /** Updated */
+            updated: number;
+            /** Unchanged */
+            unchanged: number;
+        };
         /** PackageAccess */
         PackageAccess: {
             /** Grant Token */
@@ -8638,11 +9166,16 @@ export interface components {
         };
         /**
          * PhoneAccountRow
-         * @description 账号管理页行 = 手机号（platforms 五平台固定列，无行 = null）。
+         * @description 账号管理页行。
+         *
+         *     ``phone`` 只对具备 ``account:operate`` 的管理员/操作员返回；只读审核角色
+         *     继续只拿 ``phone_masked``，避免扩大完整号码的可见范围。
          */
         PhoneAccountRow: {
             /** Phone Account Pub Id */
             phone_account_pub_id: string;
+            /** Phone */
+            phone: string | null;
             /** Phone Masked */
             phone_masked: string;
             /** Owner Note */
@@ -9442,6 +9975,60 @@ export interface components {
              */
             n: number;
         };
+        /** QuotationFormalProductionCreate */
+        QuotationFormalProductionCreate: {
+            /** Project Pub Id */
+            project_pub_id: string;
+            /** Services */
+            services: (1 | 2 | 3 | 4 | 5)[];
+            /** Sop Project Pub Id */
+            sop_project_pub_id?: string | null;
+            /**
+             * Window Start
+             * Format: date
+             */
+            window_start: string;
+            /**
+             * Window End
+             * Format: date
+             */
+            window_end: string;
+            /**
+             * Document Status
+             * @default internal_review
+             * @enum {string}
+             */
+            document_status: "internal_review" | "delivery_candidate";
+            /**
+             * Candidate Group Strategy
+             * @default preregistered_scope_v1
+             * @constant
+             */
+            candidate_group_strategy: "preregistered_scope_v1";
+            /**
+             * Version
+             * @default V1.0
+             */
+            version: string;
+            /** Prepared By */
+            prepared_by: string;
+            /**
+             * Prepared Date
+             * Format: date
+             */
+            prepared_date: string;
+            /** Reviewed By */
+            reviewed_by?: string | null;
+            /** Reviewed Date */
+            reviewed_date?: string | null;
+            before_window?: components["schemas"]["WindowView"] | null;
+            after_window?: components["schemas"]["WindowView"] | null;
+            /**
+             * Service Catalog Version
+             * @constant
+             */
+            service_catalog_version: "quotation_services_v2";
+        };
         /** Readiness */
         Readiness: {
             /**
@@ -10088,6 +10675,11 @@ export interface components {
             /** Account Pub Id */
             account_pub_id?: string | null;
         };
+        /** RunInspectionRequest */
+        RunInspectionRequest: {
+            /** Profile Pub Id */
+            profile_pub_id?: string | null;
+        };
         /** RunView */
         RunView: {
             /** Pub Id */
@@ -10591,6 +11183,92 @@ export interface components {
             references: number;
             /** Is Own Site */
             is_own_site: boolean;
+        };
+        /** SourceProfileView */
+        SourceProfileView: {
+            /** Pub Id */
+            pub_id: string;
+            /** Revision */
+            revision: number;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "active" | "retired";
+            /** Object Name */
+            object_name: string;
+            /**
+             * Object Kind
+             * @enum {string}
+             */
+            object_kind: "brand" | "product";
+            /** Categories */
+            categories: string[];
+            /** Aliases */
+            aliases: components["schemas"]["AliasEvidence"][];
+            /** Own Domains */
+            own_domains: string[];
+            /** Peers */
+            peers: string[];
+            /** Anchor Sources */
+            anchor_sources: components["schemas"]["AnchorSource"][];
+            /** Linked Entities */
+            linked_entities: components["schemas"]["LinkedEntity"][];
+            /** Hard Anchor Available */
+            hard_anchor_available: boolean;
+            /**
+             * Decision Mode
+             * @enum {string}
+             */
+            decision_mode: "selection" | "reputation";
+            /**
+             * Profile Type
+             * @enum {string}
+             */
+            profile_type: "I" | "II" | "III" | "IV";
+            /** Profile Hash */
+            profile_hash: string;
+            /** Created By */
+            created_by: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** SourceProfileWrite */
+        SourceProfileWrite: {
+            /** Object Name */
+            object_name: string;
+            /**
+             * Object Kind
+             * @enum {string}
+             */
+            object_kind: "brand" | "product";
+            /** Categories */
+            categories: string[];
+            /** Aliases */
+            aliases?: components["schemas"]["AliasEvidence"][];
+            /** Own Domains */
+            own_domains?: string[];
+            /** Peers */
+            peers?: string[];
+            /** Anchor Sources */
+            anchor_sources?: components["schemas"]["AnchorSource"][];
+            /** Linked Entities */
+            linked_entities?: components["schemas"]["LinkedEntity"][];
+            /** Hard Anchor Available */
+            hard_anchor_available: boolean;
+            /**
+             * Decision Mode
+             * @enum {string}
+             */
+            decision_mode: "selection" | "reputation";
         };
         /** StepView */
         StepView: {
@@ -12517,6 +13195,19 @@ export interface operations {
             /** @description Successful Response */
             200: {
                 headers: {
+                    "Content-Disposition"?: string;
+                    "X-Quotation-Target-Query-Count"?: string;
+                    "X-Quotation-Selected-Query-Count"?: string;
+                    "X-Quotation-Opportunity-Count"?: string;
+                    "X-Quotation-Package-Code"?: string;
+                    "X-Quotation-Artifact-Kind"?: string;
+                    "X-Quotation-Service-Count"?: string;
+                    "X-Quotation-Pricing-Status"?: string;
+                    "X-Quotation-Total-Cents"?: string;
+                    "X-Quotation-Maximum-Total-Cents"?: string;
+                    "X-Quotation-Query-Appendix"?: string;
+                    "X-Quotation-SHA256"?: string;
+                    "Cache-Control"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -15742,6 +16433,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccountQuotaObservationView"][];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    sync_otp_registry_accounts_api_v2_collection_accounts_sync_otp_registry_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OtpRegistrySyncResult"];
                 };
             };
             /** @description Bad Request */
@@ -32021,6 +32778,428 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_profile_api_v2_source_analysis_projects__project_pub_id__profile_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceProfileView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_profile_api_v2_source_analysis_projects__project_pub_id__profile_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceProfileWrite"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceProfileView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_profiles_api_v2_source_analysis_projects__project_pub_id__profiles_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceProfileView"][];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    enqueue_run_inspection_api_v2_source_analysis_projects__project_pub_id__runs__run_pub_id__inspect_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+                run_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunInspectionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisJobView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_inspections_api_v2_source_analysis_projects__project_pub_id__inspections_get: {
+        parameters: {
+            query?: {
+                run_pub_id?: string | null;
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InspectionPage"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_inspection_api_v2_source_analysis_projects__project_pub_id__inspections__inspection_pub_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+                inspection_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InspectionDetail"];
                 };
             };
             /** @description Bad Request */
