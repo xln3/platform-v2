@@ -348,6 +348,9 @@ def render_service3_v2_docx(
     *,
     evidence_assets: dict[str, bytes] | None = None,
     official_captures: dict[str, dict[str, Any]] | None = None,
+    service_number: int = 3,
+    report_title: str = "官网内容 AI 引用能效评估报告",
+    report_subtitle: str = "服务 3 · 回答—URL—官网正文证据链",
 ) -> bytes:
     """Render a client-readable Service 3 V2 report and evidence appendix."""
 
@@ -355,12 +358,12 @@ def render_service3_v2_docx(
     official_captures = official_captures or {}
     metrics = facts["metrics"]
     doc = FormalDocument(
-        title="官网内容 AI 引用能效评估报告",
-        subtitle="服务 3 · 回答—URL—官网正文证据链",
+        title=report_title,
+        subtitle=report_subtitle,
         facts=facts,
     )
     version = str((facts.get("document_governance") or {}).get("version") or "V1.0")
-    doc.cover(report_code=build_report_code(facts, service_number=3, version=version))
+    doc.cover(report_code=build_report_code(facts, service_number=service_number, version=version))
     _toc(doc, facts)
 
     doc.heading("1. 执行摘要")
@@ -768,7 +771,7 @@ def render_service3_v2_docx(
         [
             (
                 "项目与服务",
-                f"{facts.get('project_name') or '—'} · 服务3 · 官网内容AI引用能效评估",
+                f"{facts.get('project_name') or '—'} · 服务{service_number} · {report_title}",
             ),
             (
                 "版本与状态",

@@ -7,7 +7,7 @@ export default function FormalReportsRoute() {
       navId="formal-reports"
       title="正式报告生成"
       description="服务 1–4 的冻结事实、正式制品、审阅签发与审计下载入口。"
-      blurb="选择服务与事实窗口，从平台启动可重放的正式报告生产，不需要登录服务器执行脚本。"
+      blurb="按新五项服务选择事实窗口，每项服务独立生成 DOCX 与证据产物。"
     >
       {(session, project) => <FormalReportWorkspace session={session} project={project} />}
     </ServiceShell>

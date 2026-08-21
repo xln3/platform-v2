@@ -92,8 +92,8 @@ def build_report_code(
 ) -> str:
     """Build a tenant-neutral customer document code without internal identifiers."""
 
-    if service_number not in {1, 2, 3, 4}:
-        raise ValueError("service_number_must_be_1_2_3_or_4")
+    if service_number not in {1, 2, 3, 4, 5}:
+        raise ValueError("service_number_must_be_1_2_3_4_or_5")
     generated_at = facts.get("generated_at")
     if isinstance(generated_at, datetime):
         date_stamp = generated_at.strftime("%Y%m%d")

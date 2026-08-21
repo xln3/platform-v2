@@ -331,8 +331,21 @@ export type PilotDeltaResult =
   | { kind: 'forbidden' }
   | { kind: 'unavailable' };
 
-// ── 正式报告生产（服务 1–4，共享冻结事实与 Temporal 生产链）──
-export type FormalReportService = 1 | 2 | 3 | 4;
+// ── 正式报告生产（五项独立服务，共享冻结事实与 Temporal 生产链）──
+export type FormalReportService = 1 | 2 | 3 | 4 | 5;
+export type FormalReportServiceCatalogVersion =
+  | 'quotation_services_v2'
+  | 'legacy_report_services_v1';
+export type FormalReportServiceCode =
+  | 'ranking_test'
+  | 'outbound_disparagement_audit'
+  | 'inbound_disparagement_audit'
+  | 'official_site_audit'
+  | 'content_publishing_pilot'
+  | 'legacy_ranking_assessment'
+  | 'legacy_content_ecosystem_risk'
+  | 'legacy_official_site_efficiency'
+  | 'legacy_pilot_comparison';
 export type FormalReportDocumentStatus =
   | 'pre_formal'
   | 'formal'
@@ -359,6 +372,7 @@ export type FormalReportArtifact = {
 
 export type FormalReportOutput = {
   service_number: FormalReportService;
+  service_code: FormalReportServiceCode;
   report_pub_id: string;
   report_version_pub_id: string;
   fact_snapshot_hash: string;
@@ -369,6 +383,8 @@ export type FormalReportProduction = {
   pub_id: string;
   project_pub_id: string;
   services: FormalReportService[];
+  service_catalog_version: FormalReportServiceCatalogVersion;
+  sop_project_pub_id: string | null;
   status: FormalReportProductionStatus;
   document_status: FormalReportDocumentStatus;
   window_start: string;
@@ -387,6 +403,8 @@ export type FormalReportProduction = {
 export type FormalReportProductionCreate = {
   projectPubId: string;
   services: FormalReportService[];
+  serviceCatalogVersion: 'quotation_services_v2';
+  sopProjectPubId?: string;
   window: FormalReportWindow;
   documentStatus: FormalReportCreatableDocumentStatus;
   version: string;
@@ -807,6 +825,8 @@ export const servicesApi = {
       {
         project_pub_id: input.projectPubId,
         services: input.services,
+        service_catalog_version: input.serviceCatalogVersion,
+        ...(input.sopProjectPubId ? { sop_project_pub_id: input.sopProjectPubId } : {}),
         window_start: input.window.start,
         window_end: input.window.end,
         document_status: input.documentStatus,

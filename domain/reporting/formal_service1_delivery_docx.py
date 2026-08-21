@@ -331,7 +331,12 @@ def _sample_gap_text(delivery: dict[str, Any]) -> str:
 
 
 def render_service1_delivery_docx(
-    facts: dict[str, Any], *, screenshots: dict[str, bytes] | None = None
+    facts: dict[str, Any],
+    *,
+    screenshots: dict[str, bytes] | None = None,
+    service_number: int = 1,
+    report_title: str | None = None,
+    report_subtitle: str = "服务 1 · 品牌 AI 可见性与竞品表现",
 ) -> bytes:
     """Render the customer-readable service-1 report; bulk audit data stay in sidecars."""
 
@@ -343,16 +348,19 @@ def render_service1_delivery_docx(
     target_brand = str(facts["target_brand"])
     target = delivery["target"]
     scope = delivery["scope"]
+    quotation_catalog = facts.get("service_catalog_version") == "quotation_services_v2"
+    risk_service_number = 3 if quotation_catalog else 2
+    official_service_number = 4 if quotation_catalog else 3
     scope_label = str(scope.get("scope_label") or "本次三组已测业务场景")
-    title = f"{scope_label}品牌 GEO 推荐结果评测报告"
+    title = report_title or f"{scope_label}品牌 GEO 推荐结果评测报告"
     facts = {**facts, "report_title": title}
     doc = FormalDocument(
         title=title,
-        subtitle="服务 1 · 品牌 AI 可见性与竞品表现",
+        subtitle=report_subtitle,
         facts=facts,
     )
     version = str((facts.get("document_governance") or {}).get("version") or "V1.0")
-    doc.cover(report_code=build_report_code(facts, service_number=1, version=version))
+    doc.cover(report_code=build_report_code(facts, service_number=service_number, version=version))
     add_native_toc(doc, heading_levels="1-2")
 
     question_count = int(scope["questions"])
@@ -848,7 +856,8 @@ def render_service1_delivery_docx(
             f"（{_pct(strongest_platform['mention_rate'])}），{weakest_platform_label}仅 "
             f"{_fraction(weakest_platform)}（{_pct(weakest_platform['mention_rate'])}）。",
             "差异只对应本批问题与窗口。建议先核查各平台回答所列链接的来源结构"
-            "（服务 2、服务 3），再决定是否按平台分别投入。",
+            f"（服务 {risk_service_number}、服务 {official_service_number}），"
+            "再决定是否按平台分别投入。",
         ),
     ]
     for heading, data_text, explanation in findings:
@@ -886,9 +895,11 @@ def render_service1_delivery_docx(
             ),
             (
                 f"{weakest_platform_label}提及率明显低于{strongest_platform_label}",
-                "暂不直接按平台投入；先结合服务 2 的链接内容核查和服务 3 的官网引用能效定位原因",
+                f"暂不直接按平台投入；先结合服务 {risk_service_number} 的被拉踩内容核查和"
+                f"服务 {official_service_number} 的官网引用能效定位原因",
                 "评测方",
-                "服务 2/3 结果出来后，再决定是否需要平台级动作",
+                f"服务 {risk_service_number}/{official_service_number} 结果出来后，"
+                "再决定是否需要平台级动作",
             ),
             (
                 f"{scope['answers_with_citation']}/{answers} 条回答列出了链接",
@@ -903,7 +914,8 @@ def render_service1_delivery_docx(
     doc.callout(
         "服务边界",
         "服务 1 只回答“品牌是否出现、以什么顺序出现、回答列出了哪些链接”。"
-        "链接内容是否准确由服务 2 核查，官网内容是否被 AI 实际采纳由服务 3 评估；"
+        f"被拉踩内容由服务 {risk_service_number} 核查，官网内容是否被 AI 实际采纳由"
+        f"服务 {official_service_number} 评估；"
         "本报告不越界下结论。",
         kind="info",
     )

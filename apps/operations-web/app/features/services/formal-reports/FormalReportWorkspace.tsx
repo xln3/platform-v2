@@ -8,6 +8,7 @@ import {
   type FormalReportProduction,
   type FormalReportReviewDecision,
   type FormalReportService,
+  type FormalReportServiceCatalogVersion,
   type FormalReportWindow,
   type Project,
   type SessionContext,
@@ -18,11 +19,51 @@ const SERVICE_OPTIONS: ReadonlyArray<{
   title: string;
   description: string;
 }> = [
-  { value: 1, title: '品牌 GEO 推荐结果评测', description: '提及、推荐位次、竞品与信源结构' },
-  { value: 2, title: '内容生态风险核查', description: 'AI 回答与公开信源的拉踩风险证据链' },
-  { value: 3, title: '官网引用能效评估', description: '官网引用、内容复用下界与逐回答证据链' },
-  { value: 4, title: 'GEO 试点与效果验证', description: '试点方案及同矩阵 before / after 对比' },
+  {
+    value: 1,
+    title: '测试',
+    description: '排名效果与实际留证采集渠道之间的同题观测差异',
+  },
+  {
+    value: 2,
+    title: '找拉踩帖',
+    description: '核验己方内容中涉及竞品的拉踩表达与归属证据',
+  },
+  {
+    value: 3,
+    title: '找被拉踩帖',
+    description: '核验公开信源中针对己方品牌的拉踩证据链',
+  },
+  {
+    value: 4,
+    title: '官网分析',
+    description: '官网引用 URL、内容复用下界与逐回答证据链',
+  },
+  {
+    value: 5,
+    title: '发帖提排名',
+    description: '发布试点与同矩阵 before / after 复测，不预设提升',
+  },
 ];
+
+const LEGACY_SERVICE_TITLES: Readonly<Record<1 | 2 | 3 | 4, string>> = {
+  1: '品牌 GEO 推荐结果评测',
+  2: '内容生态风险核查',
+  3: '官网引用能效评估',
+  4: 'GEO 试点与效果验证',
+};
+
+function serviceLabel(
+  catalogVersion: FormalReportServiceCatalogVersion,
+  service: FormalReportService,
+): string {
+  if (catalogVersion === 'legacy_report_services_v1') {
+    const title = service <= 4 ? LEGACY_SERVICE_TITLES[service as 1 | 2 | 3 | 4] : undefined;
+    return title ? `服务 ${service} · ${title}` : `服务 ${service}`;
+  }
+  const title = SERVICE_OPTIONS.find((option) => option.value === service)?.title;
+  return title ? `服务 ${service} · ${title}` : `服务 ${service}`;
+}
 
 const STATUS_LABELS: Record<FormalReportProduction['status'], string> = {
   queued: '排队中',
@@ -117,9 +158,10 @@ export function FormalReportWorkspace({
   session: SessionContext;
   project: Project;
 }) {
-  const [services, setServices] = useState<FormalReportService[]>([1, 2, 3, 4]);
+  const [services, setServices] = useState<FormalReportService[]>([1, 2, 3, 4, 5]);
   const [window_, setWindow] = useState<FormalReportWindow>(() => defaultWindow(30));
   const [pilotWindows, setPilotWindows] = useState(initialPilotWindows);
+  const [sopProjectPubId, setSopProjectPubId] = useState('');
   const [documentStatus, setDocumentStatus] =
     useState<FormalReportCreatableDocumentStatus>('internal_review');
   const [version, setVersion] = useState('V1.0');
@@ -134,7 +176,9 @@ export function FormalReportWorkspace({
   const [reviewRationales, setReviewRationales] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState<string | null>(null);
 
-  const includesService4 = services.includes(4);
+  const includesService5 = services.includes(5);
+  const includesService2 = services.includes(2);
+  const includesSopBoundService = includesService2 || includesService5;
   const hasActiveProduction = productions.some((item) => !TERMINAL_STATUSES.has(item.status));
   const canProduce =
     session.role === 'operator' || session.role === 'analyst' || session.role === 'admin';
@@ -144,26 +188,31 @@ export function FormalReportWorkspace({
     if (services.length === 0) return '请至少选择一项服务。';
     if (!/^V[1-9]\d*\.\d+$/.test(version)) return '版本号须使用 V1.0 形式。';
     if (!preparedBy.trim() || !preparedDate) return '请填写编制人和编制日期。';
+    if (includesSopBoundService && !sopProjectPubId.trim())
+      return '服务 2 或 5 需要填写用于内容归属与发布证据核验的 SOP 项目 ID。';
     if (documentStatus === 'delivery_candidate' && (!reviewedBy.trim() || !reviewedDate))
       return '客户交付候选稿必须先填写复核人和复核日期。';
     if (!window_.start || !window_.end || window_.start > window_.end)
       return '请选择有效的事实冻结窗口。';
-    if (!includesService4) return null;
+    if (!includesService5) return null;
     const { before, after } = pilotWindows;
     if (!before.start || !before.end || before.start > before.end)
-      return '服务 4 的优化前窗口无效。';
-    if (!after.start || !after.end || after.start > after.end) return '服务 4 的优化后窗口无效。';
-    if (before.end >= after.start) return '服务 4 的优化前、优化后窗口必须按时间分离。';
+      return '服务 5 的发布前窗口无效。';
+    if (!after.start || !after.end || after.start > after.end) return '服务 5 的发布后窗口无效。';
+    if (before.end >= after.start) return '服务 5 的发布前、发布后窗口必须按时间分离。';
     return null;
   }, [
     documentStatus,
-    includesService4,
+    includesService5,
+    includesService2,
+    includesSopBoundService,
     pilotWindows,
     preparedBy,
     preparedDate,
     reviewedBy,
     reviewedDate,
     services.length,
+    sopProjectPubId,
     version,
     window_,
   ]);
@@ -211,6 +260,8 @@ export function FormalReportWorkspace({
       const created = await servicesApi.createFormalReportProduction(session, {
         projectPubId: project.pub_id,
         services,
+        serviceCatalogVersion: 'quotation_services_v2',
+        ...(includesSopBoundService ? { sopProjectPubId: sopProjectPubId.trim() } : {}),
         window: window_,
         documentStatus,
         version,
@@ -218,7 +269,7 @@ export function FormalReportWorkspace({
         preparedDate,
         ...(reviewedBy.trim() ? { reviewedBy: reviewedBy.trim() } : {}),
         ...(reviewedDate ? { reviewedDate } : {}),
-        ...(includesService4
+        ...(includesService5
           ? { beforeWindow: pilotWindows.before, afterWindow: pilotWindows.after }
           : {}),
         idempotencyKey: idempotencyKey(),
@@ -272,8 +323,8 @@ export function FormalReportWorkspace({
           <span>冻结事实 → 内部审核/交付候选 → 人工批准 → 签发</span>
         </div>
         <p className="service-note">
-          报告从平台冻结事实动态构建，并把主报告、样本索引、证据包与 manifest
-          保存到同一生产记录。内部审核稿不可签发；客户交付候选稿仍须人工批准后才会重渲染为签发版。
+          所选服务共用一份冻结事实，但每项服务独立生成自己的 DOCX、样本索引、证据包与
+          manifest，不拼成一份跨服务报告。内部审核稿不可签发；客户交付候选稿仍须人工批准后才会重渲染为签发版。
         </p>
 
         <fieldset className="formal-service-picker">
@@ -294,6 +345,21 @@ export function FormalReportWorkspace({
             </label>
           ))}
         </fieldset>
+
+        {includesSopBoundService ? (
+          <label className="formal-sop-project">
+            服务 2/5 内容 SOP 项目 ID
+            <input
+              aria-label="服务 2/5 内容 SOP 项目 ID"
+              value={sopProjectPubId}
+              placeholder="spr_…"
+              onChange={(event) => setSopProjectPubId(event.target.value)}
+            />
+            <small>
+              服务 2 用它核验己方内容归属，服务 5 用它核验审批与公开发布记录；不按项目名称猜测。
+            </small>
+          </label>
+        ) : null}
 
         <div className="formal-window-grid">
           <label>
@@ -362,11 +428,11 @@ export function FormalReportWorkspace({
           ) : null}
         </div>
 
-        {includesService4 ? (
+        {includesService5 ? (
           <fieldset className="formal-pilot-windows">
-            <legend>5. 服务 4 同矩阵对比窗口</legend>
+            <legend>5. 服务 5 同矩阵对比窗口</legend>
             <label>
-              优化前开始
+              发布前开始
               <input
                 type="date"
                 value={pilotWindows.before.start}
@@ -379,7 +445,7 @@ export function FormalReportWorkspace({
               />
             </label>
             <label>
-              优化前结束
+              发布前结束
               <input
                 type="date"
                 value={pilotWindows.before.end}
@@ -392,7 +458,7 @@ export function FormalReportWorkspace({
               />
             </label>
             <label>
-              优化后开始
+              发布后开始
               <input
                 type="date"
                 value={pilotWindows.after.start}
@@ -405,7 +471,7 @@ export function FormalReportWorkspace({
               />
             </label>
             <label>
-              优化后结束
+              发布后结束
               <input
                 type="date"
                 value={pilotWindows.after.end}
@@ -481,7 +547,9 @@ export function FormalReportWorkspace({
                       <small>{production.pub_id}</small>
                     </td>
                     <td data-label="服务">
-                      {production.services.map((service) => `服务 ${service}`).join('、')}
+                      {production.services
+                        .map((service) => serviceLabel(production.service_catalog_version, service))
+                        .join('、')}
                     </td>
                     <td data-label="窗口">
                       {production.window_start} ~ {production.window_end}
@@ -560,7 +628,11 @@ export function FormalReportWorkspace({
                             const href = artifactHref(artifact.download_url);
                             return href ? (
                               <a key={`${output.service_number}-${artifact.format}`} href={href}>
-                                服务 {output.service_number} {artifactLabel(artifact)}
+                                {serviceLabel(
+                                  production.service_catalog_version,
+                                  output.service_number,
+                                )}{' '}
+                                {artifactLabel(artifact)}
                                 <small>
                                   {readableBytes(artifact.byte_size)} ·{' '}
                                   {artifact.sha256.slice(0, 12)}…
@@ -568,7 +640,11 @@ export function FormalReportWorkspace({
                               </a>
                             ) : (
                               <span key={`${output.service_number}-${artifact.format}`}>
-                                服务 {output.service_number} {artifactLabel(artifact)}
+                                {serviceLabel(
+                                  production.service_catalog_version,
+                                  output.service_number,
+                                )}{' '}
+                                {artifactLabel(artifact)}
                                 （下载地址无效）
                               </span>
                             );

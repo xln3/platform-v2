@@ -29,6 +29,7 @@ function production(overrides: Record<string, unknown> = {}) {
     pub_id: 'frp_test_001',
     project_pub_id: 'prj_test',
     services: [1, 2, 3],
+    service_catalog_version: 'quotation_services_v2',
     status: 'queued',
     document_status: 'internal_review',
     window_start: '2026-08-01',
@@ -95,11 +96,18 @@ describe('FormalReportWorkspace', () => {
     vi.unstubAllGlobals();
   });
 
+  function fillService2SopProject() {
+    fireEvent.change(screen.getByLabelText('服务 2/5 内容 SOP 项目 ID'), {
+      target: { value: 'spr_test_owned_content' },
+    });
+  }
+
   it('starts an idempotent production with selected services and a frozen window', async () => {
     render(<FormalReportWorkspace session={session} project={project} />);
     await screen.findByText('当前项目还没有正式报告生产记录。');
 
-    fireEvent.click(screen.getByLabelText(/服务 4 · GEO 试点与效果验证/));
+    fireEvent.click(screen.getByLabelText(/服务 5 · 发帖提排名/));
+    fillService2SopProject();
     fireEvent.change(screen.getByLabelText('2. 事实窗口开始'), {
       target: { value: '2026-08-01' },
     });
@@ -114,7 +122,9 @@ describe('FormalReportWorkspace', () => {
     expect(create?.idempotencyKey?.length).toBeGreaterThanOrEqual(16);
     expect(create?.body).toEqual({
       project_pub_id: 'prj_test',
-      services: [1, 2, 3],
+      services: [1, 2, 3, 4],
+      service_catalog_version: 'quotation_services_v2',
+      sop_project_pub_id: 'spr_test_owned_content',
       window_start: '2026-08-01',
       window_end: '2026-08-12',
       document_status: 'internal_review',
@@ -125,31 +135,34 @@ describe('FormalReportWorkspace', () => {
     });
   });
 
-  it('requires separated service-4 arms and submits both windows', async () => {
+  it('requires separated service-5 arms and submits both windows', async () => {
     render(<FormalReportWorkspace session={session} project={project} />);
     await screen.findByText('当前项目还没有正式报告生产记录。');
+    fillService2SopProject();
 
-    fireEvent.change(screen.getByLabelText('优化前开始'), {
+    fireEvent.change(screen.getByLabelText('发布前开始'), {
       target: { value: '2026-06-01' },
     });
-    fireEvent.change(screen.getByLabelText('优化前结束'), {
+    fireEvent.change(screen.getByLabelText('发布前结束'), {
       target: { value: '2026-06-30' },
     });
-    fireEvent.change(screen.getByLabelText('优化后开始'), {
+    fireEvent.change(screen.getByLabelText('发布后开始'), {
       target: { value: '2026-07-01' },
     });
-    fireEvent.change(screen.getByLabelText('优化后结束'), {
+    fireEvent.change(screen.getByLabelText('发布后结束'), {
       target: { value: '2026-07-31' },
     });
     fireEvent.click(screen.getByRole('button', { name: '冻结事实并启动生成' }));
     await screen.findByText(/生产请求 frp_test_001/);
 
     const body = calls.find((call) => call.method === 'POST')?.body as Record<string, unknown>;
-    expect(body.services).toEqual([1, 2, 3, 4]);
+    expect(body.services).toEqual([1, 2, 3, 4, 5]);
+    expect(body.service_catalog_version).toBe('quotation_services_v2');
+    expect(body.sop_project_pub_id).toBe('spr_test_owned_content');
     expect(body.before_window).toEqual({ start: '2026-06-01', end: '2026-06-30' });
     expect(body.after_window).toEqual({ start: '2026-07-01', end: '2026-07-31' });
 
-    fireEvent.change(screen.getByLabelText('优化后开始'), {
+    fireEvent.change(screen.getByLabelText('发布后开始'), {
       target: { value: '2026-06-30' },
     });
     expect(screen.getByRole('alert').textContent).toContain('必须按时间分离');
@@ -158,9 +171,27 @@ describe('FormalReportWorkspace', () => {
     ).toBe(true);
   });
 
+  it('requires an explicit SOP project while service 2 or service 5 is selected', async () => {
+    render(<FormalReportWorkspace session={session} project={project} />);
+    await screen.findByText('当前项目还没有正式报告生产记录。');
+
+    expect(screen.getByRole('alert').textContent).toContain('SOP 项目 ID');
+    fireEvent.click(screen.getByLabelText(/服务 2 · 找拉踩帖/));
+    expect(screen.getByLabelText('服务 2/5 内容 SOP 项目 ID')).toBeTruthy();
+    fireEvent.click(screen.getByLabelText(/服务 5 · 发帖提排名/));
+    expect(screen.queryByLabelText('服务 2/5 内容 SOP 项目 ID')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '冻结事实并启动生成' }));
+    await screen.findByText(/生产请求 frp_test_001/);
+    const body = calls.find((call) => call.method === 'POST')?.body as Record<string, unknown>;
+    expect(body.services).toEqual([1, 3, 4]);
+    expect(body).not.toHaveProperty('sop_project_pub_id');
+  });
+
   it('requires and submits a human review record for a delivery candidate', async () => {
     render(<FormalReportWorkspace session={session} project={project} />);
     await screen.findByText('当前项目还没有正式报告生产记录。');
+    fillService2SopProject();
 
     fireEvent.change(screen.getByLabelText('3. 文档状态'), {
       target: { value: 'delivery_candidate' },
@@ -223,13 +254,27 @@ describe('FormalReportWorkspace', () => {
     render(<FormalReportWorkspace session={session} project={project} />);
 
     await screen.findByText('待审阅');
-    const link = screen.getByRole('link', { name: /服务 1 DOCX/ });
+    const link = screen.getByRole('link', { name: /服务 1 · 测试 DOCX/ });
     expect(link.getAttribute('href')).toContain(
       '/formal-productions/frp_test_001/artifacts/1/docx',
     );
-    expect(screen.getByText(/服务 2 PDF（下载地址无效）/)).toBeTruthy();
+    expect(screen.getByText(/服务 2 · 找拉踩帖 PDF（下载地址无效）/)).toBeTruthy();
     expect(screen.getByText('2.0 KB · bbbbbbbbbbbb…')).toBeTruthy();
     expect(screen.getByText('aaaaaaaaaaaaaaaa…')).toBeTruthy();
+  });
+
+  it('keeps historical service numbers labelled with the legacy catalog', async () => {
+    listItems = [
+      production({
+        services: [2, 3, 4],
+        service_catalog_version: 'legacy_report_services_v1',
+      }),
+    ];
+    render(<FormalReportWorkspace session={session} project={project} />);
+
+    await screen.findByText(/服务 2 · 内容生态风险核查/);
+    expect(screen.getByText(/服务 3 · 官网引用能效评估/)).toBeTruthy();
+    expect(screen.getByText(/服务 4 · GEO 试点与效果验证/)).toBeTruthy();
   });
 
   it('surfaces list failures and offers an explicit retry', async () => {

@@ -1570,6 +1570,7 @@ def build_service4_review_facts(
     after_start: date,
     after_end: date,
     generated_at: datetime | None = None,
+    target_brand: str | None = None,
 ) -> dict[str, Any]:
     """Build the complete, dynamic Service-4 review fact snapshot."""
 
@@ -1581,6 +1582,11 @@ def build_service4_review_facts(
     project = brandrank_service.fetch_project(dsn, tenant_pub_id, project_pub_id)
     if project is None:
         raise LookupError("project_not_found")
+    if target_brand is not None:
+        cleaned_target = target_brand.strip()
+        if not cleaned_target:
+            raise ValueError("target_brand_unset")
+        project = {**project, "brand_names": [cleaned_target]}
     domain = str(project.get("brandrank_domain") or "").strip()
     if not domain:
         raise ValueError("brandrank_domain_unset")

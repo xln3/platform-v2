@@ -46,7 +46,8 @@
 .config-launcher select,
 .config-launcher input,
 .formal-report-launcher select,
-.formal-report-launcher input[type='date'] {
+.formal-report-launcher input[type='date'],
+.formal-report-launcher input[type='text'] {
   box-sizing: border-box;
   width: 100%;
   padding: 10px 12px;
@@ -55,6 +56,17 @@
   background: #fff;
   color: #17211b;
   font: inherit;
+}
+.formal-sop-project {
+  display: grid;
+  gap: 6px;
+  max-width: 560px;
+  color: #415047;
+  font-size: 13px;
+}
+.formal-sop-project small {
+  color: #637168;
+  font-size: 11px;
 }
 .services-page .execution-card {
   background: #fff;

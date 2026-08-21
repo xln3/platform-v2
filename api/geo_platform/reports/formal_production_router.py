@@ -4,11 +4,11 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 from sqlalchemy import select
 from sqlalchemy import text as production_router_text
 from sqlalchemy.orm import Session
@@ -29,6 +29,7 @@ from geo_platform.tenancy.repository import set_tenant_context
 
 from ..config import get_settings
 from .formal_production import (
+    LEGACY_SERVICE_CATALOG,
     FormalProductionConflict,
     FormalProductionInvalid,
     FormalProductionNotFound,
@@ -65,9 +66,10 @@ class WindowView(StrictModel):
         return self
 
 
-class FormalProductionCreate(StrictModel):
+class _FormalProductionCreateBase(StrictModel):
     project_pub_id: str = Field(min_length=5, max_length=120)
-    services: list[Literal[1, 2, 3, 4]] = Field(min_length=1, max_length=4)
+    services: list[int]
+    sop_project_pub_id: str | None = Field(default=None, min_length=5, max_length=120)
     window_start: date
     window_end: date
     document_status: Literal["internal_review", "delivery_candidate"] = "internal_review"
@@ -81,12 +83,49 @@ class FormalProductionCreate(StrictModel):
     after_window: WindowView | None = None
 
     @model_validator(mode="after")
-    def validate_governance(self) -> FormalProductionCreate:
+    def validate_governance(self) -> Self:
+        services = self.services
+        if len(set(services)) != len(services):
+            raise ValueError("duplicate_services")
         if (self.reviewed_by is None) != (self.reviewed_date is None):
             raise ValueError("review_record_incomplete")
         if self.document_status == "delivery_candidate" and self.reviewed_by is None:
             raise ValueError("candidate_review_record_required")
         return self
+
+
+def _omit_runtime_default_from_schema(schema: dict[str, object]) -> None:
+    # The wrapper below supplies this default before union validation.  Omitting
+    # it from the property schema keeps generated clients compatible with legacy
+    # callers that predate the service-catalog field.
+    schema.pop("default", None)
+
+
+class LegacyFormalProductionCreate(_FormalProductionCreateBase):
+    services: list[Literal[1, 2, 3, 4]] = Field(min_length=1, max_length=4)
+    service_catalog_version: Literal["legacy_report_services_v1"] = Field(
+        default=LEGACY_SERVICE_CATALOG,
+        json_schema_extra=_omit_runtime_default_from_schema,
+    )
+    sop_project_pub_id: None = None
+
+
+class QuotationFormalProductionCreate(_FormalProductionCreateBase):
+    services: list[Literal[1, 2, 3, 4, 5]] = Field(min_length=1, max_length=5)
+    service_catalog_version: Literal["quotation_services_v2"]
+
+
+class FormalProductionCreate(
+    RootModel[LegacyFormalProductionCreate | QuotationFormalProductionCreate]
+):
+    """Versioned create contract with an explicit legacy compatibility path."""
+
+    @model_validator(mode="before")
+    @classmethod
+    def default_missing_catalog_to_legacy(cls, value: object) -> object:
+        if isinstance(value, dict) and "service_catalog_version" not in value:
+            return {**value, "service_catalog_version": LEGACY_SERVICE_CATALOG}
+        return value
 
 
 class FormalArtifactView(StrictModel):
@@ -98,7 +137,18 @@ class FormalArtifactView(StrictModel):
 
 
 class FormalOutputView(StrictModel):
-    service_number: Literal[1, 2, 3, 4]
+    service_number: Literal[1, 2, 3, 4, 5]
+    service_code: Literal[
+        "ranking_test",
+        "outbound_disparagement_audit",
+        "inbound_disparagement_audit",
+        "official_site_audit",
+        "content_publishing_pilot",
+        "legacy_ranking_assessment",
+        "legacy_content_ecosystem_risk",
+        "legacy_official_site_efficiency",
+        "legacy_pilot_comparison",
+    ]
     report_pub_id: str
     report_version_pub_id: str
     fact_snapshot_hash: str
@@ -108,7 +158,9 @@ class FormalOutputView(StrictModel):
 class FormalProductionView(StrictModel):
     pub_id: str
     project_pub_id: str
-    services: list[Literal[1, 2, 3, 4]]
+    services: list[Literal[1, 2, 3, 4, 5]]
+    service_catalog_version: Literal["legacy_report_services_v1", "quotation_services_v2"]
+    sop_project_pub_id: str | None
     status: Literal["queued", "running", "failed", "awaiting_review", "signed"]
     document_status: Literal[
         "pre_formal", "formal", "internal_review", "delivery_candidate", "approved_signed"
@@ -183,39 +235,44 @@ def create_formal_production(
     principal: Principal = Depends(get_principal),
     session: Session = Depends(get_db),
 ) -> FormalProductionView:
+    payload = body.root
     principal.require("formal_report:produce")
     tenant, _ = _tenant_project(
         session,
         tenant_pub_id=principal.tenant_pub_id,
-        project_pub_id=body.project_pub_id,
+        project_pub_id=payload.project_pub_id,
     )
     try:
         row, created = _service().enqueue(
             session,
             tenant_pub_id=principal.tenant_pub_id,
             tenant_id=tenant.id,
-            project_pub_id=body.project_pub_id,
-            services=body.services,
-            window=FormalWindow(body.window_start, body.window_end),
-            document_status=body.document_status,
-            candidate_group_strategy=body.candidate_group_strategy,
+            project_pub_id=payload.project_pub_id,
+            services=payload.services,
+            window=FormalWindow(payload.window_start, payload.window_end),
+            document_status=payload.document_status,
+            candidate_group_strategy=payload.candidate_group_strategy,
             before_window=(
-                FormalWindow(body.before_window.start, body.before_window.end)
-                if body.before_window
+                FormalWindow(payload.before_window.start, payload.before_window.end)
+                if payload.before_window
                 else None
             ),
             after_window=(
-                FormalWindow(body.after_window.start, body.after_window.end)
-                if body.after_window
+                FormalWindow(payload.after_window.start, payload.after_window.end)
+                if payload.after_window
                 else None
             ),
             document_governance={
-                "version": body.version,
-                "prepared_by": body.prepared_by,
-                "prepared_date": body.prepared_date.isoformat(),
-                "reviewed_by": body.reviewed_by,
-                "reviewed_date": body.reviewed_date.isoformat() if body.reviewed_date else None,
+                "version": payload.version,
+                "prepared_by": payload.prepared_by,
+                "prepared_date": payload.prepared_date.isoformat(),
+                "reviewed_by": payload.reviewed_by,
+                "reviewed_date": (
+                    payload.reviewed_date.isoformat() if payload.reviewed_date else None
+                ),
             },
+            service_catalog_version=payload.service_catalog_version,
+            sop_project_pub_id=payload.sop_project_pub_id,
             idempotency_key=idempotency_key,
             created_by_pub_id=principal.actor_pub_id,
             task_queue=get_settings().s02_temporal_task_queue,

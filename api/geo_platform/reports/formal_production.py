@@ -51,11 +51,38 @@ LEGACY_FORMAL_STRATEGY = "evidence_completeness_v1"
 FORMAL_METRIC_VERSION = "formal-review-metrics-v2"
 FORMAL_SCORER_VERSION = "formal-review-evidence-v2"
 
-SERVICE_TITLES: dict[int, str] = {
+LEGACY_SERVICE_CATALOG = "legacy_report_services_v1"
+QUOTATION_SERVICE_CATALOG = "quotation_services_v2"
+SERVICE_CATALOGS = frozenset({LEGACY_SERVICE_CATALOG, QUOTATION_SERVICE_CATALOG})
+
+LEGACY_SERVICE_TITLES: dict[int, str] = {
     1: "品牌 GEO 推荐结果评测报告",
     2: "品牌 GEO 内容生态风险核查报告",
     3: "官网内容 AI 引用能效评估报告",
     4: "GEO 试点与效果验证报告",
+}
+
+QUOTATION_SERVICE_TITLES: dict[int, str] = {
+    1: "AI 推荐排名效果测试报告",
+    2: "主动拉踩内容核查报告",
+    3: "被拉踩内容核查报告",
+    4: "官网内容 AI 引用效率分析报告",
+    5: "内容发布与排名提升试点报告",
+}
+
+LEGACY_SERVICE_CODES: dict[int, str] = {
+    1: "legacy_ranking_assessment",
+    2: "legacy_content_ecosystem_risk",
+    3: "legacy_official_site_efficiency",
+    4: "legacy_pilot_comparison",
+}
+
+QUOTATION_SERVICE_CODES: dict[int, str] = {
+    1: "ranking_test",
+    2: "outbound_disparagement_audit",
+    3: "inbound_disparagement_audit",
+    4: "official_site_audit",
+    5: "content_publishing_pilot",
 }
 
 _MIME_TYPES = {
@@ -140,6 +167,8 @@ class FormalProductionRequest:
     before_window: FormalWindow | None = None
     after_window: FormalWindow | None = None
     document_governance: Mapping[str, Any] | None = None
+    service_catalog_version: str = LEGACY_SERVICE_CATALOG
+    sop_project_pub_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,6 +180,7 @@ class GeneratedFormalBundle:
 
 class FormalReportAdapter(Protocol):
     service_number: int
+    service_code: str
     title: str
 
     def build(self, context: FormalBuildContext) -> dict[str, Any]: ...
@@ -190,12 +220,21 @@ def _stable_pub_id(prefix: str, *values: object) -> str:
     return f"{prefix}_{sha256(material.encode()).hexdigest()[:26]}"
 
 
-def normalize_services(values: Sequence[int]) -> tuple[int, ...]:
+def normalize_services(
+    values: Sequence[int], *, service_catalog_version: str = LEGACY_SERVICE_CATALOG
+) -> tuple[int, ...]:
+    if service_catalog_version not in SERVICE_CATALOGS:
+        raise FormalProductionInvalid("invalid_service_catalog_version")
+    allowed = (
+        frozenset(QUOTATION_SERVICE_CODES)
+        if service_catalog_version == QUOTATION_SERVICE_CATALOG
+        else frozenset(LEGACY_SERVICE_CODES)
+    )
     services = tuple(sorted(set(values)))
     if (
         not services
         or len(services) != len(values)
-        or any(value not in {1, 2, 3, 4} for value in services)
+        or any(value not in allowed for value in services)
     ):
         raise FormalProductionInvalid("invalid_services")
     return services
@@ -211,8 +250,11 @@ def request_contract(
     before_window: FormalWindow | None,
     after_window: FormalWindow | None,
     document_governance: Mapping[str, Any] | None = None,
+    service_catalog_version: str | None = None,
+    sop_project_pub_id: str | None = None,
 ) -> dict[str, Any]:
-    normalized_services = normalize_services(services)
+    resolved_catalog = service_catalog_version or LEGACY_SERVICE_CATALOG
+    normalized_services = normalize_services(services, service_catalog_version=resolved_catalog)
     if window.start > window.end:
         raise FormalProductionInvalid("invalid_window")
     if (window.end - window.start).days > 366:
@@ -257,15 +299,24 @@ def request_contract(
             not governance["reviewed_by"] or not governance["reviewed_date"]
         ):
             raise FormalProductionInvalid("candidate_review_record_required")
-    if 4 in normalized_services:
+    comparison_service = 5 if resolved_catalog == QUOTATION_SERVICE_CATALOG else 4
+    if comparison_service in normalized_services:
         if before_window is None or after_window is None:
-            raise FormalProductionInvalid("service4_windows_required")
+            raise FormalProductionInvalid(f"service{comparison_service}_windows_required")
         if before_window.start > before_window.end or after_window.start > after_window.end:
             raise FormalProductionInvalid("invalid_comparison_window")
         if before_window.end >= after_window.start:
             raise FormalProductionInvalid("comparison_windows_overlap")
     elif before_window is not None or after_window is not None:
-        raise FormalProductionInvalid("comparison_windows_require_service4")
+        raise FormalProductionInvalid(f"comparison_windows_require_service{comparison_service}")
+    normalized_sop_project = str(sop_project_pub_id or "").strip() or None
+    requires_sop_project = resolved_catalog == QUOTATION_SERVICE_CATALOG and bool(
+        {2, 5}.intersection(normalized_services)
+    )
+    if requires_sop_project and normalized_sop_project is None:
+        raise FormalProductionInvalid("sop_project_required_for_selected_services")
+    if not requires_sop_project and normalized_sop_project is not None:
+        raise FormalProductionInvalid("sop_project_not_applicable")
     contract = {
         "project_pub_id": project_pub_id,
         "services": list(normalized_services),
@@ -287,6 +338,10 @@ def request_contract(
     # those requests preserves their historical request hash.
     if governance is not None:
         contract["document_governance"] = governance
+    if service_catalog_version is not None:
+        contract["service_catalog_version"] = resolved_catalog
+    if normalized_sop_project is not None:
+        contract["sop_project_pub_id"] = normalized_sop_project
     return contract
 
 
@@ -389,6 +444,14 @@ def _freeze_service_fact(
             else None
         ),
     }
+    if request.service_catalog_version == QUOTATION_SERVICE_CATALOG:
+        filters.update(
+            {
+                "service_catalog_version": request.service_catalog_version,
+                "service_code": _service_code_for(request, service),
+                "sop_project_pub_id": request.sop_project_pub_id,
+            }
+        )
     return freeze_report(
         window_start=datetime.combine(request.window.start, time.min, tzinfo=UTC),
         window_end=datetime.combine(request.window.end, time.max, tzinfo=UTC),
@@ -455,6 +518,7 @@ def formal_evidence_gate(service: int, facts: Mapping[str, Any]) -> tuple[bool, 
     """Return a conservative, explicit gate for customer-signable report facts."""
 
     reasons: list[str] = []
+    service_code = str(facts.get("service_code") or "")
     if service == 1:
         service1_facts_value = facts.get("service1")
         service1_facts: Mapping[str, Any] = (
@@ -560,7 +624,19 @@ def formal_evidence_gate(service: int, facts: Mapping[str, Any]) -> tuple[bool, 
             reasons.append("entity_master_classification_incomplete")
         if not delivery.get("representative_platforms_complete"):
             reasons.append("three_platform_representative_evidence_required")
-    elif service == 2:
+    elif service_code == "outbound_disparagement_audit":
+        gate = facts.get("evidence_gate")
+        if not isinstance(gate, Mapping) or gate.get("status") != "ready":
+            reasons.extend(
+                str(value)
+                for value in (gate.get("reasons", []) if isinstance(gate, Mapping) else [])
+            )
+            if not reasons:
+                reasons.append("outbound_disparagement_evidence_incomplete")
+    elif service_code in {
+        "legacy_content_ecosystem_risk",
+        "inbound_disparagement_audit",
+    } or (not service_code and service == 2):
         service_facts = facts.get("service2")
         delivery = service_facts.get("delivery_v2") if isinstance(service_facts, Mapping) else None
         citation = delivery.get("citation_funnel") if isinstance(delivery, Mapping) else None
@@ -615,7 +691,10 @@ def formal_evidence_gate(service: int, facts: Mapping[str, Any]) -> tuple[bool, 
             for case in source_cases
         ):
             reasons.append("source_case_screenshot_incomplete")
-    elif service == 3:
+    elif service_code in {
+        "legacy_official_site_efficiency",
+        "official_site_audit",
+    } or (not service_code and service == 3):
         metrics = facts.get("metrics")
         if not isinstance(metrics, Mapping) or int(metrics.get("answers_total") or 0) <= 0:
             reasons.append("eligible_answers_missing")
@@ -625,7 +704,29 @@ def formal_evidence_gate(service: int, facts: Mapping[str, Any]) -> tuple[bool, 
             reasons.append("official_snapshot_evaluation_incomplete")
         if not facts.get("own_site_host"):
             reasons.append("official_site_domain_missing")
-    elif service == 4:
+    elif service_code == "content_publishing_pilot":
+        gate = facts.get("evidence_gate")
+        comparison = facts.get("comparability")
+        publishing = facts.get("publication_evidence")
+        publication_gate = (
+            publishing.get("evidence_gate") if isinstance(publishing, Mapping) else None
+        )
+        if not isinstance(gate, Mapping) or gate.get("status") != "sufficient_for_description":
+            reasons.append("service5_measurement_evidence_insufficient")
+        if not isinstance(comparison, Mapping) or comparison.get("status") != "comparable":
+            reasons.append("service5_arms_not_comparable")
+        if not facts.get("metrics"):
+            reasons.append("service5_metrics_missing")
+        if not isinstance(publication_gate, Mapping) or publication_gate.get("status") != "ready":
+            reasons.extend(
+                str(value)
+                for value in (
+                    publication_gate.get("reasons", [])
+                    if isinstance(publication_gate, Mapping)
+                    else ["service5_publication_evidence_missing"]
+                )
+            )
+    elif service_code == "legacy_pilot_comparison" or (not service_code and service == 4):
         gate = facts.get("evidence_gate")
         comparison = facts.get("comparability")
         if not isinstance(gate, Mapping) or gate.get("status") != "sufficient_for_description":
@@ -711,7 +812,10 @@ class FormalBuildContext:
 
 class _Service1Adapter:
     service_number = 1
-    title = SERVICE_TITLES[1]
+    service_code = LEGACY_SERVICE_CODES[1]
+    title = LEGACY_SERVICE_TITLES[1]
+    renderer_title: str | None = None
+    subtitle = "服务 1 · 品牌 AI 可见性与竞品表现"
 
     def build(self, context: FormalBuildContext) -> dict[str, Any]:
         facts = enrich_service1_v2_facts(
@@ -731,12 +835,30 @@ class _Service1Adapter:
             answer_id: blob_loader(str(row["object_key"]), str(row["sha256"]))
             for answer_id, row in facts.get("_formal_evidence_assets", {}).items()
         }
-        return cast(bytes, renderer(facts, screenshots=assets))
+        return cast(
+            bytes,
+            renderer(
+                facts,
+                screenshots=assets,
+                service_number=self.service_number,
+                report_title=self.renderer_title,
+                report_subtitle=self.subtitle,
+            ),
+        )
+
+
+class _QuotationService1Adapter(_Service1Adapter):
+    service_code = QUOTATION_SERVICE_CODES[1]
+    title = QUOTATION_SERVICE_TITLES[1]
+    renderer_title = title
+    subtitle = "服务 1 · AI 推荐排名效果与 API/手机端差异"
 
 
 class _Service2Adapter:
     service_number = 2
-    title = SERVICE_TITLES[2]
+    service_code = LEGACY_SERVICE_CODES[2]
+    title = LEGACY_SERVICE_TITLES[2]
+    subtitle = "服务 2 · AI 拉踩表述、公开事实核查与可视证据"
 
     def build(self, context: FormalBuildContext) -> dict[str, Any]:
         return enrich_service2_v2_facts(
@@ -782,13 +904,68 @@ class _Service2Adapter:
                 answer_screenshots=answer_assets,
                 source_captures={},
                 source_case_screenshots=source_assets,
+                service_number=self.service_number,
+                report_title=self.title,
+                report_subtitle=self.subtitle,
             ),
         )
 
 
+class _OutboundService2Adapter:
+    service_number = 2
+    service_code = QUOTATION_SERVICE_CODES[2]
+    title = QUOTATION_SERVICE_TITLES[2]
+
+    def build(self, context: FormalBuildContext) -> dict[str, Any]:
+        if not context.request.sop_project_pub_id:
+            raise FormalProductionInvalid("service2_sop_project_required")
+        builder = import_module(
+            "geo_platform.reports.formal_review_service2_outbound"
+        ).build_outbound_disparagement_facts
+        facts = cast(
+            dict[str, Any],
+            builder(
+                dsn=context.dsn,
+                tenant_pub_id=context.request.tenant_pub_id,
+                sop_project_pub_id=context.request.sop_project_pub_id,
+                start=context.request.window.start,
+                end=context.request.window.end,
+                generated_at=context.request.frozen_at,
+            ),
+        )
+        raw_aliases = facts.get("brand_aliases")
+        aliases = (
+            raw_aliases
+            if isinstance(raw_aliases, Sequence) and not isinstance(raw_aliases, str | bytes)
+            else ()
+        )
+        _assert_sop_brand_binding(
+            context.request,
+            [facts.get("target_brand"), *aliases],
+            dsn=context.dsn,
+        )
+        return facts
+
+    def render(self, facts: dict[str, Any], *, blob_loader: Callable[[str, str], bytes]) -> bytes:
+        del blob_loader
+        renderer = import_module(
+            "domain.reporting.formal_review_service2_outbound_docx"
+        ).render_outbound_disparagement_docx
+        return cast(bytes, renderer(facts))
+
+
+class _InboundService3Adapter(_Service2Adapter):
+    service_number = 3
+    service_code = QUOTATION_SERVICE_CODES[3]
+    title = QUOTATION_SERVICE_TITLES[3]
+    subtitle = "服务 3 · AI 回答与公开信源中的负向比较证据"
+
+
 class _Service3Adapter:
     service_number = 3
-    title = SERVICE_TITLES[3]
+    service_code = LEGACY_SERVICE_CODES[3]
+    title = LEGACY_SERVICE_TITLES[3]
+    subtitle = "服务 3 · 回答—URL—官网正文证据链"
 
     def build(self, context: FormalBuildContext) -> dict[str, Any]:
         return build_service3_review_v2_facts(
@@ -818,12 +995,30 @@ class _Service3Adapter:
                 digest = str(descriptor.get("sha256") or "")
                 if pub_id and key and digest:
                     assets[pub_id] = blob_loader(key, digest)
-        return cast(bytes, renderer(facts, evidence_assets=assets, official_captures={}))
+        return cast(
+            bytes,
+            renderer(
+                facts,
+                evidence_assets=assets,
+                official_captures={},
+                service_number=self.service_number,
+                report_title=self.title,
+                report_subtitle=self.subtitle,
+            ),
+        )
+
+
+class _OfficialSiteService4Adapter(_Service3Adapter):
+    service_number = 4
+    service_code = QUOTATION_SERVICE_CODES[4]
+    title = QUOTATION_SERVICE_TITLES[4]
+    subtitle = "服务 4 · 回答—URL—官网正文证据链"
 
 
 class _Service4Adapter:
     service_number = 4
-    title = SERVICE_TITLES[4]
+    service_code = LEGACY_SERVICE_CODES[4]
+    title = LEGACY_SERVICE_TITLES[4]
 
     def build(self, context: FormalBuildContext) -> dict[str, Any]:
         before = context.request.before_window
@@ -855,6 +1050,70 @@ class _Service4Adapter:
         return cast(bytes, renderer(facts))
 
 
+class _PublishingService5Adapter:
+    service_number = 5
+    service_code = QUOTATION_SERVICE_CODES[5]
+    title = QUOTATION_SERVICE_TITLES[5]
+
+    def build(self, context: FormalBuildContext) -> dict[str, Any]:
+        before = context.request.before_window
+        after = context.request.after_window
+        if before is None or after is None:
+            raise FormalProductionInvalid("service5_windows_required")
+        if not context.request.sop_project_pub_id:
+            raise FormalProductionInvalid("service5_sop_project_required")
+        publishing_builder = import_module(
+            "geo_platform.reports.formal_review_service5"
+        ).build_publishing_evidence
+        publication_evidence = publishing_builder(
+            dsn=context.dsn,
+            tenant_pub_id=context.request.tenant_pub_id,
+            sop_project_pub_id=context.request.sop_project_pub_id,
+            before_end=before.end,
+            after_start=after.start,
+            window_start=context.request.window.start,
+            window_end=context.request.window.end,
+            generated_at=context.request.frozen_at,
+        )
+        raw_aliases = publication_evidence.get("brand_aliases")
+        aliases = (
+            raw_aliases
+            if isinstance(raw_aliases, Sequence) and not isinstance(raw_aliases, str | bytes)
+            else ()
+        )
+        _assert_sop_brand_binding(
+            context.request,
+            [publication_evidence.get("target_brand"), *aliases],
+            dsn=context.dsn,
+        )
+        comparison_builder = import_module(
+            "geo_platform.reports.formal_review_service4"
+        ).build_service4_review_facts
+        facts = cast(
+            dict[str, Any],
+            comparison_builder(
+                dsn=context.dsn,
+                tenant_pub_id=context.request.tenant_pub_id,
+                project_pub_id=context.request.project_pub_id,
+                before_start=before.start,
+                before_end=before.end,
+                after_start=after.start,
+                after_end=after.end,
+                generated_at=context.request.frozen_at,
+                target_brand=str(publication_evidence.get("target_brand") or ""),
+            ),
+        )
+        facts["publication_evidence"] = publication_evidence
+        return facts
+
+    def render(self, facts: dict[str, Any], *, blob_loader: Callable[[str, str], bytes]) -> bytes:
+        del blob_loader
+        renderer = import_module(
+            "domain.reporting.formal_review_service5_docx"
+        ).render_publishing_pilot_docx
+        return cast(bytes, renderer(facts))
+
+
 FORMAL_REPORT_REGISTRY: dict[int, FormalReportAdapter] = {
     adapter.service_number: adapter
     for adapter in (
@@ -864,6 +1123,121 @@ FORMAL_REPORT_REGISTRY: dict[int, FormalReportAdapter] = {
         _Service4Adapter(),
     )
 }
+
+QUOTATION_FORMAL_REPORT_REGISTRY: dict[int, FormalReportAdapter] = {
+    adapter.service_number: adapter
+    for adapter in (
+        _QuotationService1Adapter(),
+        _OutboundService2Adapter(),
+        _InboundService3Adapter(),
+        _OfficialSiteService4Adapter(),
+        _PublishingService5Adapter(),
+    )
+}
+
+
+def _registry_for_request(request: FormalProductionRequest) -> dict[int, FormalReportAdapter]:
+    return (
+        QUOTATION_FORMAL_REPORT_REGISTRY
+        if request.service_catalog_version == QUOTATION_SERVICE_CATALOG
+        else FORMAL_REPORT_REGISTRY
+    )
+
+
+def _adapter_for(request: FormalProductionRequest, service: int) -> FormalReportAdapter:
+    try:
+        return _registry_for_request(request)[service]
+    except KeyError as exc:
+        raise FormalProductionInvalid("unsupported_service_for_catalog") from exc
+
+
+def _service_code_for(request: FormalProductionRequest, service: int) -> str:
+    """Resolve a stable code while retaining the legacy adapter test seam."""
+
+    adapter = _adapter_for(request, service)
+    service_code = getattr(adapter, "service_code", None)
+    if isinstance(service_code, str) and service_code:
+        return service_code
+    codes = (
+        QUOTATION_SERVICE_CODES
+        if request.service_catalog_version == QUOTATION_SERVICE_CATALOG
+        else LEGACY_SERVICE_CODES
+    )
+    try:
+        return codes[service]
+    except KeyError as exc:
+        raise FormalProductionInvalid("unsupported_service_for_catalog") from exc
+
+
+def _service1_report_title(request: FormalProductionRequest, facts: Mapping[str, Any]) -> str:
+    if request.service_catalog_version == QUOTATION_SERVICE_CATALOG:
+        return QUOTATION_SERVICE_TITLES[1]
+    service1 = facts.get("service1")
+    delivery = service1.get("delivery_v3") if isinstance(service1, Mapping) else None
+    scope = delivery.get("scope") if isinstance(delivery, Mapping) else None
+    scope_label = (
+        str(scope.get("scope_label") or "本次三组已测业务场景")
+        if isinstance(scope, Mapping)
+        else "本次三组已测业务场景"
+    )
+    return f"{scope_label}品牌 GEO 推荐结果评测报告"
+
+
+def _platform_project_brand_names(
+    dsn: str, tenant_pub_id: str, project_pub_id: str
+) -> frozenset[str]:
+    """Load every canonical name and alias for a tenant-scoped platform project."""
+
+    with psycopg.connect(dsn, row_factory=dict_row) as connection:
+        tenant = connection.execute(
+            "SELECT id FROM platform.tenant WHERE pub_id=%s", (tenant_pub_id,)
+        ).fetchone()
+        if tenant is None:
+            raise FormalProductionNotFound("tenant_not_found")
+        connection.execute(
+            "SELECT set_config('app.tenant_id',%s,true), set_config('app.tenant_pub_id',%s,true)",
+            (str(tenant["id"]), tenant_pub_id),
+        )
+        rows = connection.execute(
+            """
+            SELECT brand.name AS value
+            FROM platform.project project
+            JOIN platform.brand brand
+              ON brand.project_id=project.id AND brand.tenant_id=project.tenant_id
+            WHERE project.pub_id=%s
+              AND project.tenant_id=NULLIF(current_setting('app.tenant_id',true),'')::uuid
+            UNION
+            SELECT alias.value
+            FROM platform.project project
+            JOIN platform.brand brand
+              ON brand.project_id=project.id AND brand.tenant_id=project.tenant_id
+            JOIN platform.brand_alias alias
+              ON alias.brand_id=brand.id AND alias.tenant_id=project.tenant_id
+            WHERE project.pub_id=%s
+              AND project.tenant_id=NULLIF(current_setting('app.tenant_id',true),'')::uuid
+            """,
+            (project_pub_id, project_pub_id),
+        ).fetchall()
+    return frozenset(
+        str(row["value"]).strip().casefold()
+        for row in rows
+        if isinstance(row.get("value"), str) and str(row["value"]).strip()
+    )
+
+
+def _assert_sop_brand_binding(
+    request: FormalProductionRequest, sop_names: Sequence[object], *, dsn: str
+) -> None:
+    normalized_sop_names = {
+        str(value).strip().casefold()
+        for value in sop_names
+        if isinstance(value, str) and value.strip()
+    }
+    platform_names = _platform_project_brand_names(
+        dsn, request.tenant_pub_id, request.project_pub_id
+    )
+    if not normalized_sop_names or not platform_names.intersection(normalized_sop_names):
+        raise FormalProductionInvalid("sop_project_brand_mismatch")
 
 
 class FormalReportProductionService:
@@ -888,7 +1262,12 @@ class FormalReportProductionService:
         created_by_pub_id: str,
         task_queue: str,
         document_governance: Mapping[str, Any] | None = None,
+        service_catalog_version: str = LEGACY_SERVICE_CATALOG,
+        sop_project_pub_id: str | None = None,
     ) -> tuple[dict[str, Any], bool]:
+        contract_catalog = (
+            service_catalog_version if service_catalog_version != LEGACY_SERVICE_CATALOG else None
+        )
         contract = request_contract(
             project_pub_id=project_pub_id,
             services=services,
@@ -898,6 +1277,8 @@ class FormalReportProductionService:
             before_window=before_window,
             after_window=after_window,
             document_governance=document_governance,
+            service_catalog_version=contract_catalog,
+            sop_project_pub_id=sop_project_pub_id,
         )
         project_exists = session.execute(
             text(
@@ -908,6 +1289,62 @@ class FormalReportProductionService:
         ).scalar_one_or_none()
         if project_exists is None:
             raise FormalProductionNotFound("project_not_found")
+        if sop_project_pub_id is not None:
+            sop_project = (
+                session.execute(
+                    text(
+                        "SELECT brand_standard_name,brand_profile FROM sop.project "
+                        "WHERE tenant_pub_id=:tenant_pub_id AND pub_id=:sop_project_pub_id"
+                    ),
+                    {
+                        "tenant_pub_id": tenant_pub_id,
+                        "sop_project_pub_id": sop_project_pub_id,
+                    },
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if sop_project is None:
+                raise FormalProductionNotFound("sop_project_not_found")
+            platform_brand_rows = (
+                session.execute(
+                    text(
+                        "SELECT brand.name AS value FROM platform.project project "
+                        "JOIN platform.brand brand "
+                        "ON brand.project_id=project.id AND brand.tenant_id=project.tenant_id "
+                        "WHERE project.tenant_id=:tenant_id AND project.pub_id=:project_pub_id "
+                        "UNION SELECT alias.value FROM platform.project project "
+                        "JOIN platform.brand brand "
+                        "ON brand.project_id=project.id AND brand.tenant_id=project.tenant_id "
+                        "JOIN platform.brand_alias alias "
+                        "ON alias.brand_id=brand.id AND alias.tenant_id=project.tenant_id "
+                        "WHERE project.tenant_id=:tenant_id AND project.pub_id=:project_pub_id"
+                    ),
+                    {"tenant_id": str(tenant_id), "project_pub_id": project_pub_id},
+                )
+                .scalars()
+                .all()
+            )
+            profile = sop_project.get("brand_profile")
+            if isinstance(profile, str):
+                try:
+                    profile = json.loads(profile)
+                except ValueError:
+                    profile = {}
+            raw_aliases = profile.get("aliases", []) if isinstance(profile, Mapping) else []
+            aliases = raw_aliases if isinstance(raw_aliases, list) else []
+            sop_brand_names = {
+                str(value).strip().casefold()
+                for value in [sop_project.get("brand_standard_name"), *aliases]
+                if isinstance(value, str) and value.strip()
+            }
+            platform_brand_names = {
+                str(value).strip().casefold()
+                for value in platform_brand_rows
+                if isinstance(value, str) and value.strip()
+            }
+            if not platform_brand_names.intersection(sop_brand_names):
+                raise FormalProductionInvalid("sop_project_brand_mismatch")
         key_hash = sha256(idempotency_key.encode()).hexdigest()
         contract_hash = _canonical_hash(contract)
         production_pub_id = _stable_pub_id("frp", tenant_pub_id, key_hash)
@@ -953,12 +1390,14 @@ class FormalReportProductionService:
                   pub_id,tenant_pub_id,project_pub_id,services,window_start,window_end,
                   before_start,before_end,after_start,after_end,document_status,
                   candidate_group_strategy,idempotency_key_hash,request_hash,workflow_id,
-                  created_by_pub_id,document_governance
+                  created_by_pub_id,document_governance,service_catalog_version,
+                  sop_project_pub_id
                 ) VALUES (
                   :pub_id,:tenant_pub_id,:project_pub_id,:services,:window_start,:window_end,
                   :before_start,:before_end,:after_start,:after_end,:document_status,
                   :strategy,:key_hash,:request_hash,:workflow_id,:created_by,
-                  CAST(:document_governance AS jsonb)
+                  CAST(:document_governance AS jsonb),:service_catalog_version,
+                  :sop_project_pub_id
                 )
                 ON CONFLICT (tenant_pub_id,idempotency_key_hash) DO NOTHING
                 RETURNING pub_id
@@ -984,6 +1423,8 @@ class FormalReportProductionService:
                 "document_governance": json.dumps(
                     contract.get("document_governance") or {}, ensure_ascii=False
                 ),
+                "service_catalog_version": service_catalog_version,
+                "sop_project_pub_id": sop_project_pub_id,
             },
         ).scalar_one_or_none()
         created = inserted is not None
@@ -1286,7 +1727,8 @@ class FormalReportProductionService:
         )
         component = {
             "service_number": service,
-            "title": SERVICE_TITLES[service],
+            "service_code": _service_code_for(request, service),
+            "title": _adapter_for(request, service).title,
             "document_status": "approved_signed",
             "fact_snapshot_hash": frozen.fact_snapshot_hash,
         }
@@ -1672,7 +2114,7 @@ class FormalReportProductionService:
         format_name: str,
         customer_recipient_pub_id: str | None = None,
     ) -> tuple[bytes, str, str]:
-        if service_number not in {1, 2, 3, 4} or format_name not in _MIME_TYPES:
+        if service_number not in {1, 2, 3, 4, 5} or format_name not in _MIME_TYPES:
             raise FormalProductionNotFound("formal_artifact_not_found")
         with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
             row = connection.execute(
@@ -1740,7 +2182,7 @@ class FormalReportProductionService:
     ) -> str:
         """Return the governed customer/service/version/date delivery filename."""
 
-        if service_number not in {1, 2, 3, 4} or format_name not in _MIME_TYPES:
+        if service_number not in {1, 2, 3, 4, 5} or format_name not in _MIME_TYPES:
             raise FormalProductionNotFound("formal_artifact_not_found")
         with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
             row = connection.execute(
@@ -1831,6 +2273,8 @@ class FormalReportProductionService:
         governance = (
             raw_governance if isinstance(raw_governance, Mapping) and raw_governance else None
         )
+        service_catalog_version = str(row.get("service_catalog_version") or LEGACY_SERVICE_CATALOG)
+        sop_project_pub_id = str(row.get("sop_project_pub_id") or "").strip() or None
         try:
             contract = request_contract(
                 project_pub_id=str(row["project_pub_id"]),
@@ -1841,6 +2285,12 @@ class FormalReportProductionService:
                 before_window=before,
                 after_window=after,
                 document_governance=governance,
+                service_catalog_version=(
+                    service_catalog_version
+                    if service_catalog_version != LEGACY_SERVICE_CATALOG
+                    else None
+                ),
+                sop_project_pub_id=sop_project_pub_id,
             )
         except FormalProductionInvalid as exc:
             raise FormalProductionIncomplete("formal_request_invalid") from exc
@@ -1861,6 +2311,8 @@ class FormalReportProductionService:
             before_window=before,
             after_window=after,
             document_governance=governance,
+            service_catalog_version=service_catalog_version,
+            sop_project_pub_id=sop_project_pub_id,
         )
 
     def _build_fact_bundle(
@@ -1873,7 +2325,7 @@ class FormalReportProductionService:
         )
         try:
             facts = {
-                service: FORMAL_REPORT_REGISTRY[service].build(context)
+                service: _adapter_for(request, service).build(context)
                 for service in request.services
             }
         except ValueError as exc:
@@ -1881,6 +2333,9 @@ class FormalReportProductionService:
                 raise FormalProductionInvalid("formal_fact_volume_exceeded") from exc
             raise
         for service, value in facts.items():
+            if request.service_catalog_version == QUOTATION_SERVICE_CATALOG:
+                value["service_catalog_version"] = request.service_catalog_version
+                value["service_code"] = _service_code_for(request, service)
             value["document_status"] = request.document_status
             value["document_governance"] = {
                 "version": "V1.0",
@@ -2003,7 +2458,7 @@ class FormalReportProductionService:
     ) -> dict[int, dict[str, bytes]]:
         rendered: dict[int, dict[str, bytes]] = {}
         for service in request.services:
-            initial_docx = FORMAL_REPORT_REGISTRY[service].render(
+            initial_docx = _adapter_for(request, service).render(
                 facts[service], blob_loader=self.evidence.store.get_verified
             )
             docx, pdf = refresh_docx_and_export_pdf(initial_docx)
@@ -2019,9 +2474,7 @@ class FormalReportProductionService:
                 extra_artifacts = render_service1_sidecars(
                     facts[service], blob_loader=self.evidence.store.get_verified
                 )
-                delivery = facts[service]["service1"]["delivery_v3"]
-                scope_label = str(delivery["scope"].get("scope_label") or "本次三组已测业务场景")
-                report_title = f"{scope_label}品牌 GEO 推荐结果评测报告"
+                report_title = _service1_report_title(request, facts[service])
                 publication_qa = inspect_publication(
                     docx=docx,
                     pdf=pdf,
@@ -2050,6 +2503,8 @@ class FormalReportProductionService:
                     else "formal-report-manifest-v1"
                 ),
                 "service_number": service,
+                "service_code": _service_code_for(request, service),
+                "service_catalog_version": request.service_catalog_version,
                 "document_status": request.document_status,
                 "release_status_label": release_state_label(request.document_status),
                 "document_governance": facts[service].get("document_governance"),
@@ -2199,6 +2654,24 @@ class FormalReportProductionService:
                     else "formal-report-manifest-v1"
                 )
                 or manifest.get("service_number") != int(service)
+                or (
+                    request.service_catalog_version == QUOTATION_SERVICE_CATALOG
+                    and manifest.get("service_code") != _service_code_for(request, int(service))
+                )
+                or (
+                    request.service_catalog_version == QUOTATION_SERVICE_CATALOG
+                    and manifest.get("service_catalog_version") != request.service_catalog_version
+                )
+                or (
+                    request.service_catalog_version == LEGACY_SERVICE_CATALOG
+                    and manifest.get("service_code") is not None
+                    and manifest.get("service_code") != _service_code_for(request, int(service))
+                )
+                or (
+                    request.service_catalog_version == LEGACY_SERVICE_CATALOG
+                    and manifest.get("service_catalog_version") is not None
+                    and manifest.get("service_catalog_version") != request.service_catalog_version
+                )
                 or manifest.get("document_status") != request.document_status
                 or manifest.get("fact_snapshot_hash")
                 != _freeze_service_fact(
@@ -2324,7 +2797,8 @@ class FormalReportProductionService:
                 )
                 component = {
                     "service_number": service,
-                    "title": SERVICE_TITLES[service],
+                    "service_code": _service_code_for(request, service),
+                    "title": _adapter_for(request, service).title,
                     "document_status": request.document_status,
                     "fact_snapshot_hash": frozen.fact_snapshot_hash,
                 }
@@ -2338,7 +2812,7 @@ class FormalReportProductionService:
                         report_pub_id,
                         request.tenant_pub_id,
                         request.project_pub_id,
-                        SERVICE_TITLES[service],
+                        _adapter_for(request, service).title,
                         f"formal:{request.pub_id}:service:{service}",
                     ),
                 )
@@ -2526,15 +3000,33 @@ class FormalReportProductionService:
         return [dict(row) for row in rows]
 
     def _public_row(self, row: dict[str, Any], *, outputs: list[dict[str, Any]]) -> dict[str, Any]:
+        service_catalog_version = str(row.get("service_catalog_version") or LEGACY_SERVICE_CATALOG)
+        if service_catalog_version == QUOTATION_SERVICE_CATALOG:
+            service_codes = QUOTATION_SERVICE_CODES
+        elif service_catalog_version == LEGACY_SERVICE_CATALOG:
+            service_codes = LEGACY_SERVICE_CODES
+        else:
+            raise FormalProductionIncomplete("formal_output_service_catalog_mismatch")
+        try:
+            selected_services = {int(value) for value in row["services"]}
+        except (KeyError, TypeError, ValueError) as exc:
+            raise FormalProductionIncomplete("formal_output_service_catalog_mismatch") from exc
+        if not selected_services or any(
+            service not in service_codes for service in selected_services
+        ):
+            raise FormalProductionIncomplete("formal_output_service_catalog_mismatch")
         grouped: dict[int, dict[str, Any]] = {}
         for output in outputs:
             if output.get("production_pub_id") != row["pub_id"]:
                 continue
             service = int(output["service_number"])
+            if service not in selected_services or service not in service_codes:
+                raise FormalProductionIncomplete("formal_output_service_catalog_mismatch")
             target = grouped.setdefault(
                 service,
                 {
                     "service_number": service,
+                    "service_code": service_codes[service],
                     "report_pub_id": output["report_pub_id"],
                     "report_version_pub_id": output["report_version_pub_id"],
                     "fact_snapshot_hash": output["fact_snapshot_hash"],
@@ -2558,6 +3050,8 @@ class FormalReportProductionService:
             "pub_id": row["pub_id"],
             "project_pub_id": row["project_pub_id"],
             "services": list(row["services"]),
+            "service_catalog_version": service_catalog_version,
+            "sop_project_pub_id": row.get("sop_project_pub_id"),
             "status": row["status"],
             "document_status": row["document_status"],
             "window_start": row["window_start"],
@@ -2587,6 +3081,9 @@ __all__ = [
     "FORMAL_REPORT_REGISTRY",
     "FORMAL_STRATEGY",
     "FORMAL_WORKFLOW_TYPE",
+    "LEGACY_SERVICE_CATALOG",
+    "QUOTATION_FORMAL_REPORT_REGISTRY",
+    "QUOTATION_SERVICE_CATALOG",
     "FormalProductionConflict",
     "FormalProductionIncomplete",
     "FormalProductionInvalid",

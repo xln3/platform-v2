@@ -973,6 +973,8 @@ def _production_row(status: str = "awaiting_review") -> dict[str, Any]:
         "pub_id": "frp_unit",
         "project_pub_id": "prj_unit",
         "services": [1, 2],
+        "service_catalog_version": "legacy_report_services_v1",
+        "sop_project_pub_id": None,
         "status": status,
         "document_status": "pre_formal",
         "window_start": date(2026, 7, 1),

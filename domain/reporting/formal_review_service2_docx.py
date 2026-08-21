@@ -417,6 +417,9 @@ def render_service2_v2_docx(
     answer_screenshots: dict[str, bytes] | None = None,
     source_captures: dict[str, dict[str, Any]] | None = None,
     source_case_screenshots: dict[str, bytes] | None = None,
+    service_number: int = 2,
+    report_title: str = "品牌 GEO 内容生态风险核查报告",
+    report_subtitle: str = "服务 2 · AI 拉踩表述、公开事实核查与可视证据",
 ) -> bytes:
     """Render corrected Service-2 V2 facts and real visual evidence."""
 
@@ -436,12 +439,12 @@ def render_service2_v2_docx(
     verdicts = delivery["case_verdict_counts"]
 
     doc = FormalDocument(
-        title="品牌 GEO 内容生态风险核查报告",
-        subtitle="服务 2 · AI 拉踩表述、公开事实核查与可视证据",
+        title=report_title,
+        subtitle=report_subtitle,
         facts=facts,
     )
     version = str((facts.get("document_governance") or {}).get("version") or "V1.0")
-    doc.cover(report_code=build_report_code(facts, service_number=2, version=version))
+    doc.cover(report_code=build_report_code(facts, service_number=service_number, version=version))
     _toc(doc, answer_cases=len(cases), source_cases=len(source_cases))
 
     doc.heading("1. 执行摘要")
@@ -761,7 +764,7 @@ def render_service2_v2_docx(
         [
             (
                 "项目与服务",
-                f"{facts.get('project_name') or '—'} · 服务2 · 品牌GEO内容生态风险核查",
+                f"{facts.get('project_name') or '—'} · 服务{service_number} · {report_title}",
             ),
             (
                 "版本与状态",
