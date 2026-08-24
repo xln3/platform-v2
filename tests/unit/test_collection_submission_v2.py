@@ -14,6 +14,7 @@ from uuid import UUID
 import pytest
 from geo_platform.collection.submission_v2 import (
     AnalysisCoordinator,
+    AtomicPreparationResult,
     CaptureCoordinator,
     CoordinatorResult,
     CrashHook,
@@ -22,6 +23,7 @@ from geo_platform.collection.submission_v2 import (
     DurableCaptureAttempt,
     DurableReconciliationClaim,
     PreparationCoordinator,
+    PreparationCoordinatorResult,
     PreparedSubmissionRef,
     PrepareWorkItem,
     QuotaConservationSnapshot,
@@ -464,17 +466,28 @@ class InMemoryDurableSubmissionRepository:
         *,
         prepare_work: PrepareWorkItem,
         preparation_context: ResolvedPreparationContext,
-        work: SubmissionWorkItem,
         context: ResolvedSubmissionContext,
         owner_store: DurableOwnerStore,
     ) -> None:
         self.prepare_work = prepare_work
         self.preparation_context = preparation_context
-        self.work = work
+        self.work: SubmissionWorkItem | None = None
         self.context = context
         self.owner_store = owner_store
         self.operations: dict[str, SubmissionOperationTruth] = {}
-        self.quota = DurableQuotaStore(work.reservation_pub_id)
+        generated_reservation_ref = (
+            "reservation-db-"
+            + _hash(
+                {
+                    "operation": prepare_work.workflow.operation.operation_key,
+                    "slot": prepare_work.frozen_slot_ref,
+                    "version": "fake-db-reservation-v1",
+                }
+            )[:24]
+        )
+        self.quota = DurableQuotaStore(generated_reservation_ref)
+        self.atomic_preparation: AtomicPreparationResult | None = None
+        self.submission_context_resolutions = 0
         self.terminal_transitions: dict[str, TerminalSubmissionTransition] = {}
         self.outboxes: dict[str, OutboxEventRef] = {}
         self.published_outboxes: set[str] = set()
@@ -519,10 +532,14 @@ class InMemoryDurableSubmissionRepository:
     def resolve_context(self, work: SubmissionWorkItem) -> ResolvedSubmissionContext:
         if work != self.work:
             raise SubmissionCoordinatorError("unknown_work_item")
+        durable = self.atomic_preparation
+        if durable is None or work.prepared.reservation_pub_id != durable.reservation_pub_id:
+            raise SubmissionCoordinatorError("authority_resolved_before_atomic_preparation")
         operation = self.operations.get(work.workflow.operation.operation_pub_id)
         if operation is None:
             raise SubmissionCoordinatorError("authority_resolved_before_prepare")
         self.quota.snapshot()
+        self.submission_context_resolutions += 1
         return self.context
 
     def resolve_preparation_context(self, work: PrepareWorkItem) -> ResolvedPreparationContext:
@@ -535,7 +552,7 @@ class InMemoryDurableSubmissionRepository:
 
     def atomic_prepare_and_reserve(
         self, work: PrepareWorkItem, prepared: PrepareResult
-    ) -> SubmissionOperationTruth:
+    ) -> AtomicPreparationResult:
         if self.prepare_blocked:
             raise SubmissionCoordinatorError("prepare_blocked")
         if work != self.prepare_work:
@@ -544,14 +561,24 @@ class InMemoryDurableSubmissionRepository:
         existing = self.operations.get(operation_id)
         if existing is not None and existing != prepared.operation:
             raise SubmissionCoordinatorError("prepare_truth_conflict")
+        if self.atomic_preparation is not None:
+            if self.atomic_preparation.operation != prepared.operation:
+                raise SubmissionCoordinatorError("atomic_preparation_replay_conflict")
+            self.quota.validate("reserved")
+            if self.atomic_preparation.quota != self.quota.snapshot():
+                raise SubmissionCoordinatorError("atomic_preparation_quota_drift")
+            return self.atomic_preparation
         # Validate every blocker before changing either logical truth or quota.
         if operation_id != work.workflow.operation.operation_pub_id:
             raise SubmissionCoordinatorError("prepare_operation_reference_mismatch")
-        if work.reservation_pub_id != self.quota.reservation_ref:
-            raise SubmissionCoordinatorError("reservation_reference_mismatch")
         self.quota.reserve()
         self.operations.setdefault(operation_id, prepared.operation)
-        return self.operations[operation_id]
+        self.atomic_preparation = AtomicPreparationResult(
+            operation=self.operations[operation_id],
+            reservation_pub_id=self.quota.reservation_ref,
+            quota=self.quota.snapshot(),
+        )
+        return self.atomic_preparation
 
     def assert_operation_integrity(
         self, work: SubmissionWorkItem, operation: SubmissionOperationTruth
@@ -1320,29 +1347,15 @@ class CoordinatorHarness:
                 operation=operation_ref(identity),
                 expected_state_version=1,
             ),
-            reservation_pub_id=f"reservation-{surface.value}",
             frozen_slot_ref=f"slot-{surface.value}",
             binding_revision_pub_id=f"binding-{surface.value}",
             quota_registry_revision="quota-registry-v1",
             request_manifest_ref=identity.request_manifest.request_payload_ref,
         )
-        prepared_ref = PreparedSubmissionRef(
-            workflow=self.prepare_work.workflow,
-            reservation_pub_id=self.prepare_work.reservation_pub_id,
-        )
-        self.work = SubmissionWorkItem(
-            prepared=prepared_ref,
-            grant_pub_id=authority.grant_pub_id,
-            lease_pub_ids=tuple(fence.lease_pub_id for fence in authority.lease_fences),
-            cursor_ref="partition-1-cursor-1",
-            claim_pub_id=f"claim-{surface.value}",
-            reconciliation_claim_ref=f"reconcile-claim-{surface.value}",
-            capture_attempt_ref=f"capture-attempt-{surface.value}-1",
-        )
+        self._work: SubmissionWorkItem | None = None
         self.repository = InMemoryDurableSubmissionRepository(
             prepare_work=self.prepare_work,
             preparation_context=ResolvedPreparationContext(prepare=self.context.prepare),
-            work=self.work,
             context=self.context,
             owner_store=self.owner_store,
         )
@@ -1354,6 +1367,29 @@ class CoordinatorHarness:
         self.reconciliation_instances: list[FakeReconciliationGateway] = []
         self.capture_instances: list[FakeCaptureGateway] = []
 
+    @property
+    def work(self) -> SubmissionWorkItem:
+        if self._work is None:
+            raise AssertionError("submission work is unavailable before atomic preparation")
+        return self._work
+
+    @work.setter
+    def work(self, value: SubmissionWorkItem) -> None:
+        self._work = value
+        self.repository.work = value
+
+    def _submission_work(self, prepared: PreparedSubmissionRef) -> SubmissionWorkItem:
+        authority = self.context.authority
+        return SubmissionWorkItem(
+            prepared=prepared,
+            grant_pub_id=authority.grant_pub_id,
+            lease_pub_ids=tuple(fence.lease_pub_id for fence in authority.lease_fences),
+            cursor_ref="partition-1-cursor-1",
+            claim_pub_id=f"claim-{self.surface.value}",
+            reconciliation_claim_ref=f"reconcile-claim-{self.surface.value}",
+            capture_attempt_ref=f"capture-attempt-{self.surface.value}-1",
+        )
+
     def preparation_coordinator(
         self, crash_hook: CrashHook | None = None
     ) -> PreparationCoordinator:
@@ -1362,10 +1398,13 @@ class CoordinatorHarness:
             crash_hook or NoCrashHook(),
         )
 
-    def prepare(self) -> None:
+    def prepare(self) -> PreparationCoordinatorResult:
         result = self.preparation_coordinator().run(self.prepare_work)
-        if result.prepared != self.work.prepared:
+        if self._work is None:
+            self.work = self._submission_work(result.prepared)
+        elif result.prepared != self.work.prepared:
             raise AssertionError("prepared reference drift")
+        return result
 
     def coordinator(self, crash_hook: CrashHook | None = None) -> SubmissionCoordinator:
         preflight = FakePreflightGateway(
@@ -1518,6 +1557,14 @@ def test_terminal_before_capture_crash_exposes_pending_not_capture_failed() -> N
 
 def test_preparation_is_a_distinct_pre_resource_atomic_boundary() -> None:
     harness = CoordinatorHarness()
+    assert "reservation_pub_id" not in PrepareWorkItem.model_fields
+    with pytest.raises(ValidationError, match="reservation_pub_id"):
+        PrepareWorkItem.model_validate(
+            {
+                **harness.prepare_work.model_dump(mode="python"),
+                "reservation_pub_id": "caller-preallocated-reservation",
+            }
+        )
     harness.repository.prepare_blocked = True
 
     with pytest.raises(SubmissionCoordinatorError, match="prepare_blocked"):
@@ -1525,14 +1572,23 @@ def test_preparation_is_a_distinct_pre_resource_atomic_boundary() -> None:
 
     assert harness.repository.operations == {}
     assert harness.repository.quota.effects == {}
-    with pytest.raises(SubmissionCoordinatorError, match="prepared_operation_missing"):
-        harness.coordinator().run(harness.work)
+    assert harness.repository.atomic_preparation is None
+    assert harness._work is None
+    assert harness.repository.submission_context_resolutions == 0
 
     harness.repository.prepare_blocked = False
-    prepared = harness.preparation_coordinator().run(harness.prepare_work)
+    prepared = harness.prepare()
     assert prepared.prepared == harness.work.prepared
     assert prepared.quota.reserved_units == 1
     assert len(harness.repository.quota.effects) == 3
+    assert prepared.prepared.reservation_pub_id == harness.repository.quota.reservation_ref
+    assert harness.repository.submission_context_resolutions == 0
+
+    replay = harness.preparation_coordinator().run(harness.prepare_work)
+    assert replay == prepared
+    assert replay.prepared.reservation_pub_id == prepared.prepared.reservation_pub_id
+    harness.coordinator().run(harness.work)
+    assert harness.repository.submission_context_resolutions == 1
 
 
 def test_cas_loser_cannot_reconcile_a_live_owner() -> None:
@@ -1786,9 +1842,9 @@ def test_publish_success_before_mark_retries_delivery_but_consumer_effect_is_onc
 
 def test_partial_capture_retry_allocates_new_attempt_and_preserves_old_immutable_link() -> None:
     harness = CoordinatorHarness()
+    harness.prepare()
     first_attempt = harness.work.capture_attempt_ref
     harness.capture_store.modes_by_attempt[first_attempt] = "partial"
-    harness.prepare()
     first = harness.coordinator().run(harness.work)
     assert first.capture is not None and first.capture.capture_state is CaptureState.PARTIAL
     assert first.capture_link is not None
@@ -1822,9 +1878,9 @@ def test_partial_capture_retry_allocates_new_attempt_and_preserves_old_immutable
 
 def test_surface_mismatch_staging_is_quarantined_with_gc_and_cannot_be_retried() -> None:
     harness = CoordinatorHarness()
+    harness.prepare()
     attempt = harness.work.capture_attempt_ref
     harness.capture_store.modes_by_attempt[attempt] = "mismatch"
-    harness.prepare()
 
     result = harness.coordinator().run(harness.work)
 
@@ -1852,9 +1908,9 @@ def test_surface_mismatch_staging_is_quarantined_with_gc_and_cannot_be_retried()
 
 def test_accepted_not_observable_can_be_explicitly_retried_without_submit() -> None:
     harness = CoordinatorHarness()
+    harness.prepare()
     first_attempt = harness.work.capture_attempt_ref
     harness.capture_store.modes_by_attempt[first_attempt] = "not_observable"
-    harness.prepare()
     first = harness.coordinator().run(harness.work)
     assert first.capture is not None
     assert first.capture.capture_state is CaptureState.NOT_OBSERVABLE
@@ -1872,9 +1928,9 @@ def test_accepted_not_observable_can_be_explicitly_retried_without_submit() -> N
 
 def test_capture_retry_fails_before_gateway_when_authority_is_stale() -> None:
     harness = CoordinatorHarness()
+    harness.prepare()
     first_attempt = harness.work.capture_attempt_ref
     harness.capture_store.modes_by_attempt[first_attempt] = "failed"
-    harness.prepare()
     first = harness.coordinator().run(harness.work)
     assert first.capture is not None and first.capture.capture_state is CaptureState.FAILED
     second_attempt = "capture-attempt-consumer-web-2"
@@ -1894,9 +1950,9 @@ def test_capture_retry_fails_before_gateway_when_authority_is_stale() -> None:
 
 def test_capturing_recovery_reuses_durable_command_and_rejects_mismatched_attempt() -> None:
     harness = CoordinatorHarness()
+    harness.prepare()
     first_attempt = harness.work.capture_attempt_ref
     harness.capture_store.modes_by_attempt[first_attempt] = "failed"
-    harness.prepare()
     first = harness.coordinator().run(harness.work)
     assert first.capture is not None and first.capture.capture_state is CaptureState.FAILED
 
@@ -1930,9 +1986,9 @@ def test_capturing_recovery_reuses_durable_command_and_rejects_mismatched_attemp
 
 def test_capturing_recovery_with_same_attempt_reuses_durable_active_command() -> None:
     harness = CoordinatorHarness()
+    harness.prepare()
     first_attempt = harness.work.capture_attempt_ref
     harness.capture_store.modes_by_attempt[first_attempt] = "failed"
-    harness.prepare()
     first = harness.coordinator().run(harness.work)
     assert first.capture is not None and first.capture.capture_state is CaptureState.FAILED
 
@@ -1970,9 +2026,9 @@ def test_capturing_recovery_with_same_attempt_reuses_durable_active_command() ->
 
 def test_capture_retry_records_fact_and_outbox_in_the_same_entry() -> None:
     harness = CoordinatorHarness()
+    harness.prepare()
     attempt = harness.work.capture_attempt_ref
     harness.capture_store.modes_by_attempt[attempt] = "failed"
-    harness.prepare()
     failed = harness.coordinator().run(harness.work)
     assert failed.fact.outcome is SlotOutcome.CONFIRMED_SENT_CAPTURE_FAILED
     second_attempt = "capture-attempt-consumer-web-2"
@@ -2162,6 +2218,7 @@ def test_preparation_missing_atomic_reserve_capability_fails_without_rows() -> N
 
 def test_workflow_inputs_remain_constant_size_and_reject_task_arrays() -> None:
     harness = CoordinatorHarness()
+    harness.prepare()
     prepare_payload = canonical_json(harness.prepare_work)
     submission_payload = canonical_json(harness.work)
     assert len(prepare_payload) < 4096

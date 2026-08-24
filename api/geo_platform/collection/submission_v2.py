@@ -179,7 +179,6 @@ class PrepareWorkItem(FrozenProtocolModel):
     """Pre-resource input resolved only from frozen logical/request/quota truth."""
 
     workflow: WorkflowOperationInput
-    reservation_pub_id: OpaqueId
     frozen_slot_ref: OpaqueId
     binding_revision_pub_id: OpaqueId
     quota_registry_revision: OpaqueId
@@ -342,6 +341,20 @@ class PreparationCoordinatorResult(FrozenProtocolModel):
     quota: QuotaConservationSnapshot
 
 
+class AtomicPreparationResult(FrozenProtocolModel):
+    """Durable truth returned by the operation + quota reservation transaction."""
+
+    operation: SubmissionOperationTruth
+    reservation_pub_id: OpaqueId
+    quota: QuotaConservationSnapshot
+
+    @model_validator(mode="after")
+    def reservation_is_live(self) -> Self:
+        if not self.quota.explicitly_retained:
+            raise ValueError("atomic_preparation_requires_reserved_quota")
+        return self
+
+
 class CoordinatorResult(FrozenProtocolModel):
     operation: SubmissionOperationTruth
     capture: CaptureTruth | None = None
@@ -407,7 +420,7 @@ class DurableSubmissionRepository(Protocol):
 
     def atomic_prepare_and_reserve(
         self, work: PrepareWorkItem, prepared: PrepareResult
-    ) -> SubmissionOperationTruth: ...
+    ) -> AtomicPreparationResult: ...
 
     def assert_operation_integrity(
         self, work: SubmissionWorkItem, operation: SubmissionOperationTruth
@@ -736,15 +749,17 @@ class PreparationCoordinator:
         existing = self._repository.load_operation(work.workflow.operation)
         prepared = prepare_submission(context.prepare, existing=existing)
         self._crash_hook.checkpoint(CrashPoint.BEFORE_RESERVE)
-        operation = self._repository.atomic_prepare_and_reserve(work, prepared)
+        durable = self._repository.atomic_prepare_and_reserve(work, prepared)
+        if durable.operation != prepared.operation:
+            raise SubmissionCoordinatorError("atomic_preparation_truth_mismatch")
         self._crash_hook.checkpoint(CrashPoint.AFTER_RESERVE)
         return PreparationCoordinatorResult(
             prepared=PreparedSubmissionRef(
                 workflow=work.workflow,
-                reservation_pub_id=work.reservation_pub_id,
+                reservation_pub_id=durable.reservation_pub_id,
             ),
-            operation=operation,
-            quota=self._repository.quota_snapshot(work.reservation_pub_id),
+            operation=durable.operation,
+            quota=durable.quota,
         )
 
     def _require_durability(self) -> None:
