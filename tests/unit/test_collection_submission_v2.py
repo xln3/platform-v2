@@ -77,6 +77,7 @@ from domain.collection.submission import (
     SurfaceProductRef,
     TerminalReason,
     TerminalSubmissionTransition,
+    TerminalSubmissionTruth,
     WorkflowOperationInput,
     apply_analysis_disposition,
     apply_capture_disposition,
@@ -640,6 +641,8 @@ class InMemoryDurableSubmissionRepository:
         self._validate_terminal(operation)
 
     def compare_and_swap(self, command: OwnerClaimCasCommand) -> OwnerClaimCasObservation:
+        if command.authority != self.context.authority:
+            raise SubmissionCoordinatorError("claim_authority_snapshot_drift")
         operation_id = command.operation.operation_pub_id
         current = self.operations.get(operation_id)
         if current is None:
@@ -1708,10 +1711,65 @@ def test_preflight_not_sent_releases_without_ever_constructing_submit_from_prefl
     assert not hasattr(harness.preflight_instances[0], "submit_once")
     assert result.operation.send_state is SendState.CONFIRMED_NOT_SENT
     assert result.operation.claim is None
+    assert result.operation.terminal is not None
+    assert (
+        result.operation.terminal.terminated_fence_set_sha256
+        == harness.context.authority.fence_set_sha256
+    )
+    assert result.operation.terminal.non_submission_proof_ref is None
     assert result.fact.outcome is SlotOutcome.UNAVAILABLE
     assert not result.fact.is_final_primary
     assert result.quota.released_units == 1
     assert harness.owner_store.wal.submit_invocations == 0
+
+
+def test_confirmed_not_sent_truth_requires_exact_fence_and_scopes_owner_proof() -> None:
+    common: dict[str, object] = {
+        "send_state": SendState.CONFIRMED_NOT_SENT,
+        "boundary_entered": False,
+        "evidence_ref": "preflight-evidence-v1",
+        "evidence_sha256": HASH_A,
+        "resolved_at": NOW,
+    }
+
+    with pytest.raises(ValidationError, match="confirmed_not_sent_requires_terminated_fence"):
+        TerminalSubmissionTruth.model_validate(
+            {**common, "reason": TerminalReason.PREFLIGHT_NOT_SENT}
+        )
+
+    preflight = TerminalSubmissionTruth.model_validate(
+        {
+            **common,
+            "reason": TerminalReason.PREFLIGHT_NOT_SENT,
+            "terminated_fence_set_sha256": HASH_B,
+        }
+    )
+    assert preflight.non_submission_proof_ref is None
+
+    with pytest.raises(
+        ValidationError,
+        match="preflight_not_sent_cannot_have_non_submission_proof",
+    ):
+        TerminalSubmissionTruth.model_validate(
+            {
+                **common,
+                "reason": TerminalReason.PREFLIGHT_NOT_SENT,
+                "terminated_fence_set_sha256": HASH_B,
+                "non_submission_proof_ref": "forged-owner-proof",
+            }
+        )
+
+    with pytest.raises(
+        ValidationError,
+        match="post_claim_not_sent_requires_non_submission_proof",
+    ):
+        TerminalSubmissionTruth.model_validate(
+            {
+                **common,
+                "reason": TerminalReason.POST_CLAIM_NOT_SENT,
+                "terminated_fence_set_sha256": HASH_B,
+            }
+        )
 
 
 def test_api_timeout_is_durable_unknown_with_provider_provenance_and_no_resend() -> None:

@@ -382,14 +382,15 @@ class TerminalSubmissionTruth(FrozenProtocolModel):
             raise ValueError("confirmed_not_sent_truth_invalid")
         if self.provider_submission_ref is not None and not self.boundary_entered:
             raise ValueError("provider_ref_without_submit_boundary")
-        needs_owner_proof = self.reason is TerminalReason.POST_CLAIM_NOT_SENT
-        has_owner_proof = (
-            self.non_submission_proof_ref is not None
-            and self.terminated_fence_set_sha256 is not None
-        )
-        if needs_owner_proof != has_owner_proof:
-            raise ValueError("terminal_non_submission_proof_shape_invalid")
-        if self.send_state is not SendState.CONFIRMED_NOT_SENT and (
+        if self.send_state is SendState.CONFIRMED_NOT_SENT:
+            if self.terminated_fence_set_sha256 is None:
+                raise ValueError("confirmed_not_sent_requires_terminated_fence")
+            if self.reason is TerminalReason.POST_CLAIM_NOT_SENT:
+                if self.non_submission_proof_ref is None:
+                    raise ValueError("post_claim_not_sent_requires_non_submission_proof")
+            elif self.non_submission_proof_ref is not None:
+                raise ValueError("preflight_not_sent_cannot_have_non_submission_proof")
+        elif (
             self.non_submission_proof_ref is not None
             or self.terminated_fence_set_sha256 is not None
         ):
@@ -537,12 +538,23 @@ class OwnerClaimCasCommand(FrozenProtocolModel):
     expected_state_version: int = Field(strict=True, ge=1)
     next_state: Literal[SendState.SENDING] = SendState.SENDING
     next_state_version: int = Field(strict=True, ge=2)
+    authority: OwnerAuthorityRef
     claim: OwnerClaimTruth
 
     @model_validator(mode="after")
-    def version_advances_once(self) -> Self:
+    def version_and_authority_are_exact(self) -> Self:
         if self.next_state_version != self.expected_state_version + 1:
             raise ValueError("claim_version_must_advance_once")
+        if (
+            self.claim.grant_pub_id != self.authority.grant_pub_id
+            or self.claim.grant_revision != self.authority.grant_revision
+            or self.claim.owner_handle != self.authority.owner_handle
+            or self.claim.fence_set_sha256 != self.authority.fence_set_sha256
+            or self.claim.authority_sha256 != authority_digest(self.authority)
+        ):
+            raise ValueError("claim_authority_snapshot_mismatch")
+        if not self.authority.checked_at <= self.claim.claimed_at < self.authority.valid_until:
+            raise ValueError("claim_authority_snapshot_not_fresh")
         return self
 
 
@@ -613,6 +625,7 @@ def plan_owner_claim(
                 operation=ref,
                 expected_state_version=operation.state_version,
                 next_state_version=operation.state_version + 1,
+                authority=verified.command.authority,
                 claim=claim,
             )
         )
@@ -999,6 +1012,7 @@ def apply_preflight_not_sent(
         evidence_ref=observation.evidence_ref,
         evidence_sha256=observation.evidence_sha256,
         resolved_at=observation.observed_at,
+        terminated_fence_set_sha256=verified.command.authority.fence_set_sha256,
     )
     next_version = operation.state_version + 1
     updated = SubmissionOperationTruth(

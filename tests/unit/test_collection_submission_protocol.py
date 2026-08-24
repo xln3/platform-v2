@@ -565,6 +565,7 @@ def test_submit_terminal_truth_quota_and_outbox_are_deterministic() -> None:
             evidence_ref="evidence-1",
             evidence_sha256=HASH_A,
             resolved_at=NOW,
+            terminated_fence_set_sha256=HASH_B,
         )
 
 
