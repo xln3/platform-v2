@@ -366,9 +366,15 @@ def build_campaign_workflow_start_command(
     partition: CampaignExecutionPartition,
     *,
     launch: CampaignWorkflowLaunchContext,
-    cursor: int | None = None,
 ) -> CampaignWorkflowStartCommand:
-    """Build one exact start command after rechecking campaign and plan lineage."""
+    """Build one exact first-start command after rechecking persisted lineage.
+
+    A partition start is always anchored at its first ordinal.  Runtime recovery
+    belongs to the already-started workflow's durable checkpoint and
+    Continue-As-New chain; emitting another start command at a later cursor
+    would conflate recovery with admission and make an already-started response
+    ambiguous.
+    """
 
     frozen = _require_complete_frozen_campaign(campaign)
     validated_plan = _validate_plan(plan)
@@ -384,18 +390,7 @@ def build_campaign_workflow_start_command(
             "scheduler_execution_partition_drift",
             partition_index=expected_partition.partition_index,
         )
-    start_cursor = expected_partition.start_slot_ordinal if cursor is None else cursor
-    _require_non_negative_integer(start_cursor, field="cursor")
-    if not (
-        expected_partition.start_slot_ordinal
-        <= start_cursor
-        < expected_partition.end_slot_ordinal_exclusive
-    ):
-        raise SchedulerV2Error(
-            "scheduler_cursor_out_of_partition",
-            cursor=start_cursor,
-            partition_index=expected_partition.partition_index,
-        )
+    start_cursor = expected_partition.start_slot_ordinal
     try:
         campaign_reference = build_campaign_workflow_reference(
             frozen,

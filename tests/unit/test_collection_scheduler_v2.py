@@ -79,7 +79,6 @@ def _start_command(
     plan: CampaignExecutionPlan,
     partition: CampaignExecutionPartition,
     *,
-    cursor: int | None = None,
     launch: CampaignWorkflowLaunchContext | None = None,
 ) -> CampaignWorkflowStartCommand:
     return build_campaign_workflow_start_command(
@@ -87,7 +86,6 @@ def _start_command(
         plan,
         partition,
         launch=launch or _launch(),
-        cursor=cursor,
     )
 
 
@@ -306,7 +304,7 @@ def test_workflow_start_command_is_reference_only_and_constant_size() -> None:
     }.issubset(keys)
 
 
-def test_start_command_exact_replay_and_resume_keep_stable_partition_identity() -> None:
+def test_start_command_exact_replay_is_anchored_at_partition_start() -> None:
     campaign = _campaign(31)
     plan = plan_campaign_execution(
         campaign,
@@ -316,20 +314,13 @@ def test_start_command_exact_replay_and_resume_keep_stable_partition_identity() 
     partition = execution_partition_at(plan, 1)
     first = _start_command(campaign, plan, partition)
     exact_replay = _start_command(campaign, plan, partition)
-    resumed = _start_command(
-        campaign,
-        plan,
-        partition,
-        cursor=partition.start_slot_ordinal + 3,
-    )
 
     assert exact_replay == first
     assert exact_replay.payload_json == first.payload_json
-    assert resumed.workflow_id == first.workflow_id
-    assert resumed.partition_pub_id == first.partition_pub_id
-    assert resumed.partition_digest == first.partition_digest
-    assert resumed.command_digest != first.command_digest
-    assert resumed.workflow_input.cursor == partition.start_slot_ordinal + 3
+    assert first.cursor == partition.start_slot_ordinal
+    assert first.campaign_reference.cursor == partition.start_slot_ordinal
+    assert first.workflow_input.cursor == partition.start_slot_ordinal
+    assert "cursor" not in inspect.signature(build_campaign_workflow_start_command).parameters
 
 
 def test_start_command_binds_v2_routing_and_rejects_launch_contract_drift() -> None:
@@ -367,7 +358,7 @@ def test_start_command_binds_v2_routing_and_rejects_launch_contract_drift() -> N
     assert _error_code(missing_context) == "scheduler_workflow_launch_context_required"
 
 
-def test_campaign_plan_partition_and_cursor_drift_fail_closed() -> None:
+def test_campaign_plan_and_partition_drift_fail_closed() -> None:
     campaign = _campaign(25)
     plan = plan_campaign_execution(
         campaign,
@@ -402,14 +393,10 @@ def test_campaign_plan_partition_and_cursor_drift_fail_closed() -> None:
         )
     assert _error_code(partition_drift) == "scheduler_execution_partition_drift"
 
-    with pytest.raises(SchedulerV2Error) as cursor_drift:
-        _start_command(
-            campaign,
-            plan,
-            partition,
-            cursor=partition.end_slot_ordinal_exclusive,
-        )
-    assert _error_code(cursor_drift) == "scheduler_cursor_out_of_partition"
+    command_payload = _start_command(campaign, plan, partition).model_dump(mode="python")
+    command_payload["cursor"] = partition.start_slot_ordinal + 1
+    with pytest.raises(ValidationError, match="workflow_start_reference_drift"):
+        CampaignWorkflowStartCommand.model_validate(command_payload)
 
 
 @pytest.mark.parametrize(
