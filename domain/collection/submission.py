@@ -1442,6 +1442,7 @@ class SlotOutcome(StrEnum):
     NOT_ATTEMPTED = "not_attempted"
     UNAVAILABLE = "unavailable"
     CONFIRMED_NOT_SENT = "confirmed_not_sent"
+    CONFIRMED_SENT_CAPTURE_PENDING = "confirmed_sent_capture_pending"
     CONFIRMED_SENT_CAPTURE_COMPLETE = "confirmed_sent_capture_complete"
     CONFIRMED_SENT_CAPTURE_PARTIAL = "confirmed_sent_capture_partial"
     CONFIRMED_SENT_CAPTURE_FAILED = "confirmed_sent_capture_failed"
@@ -1472,8 +1473,12 @@ def derive_slot_outcome(
         if reason is TerminalReason.INVALID_SURFACE_OR_PRODUCT:
             return SlotOutcome.INVALID_SURFACE_OR_PRODUCT
         return SlotOutcome.CONFIRMED_NOT_SENT
-    if capture is None or capture.operation != operation_ref(operation.identity):
-        raise SubmissionProtocolError("confirmed_sent_requires_capture_truth")
+    if capture is None:
+        if analysis is not None:
+            raise SubmissionProtocolError("analysis_requires_capture_truth")
+        return SlotOutcome.CONFIRMED_SENT_CAPTURE_PENDING
+    if capture.operation != operation_ref(operation.identity):
+        raise SubmissionProtocolError("confirmed_sent_capture_truth_mismatch")
     if analysis is not None and analysis.analysis_state is AnalysisState.FAILED:
         return SlotOutcome.ANALYSIS_FAILED
     if capture.normalization is CaptureNormalizationDecision.QUARANTINED_SURFACE_MISMATCH:

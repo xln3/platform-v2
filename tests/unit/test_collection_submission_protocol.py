@@ -639,6 +639,12 @@ def test_capture_and_analysis_fail_closed_on_ambiguous_or_mixed_truth() -> None:
         )
 
 
+def test_confirmed_send_without_capture_is_pending_not_failed_or_final() -> None:
+    terminal = _confirmed_sent()
+
+    assert derive_slot_outcome(terminal) is SlotOutcome.CONFIRMED_SENT_CAPTURE_PENDING
+
+
 def test_stale_preflight_cannot_overwrite_a_concurrent_owner_claim() -> None:
     prepared = _prepared()
     verified = _verified_ready(prepared)
