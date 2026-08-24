@@ -15,11 +15,13 @@ import pytest
 from geo_platform.collection.submission_v2 import (
     AnalysisCoordinator,
     AtomicPreparationResult,
+    CaptureAdmissionDecision,
     CaptureCoordinator,
     CoordinatorResult,
     CrashHook,
     CrashPoint,
     DurableAnalysisAttempt,
+    DurableCaptureAdmission,
     DurableCaptureAttempt,
     DurableReconciliationClaim,
     PreparationCoordinator,
@@ -49,6 +51,7 @@ from domain.collection.submission import (
     CaptureExistingCommand,
     CaptureNormalizationDecision,
     CaptureProvenance,
+    CaptureStagingIntent,
     CaptureStagingRef,
     CaptureTruth,
     ImmutableCaptureLink,
@@ -85,6 +88,7 @@ from domain.collection.submission import (
     begin_capture,
     canonical_json,
     derive_slot_outcome,
+    deterministic_capture_staging_intent,
     initial_analysis_truth,
     lease_fence_set_digest,
     normalize_capture,
@@ -565,6 +569,7 @@ class InMemoryDurableSubmissionRepository:
             "atomic_terminal_and_quota": True,
             "terminal_replay_integrity": True,
             "durable_capture_command": True,
+            "durable_capture_admission": True,
             "immutable_capture_link": True,
             "durable_analysis_command": True,
             "atomic_fact_and_outbox": True,
@@ -769,6 +774,42 @@ class InMemoryDurableSubmissionRepository:
     def load_capture(self, operation: OperationRef) -> CaptureTruth | None:
         return self.captures.get(self._operation_id(operation))
 
+    def resolve_capture_admission(
+        self,
+        *,
+        work: SubmissionWorkItem,
+        operation: SubmissionOperationTruth,
+        capture: CaptureTruth,
+    ) -> DurableCaptureAdmission:
+        if (
+            work != self.work
+            or self.load_operation(work.workflow.operation) != operation
+            or self.load_capture(work.workflow.operation) != capture
+            or operation.send_state not in {SendState.CONFIRMED_SENT, SendState.SEND_UNKNOWN}
+        ):
+            raise SubmissionCoordinatorError("capture_admission_truth_drift")
+        lease_states = {lease.status for lease in self.owner_store.leases.values()}
+        marker = self.owner_store.wal.reconciliation_claim_ref
+        if marker is not None:
+            if (
+                marker != work.reconciliation_claim_ref
+                or lease_states != {"terminated"}
+                or self.owner_store.wal.owner_session_active
+            ):
+                raise SubmissionCoordinatorError("capture_admission_reconciled_shape_drift")
+            decision = CaptureAdmissionDecision.RECONCILED_NO_AUTHORITY
+        elif lease_states == {"active"} and self.owner_store.wal.owner_session_active:
+            decision = CaptureAdmissionDecision.DIRECT_OWNER_LIVE
+        else:
+            decision = CaptureAdmissionDecision.NO_LIVE_AUTHORITY
+        return DurableCaptureAdmission(
+            operation=work.workflow.operation,
+            operation_state_version=operation.state_version,
+            capture_state_version=capture.state_version,
+            decision=decision,
+            reconciliation_claim_ref=marker,
+        )
+
     def store_capture(
         self,
         *,
@@ -817,6 +858,10 @@ class InMemoryDurableSubmissionRepository:
             source_send_state=capture.source_send_state,
             expected_capture_version=capture.state_version,
             attempt_ref=work.capture_attempt_ref,
+            staging_intent=deterministic_capture_staging_intent(
+                operation=capture.operation,
+                attempt_ref=work.capture_attempt_ref,
+            ),
             capture_policy_revision=context.capture_policy_revision,
             requested_surface_product=capture.expected_surface_product,
             authority=context.authority,
@@ -1233,10 +1278,10 @@ class FakeReconciliationGateway:
         ):
             raise SubmissionCoordinatorError("reconciliation_evidence_mismatch")
         wal = self.store.wal
+        terminated_digest = self.store.terminate_exact_leases(at=self.clock.now())
+        if terminated_digest != wal.fence_set_sha256:
+            raise SubmissionCoordinatorError("terminated_lease_fence_set_mismatch")
         if wal.boundary is BoundaryState.NOT_ENTERED:
-            terminated_digest = self.store.terminate_exact_leases(at=self.clock.now())
-            if terminated_digest != wal.fence_set_sha256:
-                raise SubmissionCoordinatorError("terminated_lease_fence_set_mismatch")
             proof_material = {
                 "boundary": wal.boundary.value,
                 "dispatch_ref": wal.owner_dispatch_ref,
@@ -1279,6 +1324,21 @@ class FakeReconciliationGateway:
 class CaptureGatewayStore:
     modes_by_attempt: dict[str, str] = field(default_factory=dict)
     invocations: dict[str, int] = field(default_factory=dict)
+    objects_by_intent: dict[str, CaptureStagingRef] = field(default_factory=dict)
+    results_by_intent: dict[str, CaptureDisposition] = field(default_factory=dict)
+
+    def put_object(
+        self,
+        intent: CaptureStagingIntent,
+        staging: CaptureStagingRef,
+    ) -> CaptureStagingRef:
+        if staging.staging_key != intent.staging_key or staging.object_ref != intent.object_ref:
+            raise SubmissionCoordinatorError("capture_object_intent_mismatch")
+        existing = self.objects_by_intent.get(intent.staging_key)
+        if existing is not None and existing != staging:
+            raise SubmissionCoordinatorError("capture_object_metadata_drift")
+        self.objects_by_intent.setdefault(intent.staging_key, staging)
+        return self.objects_by_intent[intent.staging_key]
 
 
 class FakeCaptureGateway:
@@ -1290,6 +1350,11 @@ class FakeCaptureGateway:
         self.store.invocations[command.attempt_ref] = (
             self.store.invocations.get(command.attempt_ref, 0) + 1
         )
+        existing_result = self.store.results_by_intent.get(command.staging_intent.staging_key)
+        if existing_result is not None:
+            if existing_result.staging is not None:
+                self.store.put_object(command.staging_intent, existing_result.staging)
+            return existing_result
         mode = self.store.modes_by_attempt.get(command.attempt_ref, "completed")
         observed_at = self.clock.now()
         observed_product = command.requested_surface_product
@@ -1308,15 +1373,16 @@ class FakeCaptureGateway:
                 observed_product = _surface_product(CollectionSurface.CONSUMER_WEB)
         if state in {CaptureState.COMPLETED, CaptureState.PARTIAL}:
             staging = CaptureStagingRef(
-                staging_key=f"staging-{command.attempt_ref}",
-                object_ref=f"object-{command.attempt_ref}",
+                staging_key=command.staging_intent.staging_key,
+                object_ref=command.staging_intent.object_ref,
                 content_sha256=_hash({"attempt": command.attempt_ref, "mode": mode}),
                 byte_size=128,
                 media_type="application/json",
                 capture_schema_revision="capture-schema-v1",
                 staged_at=observed_at + timedelta(milliseconds=1),
             )
-        return CaptureDisposition(
+            staging = self.store.put_object(command.staging_intent, staging)
+        result = CaptureDisposition(
             capture_state=cast(
                 Literal[
                     CaptureState.COMPLETED,
@@ -1337,6 +1403,8 @@ class FakeCaptureGateway:
             ),
             staging=staging,
         )
+        self.store.results_by_intent[command.staging_intent.staging_key] = result
+        return result
 
 
 @dataclass
@@ -1615,6 +1683,135 @@ def test_terminal_before_capture_crash_exposes_pending_not_capture_failed() -> N
     assert harness.owner_store.wal.submit_invocations == 1
 
 
+def test_object_upload_crash_reuses_one_intent_blob_and_converges() -> None:
+    harness = CoordinatorHarness()
+    harness.prepare()
+    point = CrashPoint.AFTER_OBJECT_UPLOAD_BEFORE_MANIFEST
+
+    with pytest.raises(InjectedCrash, match=point.value):
+        harness.coordinator(OneShotCrashHook(point)).run(harness.work)
+
+    durable_capture = harness.repository.load_capture(harness.work.workflow.operation)
+    assert durable_capture is not None
+    assert durable_capture.capture_state is CaptureState.CAPTURING
+    assert len(harness.capture_store.objects_by_intent) == 1
+    assert len(harness.capture_store.results_by_intent) == 1
+    assert harness.repository.load_capture_link(harness.work.workflow.operation) is None
+    base_fact = harness.repository.load_fact(harness.work.workflow.operation)
+    assert base_fact is not None
+    assert base_fact.outcome is SlotOutcome.CONFIRMED_SENT_CAPTURE_PENDING
+
+    recovered = harness.coordinator().run(harness.work)
+
+    assert recovered.capture is not None
+    assert recovered.capture.capture_state is CaptureState.COMPLETED
+    assert recovered.capture_link is not None
+    assert recovered.fact.outcome is SlotOutcome.CONFIRMED_SENT_CAPTURE_COMPLETE
+    assert recovered.fact.is_final_primary
+    assert harness.owner_store.wal.submit_invocations == 1
+    assert harness.capture_store.invocations[harness.work.capture_attempt_ref] == 2
+    assert len(harness.capture_store.objects_by_intent) == 1
+    assert len(harness.capture_store.results_by_intent) == 1
+    operation_id = harness.work.workflow.operation.operation_pub_id
+    history = harness.repository.fact_history[operation_id]
+    assert [fact.fact_version for fact in history] == [1, 2]
+    assert sum(fact.is_final_primary for fact in history) == 1
+    assert harness.repository.current_primary_fact[operation_id] == 2
+
+
+@pytest.mark.parametrize(
+    ("field_name", "drifted_value"),
+    (
+        ("object_ref", "drifted-object-ref"),
+        ("content_sha256", HASH_A),
+        ("byte_size", 999),
+        ("media_type", "text/plain"),
+        ("capture_schema_revision", "capture-schema-v2"),
+    ),
+)
+def test_idempotent_capture_object_store_rejects_metadata_drift(
+    field_name: str,
+    drifted_value: object,
+) -> None:
+    harness = CoordinatorHarness()
+    intent = deterministic_capture_staging_intent(
+        operation=harness.prepare_work.workflow.operation,
+        attempt_ref="capture-attempt-object-drift",
+    )
+    staging = CaptureStagingRef(
+        staging_key=intent.staging_key,
+        object_ref=intent.object_ref,
+        content_sha256=HASH_B,
+        byte_size=128,
+        media_type="application/json",
+        capture_schema_revision="capture-schema-v1",
+        staged_at=NOW,
+    )
+    store = CaptureGatewayStore()
+    assert store.put_object(intent, staging) == staging
+    drifted = staging.model_copy(update={field_name: drifted_value})
+
+    with pytest.raises(
+        SubmissionCoordinatorError,
+        match=(
+            "capture_object_intent_mismatch"
+            if field_name == "object_ref"
+            else "capture_object_metadata_drift"
+        ),
+    ):
+        store.put_object(intent, drifted)
+
+    assert store.objects_by_intent == {intent.staging_key: staging}
+
+
+def test_owner_loss_terminal_crash_replays_base_fact_without_capture_authority() -> None:
+    harness = CoordinatorHarness(
+        CollectionSurface.CONSUMER_APP,
+        app_crash=True,
+    )
+    harness.prepare()
+    with pytest.raises(OwnerProcessCrash, match="app_process_crash"):
+        harness.coordinator().run(harness.work)
+    harness.owner_store.mark_owner_dead()
+
+    point = CrashPoint.AFTER_TERMINAL_BEFORE_CAPTURE
+    with pytest.raises(InjectedCrash, match=point.value):
+        harness.coordinator(OneShotCrashHook(point)).run(harness.work)
+
+    terminal = harness.repository.load_operation(harness.work.workflow.operation)
+    assert terminal is not None and terminal.send_state is SendState.SEND_UNKNOWN
+    assert harness.repository.load_fact(harness.work.workflow.operation) is None
+    assert harness.capture_store.invocations == {}
+    assert harness.repository.submission_context_resolutions == 1
+
+    recovered = harness.coordinator().run(harness.work)
+
+    assert recovered.operation == terminal
+    assert recovered.capture is None
+    assert recovered.fact.outcome is SlotOutcome.SEND_UNKNOWN
+    assert recovered.fact.capture_state_version is None
+    assert harness.capture_store.invocations == {}
+    assert harness.repository.pending_outbox(harness.work.workflow.operation) == ()
+    assert harness.repository.submission_context_resolutions == 1
+
+
+def test_direct_terminal_with_nonlive_authority_keeps_base_fact_retryable() -> None:
+    harness = CoordinatorHarness()
+    harness.prepare()
+    point = CrashPoint.AFTER_TERMINAL_BEFORE_CAPTURE
+    with pytest.raises(InjectedCrash, match=point.value):
+        harness.coordinator(OneShotCrashHook(point)).run(harness.work)
+    harness.owner_store.mark_owner_dead()
+
+    recovered = harness.coordinator().run(harness.work)
+
+    assert recovered.operation.send_state is SendState.CONFIRMED_SENT
+    assert recovered.capture is None
+    assert recovered.fact.outcome is SlotOutcome.CONFIRMED_SENT_CAPTURE_PENDING
+    assert harness.capture_store.invocations == {}
+    assert harness.repository.submission_context_resolutions == 1
+
+
 def test_preparation_is_a_distinct_pre_resource_atomic_boundary() -> None:
     harness = CoordinatorHarness()
     assert "reservation_pub_id" not in PrepareWorkItem.model_fields
@@ -1817,11 +2014,10 @@ def test_app_process_crash_after_action_recovers_unknown_without_resend() -> Non
     assert harness.owner_store.wal.provider_provenance["package"] == "com.example.doubao"
     assert harness.owner_store.wal.provider_provenance["build"] == "20260824.1"
     assert harness.owner_store.wal.provider_provenance["channel"] == "production"
-    assert recovered.capture is not None and recovered.capture.provenance is not None
-    assert recovered.capture.provenance.capture_channel is CaptureChannel.APP_ACCESSIBILITY
-    assert recovered.capture.provenance.observed_product_version == (
-        "android-build-20260824.1-production"
-    )
+    assert recovered.capture is None
+    assert recovered.fact.outcome is SlotOutcome.SEND_UNKNOWN
+    assert harness.capture_store.invocations == {}
+    assert all(lease.status == "terminated" for lease in harness.owner_store.leases.values())
 
 
 def test_web_uses_one_submit_selector_and_exact_session_fence_once() -> None:
@@ -1919,6 +2115,7 @@ def test_exact_fact_with_missing_outbox_is_atomically_repaired() -> None:
         event
         for event in harness.repository.outboxes.values()
         if event.event_type == "collection.slot.outcome"
+        and event.aggregate_version == first.fact.fact_version
     )
     effects_before = dict(harness.consumer_store.effects)
     attempts_before = harness.consumer_store.publish_attempts[fact_event.outbox_key]
@@ -1931,6 +2128,94 @@ def test_exact_fact_with_missing_outbox_is_atomically_repaired() -> None:
     assert harness.repository.outboxes[fact_event.outbox_key] == fact_event
     assert harness.consumer_store.effects == effects_before
     assert harness.consumer_store.publish_attempts[fact_event.outbox_key] == attempts_before + 1
+    assert harness.owner_store.wal.submit_invocations == 1
+
+
+def test_completed_capture_fact_and_link_replay_without_basis_regression() -> None:
+    harness = CoordinatorHarness()
+    harness.prepare()
+    first = harness.coordinator().run(harness.work)
+    assert first.capture is not None and first.capture_link is not None
+    operation_id = first.operation.identity.operation_pub_id
+    history_before = tuple(harness.repository.fact_history[operation_id])
+    final_event = next(
+        event
+        for event in harness.repository.outboxes.values()
+        if event.event_type == "collection.slot.outcome"
+        and event.aggregate_version == first.fact.fact_version
+    )
+    publish_attempts = harness.consumer_store.publish_attempts[final_event.outbox_key]
+    harness.repository.published_outboxes.discard(final_event.outbox_key)
+
+    replay = harness.coordinator().run(harness.work)
+
+    assert replay.capture == first.capture
+    assert replay.capture_link == first.capture_link
+    assert replay.fact == first.fact
+    assert tuple(harness.repository.fact_history[operation_id]) == history_before
+    assert harness.consumer_store.publish_attempts[final_event.outbox_key] == (publish_attempts + 1)
+    assert harness.capture_store.invocations[harness.work.capture_attempt_ref] == 1
+
+
+def test_submission_retry_never_downgrades_an_existing_analysis_fact() -> None:
+    harness = CoordinatorHarness()
+    harness.prepare()
+    submission = harness.coordinator().run(harness.work)
+    assert submission.capture_link is not None
+    analyzed = harness.analysis_coordinator().retry(
+        work=harness.work,
+        attempt_ref="analysis-attempt-monotonic",
+        analyzer_revision="analyzer-v1",
+        analysis_policy_revision="analysis-policy-v1",
+    )
+    assert analyzed.analysis is not None
+    operation_id = analyzed.operation.identity.operation_pub_id
+    history_before = tuple(harness.repository.fact_history[operation_id])
+    final_event = next(
+        event
+        for event in harness.repository.outboxes.values()
+        if event.event_type == "collection.slot.outcome"
+        and event.aggregate_version == analyzed.fact.fact_version
+    )
+    harness.repository.published_outboxes.discard(final_event.outbox_key)
+    capture_calls = dict(harness.capture_store.invocations)
+
+    replay = harness.coordinator().run(harness.work)
+
+    assert replay.fact == analyzed.fact
+    assert replay.analysis == analyzed.analysis
+    assert replay.capture == analyzed.capture
+    assert replay.capture_link == analyzed.capture_link
+    assert tuple(harness.repository.fact_history[operation_id]) == history_before
+    assert harness.capture_store.invocations == capture_calls
+    assert harness.repository.pending_outbox(harness.work.workflow.operation) == ()
+
+
+def test_existing_analysis_fact_replay_rejects_outbox_payload_drift() -> None:
+    harness = CoordinatorHarness()
+    harness.prepare()
+    submission = harness.coordinator().run(harness.work)
+    assert submission.capture_link is not None
+    analyzed = harness.analysis_coordinator().retry(
+        work=harness.work,
+        attempt_ref="analysis-attempt-outbox-drift",
+        analyzer_revision="analyzer-v1",
+        analysis_policy_revision="analysis-policy-v1",
+    )
+    event = next(
+        event
+        for event in harness.repository.outboxes.values()
+        if event.event_type == "collection.slot.outcome"
+        and event.aggregate_version == analyzed.fact.fact_version
+    )
+    harness.repository.outboxes[event.outbox_key] = event.model_copy(
+        update={"payload_sha256": HASH_A}
+    )
+
+    with pytest.raises(SubmissionCoordinatorError, match="fact_outbox_conflict"):
+        harness.coordinator().run(harness.work)
+
+    assert harness.repository.load_fact(harness.work.workflow.operation) == analyzed.fact
     assert harness.owner_store.wal.submit_invocations == 1
 
 
@@ -2016,7 +2301,11 @@ def test_surface_mismatch_staging_is_quarantined_with_gc_and_cannot_be_retried()
     assert result.capture.normalization is CaptureNormalizationDecision.QUARANTINED_SURFACE_MISMATCH
     assert result.fact.outcome is SlotOutcome.INVALID_SURFACE_OR_PRODUCT
     assert not result.fact.is_final_primary
-    lifecycle = harness.repository.staging[f"staging-{attempt}"]
+    intent = deterministic_capture_staging_intent(
+        operation=harness.work.workflow.operation,
+        attempt_ref=attempt,
+    )
+    lifecycle = harness.repository.staging[intent.staging_key]
     assert lifecycle.state == "quarantined"
     assert lifecycle.quarantine_reason == "surface_product_mismatch"
     assert lifecycle.gc_after is not None
@@ -2224,7 +2513,7 @@ def test_capture_retry_records_fact_and_outbox_in_the_same_entry() -> None:
         if event.event_type == "collection.slot.outcome"
     ]
     assert recovered.fact.fact_version == failed.fact.fact_version + 1
-    assert len(outcome_events) == 2
+    assert len(outcome_events) == 3
     assert all(
         event.outbox_key in harness.repository.published_outboxes for event in outcome_events
     )

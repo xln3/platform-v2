@@ -1054,6 +1054,32 @@ class CaptureStagingRef(FrozenProtocolModel):
     staged_at: datetime
 
 
+class CaptureStagingIntent(FrozenProtocolModel):
+    """Deterministic object target registered before capture-side upload I/O."""
+
+    staging_key: OpaqueId
+    object_ref: OpaqueId
+
+
+def deterministic_capture_staging_intent(
+    *,
+    operation: OperationRef,
+    attempt_ref: str,
+) -> CaptureStagingIntent:
+    material = canonical_json(
+        {
+            "attempt_ref": attempt_ref,
+            "operation": operation.model_dump(mode="json"),
+            "version": "collection-capture-staging-intent-v1",
+        }
+    )
+    digest = sha256(material.encode()).hexdigest()
+    return CaptureStagingIntent(
+        staging_key=f"capture-staging-v1-{digest}",
+        object_ref=f"capture-object-v1-{digest}",
+    )
+
+
 class CaptureNormalizationDecision(StrEnum):
     ACCEPTED = "accepted"
     QUARANTINED_SURFACE_MISMATCH = "quarantined_surface_mismatch"
@@ -1195,6 +1221,7 @@ class CaptureExistingCommand(FrozenProtocolModel):
     source_send_state: Literal[SendState.CONFIRMED_SENT, SendState.SEND_UNKNOWN]
     expected_capture_version: int = Field(strict=True, ge=1)
     attempt_ref: OpaqueId
+    staging_intent: CaptureStagingIntent
     capture_policy_revision: OpaqueId
     requested_surface_product: SurfaceProductRef
     authority: OwnerAuthorityRef
@@ -1203,6 +1230,11 @@ class CaptureExistingCommand(FrozenProtocolModel):
 
     @model_validator(mode="after")
     def authority_is_fresh(self) -> Self:
+        if self.staging_intent != deterministic_capture_staging_intent(
+            operation=self.operation,
+            attempt_ref=self.attempt_ref,
+        ):
+            raise ValueError("capture_staging_intent_not_deterministic")
         if self.authority_sha256 != authority_digest(self.authority):
             raise ValueError("capture_authority_digest_mismatch")
         if not self.authority.checked_at <= self.requested_at < self.authority.valid_until:
@@ -1275,6 +1307,11 @@ def normalize_capture(
         raise SubmissionProtocolError("capture_observation_before_request")
     if observation.staging is not None and observation.staging.staged_at < observation.observed_at:
         raise SubmissionProtocolError("capture_staged_before_observation")
+    if observation.staging is not None and (
+        observation.staging.staging_key != command.staging_intent.staging_key
+        or observation.staging.object_ref != command.staging_intent.object_ref
+    ):
+        raise SubmissionProtocolError("capture_staging_intent_mismatch")
     command_hash = capture_command_digest(command)
     if observation.observed_surface_product != command.requested_surface_product:
         return CaptureDisposition(

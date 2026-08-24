@@ -18,6 +18,7 @@ from domain.collection.submission import (
     CaptureExistingPort,
     CaptureNormalizationDecision,
     CaptureProvenance,
+    CaptureStagingIntent,
     CaptureStagingRef,
     CaptureTruth,
     ClaimPlan,
@@ -58,6 +59,7 @@ from domain.collection.submission import (
     canonical_json,
     confirm_owner_claim,
     derive_slot_outcome,
+    deterministic_capture_staging_intent,
     deterministic_operation_key,
     deterministic_outbox_key,
     deterministic_provider_idempotency_key,
@@ -249,6 +251,10 @@ def _capture_command(
         source_send_state=capture.source_send_state,
         expected_capture_version=capture.state_version,
         attempt_ref=attempt_ref,
+        staging_intent=deterministic_capture_staging_intent(
+            operation=capture.operation,
+            attempt_ref=attempt_ref,
+        ),
         capture_policy_revision="capture-policy-v1",
         requested_surface_product=capture.expected_surface_product,
         authority=authority,
@@ -637,6 +643,74 @@ def test_submit_and_capture_ports_are_separate_and_capture_retry_never_resends()
     assert terminal.send_state is SendState.CONFIRMED_SENT
 
 
+def test_capture_staging_intent_is_deterministic_and_raw_upload_must_match() -> None:
+    capture = initial_capture_truth(_confirmed_sent())
+    command = _capture_command(
+        capture,
+        attempt_ref="capture-attempt-intent",
+        requested_at=NOW + timedelta(seconds=3),
+    )
+    replay = _capture_command(
+        capture,
+        attempt_ref="capture-attempt-intent",
+        requested_at=NOW + timedelta(seconds=3),
+    )
+    other = _capture_command(
+        capture,
+        attempt_ref="capture-attempt-other",
+        requested_at=NOW + timedelta(seconds=3),
+    )
+
+    assert replay.staging_intent == command.staging_intent
+    assert other.staging_intent != command.staging_intent
+    intent_hash = sha256(
+        canonical_json(
+            {
+                "attempt_ref": command.attempt_ref,
+                "operation": command.operation.model_dump(mode="json"),
+                "version": "collection-capture-staging-intent-v1",
+            }
+        ).encode()
+    ).hexdigest()
+    assert command.staging_intent.staging_key == f"capture-staging-v1-{intent_hash}"
+    assert command.staging_intent.object_ref == f"capture-object-v1-{intent_hash}"
+    with pytest.raises(ValidationError, match="capture_staging_intent_not_deterministic"):
+        CaptureExistingCommand.model_validate(
+            {
+                **command.model_dump(mode="python"),
+                "staging_intent": CaptureStagingIntent(
+                    staging_key="drifted-staging-key",
+                    object_ref="drifted-object-ref",
+                ),
+            }
+        )
+
+    observed_at = command.requested_at + timedelta(seconds=1)
+    observation = CaptureDisposition(
+        capture_state=CaptureState.COMPLETED,
+        attempt_ref=command.attempt_ref,
+        evidence_ref="capture-intent-evidence",
+        evidence_sha256=HASH_B,
+        observed_at=observed_at,
+        observed_surface_product=command.requested_surface_product,
+        provenance=_capture_provenance(
+            command.requested_surface_product.collection_surface,
+            observed_at=observed_at,
+        ),
+        staging=CaptureStagingRef(
+            staging_key="drifted-staging-key",
+            object_ref=command.staging_intent.object_ref,
+            content_sha256=HASH_A,
+            byte_size=1,
+            media_type="application/json",
+            capture_schema_revision="capture-schema-v1",
+            staged_at=observed_at + timedelta(seconds=1),
+        ),
+    )
+    with pytest.raises(SubmissionProtocolError, match="capture_staging_intent_mismatch"):
+        normalize_capture(command, observation)
+
+
 def test_capture_staging_link_and_analysis_truth_are_independent() -> None:
     terminal = _confirmed_sent()
     capture = initial_capture_truth(terminal)
@@ -647,8 +721,8 @@ def test_capture_staging_link_and_analysis_truth_are_independent() -> None:
     )
     capturing = begin_capture(capture, command)
     staging = CaptureStagingRef(
-        staging_key="staging-content-1",
-        object_ref="object-1",
+        staging_key=command.staging_intent.staging_key,
+        object_ref=command.staging_intent.object_ref,
         content_sha256=HASH_B,
         byte_size=42,
         media_type="application/json",
@@ -832,8 +906,8 @@ def test_surface_mismatch_is_quarantined_and_cannot_be_linked_or_analyzed() -> N
         ),
     )
     staging = CaptureStagingRef(
-        staging_key="quarantine-staging-1",
-        object_ref="quarantine-object-1",
+        staging_key=command.staging_intent.staging_key,
+        object_ref=command.staging_intent.object_ref,
         content_sha256=HASH_B,
         byte_size=8,
         media_type="application/json",

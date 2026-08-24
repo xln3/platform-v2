@@ -90,6 +90,7 @@ class CrashPoint(StrEnum):
     AFTER_OWNER_CAS_BEFORE_SUBMIT = "after_owner_cas_before_submit"
     AFTER_SUBMIT_BEFORE_ACK = "after_submit_before_ack"
     AFTER_TERMINAL_BEFORE_CAPTURE = "after_terminal_before_capture"
+    AFTER_OBJECT_UPLOAD_BEFORE_MANIFEST = "after_object_upload_before_manifest"
     AFTER_STAGING_BEFORE_LINK = "after_staging_before_link"
     AFTER_FACT_BEFORE_OUTBOX_PUBLISH = "after_fact_before_outbox_publish"
     AFTER_OUTBOX_PUBLISH_BEFORE_MARK = "after_outbox_publish_before_mark"
@@ -119,6 +120,7 @@ class RepositoryCapabilities(FrozenProtocolModel):
     atomic_terminal_and_quota: bool
     terminal_replay_integrity: bool
     durable_capture_command: bool
+    durable_capture_admission: bool
     immutable_capture_link: bool
     durable_analysis_command: bool
     atomic_fact_and_outbox: bool
@@ -139,6 +141,7 @@ PREPARATION_REQUIRED_DURABILITY = RepositoryCapabilities(
     atomic_terminal_and_quota=False,
     terminal_replay_integrity=False,
     durable_capture_command=False,
+    durable_capture_admission=False,
     immutable_capture_link=False,
     durable_analysis_command=False,
     atomic_fact_and_outbox=False,
@@ -154,6 +157,7 @@ SUBMISSION_REQUIRED_DURABILITY = RepositoryCapabilities(
     atomic_terminal_and_quota=True,
     terminal_replay_integrity=True,
     durable_capture_command=True,
+    durable_capture_admission=True,
     immutable_capture_link=True,
     durable_analysis_command=False,
     atomic_fact_and_outbox=True,
@@ -169,6 +173,7 @@ ANALYSIS_REQUIRED_DURABILITY = RepositoryCapabilities(
     atomic_terminal_and_quota=False,
     terminal_replay_integrity=False,
     durable_capture_command=False,
+    durable_capture_admission=False,
     immutable_capture_link=True,
     durable_analysis_command=True,
     atomic_fact_and_outbox=True,
@@ -268,6 +273,31 @@ class DurableCaptureAttempt(FrozenProtocolModel):
             or self.capture.active_request_sha256 != capture_command_digest(self.command)
         ):
             raise ValueError("durable_capture_attempt_mismatch")
+        return self
+
+
+class CaptureAdmissionDecision(StrEnum):
+    """Durable authority decision made before a new capture gateway call."""
+
+    DIRECT_OWNER_LIVE = "direct_owner_live"
+    RECONCILED_NO_AUTHORITY = "reconciled_no_authority"
+    NO_LIVE_AUTHORITY = "no_live_authority"
+
+
+class DurableCaptureAdmission(FrozenProtocolModel):
+    """Constant-size decision derived only from persisted dispatch/resource truth."""
+
+    operation: OperationRef
+    operation_state_version: int = Field(strict=True, ge=1)
+    capture_state_version: int = Field(strict=True, ge=1)
+    decision: CaptureAdmissionDecision
+    reconciliation_claim_ref: OpaqueId | None = None
+
+    @model_validator(mode="after")
+    def reconciliation_marker_matches_decision(self) -> Self:
+        reconciled = self.decision is CaptureAdmissionDecision.RECONCILED_NO_AUTHORITY
+        if reconciled != (self.reconciliation_claim_ref is not None):
+            raise ValueError("capture_admission_reconciliation_marker_shape_invalid")
         return self
 
 
@@ -443,6 +473,14 @@ class DurableSubmissionRepository(Protocol):
 
     def load_capture(self, operation: OperationRef) -> CaptureTruth | None: ...
 
+    def resolve_capture_admission(
+        self,
+        *,
+        work: SubmissionWorkItem,
+        operation: SubmissionOperationTruth,
+        capture: CaptureTruth,
+    ) -> DurableCaptureAdmission: ...
+
     def store_capture(
         self,
         *,
@@ -608,11 +646,14 @@ class _FactAndOutbox:
             _outcome_outbox(fact),
         )
         self._crash_hook.checkpoint(CrashPoint.AFTER_FACT_BEFORE_OUTBOX_PUBLISH)
-        for event in self._repository.pending_outbox(fact.operation):
+        self.publish_pending(fact.operation)
+        return fact
+
+    def publish_pending(self, operation: OperationRef) -> None:
+        for event in self._repository.pending_outbox(operation):
             self._publisher.publish(event)
             self._crash_hook.checkpoint(CrashPoint.AFTER_OUTBOX_PUBLISH_BEFORE_MARK)
             self._repository.mark_outbox_published(event.outbox_key)
-        return fact
 
 
 class CaptureCoordinator:
@@ -636,7 +677,7 @@ class CaptureCoordinator:
         self,
         *,
         work: SubmissionWorkItem,
-        context: ResolvedSubmissionContext,
+        context: ResolvedSubmissionContext | None,
         operation: SubmissionOperationTruth,
         explicit_retry: bool = False,
     ) -> tuple[CaptureTruth, ImmutableCaptureLink | None]:
@@ -667,6 +708,8 @@ class CaptureCoordinator:
             CaptureState.CAPTURING,
         } or (explicit_retry and capture.capture_state in retryable)
         if should_drive:
+            if context is None:
+                raise SubmissionCoordinatorError("capture_requires_live_owner_context")
             attempt = self._repository.start_or_resume_capture_attempt(
                 work=work,
                 context=context,
@@ -675,6 +718,7 @@ class CaptureCoordinator:
             )
             raw = self._gateway.capture_existing(attempt.command)
             normalized = normalize_capture(attempt.command, raw)
+            self._crash_hook.checkpoint(CrashPoint.AFTER_OBJECT_UPLOAD_BEFORE_MANIFEST)
             expected_capture = apply_capture_disposition(attempt.capture, normalized)
             capture = self._repository.resolve_capture_attempt(
                 attempt=attempt,
@@ -817,12 +861,11 @@ class SubmissionCoordinator:
         if operation is None:
             raise SubmissionCoordinatorError("prepared_operation_missing")
         self._repository.assert_operation_integrity(work, operation)
-        context = self._repository.resolve_context(work)
-        _validate_context(work, context)
-        prepare_submission(context.prepare, existing=operation)
 
+        context: ResolvedSubmissionContext | None = None
         no_submit: NoSubmitDecision | None = None
         if operation.send_state is SendState.NOT_SENT:
+            context = self._resolve_live_context(work, operation)
             operation, no_submit = self._attempt_fresh_submit(work, context, operation)
         if operation.send_state is SendState.SENDING:
             reconciliation_claim = self._repository.claim_reconciliation(
@@ -833,23 +876,108 @@ class SubmissionCoordinator:
                 raise SubmissionCoordinatorError("sending_owner_still_active_retryable")
             operation = self._reconcile(work, operation)
 
+        if operation.send_state not in {
+            SendState.CONFIRMED_SENT,
+            SendState.SEND_UNKNOWN,
+            SendState.CONFIRMED_NOT_SENT,
+        }:
+            raise SubmissionCoordinatorError("terminal_operation_required")
+
+        self._crash_hook.checkpoint(CrashPoint.AFTER_TERMINAL_BEFORE_CAPTURE)
+        base_fact = self._record_terminal_base(work=work, operation=operation)
         capture: CaptureTruth | None = None
         link: ImmutableCaptureLink | None = None
-        if operation.send_state in {SendState.CONFIRMED_SENT, SendState.SEND_UNKNOWN}:
-            self._crash_hook.checkpoint(CrashPoint.AFTER_TERMINAL_BEFORE_CAPTURE)
-            capture, link = self._capture.resume(
+        if base_fact.analysis_state_version is not None:
+            capture = self._repository.load_capture(operation_ref(operation.identity))
+            link = self._repository.load_capture_link(operation_ref(operation.identity))
+            analysis = self._repository.load_analysis(operation_ref(operation.identity))
+            if (
+                capture is None
+                or link is None
+                or analysis is None
+                or not base_fact.same_basis(
+                    outcome=derive_slot_outcome(
+                        operation,
+                        capture=capture,
+                        analysis=analysis,
+                    ),
+                    operation=operation,
+                    capture=capture,
+                    analysis=analysis,
+                    link=link,
+                )
+            ):
+                raise SubmissionCoordinatorError("existing_analysis_fact_basis_drift")
+            base_fact = self._facts.record_and_publish(
                 work=work,
-                context=context,
                 operation=operation,
+                capture=capture,
+                analysis=analysis,
+                link=link,
             )
-
-        fact = self._facts.record_and_publish(
-            work=work,
-            operation=operation,
-            capture=capture,
-            analysis=None,
-            link=link,
-        )
+            return CoordinatorResult(
+                operation=operation,
+                capture=capture,
+                capture_link=link,
+                analysis=analysis,
+                fact=base_fact,
+                quota=self._repository.quota_snapshot(work.reservation_pub_id),
+                no_submit=no_submit,
+            )
+        fact = base_fact
+        if operation.send_state in {SendState.CONFIRMED_SENT, SendState.SEND_UNKNOWN}:
+            ref = operation_ref(operation.identity)
+            durable_capture = self._repository.load_capture(ref)
+            if durable_capture is None:
+                durable_capture = self._repository.store_capture(
+                    expected_state_version=None,
+                    capture=initial_capture_truth(operation),
+                )
+            terminal_capture_states = {
+                CaptureState.COMPLETED,
+                CaptureState.PARTIAL,
+                CaptureState.FAILED,
+                CaptureState.NOT_OBSERVABLE,
+            }
+            if (
+                base_fact.capture_state_version is not None
+                and durable_capture.capture_state not in terminal_capture_states
+            ):
+                raise SubmissionCoordinatorError("existing_capture_fact_basis_drift")
+            if durable_capture.capture_state in terminal_capture_states:
+                capture, link = self._capture.resume(
+                    work=work,
+                    context=None,
+                    operation=operation,
+                )
+            else:
+                admission = self._repository.resolve_capture_admission(
+                    work=work,
+                    operation=operation,
+                    capture=durable_capture,
+                )
+                if (
+                    admission.operation != ref
+                    or admission.operation_state_version != operation.state_version
+                    or admission.capture_state_version != durable_capture.state_version
+                ):
+                    raise SubmissionCoordinatorError("capture_admission_truth_drift")
+                if admission.decision is CaptureAdmissionDecision.DIRECT_OWNER_LIVE:
+                    if context is None:
+                        context = self._resolve_live_context(work, operation)
+                    capture, link = self._capture.resume(
+                        work=work,
+                        context=context,
+                        operation=operation,
+                    )
+            if capture is not None:
+                fact = self._facts.record_and_publish(
+                    work=work,
+                    operation=operation,
+                    capture=capture,
+                    analysis=None,
+                    link=link,
+                )
         return CoordinatorResult(
             operation=operation,
             capture=capture,
@@ -858,6 +986,40 @@ class SubmissionCoordinator:
             quota=self._repository.quota_snapshot(work.reservation_pub_id),
             no_submit=no_submit,
         )
+
+    def _record_terminal_base(
+        self,
+        *,
+        work: SubmissionWorkItem,
+        operation: SubmissionOperationTruth,
+    ) -> SlotOutcomeFact:
+        existing = self._repository.load_fact(operation_ref(operation.identity))
+        if (
+            existing is not None
+            and existing.operation_state_version == operation.state_version
+            and (
+                existing.capture_state_version is not None
+                or existing.analysis_state_version is not None
+            )
+        ):
+            return existing
+        return self._facts.record_and_publish(
+            work=work,
+            operation=operation,
+            capture=None,
+            analysis=None,
+            link=None,
+        )
+
+    def _resolve_live_context(
+        self,
+        work: SubmissionWorkItem,
+        operation: SubmissionOperationTruth,
+    ) -> ResolvedSubmissionContext:
+        context = self._repository.resolve_context(work)
+        _validate_context(work, context)
+        prepare_submission(context.prepare, existing=operation)
+        return context
 
     def _attempt_fresh_submit(
         self,
