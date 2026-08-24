@@ -85,6 +85,9 @@ services:
       POSTGRES_USER: temporal
       POSTGRES_PWD: ${GEO_PROD_TEMPORAL_POSTGRES_PASSWORD:?required}
       POSTGRES_SEEDS: temporal-postgres
+      # Keep closed Workflow histories available across normal release and
+      # incident-response windows. The auto-setup image otherwise defaults to 24h.
+      DEFAULT_NAMESPACE_RETENTION: 720h
     ports: ['127.0.0.1:17234:7233']
     healthcheck:
       test: ['CMD', 'temporal', 'operator', 'cluster', 'health', '--address', 'temporal:7233']

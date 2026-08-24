@@ -6,6 +6,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Integer,
     LargeBinary,
     String,
@@ -143,7 +144,28 @@ class ResourceRegistration(TenantModel, Base):
 
 class CollectionRun(TenantModel, Base):
     __tablename__ = "collection_run"
-    __table_args__ = (UniqueConstraint("tenant_id", "idempotency_key"),)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "idempotency_key"),
+        ForeignKeyConstraint(
+            ["config_revision_v2_id", "tenant_id", "project_id"],
+            [
+                "platform.collection_config_revision_v2.id",
+                "platform.collection_config_revision_v2.tenant_id",
+                "platform.collection_config_revision_v2.project_id",
+            ],
+            name="fk_collection_run_config_v2_scope",
+        ),
+        ForeignKeyConstraint(
+            ["campaign_id", "tenant_id", "project_id", "config_revision_v2_id"],
+            [
+                "platform.collection_campaign.id",
+                "platform.collection_campaign.tenant_id",
+                "platform.collection_campaign.project_id",
+                "platform.collection_campaign.config_revision_id",
+            ],
+            name="fk_collection_run_campaign_config_scope",
+        ),
+    )
     project_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("platform.project.id"))
     config_version_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("platform.monitoring_config_version.id")
@@ -161,11 +183,42 @@ class CollectionRun(TenantModel, Base):
     schedule_pub_id: Mapped[str | None] = mapped_column(String(30))
     retry_of_run_pub_id: Mapped[str | None] = mapped_column(String(30))
     initiated_by_pub_id: Mapped[str | None] = mapped_column(String(30))
+    collection_surface: Mapped[str | None] = mapped_column(String(30))
+    surface_assignment_basis: Mapped[str | None] = mapped_column(String(128))
+    legacy_contract_version: Mapped[str | None] = mapped_column(String(80))
+    config_revision_v2_id: Mapped[uuid.UUID | None] = mapped_column()
+    campaign_id: Mapped[uuid.UUID | None] = mapped_column()
 
 
 class CollectionTask(TenantModel, Base):
     __tablename__ = "collection_task"
-    __table_args__ = (UniqueConstraint("run_id", "business_key"),)
+    __table_args__ = (
+        UniqueConstraint("run_id", "business_key"),
+        ForeignKeyConstraint(
+            ["campaign_target_id", "tenant_id"],
+            [
+                "platform.collection_campaign_target.id",
+                "platform.collection_campaign_target.tenant_id",
+            ],
+            name="fk_collection_task_campaign_target_tenant",
+        ),
+        ForeignKeyConstraint(
+            ["sampling_leg_id", "tenant_id"],
+            [
+                "platform.collection_sampling_leg.id",
+                "platform.collection_sampling_leg.tenant_id",
+            ],
+            name="fk_collection_task_sampling_leg_tenant",
+        ),
+        ForeignKeyConstraint(
+            ["primary_slot_id", "tenant_id"],
+            [
+                "platform.collection_primary_slot.id",
+                "platform.collection_primary_slot.tenant_id",
+            ],
+            name="fk_collection_task_primary_slot_tenant",
+        ),
+    )
     run_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("platform.collection_run.id"))
     business_key: Mapped[str] = mapped_column(String(255))
     matrix_json: Mapped[str] = mapped_column(Text)
@@ -186,6 +239,15 @@ class CollectionTask(TenantModel, Base):
     evidence_json: Mapped[str] = mapped_column(Text, default="[]")
     # W1：平台真实检索词 JSON 数组 [{"query": str, "ordinal": int}]；无检索词存 "[]"。
     search_queries_json: Mapped[str] = mapped_column(Text, default="[]")
+    collection_surface: Mapped[str | None] = mapped_column(String(30))
+    surface_assignment_basis: Mapped[str | None] = mapped_column(String(128))
+    legacy_contract_version: Mapped[str | None] = mapped_column(String(80))
+    requested_surface: Mapped[str | None] = mapped_column(String(30))
+    observed_surface: Mapped[str | None] = mapped_column(String(30))
+    observed_product_variant: Mapped[str | None] = mapped_column(String(128))
+    campaign_target_id: Mapped[uuid.UUID | None] = mapped_column()
+    sampling_leg_id: Mapped[uuid.UUID | None] = mapped_column()
+    primary_slot_id: Mapped[uuid.UUID | None] = mapped_column()
 
 
 class InterventionRequest(TenantModel, Base):
@@ -284,3 +346,574 @@ class RevocationRequest(TenantModel, Base):
     workflow_id: Mapped[str] = mapped_column(String(500), unique=True)
     deletion_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     error_code: Mapped[str | None] = mapped_column(Text)
+
+
+class CollectionConfigRevisionV2(TenantModel, Base):
+    """Immutable canonical collection configuration revision.
+
+    ``canonical_json`` and ``revision_hash`` are produced by
+    :mod:`domain.collection.surface`; persistence never reimplements the hash.
+    """
+
+    __tablename__ = "collection_config_revision_v2"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["project_id", "tenant_id"],
+            ["platform.project.id", "platform.project.tenant_id"],
+            name="fk_collection_config_revision_v2_project_scope",
+        ),
+        ForeignKeyConstraint(
+            ["parent_revision_id", "tenant_id", "project_id"],
+            [
+                "platform.collection_config_revision_v2.id",
+                "platform.collection_config_revision_v2.tenant_id",
+                "platform.collection_config_revision_v2.project_id",
+            ],
+            name="fk_collection_config_v2_parent_scope",
+        ),
+        UniqueConstraint(
+            "id",
+            "tenant_id",
+            "project_id",
+            name="uq_collection_config_revision_v2_id_scope",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "project_id",
+            "revision",
+            name="uq_collection_config_v2_revision",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "project_id",
+            "revision_hash",
+            name="uq_collection_config_v2_hash",
+        ),
+        UniqueConstraint(
+            "id",
+            "tenant_id",
+            "project_id",
+            "revision_hash",
+            name="uq_collection_config_v2_id_hash_scope",
+        ),
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column()
+    revision: Mapped[int] = mapped_column(Integer)
+    parent_revision_id: Mapped[uuid.UUID | None] = mapped_column()
+    lifecycle_state: Mapped[str] = mapped_column(String(30), default="draft")
+    schema_version: Mapped[str] = mapped_column(String(80))
+    question_set_revision: Mapped[str] = mapped_column(String(128))
+    canonical_json: Mapped[str] = mapped_column(Text)
+    revision_hash: Mapped[str] = mapped_column(String(64))
+    capability_registry_revision: Mapped[str] = mapped_column(String(128))
+    comparison_policy_revision: Mapped[str] = mapped_column(String(128))
+    samples_per_cell: Mapped[int] = mapped_column(Integer)
+    province_codes_json: Mapped[str] = mapped_column(Text)
+    schedule_policy_json: Mapped[str] = mapped_column(Text)
+    change_reason: Mapped[str] = mapped_column(String(128))
+    change_request_pub_id: Mapped[str | None] = mapped_column(String(128))
+    approved_by_pub_id: Mapped[str | None] = mapped_column(String(128))
+    frozen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class CollectionConfigTargetV2(TenantModel, Base):
+    """One explicit surface target frozen into a config revision."""
+
+    __tablename__ = "collection_config_target_v2"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["project_id", "tenant_id"],
+            ["platform.project.id", "platform.project.tenant_id"],
+            name="fk_collection_config_target_v2_project_scope",
+        ),
+        ForeignKeyConstraint(
+            ["config_revision_id", "tenant_id", "project_id"],
+            [
+                "platform.collection_config_revision_v2.id",
+                "platform.collection_config_revision_v2.tenant_id",
+                "platform.collection_config_revision_v2.project_id",
+            ],
+            name="fk_collection_config_target_v2_config_scope",
+        ),
+        UniqueConstraint(
+            "id",
+            "tenant_id",
+            "project_id",
+            name="uq_collection_config_target_v2_id_scope",
+        ),
+        UniqueConstraint(
+            "id",
+            "tenant_id",
+            "project_id",
+            "config_revision_id",
+            name="uq_collection_config_target_v2_config_scope",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "project_id",
+            "config_revision_id",
+            "target_key",
+            name="uq_collection_config_target_v2_key",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "project_id",
+            "config_revision_id",
+            "platform",
+            "collection_surface",
+            "product_variant",
+            name="uq_collection_config_target_v2_identity",
+        ),
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column()
+    config_revision_id: Mapped[uuid.UUID] = mapped_column()
+    target_key: Mapped[str] = mapped_column(String(500))
+    platform: Mapped[str] = mapped_column(String(128))
+    collection_surface: Mapped[str] = mapped_column(String(30))
+    product_variant: Mapped[str] = mapped_column(String(128))
+    interaction_modes_json: Mapped[str] = mapped_column(Text)
+    capability_revisions_json: Mapped[str] = mapped_column(Text)
+
+
+class CollectionCampaign(TenantModel, Base):
+    """A compact logical specification materialized before scheduler admission."""
+
+    __tablename__ = "collection_campaign"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["project_id", "tenant_id"],
+            ["platform.project.id", "platform.project.tenant_id"],
+            name="fk_collection_campaign_project_scope",
+        ),
+        ForeignKeyConstraint(
+            ["config_revision_id", "tenant_id", "project_id", "config_revision_hash"],
+            [
+                "platform.collection_config_revision_v2.id",
+                "platform.collection_config_revision_v2.tenant_id",
+                "platform.collection_config_revision_v2.project_id",
+                "platform.collection_config_revision_v2.revision_hash",
+            ],
+            name="fk_collection_campaign_config_hash_scope",
+        ),
+        UniqueConstraint(
+            "id",
+            "tenant_id",
+            "project_id",
+            name="uq_collection_campaign_id_scope",
+        ),
+        UniqueConstraint(
+            "id",
+            "tenant_id",
+            "project_id",
+            "config_revision_id",
+            name="uq_collection_campaign_config_scope",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "project_id",
+            "trigger_idempotency_key",
+            name="uq_collection_campaign_trigger_idempotency",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "project_id",
+            "membership_hash",
+            name="uq_collection_campaign_membership_hash",
+        ),
+        UniqueConstraint(
+            "id",
+            "tenant_id",
+            "project_id",
+            "specification_hash",
+            "slot_generator_version",
+            name="uq_collection_campaign_materialization_lineage",
+        ),
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column()
+    config_revision_id: Mapped[uuid.UUID] = mapped_column()
+    config_revision_hash: Mapped[str] = mapped_column(String(64))
+    question_set_revision: Mapped[str] = mapped_column(String(128))
+    time_window_key: Mapped[str] = mapped_column(String(255))
+    run_trigger_source: Mapped[str] = mapped_column(String(30))
+    trigger_idempotency_key: Mapped[str] = mapped_column(String(128))
+    binding_policy_revision: Mapped[str] = mapped_column(String(128))
+    membership_specification_json: Mapped[str] = mapped_column(Text)
+    specification_schema_version: Mapped[str] = mapped_column(String(80))
+    specification_hash: Mapped[str] = mapped_column(String(64))
+    slot_generator_version: Mapped[str] = mapped_column(String(80))
+    membership_digest_version: Mapped[str] = mapped_column(String(80))
+    expected_primary_slot_count: Mapped[int] = mapped_column(BigInteger)
+    expected_non_primary_slot_count: Mapped[int] = mapped_column(BigInteger)
+    expected_slot_count: Mapped[int] = mapped_column(BigInteger)
+    materialized_slot_count: Mapped[int] = mapped_column(BigInteger, default=0)
+    materialization_state: Mapped[str] = mapped_column(String(30), default="pending")
+    materialization_cursor: Mapped[int] = mapped_column(BigInteger, default=0)
+    membership_hash: Mapped[str | None] = mapped_column(String(64))
+    created_by_pub_id: Mapped[str] = mapped_column(String(128))
+    approved_by_pub_id: Mapped[str | None] = mapped_column(String(128))
+    triggered_by_pub_id: Mapped[str] = mapped_column(String(128))
+    frozen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    state: Mapped[str] = mapped_column(String(30), default="assembling")
+
+
+class CollectionCampaignTarget(TenantModel, Base):
+    """A campaign-local copy of a configured platform/product surface target."""
+
+    __tablename__ = "collection_campaign_target"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["project_id", "tenant_id"],
+            ["platform.project.id", "platform.project.tenant_id"],
+            name="fk_collection_campaign_target_project_scope",
+        ),
+        ForeignKeyConstraint(
+            ["campaign_id", "tenant_id", "project_id"],
+            [
+                "platform.collection_campaign.id",
+                "platform.collection_campaign.tenant_id",
+                "platform.collection_campaign.project_id",
+            ],
+            name="fk_collection_campaign_target_campaign_scope",
+        ),
+        ForeignKeyConstraint(
+            ["config_target_id", "tenant_id", "project_id"],
+            [
+                "platform.collection_config_target_v2.id",
+                "platform.collection_config_target_v2.tenant_id",
+                "platform.collection_config_target_v2.project_id",
+            ],
+            name="fk_collection_campaign_target_config_scope",
+        ),
+        UniqueConstraint(
+            "id",
+            "tenant_id",
+            "project_id",
+            name="uq_collection_campaign_target_id_scope",
+        ),
+        UniqueConstraint(
+            "id",
+            "tenant_id",
+            "project_id",
+            "campaign_id",
+            name="uq_collection_campaign_target_campaign_scope",
+        ),
+        UniqueConstraint(
+            "id",
+            "tenant_id",
+            name="uq_collection_campaign_target_tenant",
+        ),
+        UniqueConstraint(
+            "id",
+            "tenant_id",
+            "project_id",
+            "campaign_id",
+            "platform",
+            "collection_surface",
+            "product_variant",
+            name="uq_collection_campaign_target_identity_scope",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "project_id",
+            "campaign_id",
+            "target_key",
+            name="uq_collection_campaign_target_key",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "project_id",
+            "campaign_id",
+            "config_target_id",
+            name="uq_collection_campaign_target_config",
+        ),
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column()
+    campaign_id: Mapped[uuid.UUID] = mapped_column()
+    config_target_id: Mapped[uuid.UUID] = mapped_column()
+    target_key: Mapped[str] = mapped_column(String(500))
+    platform: Mapped[str] = mapped_column(String(128))
+    collection_surface: Mapped[str] = mapped_column(String(30))
+    product_variant: Mapped[str] = mapped_column(String(128))
+    interaction_modes_json: Mapped[str] = mapped_column(Text)
+    capability_revisions_json: Mapped[str] = mapped_column(Text)
+    binding_policy_revision: Mapped[str] = mapped_column(String(128))
+
+
+class CollectionSamplingLeg(TenantModel, Base):
+    """One target x province x interaction-mode comparison leg."""
+
+    __tablename__ = "collection_sampling_leg"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["project_id", "tenant_id"],
+            ["platform.project.id", "platform.project.tenant_id"],
+            name="fk_collection_sampling_leg_project_scope",
+        ),
+        ForeignKeyConstraint(
+            [
+                "campaign_target_id",
+                "tenant_id",
+                "project_id",
+                "campaign_id",
+                "platform",
+                "collection_surface",
+                "product_variant",
+            ],
+            [
+                "platform.collection_campaign_target.id",
+                "platform.collection_campaign_target.tenant_id",
+                "platform.collection_campaign_target.project_id",
+                "platform.collection_campaign_target.campaign_id",
+                "platform.collection_campaign_target.platform",
+                "platform.collection_campaign_target.collection_surface",
+                "platform.collection_campaign_target.product_variant",
+            ],
+            name="fk_collection_sampling_leg_target_identity",
+        ),
+        UniqueConstraint(
+            "id",
+            "tenant_id",
+            "project_id",
+            name="uq_collection_sampling_leg_id_scope",
+        ),
+        UniqueConstraint(
+            "id",
+            "tenant_id",
+            "project_id",
+            "campaign_id",
+            "campaign_target_id",
+            "platform",
+            "collection_surface",
+            "product_variant",
+            "province_code",
+            "interaction_mode",
+            name="uq_collection_sampling_leg_identity_scope",
+        ),
+        UniqueConstraint(
+            "id",
+            "tenant_id",
+            name="uq_collection_sampling_leg_tenant",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "project_id",
+            "campaign_id",
+            "leg_key",
+            name="uq_collection_sampling_leg_key",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "project_id",
+            "campaign_target_id",
+            "province_code",
+            "interaction_mode",
+            name="uq_collection_sampling_leg_cell",
+        ),
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column()
+    campaign_id: Mapped[uuid.UUID] = mapped_column()
+    campaign_target_id: Mapped[uuid.UUID] = mapped_column()
+    leg_key: Mapped[str] = mapped_column(String(1000))
+    platform: Mapped[str] = mapped_column(String(128))
+    collection_surface: Mapped[str] = mapped_column(String(30))
+    product_variant: Mapped[str] = mapped_column(String(128))
+    province_code: Mapped[str] = mapped_column(String(6))
+    interaction_mode: Mapped[str] = mapped_column(String(128))
+
+
+class CollectionCampaignMaterializationBatch(TenantModel, Base):
+    """One committed, retry-safe slot range for an assembling campaign."""
+
+    __tablename__ = "collection_campaign_materialization_batch"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["project_id", "tenant_id"],
+            ["platform.project.id", "platform.project.tenant_id"],
+            name="fk_collection_campaign_materialization_batch_project_scope",
+        ),
+        ForeignKeyConstraint(
+            [
+                "campaign_id",
+                "tenant_id",
+                "project_id",
+                "specification_hash",
+                "slot_generator_version",
+            ],
+            [
+                "platform.collection_campaign.id",
+                "platform.collection_campaign.tenant_id",
+                "platform.collection_campaign.project_id",
+                "platform.collection_campaign.specification_hash",
+                "platform.collection_campaign.slot_generator_version",
+            ],
+            name="fk_collection_campaign_materialization_batch_lineage",
+        ),
+        UniqueConstraint(
+            "id",
+            "tenant_id",
+            "project_id",
+            name="uq_collection_campaign_materialization_batch_id_scope",
+        ),
+        UniqueConstraint(
+            "id",
+            "tenant_id",
+            "project_id",
+            "campaign_id",
+            name="uq_collection_campaign_materialization_batch_campaign_scope",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "project_id",
+            "campaign_id",
+            "start_slot_ordinal",
+            "end_slot_ordinal_exclusive",
+            name="uq_collection_campaign_materialization_batch_range",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "project_id",
+            "campaign_id",
+            "idempotency_key",
+            name="uq_collection_campaign_materialization_batch_idempotency",
+        ),
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column()
+    campaign_id: Mapped[uuid.UUID] = mapped_column()
+    specification_hash: Mapped[str] = mapped_column(String(64))
+    slot_generator_version: Mapped[str] = mapped_column(String(80))
+    start_slot_ordinal: Mapped[int] = mapped_column(BigInteger)
+    end_slot_ordinal_exclusive: Mapped[int] = mapped_column(BigInteger)
+    slot_count: Mapped[int] = mapped_column(BigInteger)
+    prior_membership_chain_hash: Mapped[str] = mapped_column(String(64))
+    membership_chain_hash: Mapped[str] = mapped_column(String(64))
+    chunk_hash: Mapped[str] = mapped_column(String(64))
+    idempotency_key: Mapped[str] = mapped_column(String(128))
+    batch_state: Mapped[str] = mapped_column(String(30), default="preparing")
+    committed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class CollectionPrimarySlot(TenantModel, Base):
+    """Frozen logical slot; non-primary roles remain explicit and linked."""
+
+    __tablename__ = "collection_primary_slot"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["project_id", "tenant_id"],
+            ["platform.project.id", "platform.project.tenant_id"],
+            name="fk_collection_primary_slot_project_scope",
+        ),
+        ForeignKeyConstraint(
+            [
+                "sampling_leg_id",
+                "tenant_id",
+                "project_id",
+                "campaign_id",
+                "campaign_target_id",
+                "platform",
+                "collection_surface",
+                "product_variant",
+                "province_code",
+                "interaction_mode",
+            ],
+            [
+                "platform.collection_sampling_leg.id",
+                "platform.collection_sampling_leg.tenant_id",
+                "platform.collection_sampling_leg.project_id",
+                "platform.collection_sampling_leg.campaign_id",
+                "platform.collection_sampling_leg.campaign_target_id",
+                "platform.collection_sampling_leg.platform",
+                "platform.collection_sampling_leg.collection_surface",
+                "platform.collection_sampling_leg.product_variant",
+                "platform.collection_sampling_leg.province_code",
+                "platform.collection_sampling_leg.interaction_mode",
+            ],
+            name="fk_collection_primary_slot_leg_identity",
+        ),
+        ForeignKeyConstraint(
+            ["tenant_id", "project_id", "campaign_id", "related_primary_slot_key"],
+            [
+                "platform.collection_primary_slot.tenant_id",
+                "platform.collection_primary_slot.project_id",
+                "platform.collection_primary_slot.campaign_id",
+                "platform.collection_primary_slot.slot_key",
+            ],
+            name="fk_collection_primary_slot_related_primary",
+        ),
+        ForeignKeyConstraint(
+            [
+                "materialization_batch_id",
+                "tenant_id",
+                "project_id",
+                "campaign_id",
+            ],
+            [
+                "platform.collection_campaign_materialization_batch.id",
+                "platform.collection_campaign_materialization_batch.tenant_id",
+                "platform.collection_campaign_materialization_batch.project_id",
+                "platform.collection_campaign_materialization_batch.campaign_id",
+            ],
+            name="fk_collection_primary_slot_materialization_batch",
+        ),
+        UniqueConstraint(
+            "id",
+            "tenant_id",
+            "project_id",
+            name="uq_collection_primary_slot_id_scope",
+        ),
+        UniqueConstraint(
+            "id",
+            "tenant_id",
+            name="uq_collection_primary_slot_tenant",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "project_id",
+            "campaign_id",
+            "slot_key",
+            name="uq_collection_primary_slot_key",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "project_id",
+            "campaign_id",
+            "slot_ordinal",
+            name="uq_collection_primary_slot_ordinal",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "project_id",
+            "campaign_id",
+            "slot_identity_hash",
+            name="uq_collection_primary_slot_identity_hash",
+        ),
+        UniqueConstraint(
+            "tenant_id",
+            "project_id",
+            "campaign_id",
+            "sampling_leg_id",
+            "question_slot_id",
+            "sample_ordinal",
+            "slot_role",
+            name="uq_collection_primary_slot_logical_identity",
+        ),
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column()
+    campaign_id: Mapped[uuid.UUID] = mapped_column()
+    campaign_target_id: Mapped[uuid.UUID] = mapped_column()
+    sampling_leg_id: Mapped[uuid.UUID] = mapped_column()
+    materialization_batch_id: Mapped[uuid.UUID] = mapped_column()
+    slot_ordinal: Mapped[int] = mapped_column(BigInteger)
+    slot_key: Mapped[str] = mapped_column(String(1500))
+    slot_identity_hash: Mapped[str] = mapped_column(String(64))
+    question_slot_id: Mapped[str] = mapped_column(String(128))
+    question_revision: Mapped[str] = mapped_column(String(128))
+    platform: Mapped[str] = mapped_column(String(128))
+    collection_surface: Mapped[str] = mapped_column(String(30))
+    product_variant: Mapped[str] = mapped_column(String(128))
+    province_code: Mapped[str] = mapped_column(String(6))
+    interaction_mode: Mapped[str] = mapped_column(String(128))
+    sample_ordinal: Mapped[int] = mapped_column(Integer)
+    slot_role: Mapped[str] = mapped_column(String(30))
+    role_reason: Mapped[str | None] = mapped_column(String(128))
+    related_primary_slot_key: Mapped[str | None] = mapped_column(String(1500))
