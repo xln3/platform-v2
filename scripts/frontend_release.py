@@ -32,7 +32,10 @@ from urllib.parse import unquote, urlsplit
 
 ROOT = Path(__file__).parents[1]
 RELEASES_ROOT = ROOT / ".frontend-releases"
-NGINX_CONFIG = ROOT / "deploy/production/nginx-v2-locations.conf"
+NGINX_CONFIGS = (
+    ROOT / "deploy/production/nginx-v2-locations.conf",
+    ROOT / "deploy/production/geo-platform-v2-port-edges.conf",
+)
 APPS: dict[str, str] = {
     "customer-web": "/platform/customer/",
     "operations-web": "/platform/operations/",
@@ -391,18 +394,21 @@ def rename_exchange(left: Path, right: Path) -> None:
 
 
 def assert_nginx_direct_build_contract(
-    nginx_config: Path = NGINX_CONFIG, root: Path = ROOT
+    nginx_config: Path | Sequence[Path] = NGINX_CONFIGS, root: Path = ROOT
 ) -> None:
-    try:
-        config = nginx_config.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise ReleaseError("nginx_frontend_config_unreadable") from exc
+    config_paths = (nginx_config,) if isinstance(nginx_config, Path) else tuple(nginx_config)
+    configs: list[str] = []
+    for config_path in config_paths:
+        try:
+            configs.append(config_path.read_text(encoding="utf-8"))
+        except OSError as exc:
+            raise ReleaseError("nginx_frontend_config_unreadable") from exc
     for app, basename in APPS.items():
         app_route = basename.rstrip("/")
         alias = root / "apps" / app / "build" / "client"
         expected_location = f"location {basename} {{"
         expected_alias = f"alias {alias}/;"
-        if expected_location not in config or expected_alias not in config:
+        if not any(expected_location in config and expected_alias in config for config in configs):
             raise ReleaseError(f"nginx_frontend_contract_drift:{app_route}")
 
 
@@ -520,7 +526,7 @@ def activate_release(
     *,
     root: Path = ROOT,
     releases_root: Path = RELEASES_ROOT,
-    nginx_config: Path = NGINX_CONFIG,
+    nginx_config: Path | Sequence[Path] = NGINX_CONFIGS,
 ) -> dict[str, Any]:
     directory = release_directory(release_id, releases_root)
     manifest_path = directory / "manifest.json"

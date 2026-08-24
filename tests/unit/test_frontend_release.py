@@ -149,6 +149,40 @@ def test_bundle_inspection_rejects_fixture_source_map_and_missing_asset(tmp_path
         frontend_release.inspect_bundle(missing_bundle, basename)
 
 
+def test_nginx_contract_accepts_frontends_split_across_port_edges(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    backend_config = tmp_path / "backend.conf"
+    port_edges_config = tmp_path / "port-edges.conf"
+    backend_lines: list[str] = []
+    port_edge_lines: list[str] = []
+
+    for app, basename in frontend_release.APPS.items():
+        lines = port_edge_lines if app in {"customer-web", "operations-web"} else backend_lines
+        lines.extend(
+            [
+                f"location {basename} {{",
+                f"alias {root / 'apps' / app / 'build' / 'client'}/;",
+                "}",
+            ]
+        )
+
+    backend_config.write_text("\n".join(backend_lines), encoding="utf-8")
+    port_edges_config.write_text("\n".join(port_edge_lines), encoding="utf-8")
+
+    frontend_release.assert_nginx_direct_build_contract((backend_config, port_edges_config), root)
+
+    port_edges_config.write_text(
+        port_edges_config.read_text(encoding="utf-8").replace(
+            "/apps/customer-web/build/client/", "/apps/customer-web/previous/client/"
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(frontend_release.ReleaseError, match="/platform/customer"):
+        frontend_release.assert_nginx_direct_build_contract(
+            (backend_config, port_edges_config), root
+        )
+
+
 def test_failed_verification_atomically_restores_every_active_bundle(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
