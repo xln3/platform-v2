@@ -45,6 +45,7 @@ Stage 3 不包含完整 Stage 4 Temporal execution partition、Continue-As-New�
 | `389c6c1` | `feat(collection): bind durable capture provenance` | UTC canonical hash 与三表面 capture provenance |
 | `bd9879c` | `fix(collection): bind terminal transitions to owner fence` | terminal transition 与 owner dispatch/fence 的持久绑定 |
 | `b856037` | `feat(collection): add durable submission repository` | restricted-entry PostgreSQL repository、durable capture admission/object intent、terminal/base fact 和真实 PG 纵切 |
+| `d2ea2c4` | `fix(collection): align submission freeze gate` | 将 repository 的物化终态门与 Stage 1/database 的唯一真值 `complete` 对齐，并固定回归断言 |
 
 这些提交证明协议、纯编排边界和 fail-closed repository 已进入远端历史；repository 尚未接入生产 router/worker，且远端仍没有 `s10` schema。它们不证明 Temporal 或生产链路已经验收。
 
@@ -80,7 +81,9 @@ Stage 3 不包含完整 Stage 4 Temporal execution partition、Continue-As-New�
 - deterministic object intent 在 upload 前由 `operation + attempt` 生成，upload-before-manifest 崩溃重放复用同一 staging/object identity；
 - surface/product mismatch 固定写入 `invalid_surface_or_product`，quarantine 到期转 orphan 后仍保持同一正式事实语义。
 
-根代理最终聚焦回归结果为：`138 passed, 1 warning`；最终隔离 PostgreSQL `geo_verify_final4` 的 repository 纵切为 `6 passed`；Ruff 对 11 个相关文件通过；strict Mypy 对 7 个相关文件通过。测试未连接任何 provider、浏览器、App、object storage 或真实 event bus。
+Stage 4 开发期间的复核发现 repository 曾把 Campaign 物化终态拼为不存在的 `completed`，而 Stage 1 领域和 `s07` schema 的唯一合法值是 `complete`。该问题已由 `d2ea2c4` 修正；仓储单测固定验证 prepare 与 exact-replay 两个冻结门只接受 `frozen + complete`。修正后仓储单测为 `29 passed`，Ruff 与 strict Mypy 均通过。
+
+根代理此前的 Stage 3 聚焦回归结果为：`138 passed, 1 warning`；最终隔离 PostgreSQL `geo_verify_final4` 的 repository 纵切为 `6 passed`。上述终态错字不在原真实 PG 纵切覆盖路径内，因此不能引用那 6 个用例声称其已提前发现该问题。修正后的 Stage 1–4 非数据库聚焦回归为 `248 passed`；最终链进入远端后仍须重新执行真实 PostgreSQL prepare 纵切。测试未连接任何 provider、浏览器、App、object storage 或真实 event bus。
 
 ## Migration、repository 与提交链状态
 
