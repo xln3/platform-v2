@@ -204,13 +204,13 @@ def get_customer_services(
         delivery_by_number = {int(row["service_number"]): dict(row) for row in delivery_rows}
         answer_count_row = connection.execute(
             """
-            SELECT count(*) FROM platform.collection_task task
+            SELECT count(*)::int AS answer_count FROM platform.collection_task task
             JOIN platform.collection_run run ON run.id=task.run_id
             WHERE run.project_id=%s AND task.state='completed'
             """,
             (project_id,),
         ).fetchone()
-        answer_count = int(answer_count_row[0] if answer_count_row is not None else 0)
+        answer_count = int(answer_count_row["answer_count"] if answer_count_row is not None else 0)
         official = connection.execute(
             """
             WITH official_host AS (
