@@ -93,9 +93,9 @@ const applications = [
     expectedHeading: '平台账号与授权',
   },
   {
-    name: 'customer-monitoring',
-    url: '/platform/customer/?section=monitoring',
-    expectedHeading: '六大经营指数',
+    name: 'customer-services',
+    url: '/platform/customer/?section=services',
+    expectedHeading: '我的五项服务',
   },
   {
     name: 'customer-members',
