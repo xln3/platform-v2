@@ -792,6 +792,9 @@ def test_atomic_prepare_reserves_all_scopes_and_returns_database_reservation_ref
     assert request.registry_id == REGISTRY_ID
     assert connection.rollbacks == 0
     assert connection.commits == 1
+    sql = "\n".join(query for query, _ in connection.statements)
+    assert "campaign.materialization_state = 'complete'" in sql
+    assert "campaign.materialization_state = 'completed'" not in sql
 
 
 def test_quota_blocker_crosses_outer_transaction_and_prevents_manifest_write() -> None:
