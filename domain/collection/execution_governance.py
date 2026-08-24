@@ -33,8 +33,8 @@ BINDING_SCHEMA_VERSION: Literal["collection-binding-v1"] = "collection-binding-v
 EXECUTION_GRANT_SCHEMA_VERSION: Literal["collection-execution-grant-v1"] = (
     "collection-execution-grant-v1"
 )
-OWNER_AUTHORIZATION_SCHEMA_VERSION: Literal["collection-owner-authorization-v1"] = (
-    "collection-owner-authorization-v1"
+OWNER_AUTHORIZATION_SCHEMA_VERSION: Literal["collection-owner-authorization-v2"] = (
+    "collection-owner-authorization-v2"
 )
 QUOTA_RESERVATION_SET_VERSION: Literal["collection-quota-reservation-set-v1"] = (
     "collection-quota-reservation-set-v1"
@@ -1272,6 +1272,7 @@ class SubmissionOperationSnapshot(FrozenGovernanceModel):
     generation: int = Field(strict=True, ge=1)
     current_generation: int = Field(strict=True, ge=1)
     send_state: SendState
+    send_state_version: int = Field(strict=True, ge=1)
 
 
 class QuotaReservationEffectSnapshot(FrozenGovernanceModel):
@@ -1575,7 +1576,7 @@ class ResourceOwnerSnapshot(FrozenGovernanceModel):
 
 
 class SideEffectAuthorization(FrozenGovernanceModel):
-    schema_version: Literal["collection-owner-authorization-v1"] = (
+    schema_version: Literal["collection-owner-authorization-v2"] = (
         OWNER_AUTHORIZATION_SCHEMA_VERSION
     )
     grant_pub_id: str = Field(pattern=_OPAQUE_ID_PATTERN)
@@ -1585,6 +1586,7 @@ class SideEffectAuthorization(FrozenGovernanceModel):
     action: ExecutionAction
     checked_at: datetime
     expected_send_state: Literal[SendState.NOT_SENT] = SendState.NOT_SENT
+    expected_send_state_version: int = Field(strict=True, ge=1)
     required_next_send_state: Literal[SendState.SENDING] = SendState.SENDING
     quota_reservation_id: UUID
     quota_effect_ids: tuple[UUID, ...] = Field(min_length=1)

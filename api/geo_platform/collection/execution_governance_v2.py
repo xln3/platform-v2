@@ -799,6 +799,7 @@ def authorize_irreversible_action(
         owner_gateway_pub_id=owner.owner_gateway_pub_id,
         action=snapshot.action,
         checked_at=snapshot.checked_at,
+        expected_send_state_version=snapshot.operation.send_state_version,
         quota_reservation_id=grant.quota_reservation.reservation_id,
         quota_effect_ids=tuple(effect.effect_id for effect in grant.quota_reservation.effects),
         fence_assertions=grant.resource_fences,

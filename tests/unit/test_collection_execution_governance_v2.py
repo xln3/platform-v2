@@ -637,6 +637,7 @@ def _issue_request(surface: CollectionSurface) -> ExecutionGrantIssueRequest:
         generation=1,
         current_generation=1,
         send_state=SendState.NOT_SENT,
+        send_state_version=1,
     )
     binding = _binding(surface)
     return ExecutionGrantIssueRequest(
@@ -704,6 +705,7 @@ def test_three_typed_subtypes_issue_and_authorize_one_side_effect(
 
     assert authorization.operation_pub_id == snapshot.operation.operation_pub_id
     assert authorization.expected_send_state is SendState.NOT_SENT
+    assert authorization.expected_send_state_version == snapshot.operation.send_state_version
     assert authorization.required_next_send_state is SendState.SENDING
     assert authorization.owner_gateway_pub_id == _owner_handle(surface)
     assert len(authorization.fence_assertions) == len(_required_resources(surface))
@@ -1380,6 +1382,7 @@ def test_authorization_is_non_bearer_assertion_and_fresh_state_must_be_cas_persi
     authorization = authorize_irreversible_action(snapshot)
 
     assert authorization.expected_send_state is SendState.NOT_SENT
+    assert authorization.expected_send_state_version == snapshot.operation.send_state_version
     assert authorization.required_next_send_state is SendState.SENDING
     assert "credential_slot_handle" not in authorization.model_dump(mode="json")
 
