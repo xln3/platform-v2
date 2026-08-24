@@ -14,7 +14,7 @@
     "format:check": "prettier --check . && .venv/bin/ruff format --check api domain workflows migrations tests tools scripts",
     "typecheck": "turbo run typecheck && .venv/bin/mypy api workflows domain",
     "test": "turbo run test && pnpm test:e2e-runtime-unit && .venv/bin/pytest -q",
-    "test:e2e-runtime-unit": "vitest run tests/e2e/runtime-guard.test.ts tests/e2e/screenshot-safety.test.ts tools/browser_runtime_evidence.test.mjs --environment node",
+    "test:e2e-runtime-unit": "vitest run tests/e2e/runtime-guard.test.ts tests/e2e/screenshot-safety.test.ts tools/browser_runtime_evidence.test.mjs tools/production_browser_topology.test.mjs --environment node",
     "test:e2e": "playwright test",
     "generate:api": ".venv/bin/python scripts/export_openapi.py && openapi-typescript contracts/openapi.json -o packages/api-client/src/schema.generated.ts",
     "check:api": "pnpm generate:api && .venv/bin/python scripts/check_generated.py && .venv/bin/python scripts/check_frontend_contracts.py",

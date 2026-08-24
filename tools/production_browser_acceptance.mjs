@@ -7,6 +7,7 @@ import {
   isBrowserRuntimeEvidenceClean,
   persistSafeBrowserScreenshot,
 } from './browser_runtime_evidence.mjs';
+import { productionFrontendURL } from './production_browser_topology.mjs';
 import { loadLegacySessionCookie, loadNativeSessionCookie } from './production_identity.mjs';
 
 const baseURL = process.env.S04_PRODUCTION_URL ?? 'https://127.0.0.1:8443';
@@ -235,10 +236,13 @@ async function verify({ name, path, url, expectedHeading, sharedShell = true }, 
       localStorage.setItem('geo.session.role', 'admin');
     });
 
-    const response = await page.goto(`${baseURL}${url ?? `/platform/${path}/`}`, {
-      waitUntil: 'networkidle',
-      timeout: 30_000,
-    });
+    const response = await page.goto(
+      productionFrontendURL(baseURL, url ?? `/platform/${path}/`, candidateRoot !== null),
+      {
+        waitUntil: 'networkidle',
+        timeout: 30_000,
+      },
+    );
     await page.waitForTimeout(500);
     const expectedContentVisible = expectedHeading
       ? await page.getByRole('heading', { name: expectedHeading, exact: true }).isVisible()

@@ -4,6 +4,7 @@ import {
   collectBrowserRuntimeEvidence,
   isBrowserRuntimeEvidenceClean,
 } from './browser_runtime_evidence.mjs';
+import { productionFrontendURL } from './production_browser_topology.mjs';
 import { loadLegacySessionCookie, loadNativeSessionCookie } from './production_identity.mjs';
 
 const baseURL = process.env.S04_PRODUCTION_URL ?? 'https://127.0.0.1:8443';
@@ -66,10 +67,13 @@ try {
       const page = await context.newPage();
       const runtimeEvidence = collectBrowserRuntimeEvidence(page);
       try {
-        const response = await page.goto(`${baseURL}/platform/${application}/?section=${section}`, {
-          waitUntil: 'networkidle',
-          timeout: 30_000,
-        });
+        const response = await page.goto(
+          productionFrontendURL(baseURL, `/platform/${application}/?section=${section}`),
+          {
+            waitUntil: 'networkidle',
+            timeout: 30_000,
+          },
+        );
         const body = await page.locator('body').innerText();
         checks.push({
           application,

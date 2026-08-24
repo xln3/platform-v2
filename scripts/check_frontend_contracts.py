@@ -3999,7 +3999,8 @@ for e2e_source_path in sorted((root / "tests/e2e").glob("*.ts")):
 if root_package["scripts"].get("test:e2e-runtime-unit") != (
     "vitest run tests/e2e/runtime-guard.test.ts "
     "tests/e2e/screenshot-safety.test.ts "
-    "tools/browser_runtime_evidence.test.mjs --environment node"
+    "tools/browser_runtime_evidence.test.mjs "
+    "tools/production_browser_topology.test.mjs --environment node"
 ):
     errors.append("package.json must retain the browser runtime guard unit-test command")
 if "pnpm test:e2e-runtime-unit" not in root_package["scripts"].get("test", ""):
