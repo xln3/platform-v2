@@ -95,7 +95,7 @@ const applications = [
   {
     name: 'customer-monitoring',
     url: '/platform/customer/?section=monitoring',
-    expectedHeading: '模型表现',
+    expectedHeading: '六大经营指数',
   },
   {
     name: 'customer-members',
