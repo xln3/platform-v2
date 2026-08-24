@@ -29,6 +29,396 @@ SCHEMAS = (
     "sop",
     "posting",
 )
+STAGE2_TABLES = (
+    "collection_capability_registry_revision",
+    "collection_capability_declaration",
+    "collection_quota_registry_revision",
+    "collection_quota_scope_policy",
+    "collection_binding_revision_v2",
+    "collection_api_binding_v2",
+    "collection_web_binding_v2",
+    "collection_app_binding_v2",
+    "collection_binding_capability",
+    "collection_binding_resource",
+    "collection_binding_quota_scope",
+    "collection_submission_operation",
+    "collection_submission_reconciliation_proof",
+    "collection_resource_adoption",
+    "collection_resource_capacity_unit",
+    "collection_quota_bucket",
+    "collection_quota_reservation",
+    "collection_quota_reservation_effect",
+    "collection_quota_ledger_event",
+    "collection_execution_grant_v2",
+    "collection_api_execution_grant_v2",
+    "collection_web_execution_grant_v2",
+    "collection_app_execution_grant_v2",
+    "collection_execution_grant_resource",
+)
+STAGE2_API_INSERT_TABLES = (
+    "collection_capability_registry_revision",
+    "collection_capability_declaration",
+    "collection_quota_registry_revision",
+    "collection_quota_scope_policy",
+    "collection_binding_revision_v2",
+    "collection_api_binding_v2",
+    "collection_web_binding_v2",
+    "collection_app_binding_v2",
+    "collection_binding_capability",
+    "collection_binding_resource",
+    "collection_binding_quota_scope",
+    "collection_resource_adoption",
+)
+STAGE2_API_UPDATE_COLUMNS = {
+    "collection_capability_registry_revision": (
+        "lifecycle_state",
+        "change_reason",
+        "approved_by_pub_id",
+        "frozen_at",
+        "activated_at",
+        "retired_at",
+        "version",
+        "updated_at",
+    ),
+    "collection_capability_declaration": (
+        "status",
+        "production_allowed",
+        "region_policy_revision",
+        "required_resource_kinds_json",
+        "observable_capture_fields_json",
+        "product_version_constraints_json",
+        "unsupported_reason",
+        "alternative_suggestion",
+        "version",
+        "updated_at",
+    ),
+    "collection_quota_registry_revision": (
+        "lifecycle_state",
+        "change_reason",
+        "approved_by_pub_id",
+        "frozen_at",
+        "activated_at",
+        "retired_at",
+        "version",
+        "updated_at",
+    ),
+    "collection_quota_scope_policy": (
+        "share_policy",
+        "window_unit",
+        "window_size",
+        "window_timezone",
+        "window_boundary_revision",
+        "provider_window_code",
+        "limit_units",
+        "limit_source",
+        "settlement_policy_revision",
+        "lock_order_ordinal",
+        "version",
+        "updated_at",
+    ),
+    "collection_binding_revision_v2": (
+        "lifecycle_state",
+        "lifecycle_reason",
+        "activated_at",
+        "suspended_at",
+        "revoked_at",
+        "superseded_at",
+        "version",
+        "updated_at",
+    ),
+    "collection_resource_adoption": (
+        "verification_state",
+        "verified_by_pub_id",
+        "verified_at",
+        "adopted_at",
+        "revoked_at",
+        "state_reason",
+        "version",
+        "updated_at",
+    ),
+}
+STAGE2_WORKER_INSERT_TABLES = (
+    "collection_submission_operation",
+    "collection_resource_capacity_unit",
+    "collection_quota_bucket",
+    "collection_quota_reservation",
+    "collection_quota_reservation_effect",
+    "collection_execution_grant_v2",
+    "collection_api_execution_grant_v2",
+    "collection_web_execution_grant_v2",
+    "collection_app_execution_grant_v2",
+    "collection_execution_grant_resource",
+)
+STAGE2_WORKER_UPDATE_COLUMNS = {
+    "collection_submission_operation": (
+        "send_state",
+        "send_state_version",
+        "send_started_at",
+        "send_resolved_at",
+        "reconciliation_state",
+        "reconcile_after",
+        "state_reason",
+        "version",
+        "updated_at",
+    ),
+    "collection_resource_capacity_unit": (
+        "capacity_state",
+        "current_fencing_token",
+        "last_heartbeat_at",
+        "quarantined_at",
+        "revoked_at",
+        "state_reason",
+        "version",
+        "updated_at",
+    ),
+    "collection_quota_bucket": (
+        "reserved_units",
+        "settled_consumed_units",
+        "settled_unknown_units",
+        "bucket_state",
+        "fence_version",
+        "version",
+        "updated_at",
+    ),
+    "collection_quota_reservation": (
+        "reservation_state",
+        "reserved_at",
+        "finalized_at",
+        "reconcile_after",
+        "state_reason",
+        "version",
+        "updated_at",
+    ),
+    "collection_quota_reservation_effect": (
+        "effect_state",
+        "state_reason",
+        "settled_at",
+        "released_at",
+        "version",
+        "updated_at",
+    ),
+    "collection_execution_grant_v2": (
+        "grant_state",
+        "issued_at",
+        "revoked_at",
+        "revocation_reason",
+        "version",
+        "updated_at",
+    ),
+}
+RECONCILIATION_FUNCTION = (
+    "platform.record_collection_not_sent_proof_v2(uuid,uuid,uuid,text,text,text,text)"
+)
+STAGE2_FUNCTIONS = (
+    "platform.guard_resource_registration_v2()",
+    "platform.guard_capability_registry_v2()",
+    "platform.guard_capability_declaration_v2()",
+    "platform.guard_quota_registry_v2()",
+    "platform.guard_quota_scope_policy_v2()",
+    "platform.guard_binding_revision_v2()",
+    "platform.guard_binding_child_v2()",
+    "platform.guard_submission_operation_v2()",
+    "platform.guard_submission_reconciliation_proof_v2()",
+    RECONCILIATION_FUNCTION,
+    "platform.guard_resource_adoption_v2()",
+    "platform.guard_resource_capacity_v2()",
+    "platform.guard_resource_lease_v2()",
+    "platform.guard_quota_bucket_v2()",
+    "platform.guard_quota_reservation_v2()",
+    "platform.guard_quota_effect_v2()",
+    "platform.guard_quota_ledger_append_only_v2()",
+    "platform.assert_collection_quota_bucket_v2(uuid,uuid,uuid)",
+    "platform.assert_collection_quota_reservation_v2(uuid,uuid,uuid)",
+    "platform.validate_collection_quota_conservation_v2()",
+    "platform.guard_execution_grant_v2()",
+    "platform.guard_execution_grant_child_v2()",
+)
+
+
+def _relation_exists(connection: psycopg.Connection[tuple[object, ...]], table: str) -> bool:
+    row = connection.execute("SELECT to_regclass(%s)", (f"platform.{table}",)).fetchone()
+    return row is not None and row[0] is not None
+
+
+def _stage2_resource_extensions_exist(
+    connection: psycopg.Connection[tuple[object, ...]],
+) -> bool:
+    row = connection.execute(
+        """
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema='platform' AND table_name='resource_registration'
+          AND column_name='resource_schema_version'
+        """
+    ).fetchone()
+    return row is not None
+
+
+def apply_stage2_minimum_acl(
+    connection: psycopg.Connection[tuple[object, ...]], *, role: str
+) -> None:
+    """Undo schema-wide grants for Stage 2 and restore the exact runtime matrix."""
+
+    if role not in (API_ROLE, WORKER_ROLE):
+        raise ValueError(f"unsupported Stage 2 runtime role:{role}")
+    existing = tuple(table for table in STAGE2_TABLES if _relation_exists(connection, table))
+    for table in existing:
+        relation = sql.SQL("platform.{}").format(sql.Identifier(table))
+        connection.execute(sql.SQL("REVOKE ALL ON TABLE {} FROM PUBLIC").format(relation))
+        connection.execute(
+            sql.SQL("REVOKE ALL ON TABLE {} FROM {}").format(
+                relation,
+                sql.Identifier(role),
+            )
+        )
+        connection.execute(
+            sql.SQL("GRANT SELECT ON TABLE {} TO {}").format(
+                relation,
+                sql.Identifier(role),
+            )
+        )
+
+    insert_tables = STAGE2_API_INSERT_TABLES if role == API_ROLE else STAGE2_WORKER_INSERT_TABLES
+    update_columns = STAGE2_API_UPDATE_COLUMNS if role == API_ROLE else STAGE2_WORKER_UPDATE_COLUMNS
+    for table in insert_tables:
+        if table not in existing:
+            continue
+        connection.execute(
+            sql.SQL("GRANT INSERT ON TABLE platform.{} TO {}").format(
+                sql.Identifier(table),
+                sql.Identifier(role),
+            )
+        )
+    for table, columns in update_columns.items():
+        if table not in existing:
+            continue
+        connection.execute(
+            sql.SQL("GRANT UPDATE ({}) ON TABLE platform.{} TO {}").format(
+                sql.SQL(",").join(sql.Identifier(column) for column in columns),
+                sql.Identifier(table),
+                sql.Identifier(role),
+            )
+        )
+    if role == WORKER_ROLE and "collection_quota_ledger_event" in existing:
+        connection.execute(
+            sql.SQL("GRANT INSERT ON TABLE platform.collection_quota_ledger_event TO {}").format(
+                sql.Identifier(role)
+            )
+        )
+
+    for function in STAGE2_FUNCTIONS:
+        function_row = connection.execute("SELECT to_regprocedure(%s)", (function,)).fetchone()
+        if function_row is None or function_row[0] is None:
+            continue
+        signature = sql.SQL(function)
+        connection.execute(sql.SQL("REVOKE ALL ON FUNCTION {} FROM PUBLIC").format(signature))
+        connection.execute(
+            sql.SQL("REVOKE ALL ON FUNCTION {} FROM {}").format(
+                signature,
+                sql.Identifier(role),
+            )
+        )
+        if role == WORKER_ROLE and function == RECONCILIATION_FUNCTION:
+            connection.execute(
+                sql.SQL("GRANT EXECUTE ON FUNCTION {} TO {}").format(
+                    signature,
+                    sql.Identifier(role),
+                )
+            )
+
+    if not _stage2_resource_extensions_exist(connection):
+        return
+    for table in ("resource_registration", "resource_lease"):
+        connection.execute(
+            sql.SQL("REVOKE ALL ON TABLE platform.{} FROM {}").format(
+                sql.Identifier(table),
+                sql.Identifier(role),
+            )
+        )
+        connection.execute(
+            sql.SQL("GRANT SELECT ON TABLE platform.{} TO {}").format(
+                sql.Identifier(table),
+                sql.Identifier(role),
+            )
+        )
+    if role == API_ROLE:
+        connection.execute(
+            sql.SQL("GRANT INSERT ON TABLE platform.resource_registration TO {}").format(
+                sql.Identifier(role)
+            )
+        )
+        connection.execute(
+            sql.SQL(
+                "GRANT UPDATE (display_mask,capabilities_json,region,concurrency_limit,"
+                "state,last_heartbeat_at,project_id,resource_schema_version,"
+                "resource_revision,owner_gateway_kind,owner_gateway_revision,"
+                "opaque_owner_handle,attestation_revision,route_policy_revision,"
+                "resource_fingerprint,approved_at,revoked_at,version,updated_at) "
+                "ON platform.resource_registration TO {}"
+            ).format(sql.Identifier(role))
+        )
+    else:
+        connection.execute(
+            sql.SQL(
+                "GRANT UPDATE (state,last_heartbeat_at,revoked_at,version,updated_at) "
+                "ON platform.resource_registration TO {}"
+            ).format(sql.Identifier(role))
+        )
+        connection.execute(
+            sql.SQL("GRANT INSERT ON TABLE platform.resource_lease TO {}").format(
+                sql.Identifier(role)
+            )
+        )
+        connection.execute(
+            sql.SQL(
+                "GRANT UPDATE (lease_state,heartbeat_at,expires_at,released_at,"
+                "revoked_at,reconciliation_reason,version,updated_at) "
+                "ON platform.resource_lease TO {}"
+            ).format(sql.Identifier(role))
+        )
+
+
+def verify_stage2_minimum_acl(
+    connection: psycopg.Connection[tuple[object, ...]], *, role: str
+) -> None:
+    for table in STAGE2_TABLES:
+        if not _relation_exists(connection, table):
+            continue
+        delete_allowed = connection.execute(
+            "SELECT has_table_privilege(%s,%s,'DELETE')",
+            (role, f"platform.{table}"),
+        ).fetchone()
+        if delete_allowed is None or delete_allowed[0] is not False:
+            raise RuntimeError(f"stage2 role has DELETE privilege:{role}:{table}")
+        identity_update = connection.execute(
+            "SELECT has_column_privilege(%s,%s,'tenant_id','UPDATE')",
+            (role, f"platform.{table}"),
+        ).fetchone()
+        if identity_update is None or identity_update[0] is not False:
+            raise RuntimeError(f"stage2 role can update identity:{role}:{table}")
+    for table, column, expected in (
+        ("collection_quota_bucket", "reserved_units", role == WORKER_ROLE),
+        ("collection_quota_bucket", "bucket_key", False),
+        ("collection_submission_reconciliation_proof", "proof_state", False),
+    ):
+        if not _relation_exists(connection, table):
+            continue
+        allowed = connection.execute(
+            "SELECT has_column_privilege(%s,%s,%s,'UPDATE')",
+            (role, f"platform.{table}", column),
+        ).fetchone()
+        if allowed is None or allowed[0] is not expected:
+            raise RuntimeError(f"stage2 column ACL mismatch:{role}:{table}:{column}")
+    proof_function = connection.execute(
+        "SELECT to_regprocedure(%s)", (RECONCILIATION_FUNCTION,)
+    ).fetchone()
+    if proof_function is not None and proof_function[0] is not None:
+        allowed = connection.execute(
+            "SELECT has_function_privilege(%s,%s,'EXECUTE')",
+            (role, RECONCILIATION_FUNCTION),
+        ).fetchone()
+        expected = role == WORKER_ROLE
+        if allowed is None or allowed[0] is not expected:
+            raise RuntimeError(f"stage2 reconciliation EXECUTE mismatch:{role}")
 
 
 def read_environment(path: Path) -> tuple[list[str], dict[str, str]]:
@@ -133,18 +523,20 @@ def install_role(owner_dsn: str, password: str, *, role: str, bypass_rls: bool) 
                     sql.Identifier(role),
                 )
             )
+        apply_stage2_minimum_acl(connection, role=role)
 
 
 def verify_role(dsn: str, *, bypass_rls: bool) -> None:
     with psycopg.connect(dsn.replace("postgresql+psycopg://", "postgresql://")) as connection:
         role = connection.execute(
             """
-            SELECT rolsuper,rolcreatedb,rolcreaterole,rolbypassrls
+            SELECT rolname,rolsuper,rolcreatedb,rolcreaterole,rolbypassrls
             FROM pg_roles WHERE rolname=current_user
             """
         ).fetchone()
-        if role != (False, False, False, bypass_rls):
+        if role is None or role[1:] != (False, False, False, bypass_rls):
             raise RuntimeError("runtime database role is privileged")
+        verify_stage2_minimum_acl(connection, role=str(role[0]))
         connection.execute("SELECT count(*) FROM sop.project").fetchone()
         tenant = connection.execute(
             "SELECT id,pub_id FROM platform.tenant ORDER BY id LIMIT 1"
