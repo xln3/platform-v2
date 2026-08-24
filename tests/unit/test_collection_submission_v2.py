@@ -43,9 +43,12 @@ from domain.collection.submission import (
     AnalysisCommand,
     AnalysisDisposition,
     AnalysisTruth,
+    CaptureChannel,
+    CaptureDataClassification,
     CaptureDisposition,
     CaptureExistingCommand,
     CaptureNormalizationDecision,
+    CaptureProvenance,
     CaptureStagingRef,
     CaptureTruth,
     ImmutableCaptureLink,
@@ -156,6 +159,45 @@ def _surface_product(surface: CollectionSurface) -> SurfaceProductRef:
         collection_surface=surface,
         product_variant=variant,
         target_key=target_key,
+    )
+
+
+def _capture_provenance(
+    product: SurfaceProductRef,
+    *,
+    observed_at: datetime,
+) -> CaptureProvenance:
+    source_fields = {
+        CollectionSurface.PROVIDER_API: (
+            CaptureChannel.PROVIDER_PAYLOAD,
+            "provider-response-v1",
+            "gpt-5.4-20260824",
+            "responses-api-capture-v3",
+        ),
+        CollectionSurface.CONSUMER_WEB: (
+            CaptureChannel.WEB_DOM,
+            "web-dom-snapshot-v1",
+            "web-release-20260824",
+            "browser-dom-capture-v2",
+        ),
+        CollectionSurface.CONSUMER_APP: (
+            CaptureChannel.APP_ACCESSIBILITY,
+            "app-accessibility-snapshot-v1",
+            "android-build-20260824.1-production",
+            "android-accessibility-capture-v2",
+        ),
+    }
+    channel, protocol_revision, product_version, adapter_revision = source_fields[
+        product.collection_surface
+    ]
+    return CaptureProvenance(
+        capture_channel=channel,
+        capture_protocol_revision=protocol_revision,
+        observed_product_version=product_version,
+        capture_adapter_revision=adapter_revision,
+        data_classification=CaptureDataClassification.CUSTOMER_PRIVATE,
+        dlp_policy_revision="collection-dlp-v3",
+        retention_until=observed_at + timedelta(days=30),
     )
 
 
@@ -433,6 +475,7 @@ class DurableQuotaStore:
 class StagingLifecycle:
     staging: CaptureStagingRef
     attempt_ref: str
+    provenance: CaptureProvenance
     state: Literal["staged", "linked", "quarantined"]
     quarantine_reason: str | None = None
     gc_after: datetime | None = None
@@ -505,6 +548,7 @@ class InMemoryDurableSubmissionRepository:
         self.current_primary_fact: dict[str, int] = {}
         self.force_cas_loss = False
         self.prepare_blocked = False
+        self.capture_resolution_provenance_override: CaptureProvenance | None = None
         self.capability_overrides: dict[str, bool] = {}
 
     @staticmethod
@@ -810,6 +854,7 @@ class InMemoryDurableSubmissionRepository:
                 self.staging[raw.staging.staging_key] = StagingLifecycle(
                     staging=raw.staging,
                     attempt_ref=raw.attempt_ref,
+                    provenance=raw.provenance,
                     state="quarantined",
                     quarantine_reason="surface_product_mismatch",
                     gc_after=raw.observed_at + timedelta(days=7),
@@ -818,9 +863,17 @@ class InMemoryDurableSubmissionRepository:
                 self.staging[raw.staging.staging_key] = StagingLifecycle(
                     staging=raw.staging,
                     attempt_ref=raw.attempt_ref,
+                    provenance=raw.provenance,
                     state="staged",
                 )
         resolved = apply_capture_disposition(attempt.capture, normalized)
+        if self.capture_resolution_provenance_override is not None:
+            resolved = CaptureTruth.model_validate(
+                {
+                    **resolved.model_dump(mode="python"),
+                    "provenance": self.capture_resolution_provenance_override,
+                }
+            )
         self.captures[operation_id] = resolved
         return resolved
 
@@ -1275,6 +1328,10 @@ class FakeCaptureGateway:
             evidence_sha256=_hash({"capture": command.attempt_ref, "mode": mode}),
             observed_at=observed_at,
             observed_surface_product=observed_product,
+            provenance=_capture_provenance(
+                observed_product,
+                observed_at=observed_at,
+            ),
             staging=staging,
         )
 
@@ -1677,6 +1734,10 @@ def test_api_timeout_is_durable_unknown_with_provider_provenance_and_no_resend()
         "result": "timeout",
         "transport": "https",
     }
+    assert first.capture is not None and first.capture.provenance is not None
+    assert first.capture.provenance.capture_channel is CaptureChannel.PROVIDER_PAYLOAD
+    assert first.capture.provenance.capture_protocol_revision == "provider-response-v1"
+    assert first.capture.provenance.observed_product_version == "gpt-5.4-20260824"
     assert not first.fact.is_final_primary
 
 
@@ -1698,6 +1759,11 @@ def test_app_process_crash_after_action_recovers_unknown_without_resend() -> Non
     assert harness.owner_store.wal.provider_provenance["package"] == "com.example.doubao"
     assert harness.owner_store.wal.provider_provenance["build"] == "20260824.1"
     assert harness.owner_store.wal.provider_provenance["channel"] == "production"
+    assert recovered.capture is not None and recovered.capture.provenance is not None
+    assert recovered.capture.provenance.capture_channel is CaptureChannel.APP_ACCESSIBILITY
+    assert recovered.capture.provenance.observed_product_version == (
+        "android-build-20260824.1-production"
+    )
 
 
 def test_web_uses_one_submit_selector_and_exact_session_fence_once() -> None:
@@ -1716,6 +1782,9 @@ def test_web_uses_one_submit_selector_and_exact_session_fence_once() -> None:
     assert harness.owner_store.wal.provider_provenance["session_fence"] == (
         harness.context.authority.fence_set_sha256
     )
+    assert first.capture is not None and first.capture.provenance is not None
+    assert first.capture.provenance.capture_channel is CaptureChannel.WEB_DOM
+    assert first.capture.provenance.capture_adapter_revision == "browser-dom-capture-v2"
 
 
 def test_exact_terminal_replay_revalidates_three_scope_effects_and_unique_ledger() -> None:
@@ -1893,6 +1962,8 @@ def test_surface_mismatch_staging_is_quarantined_with_gc_and_cannot_be_retried()
     assert lifecycle.state == "quarantined"
     assert lifecycle.quarantine_reason == "surface_product_mismatch"
     assert lifecycle.gc_after is not None
+    assert result.capture.provenance == lifecycle.provenance
+    assert lifecycle.provenance.capture_channel is CaptureChannel.PROVIDER_PAYLOAD
     assert harness.repository.capture_links == {}
 
     work = _set_capture_attempt(harness, "capture-attempt-consumer-web-2")
@@ -2016,12 +2087,65 @@ def test_capturing_recovery_with_same_attempt_reuses_durable_active_command() ->
     )
 
     assert capture.capture_state is CaptureState.COMPLETED
+    assert capture.provenance is not None
+    assert capture.provenance.capture_channel is CaptureChannel.WEB_DOM
     assert link is not None
     assert harness.repository.capture_commands[operation.identity.operation_pub_id] == (
         persisted_command
     )
     assert harness.capture_store.invocations[second_attempt] == 1
     assert harness.owner_store.wal.submit_invocations == 1
+
+
+def test_durable_capture_attempt_rejects_command_digest_drift() -> None:
+    harness = CoordinatorHarness()
+    harness.prepare()
+    attempt_ref = harness.work.capture_attempt_ref
+    harness.capture_store.modes_by_attempt[attempt_ref] = "failed"
+    first = harness.coordinator().run(harness.work)
+    assert first.capture is not None
+    work = _set_capture_attempt(harness, "capture-attempt-consumer-web-2")
+    attempt = harness.repository.start_or_resume_capture_attempt(
+        work=work,
+        context=harness.context,
+        capture=first.capture,
+        requested_at=harness.clock.now(),
+    )
+    drifted_command = attempt.command.model_copy(
+        update={"capture_policy_revision": "capture-policy-drifted"}
+    )
+
+    with pytest.raises(ValidationError, match="durable_capture_attempt_mismatch"):
+        DurableCaptureAttempt(
+            capture=attempt.capture,
+            command=drifted_command,
+            freshly_started=False,
+        )
+
+
+def test_capture_resolution_provenance_drift_fails_exact_compare() -> None:
+    harness = CoordinatorHarness()
+    harness.prepare()
+    expected = _capture_provenance(
+        _surface_product(CollectionSurface.CONSUMER_WEB),
+        observed_at=NOW,
+    )
+    harness.repository.capture_resolution_provenance_override = expected.model_copy(
+        update={"capture_adapter_revision": "unexpected-adapter-v9"}
+    )
+
+    with pytest.raises(
+        SubmissionCoordinatorError,
+        match="capture_resolution_exact_replay_mismatch",
+    ):
+        harness.coordinator().run(harness.work)
+
+    assert harness.owner_store.wal.submit_invocations == 1
+    assert harness.capture_store.invocations[harness.work.capture_attempt_ref] == 1
+    capture = harness.repository.load_capture(harness.work.workflow.operation)
+    assert capture is not None and capture.provenance is not None
+    assert capture.provenance.capture_adapter_revision == "unexpected-adapter-v9"
+    assert harness.repository.capture_links == {}
 
 
 def test_capture_retry_records_fact_and_outbox_in_the_same_entry() -> None:

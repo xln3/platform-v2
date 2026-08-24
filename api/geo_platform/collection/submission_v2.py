@@ -53,9 +53,11 @@ from domain.collection.submission import (
     TerminalSubmissionTransition,
     WorkflowOperationInput,
     apply_analysis_disposition,
+    apply_capture_disposition,
     apply_preflight_not_sent,
     apply_submit_disposition,
     canonical_json,
+    capture_command_digest,
     confirm_owner_claim,
     derive_slot_outcome,
     deterministic_outbox_key,
@@ -263,7 +265,7 @@ class DurableCaptureAttempt(FrozenProtocolModel):
         if (
             self.capture.operation != self.command.operation
             or self.capture.active_attempt_ref != self.command.attempt_ref
-            or self.capture.active_request_sha256 is None
+            or self.capture.active_request_sha256 != capture_command_digest(self.command)
         ):
             raise ValueError("durable_capture_attempt_mismatch")
         return self
@@ -673,11 +675,14 @@ class CaptureCoordinator:
             )
             raw = self._gateway.capture_existing(attempt.command)
             normalized = normalize_capture(attempt.command, raw)
+            expected_capture = apply_capture_disposition(attempt.capture, normalized)
             capture = self._repository.resolve_capture_attempt(
                 attempt=attempt,
                 raw=raw,
                 normalized=normalized,
             )
+            if capture != expected_capture:
+                raise SubmissionCoordinatorError("capture_resolution_exact_replay_mismatch")
 
         link = self._repository.load_capture_link(ref)
         if capture.capture_state in {CaptureState.COMPLETED, CaptureState.PARTIAL} and (

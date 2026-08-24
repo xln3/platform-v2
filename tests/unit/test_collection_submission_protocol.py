@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from hashlib import sha256
-from typing import cast
 from uuid import UUID
 
 import pytest
@@ -12,13 +11,15 @@ from domain.collection.submission import (
     AnalysisCommand,
     AnalysisDisposition,
     AnalysisExistingCapturePort,
-    AnalysisState,
+    CaptureChannel,
+    CaptureDataClassification,
     CaptureDisposition,
     CaptureExistingCommand,
     CaptureExistingPort,
     CaptureNormalizationDecision,
+    CaptureProvenance,
     CaptureStagingRef,
-    CaptureState,
+    CaptureTruth,
     ClaimPlan,
     FreshSubmissionClaim,
     LeaseFenceRef,
@@ -38,7 +39,6 @@ from domain.collection.submission import (
     RecoveryDecision,
     RequestManifest,
     SendingReconciliationCommand,
-    SendState,
     SlotOutcome,
     SubmissionOperationTruth,
     SubmissionProtocolError,
@@ -47,6 +47,7 @@ from domain.collection.submission import (
     SubmitOncePort,
     SurfaceProductRef,
     TerminalReason,
+    VerifiedPreflight,
     WorkflowOperationInput,
     apply_analysis_disposition,
     apply_capture_disposition,
@@ -74,6 +75,7 @@ from domain.collection.submission import (
     start_analysis,
     verify_preflight,
 )
+from domain.collection.surface import AnalysisState, CaptureState, CollectionSurface, SendState
 
 NOW = datetime(2026, 8, 24, 12, 0, tzinfo=UTC)
 HASH_A = sha256(b"a").hexdigest()
@@ -118,7 +120,7 @@ def _identity(*, generation: int = 1, request_hash: str = HASH_A) -> OperationId
         material=material,
         surface_product=SurfaceProductRef(
             platform="doubao",
-            collection_surface="consumer_web",
+            collection_surface=CollectionSurface.CONSUMER_WEB,
             product_variant="web-chat",
             target_key=target_key,
         ),
@@ -159,7 +161,7 @@ def _authority() -> OwnerAuthorityRef:
     )
 
 
-def _verified_ready(operation: SubmissionOperationTruth):
+def _verified_ready(operation: SubmissionOperationTruth) -> VerifiedPreflight:
     authority = _authority()
     command = PreflightCommand(
         operation=operation_ref(operation.identity),
@@ -236,7 +238,7 @@ def _confirmed_sent() -> SubmissionOperationTruth:
 
 
 def _capture_command(
-    capture,
+    capture: CaptureTruth,
     *,
     attempt_ref: str,
     requested_at: datetime,
@@ -252,6 +254,27 @@ def _capture_command(
         authority=authority,
         authority_sha256=authority_digest(authority),
         requested_at=requested_at,
+    )
+
+
+def _capture_provenance(
+    surface: CollectionSurface,
+    *,
+    observed_at: datetime,
+) -> CaptureProvenance:
+    channel = {
+        CollectionSurface.PROVIDER_API: CaptureChannel.PROVIDER_PAYLOAD,
+        CollectionSurface.CONSUMER_WEB: CaptureChannel.WEB_DOM,
+        CollectionSurface.CONSUMER_APP: CaptureChannel.APP_ACCESSIBILITY,
+    }[surface]
+    return CaptureProvenance(
+        capture_channel=channel,
+        capture_protocol_revision=f"capture-protocol-{surface.value}-v1",
+        observed_product_version=f"observed-product-{surface.value}-20260824",
+        capture_adapter_revision=f"capture-adapter-{surface.value}-v1",
+        data_classification=CaptureDataClassification.CUSTOMER_PRIVATE,
+        dlp_policy_revision="dlp-policy-v1",
+        retention_until=observed_at + timedelta(days=30),
     )
 
 
@@ -283,6 +306,68 @@ def test_canonical_operation_request_and_outbox_identities_are_stable() -> None:
         aggregate_version=4,
         payload_sha256=HASH_A,
     )
+
+
+def test_canonical_json_normalizes_nested_datetimes_to_utc_without_shape_drift() -> None:
+    east_eight = timezone(timedelta(hours=8))
+    utc_payload: dict[str, object] = {
+        "observed_at": NOW,
+        "nested": ({"expires_at": NOW + timedelta(minutes=5)},),
+        "tenant_id": TENANT_ID,
+        "send_state": SendState.SENDING,
+    }
+    offset_payload: dict[str, object] = {
+        "observed_at": NOW.astimezone(east_eight),
+        "nested": ({"expires_at": (NOW + timedelta(minutes=5)).astimezone(east_eight)},),
+        "tenant_id": TENANT_ID,
+        "send_state": SendState.SENDING,
+    }
+
+    assert canonical_json(offset_payload) == canonical_json(utc_payload)
+    assert canonical_json(offset_payload) == (
+        '{"nested":[{"expires_at":"2026-08-24T12:05:00Z"}],'
+        '"observed_at":"2026-08-24T12:00:00Z",'
+        '"send_state":"SENDING","tenant_id":"00000000-0000-0000-0000-000000000001"}'
+    )
+
+
+def test_authority_hash_is_stable_after_database_utc_roundtrip() -> None:
+    authority = _authority()
+    east_eight = timezone(timedelta(hours=8))
+    offset_fences = tuple(
+        fence.model_copy(
+            update={
+                "acquired_at": fence.acquired_at.astimezone(east_eight),
+                "expires_at": fence.expires_at.astimezone(east_eight),
+            }
+        )
+        for fence in authority.lease_fences
+    )
+    offset_authority = authority.model_copy(
+        update={
+            "checked_at": authority.checked_at.astimezone(east_eight),
+            "valid_until": authority.valid_until.astimezone(east_eight),
+            "lease_fences": offset_fences,
+        }
+    )
+    database_roundtrip = OwnerAuthorityRef.model_validate(
+        {
+            **offset_authority.model_dump(mode="python"),
+            "checked_at": offset_authority.checked_at.astimezone(UTC),
+            "valid_until": offset_authority.valid_until.astimezone(UTC),
+            "lease_fences": tuple(
+                {
+                    **fence.model_dump(mode="python"),
+                    "acquired_at": fence.acquired_at.astimezone(UTC),
+                    "expires_at": fence.expires_at.astimezone(UTC),
+                }
+                for fence in offset_authority.lease_fences
+            ),
+        }
+    )
+
+    assert canonical_json(offset_authority) == canonical_json(database_roundtrip)
+    assert authority_digest(offset_authority) == authority_digest(database_roundtrip)
 
 
 def test_logical_key_and_workflow_inputs_reject_attempt_worker_resource_and_task_arrays() -> None:
@@ -506,13 +591,18 @@ class _CountingCapturePort(CaptureExistingPort):
 
     def capture_existing(self, command: CaptureExistingCommand) -> CaptureDisposition:
         self.calls += 1
+        observed_at = command.requested_at + timedelta(seconds=1)
         return CaptureDisposition(
             capture_state=CaptureState.FAILED,
             attempt_ref=command.attempt_ref,
             evidence_ref="capture-failed-evidence",
             evidence_sha256=HASH_B,
-            observed_at=command.requested_at + timedelta(seconds=1),
+            observed_at=observed_at,
             observed_surface_product=command.requested_surface_product,
+            provenance=_capture_provenance(
+                command.requested_surface_product.collection_surface,
+                observed_at=observed_at,
+            ),
         )
 
 
@@ -571,9 +661,14 @@ def test_capture_staging_link_and_analysis_truth_are_independent() -> None:
         evidence_sha256=HASH_A,
         observed_at=NOW + timedelta(seconds=5),
         observed_surface_product=command.requested_surface_product,
+        provenance=_capture_provenance(
+            command.requested_surface_product.collection_surface,
+            observed_at=NOW + timedelta(seconds=5),
+        ),
         staging=staging,
     )
     completed = apply_capture_disposition(capturing, normalize_capture(command, observation))
+    assert completed.provenance == observation.provenance
     link = link_immutable_capture(completed, linked_at=NOW + timedelta(seconds=7))
     same_link = link_immutable_capture(completed, linked_at=NOW + timedelta(seconds=7))
     assert link == same_link
@@ -636,6 +731,10 @@ def test_capture_and_analysis_fail_closed_on_ambiguous_or_mixed_truth() -> None:
             evidence_sha256=HASH_A,
             observed_at=NOW,
             observed_surface_product=_identity().surface_product,
+            provenance=_capture_provenance(
+                CollectionSurface.CONSUMER_WEB,
+                observed_at=NOW,
+            ),
         )
 
 
@@ -724,7 +823,7 @@ def test_surface_mismatch_is_quarantined_and_cannot_be_linked_or_analyzed() -> N
     capturing = begin_capture(capture, command)
     wrong_surface = SurfaceProductRef(
         platform="openai",
-        collection_surface="provider_api",
+        collection_surface=CollectionSurface.PROVIDER_API,
         product_variant="responses",
         target_key=(
             "collection-target-v1|platform=openai|collection_surface=provider_api|"
@@ -747,11 +846,17 @@ def test_surface_mismatch_is_quarantined_and_cannot_be_linked_or_analyzed() -> N
         evidence_sha256=HASH_B,
         observed_at=NOW + timedelta(seconds=4),
         observed_surface_product=wrong_surface,
+        provenance=_capture_provenance(
+            wrong_surface.collection_surface,
+            observed_at=NOW + timedelta(seconds=4),
+        ),
         staging=staging,
     )
     normalized = normalize_capture(command, raw)
     assert normalized.normalization is CaptureNormalizationDecision.QUARANTINED_SURFACE_MISMATCH
+    assert normalized.provenance == raw.provenance
     quarantined = apply_capture_disposition(capturing, normalized)
+    assert quarantined.provenance == raw.provenance
     assert (
         derive_slot_outcome(terminal, capture=quarantined) is SlotOutcome.INVALID_SURFACE_OR_PRODUCT
     )
@@ -759,8 +864,43 @@ def test_surface_mismatch_is_quarantined_and_cannot_be_linked_or_analyzed() -> N
         link_immutable_capture(quarantined, linked_at=NOW + timedelta(seconds=6))
 
 
+def test_capture_provenance_rejects_surface_channel_and_retention_drift() -> None:
+    observed_product = _identity().surface_product
+    observed_at = NOW + timedelta(seconds=4)
+    wrong_channel = _capture_provenance(
+        CollectionSurface.PROVIDER_API,
+        observed_at=observed_at,
+    )
+    with pytest.raises(ValidationError, match="capture_channel_surface_mismatch"):
+        CaptureDisposition(
+            capture_state=CaptureState.FAILED,
+            attempt_ref="capture-attempt-1",
+            evidence_ref="capture-evidence-1",
+            evidence_sha256=HASH_A,
+            observed_at=observed_at,
+            observed_surface_product=observed_product,
+            provenance=wrong_channel,
+        )
+
+    expired_retention = _capture_provenance(
+        CollectionSurface.CONSUMER_WEB,
+        observed_at=observed_at,
+    ).model_copy(update={"retention_until": observed_at - timedelta(microseconds=1)})
+    with pytest.raises(
+        ValidationError,
+        match="capture_retention_before_durable_observation",
+    ):
+        CaptureDisposition(
+            capture_state=CaptureState.FAILED,
+            attempt_ref="capture-attempt-1",
+            evidence_ref="capture-evidence-1",
+            evidence_sha256=HASH_A,
+            observed_at=observed_at,
+            observed_surface_product=observed_product,
+            provenance=expired_retention,
+        )
+
+
 def test_analysis_port_has_only_immutable_capture_analysis_capability() -> None:
     assert "analyze_existing_capture" in AnalysisExistingCapturePort.__dict__
     assert "submit_once" not in AnalysisExistingCapturePort.__dict__
-    # A static type checker also verifies the concrete fake protocol signatures.
-    cast(type[AnalysisExistingCapturePort], AnalysisExistingCapturePort)

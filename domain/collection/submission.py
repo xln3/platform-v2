@@ -9,8 +9,8 @@ into an executable submit capability during recovery.
 from __future__ import annotations
 
 import json
-from datetime import datetime
-from enum import StrEnum
+from datetime import UTC, datetime
+from enum import Enum, StrEnum
 from hashlib import sha256
 from typing import Annotated, Literal, Protocol, Self, cast
 from uuid import UUID
@@ -79,10 +79,35 @@ class FrozenProtocolModel(BaseModel):
 def canonical_json(value: BaseModel | dict[str, object]) -> str:
     """Return the protocol's stable JSON encoding."""
 
-    payload = (
-        value.model_dump(mode="json", exclude_none=False) if isinstance(value, BaseModel) else value
-    )
+    payload = _canonical_json_value(value)
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _canonical_json_value(value: object) -> object:
+    """Normalize protocol values before hashing or durable JSON comparison.
+
+    PostgreSQL ``timestamptz`` values round-trip as UTC instants, while gateway
+    inputs may use another explicit offset.  Converting every nested datetime
+    to the same ``Z`` representation prevents an offset spelling from changing
+    an identity or evidence digest.  The remaining conversions retain the
+    existing canonical UUID, enum, and tuple representations.
+    """
+
+    if isinstance(value, BaseModel):
+        return _canonical_json_value(value.model_dump(mode="python", exclude_none=False))
+    if isinstance(value, datetime):
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise SubmissionProtocolError("datetime_must_be_timezone_aware")
+        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+    if isinstance(value, UUID):
+        return str(value)
+    if isinstance(value, Enum):
+        return _canonical_json_value(value.value)
+    if isinstance(value, dict):
+        return {key: _canonical_json_value(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_canonical_json_value(item) for item in value]
+    return value
 
 
 def _digest(value: BaseModel | dict[str, object]) -> str:
@@ -1020,6 +1045,58 @@ class CaptureNormalizationDecision(StrEnum):
     QUARANTINED_SURFACE_MISMATCH = "quarantined_surface_mismatch"
 
 
+class CaptureChannel(StrEnum):
+    PROVIDER_PAYLOAD = "provider_payload"
+    WEB_DOM = "web_dom"
+    WEB_SCREENSHOT = "web_screenshot"
+    WEB_NETWORK = "web_network"
+    APP_UI = "app_ui"
+    APP_ACCESSIBILITY = "app_accessibility"
+    APP_SCREENSHOT = "app_screenshot"
+    APP_NETWORK = "app_network"
+
+
+class CaptureDataClassification(StrEnum):
+    PUBLIC = "public"
+    CUSTOMER_PRIVATE = "customer_private"
+    RESTRICTED = "restricted"
+
+
+_CAPTURE_CHANNELS_BY_SURFACE: dict[CollectionSurface, frozenset[CaptureChannel]] = {
+    CollectionSurface.PROVIDER_API: frozenset({CaptureChannel.PROVIDER_PAYLOAD}),
+    CollectionSurface.CONSUMER_WEB: frozenset(
+        {
+            CaptureChannel.WEB_DOM,
+            CaptureChannel.WEB_SCREENSHOT,
+            CaptureChannel.WEB_NETWORK,
+        }
+    ),
+    CollectionSurface.CONSUMER_APP: frozenset(
+        {
+            CaptureChannel.APP_UI,
+            CaptureChannel.APP_ACCESSIBILITY,
+            CaptureChannel.APP_SCREENSHOT,
+            CaptureChannel.APP_NETWORK,
+        }
+    ),
+}
+
+
+class CaptureProvenance(FrozenProtocolModel):
+    """Bounded capture-source fields required by the durable manifest."""
+
+    capture_channel: CaptureChannel
+    capture_protocol_revision: OpaqueId
+    observed_product_version: OpaqueId
+    capture_adapter_revision: OpaqueId
+    data_classification: CaptureDataClassification
+    dlp_policy_revision: OpaqueId
+    retention_until: datetime
+
+    def supports_surface(self, surface: CollectionSurface) -> bool:
+        return self.capture_channel in _CAPTURE_CHANNELS_BY_SURFACE[surface]
+
+
 class CaptureTruth(FrozenProtocolModel):
     operation: OperationRef
     source_send_state: Literal[SendState.CONFIRMED_SENT, SendState.SEND_UNKNOWN]
@@ -1034,6 +1111,7 @@ class CaptureTruth(FrozenProtocolModel):
     evidence_ref: OpaqueId | None = None
     evidence_sha256: Sha256Hex | None = None
     observed_surface_product: SurfaceProductRef | None = None
+    provenance: CaptureProvenance | None = None
     normalization: CaptureNormalizationDecision | None = None
     updated_at: datetime
 
@@ -1044,6 +1122,7 @@ class CaptureTruth(FrozenProtocolModel):
                 self.active_attempt_ref is None
                 or self.active_request_sha256 is None
                 or self.staging is not None
+                or self.provenance is not None
             ):
                 raise ValueError("capturing_requires_attempt_without_staging")
         elif self.capture_state in {CaptureState.COMPLETED, CaptureState.PARTIAL}:
@@ -1054,6 +1133,7 @@ class CaptureTruth(FrozenProtocolModel):
                 or self.evidence_ref is None
                 or self.evidence_sha256 is None
                 or self.observed_surface_product is None
+                or self.provenance is None
                 or self.normalization is not CaptureNormalizationDecision.ACCEPTED
             ):
                 raise ValueError("captured_truth_requires_staging_and_evidence")
@@ -1065,6 +1145,7 @@ class CaptureTruth(FrozenProtocolModel):
                 or self.evidence_ref is None
                 or self.evidence_sha256 is None
                 or self.observed_surface_product is None
+                or self.provenance is None
                 or self.normalization is None
             ):
                 raise ValueError("capture_failure_truth_invalid")
@@ -1077,10 +1158,21 @@ class CaptureTruth(FrozenProtocolModel):
                 self.evidence_ref,
                 self.evidence_sha256,
                 self.observed_surface_product,
+                self.provenance,
                 self.normalization,
             )
         ):
             raise ValueError("not_started_capture_must_be_empty")
+        if self.provenance is not None and self.observed_surface_product is not None:
+            if not self.provenance.supports_surface(
+                self.observed_surface_product.collection_surface
+            ):
+                raise ValueError("capture_channel_surface_mismatch")
+            latest_durable_at = (
+                self.staging.staged_at if self.staging is not None else self.updated_at
+            )
+            if self.provenance.retention_until < latest_durable_at:
+                raise ValueError("capture_retention_before_durable_observation")
         return self
 
 
@@ -1120,6 +1212,7 @@ class CaptureDisposition(FrozenProtocolModel):
     evidence_sha256: Sha256Hex
     observed_at: datetime
     observed_surface_product: SurfaceProductRef
+    provenance: CaptureProvenance
     staging: CaptureStagingRef | None = None
     normalization: CaptureNormalizationDecision | None = None
     normalized_request_sha256: Sha256Hex | None = None
@@ -1129,6 +1222,11 @@ class CaptureDisposition(FrozenProtocolModel):
         has_capture = self.capture_state in {CaptureState.COMPLETED, CaptureState.PARTIAL}
         if has_capture != (self.staging is not None):
             raise ValueError("capture_staging_presence_mismatch")
+        if not self.provenance.supports_surface(self.observed_surface_product.collection_surface):
+            raise ValueError("capture_channel_surface_mismatch")
+        latest_durable_at = self.staging.staged_at if self.staging is not None else self.observed_at
+        if self.provenance.retention_until < latest_durable_at:
+            raise ValueError("capture_retention_before_durable_observation")
         if (self.normalization is None) != (self.normalized_request_sha256 is None):
             raise ValueError("capture_normalization_shape_invalid")
         if self.normalization is CaptureNormalizationDecision.QUARANTINED_SURFACE_MISMATCH and (
@@ -1172,6 +1270,7 @@ def normalize_capture(
             evidence_sha256=observation.evidence_sha256,
             observed_at=observation.observed_at,
             observed_surface_product=observation.observed_surface_product,
+            provenance=observation.provenance,
             normalization=CaptureNormalizationDecision.QUARANTINED_SURFACE_MISMATCH,
             normalized_request_sha256=command_hash,
         )
@@ -1265,6 +1364,7 @@ def apply_capture_disposition(truth: CaptureTruth, disposition: CaptureDispositi
         evidence_ref=disposition.evidence_ref,
         evidence_sha256=disposition.evidence_sha256,
         observed_surface_product=disposition.observed_surface_product,
+        provenance=disposition.provenance,
         normalization=disposition.normalization,
         updated_at=disposition.observed_at,
     )
