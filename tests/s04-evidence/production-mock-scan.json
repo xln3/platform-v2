@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-12T16:18:33.535Z",
+  "generated_at": "2026-08-25T04:10:15.753Z",
   "production_url": "https://127.0.0.1:8443",
   "qualification": {
     "kind": "active_production_mock_scan",
@@ -12,7 +12,7 @@
   },
   "identity": {
     "source": "native_http_only_session",
-    "legacy_role": "admin",
+    "legacy_role": "operator",
     "browser_actor_headers_used": false,
     "secret_emitted": false
   },
