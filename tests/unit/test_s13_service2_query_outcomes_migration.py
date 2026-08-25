@@ -55,14 +55,15 @@ def _table_block(sql: str) -> str:
     return match.group(1)
 
 
-def test_revision_follows_the_single_repository_head() -> None:
+def test_revision_belongs_to_the_single_repository_chain() -> None:
     config = Config(str(ROOT / "alembic.ini"))
     config.set_main_option("script_location", str(ROOT / "migrations"))
     scripts = ScriptDirectory.from_config(config)
     revision = scripts.get_revision("s13_0001_service2_query_outcomes")
     assert revision is not None
     assert revision.down_revision == "s11_0001_execution_partitions"
-    assert scripts.get_current_head() == revision.revision
+    assert len(scripts.get_heads()) == 1
+    assert revision.revision in {candidate.revision for candidate in scripts.walk_revisions()}
 
 
 def test_query_ledger_freezes_terminal_task_truth_and_scoped_lineage(upgrade_sql: str) -> None:
