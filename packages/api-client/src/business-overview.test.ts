@@ -83,6 +83,14 @@ const payload = () => ({
 afterEach(() => vi.restoreAllMocks());
 
 describe('Operations business overview browser boundary', () => {
+  it('accepts both current and legacy customer public-ID prefixes present in production', () => {
+    const legacyCustomer = payload();
+    legacyCustomer.items[0]!.customer.id = 'cus_business_safe';
+    expect(projectOperationsBusinessOverview(legacyCustomer)?.items[0]?.customer.id).toBe(
+      'cus_business_safe',
+    );
+  });
+
   it('keeps validated actor headers local in production and forwards them only to fixtures', () => {
     expect(
       projectOperationsBusinessOverviewRequestHeaders(headers, {
