@@ -6,12 +6,13 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from ..identity.policy import Principal, get_principal
+from ..pagination import decode_keyset_cursor, encode_keyset_cursor, set_cursor_headers
 from ..projects.models import MonitoringConfig, MonitoringConfigVersion, Project
 from ..tenancy.database import get_db
 from ..tenancy.ids import new_pub_id
@@ -106,18 +107,51 @@ def _view(row: dict[str, object]) -> ScheduleView:
     return ScheduleView.model_validate(row)
 
 
-@router.get("", response_model=list[ScheduleView])
+@router.get(
+    "",
+    response_model=list[ScheduleView],
+    responses={
+        200: {
+            "headers": {
+                "X-Next-Cursor": {"schema": {"type": "string"}},
+                "X-Has-More": {"schema": {"type": "boolean"}},
+            }
+        }
+    },
+)
 def list_schedules(
+    response: Response,
+    cursor: str | None = Query(default=None, min_length=16, max_length=2_048),
     limit: int = Query(default=100, ge=1, le=100),
     principal: Principal = Depends(get_principal),
     session: Session = Depends(get_db),
 ) -> list[ScheduleView]:
     principal.require("schedule:read")
     repository = TenantRepository(session, principal.tenant_pub_id)
+    filters: dict[str, str | None] = {}
+    anchor = (
+        decode_keyset_cursor(
+            cursor,
+            kind="schedules",
+            tenant_pub_id=principal.tenant_pub_id,
+            filters=filters,
+        )
+        if cursor is not None
+        else None
+    )
+    cursor_clause = ""
+    params: dict[str, object] = {"tenant_id": repository.tenant.id, "limit": limit + 1}
+    if anchor is not None:
+        cursor_clause = """
+          AND (schedule.created_at < :cursor_created_at
+               OR (schedule.created_at = :cursor_created_at
+                   AND schedule.pub_id < :cursor_pub_id))
+        """
+        params.update(cursor_created_at=anchor.created_at, cursor_pub_id=anchor.pub_id)
     rows = (
         session.execute(
             text(
-                """
+                f"""
             SELECT schedule.pub_id,project.pub_id AS project_pub_id,
                    config.pub_id AS config_version_pub_id,
                    schedule.interval_minutes,schedule.timezone,schedule.state,
@@ -129,16 +163,30 @@ def list_schedules(
             JOIN platform.monitoring_config_version config
               ON config.id=schedule.config_version_id
             WHERE schedule.tenant_id=:tenant_id
+            {cursor_clause}
             ORDER BY schedule.created_at DESC,schedule.pub_id DESC
             LIMIT :limit
             """
             ),
-            {"tenant_id": repository.tenant.id, "limit": limit},
+            params,
         )
         .mappings()
         .all()
     )
-    return [_view(dict(row)) for row in rows]
+    has_more = len(rows) > limit
+    visible = rows[:limit]
+    next_cursor = None
+    if has_more and visible:
+        last = visible[-1]
+        next_cursor = encode_keyset_cursor(
+            kind="schedules",
+            tenant_pub_id=principal.tenant_pub_id,
+            filters=filters,
+            created_at=last["created_at"],
+            pub_id=str(last["pub_id"]),
+        )
+    set_cursor_headers(response, next_cursor=next_cursor, has_more=has_more)
+    return [_view(dict(row)) for row in visible]
 
 
 @router.post("", response_model=ScheduleView, status_code=201)
@@ -201,7 +249,9 @@ def create_schedule(
         data={"next_run_at": body.next_run_at.isoformat()},
     )
     session.commit()
-    return list_schedules(limit=100, principal=principal, session=session)[0]
+    return list_schedules(
+        response=Response(), cursor=None, limit=100, principal=principal, session=session
+    )[0]
 
 
 @router.patch("/{schedule_pub_id}", response_model=ScheduleView)
@@ -259,7 +309,9 @@ def update_schedule_state(
     session.commit()
     matches = [
         item
-        for item in list_schedules(principal=principal, session=session)
+        for item in list_schedules(
+            response=Response(), cursor=None, limit=100, principal=principal, session=session
+        )
         if item.pub_id == schedule_pub_id
     ]
     if not matches:
@@ -336,36 +388,83 @@ def run_schedule_now(
     }
 
 
-@router.get("/{schedule_pub_id}/events", response_model=list[ScheduleEventView])
+@router.get(
+    "/{schedule_pub_id}/events",
+    response_model=list[ScheduleEventView],
+    responses={
+        200: {
+            "headers": {
+                "X-Next-Cursor": {"schema": {"type": "string"}},
+                "X-Has-More": {"schema": {"type": "boolean"}},
+            }
+        }
+    },
+)
 def list_schedule_events(
     schedule_pub_id: str,
+    response: Response,
+    cursor: str | None = Query(default=None, min_length=16, max_length=2_048),
     limit: int = Query(default=100, ge=1, le=100),
     principal: Principal = Depends(get_principal),
     session: Session = Depends(get_db),
 ) -> list[ScheduleEventView]:
     principal.require("schedule:read")
     repository = TenantRepository(session, principal.tenant_pub_id)
+    filters = {"schedule_pub_id": schedule_pub_id}
+    anchor = (
+        decode_keyset_cursor(
+            cursor,
+            kind="schedule-events",
+            tenant_pub_id=principal.tenant_pub_id,
+            filters=filters,
+        )
+        if cursor is not None
+        else None
+    )
+    cursor_clause = ""
+    params: dict[str, object] = {
+        "tenant_id": repository.tenant.id,
+        "schedule_pub_id": schedule_pub_id,
+        "limit": limit + 1,
+    }
+    if anchor is not None:
+        cursor_clause = """
+          AND (event.occurred_at < :cursor_occurred_at
+               OR (event.occurred_at = :cursor_occurred_at
+                   AND event.pub_id < :cursor_pub_id))
+        """
+        params.update(cursor_occurred_at=anchor.created_at, cursor_pub_id=anchor.pub_id)
     rows = (
         session.execute(
             text(
-                """
+                f"""
             SELECT event.pub_id,schedule.pub_id AS schedule_pub_id,event.event_type,
                    event.actor_pub_id,event.data_json,event.occurred_at
             FROM platform.monitoring_schedule_event event
             JOIN platform.monitoring_schedule schedule ON schedule.id=event.schedule_id
             WHERE event.tenant_id=:tenant_id AND schedule.pub_id=:schedule_pub_id
+            {cursor_clause}
             ORDER BY event.occurred_at DESC,event.pub_id DESC LIMIT :limit
             """
             ),
-            {
-                "tenant_id": repository.tenant.id,
-                "schedule_pub_id": schedule_pub_id,
-                "limit": limit,
-            },
+            params,
         )
         .mappings()
         .all()
     )
+    has_more = len(rows) > limit
+    visible = rows[:limit]
+    next_cursor = None
+    if has_more and visible:
+        last = visible[-1]
+        next_cursor = encode_keyset_cursor(
+            kind="schedule-events",
+            tenant_pub_id=principal.tenant_pub_id,
+            filters=filters,
+            created_at=last["occurred_at"],
+            pub_id=str(last["pub_id"]),
+        )
+    set_cursor_headers(response, next_cursor=next_cursor, has_more=has_more)
     return [
         ScheduleEventView(
             pub_id=str(row["pub_id"]),
@@ -375,5 +474,5 @@ def list_schedule_events(
             data=json.loads(str(row["data_json"])),
             occurred_at=row["occurred_at"],
         )
-        for row in rows
+        for row in visible
     ]

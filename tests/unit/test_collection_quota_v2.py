@@ -15,6 +15,7 @@ from geo_platform.collection.quota_v2 import (
     INSERT_LEDGER_EVENT_SQL,
     INSERT_RESERVATION_EFFECT_SQL,
     INSERT_RESERVATION_SQL,
+    LOAD_ADMITTED_OPERATION_AND_BINDING_SQL,
     LOAD_AUTHORITATIVE_SCOPES_SQL,
     LOAD_OPERATION_AND_BINDING_SQL,
     LOAD_OPERATION_SQL,
@@ -44,6 +45,7 @@ from geo_platform.collection.quota_v2 import (
     reconciliation_action,
     reservation_set_hash,
     reserve_quota,
+    reserve_quota_after_operation_admission,
     settle_quota,
     settlement_effect,
 )
@@ -412,6 +414,7 @@ def _successful_reserve_fake(
     scopes: tuple[QuotaScopeDeclaration, ...],
     *,
     reserved_units: int | Mapping[QuotaScopeKind, int] = 0,
+    operation_sql: str = LOAD_OPERATION_AND_BINDING_SQL,
 ) -> tuple[_FakeConnection, dict[str, object]]:
     captured: dict[str, object] = {}
     bucket_params: dict[str, Mapping[str, object]] = {}
@@ -454,7 +457,7 @@ def _successful_reserve_fake(
     policy_ids = tuple(UUID(int=index + 10) for index in range(len(scopes)))
     handlers: dict[str, Handler] = {
         SET_TENANT_SQL: _none,
-        LOAD_OPERATION_AND_BINDING_SQL: lambda _params: ((_operation_binding_row()),),
+        operation_sql: lambda _params: ((_operation_binding_row()),),
         LOAD_AUTHORITATIVE_SCOPES_SQL: lambda _params: tuple(
             _authoritative_scope_row(scope, policy_id=policy_ids[index], ordinal=index)
             for index, scope in enumerate(scopes)
@@ -522,6 +525,19 @@ def test_production_reserve_loads_authoritative_scopes_and_locks_canonically() -
     last_insert = len(queries) - 1 - queries[::-1].index(INSERT_BUCKET_SQL)
     assert last_advisory < first_insert <= last_insert < first_lock
     assert queries.count(INSERT_LEDGER_EVENT_SQL) == len(scopes)
+
+
+def test_stage3_reserve_reuses_the_restricted_admission_row_lock() -> None:
+    connection, _captured = _successful_reserve_fake(
+        (_scope(QuotaScopeKind.PROVIDER, limit=3),),
+        operation_sql=LOAD_ADMITTED_OPERATION_AND_BINDING_SQL,
+    )
+
+    result = reserve_quota_after_operation_admission(connection, _reserve_request())
+
+    assert result.reserved
+    assert "FOR UPDATE OF op" not in LOAD_ADMITTED_OPERATION_AND_BINDING_SQL
+    assert connection.calls[1][0] == LOAD_ADMITTED_OPERATION_AND_BINDING_SQL
 
 
 def test_any_insufficient_bucket_rolls_back_without_reservation_or_ledger() -> None:

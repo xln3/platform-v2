@@ -7,13 +7,14 @@ import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..identity.policy import Principal, Role, get_principal
+from ..pagination import decode_keyset_cursor, encode_keyset_cursor, set_cursor_headers
 from ..tenancy.database import get_db
 from ..tenancy.ids import new_pub_id
 from ..tenancy.repository import TenantRepository
@@ -330,19 +331,71 @@ def request_break_glass(
     )
 
 
-@router.get("/break-glass", response_model=list[BreakGlassView])
+@router.get(
+    "/break-glass",
+    response_model=list[BreakGlassView],
+    responses={
+        200: {
+            "headers": {
+                "X-Next-Cursor": {"schema": {"type": "string"}},
+                "X-Has-More": {"schema": {"type": "boolean"}},
+            }
+        }
+    },
+)
 def list_break_glass_requests(
-    principal: Principal = Depends(get_principal), session: Session = Depends(get_db)
+    response: Response,
+    cursor: str | None = Query(default=None, min_length=16, max_length=2_048),
+    limit: int = Query(default=100, ge=1, le=100),
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db),
 ) -> list[BreakGlassView]:
     principal.require("account:read")
     repository = TenantRepository(session, principal.tenant_pub_id)
-    rows = session.execute(
+    filters: dict[str, str | None] = {}
+    anchor = (
+        decode_keyset_cursor(
+            cursor,
+            kind="break-glass",
+            tenant_pub_id=principal.tenant_pub_id,
+            filters=filters,
+        )
+        if cursor is not None
+        else None
+    )
+    statement = (
         select(CredentialAccessRequest, PlatformAccount)
         .join(PlatformAccount, PlatformAccount.id == CredentialAccessRequest.account_id)
         .where(CredentialAccessRequest.tenant_id == repository.tenant.id)
-        .order_by(CredentialAccessRequest.created_at.desc())
-        .limit(100)
+    )
+    if anchor is not None:
+        statement = statement.where(
+            or_(
+                CredentialAccessRequest.created_at < anchor.created_at,
+                and_(
+                    CredentialAccessRequest.created_at == anchor.created_at,
+                    CredentialAccessRequest.pub_id < anchor.pub_id,
+                ),
+            )
+        )
+    rows = session.execute(
+        statement.order_by(
+            CredentialAccessRequest.created_at.desc(), CredentialAccessRequest.pub_id.desc()
+        ).limit(limit + 1)
     ).all()
+    has_more = len(rows) > limit
+    visible = rows[:limit]
+    next_cursor = None
+    if has_more and visible:
+        last = visible[-1][0]
+        next_cursor = encode_keyset_cursor(
+            kind="break-glass",
+            tenant_pub_id=principal.tenant_pub_id,
+            filters=filters,
+            created_at=last.created_at,
+            pub_id=last.pub_id,
+        )
+    set_cursor_headers(response, next_cursor=next_cursor, has_more=has_more)
     return [
         BreakGlassView(
             pub_id=item.pub_id,
@@ -363,7 +416,7 @@ def list_break_glass_requests(
             ),
             expires_at=item.expires_at,
         )
-        for item, account in rows
+        for item, account in visible
     ]
 
 

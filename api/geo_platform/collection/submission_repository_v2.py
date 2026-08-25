@@ -41,6 +41,7 @@ from domain.collection.submission import (
     OwnerClaimCasObservation,
     OwnerClaimCasStatus,
     OwnerClaimTruth,
+    PrepareDisposition,
     PrepareResult,
     QuotaTerminalEffect,
     RequestManifest,
@@ -67,7 +68,7 @@ from .quota_v2 import (
     ConnectionProtocol,
     ReserveQuotaRequest,
     ReserveQuotaResult,
-    reserve_quota,
+    reserve_quota_after_operation_admission,
 )
 from .submission_v2 import (
     AtomicPreparationResult,
@@ -179,6 +180,28 @@ class RestrictedFunctionContract:
 
 
 S10_FUNCTION_CONTRACTS: tuple[RestrictedFunctionContract, ...] = (
+    RestrictedFunctionContract(
+        "create_collection_submission_operation_v2",
+        (
+            "uuid",
+            "uuid",
+            "text",
+            "integer",
+            "text",
+            "text",
+            "timestamptz",
+            "text",
+            "text",
+            "text",
+            "text",
+            "text",
+            "text",
+            "text",
+            "text",
+        ),
+        ("operation_id", "created"),
+        "TABLE(operation_id uuid, created boolean)",
+    ),
     RestrictedFunctionContract(
         "prepare_collection_submission_request_v2",
         (
@@ -328,124 +351,25 @@ S10_FUNCTION_CONTRACTS: tuple[RestrictedFunctionContract, ...] = (
 SET_LOCAL_TIMEZONE_SQL = "SET LOCAL TIME ZONE 'UTC'"
 SET_TENANT_SQL = "SELECT set_config('app.tenant_id', CAST(%(tenant_id)s AS text), true)"
 
-INSERT_OPERATION_SQL = """
-INSERT INTO platform.collection_submission_operation (
-  id,
-  pub_id,
-  tenant_id,
-  project_id,
-  campaign_id,
-  campaign_target_id,
-  sampling_leg_id,
-  primary_slot_id,
-  slot_key,
-  platform,
-  collection_surface,
-  product_variant,
-  province_code,
-  interaction_mode,
-  operation_generation,
-  operation_key,
-  operation_policy_revision,
-  send_state,
-  send_state_version,
-  prepared_at,
-  reconciliation_state,
-  reconcile_after,
-  state_reason
+CREATE_OPERATION_SQL = """
+SELECT operation_id, created
+FROM platform.create_collection_submission_operation_v2(
+  %(tenant_id)s,
+  %(project_id)s,
+  %(operation_pub_id)s,
+  %(operation_generation)s,
+  %(operation_key)s,
+  %(operation_policy_revision)s,
+  %(prepared_at)s,
+  %(slot_pub_id)s,
+  %(logical_item_key)s,
+  %(campaign_pub_id)s,
+  %(target_key)s,
+  %(leg_key)s,
+  %(platform)s,
+  %(collection_surface)s,
+  %(product_variant)s
 )
-SELECT gen_random_uuid(),
-       %(operation_pub_id)s,
-       slot.tenant_id,
-       slot.project_id,
-       slot.campaign_id,
-       slot.campaign_target_id,
-       slot.sampling_leg_id,
-       slot.id,
-       slot.slot_key,
-       slot.platform,
-       slot.collection_surface,
-       slot.product_variant,
-       slot.province_code,
-       slot.interaction_mode,
-       %(operation_generation)s,
-       %(operation_key)s,
-       %(operation_policy_revision)s,
-       'NOT_SENT',
-       1,
-       %(prepared_at)s,
-       'not_required',
-       NULL,
-       'submission_prepared'
-FROM platform.collection_primary_slot AS slot
-JOIN platform.collection_campaign AS campaign
-  ON campaign.id = slot.campaign_id
- AND campaign.tenant_id = slot.tenant_id
- AND campaign.project_id = slot.project_id
-JOIN platform.collection_campaign_target AS target
-  ON target.id = slot.campaign_target_id
- AND target.tenant_id = slot.tenant_id
- AND target.project_id = slot.project_id
-JOIN platform.collection_sampling_leg AS leg
-  ON leg.id = slot.sampling_leg_id
- AND leg.tenant_id = slot.tenant_id
- AND leg.project_id = slot.project_id
-WHERE slot.tenant_id = %(tenant_id)s
-  AND slot.project_id = %(project_id)s
-  AND slot.pub_id = %(slot_pub_id)s
-  AND slot.slot_role = 'primary'
-  AND slot.slot_key = %(logical_item_key)s
-  AND campaign.pub_id = %(campaign_pub_id)s
-  AND campaign.state = 'frozen'
-  AND campaign.materialization_state = 'complete'
-  AND target.target_key = %(target_key)s
-  AND leg.leg_key = %(leg_key)s
-  AND slot.platform = %(platform)s
-  AND slot.collection_surface = %(collection_surface)s
-  AND slot.product_variant = %(product_variant)s
-ON CONFLICT DO NOTHING
-RETURNING id
-"""
-
-VERIFY_PREPARED_OPERATION_SQL = """
-SELECT operation.id
-FROM platform.collection_submission_operation AS operation
-JOIN platform.collection_campaign AS campaign
-  ON campaign.id = operation.campaign_id
- AND campaign.tenant_id = operation.tenant_id
- AND campaign.project_id = operation.project_id
-JOIN platform.collection_campaign_target AS target
-  ON target.id = operation.campaign_target_id
- AND target.tenant_id = operation.tenant_id
- AND target.project_id = operation.project_id
-JOIN platform.collection_sampling_leg AS leg
-  ON leg.id = operation.sampling_leg_id
- AND leg.tenant_id = operation.tenant_id
- AND leg.project_id = operation.project_id
-JOIN platform.collection_primary_slot AS slot
-  ON slot.id = operation.primary_slot_id
- AND slot.tenant_id = operation.tenant_id
- AND slot.project_id = operation.project_id
-WHERE operation.tenant_id = %(tenant_id)s
-  AND operation.project_id = %(project_id)s
-  AND operation.pub_id = %(operation_pub_id)s
-  AND operation.operation_key = %(operation_key)s
-  AND operation.operation_generation = %(operation_generation)s
-  AND operation.operation_policy_revision = %(operation_policy_revision)s
-  AND operation.send_state = 'NOT_SENT'
-  AND operation.send_state_version = 1
-  AND operation.prepared_at = %(prepared_at)s
-  AND slot.pub_id = %(slot_pub_id)s
-  AND slot.slot_key = %(logical_item_key)s
-  AND campaign.pub_id = %(campaign_pub_id)s
-  AND campaign.state = 'frozen'
-  AND campaign.materialization_state = 'complete'
-  AND target.target_key = %(target_key)s
-  AND leg.leg_key = %(leg_key)s
-  AND operation.platform = %(platform)s
-  AND operation.collection_surface = %(collection_surface)s
-  AND operation.product_variant = %(product_variant)s
-FOR UPDATE OF operation
 """
 
 RESOLVE_PREPARATION_GOVERNANCE_SQL = """
@@ -484,6 +408,24 @@ WHERE reservation.id = %(reservation_id)s
   AND reservation.project_id = %(project_id)s
   AND reservation.operation_id = %(operation_id)s
   AND reservation.reservation_state = 'reserved'
+"""
+
+LOAD_REPLAY_RESERVATION_SQL = """
+SELECT reservation.id, reservation.pub_id
+FROM platform.collection_quota_reservation AS reservation
+JOIN platform.collection_binding_revision_v2 AS binding
+  ON binding.id = reservation.binding_revision_id
+ AND binding.tenant_id = reservation.tenant_id
+ AND binding.project_id = reservation.project_id
+JOIN platform.collection_quota_registry_revision AS registry
+  ON registry.id = reservation.quota_registry_id
+ AND registry.tenant_id = reservation.tenant_id
+ AND registry.project_id = reservation.project_id
+WHERE reservation.tenant_id = %(tenant_id)s
+  AND reservation.project_id = %(project_id)s
+  AND reservation.operation_id = %(operation_id)s
+  AND binding.pub_id = %(binding_revision_pub_id)s
+  AND registry.registry_revision = %(quota_registry_revision)s
 """
 
 PREPARE_REQUEST_SQL = """
@@ -938,10 +880,27 @@ FROM platform.link_collection_capture_v2(
 
 PROBE_FUNCTION_SQL = """
 SELECT resolved.function_identity::text,
-       pg_get_function_result(resolved.function_identity)
+       pg_get_function_result(resolved.function_identity),
+       procedure.prosecdef,
+       COALESCE(
+         'search_path=pg_catalog, platform'=ANY(procedure.proconfig),
+         false
+       ),
+       has_function_privilege(
+         'geo_worker',resolved.function_identity,'EXECUTE'
+       ),
+       NOT EXISTS (
+         SELECT 1
+           FROM aclexplode(
+             COALESCE(procedure.proacl,acldefault('f',procedure.proowner))
+           ) privilege
+          WHERE privilege.grantee=0
+            AND privilege.privilege_type='EXECUTE'
+       )
 FROM (
   SELECT to_regprocedure(%(signature)s) AS function_identity
 ) AS resolved
+LEFT JOIN pg_proc procedure ON procedure.oid=resolved.function_identity
 """
 
 LOAD_OPERATION_SQL = """
@@ -1307,7 +1266,10 @@ def _prepare_params(
         raise SubmissionRepositoryError("preparation_slot_reference_mismatch")
     if work.workflow.operation != operation_ref(identity):
         raise SubmissionRepositoryError("preparation_operation_reference_mismatch")
-    if work.workflow.expected_state_version != prepared.operation.state_version:
+    # A preparation command always names the initial NOT_SENT version.  On an
+    # exact recovery replay the durable operation may already have advanced;
+    # its immutable identity and prepared_at remain the replay authority.
+    if work.workflow.expected_state_version != 1:
         raise SubmissionRepositoryError("preparation_expected_version_mismatch")
     return {
         "tenant_id": scope.tenant_id,
@@ -1679,7 +1641,7 @@ class PostgresSubmissionRepository:
         send_unknown_reconcile_delay: timedelta = timedelta(minutes=5),
         preparation_context_loader: PreparationContextLoader | None = None,
         submission_context_loader: SubmissionContextLoader | None = None,
-        quota_reserver: QuotaReserver = reserve_quota,
+        quota_reserver: QuotaReserver = reserve_quota_after_operation_admission,
     ) -> None:
         self._scope = scope
         self._connection_factory = connection_factory
@@ -1704,7 +1666,10 @@ class PostgresSubmissionRepository:
                 any(contract.name == name for contract in S10_FUNCTION_CONTRACTS) for name in names
             )
 
-        prepare = available("prepare_collection_submission_request_v2")
+        prepare = available(
+            "create_collection_submission_operation_v2",
+            "prepare_collection_submission_request_v2",
+        )
         claim = available("claim_collection_submission_v2")
         reconciliation = available(
             "mark_collection_dispatch_reconciliation_ready_v2",
@@ -1756,9 +1721,13 @@ class PostgresSubmissionRepository:
                             ).fetchone()
                             if (
                                 row is None
-                                or len(row) != 2
+                                or len(row) != 6
                                 or row[0] is None
                                 or row[1] != contract.database_result
+                                or row[2] is not True
+                                or row[3] is not True
+                                or row[4] is not True
+                                or row[5] is not True
                             ):
                                 missing.append(contract.regprocedure)
             except Exception:
@@ -1813,53 +1782,75 @@ class PostgresSubmissionRepository:
                 try:
                     with connection.transaction():
                         _set_tenant(connection, self._scope)
-                        connection.execute(INSERT_OPERATION_SQL, params).fetchone()
                         operation_row = _require_row(
                             connection.execute(
-                                VERIFY_PREPARED_OPERATION_SQL,
+                                CREATE_OPERATION_SQL,
                                 params,
                             ).fetchone(),
-                            size=1,
+                            size=2,
                             code="prepared_operation_identity_drift",
                         )
                         operation_id = _uuid(operation_row[0], "operation_id")
-                        governance = _require_row(
-                            connection.execute(
-                                RESOLVE_PREPARATION_GOVERNANCE_SQL,
-                                {**params, "operation_id": operation_id},
-                            ).fetchone(),
-                            size=2,
-                            code="preparation_governance_unavailable",
+                        _boolean(operation_row[1], "operation_created")
+                        advanced_replay = (
+                            prepared.disposition is PrepareDisposition.EXACT_REPLAY
+                            and prepared.operation.send_state is not SendState.NOT_SENT
                         )
-                        binding_id = _uuid(governance[0], "binding_revision_id")
-                        registry_id = _uuid(governance[1], "quota_registry_id")
-                        reservation = self._quota_reserver(
-                            connection,
-                            ReserveQuotaRequest(
-                                tenant_id=self._scope.tenant_id,
-                                project_id=self._scope.project_id,
-                                operation_id=operation_id,
-                                binding_id=binding_id,
-                                registry_id=registry_id,
-                                requested_units=1,
-                            ),
-                        )
-                        if not reservation.reserved or reservation.reservation_id is None:
-                            raise _RollbackAtomicPreparation(reservation)
-                        reservation_row = _require_row(
-                            connection.execute(
-                                LOAD_RESERVATION_PUBLIC_ID_SQL,
-                                {
-                                    "tenant_id": self._scope.tenant_id,
-                                    "project_id": self._scope.project_id,
-                                    "operation_id": operation_id,
-                                    "reservation_id": reservation.reservation_id,
-                                },
-                            ).fetchone(),
-                            size=1,
-                            code="quota_reservation_public_id_missing",
-                        )
-                        reservation_pub_id = _text(reservation_row[0], "quota_reservation_pub_id")
+                        if advanced_replay:
+                            reservation_row = _require_row(
+                                connection.execute(
+                                    LOAD_REPLAY_RESERVATION_SQL,
+                                    {**params, "operation_id": operation_id},
+                                ).fetchone(),
+                                size=2,
+                                code="replayed_quota_reservation_missing",
+                            )
+                            _uuid(reservation_row[0], "quota_reservation_id")
+                            reservation_pub_id = _text(
+                                reservation_row[1],
+                                "quota_reservation_pub_id",
+                            )
+                        else:
+                            governance = _require_row(
+                                connection.execute(
+                                    RESOLVE_PREPARATION_GOVERNANCE_SQL,
+                                    {**params, "operation_id": operation_id},
+                                ).fetchone(),
+                                size=2,
+                                code="preparation_governance_unavailable",
+                            )
+                            binding_id = _uuid(governance[0], "binding_revision_id")
+                            registry_id = _uuid(governance[1], "quota_registry_id")
+                            reservation = self._quota_reserver(
+                                connection,
+                                ReserveQuotaRequest(
+                                    tenant_id=self._scope.tenant_id,
+                                    project_id=self._scope.project_id,
+                                    operation_id=operation_id,
+                                    binding_id=binding_id,
+                                    registry_id=registry_id,
+                                    requested_units=1,
+                                ),
+                            )
+                            if not reservation.reserved or reservation.reservation_id is None:
+                                raise _RollbackAtomicPreparation(reservation)
+                            reservation_row = _require_row(
+                                connection.execute(
+                                    LOAD_RESERVATION_PUBLIC_ID_SQL,
+                                    {
+                                        "tenant_id": self._scope.tenant_id,
+                                        "project_id": self._scope.project_id,
+                                        "operation_id": operation_id,
+                                        "reservation_id": reservation.reservation_id,
+                                    },
+                                ).fetchone(),
+                                size=1,
+                                code="quota_reservation_public_id_missing",
+                            )
+                            reservation_pub_id = _text(
+                                reservation_row[0],
+                                "quota_reservation_pub_id",
+                            )
                         identity = prepared.operation.identity
                         manifest = identity.request_manifest
                         prepared_row = _require_row(

@@ -28,12 +28,10 @@ from .models import (
     SessionHealthCheck,
     SessionLease,
 )
+from .operations_constants import RUN_DELAY_THRESHOLD, TERMINAL_RUN_STATES
 
 router = APIRouter(prefix="/api/v2/operations", tags=["operations"])
 
-TERMINAL_RUN_STATES = frozenset(
-    {"completed", "completed_with_failures", "failed", "cancelled", "skipped"}
-)
 PENDING_INTERVENTION_STATES = frozenset(
     {"pending", "paired", "task_issued", "awaiting_platform_probe"}
 )
@@ -216,7 +214,7 @@ def get_operations_lifecycle(
             .select_from(CollectionRun)
             .where(
                 *active_run_filter,
-                CollectionRun.updated_at <= now - timedelta(minutes=15),
+                CollectionRun.updated_at <= now - RUN_DELAY_THRESHOLD,
             )
         )
         or 0
@@ -699,3 +697,10 @@ def upsert_platform_sla(
     if not matches:
         raise HTTPException(status_code=404, detail={"code": "platform_not_found"})
     return matches[0]
+
+
+# Keep the business portfolio projection behind the existing Operations router mount while
+# isolating its contract and query from the account/session lifecycle implementation above.
+from .business_overview_router import router as business_overview_router  # noqa: E402
+
+router.include_router(business_overview_router)

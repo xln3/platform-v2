@@ -161,6 +161,9 @@ class SourceFetchInput:
     tenant_pub_id: str
     project_pub_id: str
     run_pub_id: str
+    # Optional public-ID allowlist for a scope-level URL shard.  The default
+    # preserves every historical workflow payload and whole-run fetch behavior.
+    source_url_pub_ids: tuple[str, ...] | None = None
 
 
 @dataclass
@@ -253,6 +256,7 @@ class SourceTarget:
     host: str
     task_pub_ids: tuple[str, ...]  # 引用此 URL 的回答；同 URL 只抓一次但关系扇出
     source_url_id: str | None = None
+    source_url_pub_id: str | None = None
 
 
 def normalize_host(url: str) -> str | None:
@@ -325,6 +329,7 @@ def plan_source_targets(
     task_order = {task_pub_id: index for index, (task_pub_id, _citations) in enumerate(tasks)}
     first_url_by_key: dict[str, str] = {}
     source_url_id_by_key: dict[str, str | None] = {}
+    source_url_pub_id_by_key: dict[str, str | None] = {}
     planned_by_answer: list[tuple[str, list[tuple[int, int, str, str, str]]]] = []
     for task_pub_id, citations in tasks:
         candidates: list[tuple[int, int, str, str, str]] = []
@@ -347,6 +352,11 @@ def plan_source_targets(
             raw_source_url_id = citation.get("source_url_id")
             source_url_id_by_key.setdefault(
                 key, str(raw_source_url_id) if raw_source_url_id is not None else None
+            )
+            raw_source_url_pub_id = citation.get("source_url_pub_id")
+            source_url_pub_id_by_key.setdefault(
+                key,
+                str(raw_source_url_pub_id) if raw_source_url_pub_id is not None else None,
             )
             candidates.append((priority, ordinal, clean_url, key, host))
         planned_by_answer.append((task_pub_id, sorted(candidates)))
@@ -377,6 +387,7 @@ def plan_source_targets(
                         host=existing.host,
                         task_pub_ids=linked_task_pub_ids,
                         source_url_id=existing.source_url_id,
+                        source_url_pub_id=existing.source_url_pub_id,
                     )
                 continue
             target_index_by_key[key] = len(targets)
@@ -388,6 +399,7 @@ def plan_source_targets(
                     host=host,
                     task_pub_ids=(task_pub_id,),
                     source_url_id=source_url_id_by_key[key],
+                    source_url_pub_id=source_url_pub_id_by_key[key],
                 )
             )
     return targets
@@ -930,7 +942,7 @@ class _PostgresSourceLoader:
                        occurrence.raw_url,occurrence.title,
                        occurrence.u_state,occurrence.final_reference_state,
                        occurrence.final_reference_ordinal,url.canonical_url,
-                       occurrence.source_url_id
+                       occurrence.source_url_id,url.pub_id AS source_url_pub_id
                 FROM platform.answer_source_occurrence occurrence
                 JOIN platform.source_url url ON url.id=occurrence.source_url_id
                 WHERE occurrence.run_id=%s
@@ -1000,6 +1012,7 @@ class _PostgresSourceLoader:
                     "ordinal": int(row["occurrence_ordinal"]),
                     "u_state": str(row["u_state"]),
                     "source_url_id": str(row["source_url_id"]),
+                    "source_url_pub_id": str(row["source_url_pub_id"]),
                 }
             )
         # Rolling deployments can briefly leave tasks written by the legacy
@@ -2137,9 +2150,23 @@ def execute_source_fetch(
     context = loader.load(item.tenant_pub_id, item.run_pub_id, item.project_pub_id)
     if context is None:
         raise ApplicationError("collection run not found", type="run_not_found", non_retryable=True)
-    targets = plan_source_targets(context.tasks, config.limit, config.run_limit)
+    tasks = context.tasks
+    if item.source_url_pub_ids is not None:
+        allowed_source_urls = set(item.source_url_pub_ids)
+        tasks = [
+            (
+                task_pub_id,
+                [
+                    citation
+                    for citation in citations
+                    if citation.get("source_url_pub_id") in allowed_source_urls
+                ],
+            )
+            for task_pub_id, citations in context.tasks
+        ]
+    targets = plan_source_targets(tasks, config.limit, config.run_limit)
     planning_coverage = source_plan_coverage(
-        context.tasks,
+        tasks,
         targets,
         limit=config.limit,
         run_limit=config.run_limit,

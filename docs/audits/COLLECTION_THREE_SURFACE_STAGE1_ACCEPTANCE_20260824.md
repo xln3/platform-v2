@@ -47,13 +47,13 @@ The deterministic selector includes only:
 
 The read-only production baseline selected:
 
-| Fact type | Count |
-| --- | ---: |
-| collection runs | 498 |
-| collection tasks | 3,104 |
-| answers | 1,492 |
-| answer analyses | 1,492 |
-| analysis jobs | 21 |
+| Fact type                              |  Count |
+| -------------------------------------- | -----: |
+| collection runs                        |    498 |
+| collection tasks                       |  3,104 |
+| answers                                |  1,492 |
+| answer analyses                        |  1,492 |
+| analysis jobs                          |     21 |
 | distinct answer-linked evidence assets | 12,399 |
 
 All selected evidence assets matched the answer tenant and project; no selected evidence asset was shared across projects. Arbitrary `legacy-history/` rows without the required migration provenance are excluded.

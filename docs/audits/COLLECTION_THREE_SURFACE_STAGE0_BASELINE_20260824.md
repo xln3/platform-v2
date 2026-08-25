@@ -49,23 +49,23 @@
 
 ## 主提示词现状复核
 
-| 主题 | 结论 | 当前证据 |
-| --- | --- | --- |
-| config | 仍成立 | `ConfigDraft` 只有 regions/models/modes；没有 surface/target schema。 |
-| 任务身份 | 仍成立 | business key 仍为 config hash + query + model + region + mode。 |
-| workflow payload | 仍成立 | `CollectionTaskInput` 没有 surface；analysis dimensions/context 仍写 `channel=api`。 |
-| workflow patch | 仍成立 | v1 仍按 adapter、region、mode patch 分段；不能直接加必填字段。 |
-| analytics | 仍成立 | sampling/answers 聚合没有 surface，也没有 v2 四分母。 |
-| provenance | 仍成立 | `CaptureChannel` 只有 API/WEB，且仍被当作业务 channel 使用。 |
-| quota | 仍成立 | admission 先读 day/week/year 累计；成功结果提交后才另事务递增，没有 operation 级原子预占。 |
-| 结果事务 | 部分改善但风险仍在 | answer/evidence/analysis outbox 已同事务；governor outcome 仍在 commit 后 best-effort 独立事务。 |
-| Web fencing | 仍成立 | DB token 单调并有 heartbeat；token 未贯穿每个 click/submit，heartbeat 丢失只日志后返回。 |
-| 外部发送 | 仍成立 | 豆包 `_submit_and_confirm` 可进行两次发送尝试；send/capture 没有 durable operation 隔离。 |
-| 正式绑定 | 仍成立 | 豆包强制 legacy governance；其余平台仍允许 unmanaged env fallback，且存在 governance-off 开关。 |
-| region/relay | 有局部变化，核心风险仍在 | HTTP probe 已在 DB 行锁外且有滞回；仍是 region 级 gate，没有 monotonic probe generation，陈旧结果仍可能后写。 |
-| Temporal | 仍成立，风险已接受 | 只有 synthetic replay；真实 v1 history/corpus 不存在。风险不再阻塞 v2 开发，但不得宣称已验证。 |
-| 重复采样 | 仍成立 | `ConfigLauncher` 仍循环启动 N 个 run，没有稳定 sample ordinal。 |
-| 主批次/报告 | 仍成立 | formal review 仍按时间范围内最新 bounded repetitions 选样，没有冻结 campaign/primary slot manifest。 |
+| 主题             | 结论                     | 当前证据                                                                                                      |
+| ---------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| config           | 仍成立                   | `ConfigDraft` 只有 regions/models/modes；没有 surface/target schema。                                         |
+| 任务身份         | 仍成立                   | business key 仍为 config hash + query + model + region + mode。                                               |
+| workflow payload | 仍成立                   | `CollectionTaskInput` 没有 surface；analysis dimensions/context 仍写 `channel=api`。                          |
+| workflow patch   | 仍成立                   | v1 仍按 adapter、region、mode patch 分段；不能直接加必填字段。                                                |
+| analytics        | 仍成立                   | sampling/answers 聚合没有 surface，也没有 v2 四分母。                                                         |
+| provenance       | 仍成立                   | `CaptureChannel` 只有 API/WEB，且仍被当作业务 channel 使用。                                                  |
+| quota            | 仍成立                   | admission 先读 day/week/year 累计；成功结果提交后才另事务递增，没有 operation 级原子预占。                    |
+| 结果事务         | 部分改善但风险仍在       | answer/evidence/analysis outbox 已同事务；governor outcome 仍在 commit 后 best-effort 独立事务。              |
+| Web fencing      | 仍成立                   | DB token 单调并有 heartbeat；token 未贯穿每个 click/submit，heartbeat 丢失只日志后返回。                      |
+| 外部发送         | 仍成立                   | 豆包 `_submit_and_confirm` 可进行两次发送尝试；send/capture 没有 durable operation 隔离。                     |
+| 正式绑定         | 仍成立                   | 豆包强制 legacy governance；其余平台仍允许 unmanaged env fallback，且存在 governance-off 开关。               |
+| region/relay     | 有局部变化，核心风险仍在 | HTTP probe 已在 DB 行锁外且有滞回；仍是 region 级 gate，没有 monotonic probe generation，陈旧结果仍可能后写。 |
+| Temporal         | 仍成立，风险已接受       | 只有 synthetic replay；真实 v1 history/corpus 不存在。风险不再阻塞 v2 开发，但不得宣称已验证。                |
+| 重复采样         | 仍成立                   | `ConfigLauncher` 仍循环启动 N 个 run，没有稳定 sample ordinal。                                               |
+| 主批次/报告      | 仍成立                   | formal review 仍按时间范围内最新 bounded repetitions 选样，没有冻结 campaign/primary slot manifest。          |
 
 ## 聚焦测试证据
 

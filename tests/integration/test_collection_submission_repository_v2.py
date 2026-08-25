@@ -31,7 +31,7 @@ from geo_platform.collection.identity_v2 import (
 from geo_platform.collection.quota_v2 import (
     ConnectionProtocol,
     ReserveQuotaRequest,
-    reserve_quota,
+    reserve_quota_after_operation_admission,
 )
 from geo_platform.collection.submission_repository_v2 import (
     S10_FUNCTION_CONTRACTS,
@@ -91,6 +91,10 @@ PREPARE_SIGNATURE = (
     "platform.prepare_collection_submission_request_v2("
     "uuid,uuid,uuid,integer,text,text,text,text,text,text,text,timestamptz)"
 )
+CREATE_OPERATION_SIGNATURE = (
+    "platform.create_collection_submission_operation_v2("
+    "uuid,uuid,text,integer,text,text,timestamptz,text,text,text,text,text,text,text,text)"
+)
 CLAIM_SIGNATURE = (
     "platform.claim_collection_submission_v2("
     "uuid,uuid,uuid,text,integer,uuid,integer,text,text,text,text,text,text,text,text,text,"
@@ -101,10 +105,18 @@ RECONCILIATION_READY_SIGNATURE = (
     "uuid,uuid,uuid,uuid,integer,text,text,timestamptz)"
 )
 RESTRICTED_SIGNATURES = (
+    CREATE_OPERATION_SIGNATURE,
     PREPARE_SIGNATURE,
     CLAIM_SIGNATURE,
     RECONCILIATION_READY_SIGNATURE,
 )
+
+CREATE_OPERATION_SQL = """
+SELECT operation_id, created
+FROM platform.create_collection_submission_operation_v2(
+  %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s
+)
+"""
 
 PREPARE_SQL = """
 SELECT request_manifest_id, capture_truth_id, prepared
@@ -159,6 +171,7 @@ class _SubmissionFixture:
     authority: OwnerAuthorityRef
     reservation_pub_id: str
     leases: tuple[_ResourceLease, ...]
+    create_operation_args: tuple[object, ...]
     prepare_args: tuple[object, ...]
     prepared_manifest_id: UUID
     capture_truth_id: UUID
@@ -448,32 +461,6 @@ def _clone_binding_with_single_owner(
     ).fetchone()
     assert activated == (binding_id,)
     return binding_id, binding_pub_id, owner_handle, tuple(resource_rows)
-
-
-def _reserve(
-    dsn: str,
-    *,
-    tenant_id: UUID,
-    project_id: UUID,
-    operation_id: UUID,
-    binding_id: UUID,
-    quota_registry_id: UUID,
-) -> UUID:
-    with psycopg.connect(dsn) as connection:
-        result = reserve_quota(
-            cast(ConnectionProtocol, connection),
-            ReserveQuotaRequest(
-                tenant_id=tenant_id,
-                project_id=project_id,
-                operation_id=operation_id,
-                binding_id=binding_id,
-                registry_id=quota_registry_id,
-                requested_units=1,
-            ),
-        )
-    assert result.reserved
-    assert result.reservation_id is not None
-    return result.reservation_id
 
 
 def _create_leases(
@@ -816,6 +803,70 @@ def _worker_repository(fixture: _SubmissionFixture) -> PostgresSubmissionReposit
     )
 
 
+def _unused_primary_admission_args(fixture: _SubmissionFixture) -> tuple[object, ...]:
+    with psycopg.connect(fixture.dsn) as connection:
+        row = connection.execute(
+            """
+            SELECT campaign.pub_id,target.target_key,slot.pub_id,slot.slot_key,
+                   leg.leg_key,slot.platform,slot.collection_surface,
+                   slot.product_variant
+              FROM platform.collection_submission_operation seed
+              JOIN platform.collection_campaign campaign
+                ON campaign.id=seed.campaign_id
+               AND campaign.tenant_id=seed.tenant_id
+               AND campaign.project_id=seed.project_id
+              JOIN platform.collection_primary_slot slot
+                ON slot.campaign_id=campaign.id
+               AND slot.tenant_id=campaign.tenant_id
+               AND slot.project_id=campaign.project_id
+               AND slot.id<>seed.primary_slot_id
+               AND slot.slot_role='primary'
+              JOIN platform.collection_campaign_target target
+                ON target.id=slot.campaign_target_id
+               AND target.tenant_id=slot.tenant_id
+               AND target.project_id=slot.project_id
+              JOIN platform.collection_sampling_leg leg
+                ON leg.id=slot.sampling_leg_id
+               AND leg.tenant_id=slot.tenant_id
+               AND leg.project_id=slot.project_id
+             WHERE seed.id=%s AND seed.tenant_id=%s AND seed.project_id=%s
+             ORDER BY slot.slot_ordinal
+             LIMIT 1
+            """,
+            (fixture.operation_id, fixture.tenant_id, fixture.project_id),
+        ).fetchone()
+    assert row is not None and len(row) == 8
+    operation_pub_id = _pub("opr", uuid4())
+    material = OperationKeyMaterial(
+        tenant_id=fixture.tenant_id,
+        project_id=fixture.project_id,
+        campaign_pub_id=str(row[0]),
+        slot_pub_id=str(row[2]),
+        target_key=str(row[1]),
+        leg_key=str(row[4]),
+        logical_item_key=str(row[3]),
+        generation=1,
+        operation_policy_revision="operation-policy-v1",
+    )
+    return (
+        fixture.tenant_id,
+        fixture.project_id,
+        operation_pub_id,
+        material.generation,
+        deterministic_operation_key(material),
+        material.operation_policy_revision,
+        datetime.now(UTC),
+        material.slot_pub_id,
+        material.logical_item_key,
+        material.campaign_pub_id,
+        material.target_key,
+        material.leg_key,
+        str(row[5]),
+        str(row[6]),
+        str(row[7]),
+    )
+
+
 def _submission_work(fixture: _SubmissionFixture) -> SubmissionWorkItem:
     return SubmissionWorkItem(
         prepared=PreparedSubmissionRef(
@@ -1079,8 +1130,8 @@ def _seed_submission_fixture(dsn: str) -> _SubmissionFixture:
         capability_revision=str(capability[1]),
         binding_policy_revision=str(capability[2]),
     )
-    operation_id = uuid4()
-    operation_pub_id = _pub("opr", operation_id)
+    operation_identity_seed = uuid4()
+    operation_pub_id = _pub("opr", operation_identity_seed)
     (
         slot_id,
         campaign_target_id,
@@ -1170,65 +1221,62 @@ def _seed_submission_fixture(dsn: str) -> _SubmissionFixture:
                 request_manifest_sha256=request_manifest_hash,
                 provider_idempotency_key=provider_idempotency_key,
             )
-            connection.execute(
-                """
-                INSERT INTO platform.collection_submission_operation
-                  (id,pub_id,tenant_id,project_id,campaign_id,campaign_target_id,
-                   sampling_leg_id,primary_slot_id,slot_key,platform,
-                   collection_surface,product_variant,province_code,
-                   interaction_mode,operation_generation,operation_key,
-                   operation_policy_revision,send_state,send_state_version,
-                   prepared_at,reconciliation_state,reconcile_after,state_reason)
-                VALUES
-                  (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,1,%s,
-                   'operation-policy-v1','NOT_SENT',1,%s,'not_required',%s,
-                   'submission_repository_integration')
-                """,
-                (
-                    operation_id,
-                    operation_pub_id,
-                    service.tenant_id,
-                    service.project_id,
-                    campaign_id,
-                    campaign_target_id,
-                    sampling_leg_id,
-                    slot_id,
-                    slot_key,
-                    platform,
-                    collection_surface,
-                    product_variant,
-                    province_code,
-                    interaction_mode,
-                    operation_key,
-                    prepared_at,
-                    prepared_at + timedelta(hours=1),
+            create_operation_args: tuple[object, ...] = (
+                service.tenant_id,
+                service.project_id,
+                operation_pub_id,
+                1,
+                operation_key,
+                "operation-policy-v1",
+                prepared_at,
+                operation_material.slot_pub_id,
+                operation_material.logical_item_key,
+                operation_material.campaign_pub_id,
+                operation_material.target_key,
+                operation_material.leg_key,
+                surface_product.platform,
+                surface_product.collection_surface.value,
+                surface_product.product_variant,
+            )
+            _set_scope(connection, service.tenant_id, role="geo_worker")
+            created = connection.execute(CREATE_OPERATION_SQL, create_operation_args).fetchone()
+            assert created is not None and len(created) == 2 and bool(created[1])
+            operation_id = UUID(str(created[0]))
+            replay = connection.execute(CREATE_OPERATION_SQL, create_operation_args).fetchone()
+            assert replay == (operation_id, False)
+            reservation = reserve_quota_after_operation_admission(
+                cast(ConnectionProtocol, connection),
+                ReserveQuotaRequest(
+                    tenant_id=service.tenant_id,
+                    project_id=service.project_id,
+                    operation_id=operation_id,
+                    binding_id=binding_id,
+                    registry_id=service.registry_id,
+                    requested_units=1,
                 ),
             )
+            assert reservation.reserved and reservation.reservation_id is not None
+            reservation_id = reservation.reservation_id
+            prepare_args: tuple[object, ...] = (
+                service.tenant_id,
+                service.project_id,
+                operation_id,
+                1,
+                request_manifest.request_payload_sha256,
+                request_manifest_hash,
+                request_manifest.request_protocol_version,
+                request_manifest.request_schema_revision,
+                request_manifest.request_payload_ref,
+                _hash(provider_idempotency_key),
+                "submission-integration-worker",
+                prepared_at,
+            )
+            prepared_row = connection.execute(PREPARE_SQL, prepare_args).fetchone()
+            assert prepared_row is not None and len(prepared_row) == 3
+            prepared_manifest_id = UUID(str(prepared_row[0]))
+            capture_truth_id = UUID(str(prepared_row[1]))
+            assert bool(prepared_row[2])
     durable_operation_ref = operation_ref(identity)
-    reservation_id = _reserve(
-        dsn,
-        tenant_id=service.tenant_id,
-        project_id=service.project_id,
-        operation_id=operation_id,
-        binding_id=binding_id,
-        quota_registry_id=service.registry_id,
-    )
-    prepare_args: tuple[object, ...] = (
-        service.tenant_id,
-        service.project_id,
-        operation_id,
-        1,
-        request_manifest.request_payload_sha256,
-        request_manifest_hash,
-        request_manifest.request_protocol_version,
-        request_manifest.request_schema_revision,
-        request_manifest.request_payload_ref,
-        _hash(provider_idempotency_key),
-        "submission-integration-worker",
-        prepared_at,
-    )
-    prepared_manifest_id, capture_truth_id, fresh = _execute_prepare(dsn, prepare_args)
-    assert fresh
 
     lease_acquired_at = datetime.now(UTC)
     lease_expires_at = lease_acquired_at + timedelta(hours=2)
@@ -1345,6 +1393,7 @@ def _seed_submission_fixture(dsn: str) -> _SubmissionFixture:
         authority=authority,
         reservation_pub_id=reservation_row[0],
         leases=leases,
+        create_operation_args=create_operation_args,
         prepare_args=prepare_args,
         prepared_manifest_id=prepared_manifest_id,
         capture_truth_id=capture_truth_id,
@@ -1978,3 +2027,69 @@ def test_rls_cross_tenant_and_public_api_function_execution_are_denied(
             with pytest.raises(psycopg.errors.InsufficientPrivilege):
                 with connection.transaction():
                     connection.execute(PREPARE_SQL, submission_fixture.prepare_args).fetchone()
+
+
+def test_worker_operation_table_is_read_only_and_admission_is_tenant_bound(
+    submission_fixture: _SubmissionFixture,
+) -> None:
+    with psycopg.connect(submission_fixture.dsn) as connection:
+        with connection.transaction():
+            _set_scope(connection, submission_fixture.tenant_id, role="geo_worker")
+            privileges = connection.execute(
+                """
+                SELECT has_table_privilege('geo_worker',
+                           'platform.collection_submission_operation','SELECT'),
+                       has_table_privilege('geo_worker',
+                           'platform.collection_submission_operation','INSERT'),
+                       has_table_privilege('geo_worker',
+                           'platform.collection_submission_operation','UPDATE'),
+                       has_table_privilege('geo_worker',
+                           'platform.collection_submission_operation','DELETE')
+                """
+            ).fetchone()
+            assert privileges == (True, False, False, False)
+            replay = connection.execute(
+                CREATE_OPERATION_SQL,
+                submission_fixture.create_operation_args,
+            ).fetchone()
+            assert replay == (submission_fixture.operation_id, False)
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                with connection.transaction():
+                    connection.execute(
+                        "INSERT INTO platform.collection_submission_operation (id) VALUES (%s)",
+                        (uuid4(),),
+                    )
+
+    cross_tenant_args = list(submission_fixture.create_operation_args)
+    cross_tenant_args[0] = uuid4()
+    with psycopg.connect(submission_fixture.dsn) as connection:
+        with connection.transaction():
+            _set_scope(connection, submission_fixture.tenant_id, role="geo_worker")
+            with pytest.raises(psycopg.Error, match="tenant context mismatch"):
+                connection.execute(CREATE_OPERATION_SQL, tuple(cross_tenant_args)).fetchone()
+
+    unused_args = _unused_primary_admission_args(submission_fixture)
+    drifted_key_args = list(unused_args)
+    drifted_key_args[4] = f"{unused_args[4]}-drift"
+    with psycopg.connect(submission_fixture.dsn) as connection:
+        with connection.transaction():
+            _set_scope(connection, submission_fixture.tenant_id, role="geo_worker")
+            with pytest.raises(psycopg.Error, match="key is not deterministic"):
+                connection.execute(CREATE_OPERATION_SQL, tuple(drifted_key_args)).fetchone()
+
+    with pytest.raises(
+        psycopg.Error,
+        match="preparation must complete in one transaction",
+    ):
+        with psycopg.connect(submission_fixture.dsn) as connection:
+            with connection.transaction():
+                _set_scope(connection, submission_fixture.tenant_id, role="geo_worker")
+                created = connection.execute(CREATE_OPERATION_SQL, unused_args).fetchone()
+                assert created is not None and bool(created[1])
+
+    with psycopg.connect(submission_fixture.dsn) as connection:
+        persisted = connection.execute(
+            "SELECT count(*) FROM platform.collection_submission_operation WHERE pub_id=%s",
+            (unused_args[2],),
+        ).fetchone()
+    assert persisted == (0,)

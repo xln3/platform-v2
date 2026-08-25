@@ -17,6 +17,7 @@ from temporalio.worker import Worker
 from workflows.activities.collection_v2 import (
     execute_collection_v2_page,
     reconcile_collection_v2_partition,
+    verify_collection_v2_partition_complete,
 )
 from workflows.definitions.collection_v2 import (
     COLLECTION_V2_TASK_QUEUE,
@@ -27,6 +28,7 @@ COLLECTION_V2_WORKFLOWS = (GeoCollectionV2Workflow,)
 COLLECTION_V2_ACTIVITIES: tuple[Callable[..., Any], ...] = (
     execute_collection_v2_page,
     reconcile_collection_v2_partition,
+    verify_collection_v2_partition_complete,
 )
 
 

@@ -233,6 +233,70 @@ STAGE2_FUNCTIONS = (
     "platform.guard_execution_grant_v2()",
     "platform.guard_execution_grant_child_v2()",
 )
+STAGE3_TABLES = (
+    "collection_submission_request_manifest_v2",
+    "collection_capture_truth_v2",
+    "collection_submission_dispatch_v2",
+    "collection_submission_transition_evidence_v2",
+    "collection_capture_manifest_v2",
+    "collection_observation_v2",
+    "collection_slot_outcome_v2",
+    "collection_analysis_admission_v2",
+    "collection_governance_effect_v2",
+    "collection_governance_outbox_v2",
+)
+STAGE3_WORKER_FUNCTIONS = (
+    "platform.create_collection_submission_operation_v2("
+    "uuid,uuid,text,integer,text,text,timestamptz,text,text,text,text,text,text,text,text)",
+    "platform.prepare_collection_submission_request_v2("
+    "uuid,uuid,uuid,integer,text,text,text,text,text,text,text,timestamptz)",
+    "platform.claim_collection_submission_v2("
+    "uuid,uuid,uuid,text,integer,uuid,integer,text,text,text,text,text,text,text,text,text,"
+    "timestamptz)",
+    "platform.mark_collection_dispatch_reconciliation_ready_v2("
+    "uuid,uuid,uuid,uuid,integer,text,text,timestamptz)",
+    "platform.claim_collection_dispatch_reconciliation_v2(uuid,uuid,uuid,uuid,integer,text,text)",
+    "platform.begin_collection_capture_v2("
+    "uuid,uuid,uuid,uuid,integer,text,text,text,text,text,text,text,timestamptz)",
+    "platform.stage_collection_capture_manifest_v2("
+    "uuid,uuid,uuid,uuid,integer,text,text,text,text,text,text,text,text,text,text,bigint,"
+    "text,text,text,text,text,text,text,text,text,text,text,text,text,timestamptz,timestamptz,"
+    "timestamptz)",
+    "platform.finalize_collection_submission_v2("
+    "uuid,uuid,uuid,uuid,uuid,integer,text,text,text,text,text,text,text,text,text,text,text,"
+    "timestamptz,text,text,text,integer)",
+    "platform.record_collection_slot_outcome_v2("
+    "uuid,uuid,uuid,integer,integer,uuid,integer,integer,text,text,text,boolean,text,text,"
+    "timestamptz)",
+    "platform.link_collection_capture_v2(uuid,uuid,uuid,uuid,uuid,integer,text,text,timestamptz)",
+    "platform.classify_collection_capture_orphan_v2(uuid,uuid,uuid,uuid,integer,timestamptz,text)",
+    "platform.collection_capture_orphan_gc_eligible_v2(uuid,uuid,uuid,timestamptz)",
+    "platform.advance_collection_governance_outbox_v2(uuid,uuid,uuid,integer,text,text)",
+)
+STAGE3_INTERNAL_FUNCTIONS = (
+    "platform.collection_outbox_key_s10(text,text,integer,text)",
+    "platform.reject_collection_submission_history_mutation_s10()",
+    "platform.guard_collection_submission_dispatch_s10()",
+    "platform.guard_submission_request_manifest_s10()",
+    "platform.create_capture_truth_for_request_s10()",
+    "platform.guard_collection_capture_truth_s10()",
+    "platform.guard_collection_capture_manifest_s10()",
+    "platform.resolve_capture_truth_from_manifest_s10()",
+    "platform.guard_collection_observation_s10()",
+    "platform.guard_collection_slot_outcome_s10()",
+    "platform.guard_collection_analysis_admission_s10()",
+    "platform.guard_collection_governance_outbox_s10()",
+    "platform.collection_dispatch_fence_set_hash_s10(uuid,uuid,uuid)",
+    "platform.assert_collection_authority_snapshot_s10("
+    "uuid,uuid,uuid,uuid,uuid,integer,text,text,text,text,text,timestamptz)",
+    "platform.assert_collection_dispatch_fresh_s10(uuid,uuid,uuid,uuid,text)",
+    "platform.assert_collection_submission_transaction_s10(uuid,uuid,uuid)",
+    "platform.validate_collection_submission_transaction_s10()",
+)
+STAGE3_FUNCTIONS = STAGE3_WORKER_FUNCTIONS + STAGE3_INTERNAL_FUNCTIONS
+_STAGE3_TENANT_POLICY_EXPRESSION = (
+    "(tenant_id = (NULLIF(current_setting('app.tenant_id'::text, true), ''::text))::uuid)"
+)
 
 
 def _relation_exists(connection: psycopg.Connection[tuple[object, ...]], table: str) -> bool:
@@ -251,6 +315,84 @@ def _stage2_resource_extensions_exist(
         """
     ).fetchone()
     return row is not None
+
+
+def _stage3_catalog_installed(
+    connection: psycopg.Connection[tuple[object, ...]],
+) -> bool:
+    """Return false only for a wholly pre-s10 catalog; reject partial installs."""
+
+    function_names = sorted(
+        {function.split("(", 1)[0].rsplit(".", 1)[1] for function in STAGE3_FUNCTIONS}
+    )
+    unexpected = connection.execute(
+        """
+        SELECT count(*)
+          FROM pg_proc procedure
+          JOIN pg_namespace namespace ON namespace.oid=procedure.pronamespace
+         WHERE namespace.nspname='platform'
+           AND procedure.proname=ANY(%s)
+           AND NOT procedure.oid=ANY(
+             ARRAY(
+               SELECT to_regprocedure(signature)
+                 FROM unnest(%s::text[]) signature
+                WHERE to_regprocedure(signature) IS NOT NULL
+             )
+           )
+        """,
+        (function_names, list(STAGE3_FUNCTIONS)),
+    ).fetchone()
+    if unexpected != (0,):
+        raise RuntimeError("unexpected Stage 3 function overload")
+
+    table_presence = {table: _relation_exists(connection, table) for table in STAGE3_TABLES}
+    function_presence = {}
+    for function in STAGE3_FUNCTIONS:
+        row = connection.execute("SELECT to_regprocedure(%s)", (function,)).fetchone()
+        function_presence[function] = row is not None and row[0] is not None
+    present = sum(table_presence.values()) + sum(function_presence.values())
+    expected = len(table_presence) + len(function_presence)
+    if present == 0:
+        return False
+    if present != expected:
+        missing_tables = tuple(table for table, exists in table_presence.items() if not exists)
+        missing_functions = tuple(
+            function for function, exists in function_presence.items() if not exists
+        )
+        raise RuntimeError(
+            "partial Stage 3 catalog:"
+            f"missing_tables={missing_tables!r}:missing_functions={missing_functions!r}"
+        )
+    return True
+
+
+def _verify_stage3_rls(
+    connection: psycopg.Connection[tuple[object, ...]],
+) -> None:
+    for table in STAGE3_TABLES:
+        row = connection.execute(
+            """
+            SELECT relation.relrowsecurity,
+                   relation.relforcerowsecurity,
+                   count(policy.oid),
+                   count(policy.oid) FILTER (
+                     WHERE policy.polname='tenant_isolation'
+                       AND policy.polcmd='*'
+                       AND policy.polpermissive
+                       AND policy.polroles=ARRAY[0::oid]
+                       AND pg_get_expr(policy.polqual,policy.polrelid)=%s
+                       AND pg_get_expr(policy.polwithcheck,policy.polrelid)=%s
+                   )
+              FROM pg_class relation
+              JOIN pg_namespace namespace ON namespace.oid=relation.relnamespace
+              LEFT JOIN pg_policy policy ON policy.polrelid=relation.oid
+             WHERE namespace.nspname='platform' AND relation.relname=%s
+             GROUP BY relation.relrowsecurity,relation.relforcerowsecurity
+            """,
+            (_STAGE3_TENANT_POLICY_EXPRESSION, _STAGE3_TENANT_POLICY_EXPRESSION, table),
+        ).fetchone()
+        if row != (True, True, 1, 1):
+            raise RuntimeError(f"stage3 RLS policy mismatch:{table}")
 
 
 def apply_stage2_minimum_acl(
@@ -421,6 +563,182 @@ def verify_stage2_minimum_acl(
             raise RuntimeError(f"stage2 reconciliation EXECUTE mismatch:{role}")
 
 
+def apply_stage3_minimum_acl(
+    connection: psycopg.Connection[tuple[object, ...]], *, role: str
+) -> None:
+    """Restore the s10 read-only tables and narrow worker entrypoint matrix."""
+
+    if role not in (API_ROLE, WORKER_ROLE):
+        raise ValueError(f"unsupported Stage 3 runtime role:{role}")
+    if not _stage3_catalog_installed(connection):
+        return
+
+    for table in STAGE3_TABLES:
+        if not _relation_exists(connection, table):
+            continue
+        relation = sql.SQL("platform.{}").format(sql.Identifier(table))
+        connection.execute(sql.SQL("REVOKE ALL ON TABLE {} FROM PUBLIC").format(relation))
+        connection.execute(
+            sql.SQL("REVOKE ALL ON TABLE {} FROM {}").format(
+                relation,
+                sql.Identifier(role),
+            )
+        )
+        connection.execute(
+            sql.SQL("GRANT SELECT ON TABLE {} TO {}").format(
+                relation,
+                sql.Identifier(role),
+            )
+        )
+
+    # Stage 2 grants worker direct INSERT and mutable-column UPDATE on the s07
+    # operation table.  Stage 3 replaces both capabilities with exact
+    # SECURITY DEFINER entrypoints, so the table itself is read-only here.
+    if role == WORKER_ROLE and _relation_exists(connection, "collection_submission_operation"):
+        operation = sql.SQL("platform.collection_submission_operation")
+        connection.execute(
+            sql.SQL("REVOKE ALL ON TABLE {} FROM {}").format(
+                operation,
+                sql.Identifier(role),
+            )
+        )
+        connection.execute(
+            sql.SQL("REVOKE UPDATE ({}) ON TABLE {} FROM {}").format(
+                sql.SQL(",").join(
+                    sql.Identifier(column)
+                    for column in STAGE2_WORKER_UPDATE_COLUMNS["collection_submission_operation"]
+                ),
+                operation,
+                sql.Identifier(role),
+            )
+        )
+        connection.execute(
+            sql.SQL("GRANT SELECT ON TABLE {} TO {}").format(
+                operation,
+                sql.Identifier(role),
+            )
+        )
+
+    worker_functions = frozenset(STAGE3_WORKER_FUNCTIONS)
+    for function in STAGE3_FUNCTIONS:
+        function_row = connection.execute("SELECT to_regprocedure(%s)", (function,)).fetchone()
+        if function_row is None or function_row[0] is None:
+            continue
+        signature = sql.SQL(function)
+        connection.execute(sql.SQL("REVOKE ALL ON FUNCTION {} FROM PUBLIC").format(signature))
+        connection.execute(
+            sql.SQL("REVOKE ALL ON FUNCTION {} FROM {}").format(
+                signature,
+                sql.Identifier(role),
+            )
+        )
+        if role == WORKER_ROLE and function in worker_functions:
+            connection.execute(
+                sql.SQL("GRANT EXECUTE ON FUNCTION {} TO {}").format(
+                    signature,
+                    sql.Identifier(role),
+                )
+            )
+
+
+def verify_stage3_minimum_acl(
+    connection: psycopg.Connection[tuple[object, ...]], *, role: str
+) -> None:
+    """Fail unless s10 is read-only and only worker entrypoints are executable."""
+
+    if role not in (API_ROLE, WORKER_ROLE):
+        raise ValueError(f"unsupported Stage 3 runtime role:{role}")
+    if not _stage3_catalog_installed(connection):
+        return
+    _verify_stage3_rls(connection)
+
+    for table in STAGE3_TABLES:
+        if not _relation_exists(connection, table):
+            continue
+        qualified_table = f"platform.{table}"
+        privileges = connection.execute(
+            """
+            SELECT has_table_privilege(%s,%s,'SELECT'),
+                   has_table_privilege(%s,%s,'INSERT'),
+                   has_table_privilege(%s,%s,'UPDATE'),
+                   has_table_privilege(%s,%s,'DELETE'),
+                   has_any_column_privilege(%s,%s,'INSERT'),
+                   has_any_column_privilege(%s,%s,'UPDATE')
+            """,
+            (
+                role,
+                qualified_table,
+                role,
+                qualified_table,
+                role,
+                qualified_table,
+                role,
+                qualified_table,
+                role,
+                qualified_table,
+                role,
+                qualified_table,
+            ),
+        ).fetchone()
+        if privileges != (True, False, False, False, False, False):
+            raise RuntimeError(f"stage3 table ACL mismatch:{role}:{table}")
+
+    if _relation_exists(connection, "collection_submission_operation"):
+        operation_privileges = connection.execute(
+            """
+            SELECT has_table_privilege(%s,%s,'SELECT'),
+                   has_table_privilege(%s,%s,'INSERT'),
+                   has_table_privilege(%s,%s,'UPDATE'),
+                   has_table_privilege(%s,%s,'DELETE'),
+                   has_any_column_privilege(%s,%s,'UPDATE')
+            """,
+            (
+                role,
+                "platform.collection_submission_operation",
+                role,
+                "platform.collection_submission_operation",
+                role,
+                "platform.collection_submission_operation",
+                role,
+                "platform.collection_submission_operation",
+                role,
+                "platform.collection_submission_operation",
+            ),
+        ).fetchone()
+        if operation_privileges != (True, False, False, False, False):
+            raise RuntimeError(f"stage3 operation ACL mismatch:{role}")
+
+    worker_functions = frozenset(STAGE3_WORKER_FUNCTIONS)
+    for function in STAGE3_FUNCTIONS:
+        function_row = connection.execute("SELECT to_regprocedure(%s)", (function,)).fetchone()
+        if function_row is None or function_row[0] is None:
+            continue
+        public_execute = connection.execute(
+            """
+            SELECT EXISTS (
+              SELECT 1
+                FROM pg_proc procedure
+                CROSS JOIN LATERAL aclexplode(
+                  COALESCE(procedure.proacl,acldefault('f',procedure.proowner))
+                ) privilege
+               WHERE procedure.oid=to_regprocedure(%s)
+                 AND privilege.grantee=0
+                 AND privilege.privilege_type='EXECUTE'
+            )
+            """,
+            (function,),
+        ).fetchone()
+        if public_execute is None or public_execute[0] is not False:
+            raise RuntimeError(f"stage3 function is executable by PUBLIC:{function}")
+        role_execute = connection.execute(
+            "SELECT has_function_privilege(%s,%s,'EXECUTE')",
+            (role, function),
+        ).fetchone()
+        expected = role == WORKER_ROLE and function in worker_functions
+        if role_execute is None or role_execute[0] is not expected:
+            raise RuntimeError(f"stage3 function EXECUTE mismatch:{role}:{function}")
+
+
 def read_environment(path: Path) -> tuple[list[str], dict[str, str]]:
     lines = path.read_text(encoding="utf-8").splitlines()
     values: dict[str, str] = {}
@@ -505,8 +823,7 @@ def install_role(owner_dsn: str, password: str, *, role: str, bypass_rls: bool) 
             )
             connection.execute(
                 sql.SQL(
-                    "ALTER DEFAULT PRIVILEGES FOR ROLE {} IN SCHEMA {} "
-                    "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {}"
+                    "ALTER DEFAULT PRIVILEGES FOR ROLE {} IN SCHEMA {} REVOKE ALL ON TABLES FROM {}"
                 ).format(
                     sql.Identifier(owner),
                     sql.Identifier(schema),
@@ -516,14 +833,24 @@ def install_role(owner_dsn: str, password: str, *, role: str, bypass_rls: bool) 
             connection.execute(
                 sql.SQL(
                     "ALTER DEFAULT PRIVILEGES FOR ROLE {} IN SCHEMA {} "
-                    "GRANT USAGE, SELECT ON SEQUENCES TO {}"
+                    "REVOKE ALL ON SEQUENCES FROM {}"
                 ).format(
                     sql.Identifier(owner),
                     sql.Identifier(schema),
                     sql.Identifier(role),
                 )
             )
+            connection.execute(
+                sql.SQL(
+                    "ALTER DEFAULT PRIVILEGES FOR ROLE {} IN SCHEMA {} "
+                    "REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC"
+                ).format(
+                    sql.Identifier(owner),
+                    sql.Identifier(schema),
+                )
+            )
         apply_stage2_minimum_acl(connection, role=role)
+        apply_stage3_minimum_acl(connection, role=role)
 
 
 def verify_role(dsn: str, *, bypass_rls: bool) -> None:
@@ -537,6 +864,7 @@ def verify_role(dsn: str, *, bypass_rls: bool) -> None:
         if role is None or role[1:] != (False, False, False, bypass_rls):
             raise RuntimeError("runtime database role is privileged")
         verify_stage2_minimum_acl(connection, role=str(role[0]))
+        verify_stage3_minimum_acl(connection, role=str(role[0]))
         connection.execute("SELECT count(*) FROM sop.project").fetchone()
         tenant = connection.execute(
             "SELECT id,pub_id FROM platform.tenant ORDER BY id LIMIT 1"

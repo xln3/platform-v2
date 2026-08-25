@@ -32,6 +32,7 @@ from geo_platform.main import app
 from geo_platform.tenancy.database import get_db
 from geo_platform.tenancy.ids import new_pub_id
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.sql.elements import BinaryExpression, BooleanClauseList, Grouping
 
 _NOW = datetime(2026, 8, 13, 12, 0, tzinfo=UTC)
 
@@ -54,6 +55,8 @@ class _FakeSession:
 
     def scalar(self, stmt: Any) -> Any | None:
         rows = self._select(stmt)
+        if getattr(stmt._raw_columns[0], "name", None) == "count":
+            return len(rows)
         return rows[0] if rows else None
 
     def scalars(self, stmt: Any) -> list[Any]:
@@ -61,15 +64,24 @@ class _FakeSession:
 
     def _select(self, stmt: Any) -> list[Any]:
         cls = stmt.column_descriptions[0]["entity"]
+        if cls is None:
+            table_name = stmt.get_final_froms()[0].name
+            cls = next(
+                candidate
+                for candidate in (
+                    CollectionPhoneAccount,
+                    CollectionPlatformAccount,
+                    CollectionRegion,
+                    CollectionBrowser,
+                    CollectionAccountEvent,
+                    BrowserFence,
+                )
+                if getattr(candidate, "__tablename__", None) == table_name
+            )
         rows = list(self.rows.get(cls, []))
         for criterion in stmt._where_criteria:
-            key = criterion.left.key
-            value = criterion.right.value
-            if isinstance(value, list):  # in_ 谓词
-                rows = [row for row in rows if getattr(row, key) in value]
-            else:
-                rows = [row for row in rows if getattr(row, key) == value]
-        for order in stmt._order_by_clauses:
+            rows = [row for row in rows if self._matches(criterion, row)]
+        for order in reversed(stmt._order_by_clauses):
             element = getattr(order, "element", order)  # 裸列（asc）无 .element 包装
             key = element.key
             desc = "desc" in str(getattr(order, "modifier", ""))
@@ -77,6 +89,25 @@ class _FakeSession:
         if stmt._limit is not None:
             rows = rows[: stmt._limit]
         return rows
+
+    def _matches(self, criterion: Any, row: Any) -> bool:
+        if isinstance(criterion, Grouping):
+            return self._matches(criterion.element, row)
+        if isinstance(criterion, BooleanClauseList):
+            values = [self._matches(clause, row) for clause in criterion.clauses]
+            return any(values) if criterion.operator.__name__ == "or_" else all(values)
+        if not isinstance(criterion, BinaryExpression):
+            raise AssertionError(f"unsupported fake predicate: {criterion!s}")
+        left = getattr(row, criterion.left.key)
+        right = criterion.right.value
+        operator = criterion.operator.__name__
+        if operator == "eq":
+            return left == right
+        if operator == "lt":
+            return left < right
+        if operator == "in_op":
+            return left in right
+        raise AssertionError(f"unsupported fake operator: {operator}")
 
     def add(self, obj: Any) -> None:
         self.rows.setdefault(type(obj), []).append(obj)
@@ -383,6 +414,39 @@ def test_list_accounts_fixed_five_platform_columns(session: _FakeSession) -> Non
     assert cell["browser_instance_key"] == "doubao_sh"
     for slug in ("yiyan", "deepseek", "yuanbao", "tongyi"):
         assert row["platforms"][slug] is None
+
+
+def test_collection_account_cursor_reaches_fifth_and_ninth_rows(session: _FakeSession) -> None:
+    expected = []
+    for index in range(9):
+        row = _seed_phone(
+            session,
+            pub_id=f"pha_page_{index:02d}",
+            phone=f"1312162{index:04d}",
+            created_at=_NOW,
+        )
+        expected.append(row.pub_id)
+    expected.sort(reverse=True)
+    _bind(session)
+
+    first = client.get("/api/v2/collection-accounts", params={"limit": 4})
+    assert first.status_code == 200, first.text
+    assert [row["phone_account_pub_id"] for row in first.json()] == expected[:4]
+    assert first.headers["X-Total-Count"] == "9"
+    assert first.headers["X-Has-More"] == "true"
+
+    second = client.get(
+        "/api/v2/collection-accounts",
+        params={"limit": 4, "cursor": first.headers["X-Next-Cursor"]},
+    )
+    assert [row["phone_account_pub_id"] for row in second.json()] == expected[4:8]
+    third = client.get(
+        "/api/v2/collection-accounts",
+        params={"limit": 4, "cursor": second.headers["X-Next-Cursor"]},
+    )
+    assert [row["phone_account_pub_id"] for row in third.json()] == expected[8:]
+    assert third.headers["X-Has-More"] == "false"
+    assert "X-Next-Cursor" not in third.headers
 
 
 def test_read_only_reviewer_keeps_phone_masked(session: _FakeSession) -> None:
@@ -913,6 +977,47 @@ def test_events_merges_phone_and_platform_rows(session: _FakeSession) -> None:
     assert rows[0]["new_value"] == {"region_gb": "110000"}
     assert rows[0]["actor"] == "usr_ops"
     assert {row["event_type"] for row in rows} == {"phone_event", "config_change"}
+
+
+def test_account_event_cursor_reaches_ninth_row_without_a_fifty_row_cap(
+    session: _FakeSession,
+) -> None:
+    phone = _seed_phone(session)
+    expected = []
+    for index in range(9):
+        pub_id = f"aev_page_{index:02d}"
+        expected.append(pub_id)
+        session.add(
+            CollectionAccountEvent(
+                pub_id=pub_id,
+                phone_account_id=phone.id,
+                event_type=f"event_{index}",
+                actor="usr_ops",
+                created_at=_NOW,
+            )
+        )
+    session.flush()
+    expected.sort(reverse=True)
+    _bind(session)
+
+    first = client.get(
+        f"/api/v2/collection-accounts/{phone.pub_id}/events",
+        params={"limit": 4},
+    )
+    assert first.status_code == 200, first.text
+    assert [row["event_pub_id"] for row in first.json()] == expected[:4]
+    assert first.headers["X-Total-Count"] == "9"
+    second = client.get(
+        f"/api/v2/collection-accounts/{phone.pub_id}/events",
+        params={"limit": 4, "cursor": first.headers["X-Next-Cursor"]},
+    )
+    assert [row["event_pub_id"] for row in second.json()] == expected[4:8]
+    third = client.get(
+        f"/api/v2/collection-accounts/{phone.pub_id}/events",
+        params={"limit": 4, "cursor": second.headers["X-Next-Cursor"]},
+    )
+    assert [row["event_pub_id"] for row in third.json()] == expected[8:]
+    assert third.headers["X-Has-More"] == "false"
 
 
 def test_events_unknown_phone_404(session: _FakeSession) -> None:

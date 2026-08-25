@@ -96,6 +96,15 @@ WHERE op.id = %(operation_id)s
 FOR UPDATE OF op
 """
 
+# Stage 3 calls this only after the restricted operation-admission function has
+# already taken a row lock in the same outer transaction.  Re-locking from the
+# SELECT-only runtime role would require broad UPDATE privilege on the parent
+# operation table and would reopen the ACL bypass this boundary is meant to close.
+LOAD_ADMITTED_OPERATION_AND_BINDING_SQL = LOAD_OPERATION_AND_BINDING_SQL.replace(
+    "FOR UPDATE OF op\n",
+    "",
+)
+
 LOAD_OPERATION_SQL = """
 SELECT send_state, send_state_version, operation_key, prepared_at, reconcile_after,
        platform, collection_surface, product_variant, interaction_mode
@@ -699,10 +708,40 @@ def reserve_quota(
     transaction rolls back bucket upserts as well as reservation effects.
     """
 
+    return _reserve_quota(
+        connection,
+        request,
+        operation_sql=LOAD_OPERATION_AND_BINDING_SQL,
+    )
+
+
+def reserve_quota_after_operation_admission(
+    connection: ConnectionProtocol,
+    request: ReserveQuotaRequest,
+) -> ReserveQuotaResult:
+    """Reserve after the s10 admission entrypoint locked the operation row."""
+
+    return _reserve_quota(
+        connection,
+        request,
+        operation_sql=LOAD_ADMITTED_OPERATION_AND_BINDING_SQL,
+    )
+
+
+def _reserve_quota(
+    connection: ConnectionProtocol,
+    request: ReserveQuotaRequest,
+    *,
+    operation_sql: str,
+) -> ReserveQuotaResult:
     try:
         with connection.transaction():
             _set_tenant_context(connection, request.tenant_id)
-            operation = _load_operation_and_binding(connection, request)
+            operation = _load_operation_and_binding(
+                connection,
+                request,
+                operation_sql=operation_sql,
+            )
             if operation.send_state is not SendState.NOT_SENT:
                 raise QuotaV2Error(
                     "quota_reserve_requires_not_sent_operation",
@@ -885,10 +924,13 @@ def _record_not_sent_proof(
 
 
 def _load_operation_and_binding(
-    connection: ConnectionProtocol, request: ReserveQuotaRequest
+    connection: ConnectionProtocol,
+    request: ReserveQuotaRequest,
+    *,
+    operation_sql: str = LOAD_OPERATION_AND_BINDING_SQL,
 ) -> _OperationContext:
     row = connection.execute(
-        LOAD_OPERATION_AND_BINDING_SQL,
+        operation_sql,
         {
             "tenant_id": request.tenant_id,
             "project_id": request.project_id,

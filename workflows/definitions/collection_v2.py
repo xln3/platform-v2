@@ -1,10 +1,9 @@
 """Isolated Temporal orchestration for frozen collection v2 partitions.
 
-This module intentionally has no v1 compatibility branch.  Its input, activity
-commands, activity receipts, Continue-As-New input, query state, and result are
-all constant-size scalar contracts.  Per-slot target and query material is
-loaded from the frozen campaign page behind bounded activities and never enters
-workflow history.
+This module intentionally has no v1 compatibility branch. Its input, activity
+commands, receipts, Continue-As-New input, query state, and result are bounded
+scalar contracts. Per-slot material stays behind the page activity boundary and
+never enters workflow history.
 """
 
 from __future__ import annotations
@@ -23,16 +22,24 @@ if TYPE_CHECKING:
 
 with workflow.unsafe.imports_passed_through():
     from workflows.activities.collection_v2 import (
+        COLLECTION_V2_FINALIZATION_REQUEST_SCHEMA,
         COLLECTION_V2_PAGE_REQUEST_SCHEMA,
         COLLECTION_V2_RECONCILIATION_REQUEST_SCHEMA,
+        MAX_COLLECTION_V2_CHECKPOINT_VERSION,
         MAX_COLLECTION_V2_PAGE_SIZE,
         CollectionV2ContractError,
+        CollectionV2FinalizationReceipt,
+        CollectionV2FinalizationRequest,
         CollectionV2PageReceipt,
         CollectionV2PageRequest,
         CollectionV2ReconciliationReceipt,
         CollectionV2ReconciliationRequest,
         execute_collection_v2_page,
+        initial_collection_v2_reconciliation_checkpoint_digest,
         reconcile_collection_v2_partition,
+        seed_collection_v2_checkpoint_chain,
+        seed_collection_v2_reconciliation_chain,
+        verify_collection_v2_partition_complete,
     )
 
 COLLECTION_V2_OUTBOX_TYPE: Literal["geo_collection_v2"] = "geo_collection_v2"
@@ -45,6 +52,11 @@ COLLECTION_V2_WORKFLOW_TYPE: Literal["GeoCollectionV2Workflow"] = "GeoCollection
 
 MAX_COLLECTION_V2_WORKFLOW_PAYLOAD_BYTES = 8_192
 MAX_COLLECTION_V2_PAGES_PER_RUN = 100
+MAX_COLLECTION_V2_RECONCILIATION_ATTEMPTS_PER_RUN = 100
+COLLECTION_V2_RECONCILIATION_RETRY_DELAY = timedelta(seconds=1)
+
+CollectionV2Phase = Literal["dispatching", "reconciling", "finalizing"]
+CollectionV2TerminalState = Literal["completed", "cancelled"]
 
 _OPAQUE_REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -85,7 +97,7 @@ def _canonical_payload(instance: Any) -> str:
 
 @dataclass(frozen=True)
 class CollectionV2WorkflowInput:
-    """Strict O(1) workflow input for one persisted campaign-wide partition."""
+    """Strict O(1) workflow state for one persisted campaign-wide partition."""
 
     schema_version: str
     tenant_pub_id: str
@@ -106,7 +118,12 @@ class CollectionV2WorkflowInput:
     page_size: int
     checkpoint_ref: str
     checkpoint_digest: str
+    checkpoint_version: int
+    checkpoint_chain_digest: str
     reconciliation_checkpoint_ref: str
+    reconciliation_checkpoint_digest: str
+    reconciliation_checkpoint_version: int
+    reconciliation_chain_digest: str
     capability_policy_revision: str
     control_policy_revision: str
     comparison_policy_revision: str
@@ -115,6 +132,10 @@ class CollectionV2WorkflowInput:
     idempotency_key: str
     generation: int = 1
     continue_as_new_after_pages: int = 25
+    continue_as_new_after_reconciliation_attempts: int = 10
+    phase: CollectionV2Phase = "dispatching"
+    cancel_requested: bool = False
+    reconciliation_attempt: int = 0
 
     def __post_init__(self) -> None:
         if self.schema_version != COLLECTION_V2_PAYLOAD_SCHEMA:
@@ -142,30 +163,65 @@ class CollectionV2WorkflowInput:
             "partition_digest",
             "membership_digest",
             "checkpoint_digest",
+            "checkpoint_chain_digest",
+            "reconciliation_checkpoint_digest",
+            "reconciliation_chain_digest",
         ):
             _require_digest(getattr(self, field), field=field)
-        _require_int(self.start_slot_ordinal, field="start_slot_ordinal", minimum=0)
-        _require_int(
-            self.end_slot_ordinal_exclusive,
-            field="end_slot_ordinal_exclusive",
-            minimum=1,
-        )
-        _require_int(self.cursor, field="cursor", minimum=0)
+        for field in (
+            "start_slot_ordinal",
+            "end_slot_ordinal_exclusive",
+            "cursor",
+            "checkpoint_version",
+            "reconciliation_checkpoint_version",
+            "reconciliation_attempt",
+        ):
+            _require_int(
+                getattr(self, field),
+                field=field,
+                minimum=0,
+                maximum=MAX_COLLECTION_V2_CHECKPOINT_VERSION,
+            )
         _require_int(
             self.page_size,
             field="page_size",
             minimum=1,
             maximum=MAX_COLLECTION_V2_PAGE_SIZE,
         )
-        _require_int(self.generation, field="generation", minimum=1)
+        _require_int(
+            self.generation,
+            field="generation",
+            minimum=1,
+            maximum=MAX_COLLECTION_V2_CHECKPOINT_VERSION,
+        )
         _require_int(
             self.continue_as_new_after_pages,
             field="continue_as_new_after_pages",
             minimum=1,
             maximum=MAX_COLLECTION_V2_PAGES_PER_RUN,
         )
+        _require_int(
+            self.continue_as_new_after_reconciliation_attempts,
+            field="continue_as_new_after_reconciliation_attempts",
+            minimum=1,
+            maximum=MAX_COLLECTION_V2_RECONCILIATION_ATTEMPTS_PER_RUN,
+        )
+        if not isinstance(self.cancel_requested, bool):
+            raise CollectionV2ContractError("boolean_required:cancel_requested")
+        if self.phase not in {"dispatching", "reconciling", "finalizing"}:
+            raise CollectionV2ContractError("invalid_workflow_phase")
+        if self.end_slot_ordinal_exclusive <= self.start_slot_ordinal:
+            raise CollectionV2ContractError("workflow_partition_not_increasing")
         if not (self.start_slot_ordinal <= self.cursor <= self.end_slot_ordinal_exclusive):
             raise CollectionV2ContractError("workflow_cursor_out_of_partition")
+        if self.phase == "dispatching" and self.cursor >= self.end_slot_ordinal_exclusive:
+            raise CollectionV2ContractError("dispatching_cursor_not_before_partition_end")
+        if self.phase == "dispatching" and self.cancel_requested:
+            raise CollectionV2ContractError("cancelled_workflow_must_reconcile")
+        if self.phase == "finalizing" and self.cursor != self.end_slot_ordinal_exclusive:
+            raise CollectionV2ContractError("finalizing_cursor_not_at_partition_end")
+        if self.phase == "finalizing" and self.cancel_requested:
+            raise CollectionV2ContractError("cancelled_workflow_must_reconcile")
         window_start = _parse_utc(
             self.scheduling_window_start_utc,
             field="scheduling_window_start_utc",
@@ -184,6 +240,8 @@ class CollectionV2WorkflowInput:
         return _canonical_payload(self)
 
     def page_request(self) -> CollectionV2PageRequest:
+        if self.phase != "dispatching":
+            raise CollectionV2ContractError("page_request_requires_dispatching_phase")
         return CollectionV2PageRequest(
             schema_version=COLLECTION_V2_PAGE_REQUEST_SCHEMA,
             tenant_pub_id=self.tenant_pub_id,
@@ -195,12 +253,63 @@ class CollectionV2WorkflowInput:
             page_size=self.page_size,
             checkpoint_ref=self.checkpoint_ref,
             checkpoint_digest=self.checkpoint_digest,
+            checkpoint_version=self.checkpoint_version,
+            checkpoint_chain_digest=self.checkpoint_chain_digest,
             reconciliation_checkpoint_ref=self.reconciliation_checkpoint_ref,
+            reconciliation_checkpoint_digest=self.reconciliation_checkpoint_digest,
+            reconciliation_checkpoint_version=self.reconciliation_checkpoint_version,
+            reconciliation_chain_digest=self.reconciliation_chain_digest,
             capability_policy_revision=self.capability_policy_revision,
             control_policy_revision=self.control_policy_revision,
         )
 
+    def reconciliation_request(self) -> CollectionV2ReconciliationRequest:
+        if self.phase != "reconciling":
+            raise CollectionV2ContractError("reconciliation_request_requires_reconciling_phase")
+        return CollectionV2ReconciliationRequest(
+            schema_version=COLLECTION_V2_RECONCILIATION_REQUEST_SCHEMA,
+            tenant_pub_id=self.tenant_pub_id,
+            campaign_pub_id=self.campaign_pub_id,
+            partition_pub_id=self.partition_pub_id,
+            partition_digest=self.partition_digest,
+            membership_digest=self.membership_digest,
+            cursor=self.cursor,
+            checkpoint_ref=self.checkpoint_ref,
+            checkpoint_digest=self.checkpoint_digest,
+            checkpoint_version=self.checkpoint_version,
+            checkpoint_chain_digest=self.checkpoint_chain_digest,
+            reconciliation_checkpoint_ref=self.reconciliation_checkpoint_ref,
+            reconciliation_checkpoint_digest=self.reconciliation_checkpoint_digest,
+            reconciliation_checkpoint_version=self.reconciliation_checkpoint_version,
+            reconciliation_chain_digest=self.reconciliation_chain_digest,
+            control_policy_revision=self.control_policy_revision,
+        )
+
+    def finalization_request(self) -> CollectionV2FinalizationRequest:
+        if self.phase != "finalizing":
+            raise CollectionV2ContractError("finalization_request_requires_finalizing_phase")
+        return CollectionV2FinalizationRequest(
+            schema_version=COLLECTION_V2_FINALIZATION_REQUEST_SCHEMA,
+            tenant_pub_id=self.tenant_pub_id,
+            campaign_pub_id=self.campaign_pub_id,
+            partition_pub_id=self.partition_pub_id,
+            partition_digest=self.partition_digest,
+            membership_digest=self.membership_digest,
+            cursor=self.cursor,
+            end_slot_ordinal_exclusive=self.end_slot_ordinal_exclusive,
+            checkpoint_ref=self.checkpoint_ref,
+            checkpoint_digest=self.checkpoint_digest,
+            checkpoint_version=self.checkpoint_version,
+            checkpoint_chain_digest=self.checkpoint_chain_digest,
+            reconciliation_checkpoint_ref=self.reconciliation_checkpoint_ref,
+            reconciliation_checkpoint_digest=self.reconciliation_checkpoint_digest,
+            reconciliation_checkpoint_version=self.reconciliation_checkpoint_version,
+            reconciliation_chain_digest=self.reconciliation_chain_digest,
+        )
+
     def with_page_receipt(self, receipt: CollectionV2PageReceipt) -> CollectionV2WorkflowInput:
+        if self.phase != "dispatching":
+            raise CollectionV2ContractError("page_receipt_requires_dispatching_phase")
         if (
             receipt.campaign_pub_id != self.campaign_pub_id
             or receipt.partition_pub_id != self.partition_pub_id
@@ -209,22 +318,53 @@ class CollectionV2WorkflowInput:
             raise CollectionV2ContractError("page_receipt_identity_drift")
         if receipt.prior_cursor != self.cursor:
             raise CollectionV2ContractError("page_receipt_prior_cursor_drift")
+        if (
+            receipt.prior_checkpoint_ref != self.checkpoint_ref
+            or receipt.prior_checkpoint_digest != self.checkpoint_digest
+            or receipt.prior_checkpoint_version != self.checkpoint_version
+            or receipt.prior_checkpoint_chain_digest != self.checkpoint_chain_digest
+        ):
+            raise CollectionV2ContractError("page_receipt_prior_checkpoint_drift")
+        if (
+            receipt.prior_reconciliation_checkpoint_ref != self.reconciliation_checkpoint_ref
+            or receipt.prior_reconciliation_checkpoint_digest
+            != self.reconciliation_checkpoint_digest
+            or receipt.prior_reconciliation_checkpoint_version
+            != self.reconciliation_checkpoint_version
+            or receipt.prior_reconciliation_chain_digest != self.reconciliation_chain_digest
+        ):
+            raise CollectionV2ContractError("page_receipt_prior_reconciliation_drift")
         if receipt.page_item_count > self.page_size:
             raise CollectionV2ContractError("page_receipt_exceeds_bounded_page")
         if receipt.next_cursor > self.end_slot_ordinal_exclusive:
             raise CollectionV2ContractError("page_receipt_escaped_partition")
+        if receipt.requires_reconciliation:
+            next_phase: CollectionV2Phase = "reconciling"
+        elif receipt.next_cursor == self.end_slot_ordinal_exclusive:
+            next_phase = "finalizing"
+        else:
+            next_phase = "dispatching"
         return replace(
             self,
             cursor=receipt.next_cursor,
             checkpoint_ref=receipt.checkpoint_ref,
             checkpoint_digest=receipt.checkpoint_digest,
+            checkpoint_version=receipt.checkpoint_version,
+            checkpoint_chain_digest=receipt.checkpoint_chain_digest,
             reconciliation_checkpoint_ref=receipt.reconciliation_checkpoint_ref,
+            reconciliation_checkpoint_digest=receipt.reconciliation_checkpoint_digest,
+            reconciliation_checkpoint_version=receipt.reconciliation_checkpoint_version,
+            reconciliation_chain_digest=receipt.reconciliation_chain_digest,
+            phase=next_phase,
+            reconciliation_attempt=0,
         )
 
     def with_reconciliation_receipt(
         self,
         receipt: CollectionV2ReconciliationReceipt,
     ) -> CollectionV2WorkflowInput:
+        if self.phase != "reconciling":
+            raise CollectionV2ContractError("reconciliation_receipt_requires_reconciling_phase")
         if (
             receipt.campaign_pub_id != self.campaign_pub_id
             or receipt.partition_pub_id != self.partition_pub_id
@@ -232,12 +372,75 @@ class CollectionV2WorkflowInput:
             or receipt.cursor != self.cursor
         ):
             raise CollectionV2ContractError("reconciliation_receipt_identity_drift")
+        if (
+            receipt.prior_checkpoint_ref != self.checkpoint_ref
+            or receipt.prior_checkpoint_digest != self.checkpoint_digest
+            or receipt.prior_checkpoint_version != self.checkpoint_version
+            or receipt.prior_checkpoint_chain_digest != self.checkpoint_chain_digest
+        ):
+            raise CollectionV2ContractError("reconciliation_receipt_prior_checkpoint_drift")
+        if (
+            receipt.prior_reconciliation_checkpoint_ref != self.reconciliation_checkpoint_ref
+            or receipt.prior_reconciliation_checkpoint_digest
+            != self.reconciliation_checkpoint_digest
+            or receipt.prior_reconciliation_checkpoint_version
+            != self.reconciliation_checkpoint_version
+            or receipt.prior_reconciliation_chain_digest != self.reconciliation_chain_digest
+        ):
+            raise CollectionV2ContractError("reconciliation_receipt_prior_reconciliation_drift")
+        if receipt.state == "pending":
+            next_phase: CollectionV2Phase = "reconciling"
+            next_attempt = self.reconciliation_attempt + 1
+        elif self.cancel_requested:
+            next_phase = "reconciling"
+            next_attempt = 0
+        elif self.cursor == self.end_slot_ordinal_exclusive:
+            next_phase = "finalizing"
+            next_attempt = 0
+        else:
+            next_phase = "dispatching"
+            next_attempt = 0
         return replace(
             self,
             checkpoint_ref=receipt.checkpoint_ref,
             checkpoint_digest=receipt.checkpoint_digest,
+            checkpoint_version=receipt.checkpoint_version,
+            checkpoint_chain_digest=receipt.checkpoint_chain_digest,
             reconciliation_checkpoint_ref=receipt.reconciliation_checkpoint_ref,
+            reconciliation_checkpoint_digest=receipt.reconciliation_checkpoint_digest,
+            reconciliation_checkpoint_version=receipt.reconciliation_checkpoint_version,
+            reconciliation_chain_digest=receipt.reconciliation_chain_digest,
+            phase=next_phase,
+            reconciliation_attempt=next_attempt,
         )
+
+    def request_cancel(self) -> CollectionV2WorkflowInput:
+        return replace(self, phase="reconciling", cancel_requested=True)
+
+    def validate_finalization_receipt(self, receipt: CollectionV2FinalizationReceipt) -> None:
+        if self.phase != "finalizing":
+            raise CollectionV2ContractError("finalization_receipt_requires_finalizing_phase")
+        if (
+            receipt.campaign_pub_id != self.campaign_pub_id
+            or receipt.partition_pub_id != self.partition_pub_id
+            or receipt.partition_digest != self.partition_digest
+            or receipt.cursor != self.cursor
+        ):
+            raise CollectionV2ContractError("finalization_receipt_identity_drift")
+        if (
+            receipt.checkpoint_ref != self.checkpoint_ref
+            or receipt.checkpoint_digest != self.checkpoint_digest
+            or receipt.checkpoint_version != self.checkpoint_version
+            or receipt.checkpoint_chain_digest != self.checkpoint_chain_digest
+        ):
+            raise CollectionV2ContractError("finalization_receipt_checkpoint_drift")
+        if (
+            receipt.reconciliation_checkpoint_ref != self.reconciliation_checkpoint_ref
+            or receipt.reconciliation_checkpoint_digest != self.reconciliation_checkpoint_digest
+            or receipt.reconciliation_checkpoint_version != self.reconciliation_checkpoint_version
+            or receipt.reconciliation_chain_digest != self.reconciliation_chain_digest
+        ):
+            raise CollectionV2ContractError("finalization_receipt_reconciliation_drift")
 
     def next_generation(self) -> CollectionV2WorkflowInput:
         return replace(self, generation=self.generation + 1)
@@ -261,18 +464,36 @@ def build_collection_v2_workflow_input(
     idempotency_key: str,
     continue_as_new_after_pages: int = 25,
 ) -> CollectionV2WorkflowInput:
-    """Build the launch DTO only from Stage 1's persisted frozen reference.
-
-    The additional values are all constant-size scheduler facts that the Stage 1
-    reference intentionally does not own.  In particular, this function never
-    invents a partition digest, policy revision, or scheduling window.  Target
-    identity remains a per-slot frozen fact resolved by the bounded activity.
-    """
+    """Build launch state from the persisted frozen partition reference."""
 
     from geo_platform.collection.identity_v2 import CampaignWorkflowReference
 
     if not isinstance(reference, CampaignWorkflowReference):
         raise CollectionV2ContractError("persisted_campaign_workflow_reference_required")
+    reconciliation_checkpoint_digest = initial_collection_v2_reconciliation_checkpoint_digest(
+        partition_digest=partition_digest,
+        cursor=reference.cursor,
+        reconciliation_checkpoint_ref=reconciliation_checkpoint_ref,
+    )
+    checkpoint_version = 0
+    reconciliation_checkpoint_version = 0
+    checkpoint_chain_digest = seed_collection_v2_checkpoint_chain(
+        partition_digest=partition_digest,
+        cursor=reference.cursor,
+        checkpoint_ref=checkpoint_ref,
+        checkpoint_digest=checkpoint_digest,
+        checkpoint_version=checkpoint_version,
+    )
+    reconciliation_chain_digest = seed_collection_v2_reconciliation_chain(
+        partition_digest=partition_digest,
+        cursor=reference.cursor,
+        reconciliation_checkpoint_ref=reconciliation_checkpoint_ref,
+        reconciliation_checkpoint_digest=reconciliation_checkpoint_digest,
+        reconciliation_checkpoint_version=reconciliation_checkpoint_version,
+    )
+    initial_phase: CollectionV2Phase = (
+        "finalizing" if reference.cursor == reference.end_slot_ordinal_exclusive else "dispatching"
+    )
     return CollectionV2WorkflowInput(
         schema_version=COLLECTION_V2_PAYLOAD_SCHEMA,
         tenant_pub_id=tenant_pub_id,
@@ -293,7 +514,12 @@ def build_collection_v2_workflow_input(
         page_size=reference.page_size,
         checkpoint_ref=checkpoint_ref,
         checkpoint_digest=checkpoint_digest,
+        checkpoint_version=checkpoint_version,
+        checkpoint_chain_digest=checkpoint_chain_digest,
         reconciliation_checkpoint_ref=reconciliation_checkpoint_ref,
+        reconciliation_checkpoint_digest=reconciliation_checkpoint_digest,
+        reconciliation_checkpoint_version=reconciliation_checkpoint_version,
+        reconciliation_chain_digest=reconciliation_chain_digest,
         capability_policy_revision=capability_policy_revision,
         control_policy_revision=control_policy_revision,
         comparison_policy_revision=comparison_policy_revision,
@@ -301,24 +527,33 @@ def build_collection_v2_workflow_input(
         scheduling_window_end_utc=scheduling_window_end_utc,
         idempotency_key=idempotency_key,
         continue_as_new_after_pages=continue_as_new_after_pages,
+        phase=initial_phase,
     )
 
 
 @dataclass(frozen=True)
 class CollectionV2WorkflowResult:
     schema_version: str
-    state: Literal["completed", "cancelled", "reconciliation_pending"]
+    state: CollectionV2TerminalState
     campaign_pub_id: str
     partition_pub_id: str
     partition_digest: str
     cursor: int
     checkpoint_ref: str
     checkpoint_digest: str
+    checkpoint_version: int
+    checkpoint_chain_digest: str
     reconciliation_checkpoint_ref: str
+    reconciliation_checkpoint_digest: str
+    reconciliation_checkpoint_version: int
+    reconciliation_chain_digest: str
     processed_slot_count: int
     generation: int
     last_page_digest: str | None = None
     reconciliation_outcome_ref: str | None = None
+    terminal_proof_ref: str | None = None
+    terminal_proof_digest: str | None = None
+    terminal_chain_digest: str | None = None
 
 
 @dataclass(frozen=True)
@@ -328,8 +563,13 @@ class CollectionV2WorkflowStatus:
     paused: bool
     cancel_requested: bool
     pages_in_generation: int
+    reconciliation_attempts_in_generation: int
+    reconciliation_attempt: int
+    phase: CollectionV2Phase | None
     generation: int
     checkpoint_ref: str | None
+    checkpoint_version: int
+    reconciliation_checkpoint_version: int
 
 
 _PAGE_RETRY_POLICY = RetryPolicy(
@@ -342,6 +582,11 @@ _RECONCILIATION_RETRY_POLICY = RetryPolicy(
     maximum_interval=timedelta(seconds=10),
     maximum_attempts=10,
 )
+_FINALIZATION_RETRY_POLICY = RetryPolicy(
+    initial_interval=timedelta(seconds=1),
+    maximum_interval=timedelta(seconds=10),
+    maximum_attempts=3,
+)
 
 
 @workflow.defn(name=COLLECTION_V2_WORKFLOW_TYPE)
@@ -352,6 +597,7 @@ class GeoCollectionV2Workflow:
         self._paused = False
         self._cancel_requested = False
         self._pages_in_generation = 0
+        self._reconciliation_attempts_in_generation = 0
         self._current: CollectionV2WorkflowInput | None = None
         self._last_page_digest: str | None = None
         self._reconciliation_outcome_ref: str | None = None
@@ -377,15 +623,28 @@ class GeoCollectionV2Workflow:
             paused=self._paused,
             cancel_requested=self._cancel_requested,
             pages_in_generation=self._pages_in_generation,
+            reconciliation_attempts_in_generation=(self._reconciliation_attempts_in_generation),
+            reconciliation_attempt=(current.reconciliation_attempt if current is not None else 0),
+            phase=current.phase if current is not None else None,
             generation=current.generation if current is not None else 0,
             checkpoint_ref=current.checkpoint_ref if current is not None else None,
+            checkpoint_version=current.checkpoint_version if current is not None else 0,
+            reconciliation_checkpoint_version=(
+                current.reconciliation_checkpoint_version if current is not None else 0
+            ),
         )
 
     def _result(
         self,
         data: CollectionV2WorkflowInput,
-        state: Literal["completed", "cancelled", "reconciliation_pending"],
+        state: CollectionV2TerminalState,
+        *,
+        finalization: CollectionV2FinalizationReceipt | None = None,
     ) -> CollectionV2WorkflowResult:
+        if state == "completed" and finalization is None:
+            raise CollectionV2ContractError("completed_result_requires_terminal_proof")
+        if state == "cancelled" and finalization is not None:
+            raise CollectionV2ContractError("cancelled_result_forbids_terminal_proof")
         return CollectionV2WorkflowResult(
             schema_version=COLLECTION_V2_RESULT_SCHEMA,
             state=state,
@@ -395,11 +654,25 @@ class GeoCollectionV2Workflow:
             cursor=data.cursor,
             checkpoint_ref=data.checkpoint_ref,
             checkpoint_digest=data.checkpoint_digest,
+            checkpoint_version=data.checkpoint_version,
+            checkpoint_chain_digest=data.checkpoint_chain_digest,
             reconciliation_checkpoint_ref=data.reconciliation_checkpoint_ref,
+            reconciliation_checkpoint_digest=data.reconciliation_checkpoint_digest,
+            reconciliation_checkpoint_version=data.reconciliation_checkpoint_version,
+            reconciliation_chain_digest=data.reconciliation_chain_digest,
             processed_slot_count=data.cursor - data.start_slot_ordinal,
             generation=data.generation,
             last_page_digest=self._last_page_digest,
             reconciliation_outcome_ref=self._reconciliation_outcome_ref,
+            terminal_proof_ref=(
+                finalization.terminal_proof_ref if finalization is not None else None
+            ),
+            terminal_proof_digest=(
+                finalization.terminal_proof_digest if finalization is not None else None
+            ),
+            terminal_chain_digest=(
+                finalization.terminal_chain_digest if finalization is not None else None
+            ),
         )
 
     async def _reconcile(
@@ -408,37 +681,58 @@ class GeoCollectionV2Workflow:
     ) -> tuple[CollectionV2WorkflowInput, CollectionV2ReconciliationReceipt]:
         receipt = await workflow.execute_activity(
             reconcile_collection_v2_partition,
-            CollectionV2ReconciliationRequest(
-                schema_version=COLLECTION_V2_RECONCILIATION_REQUEST_SCHEMA,
-                tenant_pub_id=data.tenant_pub_id,
-                campaign_pub_id=data.campaign_pub_id,
-                partition_pub_id=data.partition_pub_id,
-                partition_digest=data.partition_digest,
-                membership_digest=data.membership_digest,
-                cursor=data.cursor,
-                checkpoint_ref=data.checkpoint_ref,
-                checkpoint_digest=data.checkpoint_digest,
-                reconciliation_checkpoint_ref=data.reconciliation_checkpoint_ref,
-                control_policy_revision=data.control_policy_revision,
-            ),
+            data.reconciliation_request(),
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=_RECONCILIATION_RETRY_POLICY,
         )
         updated = data.with_reconciliation_receipt(receipt)
         self._current = updated
         self._reconciliation_outcome_ref = receipt.outcome_ref
+        self._reconciliation_attempts_in_generation += 1
         return updated, receipt
 
     @workflow.run
     async def run(self, data: CollectionV2WorkflowInput) -> CollectionV2WorkflowResult:
         self._current = data
-        while data.cursor < data.end_slot_ordinal_exclusive:
-            await workflow.wait_condition(lambda: not self._paused or self._cancel_requested)
-            if self._cancel_requested:
+        self._cancel_requested = data.cancel_requested
+        while True:
+            if self._cancel_requested and not data.cancel_requested:
+                data = data.request_cancel()
+                self._current = data
+
+            if data.phase == "reconciling":
                 data, reconciliation = await self._reconcile(data)
                 if reconciliation.state == "pending":
-                    return self._result(data, "reconciliation_pending")
-                return self._result(data, "cancelled")
+                    await workflow.sleep(COLLECTION_V2_RECONCILIATION_RETRY_DELAY)
+                    if (
+                        self._reconciliation_attempts_in_generation
+                        >= data.continue_as_new_after_reconciliation_attempts
+                    ):
+                        workflow.continue_as_new(data.next_generation())
+                    continue
+                if self._cancel_requested:
+                    return self._result(data, "cancelled")
+                continue
+
+            if data.phase == "finalizing":
+                finalization = await workflow.execute_activity(
+                    verify_collection_v2_partition_complete,
+                    data.finalization_request(),
+                    start_to_close_timeout=timedelta(minutes=2),
+                    retry_policy=_FINALIZATION_RETRY_POLICY,
+                )
+                data.validate_finalization_receipt(finalization)
+                if self._cancel_requested:
+                    data = data.request_cancel()
+                    self._current = data
+                    continue
+                return self._result(data, "completed", finalization=finalization)
+
+            await workflow.wait_condition(lambda: not self._paused or self._cancel_requested)
+            if self._cancel_requested:
+                data = data.request_cancel()
+                self._current = data
+                continue
 
             receipt = await workflow.execute_activity(
                 execute_collection_v2_page,
@@ -451,30 +745,25 @@ class GeoCollectionV2Workflow:
             self._last_page_digest = receipt.page_digest
             self._pages_in_generation += 1
 
-            if receipt.requires_reconciliation or self._cancel_requested:
-                data, reconciliation = await self._reconcile(data)
-                if reconciliation.state == "pending":
-                    return self._result(data, "reconciliation_pending")
-                if self._cancel_requested:
-                    return self._result(data, "cancelled")
-
-            if data.cursor >= data.end_slot_ordinal_exclusive:
-                return self._result(data, "completed")
-            if self._paused:
+            if self._cancel_requested:
+                data = data.request_cancel()
+                self._current = data
+                continue
+            if data.phase != "dispatching" or self._paused:
                 continue
             if self._pages_in_generation >= data.continue_as_new_after_pages:
                 workflow.continue_as_new(data.next_generation())
-
-        return self._result(data, "completed")
 
 
 __all__ = [
     "COLLECTION_V2_OUTBOX_TYPE",
     "COLLECTION_V2_PAYLOAD_SCHEMA",
+    "COLLECTION_V2_RECONCILIATION_RETRY_DELAY",
     "COLLECTION_V2_RESULT_SCHEMA",
     "COLLECTION_V2_TASK_QUEUE",
     "COLLECTION_V2_WORKFLOW_TYPE",
     "MAX_COLLECTION_V2_PAGES_PER_RUN",
+    "MAX_COLLECTION_V2_RECONCILIATION_ATTEMPTS_PER_RUN",
     "MAX_COLLECTION_V2_WORKFLOW_PAYLOAD_BYTES",
     "CollectionV2WorkflowInput",
     "CollectionV2WorkflowResult",

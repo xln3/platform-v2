@@ -595,13 +595,13 @@ def _repository(
     )
 
 
-def _function_probe_row(params: Mapping[str, object] | None) -> tuple[object, object]:
+def _function_probe_row(params: Mapping[str, object] | None) -> tuple[object, ...]:
     assert params is not None
     signature = str(params["signature"])
     contract = next(
         contract for contract in S10_FUNCTION_CONTRACTS if contract.regprocedure == signature
     )
-    return signature, contract.database_result
+    return signature, contract.database_result, True, True, True, True
 
 
 def test_capabilities_expose_only_implemented_restricted_vertical_slices() -> None:
@@ -633,6 +633,11 @@ def test_capabilities_expose_only_implemented_restricted_vertical_slices() -> No
 def test_restricted_function_inventory_records_exact_result_shapes() -> None:
     contracts = {contract.name: contract for contract in S10_FUNCTION_CONTRACTS}
 
+    assert contracts["create_collection_submission_operation_v2"].result_columns == (
+        "operation_id",
+        "created",
+    )
+    assert len(contracts["create_collection_submission_operation_v2"].argument_types) == 15
     assert contracts["claim_collection_submission_v2"].result_columns == (
         "dispatch_id",
         "persisted_claim_pub_id",
@@ -676,7 +681,7 @@ def test_schema_probe_reports_missing_exact_signature_without_writes() -> None:
         assert params is not None
         signature = str(params["signature"])
         if signature.startswith(missing):
-            return FakeCursor((None, None))
+            return FakeCursor((None, None, None, None, None, None))
         return FakeCursor(_function_probe_row(params))
 
     connection = FakeConnection(respond)
@@ -700,10 +705,10 @@ def test_schema_probe_rejects_exact_result_shape_drift_before_capability_use() -
     def respond(query: str, params: Mapping[str, object] | None) -> FakeCursor:
         if "set_config" in query:
             return FakeCursor(("ok",))
-        signature, result = _function_probe_row(params)
+        signature, result, *security = _function_probe_row(params)
         if str(signature).startswith(drifted):
             result = "TABLE(observation_id uuid, linked boolean)"
-        return FakeCursor((signature, result))
+        return FakeCursor((signature, result, *security))
 
     connection = FakeConnection(respond)
     repository = _repository(connection)
@@ -719,6 +724,30 @@ def test_schema_probe_rejects_exact_result_shape_drift_before_capability_use() -
     assert all(
         "INSERT " not in query and "UPDATE " not in query for query, _ in connection.statements
     )
+
+
+@pytest.mark.parametrize("drift_index", [2, 3, 4, 5])
+def test_schema_probe_rejects_security_or_execute_drift(drift_index: int) -> None:
+    drifted = "platform.create_collection_submission_operation_v2"
+
+    def respond(query: str, params: Mapping[str, object] | None) -> FakeCursor:
+        if "set_config" in query:
+            return FakeCursor(("ok",))
+        row = list(_function_probe_row(params))
+        if str(row[0]).startswith(drifted):
+            row[drift_index] = False
+        return FakeCursor(tuple(row))
+
+    repository = _repository(FakeConnection(respond))
+
+    assert repository.missing_function_contracts() == (
+        next(
+            contract.regprocedure
+            for contract in S10_FUNCTION_CONTRACTS
+            if contract.name == "create_collection_submission_operation_v2"
+        ),
+    )
+    assert not repository.capabilities().atomic_prepare_and_reserve
 
 
 def test_database_transaction_sets_utc_and_tenant_before_business_sql() -> None:
@@ -746,8 +775,8 @@ def test_atomic_prepare_reserves_all_scopes_and_returns_database_reservation_ref
         query = query.lstrip()
         if "set_config" in query:
             return FakeCursor(("ok",))
-        if query.startswith("INSERT INTO platform.collection_submission_operation"):
-            return FakeCursor((OPERATION_ID,))
+        if "create_collection_submission_operation_v2" in query:
+            return FakeCursor((OPERATION_ID, True))
         if query.startswith("SELECT operation.id,"):
             return FakeCursor(_operation_row(identity))
         if query.startswith("SELECT operation.id"):
@@ -793,8 +822,8 @@ def test_atomic_prepare_reserves_all_scopes_and_returns_database_reservation_ref
     assert connection.rollbacks == 0
     assert connection.commits == 1
     sql = "\n".join(query for query, _ in connection.statements)
-    assert "campaign.materialization_state = 'complete'" in sql
-    assert "campaign.materialization_state = 'completed'" not in sql
+    assert "create_collection_submission_operation_v2" in sql
+    assert "INSERT INTO platform.collection_submission_operation" not in sql
 
 
 def test_quota_blocker_crosses_outer_transaction_and_prevents_manifest_write() -> None:
@@ -805,8 +834,8 @@ def test_quota_blocker_crosses_outer_transaction_and_prevents_manifest_write() -
         del params
         if "set_config" in query:
             return FakeCursor(("ok",))
-        if query.startswith("INSERT INTO platform.collection_submission_operation"):
-            return FakeCursor((OPERATION_ID,))
+        if "create_collection_submission_operation_v2" in query:
+            return FakeCursor((OPERATION_ID, True))
         if query.startswith("SELECT operation.id"):
             return FakeCursor((OPERATION_ID,))
         if query.startswith("SELECT binding.id"):
@@ -850,6 +879,43 @@ def test_quota_blocker_crosses_outer_transaction_and_prevents_manifest_write() -
     assert not any(
         "prepare_collection_submission_request_v2" in query for query, _ in connection.statements
     )
+
+
+def test_sending_operation_preparation_replay_reuses_live_quota_without_reserving() -> None:
+    work, _initial = _prepared()
+    identity = _identity()
+    sending = _sending_operation(identity)
+    prepared = prepare_submission(
+        PrepareSubmissionCommand(identity=identity, prepared_at=NOW),
+        existing=sending,
+    )
+
+    def respond(query: str, params: Mapping[str, object] | None) -> FakeCursor:
+        query = query.lstrip()
+        del params
+        if "set_config" in query:
+            return FakeCursor(("ok",))
+        if "create_collection_submission_operation_v2" in query:
+            return FakeCursor((OPERATION_ID, False))
+        if query.startswith("SELECT reservation.id, reservation.pub_id"):
+            return FakeCursor((RESERVATION_ID, "qrs-terminal-replay"))
+        if "prepare_collection_submission_request_v2" in query:
+            return FakeCursor((MANIFEST_ID, CAPTURE_TRUTH_ID, False))
+        if query.startswith("SELECT operation.id,"):
+            return FakeCursor(_sending_operation_row(identity))
+        if query.startswith("SELECT reservation.requested_units"):
+            return FakeCursor((1, "reserved", 3, 3, 3, 0, 0, 0))
+        raise AssertionError(query)
+
+    connection = FakeConnection(respond)
+    durable = _repository(connection).atomic_prepare_and_reserve(work, prepared)
+
+    assert durable.operation == sending
+    assert durable.reservation_pub_id == "qrs-terminal-replay"
+    assert durable.quota.reserved_units == 1
+    sql = "\n".join(query for query, _ in connection.statements)
+    assert "SELECT reservation.id, reservation.pub_id" in sql
+    assert "SELECT binding.id" not in sql
 
 
 def test_mark_outbox_published_uses_restricted_cas_and_never_direct_update() -> None:

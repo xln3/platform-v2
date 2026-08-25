@@ -8,15 +8,22 @@ from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import func, select, text, update
+from sqlalchemy import and_, func, or_, select, text, update
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..contracts import WorkflowAccepted
 from ..evidence.object_store import ContentAddressedObjectStore
 from ..identity.policy import Principal, get_principal
+from ..pagination import (
+    decode_keyset_cursor,
+    encode_keyset_cursor,
+    numbered_page,
+    set_cursor_headers,
+    set_numbered_page_headers,
+)
 from ..projects.models import MonitoringConfigVersion, Project
 from ..tenancy.database import get_db
 from ..tenancy.ids import new_pub_id
@@ -110,7 +117,17 @@ class RunView(StrictModel):
     schedule_pub_id: str | None
     retry_of_run_pub_id: str | None
     initiated_by_pub_id: str | None
+    created_at: datetime
     updated_at: datetime
+
+
+class RunSummaryView(StrictModel):
+    project_pub_id: str | None
+    run_count: int
+    active_run_count: int
+    total_tasks: int
+    completed_tasks: int
+    failed_tasks: int
 
 
 class AccountCreate(StrictModel):
@@ -211,6 +228,7 @@ class InterventionView(StrictModel):
     pub_id: str
     account_pub_id: str
     account_mask: str
+    account_custody_mode: str | None = None
     challenge_type: str
     allowed_domain: str
     action: str
@@ -255,6 +273,7 @@ class PlatformAttestation(StrictModel):
 
 class EventView(StrictModel):
     pub_id: str
+    account_pub_id: str | None = None
     event_type: str
     summary: dict[str, Any]
     occurred_at: datetime
@@ -414,39 +433,119 @@ def quarantine_account(
     return account_view(account, adapter, session)
 
 
-@router.get("/collection/runs", response_model=list[RunView])
+@router.get(
+    "/collection/runs",
+    response_model=list[RunView],
+    responses={
+        200: {
+            "headers": {
+                "X-Next-Cursor": {"schema": {"type": "string"}},
+                "X-Has-More": {"schema": {"type": "boolean"}},
+                "X-Page": {"schema": {"type": "integer"}},
+                "X-Page-Size": {"schema": {"type": "integer"}},
+                "X-Total-Count": {"schema": {"type": "integer"}},
+                "X-Page-Count": {"schema": {"type": "integer"}},
+            }
+        }
+    },
+)
 def list_runs(
+    response: Response,
+    project_pub_id: str | None = Query(default=None, min_length=5, max_length=30),
+    cursor: str | None = Query(default=None, min_length=16, max_length=2_048),
+    page: int | None = Query(default=None, ge=1, le=1_000_000),
     limit: int = Query(default=50, ge=1, le=100),
     principal: Principal = Depends(get_principal),
     session: Session = Depends(get_db),
 ) -> list[RunView]:
     principal.require("project:read")
+    if cursor is not None and page is not None:
+        raise HTTPException(status_code=422, detail={"code": "pagination_mode_conflict"})
     repository = TenantRepository(session, principal.tenant_pub_id)
-    rows = session.scalars(
-        select(CollectionRun)
+    project_id = None
+    if project_pub_id is not None:
+        project_id = session.scalar(
+            select(Project.id).where(
+                Project.tenant_id == repository.tenant.id,
+                Project.pub_id == project_pub_id,
+            )
+        )
+        if project_id is None:
+            raise HTTPException(status_code=404, detail={"code": "project_not_found"})
+    filters = {"project_pub_id": project_pub_id}
+    anchor = (
+        decode_keyset_cursor(
+            cursor,
+            kind="collection-runs",
+            tenant_pub_id=principal.tenant_pub_id,
+            filters=filters,
+        )
+        if cursor is not None
+        else None
+    )
+    statement = (
+        select(CollectionRun, Project.pub_id, MonitoringConfigVersion.pub_id)
+        .join(Project, Project.id == CollectionRun.project_id)
+        .join(
+            MonitoringConfigVersion, MonitoringConfigVersion.id == CollectionRun.config_version_id
+        )
         .where(CollectionRun.tenant_id == repository.tenant.id)
-        .order_by(CollectionRun.created_at.desc())
-        .limit(limit)
-    ).all()
-    projects = {
-        item.id: item.pub_id
-        for item in session.scalars(
-            select(Project).where(Project.tenant_id == repository.tenant.id)
+    )
+    if project_id is not None:
+        statement = statement.where(CollectionRun.project_id == project_id)
+    if page is not None:
+        count_statement = (
+            select(func.count())
+            .select_from(CollectionRun)
+            .where(CollectionRun.tenant_id == repository.tenant.id)
+        )
+        if project_id is not None:
+            count_statement = count_statement.where(CollectionRun.project_id == project_id)
+        page_meta = numbered_page(
+            requested_page=page,
+            page_size=limit,
+            total_count=int(session.scalar(count_statement) or 0),
+        )
+        visible = session.execute(
+            statement.order_by(CollectionRun.created_at.desc(), CollectionRun.pub_id.desc())
+            .offset(page_meta.offset)
+            .limit(page_meta.page_size)
         ).all()
-    }
-    config_versions = {
-        item.id: item.pub_id
-        for item in session.scalars(
-            select(MonitoringConfigVersion).where(
-                MonitoringConfigVersion.tenant_id == repository.tenant.id
+        set_numbered_page_headers(response, page_meta)
+    else:
+        if anchor is not None:
+            statement = statement.where(
+                or_(
+                    CollectionRun.created_at < anchor.created_at,
+                    and_(
+                        CollectionRun.created_at == anchor.created_at,
+                        CollectionRun.pub_id < anchor.pub_id,
+                    ),
+                )
+            )
+        rows = session.execute(
+            statement.order_by(CollectionRun.created_at.desc(), CollectionRun.pub_id.desc()).limit(
+                limit + 1
             )
         ).all()
-    }
+        has_more = len(rows) > limit
+        visible = rows[:limit]
+        next_cursor = None
+        if has_more and visible:
+            last = visible[-1][0]
+            next_cursor = encode_keyset_cursor(
+                kind="collection-runs",
+                tenant_pub_id=principal.tenant_pub_id,
+                filters=filters,
+                created_at=last.created_at,
+                pub_id=last.pub_id,
+            )
+        set_cursor_headers(response, next_cursor=next_cursor, has_more=has_more)
     return [
         RunView(
             pub_id=item.pub_id,
-            project_pub_id=projects[item.project_id],
-            config_version_pub_id=config_versions[item.config_version_id],
+            project_pub_id=row_project_pub_id,
+            config_version_pub_id=config_version_pub_id,
             workflow_id=item.workflow_id,
             temporal_run_id=item.temporal_run_id,
             state=item.state,
@@ -459,10 +558,60 @@ def list_runs(
             schedule_pub_id=item.schedule_pub_id,
             retry_of_run_pub_id=item.retry_of_run_pub_id,
             initiated_by_pub_id=item.initiated_by_pub_id,
+            created_at=item.created_at,
             updated_at=item.updated_at,
         )
-        for item in rows
+        for item, row_project_pub_id, config_version_pub_id in visible
     ]
+
+
+@router.get("/collection/runs/summary", response_model=RunSummaryView)
+def summarize_runs(
+    project_pub_id: str | None = Query(default=None, min_length=5, max_length=30),
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db),
+) -> RunSummaryView:
+    """Return full-cohort run/task totals, never a subtotal of the visible page."""
+
+    principal.require("project:read")
+    repository = TenantRepository(session, principal.tenant_pub_id)
+    project_id = None
+    if project_pub_id is not None:
+        project_id = session.scalar(
+            select(Project.id).where(
+                Project.tenant_id == repository.tenant.id,
+                Project.pub_id == project_pub_id,
+            )
+        )
+        if project_id is None:
+            raise HTTPException(status_code=404, detail={"code": "project_not_found"})
+    terminal_states = (
+        "completed",
+        "completed_with_failures",
+        "failed",
+        "cancelled",
+        "skipped",
+    )
+    statement = select(
+        func.count(CollectionRun.id),
+        func.count(CollectionRun.id).filter(CollectionRun.state.not_in(terminal_states)),
+        func.coalesce(func.sum(CollectionRun.total_tasks), 0),
+        func.coalesce(func.sum(CollectionRun.completed_tasks), 0),
+        func.coalesce(func.sum(CollectionRun.failed_tasks), 0),
+    ).where(CollectionRun.tenant_id == repository.tenant.id)
+    if project_id is not None:
+        statement = statement.where(CollectionRun.project_id == project_id)
+    run_count, active_count, total_tasks, completed_tasks, failed_tasks = session.execute(
+        statement
+    ).one()
+    return RunSummaryView(
+        project_pub_id=project_pub_id,
+        run_count=int(run_count),
+        active_run_count=int(active_count),
+        total_tasks=int(total_tasks),
+        completed_tasks=int(completed_tasks),
+        failed_tasks=int(failed_tasks),
+    )
 
 
 class TraceReasoningStep(StrictModel):
@@ -895,19 +1044,86 @@ async def control_run(
     return WorkflowAccepted(workflow_id=run.workflow_id, run_id=run.temporal_run_id)
 
 
-@router.get("/platform-accounts", response_model=list[AccountView])
+@router.get(
+    "/platform-accounts",
+    response_model=list[AccountView],
+    responses={
+        200: {
+            "headers": {
+                "X-Next-Cursor": {"schema": {"type": "string"}},
+                "X-Has-More": {"schema": {"type": "boolean"}},
+                "X-Total-Count": {"schema": {"type": "integer"}},
+                "X-Active-Count": {"schema": {"type": "integer"}},
+            }
+        }
+    },
+)
 def list_accounts(
-    principal: Principal = Depends(get_principal), session: Session = Depends(get_db)
+    response: Response,
+    cursor: str | None = Query(default=None, min_length=16, max_length=2_048),
+    limit: int = Query(default=100, ge=1, le=100),
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db),
 ) -> list[AccountView]:
     principal.require("account:read")
     repository = TenantRepository(session, principal.tenant_pub_id)
-    rows = session.execute(
+    filters: dict[str, str | None] = {}
+    anchor = (
+        decode_keyset_cursor(
+            cursor,
+            kind="platform-accounts",
+            tenant_pub_id=principal.tenant_pub_id,
+            filters=filters,
+        )
+        if cursor is not None
+        else None
+    )
+    statement = (
         select(PlatformAccount, PlatformAdapter)
         .join(PlatformAdapter, PlatformAdapter.id == PlatformAccount.adapter_id)
         .where(PlatformAccount.tenant_id == repository.tenant.id)
-        .order_by(PlatformAccount.created_at.desc())
+    )
+    if anchor is not None:
+        statement = statement.where(
+            or_(
+                PlatformAccount.created_at < anchor.created_at,
+                and_(
+                    PlatformAccount.created_at == anchor.created_at,
+                    PlatformAccount.pub_id < anchor.pub_id,
+                ),
+            )
+        )
+    rows = session.execute(
+        statement.order_by(PlatformAccount.created_at.desc(), PlatformAccount.pub_id.desc()).limit(
+            limit + 1
+        )
     ).all()
-    return [account_view(account, adapter, session) for account, adapter in rows]
+    has_more = len(rows) > limit
+    visible = rows[:limit]
+    next_cursor = None
+    if has_more and visible:
+        last = visible[-1][0]
+        next_cursor = encode_keyset_cursor(
+            kind="platform-accounts",
+            tenant_pub_id=principal.tenant_pub_id,
+            filters=filters,
+            created_at=last.created_at,
+            pub_id=last.pub_id,
+        )
+    total_count, active_count = session.execute(
+        select(
+            func.count(PlatformAccount.id),
+            func.count(PlatformAccount.id).filter(PlatformAccount.state == "active"),
+        ).where(PlatformAccount.tenant_id == repository.tenant.id)
+    ).one()
+    set_cursor_headers(
+        response,
+        next_cursor=next_cursor,
+        has_more=has_more,
+        total_count=int(total_count),
+        extra_counts={"X-Active-Count": int(active_count)},
+    )
+    return [account_view(account, adapter, session) for account, adapter in visible]
 
 
 @router.get("/platform-adapters", response_model=list[AdapterView])
@@ -1533,23 +1749,93 @@ def create_intervention(
     )
 
 
-@router.get("/interventions", response_model=list[InterventionView])
+@router.get(
+    "/interventions",
+    response_model=list[InterventionView],
+    responses={
+        200: {
+            "headers": {
+                "X-Next-Cursor": {"schema": {"type": "string"}},
+                "X-Has-More": {"schema": {"type": "boolean"}},
+                "X-Total-Count": {"schema": {"type": "integer"}},
+                "X-Open-Count": {"schema": {"type": "integer"}},
+            }
+        }
+    },
+)
 def list_interventions(
-    principal: Principal = Depends(get_principal), session: Session = Depends(get_db)
+    response: Response,
+    cursor: str | None = Query(default=None, min_length=16, max_length=2_048),
+    limit: int = Query(default=100, ge=1, le=100),
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db),
 ) -> list[InterventionView]:
     principal.require("intervention:operate")
     repository = TenantRepository(session, principal.tenant_pub_id)
-    rows = session.execute(
+    filters: dict[str, str | None] = {}
+    anchor = (
+        decode_keyset_cursor(
+            cursor,
+            kind="interventions",
+            tenant_pub_id=principal.tenant_pub_id,
+            filters=filters,
+        )
+        if cursor is not None
+        else None
+    )
+    statement = (
         select(InterventionRequest, PlatformAccount)
         .join(PlatformAccount, PlatformAccount.id == InterventionRequest.account_id)
         .where(InterventionRequest.tenant_id == repository.tenant.id)
-        .order_by(InterventionRequest.created_at.desc())
+    )
+    if anchor is not None:
+        statement = statement.where(
+            or_(
+                InterventionRequest.created_at < anchor.created_at,
+                and_(
+                    InterventionRequest.created_at == anchor.created_at,
+                    InterventionRequest.pub_id < anchor.pub_id,
+                ),
+            )
+        )
+    rows = session.execute(
+        statement.order_by(
+            InterventionRequest.created_at.desc(), InterventionRequest.pub_id.desc()
+        ).limit(limit + 1)
     ).all()
+    has_more = len(rows) > limit
+    visible = rows[:limit]
+    next_cursor = None
+    if has_more and visible:
+        last = visible[-1][0]
+        next_cursor = encode_keyset_cursor(
+            kind="interventions",
+            tenant_pub_id=principal.tenant_pub_id,
+            filters=filters,
+            created_at=last.created_at,
+            pub_id=last.pub_id,
+        )
+    total_count, open_count = session.execute(
+        select(
+            func.count(InterventionRequest.id),
+            func.count(InterventionRequest.id).filter(
+                InterventionRequest.state.not_in(("completed", "cancelled"))
+            ),
+        ).where(InterventionRequest.tenant_id == repository.tenant.id)
+    ).one()
+    set_cursor_headers(
+        response,
+        next_cursor=next_cursor,
+        has_more=has_more,
+        total_count=int(total_count),
+        extra_counts={"X-Open-Count": int(open_count)},
+    )
     return [
         InterventionView(
             pub_id=item.pub_id,
             account_pub_id=account.pub_id,
             account_mask=account.account_mask,
+            account_custody_mode=account.custody_mode,
             challenge_type=item.challenge_type,
             allowed_domain=item.allowed_domain,
             action=item.action,
@@ -1560,7 +1846,7 @@ def list_interventions(
             due_at=item.due_at,
             resolution_note=item.resolution_note,
         )
-        for item, account in rows
+        for item, account in visible
     ]
 
 
@@ -1981,26 +2267,155 @@ async def revoke_account(
     return WorkflowAccepted(workflow_id=workflow_id)
 
 
-@router.get("/platform-accounts/{account_pub_id}/events", response_model=list[EventView])
+@router.get(
+    "/platform-events",
+    response_model=list[EventView],
+    responses={
+        200: {
+            "headers": {
+                "X-Next-Cursor": {"schema": {"type": "string"}},
+                "X-Has-More": {"schema": {"type": "boolean"}},
+            }
+        }
+    },
+)
+def platform_events(
+    response: Response,
+    cursor: str | None = Query(default=None, min_length=16, max_length=2_048),
+    limit: int = Query(default=100, ge=1, le=100),
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db),
+) -> list[EventView]:
+    """Tenant-wide account/session timeline without a first-N-account fan-out."""
+
+    principal.require("account:read")
+    repository = TenantRepository(session, principal.tenant_pub_id)
+    filters: dict[str, str | None] = {}
+    anchor = (
+        decode_keyset_cursor(
+            cursor,
+            kind="platform-events",
+            tenant_pub_id=principal.tenant_pub_id,
+            filters=filters,
+        )
+        if cursor is not None
+        else None
+    )
+    statement = (
+        select(SessionEvent, PlatformAccount.pub_id)
+        .join(PlatformAccount, PlatformAccount.id == SessionEvent.account_id)
+        .where(SessionEvent.tenant_id == repository.tenant.id)
+    )
+    if anchor is not None:
+        statement = statement.where(
+            or_(
+                SessionEvent.occurred_at < anchor.created_at,
+                and_(
+                    SessionEvent.occurred_at == anchor.created_at,
+                    SessionEvent.pub_id < anchor.pub_id,
+                ),
+            )
+        )
+    rows = session.execute(
+        statement.order_by(SessionEvent.occurred_at.desc(), SessionEvent.pub_id.desc()).limit(
+            limit + 1
+        )
+    ).all()
+    has_more = len(rows) > limit
+    visible = rows[:limit]
+    next_cursor = None
+    if has_more and visible:
+        last = visible[-1][0]
+        next_cursor = encode_keyset_cursor(
+            kind="platform-events",
+            tenant_pub_id=principal.tenant_pub_id,
+            filters=filters,
+            created_at=last.occurred_at,
+            pub_id=last.pub_id,
+        )
+    set_cursor_headers(response, next_cursor=next_cursor, has_more=has_more)
+    return [
+        EventView(
+            pub_id=item.pub_id,
+            account_pub_id=account_pub_id,
+            event_type=item.event_type,
+            summary=json.loads(item.summary_json),
+            occurred_at=item.occurred_at,
+        )
+        for item, account_pub_id in visible
+    ]
+
+
+@router.get(
+    "/platform-accounts/{account_pub_id}/events",
+    response_model=list[EventView],
+    responses={
+        200: {
+            "headers": {
+                "X-Next-Cursor": {"schema": {"type": "string"}},
+                "X-Has-More": {"schema": {"type": "boolean"}},
+            }
+        }
+    },
+)
 def account_events(
     account_pub_id: str,
+    response: Response,
+    cursor: str | None = Query(default=None, min_length=16, max_length=2_048),
+    limit: int = Query(default=100, ge=1, le=100),
     principal: Principal = Depends(get_principal),
     session: Session = Depends(get_db),
 ) -> list[EventView]:
     principal.require("account:read")
     repository = TenantRepository(session, principal.tenant_pub_id)
     account = find_account(session, repository.tenant.id, account_pub_id)
+    filters = {"account_pub_id": account_pub_id}
+    anchor = (
+        decode_keyset_cursor(
+            cursor,
+            kind="account-events",
+            tenant_pub_id=principal.tenant_pub_id,
+            filters=filters,
+        )
+        if cursor is not None
+        else None
+    )
+    statement = select(SessionEvent).where(SessionEvent.account_id == account.id)
+    if anchor is not None:
+        statement = statement.where(
+            or_(
+                SessionEvent.occurred_at < anchor.created_at,
+                and_(
+                    SessionEvent.occurred_at == anchor.created_at,
+                    SessionEvent.pub_id < anchor.pub_id,
+                ),
+            )
+        )
     rows = session.scalars(
-        select(SessionEvent)
-        .where(SessionEvent.account_id == account.id)
-        .order_by(SessionEvent.occurred_at.desc())
+        statement.order_by(SessionEvent.occurred_at.desc(), SessionEvent.pub_id.desc()).limit(
+            limit + 1
+        )
     ).all()
+    has_more = len(rows) > limit
+    visible = rows[:limit]
+    next_cursor = None
+    if has_more and visible:
+        last = visible[-1]
+        next_cursor = encode_keyset_cursor(
+            kind="account-events",
+            tenant_pub_id=principal.tenant_pub_id,
+            filters=filters,
+            created_at=last.occurred_at,
+            pub_id=last.pub_id,
+        )
+    set_cursor_headers(response, next_cursor=next_cursor, has_more=has_more)
     return [
         EventView(
             pub_id=item.pub_id,
+            account_pub_id=account.pub_id,
             event_type=item.event_type,
             summary=json.loads(item.summary_json),
             occurred_at=item.occurred_at,
         )
-        for item in rows
+        for item in visible
     ]

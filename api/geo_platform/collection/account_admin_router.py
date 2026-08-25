@@ -27,9 +27,9 @@ from pathlib import Path
 from typing import Any, Literal
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -37,6 +37,7 @@ from workflows.activities.assist_notify import push_captcha_assist
 
 from ..identity.policy import Principal, get_principal
 from ..otp.extract import PHONE_RE, mask_phone
+from ..pagination import decode_keyset_cursor, encode_keyset_cursor, set_cursor_headers
 from ..tenancy.database import get_db
 from ..tenancy.ids import new_pub_id
 from ..tenancy.models import now_utc
@@ -525,19 +526,77 @@ def _find_phone(session: Session, pub_id: str) -> CollectionPhoneAccount:
 # ---------------------------------------------------------------------------
 
 
-@router.get("/collection-accounts", response_model=list[PhoneAccountRow])
+@router.get(
+    "/collection-accounts",
+    response_model=list[PhoneAccountRow],
+    responses={
+        200: {
+            "headers": {
+                "X-Next-Cursor": {"schema": {"type": "string"}},
+                "X-Has-More": {"schema": {"type": "boolean"}},
+                "X-Total-Count": {"schema": {"type": "integer"}},
+            }
+        }
+    },
+)
 def list_collection_accounts(
+    response: Response,
+    cursor: str | None = Query(default=None, min_length=16, max_length=2_048),
+    limit: int = Query(default=100, ge=1, le=100),
     principal: Principal = Depends(get_principal),
     session: Session = Depends(get_db),
 ) -> list[PhoneAccountRow]:
     principal.require("account:read")
+    filters: dict[str, str | None] = {}
+    anchor = (
+        decode_keyset_cursor(
+            cursor,
+            kind="collection-phone-accounts",
+            tenant_pub_id=principal.tenant_pub_id,
+            filters=filters,
+        )
+        if cursor is not None
+        else None
+    )
+    statement = select(CollectionPhoneAccount)
+    if anchor is not None:
+        statement = statement.where(
+            or_(
+                CollectionPhoneAccount.created_at < anchor.created_at,
+                and_(
+                    CollectionPhoneAccount.created_at == anchor.created_at,
+                    CollectionPhoneAccount.pub_id < anchor.pub_id,
+                ),
+            )
+        )
     phones = list(
         session.scalars(
-            select(CollectionPhoneAccount).order_by(CollectionPhoneAccount.created_at.desc())
+            statement.order_by(
+                CollectionPhoneAccount.created_at.desc(), CollectionPhoneAccount.pub_id.desc()
+            ).limit(limit + 1)
         )
     )
+    has_more = len(phones) > limit
+    visible = phones[:limit]
+    next_cursor = None
+    if has_more and visible:
+        last = visible[-1]
+        next_cursor = encode_keyset_cursor(
+            kind="collection-phone-accounts",
+            tenant_pub_id=principal.tenant_pub_id,
+            filters=filters,
+            created_at=last.created_at,
+            pub_id=last.pub_id,
+        )
+    total_count = session.scalar(select(func.count()).select_from(CollectionPhoneAccount)) or 0
+    set_cursor_headers(
+        response,
+        next_cursor=next_cursor,
+        has_more=has_more,
+        total_count=int(total_count),
+    )
     rows: list[PhoneAccountRow] = []
-    for phone in phones:
+    for phone in visible:
         platform_rows = list(
             session.scalars(
                 select(CollectionPlatformAccount).where(
@@ -1011,13 +1070,28 @@ def link_test(
     )
 
 
-@router.get("/collection-accounts/{pub_id}/events", response_model=list[AccountEventView])
+@router.get(
+    "/collection-accounts/{pub_id}/events",
+    response_model=list[AccountEventView],
+    responses={
+        200: {
+            "headers": {
+                "X-Next-Cursor": {"schema": {"type": "string"}},
+                "X-Has-More": {"schema": {"type": "boolean"}},
+                "X-Total-Count": {"schema": {"type": "integer"}},
+            }
+        }
+    },
+)
 def list_account_events(
     pub_id: str,
+    response: Response,
+    cursor: str | None = Query(default=None, min_length=16, max_length=2_048),
+    limit: int = Query(default=100, ge=1, le=100),
     principal: Principal = Depends(get_principal),
     session: Session = Depends(get_db),
 ) -> list[AccountEventView]:
-    """该手机号（含其平台行）的审计事件，倒序 50 条。"""
+    """该手机号（含其平台行）的完整审计事件游标页。"""
     principal.require("account:read")
     phone = _find_phone(session, pub_id)
     platform_rows = list(
@@ -1027,27 +1101,64 @@ def list_account_events(
             )
         )
     )
+    platform_ids = [row.id for row in platform_rows]
+    scope = CollectionAccountEvent.phone_account_id == phone.id
+    if platform_ids:
+        scope = or_(scope, CollectionAccountEvent.platform_account_id.in_(platform_ids))
+    filters = {"phone_account_pub_id": pub_id}
+    anchor = (
+        decode_keyset_cursor(
+            cursor,
+            kind="collection-account-events",
+            tenant_pub_id=principal.tenant_pub_id,
+            filters=filters,
+        )
+        if cursor is not None
+        else None
+    )
+    statement = select(CollectionAccountEvent).where(scope)
+    if anchor is not None:
+        statement = statement.where(
+            or_(
+                CollectionAccountEvent.created_at < anchor.created_at,
+                and_(
+                    CollectionAccountEvent.created_at == anchor.created_at,
+                    CollectionAccountEvent.pub_id < anchor.pub_id,
+                ),
+            )
+        )
     events = list(
         session.scalars(
-            select(CollectionAccountEvent).where(
-                CollectionAccountEvent.phone_account_id == phone.id
-            )
+            statement.order_by(
+                CollectionAccountEvent.created_at.desc(), CollectionAccountEvent.pub_id.desc()
+            ).limit(limit + 1)
         )
     )
-    platform_ids = [row.id for row in platform_rows]
-    if platform_ids:
-        events.extend(
-            session.scalars(
-                select(CollectionAccountEvent).where(
-                    CollectionAccountEvent.platform_account_id.in_(platform_ids)
-                )
-            )
+    has_more = len(events) > limit
+    visible = events[:limit]
+    next_cursor = None
+    if has_more and visible:
+        last = visible[-1]
+        next_cursor = encode_keyset_cursor(
+            kind="collection-account-events",
+            tenant_pub_id=principal.tenant_pub_id,
+            filters=filters,
+            created_at=last.created_at,
+            pub_id=last.pub_id,
         )
-    events.sort(key=lambda event: (event.created_at, event.id or 0), reverse=True)
+    total_count = session.scalar(
+        select(func.count()).select_from(CollectionAccountEvent).where(scope)
+    )
+    set_cursor_headers(
+        response,
+        next_cursor=next_cursor,
+        has_more=has_more,
+        total_count=int(total_count or 0),
+    )
     browser_pub_cache: dict[int, str] = {}
     region_pub_cache: dict[int, str] = {}
     views: list[AccountEventView] = []
-    for event in events[:50]:
+    for event in visible:
         browser_pub_id: str | None = None
         if event.browser_id is not None:
             if event.browser_id not in browser_pub_cache:
@@ -1089,17 +1200,77 @@ def list_account_events(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/collection-browsers", response_model=list[CollectionBrowserView])
+@router.get(
+    "/collection-browsers",
+    response_model=list[CollectionBrowserView],
+    responses={
+        200: {
+            "headers": {
+                "X-Next-Cursor": {"schema": {"type": "string"}},
+                "X-Has-More": {"schema": {"type": "boolean"}},
+                "X-Total-Count": {"schema": {"type": "integer"}},
+            }
+        }
+    },
+)
 def list_collection_browsers(
+    response: Response,
+    cursor: str | None = Query(default=None, min_length=16, max_length=2_048),
+    limit: int = Query(default=100, ge=1, le=100),
     principal: Principal = Depends(get_principal),
     session: Session = Depends(get_db),
 ) -> list[CollectionBrowserView]:
     principal.require("account:read")
+    filters: dict[str, str | None] = {}
+    anchor = (
+        decode_keyset_cursor(
+            cursor,
+            kind="collection-browsers",
+            tenant_pub_id=principal.tenant_pub_id,
+            filters=filters,
+        )
+        if cursor is not None
+        else None
+    )
+    statement = select(CollectionBrowser)
+    if anchor is not None:
+        statement = statement.where(
+            or_(
+                CollectionBrowser.created_at < anchor.created_at,
+                and_(
+                    CollectionBrowser.created_at == anchor.created_at,
+                    CollectionBrowser.pub_id < anchor.pub_id,
+                ),
+            )
+        )
     browsers = list(
-        session.scalars(select(CollectionBrowser).order_by(CollectionBrowser.created_at))
+        session.scalars(
+            statement.order_by(
+                CollectionBrowser.created_at.desc(), CollectionBrowser.pub_id.desc()
+            ).limit(limit + 1)
+        )
+    )
+    has_more = len(browsers) > limit
+    visible = browsers[:limit]
+    next_cursor = None
+    if has_more and visible:
+        last = visible[-1]
+        next_cursor = encode_keyset_cursor(
+            kind="collection-browsers",
+            tenant_pub_id=principal.tenant_pub_id,
+            filters=filters,
+            created_at=last.created_at,
+            pub_id=last.pub_id,
+        )
+    total_count = session.scalar(select(func.count()).select_from(CollectionBrowser)) or 0
+    set_cursor_headers(
+        response,
+        next_cursor=next_cursor,
+        has_more=has_more,
+        total_count=int(total_count),
     )
     views: list[CollectionBrowserView] = []
-    for browser in browsers:
+    for browser in visible:
         runtime = probe_browser_runtime(browser.systemd_unit, browser.instance_key)
         bound_accounts = list(
             session.scalars(

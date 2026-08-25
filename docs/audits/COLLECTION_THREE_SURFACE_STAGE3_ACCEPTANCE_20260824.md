@@ -35,17 +35,17 @@ Stage 3 不包含完整 Stage 4 Temporal execution partition、Continue-As-New�
 
 当前 `origin/master` 包含下列提交：
 
-| Commit | 已推送主题 | 证据范围 |
-| --- | --- | --- |
-| `e3a546c` | `feat(collection): add resumable three-surface identity plane` | Stage 1 可恢复 campaign identity/materialization 基线 |
-| `ae4cb20` | `feat(collection): add execution governance and quota plane` | Stage 2 binding/grant/lease/fence/quota 基线 |
-| `7a72bee` | `feat(collection): add at-most-once submission protocol` | send/capture/analysis truth 与最多一次提交协议 |
-| `04e8e2a` | `feat(collection): harden submission crash recovery` | 无 I/O coordinator、durable recovery 与 crash harness 加固 |
-| `a6e18e2` | `fix(collection): derive quota reference after reservation` | reservation identity 只能在原子预占成功后产生 |
-| `389c6c1` | `feat(collection): bind durable capture provenance` | UTC canonical hash 与三表面 capture provenance |
-| `bd9879c` | `fix(collection): bind terminal transitions to owner fence` | terminal transition 与 owner dispatch/fence 的持久绑定 |
-| `b856037` | `feat(collection): add durable submission repository` | restricted-entry PostgreSQL repository、durable capture admission/object intent、terminal/base fact 和真实 PG 纵切 |
-| `d2ea2c4` | `fix(collection): align submission freeze gate` | 将 repository 的物化终态门与 Stage 1/database 的唯一真值 `complete` 对齐，并固定回归断言 |
+| Commit    | 已推送主题                                                     | 证据范围                                                                                                           |
+| --------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `e3a546c` | `feat(collection): add resumable three-surface identity plane` | Stage 1 可恢复 campaign identity/materialization 基线                                                              |
+| `ae4cb20` | `feat(collection): add execution governance and quota plane`   | Stage 2 binding/grant/lease/fence/quota 基线                                                                       |
+| `7a72bee` | `feat(collection): add at-most-once submission protocol`       | send/capture/analysis truth 与最多一次提交协议                                                                     |
+| `04e8e2a` | `feat(collection): harden submission crash recovery`           | 无 I/O coordinator、durable recovery 与 crash harness 加固                                                         |
+| `a6e18e2` | `fix(collection): derive quota reference after reservation`    | reservation identity 只能在原子预占成功后产生                                                                      |
+| `389c6c1` | `feat(collection): bind durable capture provenance`            | UTC canonical hash 与三表面 capture provenance                                                                     |
+| `bd9879c` | `fix(collection): bind terminal transitions to owner fence`    | terminal transition 与 owner dispatch/fence 的持久绑定                                                             |
+| `b856037` | `feat(collection): add durable submission repository`          | restricted-entry PostgreSQL repository、durable capture admission/object intent、terminal/base fact 和真实 PG 纵切 |
+| `d2ea2c4` | `fix(collection): align submission freeze gate`                | 将 repository 的物化终态门与 Stage 1/database 的唯一真值 `complete` 对齐，并固定回归断言                           |
 
 这些提交证明协议、纯编排边界和 fail-closed repository 已进入远端历史；repository 尚未接入生产 router/worker，且远端仍没有 `s10` schema。它们不证明 Temporal 或生产链路已经验收。
 
@@ -101,18 +101,18 @@ Stage 3 migration、PG 审计和 repository 已冻结。`s10` migration SHA-256 
 
 下表区分本地证据与远端 migration-chain 状态；`LOCAL VERIFIED` 不等于生产可用或 Stage 3 最终接受：
 
-| ID | 验收项目 | 状态 | 最终通过所需证据 |
-| --- | --- | --- | --- |
-| `S3-PG-01` | `s10` migration 完整 upgrade/downgrade/re-upgrade | LOCAL VERIFIED / REMOTE BLOCKED | disposable PG16 已通过完整循环并记录最终 SHA，最终容器已清理；仍需父 revisions 进入 origin 后重验远端最终链 |
-| `S3-PG-02` | RLS、runtime-role ACL 与 restricted functions | LOCAL VERIFIED / REMOTE BLOCKED | 10 张表均 RLS + FORCE RLS；29 个函数对 PUBLIC/API 拒绝；worker 仅 12 个 public entrypoints；真实 role 的跨租户、直写和 public API EXECUTE 负例通过 |
-| `S3-REPO-01` | prepare + multi-scope reserve 外层事务 | PARTIAL VERIFIED | exact replay/payload drift 已真实 PG；blocker 全回滚与 resolve-after-reserve 已单元覆盖，最终链落地后仍应补真实 PG blocker case |
-| `S3-REPO-02` | owner claim、活 owner gate 与 reconciliation | PARTIAL VERIFIED | CAS 并发唯一 winner、活 owner gate、preflight not-sent 和 owner-loss capture recovery 已真实 PG；全 terminal matrix 留给最终链复验 |
-| `S3-REPO-03` | terminal + quota + base fact/transition/outbox 收敛 | PARTIAL VERIFIED | preflight terminal 原子释放、capture/fact/outbox 与版本提升已真实 PG；无 capture 的完整 `SEND_UNKNOWN` corruption matrix 仍需最终链纵切 |
-| `S3-REPO-04` | capture truth/manifest/link/fact/outbox round-trip | LOCAL VERIFIED | active command、attempt identity、三表面 provenance、mismatch quarantine、immutable link、fact/outbox 和稳定 reason code 已真实 PG round-trip |
-| `S3-GC-01` | quarantine/orphan GC lifecycle | LOCAL VERIFIED | retention/legal-hold/observation、current truth pointer、非 current staging 和 quarantine orphan 的真实 PG 正负例通过；manifest/hash/reason 保留 |
-| `S3-OBJ-01` | object intent 与数据库外 staging 崩溃窗口 | LOCAL VERIFIED | fake object store 已证明 upload-before-manifest 后同一 blob/command/primary；真实 begin function 重算 intent；未连接真实 object service |
-| `S3-OBJ-02` | deterministic object intent exact replay | LOCAL VERIFIED | `operation + attempt` 的完整 64 位 key、stored command、drift 拒绝和不产生第二 primary 已通过 |
-| `S3-IT-01` | 最终 repository 单元与真实 PostgreSQL 纵切 | LOCAL VERIFIED / REMOTE BLOCKED | 根代理 `138 passed` + 最终 schema `6 passed`；父 revisions 入 origin 后需从远端 checkout 重跑同一集合 |
+| ID           | 验收项目                                            | 状态                            | 最终通过所需证据                                                                                                                                   |
+| ------------ | --------------------------------------------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `S3-PG-01`   | `s10` migration 完整 upgrade/downgrade/re-upgrade   | LOCAL VERIFIED / REMOTE BLOCKED | disposable PG16 已通过完整循环并记录最终 SHA，最终容器已清理；仍需父 revisions 进入 origin 后重验远端最终链                                        |
+| `S3-PG-02`   | RLS、runtime-role ACL 与 restricted functions       | LOCAL VERIFIED / REMOTE BLOCKED | 10 张表均 RLS + FORCE RLS；29 个函数对 PUBLIC/API 拒绝；worker 仅 12 个 public entrypoints；真实 role 的跨租户、直写和 public API EXECUTE 负例通过 |
+| `S3-REPO-01` | prepare + multi-scope reserve 外层事务              | PARTIAL VERIFIED                | exact replay/payload drift 已真实 PG；blocker 全回滚与 resolve-after-reserve 已单元覆盖，最终链落地后仍应补真实 PG blocker case                    |
+| `S3-REPO-02` | owner claim、活 owner gate 与 reconciliation        | PARTIAL VERIFIED                | CAS 并发唯一 winner、活 owner gate、preflight not-sent 和 owner-loss capture recovery 已真实 PG；全 terminal matrix 留给最终链复验                 |
+| `S3-REPO-03` | terminal + quota + base fact/transition/outbox 收敛 | PARTIAL VERIFIED                | preflight terminal 原子释放、capture/fact/outbox 与版本提升已真实 PG；无 capture 的完整 `SEND_UNKNOWN` corruption matrix 仍需最终链纵切            |
+| `S3-REPO-04` | capture truth/manifest/link/fact/outbox round-trip  | LOCAL VERIFIED                  | active command、attempt identity、三表面 provenance、mismatch quarantine、immutable link、fact/outbox 和稳定 reason code 已真实 PG round-trip      |
+| `S3-GC-01`   | quarantine/orphan GC lifecycle                      | LOCAL VERIFIED                  | retention/legal-hold/observation、current truth pointer、非 current staging 和 quarantine orphan 的真实 PG 正负例通过；manifest/hash/reason 保留   |
+| `S3-OBJ-01`  | object intent 与数据库外 staging 崩溃窗口           | LOCAL VERIFIED                  | fake object store 已证明 upload-before-manifest 后同一 blob/command/primary；真实 begin function 重算 intent；未连接真实 object service            |
+| `S3-OBJ-02`  | deterministic object intent exact replay            | LOCAL VERIFIED                  | `operation + attempt` 的完整 64 位 key、stored command、drift 拒绝和不产生第二 primary 已通过                                                      |
+| `S3-IT-01`   | 最终 repository 单元与真实 PostgreSQL 纵切          | LOCAL VERIFIED / REMOTE BLOCKED | 根代理 `138 passed` + 最终 schema `6 passed`；父 revisions 入 origin 后需从远端 checkout 重跑同一集合                                              |
 
 ## 明确未完成或未授权
 

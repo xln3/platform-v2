@@ -31,6 +31,10 @@ from workflows.definitions.post_collection_analysis import (
     PostCollectionAnalysisWorkflow,
 )
 from workflows.definitions.s02 import AnswerAnalysisWorkflow, ReportProductionWorkflow
+from workflows.definitions.service2_source_corpus import (
+    Service2SourceCorpusWorkflow,
+    Service2SourceCorpusWorkflowInput,
+)
 from workflows.definitions.session import AccountRevocationWorkflow, RevocationInput
 
 TRACE_PROPAGATOR = TraceContextTextMapPropagator()
@@ -697,6 +701,27 @@ class WorkflowStartOutbox:
                             source_task_queue=str(
                                 payload.get("source_task_queue") or source_task_queue
                             ),
+                        ),
+                        id=command.workflow_id,
+                        task_queue=analysis_task_queue,
+                    )
+                elif command.workflow_type == "service2_source_corpus":
+                    handle = await self.temporal.start_workflow(
+                        Service2SourceCorpusWorkflow.run,
+                        Service2SourceCorpusWorkflowInput(
+                            schema_version=str(payload["schema_version"]),
+                            tenant_pub_id=str(payload["tenant_pub_id"]),
+                            project_pub_id=str(payload["project_pub_id"]),
+                            batch_pub_id=str(payload["batch_pub_id"]),
+                            source_task_queue=str(payload["source_task_queue"]),
+                            coverage_cursor=(
+                                str(payload["coverage_cursor"])
+                                if payload.get("coverage_cursor")
+                                else None
+                            ),
+                            processed_count=int(payload.get("processed_count") or 0),
+                            history_processed=int(payload.get("history_processed") or 0),
+                            fetch_completed=bool(payload.get("fetch_completed", False)),
                         ),
                         id=command.workflow_id,
                         task_queue=analysis_task_queue,

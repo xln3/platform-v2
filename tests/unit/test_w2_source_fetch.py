@@ -201,8 +201,18 @@ class _FakeSink:
         self.linked.append((source_document_pub_id, target.task_pub_ids))
 
 
-def _citation(url: str, cited_text: str | None = None) -> dict[str, Any]:
-    return {"url": url, "title": "t", "cited_text": cited_text}
+def _citation(
+    url: str,
+    cited_text: str | None = None,
+    *,
+    source_url_pub_id: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "url": url,
+        "title": "t",
+        "cited_text": cited_text,
+        **({"source_url_pub_id": source_url_pub_id} if source_url_pub_id else {}),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -631,6 +641,46 @@ def test_execute_fetch_happy_path_httpx_only() -> None:
     assert sink.persisted[0]["extractor"] == "density-extract-v1"
     assert sink.linked == [(entry.source_document_pub_id, ("tsk_1",))]
     assert len(sleeps) == 0  # 同域首次请求不限速
+
+
+def test_execute_fetch_public_url_allowlist_fetches_only_assigned_scope_shard() -> None:
+    assigned = "https://assigned.example.com/article"
+    other = "https://other.example.com/article"
+    tasks = [
+        (
+            "tsk_1",
+            [
+                _citation(assigned, source_url_pub_id="url_assigned"),
+                _citation(other, source_url_pub_id="url_other"),
+            ],
+        )
+    ]
+    fetcher = _FakeFetcher(
+        httpx_results={
+            assigned: _ok_attempt(assigned),
+            other: _ok_attempt(other),
+        }
+    )
+    sink = _FakeSink()
+
+    result = execute_source_fetch(
+        SourceFetchInput(
+            tenant_pub_id=_TENANT,
+            project_pub_id=_PROJECT,
+            run_pub_id=_RUN,
+            source_url_pub_ids=("url_assigned",),
+        ),
+        config=_config(),
+        loader=_FakeLoader(_context(tasks=tasks)),
+        fetcher=fetcher,
+        sink=sink,
+        sleep=lambda _seconds: None,
+    )
+
+    assert [row.url for row in result.fetched] == [assigned]
+    assert fetcher.httpx_calls == [assigned]
+    assert [row["url"] for row in sink.persisted] == [assigned]
+    assert result.planning_coverage[0].eligible_urls == 1
 
 
 def test_execute_fetch_carries_publication_metadata_and_redirect_chain_to_sink() -> None:
