@@ -4,6 +4,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./browser-security": "./src/browser-security.ts",
     "./business-overview": "./src/business-overview.ts"
   },
   "scripts": {

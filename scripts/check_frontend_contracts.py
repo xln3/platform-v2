@@ -1007,6 +1007,9 @@ for fragment in (
             f"Design-system structured client scope tests are missing coverage: {fragment}"
         )
 api_client_source = (root / "packages/api-client/src/index.ts").read_text(encoding="utf-8")
+browser_security_source = (root / "packages/api-client/src/browser-security.ts").read_text(
+    encoding="utf-8"
+)
 shared_hostile_url_e2e = (root / "tests/e2e/shared-hostile-url.ts").read_text(encoding="utf-8")
 shared_shell_actions_e2e = (root / "tests/e2e/shared-shell-actions.ts").read_text(encoding="utf-8")
 shared_oversized_json_e2e = (root / "tests/e2e/shared-oversized-json.ts").read_text(
@@ -1031,36 +1034,53 @@ client_entries = {
         "intake-form",
     )
 }
-if "|1[3-9]\\d{9}|" not in design_system_source:
+if "|1[3-9]\\d{9}|" not in browser_security_source:
     errors.append(
-        "packages/design-system/src/index.tsx must reject complete phone numbers embedded "
-        "inside otherwise ordinary client strings"
+        "packages/api-client/src/browser-security.ts must reject complete phone numbers "
+        "embedded inside otherwise ordinary client strings"
     )
-for source_name, source in (
-    ("packages/design-system/src/index.tsx", design_system_source),
-    ("packages/api-client/src/index.ts", api_client_source),
+for fragment in (
+    "normalizeClientSecretCandidate",
+    "normalize('NFKC')",
+    "clientSecretInvisiblePattern",
+    "decodeURIComponent(normalized)",
+    "profile(?:s|[_ /-]?(?:path|dir|directory))?",
+    "1[3-9](?:[\\s().-]?\\d){9}",
+    "export const containsClientSecret",
+    "export const containsClientSecretKey",
+    "export const containsUnsafeClientControlCharacter",
+):
+    if fragment not in browser_security_source:
+        errors.append(
+            "packages/api-client/src/browser-security.ts is missing canonical client DLP "
+            f"coverage: {fragment}"
+        )
+for source_name, source, module_path in (
+    (
+        "packages/design-system/src/index.tsx",
+        design_system_source,
+        "@geo/api-client/browser-security",
+    ),
+    ("packages/api-client/src/index.ts", api_client_source, "./browser-security"),
 ):
     for fragment in (
-        "normalizeClientSecretCandidate",
-        "normalize('NFKC')",
-        "clientSecretInvisiblePattern",
-        "decodeURIComponent(normalized)",
-        "profile(?:s|[_ /-]?(?:path|dir|directory))?",
-        "1[3-9](?:[\\s().-]?\\d){9}",
+        "containsClientSecret,",
+        "containsClientSecretKey,",
+        "containsUnsafeClientControlCharacter,",
+        f"from '{module_path}'",
     ):
         if fragment not in source:
-            errors.append(f"{source_name} is missing normalized client DLP coverage: {fragment}")
+            errors.append(f"{source_name} is not wired to canonical client DLP: {fragment}")
 for fragment in (
-    "export const containsClientSecretKey",
     "!containsClientSecretKey(key)",
     "containsClientSecretKey(decodedParameter)",
     "containsClientSecretKey(header)",
 ):
     if fragment not in design_system_source:
-        errors.append(f"Design system is missing normalized secret-key DLP coverage: {fragment}")
-for fragment in ("browserSecretKey", "containsBrowserSecretKey", "containsBrowserSecretKey(key)"):
+        errors.append(f"Design system is missing normalized secret-key DLP usage: {fragment}")
+for fragment in ("containsBrowserSecretKey", "containsBrowserSecretKey(key)"):
     if fragment not in api_client_source:
-        errors.append(f"@geo/api-client is missing normalized secret-key DLP coverage: {fragment}")
+        errors.append(f"@geo/api-client is missing normalized secret-key DLP usage: {fragment}")
 for fragment in (
     "normalizes encoded, full-width and zero-width secrets plus cross-platform profile paths",
     "Bearer%2520encoded-session-canary",
@@ -2005,8 +2025,6 @@ for fragment in (
     "projectSafeAccountMask",
     "isNumericBrowserSecret",
     "!isNumericBrowserSecret(value)",
-    "(?:^|[^\\w])\\d{6}(?:[^\\w]|$)",
-    "|1[3-9]\\d{9}|",
     "/1[3-9]\\d{9}/.test(projected)",
     "projectBoundedCollection",
     "ProjectedCollection",
@@ -2070,6 +2088,14 @@ for fragment in (
 ):
     if fragment not in api_client:
         errors.append(f"@geo/api-client is missing customer lifecycle write projection: {fragment}")
+for fragment in (
+    "(?:^|[^\\w])\\d{6}(?:[^\\w]|$)",
+    "|1[3-9]\\d{9}|",
+):
+    if fragment not in browser_security_source:
+        errors.append(
+            f"Canonical browser security is missing customer lifecycle secret detection: {fragment}"
+        )
 for fragment in (
     "ReportDeliveryProjection",
     "EvidenceAssetProjection",

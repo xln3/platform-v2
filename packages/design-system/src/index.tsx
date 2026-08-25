@@ -13,6 +13,17 @@ import {
   type ReactNode,
 } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import {
+  containsClientSecret,
+  containsClientSecretKey,
+  containsUnsafeClientControlCharacter,
+} from '@geo/api-client/browser-security';
+
+export {
+  containsClientSecret,
+  containsClientSecretKey,
+  containsUnsafeClientControlCharacter,
+} from '@geo/api-client/browser-security';
 
 /** Browser localStorage keys that carry identity hints in fixture mode; production never persists them. */
 export const identitySessionHintStorageKeys = [
@@ -53,36 +64,6 @@ export function useExperienceContext(): ExperienceContextValue {
 export const useOptionalExperienceContext = (): ExperienceContextValue | null =>
   useContext(ExperienceContext);
 
-const secretKeyPattern =
-  /cookie|authorization|token|otp|password|phone|profile|biometric|storage.?state|qr/i;
-const secretValuePattern =
-  /(?:bearer\s+|session\s*=|cookie(?:\s|=|:)|token(?:\s|=|:)|otp(?:\s|=|:)|password(?:\s|=|:)|proxy(?:[_ -]?password)?(?:\s|=|:)|profile(?:s|[_ /-]?(?:path|dir|directory))?(?:\s|=|:|\\|\/)|biometric|dlp-canary|(?:^|[^\w])\d{6}(?:[^\w]|$)|(?:^|[^\w])\d{3}[\s.-]\d{3}(?:[^\w]|$)|1[3-9]\d{9}|1[3-9](?:[\s().-]?\d){9}|(?:[A-Za-z]:\\|\\\\)[^\r\n]{0,1024}(?:profiles?|user[ _-]?data)(?:\\[^\r\n]{0,1024})?|\/[^\s]*profile(?:s?\/[^\s]*)?)/i;
-const clientSecretInvisiblePattern = /[\u200b-\u200d\u2060\ufeff]/g;
-const normalizeClientSecretCandidate = (value: string): string => {
-  let normalized = value.normalize('NFKC').replace(clientSecretInvisiblePattern, '');
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    try {
-      const decoded = decodeURIComponent(normalized);
-      if (decoded === normalized) break;
-      normalized = decoded.normalize('NFKC').replace(clientSecretInvisiblePattern, '');
-    } catch {
-      break;
-    }
-  }
-  return normalized;
-};
-/** Detects normalized secret-shaped property and parameter names before browser retention. */
-export const containsClientSecretKey = (value: string): boolean =>
-  secretKeyPattern.test(normalizeClientSecretCandidate(value));
-
-/** Detects secret-shaped values before they enter UI, cache, URL, telemetry or error reports. */
-export const containsClientSecret = (value: string): boolean =>
-  secretValuePattern.test(normalizeClientSecretCandidate(value));
-const unsafeClientControlPattern =
-  /[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/u;
-/** Rejects invisible delimiters, line controls and bidi overrides before identity projection. */
-export const containsUnsafeClientControlCharacter = (value: string): boolean =>
-  unsafeClientControlPattern.test(value);
 /** Encodes ordered string fields without delimiter ambiguity or raw control characters in the key. */
 export const createStructuredClientScopeKey = (parts: readonly string[]): string =>
   JSON.stringify(parts);

@@ -1,4 +1,8 @@
 import { allowsFixtureIdentityHeaders, type BrowserBuildIdentityEnv } from './index';
+import {
+  containsClientSecret,
+  containsUnsafeClientControlCharacter,
+} from './browser-security';
 
 export const businessOverviewProjectStates = ['draft', 'active', 'paused', 'archived'] as const;
 export type BusinessOverviewProjectState = (typeof businessOverviewProjectStates)[number];
@@ -153,9 +157,6 @@ const publicIdPattern = /^[a-z]{3}_[A-Za-z0-9_-]{1,116}$/;
 const projectIdPattern = /^prj_[A-Za-z0-9_-]{1,116}$/;
 const customerIdPattern = /^(?:cst|cus)_[A-Za-z0-9_-]{1,116}$/;
 const cursorPattern = /^[A-Za-z0-9_-]{1,512}$/;
-const controlCharacterPattern = /[\u0000-\u001f\u007f]/u;
-const secretValuePattern =
-  /(?:bearer\s+|session\s*=|cookie\s*[:=]|password\s*[:=]|api[_-]?key\s*[:=]|otp\s*[:=]|proxy-password)/iu;
 const strictTimestampPattern =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(Z|[+-](\d{2}):(\d{2}))$/u;
 const serviceNames: Readonly<Record<BusinessOverviewServiceCode, string>> = {
@@ -201,8 +202,8 @@ const safeText = (value: unknown, maximum: number): string | null =>
   value.length > 0 &&
   value.length <= maximum &&
   value.trim() === value &&
-  !controlCharacterPattern.test(value) &&
-  !secretValuePattern.test(value)
+  !containsUnsafeClientControlCharacter(value) &&
+  !containsClientSecret(value)
     ? value
     : null;
 
@@ -646,7 +647,11 @@ const normalizedQuery = (
     limit < 1 ||
     limit > 20 ||
     (query.cursor !== undefined && !cursorPattern.test(query.cursor)) ||
-    (q !== undefined && (q.length === 0 || q.length > 120 || secretValuePattern.test(q))) ||
+    (q !== undefined &&
+      (q.length === 0 ||
+        q.length > 120 ||
+        containsUnsafeClientControlCharacter(q) ||
+        containsClientSecret(q))) ||
     (query.projectState !== undefined &&
       !businessOverviewProjectStates.includes(query.projectState)) ||
     (query.attention !== undefined && !businessOverviewAttentionCodes.includes(query.attention))

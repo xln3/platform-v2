@@ -191,6 +191,22 @@ describe('Operations business overview browser boundary', () => {
       'overlong text',
       (value: ReturnType<typeof payload>) => (value.items[0]!.project.name = '项目'.repeat(101)),
     ],
+    [
+      'C1 control',
+      (value: ReturnType<typeof payload>) => (value.items[0]!.customer.name = '客户\u0085伪装'),
+    ],
+    [
+      'Unicode line separator',
+      (value: ReturnType<typeof payload>) => (value.items[0]!.customer.name = '客户\u2028伪装'),
+    ],
+    [
+      'bidi override',
+      (value: ReturnType<typeof payload>) => (value.items[0]!.project.name = '安全\u202e伪装'),
+    ],
+    [
+      'bidi isolate',
+      (value: ReturnType<typeof payload>) => (value.items[0]!.project.name = '安全\u2066伪装'),
+    ],
   ])('rejects %s', (_label, mutate) => {
     const candidate = payload();
     mutate(candidate);
@@ -211,6 +227,13 @@ describe('Operations business overview browser boundary', () => {
       getOperationsBusinessOverview(
         headers,
         { q: 'password=secret' },
+        { baseUrl: 'https://geo.example', fetcher: untouched },
+      ),
+    ).resolves.toEqual({ kind: 'unavailable' });
+    await expect(
+      getOperationsBusinessOverview(
+        headers,
+        { q: '客户\u202e伪装' },
         { baseUrl: 'https://geo.example', fetcher: untouched },
       ),
     ).resolves.toEqual({ kind: 'unavailable' });
