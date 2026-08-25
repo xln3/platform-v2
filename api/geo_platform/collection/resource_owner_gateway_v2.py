@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
 from typing import Literal, NoReturn, Protocol, Self
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -88,6 +89,8 @@ class SubmissionOwnerAuthorization(BaseModel):
         validate_default=True,
     )
 
+    tenant_id: UUID
+    project_id: UUID
     workflow: WorkflowOperationInput
     collection_surface: CollectionSurface
     gateway_kind: GatewayKind
@@ -166,6 +169,8 @@ def authorize_submission_owner(
             fence_set_sha256=lease_fence_set_digest(fences),
         )
         return SubmissionOwnerAuthorization(
+            tenant_id=snapshot.grant.tenant_id,
+            project_id=snapshot.grant.project_id,
             workflow=workflow,
             collection_surface=snapshot.owner.collection_surface,
             gateway_kind=snapshot.owner.gateway_kind,
@@ -195,7 +200,7 @@ def submission_owner_authorization_wal_digest(
                 "owner_authorization": owner_authorization,
                 "owner_dispatch_ref": owner_dispatch_ref,
                 "recorded_at": recorded_at,
-                "schema_version": "collection-owner-authorization-wal-v1",
+                "schema_version": "collection-owner-authorization-wal-v2",
             }
         ).encode()
     ).hexdigest()
@@ -211,8 +216,8 @@ class SubmissionOwnerAuthorizationWalRecord(BaseModel):
         validate_default=True,
     )
 
-    schema_version: Literal["collection-owner-authorization-wal-v1"] = (
-        "collection-owner-authorization-wal-v1"
+    schema_version: Literal["collection-owner-authorization-wal-v2"] = (
+        "collection-owner-authorization-wal-v2"
     )
     owner_authorization: SubmissionOwnerAuthorization
     claim_pub_id: OpaqueId

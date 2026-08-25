@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -28,6 +31,9 @@ from geo_platform.collection.identity_v2 import (
     freeze_campaign,
     freeze_config,
 )
+from geo_platform.collection.owner_authorization_wal_v2 import (
+    EncryptedFileSubmissionOwnerAuthorizationWalStore,
+)
 from geo_platform.collection.resource_owner_gateway_v2 import (
     AuthorizedSubmitOnceGateway,
     DurableSubmissionOwnerAuthorizationLoader,
@@ -38,6 +44,7 @@ from geo_platform.collection.resource_owner_gateway_v2 import (
     build_submission_owner_authorization_wal_record,
     prepare_submission_owner_turn,
 )
+from geo_platform.collection.vault import LocalKms, ProfileVault
 from pydantic import ValidationError
 
 from domain.collection.execution_governance import (
@@ -2032,6 +2039,8 @@ def test_three_surface_owner_gateway_bridges_governance_to_one_submit(
     assert loader.calls == 1
     assert len(transport.calls) == 1
     assert transport.calls[0][1] == authorization.assertion
+    assert authorization.tenant_id == TENANT_ID
+    assert authorization.project_id == PROJECT_ID
     assert authorization.assertion.expected_send_state_version + 1 == (
         command.fresh_claim.claimed_state_version
     )
@@ -2157,6 +2166,186 @@ def test_prepare_owner_turn_rejects_conflicting_wal_before_gateway_exists() -> N
     assert len(store.put_calls) == 1
     assert store.calls == []
     assert transport.calls == []
+
+
+@pytest.mark.parametrize("surface", tuple(CollectionSurface))
+def test_encrypted_file_owner_wal_round_trip_drives_one_submit(
+    tmp_path: Path,
+    surface: CollectionSurface,
+) -> None:
+    snapshot = _authorization_snapshot(surface)
+    workflow, manifest = _submission_workflow(snapshot)
+    root = tmp_path / f"owner-wal-{surface.value}"
+    store = EncryptedFileSubmissionOwnerAuthorizationWalStore(
+        root,
+        vault=ProfileVault(LocalKms("owner-wal-test-master-key")),
+        retention_period=timedelta(days=30),
+        retention_policy_revision="owner-wal-retention-v1",
+    )
+    transport = _OwnerTransport()
+    owner_dispatch_ref = f"owner-dispatch-{surface.value}"
+    turn = prepare_submission_owner_turn(
+        snapshot,
+        workflow,
+        claim_pub_id=f"claim-{surface.value}",
+        owner_dispatch_ref=owner_dispatch_ref,
+        wal_store=store,
+        transport=transport,
+        clock=lambda: snapshot.checked_at + timedelta(seconds=2),
+    )
+
+    wal_files = list(root.glob("*.wal"))
+    assert len(wal_files) == 1
+    wal_bytes = wal_files[0].read_bytes()
+    assert turn.wal_record.claim_pub_id.encode() not in wal_bytes
+    assert turn.wal_record.owner_dispatch_ref.encode() not in wal_bytes
+    assert stat.S_IMODE(root.stat().st_mode) == 0o700
+    assert stat.S_IMODE(wal_files[0].stat().st_mode) == 0o600
+    assert store.load(owner_dispatch_ref=owner_dispatch_ref) == turn.wal_record
+    retention = store.retention_metadata(owner_dispatch_ref=owner_dispatch_ref)
+    assert retention is not None
+    assert retention.policy_revision == "owner-wal-retention-v1"
+    assert retention.evidence_sha256 == turn.wal_record.evidence_sha256
+    assert retention.retain_until == snapshot.checked_at + timedelta(days=30)
+
+    restarted_store = EncryptedFileSubmissionOwnerAuthorizationWalStore(
+        root,
+        vault=ProfileVault(LocalKms("owner-wal-test-master-key")),
+        retention_period=timedelta(days=60),
+        retention_policy_revision="owner-wal-retention-v2",
+    )
+    assert restarted_store.load(owner_dispatch_ref=owner_dispatch_ref) == turn.wal_record
+    restarted_retention = restarted_store.retention_metadata(
+        owner_dispatch_ref=owner_dispatch_ref
+    )
+    assert restarted_retention == retention
+    replay = restarted_store.put(turn.wal_record)
+    assert replay == turn.wal_record
+    assert wal_files[0].read_bytes() == wal_bytes
+    command = _submit_command(
+        turn.authorization,
+        manifest,
+        owner_dispatch_ref=owner_dispatch_ref,
+        owner_wal_evidence_sha256=turn.owner_wal_evidence_sha256,
+    )
+
+    result = turn.submit_gateway.submit_once(command)
+
+    assert result.send_state is SendState.CONFIRMED_SENT
+    assert len(transport.calls) == 1
+
+
+def test_encrypted_file_owner_wal_rejects_conflicting_immutable_dispatch(
+    tmp_path: Path,
+) -> None:
+    snapshot = _authorization_snapshot(CollectionSurface.CONSUMER_WEB)
+    workflow, _manifest = _submission_workflow(snapshot)
+    authorization = authorize_submission_owner(snapshot, workflow)
+    owner_dispatch_ref = "owner-dispatch-conflict"
+    first = build_submission_owner_authorization_wal_record(
+        authorization,
+        claim_pub_id="claim-consumer-web-first",
+        owner_dispatch_ref=owner_dispatch_ref,
+        recorded_at=snapshot.checked_at,
+    )
+    conflict = build_submission_owner_authorization_wal_record(
+        authorization,
+        claim_pub_id="claim-consumer-web-conflict",
+        owner_dispatch_ref=owner_dispatch_ref,
+        recorded_at=snapshot.checked_at,
+    )
+    root = tmp_path / "owner-wal-conflict"
+    store = EncryptedFileSubmissionOwnerAuthorizationWalStore(
+        root,
+        vault=ProfileVault(LocalKms("owner-wal-test-master-key")),
+        retention_period=timedelta(days=30),
+        retention_policy_revision="owner-wal-retention-v1",
+    )
+    store.put(first)
+    before = next(root.glob("*.wal")).read_bytes()
+
+    with pytest.raises(ResourceOwnerGatewayError) as exc_info:
+        store.put(conflict)
+
+    assert exc_info.value.code == "resource_owner_authorization_wal_write_conflict"
+    assert store.load(owner_dispatch_ref=owner_dispatch_ref) == first
+    assert next(root.glob("*.wal")).read_bytes() == before
+
+
+def test_encrypted_file_owner_wal_fails_closed_on_sealed_metadata_or_key_drift(
+    tmp_path: Path,
+) -> None:
+    snapshot = _authorization_snapshot(CollectionSurface.PROVIDER_API)
+    workflow, _manifest = _submission_workflow(snapshot)
+    authorization = authorize_submission_owner(snapshot, workflow)
+    owner_dispatch_ref = "owner-dispatch-tamper"
+    record = build_submission_owner_authorization_wal_record(
+        authorization,
+        claim_pub_id="claim-provider-api-tamper",
+        owner_dispatch_ref=owner_dispatch_ref,
+        recorded_at=snapshot.checked_at,
+    )
+    root = tmp_path / "owner-wal-tamper"
+    store = EncryptedFileSubmissionOwnerAuthorizationWalStore(
+        root,
+        vault=ProfileVault(LocalKms("owner-wal-correct-master-key")),
+        retention_period=timedelta(days=30),
+        retention_policy_revision="owner-wal-retention-v1",
+    )
+    store.put(record)
+    wal_path = next(root.glob("*.wal"))
+    envelope = json.loads(wal_path.read_text(encoding="utf-8"))
+    envelope["retention"]["policy_revision"] = "owner-wal-retention-tampered"
+    wal_path.write_text(
+        json.dumps(envelope, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    os.chmod(wal_path, 0o600)
+
+    with pytest.raises(ResourceOwnerGatewayError) as metadata_error:
+        store.load(owner_dispatch_ref=owner_dispatch_ref)
+    assert metadata_error.value.code == "resource_owner_authorization_wal_decrypt_failed"
+
+    other_root = tmp_path / "owner-wal-key-drift"
+    correct = EncryptedFileSubmissionOwnerAuthorizationWalStore(
+        other_root,
+        vault=ProfileVault(LocalKms("owner-wal-correct-master-key")),
+        retention_period=timedelta(days=30),
+        retention_policy_revision="owner-wal-retention-v1",
+    )
+    correct.put(record)
+    wrong_key = EncryptedFileSubmissionOwnerAuthorizationWalStore(
+        other_root,
+        vault=ProfileVault(LocalKms("owner-wal-wrong-master-key")),
+        retention_period=timedelta(days=30),
+        retention_policy_revision="owner-wal-retention-v1",
+    )
+
+    with pytest.raises(ResourceOwnerGatewayError) as key_error:
+        wrong_key.load(owner_dispatch_ref=owner_dispatch_ref)
+    assert key_error.value.code == "resource_owner_authorization_wal_decrypt_failed"
+
+
+def test_encrypted_file_owner_wal_configuration_and_missing_record_are_explicit(
+    tmp_path: Path,
+) -> None:
+    vault = ProfileVault(LocalKms("owner-wal-test-master-key"))
+    with pytest.raises(ResourceOwnerGatewayError) as relative_root:
+        EncryptedFileSubmissionOwnerAuthorizationWalStore(
+            Path("relative-owner-wal"),
+            vault=vault,
+            retention_period=timedelta(days=30),
+            retention_policy_revision="owner-wal-retention-v1",
+        )
+    assert relative_root.value.code == "resource_owner_authorization_wal_configuration_invalid"
+
+    store = EncryptedFileSubmissionOwnerAuthorizationWalStore(
+        tmp_path / "owner-wal-missing",
+        vault=vault,
+        retention_period=timedelta(days=30),
+        retention_policy_revision="owner-wal-retention-v1",
+    )
+    assert store.load(owner_dispatch_ref="owner-dispatch-missing") is None
 
 
 def test_durable_owner_wal_loader_does_not_cache_a_removed_record() -> None:

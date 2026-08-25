@@ -330,6 +330,8 @@ def _submission_owner_authorization(
         fence_assertions=fence_assertions,
     )
     return SubmissionOwnerAuthorization(
+        tenant_id=TENANT_ID,
+        project_id=PROJECT_ID,
         workflow=workflow,
         collection_surface=surface,
         gateway_kind=gateway_kind,
