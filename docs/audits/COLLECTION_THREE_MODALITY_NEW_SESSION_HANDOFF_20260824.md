@@ -11,7 +11,7 @@
 旧实施提示词：
 
 ```text
-/home/xln/geo-system/platform-v2/docs/audits/COLLECTION_EXECUTION_GRANT_IMPLEMENTATION_PROMPT_20260821.md
+legacy-prompt.md
 ```
 
 冻结指纹：
