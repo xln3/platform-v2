@@ -1893,8 +1893,11 @@ export function Pagination({
 }) {
   const safePageCount = Math.max(1, pageCount);
   const safePage = Math.min(Math.max(1, page), safePageCount);
-  const [jumpPage, setJumpPage] = useState(String(safePage));
-  useEffect(() => setJumpPage(String(safePage)), [safePage]);
+  const [jumpDraft, setJumpDraft] = useState({
+    page: safePage,
+    value: String(safePage),
+  });
+  const jumpPage = jumpDraft.page === safePage ? jumpDraft.value : String(safePage);
   const pageItems = paginationWindow(safePage, safePageCount);
   return (
     <nav className="pagination" aria-label={label}>
@@ -1941,7 +1944,7 @@ export function Pagination({
           const parsed = Number(jumpPage);
           if (!Number.isSafeInteger(parsed)) return;
           const target = Math.min(Math.max(1, parsed), safePageCount);
-          setJumpPage(String(target));
+          setJumpDraft({ page: safePage, value: String(target) });
           onPageChange(target);
         }}
       >
@@ -1952,7 +1955,7 @@ export function Pagination({
             min={1}
             max={safePageCount}
             value={jumpPage}
-            onChange={(event) => setJumpPage(event.target.value)}
+            onChange={(event) => setJumpDraft({ page: safePage, value: event.target.value })}
             aria-label="跳转页码"
           />
           页
