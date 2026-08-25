@@ -30,9 +30,12 @@ from geo_platform.collection.identity_v2 import (
 )
 from geo_platform.collection.resource_owner_gateway_v2 import (
     AuthorizedSubmitOnceGateway,
+    DurableSubmissionOwnerAuthorizationLoader,
     ResourceOwnerGatewayError,
     SubmissionOwnerAuthorization,
+    SubmissionOwnerAuthorizationWalRecord,
     authorize_submission_owner,
+    build_submission_owner_authorization_wal_record,
 )
 from pydantic import ValidationError
 
@@ -87,6 +90,7 @@ from domain.collection.submission import (
     TerminalReason,
     WorkflowOperationInput,
     authority_digest,
+    deterministic_dispatch_key,
     request_manifest_digest,
 )
 from domain.collection.surface import (
@@ -1897,6 +1901,9 @@ def _submission_workflow(
 def _submit_command(
     authorization: SubmissionOwnerAuthorization,
     manifest: RequestManifest,
+    *,
+    owner_dispatch_ref: str | None = None,
+    owner_wal_evidence_sha256: str = "2" * 64,
 ) -> SubmitOnceCommand:
     authority = authorization.authority
     operation = authorization.workflow.operation
@@ -1907,9 +1914,11 @@ def _submit_command(
         grant_revision=authority.grant_revision,
         authority_sha256=authority_digest(authority),
         fence_set_sha256=authority.fence_set_sha256,
-        dispatch_key=f"dispatch-{authorization.collection_surface.value}",
-        owner_dispatch_ref=f"owner-dispatch-{authorization.collection_surface.value}",
-        owner_wal_evidence_sha256="2" * 64,
+        dispatch_key=deterministic_dispatch_key(operation),
+        owner_dispatch_ref=(
+            owner_dispatch_ref or f"owner-dispatch-{authorization.collection_surface.value}"
+        ),
+        owner_wal_evidence_sha256=owner_wal_evidence_sha256,
         claimed_at=authority.checked_at + timedelta(seconds=1),
     )
     return SubmitOnceCommand(
@@ -1933,6 +1942,20 @@ class _AuthorizationLoader:
         assert command.fresh_claim.operation == self.authorization.workflow.operation
         self.calls += 1
         return self.authorization
+
+
+class _AuthorizationWalReader:
+    def __init__(self, record: SubmissionOwnerAuthorizationWalRecord | None) -> None:
+        self.record = record
+        self.calls: list[str] = []
+
+    def load(
+        self,
+        *,
+        owner_dispatch_ref: str,
+    ) -> SubmissionOwnerAuthorizationWalRecord | None:
+        self.calls.append(owner_dispatch_ref)
+        return self.record
 
 
 class _OwnerTransport:
@@ -1988,6 +2011,107 @@ def test_three_surface_owner_gateway_bridges_governance_to_one_submit(
         command.fresh_claim.claimed_state_version
     )
     assert authorization.authority.fence_set_sha256 == (command.fresh_claim.claim.fence_set_sha256)
+
+
+@pytest.mark.parametrize("surface", tuple(CollectionSurface))
+def test_durable_owner_wal_loader_binds_pre_cas_authorization_to_fresh_claim(
+    surface: CollectionSurface,
+) -> None:
+    snapshot = _authorization_snapshot(surface)
+    workflow, manifest = _submission_workflow(snapshot)
+    authorization = authorize_submission_owner(snapshot, workflow)
+    owner_dispatch_ref = f"owner-dispatch-{surface.value}"
+    record = build_submission_owner_authorization_wal_record(
+        authorization,
+        claim_pub_id=f"claim-{surface.value}",
+        owner_dispatch_ref=owner_dispatch_ref,
+        recorded_at=authorization.authority.checked_at + timedelta(milliseconds=500),
+    )
+    command = _submit_command(
+        authorization,
+        manifest,
+        owner_dispatch_ref=owner_dispatch_ref,
+        owner_wal_evidence_sha256=record.evidence_sha256,
+    )
+    reader = _AuthorizationWalReader(record)
+    loader = DurableSubmissionOwnerAuthorizationLoader(reader)
+    transport = _OwnerTransport()
+    gateway = AuthorizedSubmitOnceGateway(
+        collection_surface=surface,
+        gateway_kind=snapshot.owner.gateway_kind,
+        owner_gateway_pub_id=snapshot.owner.owner_gateway_pub_id,
+        owner_protocol_revision=snapshot.owner.protocol_revision,
+        authorization_loader=loader,
+        transport=transport,
+        clock=lambda: command.fresh_claim.claim.claimed_at + timedelta(milliseconds=1),
+    )
+
+    result = gateway.submit_once(command)
+
+    assert result.send_state is SendState.CONFIRMED_SENT
+    assert reader.calls == [owner_dispatch_ref]
+    assert len(transport.calls) == 1
+    assert record.dispatch_key == command.fresh_claim.claim.dispatch_key
+    assert record.evidence_sha256 == command.fresh_claim.claim.owner_wal_evidence_sha256
+    assert record.owner_authorization == authorization
+
+
+def test_durable_owner_wal_loader_does_not_cache_a_removed_record() -> None:
+    snapshot = _authorization_snapshot(CollectionSurface.CONSUMER_WEB)
+    workflow, manifest = _submission_workflow(snapshot)
+    authorization = authorize_submission_owner(snapshot, workflow)
+    owner_dispatch_ref = "owner-dispatch-consumer-web"
+    record = build_submission_owner_authorization_wal_record(
+        authorization,
+        claim_pub_id="claim-consumer_web",
+        owner_dispatch_ref=owner_dispatch_ref,
+        recorded_at=authorization.authority.checked_at,
+    )
+    command = _submit_command(
+        authorization,
+        manifest,
+        owner_dispatch_ref=owner_dispatch_ref,
+        owner_wal_evidence_sha256=record.evidence_sha256,
+    )
+    reader = _AuthorizationWalReader(record)
+    loader = DurableSubmissionOwnerAuthorizationLoader(reader)
+
+    assert loader.load(command) == authorization
+    reader.record = None
+    with pytest.raises(ResourceOwnerGatewayError) as exc_info:
+        loader.load(command)
+
+    assert exc_info.value.code == "resource_owner_authorization_wal_missing"
+    assert reader.calls == [owner_dispatch_ref, owner_dispatch_ref]
+
+
+def test_durable_owner_wal_loader_rejects_claim_or_digest_drift() -> None:
+    snapshot = _authorization_snapshot(CollectionSurface.PROVIDER_API)
+    workflow, manifest = _submission_workflow(snapshot)
+    authorization = authorize_submission_owner(snapshot, workflow)
+    record = build_submission_owner_authorization_wal_record(
+        authorization,
+        claim_pub_id="claim-provider_api",
+        owner_dispatch_ref="owner-dispatch-provider-api",
+        recorded_at=authorization.authority.checked_at,
+    )
+    command = _submit_command(
+        authorization,
+        manifest,
+        owner_dispatch_ref="owner-dispatch-provider-api",
+        owner_wal_evidence_sha256=record.evidence_sha256,
+    )
+    mismatched = record.model_copy(update={"claim_pub_id": "claim-provider_api-other"})
+    loader = DurableSubmissionOwnerAuthorizationLoader(_AuthorizationWalReader(mismatched))
+
+    with pytest.raises(ResourceOwnerGatewayError) as exc_info:
+        loader.load(command)
+    assert exc_info.value.code == "resource_owner_authorization_wal_claim_mismatch"
+
+    with pytest.raises(ValidationError, match="owner_authorization_wal_digest_mismatch"):
+        SubmissionOwnerAuthorizationWalRecord.model_validate(
+            record.model_dump(mode="python") | {"evidence_sha256": "4" * 64}
+        )
 
 
 def test_owner_gateway_rejects_cross_surface_authorization_before_transport() -> None:

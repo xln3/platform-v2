@@ -14,7 +14,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import NoReturn, Protocol, Self
+from hashlib import sha256
+from typing import Literal, NoReturn, Protocol, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -22,14 +23,19 @@ from domain.collection.execution_governance import (
     ExecutionAction,
     GatewayKind,
     SideEffectAuthorization,
+    assert_governance_payload_safe,
 )
 from domain.collection.submission import (
     LeaseFenceRef,
+    OpaqueId,
     OwnerAuthorityRef,
+    Sha256Hex,
     SubmitDisposition,
     SubmitOnceCommand,
     WorkflowOperationInput,
     authority_digest,
+    canonical_json,
+    deterministic_dispatch_key,
     lease_fence_set_digest,
 )
 from domain.collection.surface import CollectionSurface
@@ -170,12 +176,151 @@ def authorize_submission_owner(
         raise ResourceOwnerGatewayError("submission_owner_projection_invalid") from exc
 
 
+def submission_owner_authorization_wal_digest(
+    *,
+    owner_authorization: SubmissionOwnerAuthorization,
+    claim_pub_id: str,
+    dispatch_key: str,
+    owner_dispatch_ref: str,
+    recorded_at: datetime,
+) -> str:
+    """Bind one pre-CAS authorization to its planned owner dispatch."""
+
+    return sha256(
+        canonical_json(
+            {
+                "claim_pub_id": claim_pub_id,
+                "dispatch_key": dispatch_key,
+                "owner_authorization": owner_authorization,
+                "owner_dispatch_ref": owner_dispatch_ref,
+                "recorded_at": recorded_at,
+                "schema_version": "collection-owner-authorization-wal-v1",
+            }
+        ).encode()
+    ).hexdigest()
+
+
+class SubmissionOwnerAuthorizationWalRecord(BaseModel):
+    """Non-secret owner WAL evidence written before the fresh claim CAS."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+        str_strip_whitespace=True,
+        validate_default=True,
+    )
+
+    schema_version: Literal["collection-owner-authorization-wal-v1"] = (
+        "collection-owner-authorization-wal-v1"
+    )
+    owner_authorization: SubmissionOwnerAuthorization
+    claim_pub_id: OpaqueId
+    dispatch_key: OpaqueId
+    owner_dispatch_ref: OpaqueId
+    recorded_at: datetime
+    evidence_sha256: Sha256Hex
+
+    @model_validator(mode="after")
+    def wal_record_is_exact(self) -> Self:
+        authorization = self.owner_authorization
+        if self.recorded_at.tzinfo is None or self.recorded_at.utcoffset() is None:
+            raise ValueError("owner_authorization_wal_time_must_be_aware")
+        if (
+            not authorization.authority.checked_at
+            <= self.recorded_at
+            < (authorization.authority.valid_until)
+        ):
+            raise ValueError("owner_authorization_wal_time_not_authorized")
+        if self.dispatch_key != deterministic_dispatch_key(authorization.workflow.operation):
+            raise ValueError("owner_authorization_wal_dispatch_key_mismatch")
+        expected = submission_owner_authorization_wal_digest(
+            owner_authorization=authorization,
+            claim_pub_id=self.claim_pub_id,
+            dispatch_key=self.dispatch_key,
+            owner_dispatch_ref=self.owner_dispatch_ref,
+            recorded_at=self.recorded_at,
+        )
+        if self.evidence_sha256 != expected:
+            raise ValueError("owner_authorization_wal_digest_mismatch")
+        assert_governance_payload_safe(self)
+        return self
+
+
+def build_submission_owner_authorization_wal_record(
+    authorization: SubmissionOwnerAuthorization,
+    *,
+    claim_pub_id: str,
+    owner_dispatch_ref: str,
+    recorded_at: datetime,
+) -> SubmissionOwnerAuthorizationWalRecord:
+    """Create the exact non-secret WAL record that a claim hash will reference."""
+
+    dispatch_key = deterministic_dispatch_key(authorization.workflow.operation)
+    evidence_sha256 = submission_owner_authorization_wal_digest(
+        owner_authorization=authorization,
+        claim_pub_id=claim_pub_id,
+        dispatch_key=dispatch_key,
+        owner_dispatch_ref=owner_dispatch_ref,
+        recorded_at=recorded_at,
+    )
+    return SubmissionOwnerAuthorizationWalRecord(
+        owner_authorization=authorization,
+        claim_pub_id=claim_pub_id,
+        dispatch_key=dispatch_key,
+        owner_dispatch_ref=owner_dispatch_ref,
+        recorded_at=recorded_at,
+        evidence_sha256=evidence_sha256,
+    )
+
+
+class SubmissionOwnerAuthorizationWalReader(Protocol):
+    """Read one immutable owner-local WAL record without caching it in process."""
+
+    def load(
+        self,
+        *,
+        owner_dispatch_ref: str,
+    ) -> SubmissionOwnerAuthorizationWalRecord | None: ...
+
+
+class DurableSubmissionOwnerAuthorizationLoader:
+    """Resolve a post-CAS command from the exact durable pre-CAS WAL evidence."""
+
+    def __init__(self, reader: SubmissionOwnerAuthorizationWalReader) -> None:
+        self._reader = reader
+
+    def load(self, command: SubmitOnceCommand) -> SubmissionOwnerAuthorization:
+        claim = command.fresh_claim.claim
+        record = self._reader.load(owner_dispatch_ref=claim.owner_dispatch_ref)
+        if record is None:
+            _fail("resource_owner_authorization_wal_missing")
+        if not isinstance(record, SubmissionOwnerAuthorizationWalRecord):
+            _fail("resource_owner_authorization_wal_invalid")
+        authorization = record.owner_authorization
+        if (
+            record.claim_pub_id != claim.claim_pub_id
+            or record.dispatch_key != claim.dispatch_key
+            or record.owner_dispatch_ref != claim.owner_dispatch_ref
+            or record.evidence_sha256 != claim.owner_wal_evidence_sha256
+        ):
+            _fail("resource_owner_authorization_wal_claim_mismatch")
+        if authorization.workflow.operation != command.fresh_claim.operation:
+            _fail("resource_owner_authorization_wal_operation_mismatch")
+        if command.fresh_claim.claimed_state_version != (
+            authorization.workflow.expected_state_version + 1
+        ):
+            _fail("resource_owner_authorization_wal_state_version_mismatch")
+        if record.recorded_at > claim.claimed_at:
+            _fail("resource_owner_authorization_wal_after_claim")
+        return authorization
+
+
 class SubmissionOwnerAuthorizationLoader(Protocol):
     """Load the exact authorization paired with one fresh submit command.
 
     A production implementation must run inside the serialized resource-owner
-    turn and must not return a cached authorization.  No such implementation is
-    registered by this module.
+    turn and must not return a cached authorization.  The durable WAL-backed
+    implementation above still requires an owner-local physical record reader.
     """
 
     def load(self, command: SubmitOnceCommand) -> SubmissionOwnerAuthorization: ...
@@ -277,9 +422,14 @@ class AuthorizedSubmitOnceGateway:
 
 __all__ = [
     "AuthorizedSubmitOnceGateway",
+    "DurableSubmissionOwnerAuthorizationLoader",
     "ResourceOwnerGatewayError",
     "ResourceOwnerSubmitTransport",
     "SubmissionOwnerAuthorization",
     "SubmissionOwnerAuthorizationLoader",
+    "SubmissionOwnerAuthorizationWalReader",
+    "SubmissionOwnerAuthorizationWalRecord",
     "authorize_submission_owner",
+    "build_submission_owner_authorization_wal_record",
+    "submission_owner_authorization_wal_digest",
 ]
