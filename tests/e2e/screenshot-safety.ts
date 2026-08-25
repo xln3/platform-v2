@@ -16,6 +16,7 @@ const screenshotSurfaceLimit = 2_000_000;
 const visualEvidenceRoots = [
   resolve(process.cwd(), 'tests/e2e-results'),
   resolve(process.cwd(), 'tests/visual-evidence'),
+  resolve(process.cwd(), 'test-results'),
 ];
 const snapshotNamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]*\.png$/u;
 const renderedSecretInvisiblePattern = /[\u200b-\u200d\u2060\ufeff]/gu;

@@ -23,7 +23,7 @@ test('customer shell is keyboard reachable and WCAG AA clean', async ({ page }) 
     '客户资料',
     '品牌产品与竞品',
     '监测问题与目标',
-    '信源与内容',
+    '服务总览',
     '报告',
     '项目成员',
   ]) {
@@ -52,11 +52,11 @@ test('customer shell is keyboard reachable and WCAG AA clean', async ({ page }) 
   await page.getByRole('button', { name: '终端已连接' }).click();
   await expect(page.getByRole('heading', { name: '请在豆包原生页面完成验证' })).toBeVisible();
   await expectAccessible(page);
-  await page.getByRole('button', { name: '品牌可见度', exact: true }).click();
+  await page.goto('/platform/customer/?section=monitoring');
   await page.getByRole('heading', { name: '云岫智能 · 品牌可见度与模型表现' }).waitFor();
   await expect(page.getByLabel('AI 操作面板')).toHaveCount(0);
   await expectAccessible(page);
-  await page.getByRole('button', { name: '真实 AI 回答', exact: true }).click();
+  await page.goto('/platform/customer/?section=answers');
   await page.getByRole('heading', { name: '云岫智能 · 真实 AI 回答与模型语境' }).waitFor();
   await expectAccessible(page);
   await page

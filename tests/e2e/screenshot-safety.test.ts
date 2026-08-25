@@ -33,6 +33,23 @@ const safeSurface = {
 };
 
 describe('local visual evidence DLP', () => {
+  it('allows the fixed CI Playwright output root', async () => {
+    const target = join(process.cwd(), 'test-results', 'ci-approved-output.png');
+    let capturedPath = '';
+    const page = {
+      async evaluate() {
+        return safeSurface;
+      },
+      async screenshot(options: { path?: string }) {
+        capturedPath = options.path ?? '';
+      },
+    };
+
+    await captureSafeScreenshot(page as never, { path: target, fullPage: true });
+
+    expect(capturedPath).toBe(target);
+  });
+
   it('rejects secrets from DOM, controls, URL and browser storage without false positives', () => {
     expect(isSafeScreenshotSurface(safeSurface)).toBe(true);
     const phoneShapedBlobUrl = 'blob:http://127.0.0.1/a2172290-4754-45ba-b7ce-505cab745263';

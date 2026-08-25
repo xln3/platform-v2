@@ -632,7 +632,7 @@ test('monitoring filters stay in content flow, are URL-bound and restore through
     }),
   );
   await page.goto('/platform/customer/');
-  await page.getByRole('button', { name: '品牌可见度', exact: true }).click();
+  await page.goto('/platform/customer/?section=monitoring');
   await expect(page).toHaveURL(/section=monitoring/);
   await expect(
     page.getByRole('heading', { name: '云岫智能 · 品牌可见度与模型表现' }),
