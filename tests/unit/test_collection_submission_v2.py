@@ -14,7 +14,11 @@ from uuid import UUID
 import pytest
 from geo_platform.collection.resource_owner_gateway_v2 import (
     AuthorizedSubmitOnceGateway,
+    FreshSubmissionOwnerSendBoundary,
     SubmissionOwnerAuthorization,
+    SubmissionOwnerSendBoundaryRecord,
+    SubmissionOwnerSendJournalSnapshot,
+    SubmissionOwnerSendOutcomeRecord,
 )
 from geo_platform.collection.submission_v2 import (
     AnalysisCoordinator,
@@ -386,6 +390,51 @@ class DurableOwnerStore:
         self.leases = {
             fence.lease_pub_id: DurableLease(fence=fence) for fence in authority.lease_fences
         }
+        self.boundary_record: SubmissionOwnerSendBoundaryRecord | None = None
+        self.outcome_record: SubmissionOwnerSendOutcomeRecord | None = None
+
+    def append_send_boundary(
+        self,
+        record: SubmissionOwnerSendBoundaryRecord,
+    ) -> FreshSubmissionOwnerSendBoundary:
+        claim = record.command.fresh_claim.claim
+        if (
+            record.owner_dispatch_ref != self.wal.owner_dispatch_ref
+            or record.owner_authorization_evidence_sha256 != self.wal.wal_evidence_sha256
+            or claim.authority_sha256 != self.wal.authority_sha256
+            or claim.fence_set_sha256 != self.wal.fence_set_sha256
+        ):
+            raise SubmissionCoordinatorError("submit_wal_identity_mismatch")
+        if not self.wal.owner_session_active or not self.exact_leases_active():
+            raise SubmissionCoordinatorError("submit_owner_not_active")
+        if self.boundary_record is not None or self.wal.boundary is BoundaryState.ENTERED:
+            raise SubmissionCoordinatorError("irreversible_boundary_already_entered")
+        self.boundary_record = record
+        self.wal.boundary = BoundaryState.ENTERED
+        return FreshSubmissionOwnerSendBoundary(record=record)
+
+    def append_send_outcome(
+        self,
+        record: SubmissionOwnerSendOutcomeRecord,
+    ) -> SubmissionOwnerSendOutcomeRecord:
+        if self.boundary_record is None:
+            raise SubmissionCoordinatorError("send_outcome_without_boundary")
+        if self.outcome_record is not None and self.outcome_record != record:
+            raise SubmissionCoordinatorError("send_outcome_conflict")
+        self.outcome_record = record
+        return record
+
+    def load_send_journal(
+        self,
+        *,
+        owner_dispatch_ref: str,
+    ) -> SubmissionOwnerSendJournalSnapshot:
+        return SubmissionOwnerSendJournalSnapshot(
+            owner_dispatch_ref=owner_dispatch_ref,
+            owner_authorization_evidence_sha256=self.wal.wal_evidence_sha256,
+            boundary=self.boundary_record,
+            outcome=self.outcome_record,
+        )
 
     def mark_owner_dead(self) -> None:
         self.wal.owner_session_active = False
@@ -1185,10 +1234,13 @@ class _SubmitGatewayBase:
             raise SubmissionCoordinatorError("submit_owner_session_terminated")
         if not self.store.exact_leases_active():
             raise SubmissionCoordinatorError("submit_lease_fence_not_active")
-        if wal.boundary is BoundaryState.ENTERED or wal.submit_invocations != 0:
+        if wal.submit_invocations != 0:
+            raise SubmissionCoordinatorError("irreversible_boundary_already_entered")
+        if wal.boundary is BoundaryState.NOT_ENTERED:
+            wal.boundary = BoundaryState.ENTERED
+        elif self.store.boundary_record is None:
             raise SubmissionCoordinatorError("irreversible_boundary_already_entered")
         wal.submit_invocations += 1
-        wal.boundary = BoundaryState.ENTERED
 
     def _confirmed(self, *, evidence_ref: str, provenance: dict[str, str]) -> SubmitDisposition:
         wal = self.store.wal
@@ -1400,6 +1452,20 @@ class FakeReconciliationGateway:
         terminated_digest = self.store.terminate_exact_leases(at=self.clock.now())
         if terminated_digest != wal.fence_set_sha256:
             raise SubmissionCoordinatorError("terminated_lease_fence_set_mismatch")
+        journal = self.store.load_send_journal(owner_dispatch_ref=command.owner_dispatch_ref)
+        if journal.outcome is not None:
+            disposition = journal.outcome.disposition
+            return ReconciliationDisposition(
+                send_state=disposition.send_state,
+                reason=disposition.reason,
+                boundary_entered=disposition.boundary_entered,
+                evidence_ref=command.durable_evidence_ref,
+                evidence_sha256=command.durable_evidence_sha256,
+                provider_submission_ref=disposition.provider_submission_ref,
+                non_submission_proof_ref=disposition.non_submission_proof_ref,
+                terminated_fence_set_sha256=(disposition.terminated_fence_set_sha256),
+                resolved_at=self.clock.now(),
+            )
         if wal.boundary is BoundaryState.NOT_ENTERED:
             proof_material = {
                 "boundary": wal.boundary.value,
@@ -1702,6 +1768,7 @@ class CoordinatorHarness:
                 owner_gateway_pub_id=authorization.authority.owner_handle,
                 owner_protocol_revision=authorization.owner_protocol_revision,
                 authorization_loader=loader,
+                send_journal=self.owner_store,
                 transport=transport,
                 clock=self.clock.now,
             )
@@ -1816,6 +1883,34 @@ def test_three_surface_governed_fake_owner_reaches_capture_fact_without_resubmit
     assert harness.authorization_loaders[1].calls == 0
     assert len(harness.owner_transports) == 2
     assert harness.owner_transports[1].calls == []
+
+
+@pytest.mark.parametrize("surface", tuple(CollectionSurface))
+def test_governed_owner_outcome_journal_recovers_ack_crash_without_resubmit(
+    surface: CollectionSurface,
+) -> None:
+    harness = CoordinatorHarness(surface)
+    harness.prepare()
+    crash = OneShotCrashHook(CrashPoint.AFTER_SUBMIT_BEFORE_ACK)
+
+    with pytest.raises(InjectedCrash, match=CrashPoint.AFTER_SUBMIT_BEFORE_ACK.value):
+        harness.coordinator(crash, governed_owner=True).run(harness.work)
+
+    operation = harness.repository.load_operation(harness.work.workflow.operation)
+    assert operation is not None
+    assert operation.send_state is SendState.SENDING
+    assert harness.owner_store.boundary_record is not None
+    assert harness.owner_store.outcome_record is not None
+    assert harness.owner_store.wal.submit_invocations == 1
+    harness.owner_store.mark_owner_dead()
+
+    recovered = harness.coordinator(governed_owner=True).run(harness.work)
+
+    assert recovered.operation.send_state is SendState.CONFIRMED_SENT
+    assert recovered.quota.consumed_units == 1
+    assert harness.owner_store.wal.submit_invocations == 1
+    assert harness.authorization_loaders[-1].calls == 0
+    assert harness.owner_transports[-1].calls == []
 
 
 @pytest.mark.parametrize("point", SEVEN_SUBMISSION_CRASH_POINTS)

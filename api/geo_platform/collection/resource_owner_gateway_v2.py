@@ -279,6 +279,267 @@ def build_submission_owner_authorization_wal_record(
     )
 
 
+def submission_owner_send_boundary_digest(
+    *,
+    tenant_id: UUID,
+    project_id: UUID,
+    collection_surface: CollectionSurface,
+    gateway_kind: GatewayKind,
+    owner_protocol_revision: str,
+    command: SubmitOnceCommand,
+    entered_at: datetime,
+) -> str:
+    """Bind the first durable post-CAS boundary marker to one exact command."""
+
+    return sha256(
+        canonical_json(
+            {
+                "collection_surface": collection_surface,
+                "command": command,
+                "entered_at": entered_at,
+                "gateway_kind": gateway_kind,
+                "owner_protocol_revision": owner_protocol_revision,
+                "project_id": project_id,
+                "schema_version": "collection-owner-send-boundary-v1",
+                "tenant_id": tenant_id,
+            }
+        ).encode()
+    ).hexdigest()
+
+
+class SubmissionOwnerSendBoundaryRecord(BaseModel):
+    """Immutable proof written immediately before one transport invocation."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+        str_strip_whitespace=True,
+        validate_default=True,
+    )
+
+    schema_version: Literal["collection-owner-send-boundary-v1"] = (
+        "collection-owner-send-boundary-v1"
+    )
+    tenant_id: UUID
+    project_id: UUID
+    collection_surface: CollectionSurface
+    gateway_kind: GatewayKind
+    owner_protocol_revision: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+    command: SubmitOnceCommand
+    entered_at: datetime
+    evidence_sha256: Sha256Hex
+
+    @model_validator(mode="after")
+    def boundary_is_exact(self) -> Self:
+        claim = self.command.fresh_claim.claim
+        if self.entered_at.tzinfo is None or self.entered_at.utcoffset() is None:
+            raise ValueError("owner_send_boundary_time_must_be_aware")
+        if self.entered_at < claim.claimed_at:
+            raise ValueError("owner_send_boundary_before_claim")
+        expected_gateway = {
+            CollectionSurface.PROVIDER_API: GatewayKind.PROVIDER_REQUEST,
+            CollectionSurface.CONSUMER_WEB: GatewayKind.RESIDENT_BROWSER,
+            CollectionSurface.CONSUMER_APP: GatewayKind.MANAGED_APP_SESSION,
+        }[self.collection_surface]
+        if self.gateway_kind is not expected_gateway:
+            raise ValueError("owner_send_boundary_gateway_surface_mismatch")
+        expected = submission_owner_send_boundary_digest(
+            tenant_id=self.tenant_id,
+            project_id=self.project_id,
+            collection_surface=self.collection_surface,
+            gateway_kind=self.gateway_kind,
+            owner_protocol_revision=self.owner_protocol_revision,
+            command=self.command,
+            entered_at=self.entered_at,
+        )
+        if self.evidence_sha256 != expected:
+            raise ValueError("owner_send_boundary_digest_mismatch")
+        assert_governance_payload_safe(self)
+        return self
+
+    @property
+    def owner_dispatch_ref(self) -> str:
+        return self.command.fresh_claim.claim.owner_dispatch_ref
+
+    @property
+    def owner_authorization_evidence_sha256(self) -> str:
+        return self.command.fresh_claim.claim.owner_wal_evidence_sha256
+
+
+def build_submission_owner_send_boundary_record(
+    authorization: SubmissionOwnerAuthorization,
+    command: SubmitOnceCommand,
+    *,
+    entered_at: datetime,
+) -> SubmissionOwnerSendBoundaryRecord:
+    """Build the post-CAS marker for the already validated owner command."""
+
+    claim = command.fresh_claim.claim
+    authority = authorization.authority
+    if (
+        command.fresh_claim.operation != authorization.workflow.operation
+        or command.fresh_claim.claimed_state_version
+        != authorization.workflow.expected_state_version + 1
+        or claim.owner_handle != authority.owner_handle
+        or claim.grant_pub_id != authority.grant_pub_id
+        or claim.grant_revision != authority.grant_revision
+        or claim.authority_sha256 != authority_digest(authority)
+        or claim.fence_set_sha256 != authority.fence_set_sha256
+    ):
+        _fail("resource_owner_send_boundary_authorization_mismatch")
+    if entered_at >= authority.valid_until:
+        _fail("resource_owner_send_boundary_authorization_expired")
+    evidence_sha256 = submission_owner_send_boundary_digest(
+        tenant_id=authorization.tenant_id,
+        project_id=authorization.project_id,
+        collection_surface=authorization.collection_surface,
+        gateway_kind=authorization.gateway_kind,
+        owner_protocol_revision=authorization.owner_protocol_revision,
+        command=command,
+        entered_at=entered_at,
+    )
+    return SubmissionOwnerSendBoundaryRecord(
+        tenant_id=authorization.tenant_id,
+        project_id=authorization.project_id,
+        collection_surface=authorization.collection_surface,
+        gateway_kind=authorization.gateway_kind,
+        owner_protocol_revision=authorization.owner_protocol_revision,
+        command=command,
+        entered_at=entered_at,
+        evidence_sha256=evidence_sha256,
+    )
+
+
+def submission_owner_send_outcome_digest(
+    *,
+    owner_dispatch_ref: str,
+    boundary_evidence_sha256: str,
+    disposition: SubmitDisposition,
+) -> str:
+    """Bind one immutable transport outcome to its first boundary marker."""
+
+    return sha256(
+        canonical_json(
+            {
+                "boundary_evidence_sha256": boundary_evidence_sha256,
+                "disposition": disposition,
+                "owner_dispatch_ref": owner_dispatch_ref,
+                "schema_version": "collection-owner-send-outcome-v1",
+            }
+        ).encode()
+    ).hexdigest()
+
+
+class SubmissionOwnerSendOutcomeRecord(BaseModel):
+    """Immutable result appended only after a boundary-crossing transport returns."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+        str_strip_whitespace=True,
+        validate_default=True,
+    )
+
+    schema_version: Literal["collection-owner-send-outcome-v1"] = "collection-owner-send-outcome-v1"
+    owner_dispatch_ref: OpaqueId
+    boundary_evidence_sha256: Sha256Hex
+    disposition: SubmitDisposition
+    evidence_sha256: Sha256Hex
+
+    @model_validator(mode="after")
+    def outcome_is_exact(self) -> Self:
+        expected = submission_owner_send_outcome_digest(
+            owner_dispatch_ref=self.owner_dispatch_ref,
+            boundary_evidence_sha256=self.boundary_evidence_sha256,
+            disposition=self.disposition,
+        )
+        if self.evidence_sha256 != expected:
+            raise ValueError("owner_send_outcome_digest_mismatch")
+        assert_governance_payload_safe(self)
+        return self
+
+
+def build_submission_owner_send_outcome_record(
+    boundary: SubmissionOwnerSendBoundaryRecord,
+    disposition: SubmitDisposition,
+) -> SubmissionOwnerSendOutcomeRecord:
+    """Build a terminal owner-local outcome linked to one durable boundary."""
+
+    if disposition.resolved_at < boundary.entered_at:
+        _fail("resource_owner_send_outcome_before_boundary")
+    evidence_sha256 = submission_owner_send_outcome_digest(
+        owner_dispatch_ref=boundary.owner_dispatch_ref,
+        boundary_evidence_sha256=boundary.evidence_sha256,
+        disposition=disposition,
+    )
+    return SubmissionOwnerSendOutcomeRecord(
+        owner_dispatch_ref=boundary.owner_dispatch_ref,
+        boundary_evidence_sha256=boundary.evidence_sha256,
+        disposition=disposition,
+        evidence_sha256=evidence_sha256,
+    )
+
+
+class FreshSubmissionOwnerSendBoundary(BaseModel):
+    """Capability returned only when a boundary file was newly made durable."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, validate_default=True)
+
+    status: Literal["freshly_appended"] = "freshly_appended"
+    record: SubmissionOwnerSendBoundaryRecord
+
+
+class SubmissionOwnerSendJournalSnapshot(BaseModel):
+    """Durable owner-local send truth used by recovery without submit authority."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, validate_default=True)
+
+    owner_dispatch_ref: OpaqueId
+    owner_authorization_evidence_sha256: Sha256Hex
+    boundary: SubmissionOwnerSendBoundaryRecord | None = None
+    outcome: SubmissionOwnerSendOutcomeRecord | None = None
+
+    @model_validator(mode="after")
+    def journal_chain_is_exact(self) -> Self:
+        if self.boundary is None:
+            if self.outcome is not None:
+                raise ValueError("owner_send_outcome_without_boundary")
+            return self
+        if (
+            self.boundary.owner_dispatch_ref != self.owner_dispatch_ref
+            or self.boundary.owner_authorization_evidence_sha256
+            != self.owner_authorization_evidence_sha256
+        ):
+            raise ValueError("owner_send_boundary_snapshot_mismatch")
+        if self.outcome is not None and (
+            self.outcome.owner_dispatch_ref != self.owner_dispatch_ref
+            or self.outcome.boundary_evidence_sha256 != self.boundary.evidence_sha256
+            or self.outcome.disposition.resolved_at < self.boundary.entered_at
+        ):
+            raise ValueError("owner_send_outcome_snapshot_mismatch")
+        return self
+
+
+class SubmissionOwnerSendJournalStore(Protocol):
+    """Append-only post-CAS journal; boundary replay must never return fresh."""
+
+    def append_send_boundary(
+        self,
+        record: SubmissionOwnerSendBoundaryRecord,
+    ) -> FreshSubmissionOwnerSendBoundary: ...
+
+    def append_send_outcome(
+        self,
+        record: SubmissionOwnerSendOutcomeRecord,
+    ) -> SubmissionOwnerSendOutcomeRecord: ...
+
+    def load_send_journal(
+        self,
+        *,
+        owner_dispatch_ref: str,
+    ) -> SubmissionOwnerSendJournalSnapshot: ...
+
+
 class SubmissionOwnerAuthorizationWalReader(Protocol):
     """Read one immutable owner-local WAL record without caching it in process."""
 
@@ -345,7 +606,14 @@ class SubmissionOwnerAuthorizationLoader(Protocol):
 
 
 class ResourceOwnerSubmitTransport(Protocol):
-    """Surface-specific transport running inside the serialized owner boundary."""
+    """One boundary-crossing transport invocation for a serialized owner.
+
+    Safe navigation and pre-submit validation belong before this port.  Once
+    called, the durable boundary marker already exists, so an exception is
+    conservatively recoverable only as sent-or-unknown and never as a retry.
+    A returned ``CONFIRMED_NOT_SENT`` remains valid only when its typed proof
+    demonstrates that the external side-effect boundary itself was not crossed.
+    """
 
     def submit_once(
         self,
@@ -356,7 +624,7 @@ class ResourceOwnerSubmitTransport(Protocol):
 
 
 class AuthorizedSubmitOnceGateway:
-    """Validate a fresh claim, then invoke exactly one injected owner transport."""
+    """Validate a fresh claim, journal the boundary, and invoke one transport."""
 
     def __init__(
         self,
@@ -366,6 +634,7 @@ class AuthorizedSubmitOnceGateway:
         owner_gateway_pub_id: str,
         owner_protocol_revision: str,
         authorization_loader: SubmissionOwnerAuthorizationLoader,
+        send_journal: SubmissionOwnerSendJournalStore,
         transport: ResourceOwnerSubmitTransport,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
@@ -381,6 +650,7 @@ class AuthorizedSubmitOnceGateway:
         self._owner_gateway_pub_id = owner_gateway_pub_id
         self._owner_protocol_revision = owner_protocol_revision
         self._authorization_loader = authorization_loader
+        self._send_journal = send_journal
         self._transport = transport
         self._clock = clock or (lambda: datetime.now(UTC))
 
@@ -394,6 +664,17 @@ class AuthorizedSubmitOnceGateway:
             _fail("resource_owner_clock_precedes_claim")
         if now >= authorization.authority.valid_until:
             _fail("resource_owner_authorization_expired")
+        boundary = build_submission_owner_send_boundary_record(
+            authorization,
+            command,
+            entered_at=now,
+        )
+        fresh_boundary = self._send_journal.append_send_boundary(boundary)
+        if (
+            not isinstance(fresh_boundary, FreshSubmissionOwnerSendBoundary)
+            or fresh_boundary.record != boundary
+        ):
+            _fail("resource_owner_send_boundary_append_invalid")
         result = self._transport.submit_once(
             command,
             authorization=authorization.assertion,
@@ -402,6 +683,13 @@ class AuthorizedSubmitOnceGateway:
             _fail("resource_owner_transport_result_invalid")
         if result.resolved_at < command.fresh_claim.claim.claimed_at:
             _fail("resource_owner_result_precedes_claim")
+        outcome = build_submission_owner_send_outcome_record(boundary, result)
+        persisted_outcome = self._send_journal.append_send_outcome(outcome)
+        if (
+            not isinstance(persisted_outcome, SubmissionOwnerSendOutcomeRecord)
+            or persisted_outcome != outcome
+        ):
+            _fail("resource_owner_send_outcome_append_invalid")
         return result
 
     def _validate_fresh_claim(
@@ -462,15 +750,17 @@ def prepare_submission_owner_turn(
     claim_pub_id: str,
     owner_dispatch_ref: str,
     wal_store: SubmissionOwnerAuthorizationWalStore,
+    send_journal: SubmissionOwnerSendJournalStore,
     transport: ResourceOwnerSubmitTransport,
     recorded_at: datetime | None = None,
     clock: Callable[[], datetime] | None = None,
 ) -> PreparedSubmissionOwnerTurn:
     """Authorize, durably bind one claim, and build its post-CAS gateway.
 
-    ``wal_store.put`` must return only after the record is durable.  Exact replay
-    may return the existing equal record; any conflicting value fails before a
-    caller can use the evidence hash in the claim CAS.
+    ``wal_store.put`` must return only after the authorization is durable.  The
+    separate post-CAS ``send_journal`` must durably append a fresh boundary before
+    transport and an immutable outcome before the gateway returns.  Authorization
+    replay may return an equal record, but boundary replay is always no-resend.
     """
 
     authorization = authorize_submission_owner(snapshot, workflow)
@@ -491,6 +781,7 @@ def prepare_submission_owner_turn(
         owner_gateway_pub_id=authorization.authority.owner_handle,
         owner_protocol_revision=authorization.owner_protocol_revision,
         authorization_loader=DurableSubmissionOwnerAuthorizationLoader(wal_store),
+        send_journal=send_journal,
         transport=transport,
         clock=clock,
     )
@@ -504,6 +795,7 @@ def prepare_submission_owner_turn(
 __all__ = [
     "AuthorizedSubmitOnceGateway",
     "DurableSubmissionOwnerAuthorizationLoader",
+    "FreshSubmissionOwnerSendBoundary",
     "PreparedSubmissionOwnerTurn",
     "ResourceOwnerGatewayError",
     "ResourceOwnerSubmitTransport",
@@ -512,8 +804,16 @@ __all__ = [
     "SubmissionOwnerAuthorizationWalReader",
     "SubmissionOwnerAuthorizationWalRecord",
     "SubmissionOwnerAuthorizationWalStore",
+    "SubmissionOwnerSendBoundaryRecord",
+    "SubmissionOwnerSendJournalSnapshot",
+    "SubmissionOwnerSendJournalStore",
+    "SubmissionOwnerSendOutcomeRecord",
     "authorize_submission_owner",
     "build_submission_owner_authorization_wal_record",
+    "build_submission_owner_send_boundary_record",
+    "build_submission_owner_send_outcome_record",
     "prepare_submission_owner_turn",
     "submission_owner_authorization_wal_digest",
+    "submission_owner_send_boundary_digest",
+    "submission_owner_send_outcome_digest",
 ]

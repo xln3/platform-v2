@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import stat
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -38,9 +39,13 @@ from geo_platform.collection.owner_authorization_wal_v2 import (
 from geo_platform.collection.resource_owner_gateway_v2 import (
     AuthorizedSubmitOnceGateway,
     DurableSubmissionOwnerAuthorizationLoader,
+    FreshSubmissionOwnerSendBoundary,
     ResourceOwnerGatewayError,
     SubmissionOwnerAuthorization,
     SubmissionOwnerAuthorizationWalRecord,
+    SubmissionOwnerSendBoundaryRecord,
+    SubmissionOwnerSendJournalSnapshot,
+    SubmissionOwnerSendOutcomeRecord,
     authorize_submission_owner,
     build_submission_owner_authorization_wal_record,
     prepare_submission_owner_turn,
@@ -1978,6 +1983,8 @@ class _AuthorizationWalStore(_AuthorizationWalReader):
         super().__init__(record)
         self.conflict = conflict
         self.put_calls: list[SubmissionOwnerAuthorizationWalRecord] = []
+        self.boundary: SubmissionOwnerSendBoundaryRecord | None = None
+        self.outcome: SubmissionOwnerSendOutcomeRecord | None = None
 
     def put(
         self,
@@ -1990,6 +1997,81 @@ class _AuthorizationWalStore(_AuthorizationWalReader):
             return self.record
         self.record = record
         return record
+
+    def append_send_boundary(
+        self,
+        record: SubmissionOwnerSendBoundaryRecord,
+    ) -> FreshSubmissionOwnerSendBoundary:
+        if self.boundary is not None:
+            code = (
+                "resource_owner_send_boundary_already_entered"
+                if self.boundary == record
+                else "resource_owner_send_boundary_write_conflict"
+            )
+            raise ResourceOwnerGatewayError(code)
+        self.boundary = record
+        return FreshSubmissionOwnerSendBoundary(record=record)
+
+    def append_send_outcome(
+        self,
+        record: SubmissionOwnerSendOutcomeRecord,
+    ) -> SubmissionOwnerSendOutcomeRecord:
+        if self.boundary is None:
+            raise ResourceOwnerGatewayError("resource_owner_send_outcome_boundary_missing")
+        if self.outcome is not None and self.outcome != record:
+            raise ResourceOwnerGatewayError("resource_owner_send_outcome_write_conflict")
+        self.outcome = record
+        return record
+
+    def load_send_journal(
+        self,
+        *,
+        owner_dispatch_ref: str,
+    ) -> SubmissionOwnerSendJournalSnapshot:
+        if self.record is None:
+            raise ResourceOwnerGatewayError("resource_owner_authorization_wal_missing")
+        return SubmissionOwnerSendJournalSnapshot(
+            owner_dispatch_ref=owner_dispatch_ref,
+            owner_authorization_evidence_sha256=self.record.evidence_sha256,
+            boundary=self.boundary,
+            outcome=self.outcome,
+        )
+
+
+class _SendJournalStore:
+    def __init__(self) -> None:
+        self.boundary: SubmissionOwnerSendBoundaryRecord | None = None
+        self.outcome: SubmissionOwnerSendOutcomeRecord | None = None
+
+    def append_send_boundary(
+        self,
+        record: SubmissionOwnerSendBoundaryRecord,
+    ) -> FreshSubmissionOwnerSendBoundary:
+        if self.boundary is not None:
+            raise ResourceOwnerGatewayError("resource_owner_send_boundary_already_entered")
+        self.boundary = record
+        return FreshSubmissionOwnerSendBoundary(record=record)
+
+    def append_send_outcome(
+        self,
+        record: SubmissionOwnerSendOutcomeRecord,
+    ) -> SubmissionOwnerSendOutcomeRecord:
+        self.outcome = record
+        return record
+
+    def load_send_journal(
+        self,
+        *,
+        owner_dispatch_ref: str,
+    ) -> SubmissionOwnerSendJournalSnapshot:
+        if self.boundary is None:
+            raise AssertionError("send boundary has not been entered")
+        return SubmissionOwnerSendJournalSnapshot(
+            owner_dispatch_ref=owner_dispatch_ref,
+            owner_authorization_evidence_sha256=(self.boundary.owner_authorization_evidence_sha256),
+            boundary=self.boundary,
+            outcome=self.outcome,
+        )
 
 
 class _OwnerTransport:
@@ -2024,12 +2106,14 @@ def test_three_surface_owner_gateway_bridges_governance_to_one_submit(
     command = _submit_command(authorization, manifest)
     loader = _AuthorizationLoader(authorization)
     transport = _OwnerTransport()
+    journal = _SendJournalStore()
     gateway = AuthorizedSubmitOnceGateway(
         collection_surface=surface,
         gateway_kind=snapshot.owner.gateway_kind,
         owner_gateway_pub_id=snapshot.owner.owner_gateway_pub_id,
         owner_protocol_revision=snapshot.owner.protocol_revision,
         authorization_loader=loader,
+        send_journal=journal,
         transport=transport,
         clock=lambda: command.fresh_claim.claim.claimed_at + timedelta(milliseconds=1),
     )
@@ -2040,6 +2124,8 @@ def test_three_surface_owner_gateway_bridges_governance_to_one_submit(
     assert_governance_payload_safe(authorization)
     assert loader.calls == 1
     assert len(transport.calls) == 1
+    assert journal.boundary is not None
+    assert journal.outcome is not None
     assert transport.calls[0][1] == authorization.assertion
     assert authorization.tenant_id == TENANT_ID
     assert authorization.project_id == PROJECT_ID
@@ -2072,12 +2158,14 @@ def test_durable_owner_wal_loader_binds_pre_cas_authorization_to_fresh_claim(
     reader = _AuthorizationWalReader(record)
     loader = DurableSubmissionOwnerAuthorizationLoader(reader)
     transport = _OwnerTransport()
+    journal = _SendJournalStore()
     gateway = AuthorizedSubmitOnceGateway(
         collection_surface=surface,
         gateway_kind=snapshot.owner.gateway_kind,
         owner_gateway_pub_id=snapshot.owner.owner_gateway_pub_id,
         owner_protocol_revision=snapshot.owner.protocol_revision,
         authorization_loader=loader,
+        send_journal=journal,
         transport=transport,
         clock=lambda: command.fresh_claim.claim.claimed_at + timedelta(milliseconds=1),
     )
@@ -2108,6 +2196,7 @@ def test_prepare_owner_turn_persists_exact_wal_before_post_cas_submit(
         claim_pub_id=f"claim-{surface.value}",
         owner_dispatch_ref=owner_dispatch_ref,
         wal_store=store,
+        send_journal=store,
         transport=transport,
         clock=lambda: snapshot.checked_at + timedelta(seconds=2),
     )
@@ -2121,6 +2210,7 @@ def test_prepare_owner_turn_persists_exact_wal_before_post_cas_submit(
         claim_pub_id=f"claim-{surface.value}",
         owner_dispatch_ref=owner_dispatch_ref,
         wal_store=store,
+        send_journal=store,
         transport=_OwnerTransport(),
         clock=lambda: snapshot.checked_at + timedelta(seconds=2),
     )
@@ -2160,6 +2250,7 @@ def test_prepare_owner_turn_rejects_conflicting_wal_before_gateway_exists() -> N
             claim_pub_id="claim-consumer_app",
             owner_dispatch_ref="owner-dispatch-consumer_app",
             wal_store=store,
+            send_journal=store,
             transport=transport,
             clock=lambda: snapshot.checked_at,
         )
@@ -2192,6 +2283,7 @@ def test_encrypted_file_owner_wal_round_trip_drives_one_submit(
         claim_pub_id=f"claim-{surface.value}",
         owner_dispatch_ref=owner_dispatch_ref,
         wal_store=store,
+        send_journal=store,
         transport=transport,
         clock=lambda: snapshot.checked_at + timedelta(seconds=2),
     )
@@ -2238,6 +2330,443 @@ def test_encrypted_file_owner_wal_round_trip_drives_one_submit(
 
     assert result.send_state is SendState.CONFIRMED_SENT
     assert len(transport.calls) == 1
+    journal = restarted_store.load_send_journal(owner_dispatch_ref=owner_dispatch_ref)
+    assert journal.owner_authorization_evidence_sha256 == turn.owner_wal_evidence_sha256
+    assert journal.boundary is not None
+    assert journal.boundary.command == command
+    assert journal.outcome is not None
+    assert journal.outcome.disposition == result
+    event_files = sorted(root.glob("*.send-*.wal"))
+    assert len(event_files) == 2
+    for event_file in event_files:
+        event_bytes = event_file.read_bytes()
+        assert owner_dispatch_ref.encode() not in event_bytes
+        assert result.evidence_ref.encode() not in event_bytes
+        assert stat.S_IMODE(event_file.stat().st_mode) == 0o600
+    complete_audit = restarted_store.verify_retained_records()
+    assert complete_audit.record_count == 3
+    assert complete_audit.authorization_record_count == 1
+    assert complete_audit.send_boundary_record_count == 1
+    assert complete_audit.send_outcome_record_count == 1
+
+    with pytest.raises(ResourceOwnerGatewayError) as replay_error:
+        turn.submit_gateway.submit_once(command)
+    assert replay_error.value.code == "resource_owner_send_boundary_already_entered"
+    assert len(transport.calls) == 1
+
+
+def test_encrypted_owner_send_boundary_survives_transport_crash_and_blocks_resubmit(
+    tmp_path: Path,
+) -> None:
+    snapshot = _authorization_snapshot(CollectionSurface.CONSUMER_APP)
+    workflow, manifest = _submission_workflow(snapshot)
+    root = tmp_path / "owner-wal-boundary-crash"
+    vault_key = "owner-send-boundary-crash-test-key"
+    first_store = EncryptedFileSubmissionOwnerAuthorizationWalStore(
+        root,
+        vault=ProfileVault(LocalKms(vault_key)),
+        retention_period=timedelta(days=30),
+        retention_policy_revision="owner-wal-retention-v1",
+    )
+
+    class CrashingTransport:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def submit_once(
+            self,
+            command: SubmitOnceCommand,
+            *,
+            authorization: SideEffectAuthorization,
+        ) -> SubmitDisposition:
+            del command, authorization
+            self.calls += 1
+            raise RuntimeError("owner-process-crashed-after-boundary")
+
+    owner_dispatch_ref = "owner-dispatch-app-crash"
+    crashing_transport = CrashingTransport()
+    first_turn = prepare_submission_owner_turn(
+        snapshot,
+        workflow,
+        claim_pub_id="claim-consumer_app",
+        owner_dispatch_ref=owner_dispatch_ref,
+        wal_store=first_store,
+        send_journal=first_store,
+        transport=crashing_transport,
+        clock=lambda: snapshot.checked_at + timedelta(seconds=2),
+    )
+    command = _submit_command(
+        first_turn.authorization,
+        manifest,
+        owner_dispatch_ref=owner_dispatch_ref,
+        owner_wal_evidence_sha256=first_turn.owner_wal_evidence_sha256,
+    )
+
+    with pytest.raises(RuntimeError, match="owner-process-crashed-after-boundary"):
+        first_turn.submit_gateway.submit_once(command)
+    assert crashing_transport.calls == 1
+
+    restarted_store = EncryptedFileSubmissionOwnerAuthorizationWalStore(
+        root,
+        vault=ProfileVault(LocalKms(vault_key)),
+        retention_period=timedelta(days=30),
+        retention_policy_revision="owner-wal-retention-v1",
+    )
+    recovered = restarted_store.load_send_journal(owner_dispatch_ref=owner_dispatch_ref)
+    assert recovered.boundary is not None
+    assert recovered.outcome is None
+    startup_audit = restarted_store.verify_retained_records()
+    assert startup_audit.record_count == 2
+    assert startup_audit.send_boundary_record_count == 1
+    assert startup_audit.send_outcome_record_count == 0
+
+    forbidden_transport = _OwnerTransport()
+    replay_turn = prepare_submission_owner_turn(
+        snapshot,
+        workflow,
+        claim_pub_id="claim-consumer_app",
+        owner_dispatch_ref=owner_dispatch_ref,
+        wal_store=restarted_store,
+        send_journal=restarted_store,
+        transport=forbidden_transport,
+        clock=lambda: snapshot.checked_at + timedelta(seconds=2),
+    )
+    with pytest.raises(ResourceOwnerGatewayError) as replay_error:
+        replay_turn.submit_gateway.submit_once(command)
+    assert replay_error.value.code == "resource_owner_send_boundary_already_entered"
+    assert forbidden_transport.calls == []
+
+
+def test_encrypted_owner_send_boundary_is_single_winner_across_store_instances(
+    tmp_path: Path,
+) -> None:
+    snapshot = _authorization_snapshot(CollectionSurface.PROVIDER_API)
+    workflow, manifest = _submission_workflow(snapshot)
+    root = tmp_path / "owner-wal-concurrent-boundary"
+    vault_key = "owner-send-concurrent-boundary-test-key"
+    first_store = EncryptedFileSubmissionOwnerAuthorizationWalStore(
+        root,
+        vault=ProfileVault(LocalKms(vault_key)),
+        retention_period=timedelta(days=30),
+        retention_policy_revision="owner-wal-retention-v1",
+    )
+    second_store = EncryptedFileSubmissionOwnerAuthorizationWalStore(
+        root,
+        vault=ProfileVault(LocalKms(vault_key)),
+        retention_period=timedelta(days=30),
+        retention_policy_revision="owner-wal-retention-v1",
+    )
+    first_transport = _OwnerTransport()
+    second_transport = _OwnerTransport()
+    owner_dispatch_ref = "owner-dispatch-concurrent-api"
+    first_turn = prepare_submission_owner_turn(
+        snapshot,
+        workflow,
+        claim_pub_id="claim-provider_api",
+        owner_dispatch_ref=owner_dispatch_ref,
+        wal_store=first_store,
+        send_journal=first_store,
+        transport=first_transport,
+        clock=lambda: snapshot.checked_at + timedelta(seconds=2),
+    )
+    second_turn = prepare_submission_owner_turn(
+        snapshot,
+        workflow,
+        claim_pub_id="claim-provider_api",
+        owner_dispatch_ref=owner_dispatch_ref,
+        wal_store=second_store,
+        send_journal=second_store,
+        transport=second_transport,
+        clock=lambda: snapshot.checked_at + timedelta(seconds=2),
+    )
+    command = _submit_command(
+        first_turn.authorization,
+        manifest,
+        owner_dispatch_ref=owner_dispatch_ref,
+        owner_wal_evidence_sha256=first_turn.owner_wal_evidence_sha256,
+    )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = (
+            executor.submit(first_turn.submit_gateway.submit_once, command),
+            executor.submit(second_turn.submit_gateway.submit_once, command),
+        )
+        outcomes: list[SubmitDisposition] = []
+        errors: list[ResourceOwnerGatewayError] = []
+        for future in futures:
+            try:
+                outcomes.append(future.result())
+            except ResourceOwnerGatewayError as exc:
+                errors.append(exc)
+
+    assert len(outcomes) == 1
+    assert outcomes[0].send_state is SendState.CONFIRMED_SENT
+    assert [error.code for error in errors] == ["resource_owner_send_boundary_already_entered"]
+    assert len(first_transport.calls) + len(second_transport.calls) == 1
+    recovered = first_store.load_send_journal(owner_dispatch_ref=owner_dispatch_ref)
+    assert recovered.boundary is not None
+    assert recovered.outcome is not None
+
+
+def test_owner_send_outcome_write_failure_leaves_durable_no_resend_boundary(
+    tmp_path: Path,
+) -> None:
+    snapshot = _authorization_snapshot(CollectionSurface.PROVIDER_API)
+    workflow, manifest = _submission_workflow(snapshot)
+    root = tmp_path / "owner-wal-outcome-write-failure"
+    store = EncryptedFileSubmissionOwnerAuthorizationWalStore(
+        root,
+        vault=ProfileVault(LocalKms("owner-send-outcome-failure-test-key")),
+        retention_period=timedelta(days=30),
+        retention_policy_revision="owner-wal-retention-v1",
+    )
+
+    class OutcomeFailingJournal:
+        def append_send_boundary(
+            self,
+            record: SubmissionOwnerSendBoundaryRecord,
+        ) -> FreshSubmissionOwnerSendBoundary:
+            return store.append_send_boundary(record)
+
+        def append_send_outcome(
+            self,
+            record: SubmissionOwnerSendOutcomeRecord,
+        ) -> SubmissionOwnerSendOutcomeRecord:
+            del record
+            raise ResourceOwnerGatewayError("injected_send_outcome_storage_failure")
+
+        def load_send_journal(
+            self,
+            *,
+            owner_dispatch_ref: str,
+        ) -> SubmissionOwnerSendJournalSnapshot:
+            return store.load_send_journal(owner_dispatch_ref=owner_dispatch_ref)
+
+    owner_dispatch_ref = "owner-dispatch-outcome-write-failure"
+    transport = _OwnerTransport()
+    turn = prepare_submission_owner_turn(
+        snapshot,
+        workflow,
+        claim_pub_id="claim-provider_api",
+        owner_dispatch_ref=owner_dispatch_ref,
+        wal_store=store,
+        send_journal=OutcomeFailingJournal(),
+        transport=transport,
+        clock=lambda: snapshot.checked_at + timedelta(seconds=2),
+    )
+    command = _submit_command(
+        turn.authorization,
+        manifest,
+        owner_dispatch_ref=owner_dispatch_ref,
+        owner_wal_evidence_sha256=turn.owner_wal_evidence_sha256,
+    )
+
+    with pytest.raises(ResourceOwnerGatewayError) as outcome_error:
+        turn.submit_gateway.submit_once(command)
+    assert outcome_error.value.code == "injected_send_outcome_storage_failure"
+    assert len(transport.calls) == 1
+    journal = store.load_send_journal(owner_dispatch_ref=owner_dispatch_ref)
+    assert journal.boundary is not None
+    assert journal.outcome is None
+
+    forbidden_transport = _OwnerTransport()
+    replay = prepare_submission_owner_turn(
+        snapshot,
+        workflow,
+        claim_pub_id="claim-provider_api",
+        owner_dispatch_ref=owner_dispatch_ref,
+        wal_store=store,
+        send_journal=store,
+        transport=forbidden_transport,
+        clock=lambda: snapshot.checked_at + timedelta(seconds=2),
+    )
+    with pytest.raises(ResourceOwnerGatewayError) as replay_error:
+        replay.submit_gateway.submit_once(command)
+    assert replay_error.value.code == "resource_owner_send_boundary_already_entered"
+    assert forbidden_transport.calls == []
+
+
+def test_encrypted_owner_send_journal_persists_send_unknown_as_no_resend(
+    tmp_path: Path,
+) -> None:
+    snapshot = _authorization_snapshot(CollectionSurface.CONSUMER_APP)
+    workflow, manifest = _submission_workflow(snapshot)
+    store = EncryptedFileSubmissionOwnerAuthorizationWalStore(
+        tmp_path / "owner-wal-send-unknown",
+        vault=ProfileVault(LocalKms("owner-send-unknown-test-key")),
+        retention_period=timedelta(days=30),
+        retention_policy_revision="owner-wal-retention-v1",
+    )
+
+    class UnknownTransport:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def submit_once(
+            self,
+            command: SubmitOnceCommand,
+            *,
+            authorization: SideEffectAuthorization,
+        ) -> SubmitDisposition:
+            del authorization
+            self.calls += 1
+            return SubmitDisposition(
+                send_state=SendState.SEND_UNKNOWN,
+                reason=TerminalReason.SEND_UNKNOWN,
+                boundary_entered=True,
+                evidence_ref="app-send-unknown-evidence",
+                evidence_sha256="6" * 64,
+                resolved_at=command.fresh_claim.claim.claimed_at + timedelta(seconds=1),
+            )
+
+    transport = UnknownTransport()
+    owner_dispatch_ref = "owner-dispatch-app-send-unknown"
+    turn = prepare_submission_owner_turn(
+        snapshot,
+        workflow,
+        claim_pub_id="claim-consumer_app",
+        owner_dispatch_ref=owner_dispatch_ref,
+        wal_store=store,
+        send_journal=store,
+        transport=transport,
+        clock=lambda: snapshot.checked_at + timedelta(seconds=2),
+    )
+    command = _submit_command(
+        turn.authorization,
+        manifest,
+        owner_dispatch_ref=owner_dispatch_ref,
+        owner_wal_evidence_sha256=turn.owner_wal_evidence_sha256,
+    )
+
+    result = turn.submit_gateway.submit_once(command)
+
+    assert result.send_state is SendState.SEND_UNKNOWN
+    journal = store.load_send_journal(owner_dispatch_ref=owner_dispatch_ref)
+    assert journal.outcome is not None
+    assert journal.outcome.disposition.send_state is SendState.SEND_UNKNOWN
+    with pytest.raises(ResourceOwnerGatewayError) as replay_error:
+        turn.submit_gateway.submit_once(command)
+    assert replay_error.value.code == "resource_owner_send_boundary_already_entered"
+    assert transport.calls == 1
+
+
+def test_owner_send_journal_can_close_with_typed_post_claim_not_sent_proof(
+    tmp_path: Path,
+) -> None:
+    snapshot = _authorization_snapshot(CollectionSurface.CONSUMER_WEB)
+    workflow, manifest = _submission_workflow(snapshot)
+    store = EncryptedFileSubmissionOwnerAuthorizationWalStore(
+        tmp_path / "owner-wal-post-claim-not-sent",
+        vault=ProfileVault(LocalKms("owner-post-claim-not-sent-test-key")),
+        retention_period=timedelta(days=30),
+        retention_policy_revision="owner-wal-retention-v1",
+    )
+
+    class ConfirmedNotSentTransport:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def submit_once(
+            self,
+            command: SubmitOnceCommand,
+            *,
+            authorization: SideEffectAuthorization,
+        ) -> SubmitDisposition:
+            del authorization
+            self.calls += 1
+            return SubmitDisposition(
+                send_state=SendState.CONFIRMED_NOT_SENT,
+                reason=TerminalReason.POST_CLAIM_NOT_SENT,
+                boundary_entered=False,
+                evidence_ref="web-post-claim-not-sent-evidence",
+                evidence_sha256="7" * 64,
+                non_submission_proof_ref="web-submit-action-not-invoked-proof",
+                terminated_fence_set_sha256=(command.fresh_claim.claim.fence_set_sha256),
+                resolved_at=command.fresh_claim.claim.claimed_at + timedelta(seconds=1),
+            )
+
+    transport = ConfirmedNotSentTransport()
+    owner_dispatch_ref = "owner-dispatch-web-post-claim-not-sent"
+    turn = prepare_submission_owner_turn(
+        snapshot,
+        workflow,
+        claim_pub_id="claim-consumer_web",
+        owner_dispatch_ref=owner_dispatch_ref,
+        wal_store=store,
+        send_journal=store,
+        transport=transport,
+        clock=lambda: snapshot.checked_at + timedelta(seconds=2),
+    )
+    command = _submit_command(
+        turn.authorization,
+        manifest,
+        owner_dispatch_ref=owner_dispatch_ref,
+        owner_wal_evidence_sha256=turn.owner_wal_evidence_sha256,
+    )
+
+    result = turn.submit_gateway.submit_once(command)
+
+    assert result.send_state is SendState.CONFIRMED_NOT_SENT
+    assert not result.boundary_entered
+    journal = store.load_send_journal(owner_dispatch_ref=owner_dispatch_ref)
+    assert journal.boundary is not None
+    assert journal.outcome is not None
+    assert journal.outcome.disposition == result
+    assert transport.calls == 1
+
+
+def test_encrypted_owner_send_journal_tamper_and_orphan_chain_fail_closed(
+    tmp_path: Path,
+) -> None:
+    snapshot = _authorization_snapshot(CollectionSurface.CONSUMER_WEB)
+    workflow, manifest = _submission_workflow(snapshot)
+    root = tmp_path / "owner-wal-send-journal-tamper"
+    store = EncryptedFileSubmissionOwnerAuthorizationWalStore(
+        root,
+        vault=ProfileVault(LocalKms("owner-send-journal-tamper-test-key")),
+        retention_period=timedelta(days=30),
+        retention_policy_revision="owner-wal-retention-v1",
+    )
+    transport = _OwnerTransport()
+    owner_dispatch_ref = "owner-dispatch-web-tamper"
+    turn = prepare_submission_owner_turn(
+        snapshot,
+        workflow,
+        claim_pub_id="claim-consumer_web",
+        owner_dispatch_ref=owner_dispatch_ref,
+        wal_store=store,
+        send_journal=store,
+        transport=transport,
+        clock=lambda: snapshot.checked_at + timedelta(seconds=2),
+    )
+    command = _submit_command(
+        turn.authorization,
+        manifest,
+        owner_dispatch_ref=owner_dispatch_ref,
+        owner_wal_evidence_sha256=turn.owner_wal_evidence_sha256,
+    )
+    turn.submit_gateway.submit_once(command)
+
+    outcome_path = next(root.glob("*.send-outcome.wal"))
+    original_outcome = outcome_path.read_bytes()
+    envelope = json.loads(original_outcome)
+    envelope["retention"]["policy_revision"] = "tampered-retention-policy"
+    outcome_path.write_text(
+        json.dumps(envelope, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+        encoding="utf-8",
+    )
+    os.chmod(outcome_path, 0o600)
+    with pytest.raises(ResourceOwnerGatewayError) as tamper_error:
+        store.load_send_journal(owner_dispatch_ref=owner_dispatch_ref)
+    assert tamper_error.value.code == "resource_owner_send_journal_decrypt_failed"
+
+    outcome_path.write_bytes(original_outcome)
+    os.chmod(outcome_path, 0o600)
+    boundary_path = next(root.glob("*.send-boundary.wal"))
+    boundary_path.unlink()
+    with pytest.raises(ResourceOwnerGatewayError) as orphan_error:
+        store.verify_retained_records()
+    assert orphan_error.value.code == ("resource_owner_authorization_wal_startup_audit_failed")
 
 
 def test_encrypted_file_owner_wal_rejects_conflicting_immutable_dispatch(
@@ -2490,12 +3019,14 @@ def test_owner_gateway_rejects_cross_surface_authorization_before_transport() ->
     command = _submit_command(authorization, manifest)
     loader = _AuthorizationLoader(authorization)
     transport = _OwnerTransport()
+    journal = _SendJournalStore()
     gateway = AuthorizedSubmitOnceGateway(
         collection_surface=CollectionSurface.CONSUMER_APP,
         gateway_kind=GatewayKind.MANAGED_APP_SESSION,
         owner_gateway_pub_id=snapshot.owner.owner_gateway_pub_id,
         owner_protocol_revision=snapshot.owner.protocol_revision,
         authorization_loader=loader,
+        send_journal=journal,
         transport=transport,
         clock=lambda: command.fresh_claim.claim.claimed_at,
     )
@@ -2504,6 +3035,7 @@ def test_owner_gateway_rejects_cross_surface_authorization_before_transport() ->
         gateway.submit_once(command)
 
     assert exc_info.value.code == "resource_owner_surface_mismatch"
+    assert journal.boundary is None
     assert transport.calls == []
 
 
@@ -2528,12 +3060,14 @@ def test_owner_gateway_expiry_fails_closed_without_transport() -> None:
     command = _submit_command(authorization, manifest)
     loader = _AuthorizationLoader(authorization)
     transport = _OwnerTransport()
+    journal = _SendJournalStore()
     gateway = AuthorizedSubmitOnceGateway(
         collection_surface=CollectionSurface.CONSUMER_APP,
         gateway_kind=GatewayKind.MANAGED_APP_SESSION,
         owner_gateway_pub_id=snapshot.owner.owner_gateway_pub_id,
         owner_protocol_revision=snapshot.owner.protocol_revision,
         authorization_loader=loader,
+        send_journal=journal,
         transport=transport,
         clock=lambda: authorization.authority.valid_until,
     )
@@ -2542,6 +3076,7 @@ def test_owner_gateway_expiry_fails_closed_without_transport() -> None:
         gateway.submit_once(command)
 
     assert exc_info.value.code == "resource_owner_authorization_expired"
+    assert journal.boundary is None
     assert transport.calls == []
 
 
@@ -2567,12 +3102,14 @@ def test_owner_gateway_never_retries_a_transport_exception() -> None:
             raise RuntimeError("injected-owner-boundary-failure")
 
     transport = FailingTransport()
+    journal = _SendJournalStore()
     gateway = AuthorizedSubmitOnceGateway(
         collection_surface=CollectionSurface.PROVIDER_API,
         gateway_kind=GatewayKind.PROVIDER_REQUEST,
         owner_gateway_pub_id=snapshot.owner.owner_gateway_pub_id,
         owner_protocol_revision=snapshot.owner.protocol_revision,
         authorization_loader=loader,
+        send_journal=journal,
         transport=transport,
         clock=lambda: command.fresh_claim.claim.claimed_at,
     )
@@ -2582,3 +3119,5 @@ def test_owner_gateway_never_retries_a_transport_exception() -> None:
 
     assert loader.calls == 1
     assert transport.calls == 1
+    assert journal.boundary is not None
+    assert journal.outcome is None
