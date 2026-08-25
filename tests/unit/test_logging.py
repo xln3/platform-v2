@@ -23,8 +23,8 @@ def test_sensitive_otp_access_query_is_redacted() -> None:
     assert "13121622231" not in record.getMessage()
 
 
-def test_unrelated_access_query_is_preserved() -> None:
+def test_every_access_query_is_redacted() -> None:
     record = _access_record("/api/v2/search?q=brand")
 
     assert _RedactSensitiveAccessQuery().filter(record) is True
-    assert record.args[2] == "/api/v2/search?q=brand"
+    assert record.args[2] == "/api/v2/search?<redacted>"

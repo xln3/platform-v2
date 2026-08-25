@@ -118,33 +118,23 @@ def test_runtime_roles_are_granted_access_to_the_posting_schema() -> None:
     assert "posting" in SCHEMAS
 
 
-def test_stage2_acl_is_reapplied_after_schema_wide_grants() -> None:
+def test_closed_world_acl_is_the_only_provisioning_and_verification_path() -> None:
     install_source = inspect.getsource(runtime_roles.install_role)
     verify_source = inspect.getsource(runtime_roles.verify_role)
 
-    assert "apply_stage2_minimum_acl(connection, role=role)" in install_source
-    assert "verify_stage2_minimum_acl(connection, role=str(role[0]))" in verify_source
-
-
-def test_stage3_acl_is_reapplied_after_stage2_and_verified() -> None:
-    install_source = inspect.getsource(runtime_roles.install_role)
-    verify_source = inspect.getsource(runtime_roles.verify_role)
-
-    stage2_apply = "apply_stage2_minimum_acl(connection, role=role)"
-    stage3_apply = "apply_stage3_minimum_acl(connection, role=role)"
-    assert install_source.index(stage2_apply) < install_source.index(stage3_apply)
-    assert "verify_stage3_minimum_acl(connection, role=str(role[0]))" in verify_source
+    assert "apply_runtime_acl(connection, role=role)" in install_source
+    assert "verify_runtime_acl(connection, role=str(role[0]))" in verify_source
+    assert "ON ALL TABLES" not in install_source
+    assert "ON ALL SEQUENCES" not in install_source
+    assert "ON ALL FUNCTIONS" not in install_source
 
 
 def test_runtime_role_defaults_do_not_auto_authorize_future_objects() -> None:
-    install_source = inspect.getsource(runtime_roles.install_role)
+    apply_source = inspect.getsource(runtime_roles._harden_all_object_owner_defaults)
 
-    assert "ALTER DEFAULT PRIVILEGES" in install_source
-    assert "REVOKE ALL ON TABLES FROM" in install_source
-    assert "REVOKE ALL ON SEQUENCES FROM" in install_source
-    assert "REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC" in install_source
-    assert "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO" not in install_source
-    assert "GRANT USAGE, SELECT ON SEQUENCES TO" not in install_source
+    assert "ALTER DEFAULT PRIVILEGES FOR ROLE {} REVOKE ALL" in apply_source
+    assert "FROM PUBLIC" in apply_source
+    assert "for schema in SCHEMAS" in apply_source
 
 
 def test_stage2_acl_separates_insert_from_mutable_update_columns() -> None:

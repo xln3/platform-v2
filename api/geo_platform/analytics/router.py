@@ -23,6 +23,14 @@ from ..identity.policy import Principal, get_principal
 from ..pagination import decode_keyset_cursor, encode_keyset_cursor, numbered_page
 from ..tenancy.psycopg import tenant_connection
 from . import comparisons
+from .pagination_policy import (
+    SAMPLING_PROGRESS_DEFAULT_PAGE_NUMBER,
+    SAMPLING_PROGRESS_DEFAULT_PAGE_SIZE,
+    SAMPLING_PROGRESS_MAX_PAGE_NUMBER,
+    SAMPLING_PROGRESS_MAX_PAGE_SIZE,
+    SAMPLING_PROGRESS_MIN_PAGE_NUMBER,
+    SAMPLING_PROGRESS_MIN_PAGE_SIZE,
+)
 from .sampling_progress import (
     parse_sampling_configs,
     sampling_columns,
@@ -610,8 +618,16 @@ def _project_fact_check(value: object) -> DisparagementFactCheckView | None:
 @router.get("/sampling-progress", response_model=SamplingProgressView)
 def sampling_progress(
     project_pub_id: str,
-    page: int = Query(default=1, ge=1, le=1_000_000),
-    page_size: int = Query(default=4, ge=1, le=100),
+    page: int = Query(
+        default=SAMPLING_PROGRESS_DEFAULT_PAGE_NUMBER,
+        ge=SAMPLING_PROGRESS_MIN_PAGE_NUMBER,
+        le=SAMPLING_PROGRESS_MAX_PAGE_NUMBER,
+    ),
+    page_size: int = Query(
+        default=SAMPLING_PROGRESS_DEFAULT_PAGE_SIZE,
+        ge=SAMPLING_PROGRESS_MIN_PAGE_SIZE,
+        le=SAMPLING_PROGRESS_MAX_PAGE_SIZE,
+    ),
     principal: Principal = Depends(get_principal),
 ) -> SamplingProgressView:
     """Latest logical sampling batch as query × formal sampling-leg coverage.

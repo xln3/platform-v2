@@ -1,6 +1,6 @@
 from asyncio import CancelledError as AsyncioCancelledError
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
@@ -81,6 +81,11 @@ class GeoCollectionInput:
     # （2026-08-06 生产实证）；max<=0 关闭。
     inter_task_delay_min_s: float = 45.0
     inter_task_delay_max_s: float = 150.0
+    # Query-retry queue metadata.  The database owns eligibility; Temporal may
+    # start early but waits until the durable queue's not_before instant.
+    retry_not_before: str | None = None
+    retry_depth: int = 0
+    retry_capability_keys: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -477,7 +482,9 @@ class GeoCollectionWorkflow:
                 ),
             )
         except Exception as exc:  # noqa: BLE001 — assist 基建不可用不阻断采集
-            workflow.logger.warning("captcha_assist_start failed: %r; falling back", exc)
+            workflow.logger.warning(
+                "captcha_assist_start failed: %s; falling back", type(exc).__name__
+            )
             return "fallback"
         solved = False
         try:
@@ -496,7 +503,7 @@ class GeoCollectionWorkflow:
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
         except Exception as exc:  # noqa: BLE001 — 注册表 TTL 自燃兜底，停桥失败不阻断续跑
-            workflow.logger.warning("captcha_assist_stop failed: %r", exc)
+            workflow.logger.warning("captcha_assist_stop failed: %s", type(exc).__name__)
         if self._cancelled:
             return "cancelled"
         return "resumed" if solved else "fallback"
@@ -517,6 +524,9 @@ class GeoCollectionWorkflow:
             activity_timeout_minutes=data.activity_timeout_minutes,
             inter_task_delay_min_s=data.inter_task_delay_min_s,
             inter_task_delay_max_s=data.inter_task_delay_max_s,
+            retry_not_before=data.retry_not_before,
+            retry_depth=data.retry_depth,
+            retry_capability_keys=data.retry_capability_keys,
         )
 
     async def _collect_tasks_batched(self, data: GeoCollectionInput) -> GeoCollectionResult | None:
@@ -857,6 +867,11 @@ class GeoCollectionWorkflow:
         terminal_state: str | None = None
         terminal_error_code: str | None = None
         try:
+            if workflow.patched("collection-query-retry-queue-v1") and data.retry_not_before:
+                due_at = datetime.fromisoformat(data.retry_not_before)
+                delay = due_at - workflow.now()
+                if delay.total_seconds() > 0:
+                    await workflow.sleep(delay)
             if data.account_pub_id:
                 session_preparation = await workflow.execute_activity(
                     prepare_collection_session,
@@ -948,7 +963,9 @@ class GeoCollectionWorkflow:
                 except (AsyncioCancelledError, CancelledError):
                     raise
                 except Exception as exc:
-                    workflow.logger.warning("own-site snapshot sidecar failed: %r", exc)
+                    workflow.logger.warning(
+                        "own-site snapshot sidecar failed: %s", type(exc).__name__
+                    )
             # W2 信源抓取+核对侧车：同样不得拖垮采集 run；activity 内部幂等+如实状态。
             if workflow.patched("source-fetch-v1"):
                 try:
@@ -971,7 +988,7 @@ class GeoCollectionWorkflow:
                 except (AsyncioCancelledError, CancelledError):
                     raise
                 except Exception as exc:
-                    workflow.logger.warning("source fetch sidecar failed: %r", exc)
+                    workflow.logger.warning("source fetch sidecar failed: %s", type(exc).__name__)
             if workflow.patched("source-audit-v1"):
                 try:
                     await workflow.execute_activity(
@@ -988,7 +1005,7 @@ class GeoCollectionWorkflow:
                 except (AsyncioCancelledError, CancelledError):
                     raise
                 except Exception as exc:
-                    workflow.logger.warning("source audit sidecar failed: %r", exc)
+                    workflow.logger.warning("source audit sidecar failed: %s", type(exc).__name__)
             # 官网诊断建议侧车：仅当本 run 有 own_site 文档时产建议（activity 内部门控），
             # 紧跟 source-audit（建议输入=审计判定+官网正文要点）。fail-open 同其他侧车。
             if workflow.patched("site-suggestions-v1"):
@@ -1007,7 +1024,9 @@ class GeoCollectionWorkflow:
                 except (AsyncioCancelledError, CancelledError):
                     raise
                 except Exception as exc:
-                    workflow.logger.warning("site suggestions sidecar failed: %r", exc)
+                    workflow.logger.warning(
+                        "site suggestions sidecar failed: %s", type(exc).__name__
+                    )
             # W3 拉踩判定侧车：窗级 LLM 判定（LLM 不可用走词典兜底并标 experimental）。
             if workflow.patched("disparagement-v1"):
                 try:
@@ -1025,7 +1044,7 @@ class GeoCollectionWorkflow:
                 except (AsyncioCancelledError, CancelledError):
                     raise
                 except Exception as exc:
-                    workflow.logger.warning("disparagement sidecar failed: %r", exc)
+                    workflow.logger.warning("disparagement sidecar failed: %s", type(exc).__name__)
             # W3 拉踩事实核查侧车：disparagement=true 判定逐条联网核查（T1），
             # 紧跟 disparagement 判定（核查输入=判定引文）。fail-open 同上。
             if workflow.patched("disparagement-factcheck-v1"):
@@ -1044,7 +1063,9 @@ class GeoCollectionWorkflow:
                 except (AsyncioCancelledError, CancelledError):
                     raise
                 except Exception as exc:
-                    workflow.logger.warning("disparagement factcheck sidecar failed: %r", exc)
+                    workflow.logger.warning(
+                        "disparagement factcheck sidecar failed: %s", type(exc).__name__
+                    )
             terminal_state = "completed"
             return GeoCollectionResult(
                 state="completed", completed=self._completed, downstream_event=downstream

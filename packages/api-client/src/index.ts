@@ -2583,10 +2583,8 @@ export async function createMetricExport(
   }
 }
 
-const containsBrowserSecretValue = (value: string): boolean =>
-  containsClientSecret(value);
-const containsBrowserSecretKey = (value: string): boolean =>
-  containsClientSecretKey(value);
+const containsBrowserSecretValue = (value: string): boolean => containsClientSecret(value);
+const containsBrowserSecretKey = (value: string): boolean => containsClientSecretKey(value);
 const safeBrowserString = (value: unknown, maxLength: number): string | null =>
   typeof value === 'string' &&
   value.length > 0 &&
@@ -11134,6 +11132,13 @@ export type SopStageKey =
   | 'experiments'
   | 'archive-log';
 
+export const SOP_DEFAULT_PAGE_NUMBER = 1;
+export const SOP_MIN_PAGE_NUMBER = 1;
+export const SOP_MAX_PAGE_NUMBER = 10_000;
+export const SOP_DEFAULT_PAGE_SIZE = 4;
+export const SOP_MIN_PAGE_SIZE = 1;
+export const SOP_MAX_PAGE_SIZE = 50;
+
 export type SopProjectSummary = {
   pubId: string;
   name: string;
@@ -11541,8 +11546,8 @@ const projectSopItems = (values: object[]): SopStageItem[] =>
   });
 
 const emptySopPage = (): SopPageMeta => ({
-  page: 1,
-  pageSize: 4,
+  page: SOP_DEFAULT_PAGE_NUMBER,
+  pageSize: SOP_DEFAULT_PAGE_SIZE,
   totalCount: 0,
   totalPages: 0,
 });
@@ -11610,7 +11615,7 @@ const sopMutationFailure = (status: number): ProjectResourceResult<SopMutationRe
 
 export async function listSopProjects(
   headers: IdentitySessionHeaders,
-  page = 1,
+  page = SOP_DEFAULT_PAGE_NUMBER,
   override: ProjectedApiClientOverride = apiClient,
 ): Promise<ProjectResourceResult<SopProjectPage>> {
   try {
@@ -11618,7 +11623,7 @@ export async function listSopProjects(
     const projected = projectedApiClient(override);
     const result = await projected.GET('/api/v2/sop/projects', {
       params: {
-        query: { page, page_size: 4 },
+        query: { page, page_size: SOP_DEFAULT_PAGE_SIZE },
         header: headers,
       },
     });
@@ -11667,7 +11672,7 @@ export async function createSopProject(
 export async function getSopDashboard(
   headers: IdentitySessionHeaders,
   projectPubId: string,
-  page = 1,
+  page = SOP_DEFAULT_PAGE_NUMBER,
   override: ProjectedApiClientOverride = apiClient,
 ): Promise<ProjectResourceResult<SopDashboard>> {
   try {
@@ -11676,7 +11681,7 @@ export async function getSopDashboard(
     const result = await projected.GET('/api/v2/sop/projects/{project_pub_id}/dashboard', {
       params: {
         path: { project_pub_id: projectPubId },
-        query: { page, page_size: 4 },
+        query: { page, page_size: SOP_DEFAULT_PAGE_SIZE },
         header: headers,
       },
     });
@@ -11692,13 +11697,13 @@ export async function loadSopStage(
   headers: IdentitySessionHeaders,
   projectPubId: string,
   stage: SopStageKey,
-  page = 1,
+  page = SOP_DEFAULT_PAGE_NUMBER,
   override: ProjectedApiClientOverride = apiClient,
 ): Promise<ProjectResourceResult<SopStageSnapshot>> {
   try {
     if (!Number.isSafeInteger(page) || page < 1) return { kind: 'unavailable' };
     const projected = projectedApiClient(override);
-    const query = { page, page_size: 4 } as const;
+    const query = { page, page_size: SOP_DEFAULT_PAGE_SIZE } as const;
     if (stage === 'project-definition') {
       const result = await projected.GET('/api/v2/sop/projects/{project_pub_id}', {
         params: { path: { project_pub_id: projectPubId }, header: headers },
@@ -11716,7 +11721,12 @@ export async function loadSopStage(
               createdAt: result.data.created_at,
             },
           ],
-          page: { page: 1, pageSize: 4, totalCount: 1, totalPages: 1 },
+          page: {
+            page: SOP_DEFAULT_PAGE_NUMBER,
+            pageSize: SOP_DEFAULT_PAGE_SIZE,
+            totalCount: 1,
+            totalPages: 1,
+          },
           metrics: [
             { label: '目标平台', value: String(result.data.target_platforms.length) },
             { label: '成功定义', value: String(result.data.success_definition.length) },

@@ -209,7 +209,7 @@ async def main() -> None:
             except RuntimeError as exc:
                 # 周期模式（待办 C）不得因单个 run 漂移中断整批；漂移说明该 run
                 # 的既有命令由旧版代码铸成，留待人工核查，如实记录继续。
-                print(f"   fanout ERROR: {exc}", flush=True)
+                print(f"   fanout ERROR: {type(exc).__name__}", flush=True)
         if not args.mint_only:
             await run_sidecars(run_pub_id)
 

@@ -276,7 +276,7 @@ def main() -> int:
         RuntimeError,
         ValueError,
     ) as exc:
-        print(str(exc), file=sys.stderr)
+        print(type(exc).__name__, file=sys.stderr)
         return 2
     for path in paths:
         print(f"{path}\t{path.stat().st_size} bytes")

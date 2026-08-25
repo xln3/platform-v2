@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 from hashlib import sha256
+from ipaddress import ip_address
 from math import isfinite
 from typing import Any
 from urllib.parse import urlsplit
@@ -122,32 +123,52 @@ def _clean_required(value: str, field: str, failures: list[str]) -> None:
         failures.append(f"{field}_required")
 
 
-def has_reviewable_evidence(evidence: tuple[dict[str, Any], ...]) -> bool:
-    """Accept only a stable public reference or an HTTP(S) source, never a marker dict."""
+def has_public_evidence_candidate(evidence: tuple[dict[str, Any], ...]) -> bool:
+    """Return whether an untrusted provider result contains a fetchable candidate.
 
-    public_reference_keys = (
-        "evidence_pub_id",
-        "source_pub_id",
-        "document_pub_id",
-        "account_pub_id",
-        "approval_pub_id",
-    )
+    This is deliberately weaker than :func:`has_reviewable_evidence`: a URL is
+    only a lead until the server has resolved every hop, fetched it and frozen
+    the response.  Literal non-public addresses and credential-bearing URLs are
+    rejected before they can enter that acquisition queue.
+    """
+
     for row in evidence:
-        if any(
-            isinstance(row.get(key), str) and bool(str(row[key]).strip())
-            for key in public_reference_keys
-        ):
-            return True
         for key in ("url", "source_url"):
             value = row.get(key)
             if isinstance(value, str):
                 try:
                     parsed = urlsplit(value.strip())
-                    if parsed.scheme.lower() in {"http", "https"} and parsed.hostname:
-                        return True
+                    if (
+                        parsed.scheme.lower() not in {"http", "https"}
+                        or not parsed.hostname
+                        or parsed.username is not None
+                        or parsed.password is not None
+                        or parsed.port not in {None, 80, 443}
+                    ):
+                        continue
+                    hostname = parsed.hostname.rstrip(".").lower()
+                    if hostname == "localhost" or hostname.endswith(".localhost"):
+                        continue
+                    try:
+                        if not ip_address(hostname).is_global:
+                            continue
+                    except ValueError:
+                        pass
+                    return True
                 except ValueError:
                     continue
     return False
+
+
+def has_reviewable_evidence(evidence: tuple[dict[str, Any], ...]) -> bool:
+    """Require a server-frozen, content-addressed evidence object.
+
+    A public ID or URL is not proof by itself.  Tenant, project and object-kind
+    ownership are additionally checked against ``evidence_asset`` by the
+    persistence and formal-report gates.
+    """
+
+    return has_verified_factcheck_evidence(evidence)
 
 
 def validate_relation_finding(
@@ -320,7 +341,33 @@ def factcheck_case_ready(
     if verdict == "unverifiable":
         return bool(boundary and boundary.strip())
     if verdict in {"supported", "refuted", "mixed"}:
-        return has_reviewable_evidence(evidence)
+        return has_verified_factcheck_evidence(evidence)
+    return False
+
+
+def has_verified_factcheck_evidence(evidence: tuple[dict[str, Any], ...]) -> bool:
+    """Require a tenant-resolved, fetched and content-addressed public source.
+
+    URL syntax or a model-authored public ID is not evidence.  The server-side
+    enrichment stage adds these fields only after redirect-safe retrieval, CAS
+    persistence and tenant/project ownership checks.
+    """
+
+    for row in evidence:
+        digest = row.get("content_sha256")
+        has_public_id = isinstance(row.get("evidence_pub_id"), str) and bool(
+            str(row["evidence_pub_id"]).strip()
+        )
+        if (
+            row.get("verification_status") == "verified"
+            and has_public_id
+            and isinstance(digest, str)
+            and len(digest) == 64
+            and all(character in "0123456789abcdef" for character in digest.lower())
+            and isinstance(row.get("retrieved_at"), str)
+            and bool(str(row["retrieved_at"]).strip())
+        ):
+            return True
     return False
 
 
@@ -404,7 +451,9 @@ __all__ = [
     "attribution_wording_allowed",
     "customer_case_eligible",
     "factcheck_case_ready",
+    "has_public_evidence_candidate",
     "has_reviewable_evidence",
+    "has_verified_factcheck_evidence",
     "validated_visual_bbox",
     "validate_relation_finding",
     "visual_anchor_matches_quote",

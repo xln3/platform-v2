@@ -44,6 +44,46 @@ class NumberedPage:
         return (self.page - 1) * self.page_size
 
 
+@dataclass(frozen=True, slots=True)
+class PaginationPolicy:
+    """Validated, module-owned contract for bounded numbered pagination."""
+
+    default_page_size: int
+    min_page_size: int
+    max_page_size: int
+    default_page_number: int
+    min_page_number: int
+    max_page_number: int
+
+    def __post_init__(self) -> None:
+        if not (
+            self.min_page_size <= self.default_page_size <= self.max_page_size
+            and self.min_page_number <= self.default_page_number <= self.max_page_number
+        ):
+            raise RuntimeError("invalid_pagination_policy")
+        if self.min_page_size < 1 or self.min_page_number < 1:
+            raise RuntimeError("invalid_pagination_policy")
+        # Bound the largest possible OFFSET independently of Python's integer
+        # size so a typo cannot turn into an unbounded deep-page database scan.
+        if self.max_page_size * (self.max_page_number - 1) > 1_000_000:
+            raise RuntimeError("pagination_policy_offset_too_large")
+
+
+@dataclass(frozen=True, slots=True)
+class CursorPaginationPolicy:
+    """Validated page-size contract for a distinct keyset-cursor endpoint."""
+
+    default_page_size: int
+    min_page_size: int
+    max_page_size: int
+
+    def __post_init__(self) -> None:
+        if not self.min_page_size <= self.default_page_size <= self.max_page_size:
+            raise RuntimeError("invalid_cursor_pagination_policy")
+        if self.min_page_size < 1:
+            raise RuntimeError("invalid_cursor_pagination_policy")
+
+
 def numbered_page(*, requested_page: int, page_size: int, total_count: int) -> NumberedPage:
     """Normalize a requested page against a current, possibly shrinking result set."""
 
@@ -179,8 +219,10 @@ def _b64url_decode(value: str) -> bytes:
 
 
 __all__ = [
+    "CursorPaginationPolicy",
     "KeysetCursor",
     "NumberedPage",
+    "PaginationPolicy",
     "decode_keyset_cursor",
     "encode_keyset_cursor",
     "numbered_page",

@@ -613,6 +613,21 @@ async def produce_formal_report_activity(payload: dict[str, Any]) -> dict[str, A
             service.produce,
             tenant_pub_id=tenant_pub_id,
             production_pub_id=production_pub_id,
+            expected_request_hash=(
+                str(payload["formal_request_hash"])
+                if payload.get("formal_request_hash") is not None
+                else None
+            ),
+            expected_service2_manifest_pub_id=(
+                str(payload["service2_manifest_pub_id"])
+                if payload.get("service2_manifest_pub_id") is not None
+                else None
+            ),
+            expected_service2_manifest_hash=(
+                str(payload["service2_manifest_hash"])
+                if payload.get("service2_manifest_hash") is not None
+                else None
+            ),
         )
     except FormalProductionInvalid as exc:
         error_code = {

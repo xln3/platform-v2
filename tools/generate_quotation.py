@@ -204,16 +204,16 @@ def main() -> int:
         print(f"目标词文件不存在：{args.target_words}", file=sys.stderr)
         return 2
     except (QuotationInputInvalid, TargetWorkbookInvalid, ValueError) as exc:
-        print(f"输入无效：{exc}", file=sys.stderr)
+        print(f"输入无效：{type(exc).__name__}", file=sys.stderr)
         return 2
     except QuotationLlmDisabled:
         print("未配置 GEO_RESEARCH_LLM_API_KEY；请移除 XLSX 或配置模型。", file=sys.stderr)
         return 3
     except ResearchModelNotAllowed as exc:
-        print(f"模型不在允许清单：{exc}", file=sys.stderr)
+        print(f"模型不在允许清单：{type(exc).__name__}", file=sys.stderr)
         return 2
     except QuotationGenerationFailed as exc:
-        print(f"动态内容生成失败：{exc}", file=sys.stderr)
+        print(f"动态内容生成失败：{type(exc).__name__}", file=sys.stderr)
         return 4
 
     output = (args.output or Path.cwd() / result.metadata.filename).resolve()

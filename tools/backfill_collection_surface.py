@@ -25,6 +25,8 @@ from geo_platform.collection.legacy_surface_backfill import (  # noqa: E402
 )
 from geo_platform.config import get_settings  # noqa: E402
 
+from domain.security.redaction import redact_value  # noqa: E402
+
 _SAFE_TENANT_PUB_ID = re.compile(r"^[A-Za-z0-9._:@/-]{1,30}$")
 
 
@@ -98,7 +100,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         ) as connection:
             result = run_collection_surface_backfill(cast(BackfillConnection, connection), request)
     except SurfaceBackfillError as exc:
-        print(json.dumps(exc.as_dict(), sort_keys=True, separators=(",", ":")), file=sys.stderr)
+        print(
+            json.dumps(redact_value(exc.as_dict()), sort_keys=True, separators=(",", ":")),
+            file=sys.stderr,
+        )
         return 2
     rendered = (
         json.dumps(result, sort_keys=True, separators=(",", ":"))

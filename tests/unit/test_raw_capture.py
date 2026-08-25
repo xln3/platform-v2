@@ -620,6 +620,8 @@ class _FakeDb:
         self.task: Any = None
         self.asset_inserts: list[dict[str, Any]] = []
         self.relation_inserts: list[dict[str, Any]] = []
+        self.query_attempt_inserts: list[dict[str, Any]] = []
+        self.failure_knowledge_inserts: list[dict[str, Any]] = []
         self.analysis_handoffs = 0
         self.commits = 0
 
@@ -674,6 +676,12 @@ class _FakeSession:
             return _FakeMappings({key: inserted[key] for key in keys})
         if "INSERT INTO evidence.evidence_relation" in sql:
             self._db.relation_inserts.append(dict(params or {}))
+            return None
+        if "INSERT INTO platform.collection_query_execution_attempt" in sql:
+            self._db.query_attempt_inserts.append(dict(params or {}))
+            return None
+        if "INSERT INTO platform.collection_failure_knowledge" in sql:
+            self._db.failure_knowledge_inserts.append(dict(params or {}))
             return None
         raise AssertionError(f"unexpected execute: {sql[:80]}")
 

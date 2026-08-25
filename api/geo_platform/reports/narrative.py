@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 import structlog
@@ -160,11 +161,21 @@ def draft_section(
             break
         except httpx.HTTPError as exc:  # 网络错误 → 换备通道再试一次
             last_error = exc
-            log.warning("report_narrative_retry", base_url=base_url, error=str(exc)[:200])
+            parsed_url = urlsplit(base_url)
+            log.warning(
+                "report_narrative_retry",
+                gateway=f"{parsed_url.scheme}://{parsed_url.hostname or 'unknown'}",
+                error_type=type(exc).__name__,
+            )
         except ReportNarrativeFailed as exc:
             if str(exc).startswith("upstream_5"):
                 last_error = exc
-                log.warning("report_narrative_retry", base_url=base_url, error=str(exc))
+                parsed_url = urlsplit(base_url)
+                log.warning(
+                    "report_narrative_retry",
+                    gateway=f"{parsed_url.scheme}://{parsed_url.hostname or 'unknown'}",
+                    error_type=type(exc).__name__,
+                )
                 continue
             raise
     if text is None:

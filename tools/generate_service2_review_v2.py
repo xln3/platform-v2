@@ -285,7 +285,7 @@ def main() -> int:
             force=args.force,
         )
     except (FileExistsError, LookupError, ValueError, RuntimeError) as exc:
-        print(str(exc), file=sys.stderr)
+        print(type(exc).__name__, file=sys.stderr)
         return 2
     for path in [*output_paths, manifest_path]:
         print(f"{path}\t{path.stat().st_size} bytes")

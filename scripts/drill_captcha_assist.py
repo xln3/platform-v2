@@ -67,7 +67,7 @@ async def main() -> None:
         try:
             solved = bool(await asyncio.to_thread(page.evaluate, "window.__solved"))
         except Exception as exc:
-            print(f"[drill] poll error: {exc!r}", flush=True)
+            print(f"[drill] poll error: {type(exc).__name__}", flush=True)
         if solved:
             break
         await asyncio.sleep(2)

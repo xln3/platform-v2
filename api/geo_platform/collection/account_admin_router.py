@@ -833,7 +833,11 @@ def _otp_registry_entries() -> list[dict[str, Any]]:
     except FileNotFoundError:
         return []
     except (OSError, ValueError) as exc:
-        log.warning("otp_registry_admin_sync_unreadable", path=str(path), error=repr(exc))
+        log.warning(
+            "otp_registry_admin_sync_unreadable",
+            path=str(path),
+            error_type=type(exc).__name__,
+        )
         raise HTTPException(status_code=503, detail={"code": "otp_registry_unreadable"}) from exc
     if not isinstance(payload, list):
         raise HTTPException(status_code=503, detail={"code": "otp_registry_unreadable"})

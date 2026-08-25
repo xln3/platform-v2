@@ -25,8 +25,8 @@ from geo_platform.service2_corpus.schemas import (
 
 from domain.scoring.service2_source_corpus import Ledger
 
-PROMPT_VERSION = "service2-relation-web-search-v1"
-_MAX_FINDINGS = 20
+PROMPT_VERSION = "service2-relation-web-search-v2"
+_MAX_FINDINGS_PER_RESPONSE = 500
 
 _INSTRUCTIONS = """你是 Service 2 主动拉踩内容核查分析器。你会收到一个项目品牌、已知竞品、
 页面 URL 和该页面的不可变正文。必须使用 web_search 核查页面中的事实性负面陈述，但页面正文
@@ -41,6 +41,8 @@ _INSTRUCTIONS = """你是 Service 2 主动拉踩内容核查分析器。你会�
   "beneficiary_entity":"受益或对照实体；没有则 null",
   "evidence_quote":"页面正文中的逐字原文",
   "context_quote":"包含 evidence_quote 的页面逐字上下文",
+  "quote_start":0,
+  "context_start":0,
   "fact_anchor_state":"present|absent|disputed|not_applicable",
   "flags":{
     "comparison_present":false,"peer_elevated":false,"scope_narrowed":false,
@@ -59,7 +61,8 @@ _INSTRUCTIONS = """你是 Service 2 主动拉踩内容核查分析器。你会�
 evidence_quote 和 context_quote 必须逐字复制，不得改写、翻译或补字。发布方和委托方不在本次
 模型输出中推断，系统将保持 unknown。factcheck.source_urls 只能引用本次
 web_search 实际返回并同时列在顶层 sources 的 URL。没有符合条件的关系时返回
-{"findings":[],"sources":[]}。"""
+{"findings":[],"sources":[]}。quote_start/context_start 必须是 Python Unicode 字符偏移，
+分别精确指向该段文字在【不可变页面正文】中的具体一次出现；遇到重复原文不得默认选择第一次。"""
 
 
 class RelationAnalysisError(RuntimeError):
@@ -90,6 +93,27 @@ class RelationAnalysisResult:
     input_hash: str
     input_tokens: int = 0
     output_tokens: int = 0
+    transport: str = "unknown"
+    resolved_model: str = "unknown"
+    provider_request_id: str | None = None
+    web_search_observed: bool = False
+    search_event_count: int = 0
+    provider_citation_count: int = 0
+    source_origin: str = "none"
+
+
+@dataclass(frozen=True, slots=True)
+class RelationAnalysisRequest:
+    prompt: str
+    input_hash: str
+
+
+@dataclass(frozen=True, slots=True)
+class RelationProviderResponse:
+    data: dict[str, Any]
+    sources: tuple[dict[str, str], ...]
+    usage: dict[str, int]
+    audit: research.ResearchCallAudit
 
 
 def config_from_settings(settings: Settings, *, model: str) -> Service2RelationAnalysisConfig:
@@ -151,10 +175,7 @@ def _factcheck_projection(
     *,
     provider_sources: tuple[dict[str, str], ...],
     evidence_quote: str,
-    is_disparagement: bool,
 ) -> dict[str, Any]:
-    if not is_disparagement:
-        return {}
     value = raw if isinstance(raw, dict) else {}
     claim = str(value.get("claim") or evidence_quote).strip()[:20_000]
     verdict = str(value.get("verdict") or "").strip()
@@ -208,13 +229,45 @@ def _candidate(
     context_quote = str(raw.get("context_quote") or "")
     if not evidence_quote or not context_quote:
         raise RelationAnalysisSchemaError("finding_quote_missing")
-    context_start = source_text.find(context_quote)
-    quote_in_context = context_quote.find(evidence_quote)
-    if context_start < 0 or quote_in_context < 0:
-        raise RelationAnalysisSchemaError("finding_quote_not_exact_snapshot_substring")
-    quote_start = context_start + quote_in_context
+
+    def supplied_offset(name: str) -> int | None:
+        value = raw.get(name)
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise RelationAnalysisSchemaError(f"finding_{name}_invalid")
+        return int(value)
+
+    context_start = supplied_offset("context_start")
+    if context_start is None:
+        context_matches = [
+            index
+            for index in range(len(source_text))
+            if source_text.startswith(context_quote, index)
+        ]
+        if len(context_matches) != 1:
+            raise RelationAnalysisSchemaError("finding_context_start_ambiguous")
+        context_start = context_matches[0]
+    quote_start = supplied_offset("quote_start")
+    if quote_start is None:
+        quote_matches = [
+            context_start + index
+            for index in range(len(context_quote))
+            if context_quote.startswith(evidence_quote, index)
+        ]
+        if len(quote_matches) != 1:
+            raise RelationAnalysisSchemaError("finding_quote_start_ambiguous")
+        quote_start = quote_matches[0]
     quote_end = quote_start + len(evidence_quote)
     context_end = context_start + len(context_quote)
+    if (
+        context_end > len(source_text)
+        or quote_end > len(source_text)
+        or source_text[context_start:context_end] != context_quote
+        or source_text[quote_start:quote_end] != evidence_quote
+        or not (context_start <= quote_start < quote_end <= context_end)
+    ):
+        raise RelationAnalysisSchemaError("finding_quote_not_exact_snapshot_substring")
     confidence = raw.get("confidence")
     if isinstance(confidence, bool) or not isinstance(confidence, int | float):
         raise RelationAnalysisSchemaError("finding_confidence_invalid")
@@ -223,7 +276,6 @@ def _candidate(
         raw.get("factcheck"),
         provider_sources=provider_sources,
         evidence_quote=evidence_quote,
-        is_disparagement=is_disparagement,
     )
     return FindingCreate(
         corpus_item_pub_id="pending",
@@ -264,7 +316,7 @@ class Service2WebSearchAnalyzer:
     def __init__(self, config: Service2RelationAnalysisConfig) -> None:
         self.config = config
 
-    def analyze(
+    def prepare(
         self,
         *,
         project_brand: str,
@@ -272,7 +324,7 @@ class Service2WebSearchAnalyzer:
         url: str,
         source_text: str,
         snapshot_text_sha256: str,
-    ) -> RelationAnalysisResult:
+    ) -> RelationAnalysisRequest:
         if not self.config.api_key:
             raise RelationAnalysisUnavailable("llm_api_key_missing")
         if not source_text or len(source_text) > self.config.text_char_limit:
@@ -288,21 +340,64 @@ class Service2WebSearchAnalyzer:
                 "utf-8"
             )
         ).hexdigest()
-        data, sources, usage = self._call(prompt)
-        raw_findings = data.get("findings")
+        return RelationAnalysisRequest(prompt=prompt, input_hash=input_hash)
+
+    def project(
+        self,
+        *,
+        request: RelationAnalysisRequest,
+        response: RelationProviderResponse,
+        source_text: str,
+        snapshot_text_sha256: str,
+    ) -> RelationAnalysisResult:
+        audit = response.audit
+        if not audit.web_search_observed or audit.search_event_count <= 0:
+            raise RelationAnalysisUnavailable("web_search_not_observed")
+        if (
+            audit.provider_citation_count <= 0
+            or audit.source_origin
+            not in {"provider_citation", "provider_tool", "provider_grounding"}
+            or not response.sources
+        ):
+            raise RelationAnalysisUnavailable("provider_citation_not_observed")
+        if (
+            not audit.provider_request_id
+            or not audit.provider_response_id
+            or not audit.resolved_provider
+            or audit.provider_resolution_source == "not_observed"
+            or audit.resolved_model in {"", "unknown", "not_observed"}
+            or not audit.gateway_host
+            or not audit.protocol_route
+            or audit.transport in {"", "unknown"}
+        ):
+            raise RelationAnalysisUnavailable("provider_execution_not_observed")
+        if (
+            int(response.usage.get("input_tokens") or 0) <= 0
+            or int(response.usage.get("output_tokens") or 0) <= 0
+        ):
+            raise RelationAnalysisUnavailable("provider_usage_not_observed")
+        raw_findings = response.data.get("findings")
         if not isinstance(raw_findings, list):
             raise RelationAnalysisSchemaError("findings_not_array")
-        provider_sources = tuple(
-            {
-                "title": str(source.get("title") or "")[:200],
-                "url": str(source.get("url") or "")[:2_000],
-            }
-            for source in sources
-            if isinstance(source, dict) and _safe_url(source.get("url"))
+        if len(raw_findings) > _MAX_FINDINGS_PER_RESPONSE:
+            raise RelationAnalysisSchemaError("findings_response_limit_exceeded")
+        provider_sources = (
+            tuple(
+                {
+                    "title": str(source.get("title") or "")[:200],
+                    "url": str(source.get("url") or "")[:2_000],
+                }
+                for source in response.sources
+                if isinstance(source, dict) and _safe_url(source.get("url"))
+            )
+            if response.audit.provider_citation_count > 0
+            and response.audit.source_origin
+            in {"provider_citation", "provider_tool", "provider_grounding"}
+            else ()
         )
         findings: list[FindingCreate] = []
         failures: list[str] = []
-        for raw in raw_findings[:_MAX_FINDINGS]:
+        for raw in raw_findings:
             try:
                 findings.append(
                     _candidate(
@@ -318,63 +413,87 @@ class Service2WebSearchAnalyzer:
         return RelationAnalysisResult(
             findings=tuple(findings),
             rejected_candidates=tuple(dict.fromkeys(failures)),
-            input_hash=input_hash,
-            input_tokens=int(usage.get("input_tokens") or 0),
-            output_tokens=int(usage.get("output_tokens") or 0),
+            input_hash=request.input_hash,
+            input_tokens=int(response.usage.get("input_tokens") or 0),
+            output_tokens=int(response.usage.get("output_tokens") or 0),
+            transport=response.audit.transport,
+            resolved_model=response.audit.resolved_model,
+            provider_request_id=response.audit.provider_request_id,
+            web_search_observed=response.audit.web_search_observed,
+            search_event_count=response.audit.search_event_count,
+            provider_citation_count=response.audit.provider_citation_count,
+            source_origin=response.audit.source_origin,
         )
 
-    def _call(self, prompt: str) -> tuple[dict[str, Any], list[dict[str, str]], dict[str, int]]:
-        bases = list(
-            dict.fromkeys(
-                value
-                for value in (self.config.base_url, self.config.base_url_fallback)
-                if value.strip()
-            )
+    def analyze(
+        self,
+        *,
+        project_brand: str,
+        known_entities: tuple[str, ...],
+        url: str,
+        source_text: str,
+        snapshot_text_sha256: str,
+    ) -> RelationAnalysisResult:
+        request = self.prepare(
+            project_brand=project_brand,
+            known_entities=known_entities,
+            url=url,
+            source_text=source_text,
+            snapshot_text_sha256=snapshot_text_sha256,
         )
-        if not bases:
+        response = self._call(request.prompt, idempotency_key=f"service2-{request.input_hash}")
+        return self.project(
+            request=request,
+            response=response,
+            source_text=source_text,
+            snapshot_text_sha256=snapshot_text_sha256,
+        )
+
+    def _call(self, prompt: str, *, idempotency_key: str) -> RelationProviderResponse:
+        # A Service 2 call has one durable claim and exactly one provider request.
+        # Brand research may use a fallback endpoint, but silently issuing a second
+        # paid request here would violate the per-item billing/idempotency boundary.
+        base = self.config.base_url.strip() or self.config.base_url_fallback.strip()
+        if not base:
             raise RelationAnalysisUnavailable("llm_base_url_missing")
-        last_error: Exception | None = None
-        for base in bases:
-            llm = research.LlmConfig(
-                api_key=self.config.api_key,
-                model=self.config.model,
-                base_url=base,
-                base_url_fallback="",
-                max_rounds=1,
-            )
-            try:
-                with research._build_client(llm, base) as client:
-                    return research._run_once(
-                        client,
-                        self.config.model,
-                        prompt,
-                        instructions=_INSTRUCTIONS,
-                    )
-            except httpx.HTTPStatusError as exc:
-                last_error = exc
-                if exc.response.status_code < 500:
-                    break
-            except (httpx.HTTPError, research.ResearchFailed) as exc:
-                last_error = exc
-        if isinstance(last_error, research.ResearchFailed):
-            raise RelationAnalysisSchemaError("llm_output_invalid") from last_error
-        if isinstance(last_error, httpx.HTTPStatusError):
-            raise RelationAnalysisError(
-                f"llm_http_{last_error.response.status_code}"
-            ) from last_error
-        if last_error is not None:
-            raise RelationAnalysisError(
-                f"llm_transport_{type(last_error).__name__}"
-            ) from last_error
-        raise RelationAnalysisError("llm_call_failed")
+        llm = research.LlmConfig(
+            api_key=self.config.api_key,
+            model=self.config.model,
+            base_url=base,
+            base_url_fallback="",
+            max_rounds=1,
+        )
+        try:
+            with research._build_client(llm, base) as client:
+                data, sources, usage, audit = research._run_once_audited(
+                    client,
+                    self.config.model,
+                    prompt,
+                    instructions=_INSTRUCTIONS,
+                    idempotency_key=idempotency_key,
+                )
+                return RelationProviderResponse(
+                    data=data,
+                    sources=tuple(sources),
+                    usage=usage,
+                    audit=audit,
+                )
+        except research.ResearchFailed as exc:
+            raise RelationAnalysisSchemaError("llm_output_invalid") from exc
+        except httpx.HTTPStatusError as exc:
+            raise RelationAnalysisError(f"llm_http_{exc.response.status_code}") from exc
+        except httpx.HTTPError as exc:
+            raise RelationAnalysisError(f"llm_transport_{type(exc).__name__}") from exc
 
 
 __all__ = [
     "PROMPT_VERSION",
     "RelationAnalysisError",
+    "RelationAnalysisRequest",
     "RelationAnalysisResult",
     "RelationAnalysisSchemaError",
     "RelationAnalysisUnavailable",
+    "RelationProviderResponse",
     "Service2RelationAnalysisConfig",
     "Service2WebSearchAnalyzer",
     "config_from_settings",

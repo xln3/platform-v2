@@ -89,7 +89,11 @@ def make_fetcher(*, base: str, token: str, phone: str, within: int) -> Callable[
                 url, params={"phone": phone, "within": within}, headers={"X-Operator-Token": token}
             )
         except httpx.HTTPError as e:
-            print(f"[otp-wait] 网络错误（重试到超时）: {e!r}", file=sys.stderr, flush=True)
+            print(
+                f"[otp-wait] 网络错误（重试到超时）: {type(e).__name__}",
+                file=sys.stderr,
+                flush=True,
+            )
             return None
         if resp.status_code in (401, 403, 503):
             raise OtpWaitConfigError(f"GET {url} → {resp.status_code}（token 错/服务端未配）")
@@ -162,7 +166,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         code = wait_for_code(timeout_s=args.timeout, interval_s=args.interval, fetch=fetch)
     except OtpWaitConfigError as e:
-        print(f"[otp-wait] 配置门失败：{e}", file=sys.stderr, flush=True)
+        print(f"[otp-wait] 配置门失败：{type(e).__name__}", file=sys.stderr, flush=True)
         return 3
     except KeyboardInterrupt:
         print("[otp-wait] 已中断（按超时退出码）", file=sys.stderr, flush=True)

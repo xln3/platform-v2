@@ -15,6 +15,8 @@ from geo_platform.service2_corpus.schemas import (
     FindingCreate,
 )
 from geo_platform.service2_corpus.service import (
+    EvidenceInvalid,
+    Service2CorpusService,
     _factcheck_manifest_projection,
     _fetch_projection,
     _relation_version_hash,
@@ -35,6 +37,7 @@ from domain.scoring.service2_source_corpus import (
     attribution_wording_allowed,
     customer_case_eligible,
     factcheck_case_ready,
+    has_public_evidence_candidate,
     has_reviewable_evidence,
     validate_relation_finding,
     validated_visual_bbox,
@@ -292,7 +295,14 @@ def test_attribution_is_independent_and_unknown_cannot_name_a_party() -> None:
     assert not attribution_wording_allowed(AttributionConfidence.UNKNOWN, ())
     assert attribution_wording_allowed(
         AttributionConfidence.PROBABLE,
-        ({"evidence_pub_id": "evd_reviewable"},),
+        (
+            {
+                "evidence_pub_id": "evd_reviewable",
+                "verification_status": "verified",
+                "content_sha256": "b" * 64,
+                "retrieved_at": "2026-08-25T00:00:00+00:00",
+            },
+        ),
     )
 
 
@@ -318,15 +328,75 @@ def test_customer_case_gate_requires_exact_visual_and_human_acceptance() -> None
         assert not customer_case_eligible(**{**required, field: value})
     assert not factcheck_case_ready(verdict="supported", evidence=(), boundary=None)
     assert not factcheck_case_ready(verdict="supported", evidence=({},), boundary=None)
-    assert factcheck_case_ready(
+    assert not factcheck_case_ready(
         verdict="supported",
         evidence=({"url": "https://facts.example.com/source"},),
         boundary=None,
     )
-    assert has_reviewable_evidence(({"evidence_pub_id": "evd_reviewable"},))
+    assert factcheck_case_ready(
+        verdict="supported",
+        evidence=(
+            {
+                "url": "https://facts.example.com/source",
+                "evidence_pub_id": "evd_verified",
+                "verification_status": "verified",
+                "content_sha256": "a" * 64,
+                "retrieved_at": "2026-08-25T00:00:00+00:00",
+            },
+        ),
+        boundary=None,
+    )
+    assert not has_reviewable_evidence(({"evidence_pub_id": "evd_fabricated"},))
+    assert not has_reviewable_evidence(({"url": "http://127.0.0.1/internal"},))
+    assert has_public_evidence_candidate(({"url": "https://facts.example/source"},))
+    assert not has_public_evidence_candidate(({"url": "http://127.0.0.1/internal"},))
+    assert not has_public_evidence_candidate(({"url": "http://localhost/internal"},))
+    assert not has_public_evidence_candidate(({"url": "https://user:pass@example.com"},))
     assert not has_reviewable_evidence(({"note": "人工认为可靠"},))
     assert not has_reviewable_evidence(({"url": "https://"},))
     assert not has_reviewable_evidence(({"url": "https:///missing-host"},))
+
+
+def test_verified_evidence_id_must_resolve_in_the_current_tenant_and_project() -> None:
+    statements: list[tuple[str, dict[str, object]]] = []
+
+    class Result:
+        def mappings(self) -> Result:
+            return self
+
+        @staticmethod
+        def all() -> list[dict[str, object]]:
+            # The ID exists elsewhere, but the scoped lookup must observe no row.
+            return []
+
+    class Session:
+        @staticmethod
+        def execute(statement: object, parameters: dict[str, object]) -> Result:
+            sql = str(statement)
+            statements.append((sql, parameters))
+            return Result()
+
+    with pytest.raises(EvidenceInvalid, match="verified_evidence_asset_not_owned"):
+        Service2CorpusService()._require_owned_evidence_assets(  # noqa: SLF001
+            Session(),  # type: ignore[arg-type]
+            tenant_pub_id="tnt_current",
+            project_pub_id="prj_current",
+            evidence=(
+                {
+                    "evidence_pub_id": "evd_from_another_tenant",
+                    "evidence_type": "service2_factcheck_source",
+                    "verification_status": "verified",
+                    "content_sha256": "a" * 64,
+                },
+            ),
+            allowed_kinds=frozenset({"service2_factcheck_source"}),
+        )
+
+    sql, parameters = statements[0]
+    assert "tenant_pub_id=:tenant_pub_id" in sql
+    assert "project_pub_id=:project_pub_id" in sql
+    assert parameters["tenant_pub_id"] == "tnt_current"
+    assert parameters["project_pub_id"] == "prj_current"
 
 
 def test_visual_bbox_must_fit_the_verified_source_image() -> None:

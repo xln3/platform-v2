@@ -52,6 +52,7 @@ import structlog
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from domain.security.redaction import safe_exception_summary
 from workflows.activities.assist_notify import push_captcha_assist
 from workflows.activities.browser_driver import load_sync_browser_driver
 from workflows.activities.deepseek_adapter import _captcha_hit as _deepseek_captcha_hit
@@ -489,7 +490,7 @@ class InterventionBridge:
                         data = bridge._page.screenshot(type="jpeg", quality=50)
                         self._send_bytes(data, "image/jpeg")
                     except Exception as exc:
-                        self._send_json({"error": str(exc)}, 503)
+                        self._send_json({"error": safe_exception_summary(exc)}, 503)
                 else:
                     self._send_json({"error": "not found"}, 404)
 
@@ -508,7 +509,7 @@ class InterventionBridge:
                         result = bridge._dispatch_input(body)
                         self._send_json(result)
                     except Exception as exc:
-                        self._send_json({"error": str(exc)}, 503)
+                        self._send_json({"error": safe_exception_summary(exc)}, 503)
                 else:
                     self._send_json({"error": "not found"}, 404)
 

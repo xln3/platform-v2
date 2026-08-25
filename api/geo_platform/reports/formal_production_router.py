@@ -120,6 +120,24 @@ class QuotationFormalProductionCreate(_FormalProductionCreateBase):
         min_length=1, max_length=5
     )
     service_catalog_version: Literal["quotation_services_v2"]
+    service2_manifest_pub_id: str | None = Field(default=None, min_length=5, max_length=120)
+    service2_manifest_hash: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$", max_length=64
+    )
+
+    @model_validator(mode="after")
+    def validate_service2_manifest_binding(self) -> Self:
+        selected = 2 in self.services
+        bound = (
+            self.service2_manifest_pub_id is not None and self.service2_manifest_hash is not None
+        )
+        if selected != bound:
+            raise ValueError(
+                "service2_manifest_binding_required"
+                if selected
+                else "service2_manifest_not_applicable"
+            )
+        return self
 
 
 class FormalProductionCreate(
@@ -168,6 +186,8 @@ class FormalProductionView(StrictModel):
     services: list[Literal[1, 2, 3, 4, 5]]
     service_catalog_version: Literal["legacy_report_services_v1", "quotation_services_v2"]
     sop_project_pub_id: str | None
+    service2_manifest_pub_id: str | None = None
+    service2_manifest_hash: str | None = None
     status: Literal["queued", "running", "failed", "awaiting_review", "signed"]
     document_status: Literal[
         "pre_formal", "formal", "internal_review", "delivery_candidate", "approved_signed"
@@ -280,6 +300,8 @@ def create_formal_production(
             },
             service_catalog_version=payload.service_catalog_version,
             sop_project_pub_id=payload.sop_project_pub_id,
+            service2_manifest_pub_id=getattr(payload, "service2_manifest_pub_id", None),
+            service2_manifest_hash=getattr(payload, "service2_manifest_hash", None),
             idempotency_key=idempotency_key,
             created_by_pub_id=principal.actor_pub_id,
             task_queue=get_settings().s02_temporal_task_queue,

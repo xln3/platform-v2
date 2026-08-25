@@ -8990,51 +8990,27 @@
             }
           },
           {
-            "name": "cursor",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string",
-                  "minLength": 16,
-                  "maxLength": 2048
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Cursor"
-            }
-          },
-          {
             "name": "page",
             "in": "query",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "integer",
-                  "maximum": 1000000,
-                  "minimum": 1
-                },
-                {
-                  "type": "null"
-                }
-              ],
+              "type": "integer",
+              "maximum": 20000,
+              "minimum": 1,
+              "default": 1,
               "title": "Page"
             }
           },
           {
-            "name": "limit",
+            "name": "page_size",
             "in": "query",
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 100,
+              "maximum": 50,
               "minimum": 1,
-              "default": 50,
-              "title": "Limit"
+              "default": 4,
+              "title": "Page Size"
             }
           },
           {
@@ -9181,11 +9157,6 @@
               }
             },
             "headers": {
-              "X-Next-Cursor": {
-                "schema": {
-                  "type": "string"
-                }
-              },
               "X-Has-More": {
                 "schema": {
                   "type": "boolean"
@@ -9418,6 +9389,263 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AccountView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/collection/runs/cursor": {
+      "get": {
+        "tags": [
+          "collection"
+        ],
+        "summary": "List Runs Cursor",
+        "description": "Internal keyset compatibility endpoint, separate from numbered paging.",
+        "operationId": "list_runs_cursor_api_v2_collection_runs_cursor_get",
+        "deprecated": true,
+        "parameters": [
+          {
+            "name": "project_pub_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 5,
+                  "maxLength": 30
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Pub Id"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 16,
+                  "maxLength": 2048
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RunView"
+                  },
+                  "title": "Response List Runs Cursor Api V2 Collection Runs Cursor Get"
+                }
+              }
+            },
+            "headers": {
+              "X-Next-Cursor": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Has-More": {
+                "schema": {
+                  "type": "boolean"
                 }
               }
             }
@@ -10048,6 +10276,23 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/RunRetryRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Retry Request"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -24232,7 +24477,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 1000000,
+              "maximum": 10000,
               "minimum": 1,
               "default": 1,
               "title": "Page"
@@ -24244,7 +24489,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 100,
+              "maximum": 25,
               "minimum": 1,
               "default": 4,
               "title": "Page Size"
@@ -39064,7 +39309,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 100,
+              "maximum": 25,
               "minimum": 1,
               "default": 4,
               "title": "Page Size"
@@ -39402,7 +39647,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 100,
+              "maximum": 25,
               "minimum": 1,
               "default": 4,
               "title": "Page Size"
@@ -41009,6 +41254,257 @@
         }
       }
     },
+    "/api/v2/internal/service2-source-corpus/projects/{project_pub_id}/manifests": {
+      "get": {
+        "tags": [
+          "internal-service2-source-corpus"
+        ],
+        "summary": "List Manifests",
+        "description": "List exact immutable Service 2 fact sets available to formal production.",
+        "operationId": "list_manifests_api_v2_internal_service2_source_corpus_projects__project_pub_id__manifests_get",
+        "parameters": [
+          {
+            "name": "project_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Project Pub Id"
+            }
+          },
+          {
+            "name": "window_start",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Window Start"
+            }
+          },
+          {
+            "name": "window_end",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Window End"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FrozenManifestOptionView"
+                  },
+                  "title": "Response List Manifests Api V2 Internal Service2 Source Corpus Projects  Project Pub Id  Manifests Get"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/sop/projects": {
       "post": {
         "tags": [
@@ -41261,7 +41757,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 1000000,
+              "maximum": 10000,
               "minimum": 1,
               "default": 1,
               "title": "Page"
@@ -41273,7 +41769,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 100,
+              "maximum": 50,
               "minimum": 1,
               "default": 4,
               "title": "Page Size"
@@ -41893,7 +42389,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 1000000,
+              "maximum": 10000,
               "minimum": 1,
               "default": 1,
               "title": "Page"
@@ -41905,7 +42401,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 100,
+              "maximum": 50,
               "minimum": 1,
               "default": 4,
               "title": "Page Size"
@@ -42344,7 +42840,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 1000000,
+              "maximum": 10000,
               "minimum": 1,
               "default": 1,
               "title": "Page"
@@ -42356,7 +42852,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 100,
+              "maximum": 50,
               "minimum": 1,
               "default": 4,
               "title": "Page Size"
@@ -42799,7 +43295,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 1000000,
+              "maximum": 10000,
               "minimum": 1,
               "default": 1,
               "title": "Page"
@@ -42811,7 +43307,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 100,
+              "maximum": 50,
               "minimum": 1,
               "default": 4,
               "title": "Page Size"
@@ -43527,7 +44023,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 1000000,
+              "maximum": 10000,
               "minimum": 1,
               "default": 1,
               "title": "Page"
@@ -43539,7 +44035,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 100,
+              "maximum": 50,
               "minimum": 1,
               "default": 4,
               "title": "Page Size"
@@ -43978,7 +44474,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 1000000,
+              "maximum": 10000,
               "minimum": 1,
               "default": 1,
               "title": "Page"
@@ -43990,7 +44486,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 100,
+              "maximum": 50,
               "minimum": 1,
               "default": 4,
               "title": "Page Size"
@@ -44450,7 +44946,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 1000000,
+              "maximum": 10000,
               "minimum": 1,
               "default": 1,
               "title": "Page"
@@ -44462,7 +44958,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 100,
+              "maximum": 50,
               "minimum": 1,
               "default": 4,
               "title": "Page Size"
@@ -45133,7 +45629,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 1000000,
+              "maximum": 10000,
               "minimum": 1,
               "default": 1,
               "title": "Page"
@@ -45145,7 +45641,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 100,
+              "maximum": 50,
               "minimum": 1,
               "default": 4,
               "title": "Page Size"
@@ -45794,7 +46290,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 1000000,
+              "maximum": 10000,
               "minimum": 1,
               "default": 1,
               "title": "Page"
@@ -45806,7 +46302,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 100,
+              "maximum": 50,
               "minimum": 1,
               "default": 4,
               "title": "Page Size"
@@ -46653,7 +47149,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 1000000,
+              "maximum": 10000,
               "minimum": 1,
               "default": 1,
               "title": "Page"
@@ -46665,7 +47161,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 100,
+              "maximum": 50,
               "minimum": 1,
               "default": 4,
               "title": "Page Size"
@@ -47512,7 +48008,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 1000000,
+              "maximum": 10000,
               "minimum": 1,
               "default": 1,
               "title": "Page"
@@ -47524,7 +48020,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 100,
+              "maximum": 50,
               "minimum": 1,
               "default": 4,
               "title": "Page Size"
@@ -47997,7 +48493,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 1000000,
+              "maximum": 10000,
               "minimum": 1,
               "default": 1,
               "title": "Page"
@@ -48009,7 +48505,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 100,
+              "maximum": 50,
               "minimum": 1,
               "default": 4,
               "title": "Page Size"
@@ -48856,7 +49352,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 1000000,
+              "maximum": 10000,
               "minimum": 1,
               "default": 1,
               "title": "Page"
@@ -48868,7 +49364,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 100,
+              "maximum": 50,
               "minimum": 1,
               "default": 4,
               "title": "Page Size"
@@ -49323,7 +49819,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 1000000,
+              "maximum": 10000,
               "minimum": 1,
               "default": 1,
               "title": "Page"
@@ -49335,7 +49831,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 100,
+              "maximum": 50,
               "minimum": 1,
               "default": 4,
               "title": "Page Size"
@@ -49774,7 +50270,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 1000000,
+              "maximum": 10000,
               "minimum": 1,
               "default": 1,
               "title": "Page"
@@ -49786,7 +50282,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 100,
+              "maximum": 50,
               "minimum": 1,
               "default": 4,
               "title": "Page Size"
@@ -50447,7 +50943,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 1000000,
+              "maximum": 10000,
               "minimum": 1,
               "default": 1,
               "title": "Page"
@@ -50459,7 +50955,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 100,
+              "maximum": 50,
               "minimum": 1,
               "default": 4,
               "title": "Page Size"
@@ -51131,7 +51627,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 1000000,
+              "maximum": 10000,
               "minimum": 1,
               "default": 1,
               "title": "Page"
@@ -51143,7 +51639,7 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "maximum": 100,
+              "maximum": 50,
               "minimum": 1,
               "default": 4,
               "title": "Page Size"
@@ -68324,9 +68820,30 @@
             ],
             "title": "Context Window Tokens"
           },
+          "web_search_audit_status": {
+            "type": "string",
+            "const": "verified_provider_citation",
+            "title": "Web Search Audit Status"
+          },
+          "web_search_audited_at": {
+            "type": "string",
+            "title": "Web Search Audited At"
+          },
+          "auditable_source_mode": {
+            "type": "string",
+            "enum": [
+              "provider_citation",
+              "provider_tool"
+            ],
+            "title": "Auditable Source Mode"
+          },
           "recommended": {
             "type": "boolean",
             "title": "Recommended"
+          },
+          "catalog_revision": {
+            "type": "string",
+            "title": "Catalog Revision"
           },
           "pricing_observed_at": {
             "type": "string",
@@ -68336,10 +68853,41 @@
             "type": "string",
             "title": "Pricing Source Url"
           },
+          "pricing_currency": {
+            "type": "string",
+            "const": "USD",
+            "title": "Pricing Currency"
+          },
+          "token_price_unit": {
+            "type": "string",
+            "const": "per_million_tokens",
+            "title": "Token Price Unit"
+          },
+          "web_search_usd_per_call": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Web Search Usd Per Call"
+          },
+          "web_search_pricing_status": {
+            "type": "string",
+            "const": "not_published_in_catalog_snapshot",
+            "title": "Web Search Pricing Status"
+          },
           "pricing_notice": {
             "type": "string",
             "const": "catalog_snapshot_provider_invoice_authoritative",
             "title": "Pricing Notice"
+          },
+          "web_search_audit_policy": {
+            "type": "string",
+            "const": "provider_search_event_and_provider_citation_required",
+            "title": "Web Search Audit Policy"
           }
         },
         "additionalProperties": false,
@@ -68354,10 +68902,19 @@
           "input_usd_per_million_tokens",
           "output_usd_per_million_tokens",
           "context_window_tokens",
+          "web_search_audit_status",
+          "web_search_audited_at",
+          "auditable_source_mode",
           "recommended",
+          "catalog_revision",
           "pricing_observed_at",
           "pricing_source_url",
-          "pricing_notice"
+          "pricing_currency",
+          "token_price_unit",
+          "web_search_usd_per_call",
+          "web_search_pricing_status",
+          "pricing_notice",
+          "web_search_audit_policy"
         ],
         "title": "AnalysisModelOptionView"
       },
@@ -78646,6 +79203,28 @@
             ],
             "title": "Sop Project Pub Id"
           },
+          "service2_manifest_pub_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Service2 Manifest Pub Id"
+          },
+          "service2_manifest_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Service2 Manifest Hash"
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -78892,6 +79471,73 @@
           "snapshot"
         ],
         "title": "FrozenConfigView"
+      },
+      "FrozenManifestOptionView": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "formal-service2-source-corpus-v2",
+            "title": "Schema Version",
+            "default": "formal-service2-source-corpus-v2"
+          },
+          "batch_pub_id": {
+            "type": "string",
+            "title": "Batch Pub Id"
+          },
+          "manifest_pub_id": {
+            "type": "string",
+            "title": "Manifest Pub Id"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Revision"
+          },
+          "manifest_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Manifest Hash"
+          },
+          "case_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Case Count"
+          },
+          "evidence_reference_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Evidence Reference Count"
+          },
+          "window_start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Window Start"
+          },
+          "window_end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Window End"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "batch_pub_id",
+          "manifest_pub_id",
+          "revision",
+          "manifest_hash",
+          "case_count",
+          "evidence_reference_count",
+          "window_start",
+          "window_end",
+          "created_at"
+        ],
+        "title": "FrozenManifestOptionView"
       },
       "FrozenManifestView": {
         "properties": {
@@ -85629,6 +86275,32 @@
             "type": "string",
             "const": "quotation_services_v2",
             "title": "Service Catalog Version"
+          },
+          "service2_manifest_pub_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120,
+                "minLength": 5
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Service2 Manifest Pub Id"
+          },
+          "service2_manifest_hash": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64,
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Service2 Manifest Hash"
           }
         },
         "additionalProperties": false,
@@ -87281,6 +87953,25 @@
         "additionalProperties": false,
         "type": "object",
         "title": "RunInspectionRequest"
+      },
+      "RunRetryRequest": {
+        "properties": {
+          "task_pub_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 10000,
+            "minItems": 1,
+            "title": "Task Pub Ids"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "task_pub_ids"
+        ],
+        "title": "RunRetryRequest"
       },
       "RunSummaryView": {
         "properties": {
@@ -93530,12 +94221,13 @@
         "properties": {
           "page": {
             "type": "integer",
+            "maximum": 10000.0,
             "minimum": 1.0,
             "title": "Page"
           },
           "page_size": {
             "type": "integer",
-            "maximum": 100.0,
+            "maximum": 50.0,
             "minimum": 1.0,
             "title": "Page Size"
           },

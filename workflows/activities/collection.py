@@ -30,6 +30,12 @@ from geo_platform.collection.models import (
     SessionLease,
     TerminalTask,
 )
+from geo_platform.collection.retry_queue import (
+    mark_source_retry_outcome,
+    record_query_attempt,
+    record_query_failure_knowledge,
+    record_run_failure_knowledge,
+)
 from geo_platform.collection.vault import KmsUnavailableError, VaultTransitKms
 from geo_platform.config import get_settings
 from geo_platform.evidence.object_store import ContentAddressedObjectStore
@@ -2198,6 +2204,61 @@ def mark_collection_run_terminal(
         )
         if run is None:
             raise ApplicationError("collection run not found", type="run_not_found")
+        pending_tasks = list(
+            session.scalars(
+                select(CollectionTask)
+                .where(CollectionTask.run_id == run.id, CollectionTask.state == "pending")
+                .order_by(CollectionTask.created_at, CollectionTask.pub_id)
+                .with_for_update()
+            )
+        )
+        pending_error = (
+            error_code or ("workflow_cancelled" if state == "cancelled" else "query_result_missing")
+        )[:40]
+        terminal_at = datetime.now(UTC)
+        for task in pending_tasks:
+            task.state = "failed"
+            task.attempt_count = max(task.attempt_count, 1)
+            task.terminal_at = terminal_at
+            task.quality_state = pending_error
+            task.answer_text = None
+            task.citations_json = "[]"
+            task.evidence_json = json.dumps(
+                [
+                    {
+                        "kind": "failure_record",
+                        "status": "not_executed",
+                        "error_type": pending_error,
+                        "message": "workflow terminated before this query produced a result",
+                    }
+                ],
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            task.search_queries_json = "[]"
+            run.failed_tasks += 1
+            record_query_attempt(
+                session,
+                run=run,
+                task=task,
+                outcome="failed",
+                error_code=pending_error,
+                execution_status="not_executed",
+            )
+            record_query_failure_knowledge(
+                session,
+                run=run,
+                task=task,
+                error_code=pending_error,
+                execution_status="not_executed",
+            )
+            mark_source_retry_outcome(
+                session,
+                run=run,
+                business_key=task.business_key,
+                succeeded=False,
+                error_code=pending_error,
+            )
         # Completion written by persist_collection_result is already terminal;
         # retries must not demote it. completed_with_failures 同属 s04_0019 终态
         # 词表（触发器 ck_collection_run_terminal_state 冻结），同样不得改写。
@@ -2205,8 +2266,117 @@ def mark_collection_run_terminal(
         # 词表不一致 = reconcile/收尾 UPDATE 反复撞 23514 毒循环（20260806 生产实证）。
         terminal_states = {"completed", "completed_with_failures", "cancelled", "failed", "skipped"}
         if run.state not in terminal_states:
-            run.state = state
-            run.error_code = error_code
+            derived = _derive_run_state(run)
+            if state == "completed" and derived in {"completed", "completed_with_failures"}:
+                run.state = derived
+            else:
+                run.state = state
+            run.error_code = error_code or (pending_error if pending_tasks else None)
+        project = session.get(Project, run.project_id)
+        if project is None:
+            raise ApplicationError("collection project not found", type="project_not_found")
+
+        # Reconcile ledgers for legacy captures too.  Inserts are deterministic
+        # and append-only, so activity retries cannot duplicate learning rows.
+        terminal_tasks = list(
+            session.scalars(
+                select(CollectionTask)
+                .where(CollectionTask.run_id == run.id)
+                .order_by(CollectionTask.created_at, CollectionTask.pub_id)
+            )
+        )
+        for task in terminal_tasks:
+            if task.state == "completed":
+                record_query_attempt(
+                    session,
+                    run=run,
+                    task=task,
+                    outcome="succeeded",
+                    error_code=None,
+                    execution_status="ok",
+                )
+                mark_source_retry_outcome(
+                    session,
+                    run=run,
+                    business_key=task.business_key,
+                    succeeded=True,
+                )
+            elif task.state == "failed":
+                task_error = task.quality_state or "query_failed"
+                record_query_attempt(
+                    session,
+                    run=run,
+                    task=task,
+                    outcome="failed",
+                    error_code=task_error,
+                    execution_status="failed",
+                )
+                record_query_failure_knowledge(
+                    session,
+                    run=run,
+                    task=task,
+                    error_code=task_error,
+                    execution_status="failed",
+                )
+                mark_source_retry_outcome(
+                    session,
+                    run=run,
+                    business_key=task.business_key,
+                    succeeded=False,
+                    error_code=task_error,
+                )
+
+        has_failures = any(task.state == "failed" for task in terminal_tasks)
+        if has_failures or run.state in {"failed", "cancelled", "completed_with_failures"}:
+            record_run_failure_knowledge(
+                session,
+                run=run,
+                error_code=(
+                    run.error_code
+                    or ("completed_with_query_failures" if has_failures else f"run_{run.state}")
+                ),
+            )
+        # Successful queries are useful even when siblings fail.  Preserve the
+        # per-answer fanout and also admit run-level analysis once all pending
+        # queries have been made explicit terminal records.
+        if run.completed_tasks > 0:
+            _enqueue_post_collection_analysis(
+                session=session,
+                tenant_pub_id=tenant_pub_id,
+                run=run,
+                project=project,
+            )
+
+        if has_failures and run.state != "cancelled":
+            from geo_platform.collection.run_service import stage_collection_run
+
+            config = session.get(MonitoringConfigVersion, run.config_version_id)
+            if config is None:
+                raise ApplicationError(
+                    "collection config not found",
+                    type="config_version_not_found",
+                )
+            try:
+                stage_collection_run(
+                    session,
+                    tenant_id=run.tenant_id,
+                    tenant_pub_id=tenant_pub_id,
+                    project_pub_id=project.pub_id,
+                    config_version_pub_id=config.pub_id,
+                    idempotency_key=f"auto-query-retry:{run.pub_id}",
+                    initiated_by_pub_id=run.initiated_by_pub_id or "system_auto_retry",
+                    source="retry",
+                    retry_of_run_pub_id=run.pub_id,
+                    retry_trigger="automatic",
+                )
+            except ValueError as exc:
+                retry_error = str(exc)
+                if retry_error not in {
+                    "retry_auto_exhausted",
+                    "retry_has_no_failed_queries",
+                    "retry_intent_claim_conflict",
+                } and not retry_error.startswith("retry_source_matrix_"):
+                    raise
         session.commit()
 
 
@@ -2337,7 +2507,7 @@ def _report_outcome_to_governor(
             platform=platform,
             status=status,
             error_type=error_type,
-            error=repr(exc),
+            report_error_type=type(exc).__name__,
         )
 
 
@@ -2433,10 +2603,16 @@ def persist_collection_result(
             sort_keys=True,
             separators=(",", ":"),
         )
+        response_ast_json = json.dumps(
+            answer_content.response_ast,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
         search_queries_json = json.dumps(
             search_queries, ensure_ascii=False, sort_keys=True, separators=(",", ":")
         )
-        created = prior is None
+        created = prior is None or prior.state == "pending"
         if prior is None:
             task = CollectionTask(
                 # The collection task is also the durable analytics answer identity.
@@ -2448,14 +2624,10 @@ def persist_collection_result(
                 matrix_json=matrix_json,
                 state="completed",
                 attempt_count=1,
+                terminal_at=datetime.now(UTC),
                 answer_text=answer_content.response_raw,
                 response_markdown_normalized=answer_content.response_markdown_normalized,
-                response_ast_json=json.dumps(
-                    answer_content.response_ast,
-                    ensure_ascii=False,
-                    sort_keys=True,
-                    separators=(",", ":"),
-                ),
+                response_ast_json=response_ast_json,
                 response_html_sanitized=answer_content.response_html_sanitized,
                 response_plain_text=answer_content.response_plain_text,
                 response_hash=answer_content.response_hash,
@@ -2468,9 +2640,31 @@ def persist_collection_result(
             )
             session.add(task)
             run.completed_tasks += 1
+        elif prior.state == "pending":
+            task = prior
+            task.state = "completed"
+            task.attempt_count = 1
+            task.terminal_at = datetime.now(UTC)
+            task.answer_text = answer_content.response_raw
+            task.response_markdown_normalized = answer_content.response_markdown_normalized
+            task.response_ast_json = response_ast_json
+            task.response_html_sanitized = answer_content.response_html_sanitized
+            task.response_plain_text = answer_content.response_plain_text
+            task.response_hash = answer_content.response_hash
+            task.render_parser_version = answer_content.render_parser_version
+            task.screenshot_ref = result.screenshot_ref
+            task.quality_state = result.quality_state
+            task.matrix_json = matrix_json
+            task.citations_json = citations_json
+            task.evidence_json = evidence_json
+            task.search_queries_json = search_queries_json
+            run.completed_tasks += 1
         else:
             task = prior
+            if task.terminal_at is None:
+                task.terminal_at = task.updated_at
             if (
+                prior.state,
                 prior.answer_text,
                 prior.response_markdown_normalized,
                 prior.response_ast_json,
@@ -2485,14 +2679,10 @@ def persist_collection_result(
                 prior.evidence_json,
                 prior.search_queries_json,
             ) != (
+                "completed",
                 answer_content.response_raw,
                 answer_content.response_markdown_normalized,
-                json.dumps(
-                    answer_content.response_ast,
-                    ensure_ascii=False,
-                    sort_keys=True,
-                    separators=(",", ":"),
-                ),
+                response_ast_json,
                 answer_content.response_html_sanitized,
                 answer_content.response_plain_text,
                 answer_content.response_hash,
@@ -2512,6 +2702,20 @@ def persist_collection_result(
         project = session.get(Project, run.project_id)
         if project is None:
             raise ApplicationError("collection project not found", type="project_not_found")
+        record_query_attempt(
+            session,
+            run=run,
+            task=task,
+            outcome="succeeded",
+            error_code=None,
+            execution_status="ok",
+        )
+        mark_source_retry_outcome(
+            session,
+            run=run,
+            business_key=task.business_key,
+            succeeded=True,
+        )
         evidence_ids_by_relation = _persist_evidence_assets(
             session=session,
             tenant_pub_id=tenant_pub_id,
@@ -2675,7 +2879,7 @@ def _persist_collection_failure(
             sort_keys=True,
             separators=(",", ":"),
         )
-        created = prior is None
+        created = prior is None or prior.state == "pending"
         if prior is None:
             task = CollectionTask(
                 pub_id=new_pub_id("ans"),
@@ -2685,6 +2889,7 @@ def _persist_collection_failure(
                 matrix_json=matrix_json,
                 state="failed",
                 attempt_count=1,
+                terminal_at=datetime.now(UTC),
                 answer_text=None,
                 screenshot_ref=result.screenshot_ref,
                 quality_state=error_type,
@@ -2694,8 +2899,23 @@ def _persist_collection_failure(
             )
             session.add(task)
             run.failed_tasks += 1
+        elif prior.state == "pending":
+            task = prior
+            task.state = "failed"
+            task.attempt_count = 1
+            task.terminal_at = datetime.now(UTC)
+            task.answer_text = None
+            task.screenshot_ref = result.screenshot_ref
+            task.quality_state = error_type
+            task.matrix_json = matrix_json
+            task.citations_json = "[]"
+            task.evidence_json = failure_json
+            task.search_queries_json = "[]"
+            run.failed_tasks += 1
         else:
             task = prior
+            if task.terminal_at is None:
+                task.terminal_at = task.updated_at
             if (
                 prior.state,
                 prior.quality_state,
@@ -2717,6 +2937,28 @@ def _persist_collection_failure(
         project = session.get(Project, run.project_id)
         if project is None:
             raise ApplicationError("collection project not found", type="project_not_found")
+        record_query_attempt(
+            session,
+            run=run,
+            task=task,
+            outcome="failed",
+            error_code=error_type,
+            execution_status=status,
+        )
+        record_query_failure_knowledge(
+            session,
+            run=run,
+            task=task,
+            error_code=error_type,
+            execution_status=status,
+        )
+        mark_source_retry_outcome(
+            session,
+            run=run,
+            business_key=task.business_key,
+            succeeded=False,
+            error_code=error_type,
+        )
         _persist_evidence_assets(
             session=session,
             tenant_pub_id=tenant_pub_id,

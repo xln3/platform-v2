@@ -12,9 +12,10 @@ from __future__ import annotations
 import json
 import uuid
 from collections import Counter
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 from io import BytesIO
 from typing import Any
@@ -44,10 +45,10 @@ from domain.scoring.service2_source_corpus import (
 from geo_platform.evidence.object_store import ContentAddressedObjectStore
 from geo_platform.tenancy.ids import new_pub_id
 
-from .analysis_models import DEFAULT_SERVICE2_ANALYSIS_MODELS
+from .analysis_models import DEFAULT_SERVICE2_ANALYSIS_MODELS, model_snapshot
 from .schemas import BatchCreate, FindingCreate, FindingReviewCreate
 
-QUERY_COVERAGE_POLICY_VERSION = "service2-query-outcomes-v1"
+QUERY_COVERAGE_POLICY_VERSION = "service2-query-retry-lineage-v2"
 RowData = Mapping[Any, Any]
 
 
@@ -119,6 +120,99 @@ def _safe_matrix(raw: object) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def _optional_decimal(value: object) -> Decimal | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        parsed = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+    return parsed if parsed.is_finite() and parsed >= 0 else None
+
+
+def _estimated_model_call_costs(
+    *,
+    input_tokens: int,
+    output_tokens: int,
+    search_event_count: int,
+    input_price: object,
+    output_price: object,
+    search_price: object,
+) -> tuple[Decimal | None, Decimal | None, Decimal | None, str]:
+    input_rate = _optional_decimal(input_price)
+    output_rate = _optional_decimal(output_price)
+    search_rate = _optional_decimal(search_price)
+    token_cost = (
+        (Decimal(input_tokens) * input_rate + Decimal(output_tokens) * output_rate)
+        / Decimal(1_000_000)
+        if input_rate is not None and output_rate is not None
+        else None
+    )
+    search_cost = Decimal(search_event_count) * search_rate if search_rate is not None else None
+    total_cost = (
+        token_cost + search_cost
+        if token_cost is not None and search_cost is not None
+        else token_cost
+        if token_cost is not None and search_event_count == 0
+        else None
+    )
+    completeness = (
+        "complete"
+        if total_cost is not None
+        else "token_only_search_price_unknown"
+        if token_cost is not None
+        else "token_pricing_incomplete"
+    )
+    return token_cost, search_cost, total_cost, completeness
+
+
+def _model_call_audit_completeness(
+    *,
+    provider_request_id: str | None,
+    provider_response_id: str | None,
+    resolved_provider: str | None,
+    provider_resolution_source: str,
+    resolved_model: str,
+    transport: str,
+    gateway_host: str | None,
+    protocol_route: str | None,
+    input_tokens: int,
+    output_tokens: int,
+    web_search_observed: bool,
+    search_event_count: int,
+    provider_citation_count: int,
+    source_origin: str,
+    response_sources: Sequence[Mapping[str, object]],
+    pricing_snapshot_complete: bool,
+) -> str:
+    """Summarize missing provider-originated facts without claiming false completeness."""
+
+    missing: list[str] = []
+    if not provider_request_id:
+        missing.append("req")
+    if not provider_response_id:
+        missing.append("res")
+    if not resolved_provider or provider_resolution_source == "not_observed":
+        missing.append("provider")
+    if not resolved_model.strip() or resolved_model in {"unknown", "not_observed"}:
+        missing.append("model")
+    if not transport.strip() or transport == "unknown" or not gateway_host or not protocol_route:
+        missing.append("route")
+    if input_tokens <= 0 or output_tokens <= 0:
+        missing.append("usage")
+    if not web_search_observed or search_event_count <= 0:
+        missing.append("search")
+    if (
+        provider_citation_count <= 0
+        or source_origin not in {"provider_citation", "provider_tool", "provider_grounding"}
+        or not response_sources
+    ):
+        missing.append("cite")
+    if not pricing_snapshot_complete:
+        missing.append("price")
+    return "complete" if not missing else f"missing:{','.join(missing)}"
+
+
 def _fetch_projection(row: RowData) -> tuple[str, str, str, str]:
     """Return fetch, processing, entity and judgment states for one U item."""
 
@@ -173,7 +267,14 @@ _PUBLIC_EVIDENCE_ID_KEYS = (
     "account_pub_id",
     "approval_pub_id",
 )
-_PUBLIC_EVIDENCE_TEXT_KEYS = ("title", "evidence_type", "type")
+_PUBLIC_EVIDENCE_TEXT_KEYS = (
+    "title",
+    "evidence_type",
+    "type",
+    "verification_status",
+    "content_sha256",
+    "retrieved_at",
+)
 
 
 def _safe_public_url(value: object) -> str | None:
@@ -252,6 +353,327 @@ class Service2CorpusService:
             value.strip() for value in allowed_analysis_models if value.strip()
         )
 
+    @staticmethod
+    def _require_full_window_entitlement(
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        project_id: uuid.UUID,
+        window_start: datetime,
+        window_end: datetime,
+        entitlement_id: uuid.UUID | None = None,
+        missing_code: str,
+    ) -> RowData:
+        """Require one active entitlement to contain the whole closed interval."""
+
+        row = (
+            session.execute(
+                text(
+                    """
+                    SELECT id,pub_id,catalog_version,state,authorized_from,authorized_until,
+                           updated_at
+                    FROM platform.project_service_entitlement
+                    WHERE tenant_id=:tenant_id AND project_id=:project_id
+                      AND service_code='outbound_disparagement_audit' AND state='active'
+                      AND (CAST(:entitlement_id AS uuid) IS NULL
+                           OR id=CAST(:entitlement_id AS uuid))
+                      AND (authorized_from IS NULL OR authorized_from<=:window_start)
+                      AND (authorized_until IS NULL OR authorized_until>=:window_end)
+                    ORDER BY updated_at DESC,pub_id DESC LIMIT 1
+                    """
+                ),
+                {
+                    "tenant_id": tenant_id,
+                    "project_id": project_id,
+                    "entitlement_id": entitlement_id,
+                    "window_start": window_start,
+                    "window_end": window_end,
+                },
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if row is None:
+            raise Conflict(missing_code)
+        return row
+
+    def _require_owned_evidence_assets(
+        self,
+        session: Session,
+        *,
+        tenant_pub_id: str,
+        project_pub_id: str,
+        evidence: Iterable[Mapping[str, object]],
+        allowed_kinds: frozenset[str],
+    ) -> None:
+        verified = [row for row in evidence if row.get("verification_status") == "verified"]
+        if not verified:
+            return
+        ids = {
+            str(row.get("evidence_pub_id") or "").strip()
+            for row in verified
+            if str(row.get("evidence_pub_id") or "").strip()
+        }
+        if len(ids) != len(verified):
+            raise EvidenceInvalid("verified_evidence_public_id_required")
+        rows = (
+            session.execute(
+                text(
+                    """
+                    SELECT pub_id,sha256,kind,object_key
+                    FROM evidence.evidence_asset
+                    WHERE tenant_pub_id=:tenant_pub_id AND project_pub_id=:project_pub_id
+                      AND pub_id=ANY(CAST(:pub_ids AS text[])) AND deleted_at IS NULL
+                    """
+                ),
+                {
+                    "tenant_pub_id": tenant_pub_id,
+                    "project_pub_id": project_pub_id,
+                    "pub_ids": sorted(ids),
+                },
+            )
+            .mappings()
+            .all()
+        )
+        assets = {str(row["pub_id"]): row for row in rows}
+        if set(assets) != ids:
+            raise EvidenceInvalid("verified_evidence_asset_not_owned")
+        for descriptor in verified:
+            pub_id = str(descriptor["evidence_pub_id"])
+            asset = assets[pub_id]
+            declared_kind = str(descriptor.get("evidence_type") or asset["kind"])
+            if (
+                asset["kind"] not in allowed_kinds
+                or declared_kind != asset["kind"]
+                or descriptor.get("content_sha256") != asset["sha256"]
+                or not asset["object_key"]
+            ):
+                raise EvidenceInvalid("verified_evidence_asset_type_or_hash_mismatch")
+            if self.store is not None:
+                try:
+                    self.store.get_verified(str(asset["object_key"]), str(asset["sha256"]))
+                except Exception as exc:
+                    raise EvidenceInvalid("verified_evidence_cas_integrity_failed") from exc
+
+    @staticmethod
+    def _resolve_collection_scope(
+        session: Session,
+        *,
+        tenant_id: uuid.UUID,
+        project_id: uuid.UUID,
+        selected_run_pub_ids: list[str],
+        window_start: datetime,
+        window_end: datetime,
+        snapshot_boundary: datetime,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Resolve physical retry runs into one immutable logical query ledger.
+
+        A selected retry child is normalized to its root run. For every root
+        ``business_key`` the deepest terminal task that existed at the frozen
+        boundary wins. A still-running retry therefore cannot hide the root
+        failure, while a completed retry replaces that failure without
+        duplicating the successful sibling queries.
+        """
+
+        ancestor_rows = (
+            session.execute(
+                text(
+                    """
+                    WITH RECURSIVE ancestors AS (
+                      SELECT selected.id AS selected_id,
+                             selected.pub_id AS selected_pub_id,
+                             selected.state AS selected_state,
+                             selected.id,selected.pub_id,selected.state,
+                             selected.total_tasks,selected.completed_tasks,
+                             selected.failed_tasks,selected.retry_of_run_pub_id,
+                             0 AS depth,ARRAY[selected.id]::uuid[] AS path
+                      FROM platform.collection_run selected
+                      WHERE selected.tenant_id=:tenant_id
+                        AND selected.project_id=:project_id
+                        AND selected.pub_id=ANY(CAST(:selected_run_pub_ids AS text[]))
+                      UNION ALL
+                      SELECT child.selected_id,child.selected_pub_id,child.selected_state,
+                             parent.id,parent.pub_id,parent.state,parent.total_tasks,
+                             parent.completed_tasks,parent.failed_tasks,
+                             parent.retry_of_run_pub_id,child.depth+1,
+                             child.path || parent.id
+                      FROM ancestors child
+                      JOIN platform.collection_run parent
+                        ON parent.tenant_id=:tenant_id
+                       AND parent.project_id=:project_id
+                       AND parent.pub_id=child.retry_of_run_pub_id
+                      WHERE child.retry_of_run_pub_id IS NOT NULL
+                        AND child.depth<100
+                        AND NOT parent.id=ANY(child.path)
+                    )
+                    SELECT DISTINCT ON (selected_id)
+                           selected_id,selected_pub_id,selected_state,
+                           id,pub_id,state,total_tasks,completed_tasks,failed_tasks,
+                           retry_of_run_pub_id,depth
+                    FROM ancestors
+                    ORDER BY selected_id,depth DESC
+                    """
+                ),
+                {
+                    "tenant_id": tenant_id,
+                    "project_id": project_id,
+                    "selected_run_pub_ids": selected_run_pub_ids,
+                },
+            )
+            .mappings()
+            .all()
+        )
+        if len(ancestor_rows) != len(selected_run_pub_ids):
+            raise NotFound("one_or_more_runs_not_found_in_project")
+        terminal_run_states = {
+            "completed",
+            "completed_with_failures",
+            "failed",
+            "cancelled",
+            "skipped",
+        }
+        if any(str(row["selected_state"]) not in terminal_run_states for row in ancestor_rows):
+            raise Conflict("service2_runs_must_be_terminal")
+        if any(row["retry_of_run_pub_id"] is not None for row in ancestor_rows):
+            raise Conflict("service2_retry_lineage_broken_or_cyclic")
+
+        roots_by_id = {row["id"]: dict(row) for row in ancestor_rows}
+        root_rows = sorted(roots_by_id.values(), key=lambda row: str(row["pub_id"]))
+        root_ids = [row["id"] for row in root_rows]
+        root_stats = {
+            row["run_id"]: row
+            for row in (
+                session.execute(
+                    text(
+                        """
+                        SELECT task.run_id,count(*)::int AS task_count,
+                               count(*) FILTER (
+                                 WHERE task.state IN ('completed','done')
+                               )::int AS successful_count,
+                               count(*) FILTER (WHERE task.state='failed')::int AS failed_count,
+                               count(*) FILTER (
+                                 WHERE task.state IN ('completed','done','failed')
+                                   AND COALESCE(task.terminal_at,task.updated_at)
+                                       <=:snapshot_boundary
+                               )::int AS frozen_terminal_count
+                        FROM platform.collection_task task
+                        WHERE task.tenant_id=:tenant_id
+                          AND task.run_id=ANY(CAST(:root_ids AS uuid[]))
+                        GROUP BY task.run_id
+                        """
+                    ),
+                    {
+                        "tenant_id": tenant_id,
+                        "root_ids": root_ids,
+                        "snapshot_boundary": snapshot_boundary,
+                    },
+                )
+                .mappings()
+                .all()
+            )
+        }
+        for root in root_rows:
+            stats = root_stats.get(root["id"])
+            if (
+                stats is None
+                or int(stats["task_count"]) != int(root["total_tasks"])
+                or int(stats["successful_count"]) != int(root["completed_tasks"])
+                or int(stats["failed_count"]) != int(root["failed_tasks"])
+                or int(stats["frozen_terminal_count"]) != int(root["total_tasks"])
+            ):
+                raise Conflict("service2_run_task_outcomes_incomplete")
+
+        query_rows = [
+            dict(row)
+            for row in (
+                session.execute(
+                    text(
+                        """
+                        WITH RECURSIVE lineage AS (
+                          SELECT root.id AS root_run_id,root.pub_id AS root_run_pub_id,
+                                 root.id AS run_id,root.pub_id AS run_pub_id,
+                                 0 AS retry_depth,ARRAY[root.id]::uuid[] AS path
+                          FROM platform.collection_run root
+                          WHERE root.tenant_id=:tenant_id
+                            AND root.project_id=:project_id
+                            AND root.id=ANY(CAST(:root_ids AS uuid[]))
+                          UNION ALL
+                          SELECT parent.root_run_id,parent.root_run_pub_id,
+                                 child.id,child.pub_id,parent.retry_depth+1,
+                                 parent.path || child.id
+                          FROM lineage parent
+                          JOIN platform.collection_run child
+                            ON child.tenant_id=:tenant_id
+                           AND child.project_id=:project_id
+                           AND child.retry_of_run_pub_id=parent.run_pub_id
+                           AND child.created_at<=:snapshot_boundary
+                          WHERE parent.retry_depth<100
+                            AND NOT child.id=ANY(parent.path)
+                        ), ranked AS (
+                          SELECT lineage.root_run_id,lineage.root_run_pub_id,
+                                 lineage.run_id,lineage.run_pub_id,lineage.retry_depth,
+                                 task.id,task.pub_id,task.business_key,task.quality_state,
+                                 CASE WHEN task.state IN ('completed','done')
+                                      THEN 'completed' ELSE 'failed' END AS state,
+                                 btrim(COALESCE(task.answer_text,''))<>'' AS answer_present,
+                                 COALESCE(task.terminal_at,task.updated_at) AS terminal_at,
+                                 row_number() OVER (
+                                   PARTITION BY lineage.root_run_id,task.business_key
+                                   ORDER BY lineage.retry_depth DESC,
+                                            COALESCE(task.terminal_at,task.updated_at) DESC,
+                                            task.pub_id DESC
+                                 ) AS resolution_ordinal
+                          FROM lineage
+                          JOIN platform.collection_task task
+                            ON task.tenant_id=:tenant_id AND task.run_id=lineage.run_id
+                          WHERE task.state IN ('completed','done','failed')
+                            AND COALESCE(task.terminal_at,task.updated_at)<=:snapshot_boundary
+                        )
+                        SELECT ranked.root_run_id,ranked.root_run_pub_id,
+                               ranked.run_id,ranked.run_pub_id,ranked.retry_depth,
+                               ranked.id,ranked.pub_id,ranked.business_key,
+                               ranked.quality_state,ranked.state,ranked.answer_present,
+                               ranked.terminal_at,
+                               count(occurrence.id) FILTER (
+                                 WHERE occurrence.captured_at>=:window_start
+                                   AND occurrence.captured_at<=:window_end
+                                   AND occurrence.created_at<=:snapshot_boundary
+                               )::int AS u_occurrence_count
+                        FROM ranked
+                        LEFT JOIN platform.answer_source_occurrence occurrence
+                          ON occurrence.tenant_id=:tenant_id
+                         AND occurrence.project_id=:project_id
+                         AND occurrence.run_id=ranked.run_id
+                         AND occurrence.answer_task_id=ranked.id
+                        WHERE ranked.resolution_ordinal=1
+                        GROUP BY ranked.root_run_id,ranked.root_run_pub_id,
+                                 ranked.run_id,ranked.run_pub_id,ranked.retry_depth,
+                                 ranked.id,ranked.pub_id,ranked.business_key,
+                                 ranked.quality_state,ranked.state,ranked.answer_present,
+                                 ranked.terminal_at
+                        ORDER BY ranked.root_run_pub_id,ranked.business_key,ranked.pub_id
+                        """
+                    ),
+                    {
+                        "tenant_id": tenant_id,
+                        "project_id": project_id,
+                        "root_ids": root_ids,
+                        "window_start": window_start,
+                        "window_end": window_end,
+                        "snapshot_boundary": snapshot_boundary,
+                    },
+                )
+                .mappings()
+                .all()
+            )
+        ]
+        resolved_by_root = Counter(row["root_run_id"] for row in query_rows)
+        if any(resolved_by_root[root["id"]] != int(root["total_tasks"]) for root in root_rows):
+            raise Conflict("service2_query_retry_resolution_incomplete")
+        if any(row["state"] == "completed" and not row["answer_present"] for row in query_rows):
+            raise Conflict("service2_successful_query_answer_missing")
+        return root_rows, query_rows
+
     def create_batch(
         self,
         session: Session,
@@ -269,18 +691,57 @@ class Service2CorpusService:
             raise Invalid("snapshot_boundary_in_future")
         if body.analysis_model not in self.allowed_analysis_models:
             raise Invalid("analysis_model_not_allowed")
-        run_pub_ids = sorted(body.run_pub_ids)
+        requested_run_pub_ids = sorted(body.run_pub_ids)
+        run_rows, query_rows = self._resolve_collection_scope(
+            session,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            selected_run_pub_ids=requested_run_pub_ids,
+            window_start=body.window_start,
+            window_end=body.window_end,
+            snapshot_boundary=body.source_snapshot_boundary,
+        )
+        run_pub_ids = [str(row["pub_id"]) for row in run_rows]
+        successful_task_ids = [row["id"] for row in query_rows if row["state"] == "completed"]
+        resolved_physical_run_pub_ids = sorted({str(row["run_pub_id"]) for row in query_rows})
+        query_resolution_snapshot = [
+            {
+                "root_run_pub_id": str(row["root_run_pub_id"]),
+                "business_key": str(row["business_key"]),
+                "resolved_run_pub_id": str(row["run_pub_id"]),
+                "resolved_task_pub_id": str(row["pub_id"]),
+                "retry_depth": int(row["retry_depth"]),
+                "outcome": ("succeeded" if row["state"] == "completed" else "failed"),
+                "terminal_at": row["terminal_at"].astimezone(UTC).isoformat(),
+            }
+            for row in query_rows
+        ]
         scope_selector = {
             "tenant_pub_id": tenant_pub_id,
             "project_pub_id": project_pub_id,
             "run_pub_ids": run_pub_ids,
+            "physical_run_pub_ids": resolved_physical_run_pub_ids,
             "window_start": body.window_start.astimezone(UTC).isoformat(),
             "window_end": body.window_end.astimezone(UTC).isoformat(),
             "source_snapshot_boundary": body.source_snapshot_boundary.astimezone(UTC).isoformat(),
             "corpus_policy_version": body.corpus_policy_version,
             "judgment_policy_version": body.judgment_policy_version,
             "query_coverage_policy_version": QUERY_COVERAGE_POLICY_VERSION,
+            "query_resolution_hash": _hash_json(query_resolution_snapshot),
+            "query_resolution_contract": {
+                "logical_identity": "root_run_pub_id+business_key",
+                "winner": "deepest_terminal_retry_at_snapshot_boundary",
+                "running_retry_behavior": "retain_latest_terminal_failure",
+                "successful_sibling_behavior": "preserve_without_reexecution",
+            },
             "analysis_model": body.analysis_model,
+            "analysis_model_snapshot": model_snapshot(body.analysis_model),
+            "analysis_execution_contract": {
+                "prompt_version": "service2-relation-web-search-v2",
+                "paid_call_boundary": "one_item_one_durable_claim",
+                "search_proof": "provider_response_telemetry_required",
+                "source_proof": "provider_citation_then_server_fetch_and_cas",
+            },
         }
         scope_hash = _hash_json(scope_selector)
         idem = _idempotency_hash(tenant_pub_id, "service2-batch-create", idempotency_key)
@@ -324,32 +785,14 @@ class Service2CorpusService:
         if existing is not None:
             return MaterializedBatch(str(existing["pub_id"]), True)
 
-        entitlement = (
-            session.execute(
-                text(
-                    """
-                    SELECT id,pub_id,catalog_version,state,authorized_from,authorized_until,
-                           updated_at
-                    FROM platform.project_service_entitlement
-                    WHERE tenant_id=:tenant_id AND project_id=:project_id
-                      AND service_code='outbound_disparagement_audit' AND state='active'
-                      AND (authorized_from IS NULL OR authorized_from<=:window_end)
-                      AND (authorized_until IS NULL OR authorized_until>=:window_start)
-                    ORDER BY updated_at DESC,pub_id DESC LIMIT 1
-                    """
-                ),
-                {
-                    "tenant_id": tenant_id,
-                    "project_id": project_id,
-                    "window_start": body.window_start,
-                    "window_end": body.window_end,
-                },
-            )
-            .mappings()
-            .one_or_none()
+        entitlement = self._require_full_window_entitlement(
+            session,
+            tenant_id=tenant_id,
+            project_id=project_id,
+            window_start=body.window_start,
+            window_end=body.window_end,
+            missing_code="service2_entitlement_required",
         )
-        if entitlement is None:
-            raise Conflict("service2_entitlement_required")
         entitlement_revision = _hash_json(
             {
                 "pub_id": str(entitlement["pub_id"]),
@@ -368,91 +811,6 @@ class Service2CorpusService:
                 "updated_at": entitlement["updated_at"].isoformat(),
             }
         )
-        run_rows = (
-            session.execute(
-                text(
-                    """
-                    SELECT id,pub_id,state,total_tasks,completed_tasks,failed_tasks
-                    FROM platform.collection_run
-                    WHERE tenant_id=:tenant_id AND project_id=:project_id
-                      AND pub_id=ANY(:run_pub_ids)
-                    ORDER BY pub_id
-                    """
-                ),
-                {
-                    "tenant_id": tenant_id,
-                    "project_id": project_id,
-                    "run_pub_ids": run_pub_ids,
-                },
-            )
-            .mappings()
-            .all()
-        )
-        if [str(row["pub_id"]) for row in run_rows] != run_pub_ids:
-            raise NotFound("one_or_more_runs_not_found_in_project")
-        if any(
-            str(row["state"]) not in {"completed", "completed_with_failures"} for row in run_rows
-        ):
-            raise Conflict("service2_runs_must_be_terminal")
-        run_ids = [row["id"] for row in run_rows]
-        query_rows = (
-            session.execute(
-                text(
-                    """
-                    SELECT task.id,task.pub_id,task.run_id,run.pub_id AS run_pub_id,
-                           task.state,task.quality_state,
-                           btrim(COALESCE(task.answer_text,''))<>'' AS answer_present,
-                           count(occurrence.id) FILTER (
-                             WHERE occurrence.captured_at>=:window_start
-                               AND occurrence.captured_at<=:window_end
-                               AND occurrence.created_at<=:snapshot_boundary
-                           )::int AS u_occurrence_count
-                    FROM platform.collection_task task
-                    JOIN platform.collection_run run ON run.id=task.run_id
-                    LEFT JOIN platform.answer_source_occurrence occurrence
-                      ON occurrence.tenant_id=task.tenant_id
-                     AND occurrence.project_id=run.project_id
-                     AND occurrence.run_id=task.run_id
-                     AND occurrence.answer_task_id=task.id
-                    WHERE task.tenant_id=:tenant_id
-                      AND run.project_id=:project_id
-                      AND task.run_id=ANY(:run_ids)
-                    GROUP BY task.id,task.pub_id,task.run_id,run.pub_id,task.state,
-                             task.quality_state,task.answer_text,task.created_at
-                    ORDER BY run.pub_id,task.created_at,task.pub_id
-                    """
-                ),
-                {
-                    "tenant_id": tenant_id,
-                    "project_id": project_id,
-                    "run_ids": run_ids,
-                    "window_start": body.window_start,
-                    "window_end": body.window_end,
-                    "snapshot_boundary": body.source_snapshot_boundary,
-                },
-            )
-            .mappings()
-            .all()
-        )
-        queries_by_run: Counter[uuid.UUID] = Counter(row["run_id"] for row in query_rows)
-        succeeded_by_run: Counter[uuid.UUID] = Counter(
-            row["run_id"] for row in query_rows if str(row["state"]) == "done"
-        )
-        failed_by_run: Counter[uuid.UUID] = Counter(
-            row["run_id"] for row in query_rows if str(row["state"]) == "failed"
-        )
-        for run in run_rows:
-            run_id = run["id"]
-            if (
-                queries_by_run[run_id] != int(run["total_tasks"])
-                or succeeded_by_run[run_id] != int(run["completed_tasks"])
-                or failed_by_run[run_id] != int(run["failed_tasks"])
-            ):
-                raise Conflict("service2_run_task_outcomes_incomplete")
-        if any(str(row["state"]) not in {"done", "failed"} for row in query_rows):
-            raise Conflict("service2_run_task_outcomes_incomplete")
-        if any(str(row["state"]) == "done" and not row["answer_present"] for row in query_rows):
-            raise Conflict("service2_successful_query_answer_missing")
         counts = (
             session.execute(
                 text(
@@ -460,11 +818,9 @@ class Service2CorpusService:
                     SELECT count(*)::int AS expected,
                            count(DISTINCT occurrence.source_url_id)::int AS distinct_urls
                     FROM platform.answer_source_occurrence occurrence
-                    JOIN platform.collection_task task
-                      ON task.id=occurrence.answer_task_id AND task.state='done'
                     WHERE occurrence.tenant_id=:tenant_id
                       AND occurrence.project_id=:project_id
-                      AND occurrence.run_id=ANY(:run_ids)
+                      AND occurrence.answer_task_id=ANY(CAST(:task_ids AS uuid[]))
                       AND occurrence.captured_at>=:window_start
                       AND occurrence.captured_at<=:window_end
                       AND occurrence.created_at<=:snapshot_boundary
@@ -473,7 +829,7 @@ class Service2CorpusService:
                 {
                     "tenant_id": tenant_id,
                     "project_id": project_id,
-                    "run_ids": run_ids,
+                    "task_ids": successful_task_ids,
                     "window_start": body.window_start,
                     "window_end": body.window_end,
                     "snapshot_boundary": body.source_snapshot_boundary,
@@ -485,7 +841,7 @@ class Service2CorpusService:
         expected = int(counts["expected"])
         distinct_urls = int(counts["distinct_urls"])
         if expected != sum(
-            int(row["u_occurrence_count"]) for row in query_rows if str(row["state"]) == "done"
+            int(row["u_occurrence_count"]) for row in query_rows if row["state"] == "completed"
         ):
             raise Conflict("service2_query_occurrence_count_mismatch")
         batch_id = uuid.uuid4()
@@ -557,32 +913,46 @@ class Service2CorpusService:
                 text(
                     """
                     INSERT INTO platform.service2_corpus_batch_query
-                      (id,pub_id,tenant_id,project_id,batch_id,run_id,run_pub_id,
-                       answer_task_id,answer_task_pub_id,ordinal,task_state,outcome,
-                       failure_code,answer_present,u_occurrence_count,created_at)
+                      (id,pub_id,tenant_id,project_id,batch_id,
+                       root_run_id,root_run_pub_id,run_id,run_pub_id,
+                       answer_task_id,answer_task_pub_id,business_key,retry_depth,
+                       resolved_task_terminal_at,ordinal,task_state,outcome,failure_code,
+                       answer_present,u_occurrence_count,created_at)
                     VALUES
-                      (:id,:pub_id,:tenant_id,:project_id,:batch_id,:run_id,:run_pub_id,
-                       :answer_task_id,:answer_task_pub_id,:ordinal,:task_state,:outcome,
-                       :failure_code,:answer_present,:u_occurrence_count,now())
+                      (:id,:pub_id,:tenant_id,:project_id,:batch_id,
+                       :root_run_id,:root_run_pub_id,:run_id,:run_pub_id,
+                       :answer_task_id,:answer_task_pub_id,:business_key,:retry_depth,
+                       :resolved_task_terminal_at,:ordinal,:task_state,:outcome,:failure_code,
+                       :answer_present,:u_occurrence_count,now())
                     """
                 ),
                 [
                     {
-                        "id": _stable_uuid(f"{batch_pub_id}|query|{row['pub_id']}"),
-                        "pub_id": _stable_pub_id("s2q", f"{batch_pub_id}|{row['pub_id']}"),
+                        "id": _stable_uuid(
+                            f"{batch_pub_id}|query|{row['root_run_pub_id']}|{row['business_key']}"
+                        ),
+                        "pub_id": _stable_pub_id(
+                            "s2q",
+                            f"{batch_pub_id}|{row['root_run_pub_id']}|{row['business_key']}",
+                        ),
                         "tenant_id": tenant_id,
                         "project_id": project_id,
                         "batch_id": batch_id,
+                        "root_run_id": row["root_run_id"],
+                        "root_run_pub_id": row["root_run_pub_id"],
                         "run_id": row["run_id"],
                         "run_pub_id": row["run_pub_id"],
                         "answer_task_id": row["id"],
                         "answer_task_pub_id": row["pub_id"],
+                        "business_key": row["business_key"],
+                        "retry_depth": int(row["retry_depth"]),
+                        "resolved_task_terminal_at": row["terminal_at"],
                         "ordinal": ordinal,
                         "task_state": row["state"],
-                        "outcome": "succeeded" if row["state"] == "done" else "failed",
+                        "outcome": ("succeeded" if row["state"] == "completed" else "failed"),
                         "failure_code": (
                             None
-                            if row["state"] == "done"
+                            if row["state"] == "completed"
                             else str(row["quality_state"] or "query_failed")[:120]
                         ),
                         "answer_present": bool(row["answer_present"]),
@@ -636,8 +1006,7 @@ class Service2CorpusService:
                 ) attempt ON TRUE
                 WHERE occurrence.tenant_id=:tenant_id
                   AND occurrence.project_id=:project_id
-                  AND occurrence.run_id=ANY(:run_ids)
-                  AND task.state='done'
+                  AND occurrence.answer_task_id=ANY(CAST(:task_ids AS uuid[]))
                   AND occurrence.captured_at>=:window_start
                   AND occurrence.captured_at<=:window_end
                   AND occurrence.created_at<=:snapshot_boundary
@@ -647,7 +1016,7 @@ class Service2CorpusService:
             {
                 "tenant_id": tenant_id,
                 "project_id": project_id,
-                "run_ids": run_ids,
+                "task_ids": successful_task_ids,
                 "window_start": body.window_start,
                 "window_end": body.window_end,
                 "snapshot_boundary": body.source_snapshot_boundary,
@@ -766,8 +1135,9 @@ class Service2CorpusService:
                 "scope_selector_hash": scope_hash,
                 "expected_occurrences": expected,
                 "selected_queries": len(query_rows),
-                "successful_queries": sum(1 for row in query_rows if str(row["state"]) == "done"),
-                "failed_queries": sum(1 for row in query_rows if str(row["state"]) == "failed"),
+                "successful_queries": sum(1 for row in query_rows if row["state"] == "completed"),
+                "failed_queries": sum(1 for row in query_rows if row["state"] == "failed"),
+                "resolved_physical_run_pub_ids": resolved_physical_run_pub_ids,
                 "analysis_model": body.analysis_model,
             },
         )
@@ -870,31 +1240,15 @@ class Service2CorpusService:
         )
         current = str(batch["status"])
         if action in {"start", "resume", "retry"}:
-            entitlement_active = session.execute(
-                text(
-                    """
-                    SELECT 1 FROM platform.project_service_entitlement entitlement
-                    WHERE entitlement.id=:entitlement_id
-                      AND entitlement.tenant_id=:tenant_id
-                      AND entitlement.project_id=:project_id
-                      AND entitlement.service_code='outbound_disparagement_audit'
-                      AND entitlement.state='active'
-                      AND (entitlement.authorized_from IS NULL
-                           OR entitlement.authorized_from<=:window_end)
-                      AND (entitlement.authorized_until IS NULL
-                           OR entitlement.authorized_until>=:window_start)
-                    """
-                ),
-                {
-                    "entitlement_id": batch["service_entitlement_id"],
-                    "tenant_id": tenant_id,
-                    "project_id": project_id,
-                    "window_start": batch["window_start"],
-                    "window_end": batch["window_end"],
-                },
-            ).scalar_one_or_none()
-            if entitlement_active is None:
-                raise Conflict("service2_entitlement_inactive")
+            self._require_full_window_entitlement(
+                session,
+                tenant_id=tenant_id,
+                project_id=project_id,
+                entitlement_id=batch["service_entitlement_id"],
+                window_start=batch["window_start"],
+                window_end=batch["window_end"],
+                missing_code="service2_entitlement_inactive",
+            )
         allowed: dict[str, set[str]] = {
             "start": {"draft"},
             "pause": {"queued", "running"},
@@ -1122,6 +1476,40 @@ class Service2CorpusService:
                              WHERE ledger='statement' AND level<>'L0'
                                AND validation_status='exact'
                                AND visual_validation_status='verified'
+                               AND EXISTS (
+                                 SELECT 1 FROM evidence.evidence_asset visual_asset
+                                 WHERE visual_asset.pub_id=visual_anchor->>'evidence_pub_id'
+                                   AND visual_asset.tenant_pub_id=(
+                                     SELECT pub_id FROM platform.tenant
+                                     WHERE id=service2_relation_finding.tenant_id
+                                   )
+                                   AND visual_asset.project_pub_id=(
+                                     SELECT pub_id FROM platform.project
+                                     WHERE id=service2_relation_finding.project_id
+                                   )
+                                   AND visual_asset.sha256=visual_anchor->>'content_sha256'
+                                   AND visual_asset.kind='service2_exact_quote_screenshot'
+                                   AND visual_asset.deleted_at IS NULL
+                                   AND btrim(visual_asset.object_key)<>''
+                               )
+                               AND EXISTS (
+                                 SELECT 1 FROM evidence.evidence_asset page_asset
+                                 WHERE page_asset.pub_id=
+                                         visual_anchor->>'page_snapshot_evidence_pub_id'
+                                   AND page_asset.tenant_pub_id=(
+                                     SELECT pub_id FROM platform.tenant
+                                     WHERE id=service2_relation_finding.tenant_id
+                                   )
+                                   AND page_asset.project_pub_id=(
+                                     SELECT pub_id FROM platform.project
+                                     WHERE id=service2_relation_finding.project_id
+                                   )
+                                   AND page_asset.sha256=
+                                         visual_anchor->>'page_snapshot_sha256'
+                                   AND page_asset.kind='service2_visual_page_snapshot'
+                                   AND page_asset.deleted_at IS NULL
+                                   AND btrim(page_asset.object_key)<>''
+                               )
                                AND current_review_state='accepted'
                                AND factcheck_claim IS NOT NULL
                                AND factcheck_verdict IS NOT NULL
@@ -1133,16 +1521,29 @@ class Service2CorpusService:
                                   AND EXISTS (
                                     SELECT 1
                                     FROM jsonb_array_elements(factcheck_evidence) evidence(value)
-                                    WHERE COALESCE(
+                                    JOIN evidence.evidence_asset fact_asset
+                                      ON fact_asset.pub_id=COALESCE(
                                       NULLIF(btrim(evidence.value->>'evidence_pub_id'),''),
                                       NULLIF(btrim(evidence.value->>'source_pub_id'),''),
-                                      NULLIF(btrim(evidence.value->>'document_pub_id'),''),
-                                      NULLIF(btrim(evidence.value->>'account_pub_id'),''),
-                                      NULLIF(btrim(evidence.value->>'approval_pub_id'),'')
-                                    ) IS NOT NULL
-                                    OR btrim(COALESCE(
-                                      evidence.value->>'url',evidence.value->>'source_url',''
-                                    )) ~* '^https?://[^/?#[:space:]]+'
+                                      NULLIF(btrim(evidence.value->>'document_pub_id'),'')
+                                    )
+                                    WHERE evidence.value->>'verification_status'='verified'
+                                      AND evidence.value->>'content_sha256' ~ '^[0-9a-f]{64}$'
+                                      AND btrim(COALESCE(
+                                        evidence.value->>'retrieved_at',''
+                                      ))<>''
+                                      AND fact_asset.tenant_pub_id=(
+                                        SELECT pub_id FROM platform.tenant
+                                        WHERE id=service2_relation_finding.tenant_id
+                                      )
+                                      AND fact_asset.project_pub_id=(
+                                        SELECT pub_id FROM platform.project
+                                        WHERE id=service2_relation_finding.project_id
+                                      )
+                                      AND fact_asset.sha256=evidence.value->>'content_sha256'
+                                      AND fact_asset.kind='service2_factcheck_source'
+                                      AND fact_asset.deleted_at IS NULL
+                                      AND btrim(fact_asset.object_key)<>''
                                   ))
                                )
                            )::int AS eligible
@@ -1279,6 +1680,291 @@ class Service2CorpusService:
             },
         )
 
+    def claim_model_call(
+        self,
+        session: Session,
+        *,
+        item: RowData,
+        snapshot_id: uuid.UUID,
+        input_hash: str,
+        model: str,
+        prompt_version: str,
+        policy_version: str,
+        catalog_snapshot: Mapping[str, object],
+    ) -> tuple[RowData, bool]:
+        """Durably reserve one external paid call before any network request."""
+
+        call_key = sha256(
+            "|".join(
+                (
+                    str(item["pub_id"]),
+                    str(snapshot_id),
+                    policy_version,
+                    model,
+                    prompt_version,
+                    input_hash,
+                )
+            ).encode()
+        ).hexdigest()
+        pub_id = _stable_pub_id("s2c", call_key)
+        input_price = _optional_decimal(catalog_snapshot.get("input_usd_per_million_tokens"))
+        output_price = _optional_decimal(catalog_snapshot.get("output_usd_per_million_tokens"))
+        search_price = _optional_decimal(catalog_snapshot.get("web_search_usd_per_call"))
+        inserted = session.execute(
+            text(
+                """
+                INSERT INTO platform.service2_model_call
+                  (id,pub_id,tenant_id,project_id,batch_id,corpus_item_id,snapshot_id,
+                   call_key,idempotency_key,state,requested_model,resolved_model,
+                   catalog_snapshot,catalog_revision,catalog_provider,
+                   provider_resolution_source,prompt_version,policy_version,input_hash,
+                   pricing_currency,input_usd_per_million_tokens,
+                   output_usd_per_million_tokens,web_search_usd_per_call,
+                   web_search_pricing_status,cost_completeness,
+                   audit_completeness,
+                   response_sources,claimed_at,created_at,updated_at)
+                VALUES
+                  (:id,:pub_id,:tenant_id,:project_id,:batch_id,:item_id,:snapshot_id,
+                   :call_key,:idempotency_key,'claimed',:model,:model,
+                   CAST(:catalog_snapshot AS jsonb),:catalog_revision,:catalog_provider,
+                   'not_observed',:prompt_version,:policy_version,:input_hash,
+                   :pricing_currency,:input_price,:output_price,:search_price,
+                   :search_pricing_status,:cost_completeness,
+                   'pending_provider_response',
+                   '[]'::jsonb,now(),now(),now())
+                ON CONFLICT (call_key) DO NOTHING
+                RETURNING id
+                """
+            ),
+            {
+                "id": _stable_uuid(f"model-call|{call_key}"),
+                "pub_id": pub_id,
+                "tenant_id": item["tenant_id"],
+                "project_id": item["project_id"],
+                "batch_id": item["batch_id"],
+                "item_id": item["id"],
+                "snapshot_id": snapshot_id,
+                "call_key": call_key,
+                "idempotency_key": f"service2-{input_hash}",
+                "model": model,
+                "catalog_snapshot": _canonical_json(dict(catalog_snapshot)),
+                "catalog_revision": str(catalog_snapshot.get("catalog_revision") or "unknown")[:80],
+                "catalog_provider": str(catalog_snapshot.get("provider") or "unknown")[:80],
+                "pricing_currency": str(catalog_snapshot.get("pricing_currency") or "USD")[:3],
+                "input_price": input_price,
+                "output_price": output_price,
+                "search_price": search_price,
+                "search_pricing_status": str(
+                    catalog_snapshot.get("web_search_pricing_status") or "not_observed"
+                )[:48],
+                "cost_completeness": (
+                    "pending_usage"
+                    if input_price is not None and output_price is not None
+                    else "token_pricing_incomplete"
+                ),
+                "prompt_version": prompt_version,
+                "policy_version": policy_version,
+                "input_hash": input_hash,
+            },
+        ).scalar_one_or_none()
+        row = (
+            session.execute(
+                text(
+                    """
+                    SELECT * FROM platform.service2_model_call
+                    WHERE call_key=:call_key
+                    FOR UPDATE
+                    """
+                ),
+                {"call_key": call_key},
+            )
+            .mappings()
+            .one()
+        )
+        return row, inserted is not None
+
+    def complete_model_call(
+        self,
+        session: Session,
+        *,
+        call_pub_id: str,
+        data: Mapping[str, object],
+        sources: Iterable[Mapping[str, object]],
+        usage: Mapping[str, int],
+        transport: str,
+        resolved_model: str,
+        provider_request_id: str | None,
+        provider_response_id: str | None,
+        resolved_provider: str | None,
+        provider_resolution_source: str,
+        gateway_host: str | None,
+        protocol_route: str | None,
+        web_search_observed: bool,
+        search_event_count: int,
+        provider_citation_count: int,
+        source_origin: str,
+    ) -> RowData:
+        """Persist a normalized provider response immediately for crash replay."""
+
+        source_rows = [dict(row) for row in sources]
+        input_tokens = int(usage.get("input_tokens") or 0)
+        output_tokens = int(usage.get("output_tokens") or 0)
+        response_payload: dict[str, object] = {
+            "data": dict(data),
+            "sources": source_rows,
+            "usage": {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+            },
+            "audit": {
+                "transport": transport,
+                "resolved_model": resolved_model,
+                "provider_request_id": provider_request_id,
+                "provider_response_id": provider_response_id,
+                "resolved_provider": resolved_provider,
+                "provider_resolution_source": provider_resolution_source,
+                "gateway_host": gateway_host,
+                "protocol_route": protocol_route,
+                "web_search_observed": web_search_observed,
+                "search_event_count": search_event_count,
+                "provider_citation_count": provider_citation_count,
+                "source_origin": source_origin,
+            },
+        }
+        response_hash = _hash_json(response_payload)
+        row = (
+            session.execute(
+                text(
+                    """
+                    SELECT * FROM platform.service2_model_call
+                    WHERE pub_id=:pub_id FOR UPDATE
+                    """
+                ),
+                {"pub_id": call_pub_id},
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if row is None:
+            raise NotFound("service2_model_call_not_found")
+        if row["state"] == "succeeded":
+            if row["response_hash"] != response_hash:
+                raise Conflict("service2_model_call_response_drift")
+            return row
+        if row["state"] not in {"claimed", "ambiguous"}:
+            raise Conflict(f"service2_model_call_not_completable_from_{row['state']}")
+        token_cost, search_cost, total_cost, cost_completeness = _estimated_model_call_costs(
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            search_event_count=search_event_count,
+            input_price=row["input_usd_per_million_tokens"],
+            output_price=row["output_usd_per_million_tokens"],
+            search_price=row["web_search_usd_per_call"],
+        )
+        audit_completeness = _model_call_audit_completeness(
+            provider_request_id=provider_request_id,
+            provider_response_id=provider_response_id,
+            resolved_provider=resolved_provider,
+            provider_resolution_source=provider_resolution_source,
+            resolved_model=resolved_model,
+            transport=transport,
+            gateway_host=gateway_host,
+            protocol_route=protocol_route,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            web_search_observed=web_search_observed,
+            search_event_count=search_event_count,
+            provider_citation_count=provider_citation_count,
+            source_origin=source_origin,
+            response_sources=source_rows,
+            pricing_snapshot_complete=bool(
+                row["catalog_revision"]
+                and row["catalog_provider"]
+                and row["pricing_currency"]
+                and row["input_usd_per_million_tokens"] is not None
+                and row["output_usd_per_million_tokens"] is not None
+                and row["web_search_pricing_status"]
+            ),
+        )
+        session.execute(
+            text(
+                """
+                UPDATE platform.service2_model_call
+                SET state='succeeded',transport=:transport,protocol_route=:protocol_route,
+                    gateway_host=:gateway_host,resolved_model=:resolved_model,
+                    resolved_provider=:resolved_provider,
+                    provider_resolution_source=:provider_resolution_source,
+                    provider_request_id=:provider_request_id,
+                    provider_response_id=:provider_response_id,
+                    web_search_observed=:web_search_observed,
+                    search_event_count=:search_event_count,
+                    provider_citation_count=:provider_citation_count,
+                    source_origin=:source_origin,input_tokens=:input_tokens,
+                    output_tokens=:output_tokens,
+                    estimated_token_cost_usd=:token_cost,
+                    estimated_search_cost_usd=:search_cost,
+                    estimated_total_cost_usd=:total_cost,
+                    cost_completeness=:cost_completeness,
+                    audit_completeness=:audit_completeness,
+                    response_data=CAST(:response_data AS jsonb),
+                    response_sources=CAST(:response_sources AS jsonb),
+                    response_hash=:response_hash,error_code=NULL,completed_at=now(),updated_at=now()
+                WHERE pub_id=:pub_id
+                """
+            ),
+            {
+                "pub_id": call_pub_id,
+                "transport": transport,
+                "resolved_model": resolved_model,
+                "provider_request_id": provider_request_id,
+                "provider_response_id": provider_response_id,
+                "resolved_provider": resolved_provider,
+                "provider_resolution_source": provider_resolution_source[:40],
+                "gateway_host": gateway_host,
+                "protocol_route": protocol_route,
+                "web_search_observed": web_search_observed,
+                "search_event_count": search_event_count,
+                "provider_citation_count": provider_citation_count,
+                "source_origin": source_origin,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "token_cost": token_cost,
+                "search_cost": search_cost,
+                "total_cost": total_cost,
+                "cost_completeness": cost_completeness,
+                "audit_completeness": audit_completeness,
+                "response_data": _canonical_json(dict(data)),
+                "response_sources": _canonical_json(source_rows),
+                "response_hash": response_hash,
+            },
+        )
+        return (
+            session.execute(
+                text("SELECT * FROM platform.service2_model_call WHERE pub_id=:pub_id"),
+                {"pub_id": call_pub_id},
+            )
+            .mappings()
+            .one()
+        )
+
+    def fail_model_call(
+        self, session: Session, *, call_pub_id: str, error_code: str, ambiguous: bool
+    ) -> None:
+        session.execute(
+            text(
+                """
+                UPDATE platform.service2_model_call
+                SET state=:state,error_code=:error_code,completed_at=now(),updated_at=now()
+                WHERE pub_id=:pub_id AND state='claimed'
+                """
+            ),
+            {
+                "pub_id": call_pub_id,
+                "state": "ambiguous" if ambiguous else "failed",
+                "error_code": error_code[:120],
+            },
+        )
+
     def create_finding(
         self,
         session: Session,
@@ -1364,6 +2050,27 @@ class Service2CorpusService:
                 failure_codes=("snapshot_body_integrity_or_encoding_failure",),
             )
             raise EvidenceInvalid("snapshot_body_integrity_or_encoding_failure") from exc
+        for attribution in (body.publisher, body.commissioner):
+            self._require_owned_evidence_assets(
+                session,
+                tenant_pub_id=str(item["tenant_pub_id"]),
+                project_pub_id=str(item["project_pub_id"]),
+                evidence=attribution.evidence,
+                allowed_kinds=frozenset(
+                    {
+                        "service2_attribution_source",
+                        "service2_factcheck_source",
+                        "service2_visual_page_snapshot",
+                    }
+                ),
+            )
+        self._require_owned_evidence_assets(
+            session,
+            tenant_pub_id=str(item["tenant_pub_id"]),
+            project_pub_id=str(item["project_pub_id"]),
+            evidence=body.factcheck_evidence,
+            allowed_kinds=frozenset({"service2_factcheck_source"}),
+        )
         flags = OrthogonalFlags(**body.flags.model_dump())
         candidate = RelationFindingCandidate(
             ledger=Ledger(body.ledger),
@@ -1420,16 +2127,35 @@ class Service2CorpusService:
                         SELECT anchor.pub_id AS anchor_pub_id,asset.pub_id AS evidence_pub_id,
                                anchor.quote_hash,anchor.text_start,anchor.text_end,
                                anchor.bbox,anchor.page_number,asset.source_url,asset.mime_type,
-                               asset.object_key,asset.sha256
+                               asset.object_key,asset.sha256,
+                               visual_page.pub_id AS page_snapshot_evidence_pub_id,
+                               visual_page.sha256 AS page_snapshot_sha256
                         FROM evidence.evidence_anchor anchor
                         JOIN evidence.evidence_asset asset ON asset.pub_id=anchor.evidence_pub_id
                         JOIN evidence.evidence_relation relation
                           ON relation.tenant_pub_id=anchor.tenant_pub_id
                          AND relation.to_pub_id=asset.pub_id
                          AND relation.from_pub_id=:source_document_pub_id
+                         AND relation.relation_type='service2_exact_quote_snapshot'
+                        JOIN LATERAL (
+                          SELECT page_asset.pub_id,page_asset.sha256
+                          FROM evidence.evidence_relation page_relation
+                          JOIN evidence.evidence_asset page_asset
+                            ON page_asset.tenant_pub_id=page_relation.tenant_pub_id
+                           AND page_asset.pub_id=page_relation.to_pub_id
+                          WHERE page_relation.tenant_pub_id=anchor.tenant_pub_id
+                            AND page_relation.from_pub_id=:source_document_pub_id
+                            AND page_relation.relation_type='service2_visual_page_snapshot'
+                            AND page_asset.project_pub_id=:project_pub_id
+                            AND page_asset.kind='service2_visual_page_snapshot'
+                            AND page_asset.deleted_at IS NULL
+                            AND btrim(page_asset.object_key)<>''
+                          ORDER BY page_asset.capture_time DESC,page_asset.pub_id DESC LIMIT 1
+                        ) visual_page ON true
                         WHERE anchor.tenant_pub_id=:tenant_pub_id
                           AND anchor.pub_id=:anchor_pub_id
                           AND asset.project_pub_id=:project_pub_id
+                          AND asset.kind='service2_exact_quote_screenshot'
                           AND asset.deleted_at IS NULL
                           AND asset.byte_size BETWEEN 1 AND 52428800
                         """
@@ -1495,6 +2221,10 @@ class Service2CorpusService:
                         "width": bbox[2],
                         "height": bbox[3],
                     },
+                    "content_sha256": str(anchor["sha256"]),
+                    "page_snapshot_evidence_pub_id": str(anchor["page_snapshot_evidence_pub_id"]),
+                    "page_snapshot_sha256": str(anchor["page_snapshot_sha256"]),
+                    "snapshot_text_sha256": str(snapshot["text_sha256"]),
                 }
         relation_payload = {
             "ledger": candidate.ledger,
@@ -1966,18 +2696,18 @@ class Service2CorpusService:
             raise Conflict(f"service2_freeze_not_allowed_from_{batch['status']}")
         if int(batch["materialized_item_count"]) != int(batch["expected_occurrence_count"]):
             raise Conflict("all_u_coverage_incomplete")
-        active = session.execute(
+        incomplete_items = session.execute(
             text(
                 """
                 SELECT count(*) FROM platform.service2_corpus_item
                 WHERE batch_id=:batch_id
-                  AND processing_state IN ('queued','fetching','retry_wait')
+                  AND processing_state<>'processed'
                 """
             ),
             {"batch_id": batch["id"]},
         ).scalar_one()
-        if int(active):
-            raise Conflict("service2_processing_not_terminal")
+        if int(incomplete_items):
+            raise Conflict("service2_processing_incomplete")
         pending_reviews = session.execute(
             text(
                 """
@@ -1991,19 +2721,132 @@ class Service2CorpusService:
         if int(pending_reviews):
             raise Conflict("service2_findings_require_review")
         coverage = self.coverage(session, tenant_id=tenant_id, batch_id=batch["id"])
+        if not bool(coverage["query_outcomes_complete"]):
+            raise Conflict("service2_query_outcomes_incomplete")
+        if not bool(coverage["query_coverage_complete"]):
+            raise Conflict("service2_failed_queries_require_retry")
+        accepted_but_ineligible = session.execute(
+            text(
+                """
+                SELECT count(*) FROM platform.service2_relation_finding finding
+                WHERE finding.batch_id=:batch_id
+                  AND finding.current_review_state='accepted'
+                  AND finding.ledger='statement' AND finding.level<>'L0'
+                  AND NOT (
+                    finding.validation_status='exact'
+                    AND finding.visual_validation_status='verified'
+                    AND EXISTS (
+                      SELECT 1 FROM evidence.evidence_asset visual_asset
+                      WHERE visual_asset.pub_id=finding.visual_anchor->>'evidence_pub_id'
+                        AND visual_asset.tenant_pub_id=(
+                          SELECT pub_id FROM platform.tenant WHERE id=finding.tenant_id
+                        )
+                        AND visual_asset.project_pub_id=(
+                          SELECT pub_id FROM platform.project WHERE id=finding.project_id
+                        )
+                        AND visual_asset.sha256=finding.visual_anchor->>'content_sha256'
+                        AND visual_asset.kind='service2_exact_quote_screenshot'
+                        AND visual_asset.deleted_at IS NULL
+                        AND btrim(visual_asset.object_key)<>''
+                    )
+                    AND EXISTS (
+                      SELECT 1 FROM evidence.evidence_asset page_asset
+                      WHERE page_asset.pub_id=
+                              finding.visual_anchor->>'page_snapshot_evidence_pub_id'
+                        AND page_asset.tenant_pub_id=(
+                          SELECT pub_id FROM platform.tenant WHERE id=finding.tenant_id
+                        )
+                        AND page_asset.project_pub_id=(
+                          SELECT pub_id FROM platform.project WHERE id=finding.project_id
+                        )
+                        AND page_asset.sha256=finding.visual_anchor->>'page_snapshot_sha256'
+                        AND page_asset.kind='service2_visual_page_snapshot'
+                        AND page_asset.deleted_at IS NULL
+                        AND btrim(page_asset.object_key)<>''
+                    )
+                    AND finding.factcheck_claim IS NOT NULL
+                    AND finding.factcheck_verdict IS NOT NULL
+                    AND (
+                      (finding.factcheck_verdict='unverifiable'
+                       AND btrim(COALESCE(finding.factcheck_boundary,''))<>'')
+                      OR
+                      (finding.factcheck_verdict IN ('supported','refuted','mixed')
+                       AND EXISTS (
+                         SELECT 1
+                         FROM jsonb_array_elements(finding.factcheck_evidence) evidence(value)
+                         JOIN evidence.evidence_asset fact_asset
+                           ON fact_asset.pub_id=COALESCE(
+                             NULLIF(btrim(evidence.value->>'evidence_pub_id'),''),
+                             NULLIF(btrim(evidence.value->>'source_pub_id'),''),
+                             NULLIF(btrim(evidence.value->>'document_pub_id'),'')
+                           )
+                         WHERE evidence.value->>'verification_status'='verified'
+                           AND evidence.value->>'content_sha256' ~ '^[0-9a-f]{64}$'
+                           AND btrim(COALESCE(evidence.value->>'retrieved_at',''))<>''
+                           AND fact_asset.tenant_pub_id=(
+                             SELECT pub_id FROM platform.tenant WHERE id=finding.tenant_id
+                           )
+                           AND fact_asset.project_pub_id=(
+                             SELECT pub_id FROM platform.project WHERE id=finding.project_id
+                           )
+                           AND fact_asset.sha256=evidence.value->>'content_sha256'
+                           AND fact_asset.kind='service2_factcheck_source'
+                           AND fact_asset.deleted_at IS NULL
+                           AND btrim(fact_asset.object_key)<>''
+                       ))
+                    )
+                  )
+                """
+            ),
+            {"batch_id": batch["id"]},
+        ).scalar_one()
+        if int(accepted_but_ineligible):
+            raise Conflict("service2_accepted_findings_not_formal_eligible")
         cases = (
             session.execute(
                 text(
                     """
                     SELECT finding.*,item.pub_id AS item_pub_id,item.occurrence_pub_id,
-                           item.answer_task_pub_id,item.source_url_pub_id,item.snapshot_pub_id,
-                           item.canonical_url,item.site_host,item.captured_at
+                           item.answer_task_pub_id,item.source_url_pub_id,
+                           snapshot.pub_id AS finding_snapshot_pub_id,
+                           item.canonical_url,item.site_host,snapshot.captured_at
                     FROM platform.service2_relation_finding finding
                     JOIN platform.service2_corpus_item item ON item.id=finding.corpus_item_id
+                    JOIN platform.source_page_snapshot snapshot ON snapshot.id=finding.snapshot_id
                     WHERE finding.batch_id=:batch_id
                       AND finding.ledger='statement' AND finding.level<>'L0'
                       AND finding.validation_status='exact'
                       AND finding.visual_validation_status='verified'
+                      AND EXISTS (
+                        SELECT 1 FROM evidence.evidence_asset visual_asset
+                        WHERE visual_asset.pub_id=finding.visual_anchor->>'evidence_pub_id'
+                          AND visual_asset.tenant_pub_id=(
+                            SELECT pub_id FROM platform.tenant WHERE id=finding.tenant_id
+                          )
+                          AND visual_asset.project_pub_id=(
+                            SELECT pub_id FROM platform.project WHERE id=finding.project_id
+                          )
+                          AND visual_asset.sha256=finding.visual_anchor->>'content_sha256'
+                          AND visual_asset.kind='service2_exact_quote_screenshot'
+                          AND visual_asset.deleted_at IS NULL
+                          AND btrim(visual_asset.object_key)<>''
+                      )
+                      AND EXISTS (
+                        SELECT 1 FROM evidence.evidence_asset page_asset
+                        WHERE page_asset.pub_id=
+                                finding.visual_anchor->>'page_snapshot_evidence_pub_id'
+                          AND page_asset.tenant_pub_id=(
+                            SELECT pub_id FROM platform.tenant WHERE id=finding.tenant_id
+                          )
+                          AND page_asset.project_pub_id=(
+                            SELECT pub_id FROM platform.project WHERE id=finding.project_id
+                          )
+                          AND page_asset.sha256=
+                                finding.visual_anchor->>'page_snapshot_sha256'
+                          AND page_asset.kind='service2_visual_page_snapshot'
+                          AND page_asset.deleted_at IS NULL
+                          AND btrim(page_asset.object_key)<>''
+                      )
                       AND finding.current_review_state='accepted'
                       AND finding.factcheck_claim IS NOT NULL
                       AND finding.factcheck_verdict IS NOT NULL
@@ -2015,16 +2858,25 @@ class Service2CorpusService:
                          AND EXISTS (
                            SELECT 1
                            FROM jsonb_array_elements(finding.factcheck_evidence) evidence(value)
-                           WHERE COALESCE(
-                             NULLIF(btrim(evidence.value->>'evidence_pub_id'),''),
-                             NULLIF(btrim(evidence.value->>'source_pub_id'),''),
-                             NULLIF(btrim(evidence.value->>'document_pub_id'),''),
-                             NULLIF(btrim(evidence.value->>'account_pub_id'),''),
-                             NULLIF(btrim(evidence.value->>'approval_pub_id'),'')
-                           ) IS NOT NULL
-                           OR btrim(COALESCE(
-                             evidence.value->>'url',evidence.value->>'source_url',''
-                           )) ~* '^https?://[^/?#[:space:]]+'
+                           JOIN evidence.evidence_asset fact_asset
+                             ON fact_asset.pub_id=COALESCE(
+                               NULLIF(btrim(evidence.value->>'evidence_pub_id'),''),
+                               NULLIF(btrim(evidence.value->>'source_pub_id'),''),
+                               NULLIF(btrim(evidence.value->>'document_pub_id'),'')
+                             )
+                           WHERE evidence.value->>'verification_status'='verified'
+                             AND evidence.value->>'content_sha256' ~ '^[0-9a-f]{64}$'
+                             AND btrim(COALESCE(evidence.value->>'retrieved_at',''))<>''
+                             AND fact_asset.tenant_pub_id=(
+                               SELECT pub_id FROM platform.tenant WHERE id=finding.tenant_id
+                             )
+                             AND fact_asset.project_pub_id=(
+                               SELECT pub_id FROM platform.project WHERE id=finding.project_id
+                             )
+                             AND fact_asset.sha256=evidence.value->>'content_sha256'
+                             AND fact_asset.kind='service2_factcheck_source'
+                             AND fact_asset.deleted_at IS NULL
+                             AND btrim(fact_asset.object_key)<>''
                          ))
                       )
                     ORDER BY finding.created_at,finding.pub_id
@@ -2058,6 +2910,9 @@ class Service2CorpusService:
             evidence_pub_id = anchor.get("evidence_pub_id")
             if isinstance(evidence_pub_id, str):
                 evidence_refs.add(evidence_pub_id)
+            page_snapshot_evidence_pub_id = anchor.get("page_snapshot_evidence_pub_id")
+            if isinstance(page_snapshot_evidence_pub_id, str):
+                evidence_refs.add(page_snapshot_evidence_pub_id)
             publisher_evidence = tuple(row["publisher_evidence"] or [])
             commissioner_evidence = tuple(row["commissioner_evidence"] or [])
             publisher_confidence = AttributionConfidence(row["publisher_confidence"])
@@ -2108,7 +2963,7 @@ class Service2CorpusService:
                     "occurrence_pub_id": str(row["occurrence_pub_id"]),
                     "answer_pub_id": str(row["answer_task_pub_id"]),
                     "source_url_pub_id": str(row["source_url_pub_id"]),
-                    "snapshot_pub_id": str(row["snapshot_pub_id"]),
+                    "snapshot_pub_id": str(row["finding_snapshot_pub_id"]),
                     "canonical_url": str(row["canonical_url"]),
                     "site_host": str(row["site_host"]),
                     "captured_at": row["captured_at"].isoformat(),
@@ -2130,6 +2985,10 @@ class Service2CorpusService:
                     "snapshot_text_sha256": str(row["snapshot_text_sha256"]),
                     "visual_anchor_pub_id": anchor.get("anchor_pub_id"),
                     "visual_evidence_pub_id": evidence_pub_id,
+                    "visual_evidence_sha256": anchor.get("content_sha256"),
+                    "visual_page_snapshot_evidence_pub_id": page_snapshot_evidence_pub_id,
+                    "visual_page_snapshot_sha256": anchor.get("page_snapshot_sha256"),
+                    "visual_content_sha256": anchor.get("content_sha256"),
                     "visual_bbox": (
                         [float(anchor["bbox"][name]) for name in ("x", "y", "width", "height")]
                         if isinstance(anchor.get("bbox"), dict)
@@ -2148,6 +3007,47 @@ class Service2CorpusService:
                     "commissioner_attribution": commissioner_attribution,
                 }
             )
+        model_call_rows = (
+            session.execute(
+                text(
+                    """
+                    SELECT pub_id,call_key,state,requested_model,resolved_model,
+                           catalog_revision,catalog_provider,resolved_provider,
+                           provider_resolution_source,transport,protocol_route,gateway_host,
+                           provider_request_id,provider_response_id,input_tokens,output_tokens,
+                           web_search_observed,search_event_count,provider_citation_count,
+                           source_origin,response_sources,response_hash,pricing_currency,
+                           input_usd_per_million_tokens,output_usd_per_million_tokens,
+                           web_search_usd_per_call,web_search_pricing_status,
+                           estimated_token_cost_usd,estimated_search_cost_usd,
+                           estimated_total_cost_usd,cost_completeness,audit_completeness,
+                           claimed_at,completed_at
+                    FROM platform.service2_model_call
+                    WHERE batch_id=:batch_id
+                    ORDER BY claimed_at,pub_id
+                    """
+                ),
+                {"batch_id": batch["id"]},
+            )
+            .mappings()
+            .all()
+        )
+        model_call_audit = [
+            {
+                key: (
+                    value.isoformat()
+                    if isinstance(value, datetime)
+                    else str(value)
+                    if isinstance(value, Decimal)
+                    else value
+                )
+                for key, value in row.items()
+            }
+            for row in model_call_rows
+        ]
+        scope_selector = (
+            batch["scope_selector"] if isinstance(batch["scope_selector"], dict) else {}
+        )
         facts: dict[str, object] = {
             "schema_version": FACT_SCHEMA_VERSION,
             "scope": {
@@ -2165,14 +3065,14 @@ class Service2CorpusService:
                         "query_coverage_policy_version", QUERY_COVERAGE_POLICY_VERSION
                     )
                 ),
-                "analysis_model": str(
-                    (batch["scope_selector"] or {}).get("analysis_model") or "unknown"
-                ),
+                "analysis_model": str(scope_selector.get("analysis_model") or "unknown"),
+                "analysis_model_snapshot": scope_selector.get("analysis_model_snapshot") or {},
                 "service_entitlement_pub_id": str(batch["service_entitlement_pub_id"]),
                 "service_entitlement_revision": str(batch["service_entitlement_revision"]),
             },
             "coverage": coverage,
             "cases": case_facts,
+            "model_call_audit": model_call_audit,
             "evidence_pub_ids": sorted(evidence_refs),
             "evidence_urls": sorted(evidence_urls),
             "rendering_boundary": "frozen_facts_only_no_network_or_model",

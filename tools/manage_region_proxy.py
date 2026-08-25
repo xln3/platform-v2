@@ -42,7 +42,12 @@ def main() -> int:
         else:
             result = RegionProxyRouter().resolve(args.platform, args.region)
     except RegionProxyError as exc:
-        print(json.dumps({"ok": False, "error": exc.code, "detail": str(exc)}, ensure_ascii=False))
+        print(
+            json.dumps(
+                {"ok": False, "error": exc.code, "detail": type(exc).__name__},
+                ensure_ascii=False,
+            )
+        )
         return 2
     print(
         json.dumps(

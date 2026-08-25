@@ -17,10 +17,11 @@ from typing import Any
 import httpx
 from geo_platform.config import get_settings
 from geo_platform.evidence.object_store import ContentAddressedObjectStore
-from geo_platform.service2_corpus.analysis_models import configured_model_ids
+from geo_platform.intake.research import ResearchCallAudit
+from geo_platform.service2_corpus.analysis_models import configured_model_ids, model_snapshot
 from geo_platform.service2_corpus.service import EvidenceInvalid, Service2CorpusService
 from geo_platform.tenancy.database import WorkerSessionLocal
-from geo_platform.tenancy.repository import TenantRepository
+from geo_platform.tenancy.repository import TenantRepository, set_tenant_context
 from sqlalchemy import text
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -28,8 +29,10 @@ from temporalio.exceptions import ApplicationError
 from workflows.activities.service2_relation_analysis import (
     PROMPT_VERSION,
     RelationAnalysisError,
+    RelationAnalysisRequest,
     RelationAnalysisSchemaError,
     RelationAnalysisUnavailable,
+    RelationProviderResponse,
     Service2WebSearchAnalyzer,
     config_from_settings,
 )
@@ -59,7 +62,7 @@ class Service2BatchPreparation:
 @dataclass(frozen=True)
 class Service2CorpusPageInput(Service2BatchInput):
     cursor: str | None = None
-    page_size: int = 100
+    page_size: int = 1
 
 
 @dataclass(frozen=True)
@@ -68,6 +71,160 @@ class Service2CorpusPageResult:
     next_cursor: str | None
     has_more: bool
     states: dict[str, int] = field(default_factory=dict)
+
+
+def _paid_call_crash_probe(_point: str) -> None:
+    """No-op fault-injection seam around durable paid-call boundaries."""
+
+
+def _claim_paid_model_call(
+    *,
+    session: Any,
+    service: Service2CorpusService,
+    item: Mapping[Any, Any],
+    snapshot_id: Any,
+    input_hash: str,
+    model: str,
+    prompt_version: str,
+    policy_version: str,
+    catalog_snapshot: Mapping[str, object],
+) -> tuple[Mapping[Any, Any], bool]:
+    """Persist and commit intent before code is allowed to reach the provider."""
+
+    _paid_call_crash_probe("before_intent_claim")
+    call_row, claimed = service.claim_model_call(
+        session,
+        item=item,
+        snapshot_id=snapshot_id,
+        input_hash=input_hash,
+        model=model,
+        prompt_version=prompt_version,
+        policy_version=policy_version,
+        catalog_snapshot=catalog_snapshot,
+    )
+    session.commit()
+    return call_row, claimed
+
+
+def _restore_provider_response(
+    call_row: Mapping[Any, Any], *, analysis_model: str
+) -> RelationProviderResponse:
+    response_data = call_row["response_data"]
+    response_sources = call_row["response_sources"]
+    if not isinstance(response_data, dict) or not isinstance(response_sources, list):
+        raise RelationAnalysisSchemaError("stored_model_response_invalid")
+    return RelationProviderResponse(
+        data=response_data,
+        sources=tuple(source for source in response_sources if isinstance(source, dict)),
+        usage={
+            "input_tokens": int(call_row["input_tokens"] or 0),
+            "output_tokens": int(call_row["output_tokens"] or 0),
+        },
+        audit=ResearchCallAudit(
+            transport=str(call_row["transport"] or "unknown"),
+            resolved_model=str(call_row["resolved_model"] or analysis_model),
+            provider_request_id=(
+                str(call_row["provider_request_id"]) if call_row["provider_request_id"] else None
+            ),
+            web_search_observed=bool(call_row["web_search_observed"]),
+            search_event_count=int(call_row["search_event_count"] or 0),
+            provider_citation_count=int(call_row["provider_citation_count"] or 0),
+            source_origin=str(call_row["source_origin"] or "none"),
+            gateway_host=(str(call_row["gateway_host"]) if call_row["gateway_host"] else None),
+            protocol_route=(
+                str(call_row["protocol_route"]) if call_row["protocol_route"] else None
+            ),
+            provider_response_id=(
+                str(call_row["provider_response_id"]) if call_row["provider_response_id"] else None
+            ),
+            resolved_provider=(
+                str(call_row["resolved_provider"]) if call_row["resolved_provider"] else None
+            ),
+            provider_resolution_source=str(
+                call_row["provider_resolution_source"] or "not_observed"
+            ),
+        ),
+    )
+
+
+def _resolve_paid_provider_response(
+    *,
+    session: Any,
+    service: Service2CorpusService,
+    analyzer: Service2WebSearchAnalyzer,
+    request: RelationAnalysisRequest,
+    call_row: Mapping[Any, Any],
+    claimed: bool,
+    tenant_id: Any,
+    tenant_pub_id: str,
+    analysis_model: str,
+) -> RelationProviderResponse:
+    """Call once or replay one already durable provider response."""
+
+    if claimed:
+        _paid_call_crash_probe("intent_committed_before_provider_call")
+        try:
+            provider_response = analyzer._call(
+                request.prompt,
+                idempotency_key=str(call_row["idempotency_key"]),
+            )
+        except (
+            RelationAnalysisError,
+            RelationAnalysisSchemaError,
+            RelationAnalysisUnavailable,
+        ) as exc:
+            set_tenant_context(session, tenant_id=tenant_id, tenant_pub_id=tenant_pub_id)
+            service.fail_model_call(
+                session,
+                call_pub_id=str(call_row["pub_id"]),
+                error_code=str(exc)[:120],
+                ambiguous=type(exc) is RelationAnalysisError,
+            )
+            session.commit()
+            raise
+        _paid_call_crash_probe("provider_succeeded_before_response_commit")
+        set_tenant_context(session, tenant_id=tenant_id, tenant_pub_id=tenant_pub_id)
+        service.complete_model_call(
+            session,
+            call_pub_id=str(call_row["pub_id"]),
+            data=provider_response.data,
+            sources=provider_response.sources,
+            usage=provider_response.usage,
+            transport=provider_response.audit.transport,
+            resolved_model=provider_response.audit.resolved_model,
+            provider_request_id=provider_response.audit.provider_request_id,
+            provider_response_id=provider_response.audit.provider_response_id,
+            resolved_provider=provider_response.audit.resolved_provider,
+            provider_resolution_source=provider_response.audit.provider_resolution_source,
+            gateway_host=provider_response.audit.gateway_host,
+            protocol_route=provider_response.audit.protocol_route,
+            web_search_observed=provider_response.audit.web_search_observed,
+            search_event_count=provider_response.audit.search_event_count,
+            provider_citation_count=provider_response.audit.provider_citation_count,
+            source_origin=provider_response.audit.source_origin,
+        )
+        session.commit()
+        _paid_call_crash_probe("response_committed_before_projection")
+        set_tenant_context(session, tenant_id=tenant_id, tenant_pub_id=tenant_pub_id)
+        return provider_response
+
+    if str(call_row["state"]) == "succeeded":
+        # ``_claim_paid_model_call`` commits even on a replay so the durable
+        # claim/read boundary is identical. Re-establish the transaction-local
+        # RLS selector before projection writes findings and attempts.
+        set_tenant_context(session, tenant_id=tenant_id, tenant_pub_id=tenant_pub_id)
+        return _restore_provider_response(call_row, analysis_model=analysis_model)
+
+    set_tenant_context(session, tenant_id=tenant_id, tenant_pub_id=tenant_pub_id)
+    if str(call_row["state"]) == "claimed":
+        service.fail_model_call(
+            session,
+            call_pub_id=str(call_row["pub_id"]),
+            error_code="paid_call_outcome_ambiguous",
+            ambiguous=True,
+        )
+        session.commit()
+    raise RelationAnalysisUnavailable(str(call_row["error_code"] or "paid_call_outcome_ambiguous"))
 
 
 def _batch(session: object, data: Service2BatchInput, *, lock: bool = False):  # type: ignore[no-untyped-def]
@@ -304,9 +461,11 @@ def refresh_service2_corpus_bindings(data: Service2BatchInput) -> int:
 def process_service2_corpus_page(data: Service2CorpusPageInput) -> Service2CorpusPageResult:
     """Advance one bounded page without treating the page size as a corpus cap."""
 
-    if not 1 <= data.page_size <= 100:
+    if data.page_size != 1:
         raise ApplicationError(
-            "invalid page size", type="service2_page_size_invalid", non_retryable=True
+            "one paid-call item is required per activity transaction",
+            type="service2_page_size_must_be_one",
+            non_retryable=True,
         )
     with WorkerSessionLocal() as session:
         TenantRepository(session, data.tenant_pub_id)
@@ -459,10 +618,47 @@ def process_service2_corpus_page(data: Service2CorpusPageInput) -> Service2Corpu
                         source_text = object_store.get_verified(
                             str(row["body_object_key"]), str(row["body_sha256"])
                         ).decode("utf-8")
-                        result = analyzer.analyze(
+                        request = analyzer.prepare(
                             project_brand=project_brand,
                             known_entities=known_entities,
                             url=str(row["canonical_url"]),
+                            source_text=source_text,
+                            snapshot_text_sha256=str(row["text_sha256"]),
+                        )
+                        raw_catalog_snapshot = selector.get("analysis_model_snapshot")
+                        catalog_snapshot = (
+                            raw_catalog_snapshot
+                            if isinstance(raw_catalog_snapshot, Mapping)
+                            else model_snapshot(analysis_model)
+                        )
+                        call_row, claimed = _claim_paid_model_call(
+                            session=session,
+                            service=service,
+                            item=row,
+                            snapshot_id=row["snapshot_id"],
+                            input_hash=request.input_hash,
+                            model=analysis_model,
+                            prompt_version=PROMPT_VERSION,
+                            policy_version=str(batch["judgment_policy_version"]),
+                            catalog_snapshot=catalog_snapshot,
+                        )
+                        provider_response = _resolve_paid_provider_response(
+                            session=session,
+                            service=service,
+                            analyzer=analyzer,
+                            request=request,
+                            call_row=call_row,
+                            claimed=claimed,
+                            tenant_id=batch["tenant_id"],
+                            tenant_pub_id=data.tenant_pub_id,
+                            analysis_model=analysis_model,
+                        )
+                        result = analyzer.project(
+                            request=RelationAnalysisRequest(
+                                prompt=request.prompt,
+                                input_hash=request.input_hash,
+                            ),
+                            response=provider_response,
                             source_text=source_text,
                             snapshot_text_sha256=str(row["text_sha256"]),
                         )

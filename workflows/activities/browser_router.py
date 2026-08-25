@@ -77,6 +77,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from temporalio.exceptions import ApplicationError
 
+from domain.security.redaction import safe_exception_summary
+
 log = structlog.get_logger()
 
 ENV_BROWSER_INSTANCES = "GEO_BROWSER_INSTANCES"
@@ -290,7 +292,7 @@ def _governor_decision(
             "account_governor_resolve_error",
             platform=slug,
             region_gb=region_gb,
-            error=repr(exc),
+            error=safe_exception_summary(exc),
         )
         return "unavailable", {"reason": "governor_error"}
     if reason == "no_account_registered":

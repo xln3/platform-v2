@@ -11,6 +11,8 @@ from fastapi.responses import JSONResponse
 from opentelemetry import context
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
+from domain.security.redaction import redact_text
+
 from .brandrank.router import router as brandrank_router
 from .collection.account_admin_router import router as account_admin_router
 from .collection.assist_router import router as assist_router
@@ -128,7 +130,14 @@ async def request_context(request: Request, call_next):  # type: ignore[no-untyp
 async def http_error(request: Request, exc: HTTPException) -> JSONResponse:
     detail: dict[str, Any] = exc.detail if isinstance(exc.detail, dict) else {}
     code_value = detail.get("code")
-    code = code_value if isinstance(code_value, str) else "http_error"
+    code = (
+        code_value
+        if isinstance(code_value, str)
+        and 1 <= len(code_value) <= 120
+        and code_value.isascii()
+        and redact_text(code_value) == code_value
+        else "http_error"
+    )
     return JSONResponse(
         status_code=exc.status_code,
         headers=exc.headers,

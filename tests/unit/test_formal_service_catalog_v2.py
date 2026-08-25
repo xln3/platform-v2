@@ -234,6 +234,8 @@ def test_quotation_contract_applies_sop_and_service5_window_invariants() -> None
         services=[2],
         before_window=None,
         after_window=None,
+        service2_manifest_pub_id="s2m_0123456789abcdef01234567",
+        service2_manifest_hash="a" * 64,
     )
     with pytest.raises(FormalProductionInvalid, match="service5_windows_required"):
         request_contract(
@@ -271,6 +273,8 @@ def test_quotation_contract_applies_sop_and_service5_window_invariants() -> None
         before_window=before,
         after_window=after,
         sop_project_pub_id="spr_unit",
+        service2_manifest_pub_id="s2m_0123456789abcdef01234567",
+        service2_manifest_hash="a" * 64,
     )
     assert service4["services"] == [4]
     assert service2["services"] == [2]
@@ -295,8 +299,13 @@ def test_service2_cutover_rehydrates_old_own_content_and_new_all_u_requests() ->
         **common,
         sop_project_pub_id="spr_legacy",
         legacy_service2_sop_compat=True,
+        legacy_service2_manifest_compat=True,
     )
-    new_contract = request_contract(**common)
+    new_contract = request_contract(
+        **common,
+        service2_manifest_pub_id="s2m_0123456789abcdef01234567",
+        service2_manifest_hash="a" * 64,
+    )
     base_row = {
         "pub_id": "frp_unit",
         "tenant_pub_id": "tnt_unit",
@@ -332,6 +341,8 @@ def test_service2_cutover_rehydrates_old_own_content_and_new_all_u_requests() ->
         {
             **base_row,
             "sop_project_pub_id": None,
+            "service2_manifest_pub_id": "s2m_0123456789abcdef01234567",
+            "service2_manifest_hash": "a" * 64,
             "request_hash": production._canonical_hash(new_contract),
             "created_at": production.SERVICE2_ALL_U_EFFECTIVE_AT + timedelta(seconds=1),
         }

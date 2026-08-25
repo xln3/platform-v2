@@ -173,6 +173,8 @@ class FormalProductionRequest:
     service_catalog_version: str = LEGACY_SERVICE_CATALOG
     sop_project_pub_id: str | None = None
     service2_semantics: str = "all_u_v2"
+    service2_manifest_pub_id: str | None = None
+    service2_manifest_hash: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -256,7 +258,10 @@ def request_contract(
     document_governance: Mapping[str, Any] | None = None,
     service_catalog_version: str | None = None,
     sop_project_pub_id: str | None = None,
+    service2_manifest_pub_id: str | None = None,
+    service2_manifest_hash: str | None = None,
     legacy_service2_sop_compat: bool = False,
+    legacy_service2_manifest_compat: bool = False,
 ) -> dict[str, Any]:
     resolved_catalog = service_catalog_version or LEGACY_SERVICE_CATALOG
     normalized_services = normalize_services(services, service_catalog_version=resolved_catalog)
@@ -348,6 +353,23 @@ def request_contract(
         contract["service_catalog_version"] = resolved_catalog
     if normalized_sop_project is not None:
         contract["sop_project_pub_id"] = normalized_sop_project
+    normalized_manifest_pub_id = str(service2_manifest_pub_id or "").strip() or None
+    normalized_manifest_hash = str(service2_manifest_hash or "").strip().lower() or None
+    service2_selected = resolved_catalog == QUOTATION_SERVICE_CATALOG and 2 in normalized_services
+    if (normalized_manifest_pub_id is None) != (normalized_manifest_hash is None):
+        raise FormalProductionInvalid("service2_manifest_binding_incomplete")
+    if service2_selected and normalized_manifest_pub_id is None:
+        if not legacy_service2_manifest_compat:
+            raise FormalProductionInvalid("service2_manifest_binding_required")
+    elif not service2_selected and normalized_manifest_pub_id is not None:
+        raise FormalProductionInvalid("service2_manifest_not_applicable")
+    if normalized_manifest_pub_id is not None:
+        if not re.fullmatch(r"[a-z][a-z0-9]{1,15}_[0-9a-zA-Z]{20,64}", normalized_manifest_pub_id):
+            raise FormalProductionInvalid("service2_manifest_pub_id_invalid")
+        if not re.fullmatch(r"[0-9a-f]{64}", normalized_manifest_hash or ""):
+            raise FormalProductionInvalid("service2_manifest_hash_invalid")
+        contract["service2_manifest_pub_id"] = normalized_manifest_pub_id
+        contract["service2_manifest_hash"] = normalized_manifest_hash
     return contract
 
 
@@ -456,6 +478,13 @@ def _freeze_service_fact(
                 "service_catalog_version": request.service_catalog_version,
                 "service_code": _service_code_for(request, service),
                 "sop_project_pub_id": request.sop_project_pub_id,
+            }
+        )
+    if service == 2 and request.service2_semantics == "all_u_v2":
+        filters.update(
+            {
+                "service2_manifest_pub_id": request.service2_manifest_pub_id,
+                "service2_manifest_hash": request.service2_manifest_hash,
             }
         )
     return freeze_report(
@@ -923,6 +952,11 @@ class _OutboundService2Adapter:
     title = QUOTATION_SERVICE_TITLES[2]
 
     def build(self, context: FormalBuildContext) -> dict[str, Any]:
+        if (
+            context.request.service2_manifest_pub_id is None
+            or context.request.service2_manifest_hash is None
+        ):
+            raise FormalProductionInvalid("service2_manifest_binding_required")
         builder = import_module(
             "geo_platform.reports.formal_review_service2_source_corpus"
         ).build_service2_source_corpus_facts
@@ -935,15 +969,27 @@ class _OutboundService2Adapter:
                 start=context.request.window.start,
                 end=context.request.window.end,
                 generated_at=context.request.frozen_at,
+                manifest_pub_id=context.request.service2_manifest_pub_id,
+                manifest_hash=context.request.service2_manifest_hash,
             ),
         )
 
     def render(self, facts: dict[str, Any], *, blob_loader: Callable[[str, str], bytes]) -> bytes:
-        del blob_loader
+        visual_assets: dict[str, bytes] = {}
+        for case in facts.get("cases") or []:
+            descriptor = case.get("visual_screenshot") if isinstance(case, dict) else None
+            if not isinstance(descriptor, dict):
+                raise FormalProductionInvalid("service2_visual_screenshot_required")
+            finding_pub_id = str(case.get("finding_pub_id") or "")
+            object_key = str(descriptor.get("object_key") or "")
+            digest = str(descriptor.get("sha256") or "")
+            if not finding_pub_id or not object_key or not digest:
+                raise FormalProductionInvalid("service2_visual_screenshot_required")
+            visual_assets[finding_pub_id] = blob_loader(object_key, digest)
         renderer = import_module(
             "domain.reporting.formal_review_service2_source_corpus_docx"
         ).render_service2_source_corpus_docx
-        return cast(bytes, renderer(facts))
+        return cast(bytes, renderer(facts, visual_screenshots=visual_assets))
 
 
 class _LegacyOutboundService2Adapter:
@@ -1313,6 +1359,8 @@ class FormalReportProductionService:
         document_governance: Mapping[str, Any] | None = None,
         service_catalog_version: str = LEGACY_SERVICE_CATALOG,
         sop_project_pub_id: str | None = None,
+        service2_manifest_pub_id: str | None = None,
+        service2_manifest_hash: str | None = None,
     ) -> tuple[dict[str, Any], bool]:
         contract_catalog = (
             service_catalog_version if service_catalog_version != LEGACY_SERVICE_CATALOG else None
@@ -1328,6 +1376,8 @@ class FormalReportProductionService:
             document_governance=document_governance,
             service_catalog_version=contract_catalog,
             sop_project_pub_id=sop_project_pub_id,
+            service2_manifest_pub_id=service2_manifest_pub_id,
+            service2_manifest_hash=service2_manifest_hash,
         )
         project_exists = session.execute(
             text(
@@ -1338,6 +1388,72 @@ class FormalReportProductionService:
         ).scalar_one_or_none()
         if project_exists is None:
             raise FormalProductionNotFound("project_not_found")
+        if service_catalog_version == QUOTATION_SERVICE_CATALOG and 2 in contract["services"]:
+            manifest = (
+                session.execute(
+                    text(
+                        """
+                        SELECT manifest.facts
+                        FROM platform.service2_fact_manifest manifest
+                        JOIN platform.service2_corpus_batch batch ON batch.id=manifest.batch_id
+                        JOIN platform.project project ON project.id=manifest.project_id
+                        WHERE manifest.tenant_id=:tenant_id
+                          AND project.pub_id=:project_pub_id
+                          AND manifest.pub_id=:manifest_pub_id
+                          AND manifest.manifest_hash=:manifest_hash
+                          AND batch.status='frozen'
+                          AND (batch.window_start AT TIME ZONE 'Asia/Shanghai')::date=:window_start
+                          AND (batch.window_end AT TIME ZONE 'Asia/Shanghai')::date=:window_end
+                        """
+                    ),
+                    {
+                        "tenant_id": str(tenant_id),
+                        "project_pub_id": project_pub_id,
+                        "manifest_pub_id": service2_manifest_pub_id,
+                        "manifest_hash": service2_manifest_hash,
+                        "window_start": window.start,
+                        "window_end": window.end,
+                    },
+                )
+                .mappings()
+                .one_or_none()
+            )
+            if manifest is None:
+                raise FormalProductionInvalid("service2_manifest_binding_not_found")
+            manifest_facts = manifest["facts"]
+            coverage = (
+                manifest_facts.get("coverage") if isinstance(manifest_facts, Mapping) else None
+            )
+            processing = (
+                coverage.get("processing_states") if isinstance(coverage, Mapping) else None
+            )
+            incomplete_processing = {
+                "queued",
+                "fetching",
+                "retry_wait",
+                "partial",
+                "manual_evidence_required",
+                "blocked",
+                "gone",
+                "unobservable",
+                "failed",
+                "cancelled",
+            }
+            if (
+                not isinstance(coverage, Mapping)
+                or not isinstance(processing, Mapping)
+                or coverage.get("query_outcomes_complete") is not True
+                or coverage.get("query_coverage_complete") is not True
+                or coverage.get("coverage_complete") is not True
+                or any(int(processing.get(state) or 0) for state in incomplete_processing)
+                or any(
+                    int(count or 0) > 0 and state != "processed"
+                    for state, count in processing.items()
+                )
+                or int(processing.get("processed") or 0)
+                != int(coverage.get("materialized_items") or 0)
+            ):
+                raise FormalProductionInvalid("service2_manifest_not_formal_ready")
         if sop_project_pub_id is not None:
             sop_project = (
                 session.execute(
@@ -1440,13 +1556,13 @@ class FormalReportProductionService:
                   before_start,before_end,after_start,after_end,document_status,
                   candidate_group_strategy,idempotency_key_hash,request_hash,workflow_id,
                   created_by_pub_id,document_governance,service_catalog_version,
-                  sop_project_pub_id
+                  sop_project_pub_id,service2_manifest_pub_id,service2_manifest_hash
                 ) VALUES (
                   :pub_id,:tenant_pub_id,:project_pub_id,:services,:window_start,:window_end,
                   :before_start,:before_end,:after_start,:after_end,:document_status,
                   :strategy,:key_hash,:request_hash,:workflow_id,:created_by,
                   CAST(:document_governance AS jsonb),:service_catalog_version,
-                  :sop_project_pub_id
+                  :sop_project_pub_id,:service2_manifest_pub_id,:service2_manifest_hash
                 )
                 ON CONFLICT (tenant_pub_id,idempotency_key_hash) DO NOTHING
                 RETURNING pub_id
@@ -1474,6 +1590,8 @@ class FormalReportProductionService:
                 ),
                 "service_catalog_version": service_catalog_version,
                 "sop_project_pub_id": sop_project_pub_id,
+                "service2_manifest_pub_id": service2_manifest_pub_id,
+                "service2_manifest_hash": service2_manifest_hash,
             },
         ).scalar_one_or_none()
         created = inserted is not None
@@ -1507,6 +1625,9 @@ class FormalReportProductionService:
                 payload={
                     "tenant_pub_id": tenant_pub_id,
                     "formal_production_pub_id": production_pub_id,
+                    "formal_request_hash": contract_hash,
+                    "service2_manifest_pub_id": service2_manifest_pub_id,
+                    "service2_manifest_hash": service2_manifest_hash,
                 },
             )
         return self._public_row(dict(row), outputs=[]), created
@@ -1618,7 +1739,33 @@ class FormalReportProductionService:
             fact_snapshot_hash=fact_snapshot_hash,
         )
 
-    def produce(self, *, tenant_pub_id: str, production_pub_id: str) -> dict[str, Any]:
+    def produce(
+        self,
+        *,
+        tenant_pub_id: str,
+        production_pub_id: str,
+        expected_request_hash: str | None = None,
+        expected_service2_manifest_pub_id: str | None = None,
+        expected_service2_manifest_hash: str | None = None,
+    ) -> dict[str, Any]:
+        if expected_request_hash is not None:
+            with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
+                task_binding = connection.execute(
+                    """
+                    SELECT request_hash,service2_manifest_pub_id,service2_manifest_hash
+                    FROM reporting.formal_report_production
+                    WHERE tenant_pub_id=%s AND pub_id=%s
+                    """,
+                    (tenant_pub_id, production_pub_id),
+                ).fetchone()
+            if task_binding is None:
+                raise FormalProductionNotFound("formal_production_not_found")
+            if (
+                task_binding["request_hash"] != expected_request_hash
+                or task_binding["service2_manifest_pub_id"] != expected_service2_manifest_pub_id
+                or task_binding["service2_manifest_hash"] != expected_service2_manifest_hash
+            ):
+                raise FormalProductionIncomplete("formal_workflow_binding_drifted")
         current = self.get(
             tenant_pub_id=tenant_pub_id,
             production_pub_id=production_pub_id,
@@ -2312,6 +2459,9 @@ class FormalReportProductionService:
         )
         service_catalog_version = str(row.get("service_catalog_version") or LEGACY_SERVICE_CATALOG)
         sop_project_pub_id = str(row.get("sop_project_pub_id") or "").strip() or None
+        service2_manifest_pub_id = str(row.get("service2_manifest_pub_id") or "").strip() or None
+        service2_manifest_hash = str(row.get("service2_manifest_hash") or "").strip() or None
+        legacy_manifest_compat = service2_manifest_pub_id is None
         request_hash = str(row["request_hash"])
         contract: dict[str, Any] | None = None
         try:
@@ -2330,6 +2480,9 @@ class FormalReportProductionService:
                     else None
                 ),
                 sop_project_pub_id=sop_project_pub_id,
+                service2_manifest_pub_id=service2_manifest_pub_id,
+                service2_manifest_hash=service2_manifest_hash,
+                legacy_service2_manifest_compat=legacy_manifest_compat,
             )
             if _canonical_hash(candidate) == request_hash:
                 contract = candidate
@@ -2356,7 +2509,10 @@ class FormalReportProductionService:
                     document_governance=governance,
                     service_catalog_version=service_catalog_version,
                     sop_project_pub_id=sop_project_pub_id,
+                    service2_manifest_pub_id=service2_manifest_pub_id,
+                    service2_manifest_hash=service2_manifest_hash,
                     legacy_service2_sop_compat=True,
+                    legacy_service2_manifest_compat=True,
                 )
                 if _canonical_hash(candidate) == request_hash:
                     contract = candidate
@@ -2381,6 +2537,8 @@ class FormalReportProductionService:
             service_catalog_version=service_catalog_version,
             sop_project_pub_id=sop_project_pub_id,
             service2_semantics=("own_content_v1" if legacy_service2_request else "all_u_v2"),
+            service2_manifest_pub_id=service2_manifest_pub_id,
+            service2_manifest_hash=service2_manifest_hash,
         )
 
     def _build_fact_bundle(
@@ -2455,6 +2613,13 @@ class FormalReportProductionService:
                 value.get("document_status") != request.document_status for value in parsed.values()
             ):
                 raise FormalProductionIncomplete("frozen_fact_bundle_request_drifted")
+            if 2 in parsed and request.service2_semantics == "all_u_v2":
+                service2_manifest = parsed[2].get("manifest")
+                if not isinstance(service2_manifest, Mapping) or (
+                    service2_manifest.get("manifest_pub_id") != request.service2_manifest_pub_id
+                    or service2_manifest.get("manifest_hash") != request.service2_manifest_hash
+                ):
+                    raise FormalProductionIncomplete("frozen_fact_bundle_manifest_drifted")
             customer_facts = {
                 str(service): customer_fact_snapshot(value) for service, value in parsed.items()
             }
@@ -2582,6 +2747,14 @@ class FormalReportProductionService:
                 },
                 "generated_at": request.frozen_at.astimezone(UTC).isoformat(),
                 "fact_snapshot_hash": frozen.fact_snapshot_hash,
+                "source_manifest": (
+                    {
+                        "manifest_pub_id": request.service2_manifest_pub_id,
+                        "manifest_hash": request.service2_manifest_hash,
+                    }
+                    if service == 2 and request.service2_semantics == "all_u_v2"
+                    else None
+                ),
                 "data_gate": facts[service].get("formal_evidence_gate"),
                 "publication_qa": publication_qa,
                 "reexport_qa": reexport_qa,
@@ -2752,6 +2925,15 @@ class FormalReportProductionService:
                     "start": request.window.start.isoformat(),
                     "end": request.window.end.isoformat(),
                 }
+                or manifest.get("source_manifest")
+                != (
+                    {
+                        "manifest_pub_id": request.service2_manifest_pub_id,
+                        "manifest_hash": request.service2_manifest_hash,
+                    }
+                    if int(service) == 2 and request.service2_semantics == "all_u_v2"
+                    else None
+                )
             ):
                 raise FormalProductionIncomplete("rendered_manifest_request_drifted")
             manifest_artifacts = manifest.get("artifacts")
@@ -3120,6 +3302,8 @@ class FormalReportProductionService:
             "services": list(row["services"]),
             "service_catalog_version": service_catalog_version,
             "sop_project_pub_id": row.get("sop_project_pub_id"),
+            "service2_manifest_pub_id": row.get("service2_manifest_pub_id"),
+            "service2_manifest_hash": row.get("service2_manifest_hash"),
             "status": row["status"],
             "document_status": row["document_status"],
             "window_start": row["window_start"],

@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+from io import BytesIO
 from typing import Any
 from urllib.parse import urlsplit
+
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.shared import Cm
 
 from domain.reporting.formal_review_docx import (
     FormalDocument,
@@ -39,13 +43,16 @@ def _factcheck_sources(value: object) -> str:
     return "；".join(dict.fromkeys(sources)) or "—"
 
 
-def render_service2_source_corpus_docx(facts: dict[str, Any]) -> bytes:
+def render_service2_source_corpus_docx(
+    facts: dict[str, Any], *, visual_screenshots: dict[str, bytes] | None = None
+) -> bytes:
     if facts.get("schema_version") != "formal-service2-source-corpus-v2":
         raise ValueError("service2_source_corpus_facts_invalid")
     coverage = facts.get("coverage") or {}
     processing = coverage.get("processing_states") or {}
     cases = list(facts.get("cases") or [])
     manifest = facts.get("manifest") or {}
+    screenshots = visual_screenshots or {}
     governance = facts.get("document_governance") or {}
     version = str(governance.get("version") or "V1.0")
     doc = FormalDocument(
@@ -144,6 +151,15 @@ def render_service2_source_corpus_docx(facts: dict[str, Any]) -> bytes:
                 widths=(38, 134),
                 font_size=7.5,
             )
+            finding_pub_id = str(case.get("finding_pub_id") or "")
+            visual_payload = screenshots.get(finding_pub_id)
+            if not visual_payload:
+                raise ValueError("service2_visual_screenshot_required")
+            paragraph = doc.document.add_paragraph()
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            paragraph.add_run().add_picture(BytesIO(visual_payload), width=Cm(15.8))
+            caption = doc.document.add_paragraph("图：冻结页面逐字引文的自动核验截图（红框）")
+            caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
     doc.heading("4. 证据纪律与边界")
     doc.bullets(list(facts.get("limitations") or []))
@@ -151,6 +167,7 @@ def render_service2_source_corpus_docx(facts: dict[str, Any]) -> bytes:
         ["冻结字段", "记录"],
         [
             ("batch", manifest.get("batch_pub_id") or "—"),
+            ("manifest", manifest.get("manifest_pub_id") or "—"),
             ("manifest revision", manifest.get("revision") or "—"),
             ("manifest hash", manifest.get("manifest_hash") or "—"),
             ("corpus policy", manifest.get("corpus_policy_version") or "—"),

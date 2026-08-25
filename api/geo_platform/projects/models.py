@@ -1,7 +1,15 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..tenancy.database import Base
@@ -21,12 +29,20 @@ class TenantModel:
 
 class Customer(TenantModel, Base):
     __tablename__ = "customer"
+    __table_args__ = (UniqueConstraint("id", "tenant_id", name="uq_customer_id_tenant_id"),)
     name: Mapped[str] = mapped_column(String(200))
     external_ref: Mapped[str | None] = mapped_column(String(200))
 
 
 class Project(TenantModel, Base):
     __tablename__ = "project"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["customer_id", "tenant_id"],
+            ["platform.customer.id", "platform.customer.tenant_id"],
+            name="fk_project_customer_tenant",
+        ),
+    )
     customer_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("platform.customer.id"))
     name: Mapped[str] = mapped_column(String(200))
     state: Mapped[str] = mapped_column(String(30), default="draft")

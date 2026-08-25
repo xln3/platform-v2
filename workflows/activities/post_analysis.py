@@ -58,6 +58,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from domain.evidence.provenance import AccessClass, CaptureChannel, RedactedProvenance
+from domain.security.redaction import redact_text
 from workflows.activities.browser_driver import load_sync_browser_driver
 from workflows.activities.own_site_snapshot import (
     _FLATTEN_FOR_SCREENSHOT_JS,
@@ -2166,7 +2167,7 @@ def execute_fetch_snapshot(
             item_pub_id=item.item_pub_id,
             kind=exc.kind,
         )
-        store.mark_fetch_failed(context, str(exc))
+        store.mark_fetch_failed(context, redact_text(str(exc)))
         return FetchPostSnapshotResult(
             ok=False, item_pub_id=item.item_pub_id, status="fetch_failed", error=exc.kind
         )

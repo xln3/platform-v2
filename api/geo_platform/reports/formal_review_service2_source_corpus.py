@@ -25,6 +25,8 @@ def build_service2_source_corpus_facts(
     start: date,
     end: date,
     generated_at: datetime,
+    manifest_pub_id: str,
+    manifest_hash: str,
 ) -> dict[str, Any]:
     """Load one immutable v2 manifest; never fetch a page or call a model."""
 
@@ -47,12 +49,11 @@ def build_service2_source_corpus_facts(
             JOIN platform.service2_corpus_batch batch ON batch.id=manifest.batch_id
             JOIN platform.project project ON project.id=batch.project_id
             WHERE project.pub_id=%s AND batch.status='frozen'
+              AND manifest.pub_id=%s AND manifest.manifest_hash=%s
               AND (batch.window_start AT TIME ZONE 'Asia/Shanghai')::date=%s
               AND (batch.window_end AT TIME ZONE 'Asia/Shanghai')::date=%s
-            ORDER BY batch.frozen_at DESC,manifest.revision DESC,manifest.pub_id DESC
-            LIMIT 1
             """,
-            (project_pub_id, start, end),
+            (project_pub_id, manifest_pub_id, manifest_hash, start, end),
         ).fetchone()
     if row is None:
         raise ValueError("service2_frozen_manifest_required")
@@ -73,19 +74,111 @@ def build_service2_source_corpus_facts(
             "queued",
             "fetching",
             "retry_wait",
+            "partial",
             "manual_evidence_required",
             "blocked",
             "gone",
             "unobservable",
             "failed",
+            "cancelled",
         )
         if int(processing.get(state) or 0) > 0
     }
+    for state, count in processing.items():
+        if state != "processed" and int(count or 0) > 0:
+            incomplete_states[str(state)] = int(count)
     reasons = []
     if not coverage.get("coverage_complete"):
         reasons.append("all_u_occurrence_materialization_incomplete")
+    if not coverage.get("query_outcomes_complete"):
+        reasons.append("query_outcomes_incomplete")
+    if not coverage.get("query_coverage_complete"):
+        reasons.append("failed_queries_require_retry")
     if incomplete_states:
         reasons.append("source_or_evidence_coverage_incomplete")
+    if not incomplete_states and int(processing.get("processed") or 0) != int(
+        coverage.get("materialized_items") or 0
+    ):
+        reasons.append("processing_coverage_incomplete")
+    raw_cases = list(facts.get("cases") or [])
+    visual_ids = {
+        str(case.get("visual_evidence_pub_id"))
+        for case in raw_cases
+        if isinstance(case, dict) and case.get("visual_evidence_pub_id")
+    }
+    visual_page_ids = {
+        str(case.get("visual_page_snapshot_evidence_pub_id"))
+        for case in raw_cases
+        if isinstance(case, dict) and case.get("visual_page_snapshot_evidence_pub_id")
+    }
+    fact_evidence = [
+        evidence
+        for case in raw_cases
+        if isinstance(case, dict)
+        for evidence in (case.get("factcheck_evidence") or [])
+        if isinstance(evidence, dict) and evidence.get("evidence_pub_id")
+    ]
+    evidence_ids = (
+        visual_ids | visual_page_ids | {str(row["evidence_pub_id"]) for row in fact_evidence}
+    )
+    asset_rows = []
+    if evidence_ids:
+        with tenant_connection(dsn, tenant_pub_id, row_factory=dict_row) as connection:
+            asset_rows = connection.execute(
+                """
+                SELECT asset.pub_id,asset.object_key,asset.sha256,asset.mime_type,asset.kind
+                FROM evidence.evidence_asset asset
+                WHERE asset.tenant_pub_id=%s AND asset.project_pub_id=%s
+                  AND asset.pub_id=ANY(%s::text[]) AND asset.deleted_at IS NULL
+                  AND asset.object_key IS NOT NULL AND asset.sha256 ~ '^[0-9a-f]{64}$'
+                """,
+                (tenant_pub_id, project_pub_id, sorted(evidence_ids)),
+            ).fetchall()
+    assets = {str(asset["pub_id"]): dict(asset) for asset in asset_rows}
+    if set(assets) != evidence_ids:
+        raise ValueError("service2_frozen_evidence_asset_missing")
+    for evidence in fact_evidence:
+        asset = assets[str(evidence["evidence_pub_id"])]
+        if (
+            evidence.get("verification_status") != "verified"
+            or evidence.get("content_sha256") != asset["sha256"]
+            or asset["kind"] != "service2_factcheck_source"
+        ):
+            raise ValueError("service2_factcheck_evidence_integrity_failed")
+    cases: list[dict[str, Any]] = []
+    for raw_case in raw_cases:
+        if not isinstance(raw_case, dict):
+            raise ValueError("service2_frozen_case_invalid")
+        case = dict(raw_case)
+        visual_id = str(case.get("visual_evidence_pub_id") or "")
+        page_id = str(case.get("visual_page_snapshot_evidence_pub_id") or "")
+        if not visual_id or not page_id:
+            raise ValueError("service2_visual_evidence_asset_missing")
+        asset = assets[visual_id]
+        page_asset = assets[page_id]
+        if (
+            case.get("visual_evidence_sha256") != asset["sha256"]
+            or asset["kind"] != "service2_exact_quote_screenshot"
+        ):
+            raise ValueError("service2_visual_evidence_integrity_failed")
+        if (
+            case.get("visual_page_snapshot_sha256") != page_asset["sha256"]
+            or page_asset["kind"] != "service2_visual_page_snapshot"
+        ):
+            raise ValueError("service2_visual_page_snapshot_integrity_failed")
+        case["visual_screenshot"] = {
+            "pub_id": visual_id,
+            "object_key": str(asset["object_key"]),
+            "sha256": str(asset["sha256"]),
+            "mime_type": str(asset["mime_type"]),
+        }
+        case["visual_page_snapshot"] = {
+            "pub_id": page_id,
+            "object_key": str(page_asset["object_key"]),
+            "sha256": str(page_asset["sha256"]),
+            "mime_type": str(page_asset["mime_type"]),
+        }
+        cases.append(case)
     return {
         "schema_version": "formal-service2-source-corpus-v2",
         "service_code": "outbound_disparagement_audit",
@@ -104,7 +197,7 @@ def build_service2_source_corpus_facts(
         },
         "scope": facts.get("scope") or {},
         "coverage": coverage,
-        "cases": list(facts.get("cases") or []),
+        "cases": cases,
         "evidence_pub_ids": list(facts.get("evidence_pub_ids") or []),
         "evidence_urls": list(facts.get("evidence_urls") or []),
         "evidence_gate": {

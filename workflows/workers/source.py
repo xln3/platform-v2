@@ -15,12 +15,14 @@ from temporalio.worker import Worker
 
 from workflows.activities.own_site_snapshot import capture_own_site_snapshots
 from workflows.activities.post_analysis import fetch_post_snapshot
+from workflows.activities.service2_evidence_enrichment import enrich_service2_evidence_page
 from workflows.activities.source_fetch import fetch_run_sources
 
 SOURCE_ACTIVITIES = (
     capture_own_site_snapshots,
     fetch_post_snapshot,
     fetch_run_sources,
+    enrich_service2_evidence_page,
 )
 
 

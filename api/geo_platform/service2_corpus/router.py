@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import re
+from datetime import date
 from typing import Annotated, Literal, cast
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
@@ -26,6 +27,11 @@ from .analysis_models import (
     model_catalog,
     resolve_model,
 )
+from .pagination_policy import (
+    SERVICE2_CORPUS_DEFAULT_PAGE_SIZE,
+    SERVICE2_CORPUS_MAX_PAGE_SIZE,
+    SERVICE2_CORPUS_MIN_PAGE_SIZE,
+)
 from .schemas import (
     AnalysisModelCatalogView,
     AnalysisModelOptionView,
@@ -42,6 +48,7 @@ from .schemas import (
     FindingReviewCreate,
     FindingReviewState,
     FindingView,
+    FrozenManifestOptionView,
     FrozenManifestView,
     LifecycleReceipt,
 )
@@ -288,7 +295,11 @@ def list_corpus_items(
     batch_pub_id: str,
     response: Response,
     cursor: str | None = None,
-    page_size: int = Query(default=4, ge=1, le=100),
+    page_size: int = Query(
+        default=SERVICE2_CORPUS_DEFAULT_PAGE_SIZE,
+        ge=SERVICE2_CORPUS_MIN_PAGE_SIZE,
+        le=SERVICE2_CORPUS_MAX_PAGE_SIZE,
+    ),
     processing_state: CorpusProcessingState | None = None,
     fetch_state: CorpusFetchState | None = None,
     review_state: CorpusReviewState | None = None,
@@ -424,7 +435,11 @@ def list_findings(
     batch_pub_id: str,
     response: Response,
     cursor: str | None = None,
-    page_size: int = Query(default=4, ge=1, le=100),
+    page_size: int = Query(
+        default=SERVICE2_CORPUS_DEFAULT_PAGE_SIZE,
+        ge=SERVICE2_CORPUS_MIN_PAGE_SIZE,
+        le=SERVICE2_CORPUS_MAX_PAGE_SIZE,
+    ),
     review_state: FindingReviewState | None = None,
     level: FindingLevel | None = None,
     ledger: Literal["statement", "exposure"] | None = None,
@@ -762,6 +777,53 @@ def get_manifest(
     if row is None:
         raise HTTPException(status_code=404, detail={"code": "service2_manifest_not_found"})
     return FrozenManifestView.model_validate(manifest_view(row, batch_pub_id))
+
+
+@router.get("/manifests", response_model=list[FrozenManifestOptionView])
+def list_manifests(
+    project_pub_id: str,
+    window_start: date | None = Query(default=None),
+    window_end: date | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=100),
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db),
+) -> list[FrozenManifestOptionView]:
+    """List exact immutable Service 2 fact sets available to formal production."""
+
+    _read(principal)
+    tenant, project = _project_context(session, principal=principal, project_pub_id=project_pub_id)
+    rows = session.execute(
+        text(
+            """
+            SELECT manifest.pub_id AS manifest_pub_id,manifest.revision,
+                   manifest.manifest_hash,manifest.case_count,
+                   manifest.evidence_reference_count,manifest.created_at,
+                   batch.pub_id AS batch_pub_id,batch.window_start,batch.window_end
+            FROM platform.service2_fact_manifest manifest
+            JOIN platform.service2_corpus_batch batch ON batch.id=manifest.batch_id
+            WHERE manifest.tenant_id=:tenant_id AND manifest.project_id=:project_id
+              AND batch.status='frozen'
+              AND (
+                CAST(:window_start AS date) IS NULL
+                OR (batch.window_start AT TIME ZONE 'Asia/Shanghai')::date=:window_start
+              )
+              AND (
+                CAST(:window_end AS date) IS NULL
+                OR (batch.window_end AT TIME ZONE 'Asia/Shanghai')::date=:window_end
+              )
+            ORDER BY manifest.created_at DESC,manifest.pub_id DESC
+            LIMIT :limit
+            """
+        ),
+        {
+            "tenant_id": tenant.id,
+            "project_id": project.id,
+            "window_start": window_start,
+            "window_end": window_end,
+            "limit": limit,
+        },
+    ).mappings()
+    return [FrozenManifestOptionView.model_validate(dict(row)) for row in rows]
 
 
 __all__ = ["router"]

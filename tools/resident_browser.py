@@ -34,6 +34,7 @@ from typing import Any
 
 import structlog
 
+from domain.security.redaction import safe_exception_summary
 from workflows.activities.browser_driver import load_sync_browser_driver
 from workflows.activities.doubao_adapter import (
     _USER_AGENT,
@@ -126,7 +127,7 @@ def _close_gracefully(context: Any, *, platform: str) -> None:
         log.warning(
             "resident_browser_close_failed",
             platform=platform,
-            error=f"{type(exc).__name__}: {exc}",
+            error=safe_exception_summary(exc),
         )
 
 
@@ -167,9 +168,7 @@ def run_resident_browser(
             healed = _clean_profile_crash_state(config.profile_dir)
         except Exception as exc:
             healed = False
-            bound.warning(
-                "resident_browser_crash_clean_failed", error=f"{type(exc).__name__}: {exc}"
-            )
+            bound.warning("resident_browser_crash_clean_failed", error=safe_exception_summary(exc))
         if healed:
             bound.info("resident_browser_crash_state_healed", profile_dir=str(config.profile_dir))
 
@@ -192,7 +191,7 @@ def run_resident_browser(
                     "resident_browser_launch_failed",
                     profile_dir=str(config.profile_dir),
                     proxy=mask_proxy_url(config.proxy_url),
-                    error=f"{type(exc).__name__}: {exc}",
+                    error=safe_exception_summary(exc),
                 )
                 return 1
             bound.info(
@@ -209,7 +208,7 @@ def run_resident_browser(
                     # 浏览器崩溃/卡死——探活失败即死，让 systemd 重启出新浏览器。
                     bound.error(
                         "resident_browser_unhealthy",
-                        error=f"{type(exc).__name__}: {exc}",
+                        error=safe_exception_summary(exc),
                     )
                     _close_gracefully(context, platform=config.platform)
                     return 1
@@ -229,7 +228,7 @@ def main() -> int:
     try:
         config = ResidentBrowserConfig.from_env()
     except ValueError as exc:
-        log.error("resident_browser_config_invalid", error=str(exc))
+        log.error("resident_browser_config_invalid", error_type=type(exc).__name__)
         return 2
     return run_resident_browser(config)
 

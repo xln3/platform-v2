@@ -6,6 +6,10 @@ from temporalio import activity
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
+from workflows.activities.service2_evidence_enrichment import (
+    Service2EvidencePageInput,
+    Service2EvidencePageResult,
+)
 from workflows.activities.service2_source_corpus import (
     Service2BatchInput,
     Service2BatchPreparation,
@@ -43,6 +47,11 @@ async def prepare_fixture(_data: Service2BatchInput) -> Service2BatchPreparation
 async def fetch_fixture(data: SourceFetchInput) -> SourceFetchResult:
     fetch_calls.append(data)
     return SourceFetchResult()
+
+
+@activity.defn(name="enrich_service2_evidence_page")
+async def evidence_fixture(_data: Service2EvidencePageInput) -> Service2EvidencePageResult:
+    return Service2EvidencePageResult(processed=0, next_cursor=None, has_more=False)
 
 
 @activity.defn(name="refresh_service2_corpus_bindings")
@@ -94,7 +103,7 @@ async def test_more_than_500_occurrences_continue_as_new_without_refetch_or_trun
             Worker(
                 environment.client,
                 task_queue=source_queue,
-                activities=[fetch_fixture],
+                activities=[fetch_fixture, evidence_fixture],
             ),
             Worker(
                 environment.client,
@@ -126,8 +135,9 @@ async def test_more_than_500_occurrences_continue_as_new_without_refetch_or_trun
         "state": "review",
         "processed_count": TOTAL_OCCURRENCES,
         "coverage_cursor": str(TOTAL_OCCURRENCES),
+        "evidence_processed": 0,
     }
-    assert page_starts == [0, 100, 200, 300, 400, 500]
+    assert page_starts == list(range(TOTAL_OCCURRENCES))
     assert refresh_calls == 1
     assert finish_calls == 1
     assert failure_calls == 0

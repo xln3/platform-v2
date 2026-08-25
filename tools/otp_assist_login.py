@@ -390,7 +390,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         cdp_url = captcha_assist.resident_cdp_url(lock_key)
     except ValueError as exc:
-        print(f"[配置错误] {exc}", file=sys.stderr)
+        print(f"[配置错误] {type(exc).__name__}", file=sys.stderr)
         return EXIT_CONFIG
     if not cdp_url:
         print(

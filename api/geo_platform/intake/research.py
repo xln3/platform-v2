@@ -26,8 +26,9 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
-from typing import Any
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from typing import Any, TypedDict
 
 import httpx
 import structlog
@@ -68,9 +69,12 @@ def available_models(settings: Settings) -> list[str]:
     入清单前提=实测真联网（传输路由见 _transport_for_model 的实证注释）。
     """
     configured = settings.research_llm_model.strip() or _DEFAULT_MODEL
-    models = [m.strip() for m in settings.research_llm_models.split(",") if m.strip()]
-    if configured not in models:
-        models.insert(0, configured)
+    models = [configured]
+    models.extend(
+        model
+        for raw in settings.research_llm_models.split(",")
+        if (model := raw.strip()) and model != configured
+    )
     return models[:16]
 
 
@@ -102,7 +106,7 @@ class ResearchFailed(RuntimeError):
 
 @dataclass(frozen=True)
 class LlmConfig:
-    api_key: str
+    api_key: str = field(repr=False)
     model: str
     base_url: str
     base_url_fallback: str
@@ -294,17 +298,170 @@ def _transport_for_model(model: str) -> str:
     return "responses"
 
 
+@dataclass(frozen=True, slots=True)
+class ResearchCallAudit:
+    """Provider-originated execution facts for one paid request.
+
+    ``web_search_observed`` is deliberately not inferred from the prompt, requested
+    tools, a model capability label, or model-authored JSON sources.  It is true only
+    when the provider response contains a tool/search/grounding event.
+    """
+
+    transport: str
+    resolved_model: str
+    provider_request_id: str | None
+    web_search_observed: bool
+    search_event_count: int
+    provider_citation_count: int
+    source_origin: str
+    gateway_host: str | None = None
+    protocol_route: str | None = None
+    provider_response_id: str | None = None
+    resolved_provider: str | None = None
+    provider_resolution_source: str = "not_observed"
+
+
+def _provider_resolved_model(payload: Mapping[str, Any]) -> str:
+    """Return only a provider-observed model id, never the requested fallback."""
+
+    value = payload.get("model")
+    if value is None:
+        return "not_observed"
+    observed = str(value).strip()
+    return observed[:120] if observed else "not_observed"
+
+
+def _provider_request_id(response: httpx.Response) -> str | None:
+    for name in ("x-request-id", "request-id", "openai-request-id", "anthropic-request-id"):
+        value = response.headers.get(name)
+        if value and value.strip():
+            return str(value).strip()[:255]
+    return None
+
+
+class _ProviderExecutionFields(TypedDict):
+    gateway_host: str | None
+    protocol_route: str
+    provider_response_id: str | None
+    resolved_provider: str | None
+    provider_resolution_source: str
+
+
+def _provider_execution_fields(
+    response: httpx.Response, payload: dict[str, Any], *, route: str
+) -> _ProviderExecutionFields:
+    raw_provider = payload.get("provider") or payload.get("model_provider")
+    provider = str(raw_provider).strip()[:80] if raw_provider else None
+    raw_response_id = payload.get("id")
+    response_id = str(raw_response_id).strip()[:255] if raw_response_id else None
+    try:
+        gateway_host = str(response.request.url.host or "").strip().lower()[:255] or None
+    except RuntimeError:
+        gateway_host = None
+    return {
+        "gateway_host": gateway_host,
+        "protocol_route": route,
+        "provider_response_id": response_id,
+        "resolved_provider": provider,
+        "provider_resolution_source": "provider_response" if provider else "not_observed",
+    }
+
+
+def _count_search_markers(value: object) -> int:
+    """Count provider response nodes that prove search/grounding execution."""
+
+    if isinstance(value, list):
+        return sum(_count_search_markers(item) for item in value)
+    if not isinstance(value, dict):
+        return 0
+    marker = str(value.get("type") or value.get("name") or "").strip().lower()
+    count = int(
+        marker
+        in {
+            "web_search",
+            "web_search_call",
+            "web_search_tool_result",
+            "server_tool_use",
+            "search_result",
+            "grounding_metadata",
+        }
+    )
+    for key, nested in value.items():
+        if (
+            key
+            in {
+                "search_info",
+                "search_results",
+                "grounding_metadata",
+                "groundingMetadata",
+                "web_search_results",
+            }
+            and nested
+        ):
+            count += 1
+        count += _count_search_markers(nested)
+    return count
+
+
+def _provider_search_sources(
+    value: object, *, _inside_search: bool = False
+) -> list[dict[str, str]]:
+    """Extract URLs only from provider-owned search/grounding response nodes.
+
+    Model-authored JSON text is deliberately never parsed by this walker.  A URL
+    repeated by the model therefore cannot masquerade as provider search telemetry.
+    """
+
+    if isinstance(value, list):
+        list_rows: list[dict[str, str]] = []
+        for item in value:
+            list_rows.extend(_provider_search_sources(item, _inside_search=_inside_search))
+        return list_rows
+    if not isinstance(value, dict):
+        return []
+    marker = str(value.get("type") or value.get("name") or "").strip().lower()
+    inside_search = _inside_search or marker in {
+        "web_search",
+        "web_search_call",
+        "web_search_tool_result",
+        "search_result",
+        "web_search_result",
+        "grounding_metadata",
+    }
+    rows: list[dict[str, str]] = []
+    if inside_search:
+        raw_url = value.get("url") or value.get("source_url") or value.get("uri")
+        if isinstance(raw_url, str) and raw_url.strip().lower().startswith(("http://", "https://")):
+            rows.append(
+                {
+                    "url": raw_url.strip(),
+                    "title": str(value.get("title") or value.get("name") or "")[:500],
+                }
+            )
+    for key, nested in value.items():
+        child_inside = inside_search or key in {
+            "search_info",
+            "search_results",
+            "grounding_metadata",
+            "groundingMetadata",
+            "web_search_results",
+        }
+        rows.extend(_provider_search_sources(nested, _inside_search=child_inside))
+    return list({row["url"]: row for row in rows}.values())
+
+
 _ANTHROPIC_MAX_TOKENS = 32768  # /v1/messages 强制字段（API 要求），取模型输出上限级，非人为截断
 
 
-def _run_once(
+def _run_once_audited(
     client: httpx.Client,
     model: str,
     user_msg: str,
     *,
     instructions: str = SYSTEM_PROMPT,
     tools: list[dict[str, Any]] | None = None,
-) -> tuple[dict[str, Any], list[dict[str, str]], dict[str, int]]:
+    idempotency_key: str | None = None,
+) -> tuple[dict[str, Any], list[dict[str, str]], dict[str, int], ResearchCallAudit]:
     """单轮非流式调用 → (data, sources, usage)；HTTP 错误原样上抛由调用方定重试。
     传输按 _transport_for_model 路由；sources 在非 Responses 路径取模型按提示词
     回填的 JSON sources 字段。各路径均不发 temperature/人为 max token（/v1/messages
@@ -319,7 +476,8 @@ def _run_once(
             "messages": [{"role": "user", "content": user_msg}],
             "tools": [{"type": "web_search_20250305", "name": "web_search"}],
         }
-        resp = client.post("/messages", json=ant_body)
+        headers = {"Idempotency-Key": idempotency_key} if idempotency_key else {}
+        resp = client.post("/messages", json=ant_body, headers=headers)
         resp.raise_for_status()
         ant_payload: dict[str, Any] = resp.json()
         ant_parts = [
@@ -331,15 +489,32 @@ def _run_once(
         if not ant_text:
             raise ResearchFailed("AI 未返回任何文本内容")
         ant_data = _extract_json(ant_text)
-        ant_sources: list[dict[str, str]] = []
+        ant_model_sources: list[dict[str, str]] = []
         if isinstance(ant_data.get("sources"), list):
-            ant_sources = [s for s in ant_data["sources"] if isinstance(s, dict)]
+            ant_model_sources = [s for s in ant_data["sources"] if isinstance(s, dict)]
+        provider_sources = _provider_search_sources(ant_payload.get("content") or [])
+        ant_sources = provider_sources or ant_model_sources
         ant_usage_raw = ant_payload.get("usage") or {}
         ant_usage = {
             "input_tokens": int(ant_usage_raw.get("input_tokens") or 0),
             "output_tokens": int(ant_usage_raw.get("output_tokens") or 0),
         }
-        return ant_data, ant_sources, ant_usage
+        search_events = _count_search_markers(ant_payload.get("content") or [])
+        return (
+            ant_data,
+            ant_sources,
+            ant_usage,
+            ResearchCallAudit(
+                transport=transport,
+                resolved_model=_provider_resolved_model(ant_payload),
+                provider_request_id=_provider_request_id(resp),
+                web_search_observed=search_events > 0,
+                search_event_count=search_events,
+                provider_citation_count=len(provider_sources),
+                source_origin="provider_tool" if provider_sources else "model_output",
+                **_provider_execution_fields(resp, ant_payload, route="/v1/messages"),
+            ),
+        )
 
     if transport in ("chat_enable_search", "chat_builtin"):
         chat_body: dict[str, Any] = {
@@ -352,7 +527,8 @@ def _run_once(
         if transport == "chat_enable_search":
             chat_body["enable_search"] = True
         # 参数最小化：不发 temperature/max_tokens
-        resp = client.post("/chat/completions", json=chat_body)
+        headers = {"Idempotency-Key": idempotency_key} if idempotency_key else {}
+        resp = client.post("/chat/completions", json=chat_body, headers=headers)
         resp.raise_for_status()
         chat_payload: dict[str, Any] = resp.json()
         choices = chat_payload.get("choices") or []
@@ -362,9 +538,11 @@ def _run_once(
         if not chat_text:
             raise ResearchFailed("AI 未返回任何文本内容")
         data = _extract_json(chat_text)
-        chat_sources: list[dict[str, str]] = []
+        chat_model_sources: list[dict[str, str]] = []
         if isinstance(data.get("sources"), list):
-            chat_sources = [s for s in data["sources"] if isinstance(s, dict)]
+            chat_model_sources = [s for s in data["sources"] if isinstance(s, dict)]
+        provider_sources = _provider_search_sources(chat_payload)
+        chat_sources = provider_sources or chat_model_sources
         chat_usage_raw = chat_payload.get("usage") or {}
         chat_usage = {
             "input_tokens": int(
@@ -374,7 +552,22 @@ def _run_once(
                 chat_usage_raw.get("completion_tokens") or chat_usage_raw.get("output_tokens") or 0
             ),
         }
-        return data, chat_sources, chat_usage
+        search_events = _count_search_markers(chat_payload)
+        return (
+            data,
+            chat_sources,
+            chat_usage,
+            ResearchCallAudit(
+                transport=transport,
+                resolved_model=_provider_resolved_model(chat_payload),
+                provider_request_id=_provider_request_id(resp),
+                web_search_observed=search_events > 0,
+                search_event_count=search_events,
+                provider_citation_count=len(provider_sources),
+                source_origin="provider_grounding" if provider_sources else "model_output",
+                **_provider_execution_fields(resp, chat_payload, route="/v1/chat/completions"),
+            ),
+        )
 
     body: dict[str, Any] = {
         "model": model,
@@ -385,7 +578,8 @@ def _run_once(
         body["tools"] = _WEB_SEARCH_TOOLS
     elif tools:
         body["tools"] = tools
-    resp = client.post("/responses", json=body)
+    headers = {"Idempotency-Key": idempotency_key} if idempotency_key else {}
+    resp = client.post("/responses", json=body, headers=headers)
     resp.raise_for_status()
     payload: dict[str, Any] = resp.json()
 
@@ -411,6 +605,7 @@ def _run_once(
         raise ResearchFailed("AI 未返回任何文本内容")
     data = _extract_json(raw_text)
 
+    provider_citation_count = len(sources)
     if not sources and isinstance(data.get("sources"), list):
         sources = [s for s in data["sources"] if isinstance(s, dict)]
 
@@ -419,6 +614,47 @@ def _run_once(
         "input_tokens": int(usage_raw.get("input_tokens") or 0),
         "output_tokens": int(usage_raw.get("output_tokens") or 0),
     }
+    search_events = _count_search_markers(payload.get("output") or [])
+    return (
+        data,
+        sources,
+        usage,
+        ResearchCallAudit(
+            transport=transport,
+            resolved_model=_provider_resolved_model(payload),
+            provider_request_id=_provider_request_id(resp),
+            web_search_observed=search_events > 0,
+            search_event_count=search_events,
+            provider_citation_count=provider_citation_count,
+            source_origin=(
+                "provider_citation"
+                if provider_citation_count
+                else "model_output"
+                if sources
+                else "none"
+            ),
+            **_provider_execution_fields(resp, payload, route="/v1/responses"),
+        ),
+    )
+
+
+def _run_once(
+    client: httpx.Client,
+    model: str,
+    user_msg: str,
+    *,
+    instructions: str = SYSTEM_PROMPT,
+    tools: list[dict[str, Any]] | None = None,
+) -> tuple[dict[str, Any], list[dict[str, str]], dict[str, int]]:
+    """Compatibility wrapper for callers that do not yet persist execution audit."""
+
+    data, sources, usage, _audit = _run_once_audited(
+        client,
+        model,
+        user_msg,
+        instructions=instructions,
+        tools=tools,
+    )
     return data, sources, usage
 
 

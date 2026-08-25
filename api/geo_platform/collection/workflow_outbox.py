@@ -615,6 +615,20 @@ class WorkflowStartOutbox:
                             if payload.get("account_pub_id") is not None
                             else None
                         ),
+                        activity_timeout_minutes=float(
+                            payload.get("activity_timeout_minutes", 15.0)
+                        ),
+                        inter_task_delay_min_s=float(payload.get("inter_task_delay_min_s", 45.0)),
+                        inter_task_delay_max_s=float(payload.get("inter_task_delay_max_s", 150.0)),
+                        retry_not_before=(
+                            str(payload["retry_not_before"])
+                            if payload.get("retry_not_before")
+                            else None
+                        ),
+                        retry_depth=int(payload.get("retry_depth") or 0),
+                        retry_capability_keys=[
+                            str(item) for item in payload.get("retry_capability_keys", [])
+                        ],
                     )
                     handle = await self.temporal.start_workflow(
                         GeoCollectionWorkflow.run,

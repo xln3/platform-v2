@@ -177,5 +177,7 @@ class PostAnalysisWorkflow:
         except Exception as exc:
             # activity 重试耗尽/非重试错误：item 状态由 activity 侧如实落库（或保持
             # 中间态由重跑收敛），workflow 继续处理其余 item
-            workflow.logger.warning("post analysis item failed: %s %r", item_pub_id, exc)
+            workflow.logger.warning(
+                "post analysis item failed: %s %s", item_pub_id, type(exc).__name__
+            )
             return PostAnalysisItemOutcome(item_pub_id=item_pub_id, status="activity_error")

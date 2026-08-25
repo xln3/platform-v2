@@ -13,6 +13,7 @@ from domain.scoring.service2_source_corpus import (
     FactAnchorState,
     Ledger,
     RelationDirection,
+    has_public_evidence_candidate,
     has_reviewable_evidence,
 )
 
@@ -271,7 +272,7 @@ class FindingCreate(StrictModel):
         if self.factcheck_verdict == "unverifiable":
             if not self.factcheck_boundary or not self.factcheck_boundary.strip():
                 raise ValueError("unverifiable_factcheck_requires_boundary")
-        elif not has_reviewable_evidence(tuple(self.factcheck_evidence)):
+        elif not has_public_evidence_candidate(tuple(self.factcheck_evidence)):
             raise ValueError("factcheck_verdict_requires_evidence")
         return self
 
@@ -357,6 +358,19 @@ class FrozenManifestView(StrictModel):
     created_at: datetime
 
 
+class FrozenManifestOptionView(StrictModel):
+    schema_version: Literal["formal-service2-source-corpus-v2"] = "formal-service2-source-corpus-v2"
+    batch_pub_id: str
+    manifest_pub_id: str
+    revision: int = Field(ge=1)
+    manifest_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    case_count: int = Field(ge=0)
+    evidence_reference_count: int = Field(ge=0)
+    window_start: datetime
+    window_end: datetime
+    created_at: datetime
+
+
 class AnalysisModelOptionView(StrictModel):
     model: str
     label: str
@@ -367,10 +381,19 @@ class AnalysisModelOptionView(StrictModel):
     input_usd_per_million_tokens: float | None
     output_usd_per_million_tokens: float | None
     context_window_tokens: int | None
+    web_search_audit_status: Literal["verified_provider_citation"]
+    web_search_audited_at: str
+    auditable_source_mode: Literal["provider_citation", "provider_tool"]
     recommended: bool
+    catalog_revision: str
     pricing_observed_at: str
     pricing_source_url: str
+    pricing_currency: Literal["USD"]
+    token_price_unit: Literal["per_million_tokens"]
+    web_search_usd_per_call: float | None
+    web_search_pricing_status: Literal["not_published_in_catalog_snapshot"]
     pricing_notice: Literal["catalog_snapshot_provider_invoice_authoritative"]
+    web_search_audit_policy: Literal["provider_search_event_and_provider_citation_required"]
 
 
 class AnalysisModelCatalogView(StrictModel):

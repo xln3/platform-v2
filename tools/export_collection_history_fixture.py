@@ -694,7 +694,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             source_category=arguments.source_category,
         )
     except (HistoryFixtureError, OSError) as exc:
-        print(f"history fixture export refused: {exc}", file=sys.stderr)
+        print(f"history fixture export refused: {type(exc).__name__}", file=sys.stderr)
         return 2
     print(
         f"wrote {manifest['event_count']} redacted events; "

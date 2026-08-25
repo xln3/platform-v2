@@ -25,6 +25,7 @@ dependencies = [
   "onnxruntime==1.28.0",
   "rapidocr==3.9.2",
   "python-docx==1.2.0",
+  "lxml==6.1.1",
   "reportlab==5.0.0",
 ]
 
@@ -62,6 +63,10 @@ mypy_path = ["api", "."]
 
 [[tool.mypy.overrides]]
 module = "reportlab.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "lxml.*"
 ignore_missing_imports = true
 
 # patchright 是生产浏览器驱动（worker 部署环境单独安装），不在 .[dev] 依赖内——

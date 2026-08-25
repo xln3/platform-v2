@@ -10,6 +10,10 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 
 with workflow.unsafe.imports_passed_through():
+    from workflows.activities.service2_evidence_enrichment import (
+        Service2EvidencePageInput,
+        enrich_service2_evidence_page,
+    )
     from workflows.activities.service2_source_corpus import (
         Service2BatchInput,
         Service2CorpusPageInput,
@@ -33,6 +37,9 @@ class Service2SourceCorpusWorkflowInput:
     processed_count: int = 0
     history_processed: int = 0
     fetch_completed: bool = False
+    evidence_cursor: str | None = None
+    evidence_processed: int = 0
+    evidence_history_processed: int = 0
 
 
 @workflow.defn(name="Service2SourceCorpusWorkflow")
@@ -132,11 +139,12 @@ class Service2SourceCorpusWorkflow:
                         project_pub_id=data.project_pub_id,
                         batch_pub_id=data.batch_pub_id,
                         cursor=cursor,
-                        page_size=100,
+                        page_size=1,
                     ),
                     start_to_close_timeout=timedelta(minutes=30),
-                    # A single model+web-search call may legitimately exceed one
-                    # minute. The activity heartbeats between immutable items.
+                    # One activity owns one durable paid-call claim and one item.
+                    # A crash can replay the stored response or fail ambiguous,
+                    # never silently issue a second provider request.
                     heartbeat_timeout=timedelta(minutes=6),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
@@ -157,6 +165,51 @@ class Service2SourceCorpusWorkflow:
                             processed_count=processed,
                             history_processed=0,
                             fetch_completed=True,
+                            evidence_cursor=data.evidence_cursor,
+                            evidence_processed=data.evidence_processed,
+                            evidence_history_processed=data.evidence_history_processed,
+                        )
+                    )
+            evidence_cursor = data.evidence_cursor
+            evidence_processed = data.evidence_processed
+            evidence_history_processed = data.evidence_history_processed
+            while True:
+                await workflow.wait_condition(lambda: not self._paused or self._cancelled)
+                if self._cancelled:
+                    break
+                evidence_page = await workflow.execute_activity(
+                    enrich_service2_evidence_page,
+                    Service2EvidencePageInput(
+                        tenant_pub_id=data.tenant_pub_id,
+                        project_pub_id=data.project_pub_id,
+                        batch_pub_id=data.batch_pub_id,
+                        cursor=evidence_cursor,
+                    ),
+                    task_queue=data.source_task_queue,
+                    start_to_close_timeout=timedelta(minutes=10),
+                    heartbeat_timeout=timedelta(seconds=60),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                evidence_cursor = evidence_page.next_cursor
+                evidence_processed += evidence_page.processed
+                evidence_history_processed += evidence_page.processed
+                if not evidence_page.has_more:
+                    break
+                if evidence_history_processed >= 500:
+                    workflow.continue_as_new(
+                        Service2SourceCorpusWorkflowInput(
+                            schema_version=data.schema_version,
+                            tenant_pub_id=data.tenant_pub_id,
+                            project_pub_id=data.project_pub_id,
+                            batch_pub_id=data.batch_pub_id,
+                            source_task_queue=data.source_task_queue,
+                            coverage_cursor=cursor,
+                            processed_count=processed,
+                            history_processed=0,
+                            fetch_completed=True,
+                            evidence_cursor=evidence_cursor,
+                            evidence_processed=evidence_processed,
+                            evidence_history_processed=0,
                         )
                     )
             state = await workflow.execute_activity(
@@ -169,6 +222,7 @@ class Service2SourceCorpusWorkflow:
                 "state": state,
                 "processed_count": processed,
                 "coverage_cursor": cursor,
+                "evidence_processed": evidence_processed,
             }
         except Exception:
             await workflow.execute_activity(

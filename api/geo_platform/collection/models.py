@@ -224,6 +224,10 @@ class CollectionTask(TenantModel, Base):
     matrix_json: Mapped[str] = mapped_column(Text)
     state: Mapped[str] = mapped_column(String(30), default="pending")
     attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    # Planning and completion are separate facts. ``created_at`` keeps the
+    # immutable queue-plan time; ``terminal_at`` freezes when the query became
+    # completed/failed so downstream snapshots can exclude late retries.
+    terminal_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # ``answer_text`` is the immutable platform response.  The remaining fields
     # are deterministic customer/read/search projections of that raw value.
     answer_text: Mapped[str | None] = mapped_column(Text)

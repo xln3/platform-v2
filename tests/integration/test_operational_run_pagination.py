@@ -1,4 +1,4 @@
-"""Real-Postgres contract tests for the operational run keyset page."""
+"""Real-Postgres contracts for public numbered and internal keyset run pages."""
 
 from __future__ import annotations
 
@@ -113,7 +113,7 @@ def _page(
     params = {"project_pub_id": project_pub_id, "limit": 4}
     if cursor is not None:
         params["cursor"] = cursor
-    return client.get("/api/v2/collection/runs", headers=request_headers, params=params)
+    return client.get("/api/v2/collection/runs/cursor", headers=request_headers, params=params)
 
 
 def _numbered_page(
@@ -125,7 +125,7 @@ def _numbered_page(
     return client.get(
         "/api/v2/collection/runs",
         headers=request_headers,
-        params={"project_pub_id": project_pub_id, "page": page, "limit": 4},
+        params={"project_pub_id": project_pub_id, "page": page, "page_size": 4},
     )
 
 
@@ -174,9 +174,19 @@ def test_run_cursor_is_stable_scoped_opaque_and_summary_is_full_cohort() -> None
     assert numbered_first.headers["X-Page-Count"] == "3"
     assert numbered_first.headers["X-Has-More"] == "true"
 
+    numbered_second = _numbered_page(client, headers_a, project_a, 2)
+    assert [row["pub_id"] for row in numbered_second.json()] == expected_a[4:8]
+    assert numbered_second.json()[0]["pub_id"] == expected_a[4]
+    assert numbered_second.headers["X-Total-Count"] == "9"
+    assert numbered_second.headers["X-Page-Count"] == "3"
+    assert numbered_second.headers["X-Has-More"] == "true"
+
     numbered_third = _numbered_page(client, headers_a, project_a, 3)
     assert [row["pub_id"] for row in numbered_third.json()] == expected_a[8:]
+    assert numbered_third.json()[0]["pub_id"] == expected_a[8]
     assert numbered_third.headers["X-Page"] == "3"
+    assert numbered_third.headers["X-Total-Count"] == "9"
+    assert numbered_third.headers["X-Page-Count"] == "3"
     assert numbered_third.headers["X-Has-More"] == "false"
 
     clamped = _numbered_page(client, headers_a, project_a, 999)
@@ -189,7 +199,7 @@ def test_run_cursor_is_stable_scoped_opaque_and_summary_is_full_cohort() -> None
         params={
             "project_pub_id": project_a,
             "page": 1,
-            "limit": 4,
+            "page_size": 4,
             "cursor": first_cursor,
         },
     )

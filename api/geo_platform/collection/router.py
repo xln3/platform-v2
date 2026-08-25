@@ -6,10 +6,10 @@ import json
 import secrets
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import and_, func, or_, select, text, update
 from sqlalchemy.orm import Session
 
@@ -44,6 +44,17 @@ from .models import (
     SessionHealthCheck,
     SessionLease,
     TerminalTask,
+)
+from .pagination_policy import (
+    COLLECTION_RUNS_CURSOR_DEFAULT_PAGE_SIZE,
+    COLLECTION_RUNS_CURSOR_MAX_PAGE_SIZE,
+    COLLECTION_RUNS_CURSOR_MIN_PAGE_SIZE,
+    COLLECTION_RUNS_DEFAULT_PAGE_NUMBER,
+    COLLECTION_RUNS_DEFAULT_PAGE_SIZE,
+    COLLECTION_RUNS_MAX_PAGE_NUMBER,
+    COLLECTION_RUNS_MAX_PAGE_SIZE,
+    COLLECTION_RUNS_MIN_PAGE_NUMBER,
+    COLLECTION_RUNS_MIN_PAGE_SIZE,
 )
 from .revocation import stage_account_revocation
 from .run_service import stage_collection_run
@@ -99,6 +110,18 @@ class RunCreate(StrictModel):
     config_version_pub_id: str
     requires_intervention: bool = False
     account_pub_id: str | None = None
+
+
+class RunRetryRequest(StrictModel):
+    task_pub_ids: list[str] = Field(min_length=1, max_length=10_000)
+
+    @model_validator(mode="after")
+    def validate_task_selection(self) -> Self:
+        if len(set(self.task_pub_ids)) != len(self.task_pub_ids):
+            raise ValueError("duplicate_retry_task_pub_ids")
+        if any(not value.strip() for value in self.task_pub_ids):
+            raise ValueError("empty_retry_task_pub_id")
+        return self
 
 
 class RunView(StrictModel):
@@ -439,7 +462,6 @@ def quarantine_account(
     responses={
         200: {
             "headers": {
-                "X-Next-Cursor": {"schema": {"type": "string"}},
                 "X-Has-More": {"schema": {"type": "boolean"}},
                 "X-Page": {"schema": {"type": "integer"}},
                 "X-Page-Size": {"schema": {"type": "integer"}},
@@ -450,17 +472,95 @@ def quarantine_account(
     },
 )
 def list_runs(
+    request: Request,
     response: Response,
     project_pub_id: str | None = Query(default=None, min_length=5, max_length=30),
-    cursor: str | None = Query(default=None, min_length=16, max_length=2_048),
-    page: int | None = Query(default=None, ge=1, le=1_000_000),
-    limit: int = Query(default=50, ge=1, le=100),
+    page: int = Query(
+        default=COLLECTION_RUNS_DEFAULT_PAGE_NUMBER,
+        ge=COLLECTION_RUNS_MIN_PAGE_NUMBER,
+        le=COLLECTION_RUNS_MAX_PAGE_NUMBER,
+    ),
+    page_size: int = Query(
+        default=COLLECTION_RUNS_DEFAULT_PAGE_SIZE,
+        ge=COLLECTION_RUNS_MIN_PAGE_SIZE,
+        le=COLLECTION_RUNS_MAX_PAGE_SIZE,
+    ),
     principal: Principal = Depends(get_principal),
     session: Session = Depends(get_db),
 ) -> list[RunView]:
-    principal.require("project:read")
-    if cursor is not None and page is not None:
+    if "cursor" in request.query_params or "limit" in request.query_params:
         raise HTTPException(status_code=422, detail={"code": "pagination_mode_conflict"})
+    principal.require("project:read")
+    repository = TenantRepository(session, principal.tenant_pub_id)
+    project_id = None
+    if project_pub_id is not None:
+        project_id = session.scalar(
+            select(Project.id).where(
+                Project.tenant_id == repository.tenant.id,
+                Project.pub_id == project_pub_id,
+            )
+        )
+        if project_id is None:
+            raise HTTPException(status_code=404, detail={"code": "project_not_found"})
+    statement = (
+        select(CollectionRun, Project.pub_id, MonitoringConfigVersion.pub_id)
+        .join(Project, Project.id == CollectionRun.project_id)
+        .join(
+            MonitoringConfigVersion, MonitoringConfigVersion.id == CollectionRun.config_version_id
+        )
+        .where(CollectionRun.tenant_id == repository.tenant.id)
+    )
+    if project_id is not None:
+        statement = statement.where(CollectionRun.project_id == project_id)
+    count_statement = (
+        select(func.count())
+        .select_from(CollectionRun)
+        .where(CollectionRun.tenant_id == repository.tenant.id)
+    )
+    if project_id is not None:
+        count_statement = count_statement.where(CollectionRun.project_id == project_id)
+    page_meta = numbered_page(
+        requested_page=page,
+        page_size=page_size,
+        total_count=int(session.scalar(count_statement) or 0),
+    )
+    visible = session.execute(
+        statement.order_by(CollectionRun.created_at.desc(), CollectionRun.pub_id.desc())
+        .offset(page_meta.offset)
+        .limit(page_meta.page_size)
+    ).all()
+    set_numbered_page_headers(response, page_meta)
+    return _run_views(visible)
+
+
+@router.get(
+    "/collection/runs/cursor",
+    response_model=list[RunView],
+    deprecated=True,
+    responses={
+        200: {
+            "headers": {
+                "X-Next-Cursor": {"schema": {"type": "string"}},
+                "X-Has-More": {"schema": {"type": "boolean"}},
+            }
+        }
+    },
+)
+def list_runs_cursor(
+    response: Response,
+    project_pub_id: str | None = Query(default=None, min_length=5, max_length=30),
+    cursor: str | None = Query(default=None, min_length=16, max_length=2_048),
+    limit: int = Query(
+        default=COLLECTION_RUNS_CURSOR_DEFAULT_PAGE_SIZE,
+        ge=COLLECTION_RUNS_CURSOR_MIN_PAGE_SIZE,
+        le=COLLECTION_RUNS_CURSOR_MAX_PAGE_SIZE,
+    ),
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db),
+) -> list[RunView]:
+    """Internal keyset compatibility endpoint, separate from numbered paging."""
+
+    principal.require("project:read")
     repository = TenantRepository(session, principal.tenant_pub_id)
     project_id = None
     if project_pub_id is not None:
@@ -493,54 +593,38 @@ def list_runs(
     )
     if project_id is not None:
         statement = statement.where(CollectionRun.project_id == project_id)
-    if page is not None:
-        count_statement = (
-            select(func.count())
-            .select_from(CollectionRun)
-            .where(CollectionRun.tenant_id == repository.tenant.id)
+    if anchor is not None:
+        statement = statement.where(
+            or_(
+                CollectionRun.created_at < anchor.created_at,
+                and_(
+                    CollectionRun.created_at == anchor.created_at,
+                    CollectionRun.pub_id < anchor.pub_id,
+                ),
+            )
         )
-        if project_id is not None:
-            count_statement = count_statement.where(CollectionRun.project_id == project_id)
-        page_meta = numbered_page(
-            requested_page=page,
-            page_size=limit,
-            total_count=int(session.scalar(count_statement) or 0),
+    rows = session.execute(
+        statement.order_by(CollectionRun.created_at.desc(), CollectionRun.pub_id.desc()).limit(
+            limit + 1
         )
-        visible = session.execute(
-            statement.order_by(CollectionRun.created_at.desc(), CollectionRun.pub_id.desc())
-            .offset(page_meta.offset)
-            .limit(page_meta.page_size)
-        ).all()
-        set_numbered_page_headers(response, page_meta)
-    else:
-        if anchor is not None:
-            statement = statement.where(
-                or_(
-                    CollectionRun.created_at < anchor.created_at,
-                    and_(
-                        CollectionRun.created_at == anchor.created_at,
-                        CollectionRun.pub_id < anchor.pub_id,
-                    ),
-                )
-            )
-        rows = session.execute(
-            statement.order_by(CollectionRun.created_at.desc(), CollectionRun.pub_id.desc()).limit(
-                limit + 1
-            )
-        ).all()
-        has_more = len(rows) > limit
-        visible = rows[:limit]
-        next_cursor = None
-        if has_more and visible:
-            last = visible[-1][0]
-            next_cursor = encode_keyset_cursor(
-                kind="collection-runs",
-                tenant_pub_id=principal.tenant_pub_id,
-                filters=filters,
-                created_at=last.created_at,
-                pub_id=last.pub_id,
-            )
-        set_cursor_headers(response, next_cursor=next_cursor, has_more=has_more)
+    ).all()
+    has_more = len(rows) > limit
+    visible = rows[:limit]
+    next_cursor = None
+    if has_more and visible:
+        last = visible[-1][0]
+        next_cursor = encode_keyset_cursor(
+            kind="collection-runs",
+            tenant_pub_id=principal.tenant_pub_id,
+            filters=filters,
+            created_at=last.created_at,
+            pub_id=last.pub_id,
+        )
+    set_cursor_headers(response, next_cursor=next_cursor, has_more=has_more)
+    return _run_views(visible)
+
+
+def _run_views(rows: list[Any]) -> list[RunView]:
     return [
         RunView(
             pub_id=item.pub_id,
@@ -561,7 +645,7 @@ def list_runs(
             created_at=item.created_at,
             updated_at=item.updated_at,
         )
-        for item, row_project_pub_id, config_version_pub_id in visible
+        for item, row_project_pub_id, config_version_pub_id in rows
     ]
 
 
@@ -952,6 +1036,7 @@ def collection_task_trace(
 async def control_run(
     run_pub_id: str,
     action: Literal["pause", "resume", "cancel", "retry"],
+    retry_request: RunRetryRequest | None = None,
     idempotency_key: str = Header(alias="Idempotency-Key", min_length=16, max_length=128),
     principal: Principal = Depends(get_principal),
     session: Session = Depends(get_db),
@@ -975,24 +1060,52 @@ async def control_run(
             )
         )
         if replay is not None:
+            if replay.retry_of_run_pub_id != run.pub_id:
+                raise HTTPException(status_code=409, detail={"code": "idempotency_conflict"})
+            if retry_request is not None:
+                replay_source_tasks = set(
+                    session.execute(
+                        text(
+                            """
+                            SELECT task.pub_id
+                            FROM platform.collection_query_retry_intent intent
+                            JOIN platform.collection_task task ON task.id=intent.source_task_id
+                            WHERE intent.retry_run_id=:retry_run_id
+                            """
+                        ),
+                        {"retry_run_id": replay.id},
+                    ).scalars()
+                )
+                if replay_source_tasks != set(retry_request.task_pub_ids):
+                    raise HTTPException(status_code=409, detail={"code": "idempotency_conflict"})
             return WorkflowAccepted(workflow_id=replay.workflow_id, run_id=replay.temporal_run_id)
         project = session.get(Project, run.project_id)
         config = session.get(MonitoringConfigVersion, run.config_version_id)
         if project is None or config is None:
             raise HTTPException(status_code=409, detail={"code": "retry_source_incomplete"})
-        retry_run = stage_collection_run(
-            session,
-            tenant_id=repository.tenant.id,
-            tenant_pub_id=principal.tenant_pub_id,
-            project_pub_id=project.pub_id,
-            config_version_pub_id=config.pub_id,
-            idempotency_key=idempotency_key,
-            initiated_by_pub_id=principal.actor_pub_id,
-            source="retry",
-            retry_of_run_pub_id=run.pub_id,
-        )
+        try:
+            retry_run = stage_collection_run(
+                session,
+                tenant_id=repository.tenant.id,
+                tenant_pub_id=principal.tenant_pub_id,
+                project_pub_id=project.pub_id,
+                config_version_pub_id=config.pub_id,
+                idempotency_key=idempotency_key,
+                initiated_by_pub_id=principal.actor_pub_id,
+                source="retry",
+                retry_of_run_pub_id=run.pub_id,
+                retry_trigger="manual",
+                retry_task_pub_ids=(
+                    retry_request.task_pub_ids if retry_request is not None else None
+                ),
+            )
+        except (LookupError, ValueError) as exc:
+            session.rollback()
+            raise HTTPException(status_code=409, detail={"code": str(exc)}) from exc
         session.commit()
         return WorkflowAccepted(workflow_id=retry_run.workflow_id)
+    if retry_request is not None:
+        raise HTTPException(status_code=422, detail={"code": "retry_body_for_non_retry_action"})
     if action in {"pause", "resume", "cancel"}:
         try:
             if workflow_signal_replayed(

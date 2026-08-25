@@ -10,25 +10,29 @@ import json
 import os
 import secrets
 import stat
+import sys
 from pathlib import Path
-from urllib.parse import quote, unquote, urlsplit, urlunsplit
+from urllib.parse import quote, urlsplit, urlunsplit
 
 import psycopg
+from geo_platform.tenancy.runtime_acl import (
+    API_ROLE,
+    FUNCTION_GRANTS,
+    MANAGED_SCHEMAS,
+    RUNTIME_ROLES,
+    SEQUENCE_ACTIONS,
+    SEQUENCE_GRANTS,
+    TABLE_ACTIONS,
+    TABLE_GRANTS,
+    WORKER_ROLE,
+    migration_reconcile_sql,
+)
 from psycopg import sql
 
+from domain.security.redaction import safe_exception_summary
+
 ENV_PATH = Path(os.getenv("GEO_PRODUCTION_ENV", "/etc/geo-platform-v2/platform.env"))
-API_ROLE = "geo_api"
-WORKER_ROLE = "geo_worker"
-SCHEMAS = (
-    "platform",
-    "analytics",
-    "evidence",
-    "reporting",
-    "intelligence",
-    "integration",
-    "sop",
-    "posting",
-)
+SCHEMAS = MANAGED_SCHEMAS
 STAGE2_TABLES = (
     "collection_capability_registry_revision",
     "collection_capability_declaration",
@@ -766,9 +770,309 @@ def runtime_dsn(owner_dsn: str, password: str, role: str) -> str:
     )
 
 
+def _harden_all_object_owner_defaults(
+    connection: psycopg.Connection[tuple[object, ...]], *, role: str
+) -> None:
+    owners = connection.execute(
+        """
+        SELECT DISTINCT pg_get_userbyid(owner_oid)
+        FROM (
+          SELECT relation.relowner AS owner_oid
+          FROM pg_class relation
+          JOIN pg_namespace namespace ON namespace.oid=relation.relnamespace
+          WHERE namespace.nspname=ANY(%s)
+          UNION
+          SELECT procedure.proowner
+          FROM pg_proc procedure
+          JOIN pg_namespace namespace ON namespace.oid=procedure.pronamespace
+          WHERE namespace.nspname=ANY(%s)
+        ) owners
+        ORDER BY 1
+        """,
+        (list(SCHEMAS), list(SCHEMAS)),
+    ).fetchall()
+    for owner_row in owners:
+        owner = str(owner_row[0])
+        for object_kind in ("TABLES", "SEQUENCES", "FUNCTIONS"):
+            connection.execute(
+                sql.SQL("ALTER DEFAULT PRIVILEGES FOR ROLE {} REVOKE ALL ON {} FROM {}").format(
+                    sql.Identifier(owner),
+                    sql.SQL(object_kind),
+                    sql.Identifier(role),
+                )
+            )
+            connection.execute(
+                sql.SQL("ALTER DEFAULT PRIVILEGES FOR ROLE {} REVOKE ALL ON {} FROM PUBLIC").format(
+                    sql.Identifier(owner),
+                    sql.SQL(object_kind),
+                )
+            )
+        for schema in SCHEMAS:
+            for object_kind in ("TABLES", "SEQUENCES", "FUNCTIONS"):
+                connection.execute(
+                    sql.SQL(
+                        "ALTER DEFAULT PRIVILEGES FOR ROLE {} IN SCHEMA {} REVOKE ALL ON {} FROM {}"
+                    ).format(
+                        sql.Identifier(owner),
+                        sql.Identifier(schema),
+                        sql.SQL(object_kind),
+                        sql.Identifier(role),
+                    )
+                )
+                connection.execute(
+                    sql.SQL(
+                        "ALTER DEFAULT PRIVILEGES FOR ROLE {} IN SCHEMA {} "
+                        "REVOKE ALL ON {} FROM PUBLIC"
+                    ).format(
+                        sql.Identifier(owner),
+                        sql.Identifier(schema),
+                        sql.SQL(object_kind),
+                    )
+                )
+
+
+def apply_runtime_acl(connection: psycopg.Connection[tuple[object, ...]], *, role: str) -> None:
+    """Revoke the whole managed catalog, then replay the shared allow-list."""
+
+    if role not in RUNTIME_ROLES:
+        raise ValueError(f"unsupported runtime role:{role}")
+    connection.execute(migration_reconcile_sql(role))
+    _harden_all_object_owner_defaults(connection, role=role)
+
+
+def verify_runtime_acl(connection: psycopg.Connection[tuple[object, ...]], *, role: str) -> None:
+    """Traverse every real object and reject any privilege outside the manifest."""
+
+    if role not in RUNTIME_ROLES:
+        raise ValueError(f"unsupported runtime role:{role}")
+    for schema in SCHEMAS:
+        schema_privileges = connection.execute(
+            """
+            SELECT has_schema_privilege(%s,%s,'USAGE'),
+                   has_schema_privilege(%s,%s,'CREATE'),
+                   has_schema_privilege('public',%s,'USAGE'),
+                   has_schema_privilege('public',%s,'CREATE')
+            """,
+            (role, schema, role, schema, schema, schema),
+        ).fetchone()
+        if schema_privileges != (True, False, False, False):
+            raise RuntimeError(f"runtime schema ACL mismatch:{role}:{schema}")
+    relations = connection.execute(
+        """
+        SELECT namespace.nspname,relation.relname,relation.relkind
+        FROM pg_class relation
+        JOIN pg_namespace namespace ON namespace.oid=relation.relnamespace
+        WHERE namespace.nspname=ANY(%s)
+          AND relation.relkind IN ('r','p','v','m')
+        ORDER BY 1,2
+        """,
+        (list(SCHEMAS),),
+    ).fetchall()
+    actual_tables = {f"{schema}.{name}" for schema, name, _kind in relations}
+    missing_tables = set(TABLE_GRANTS[role]) - actual_tables
+    if missing_tables:
+        raise RuntimeError(f"runtime ACL manifest tables missing:{role}:{sorted(missing_tables)}")
+    for schema, name, _kind in relations:
+        qualified = f"{schema}.{name}"
+        expected = TABLE_GRANTS[role].get(qualified)
+        expected_actions = expected.privileges if expected else frozenset()
+        privileges = connection.execute(
+            """
+            SELECT has_table_privilege(%s,%s,'SELECT'),
+                   has_table_privilege(%s,%s,'INSERT'),
+                   has_table_privilege(%s,%s,'UPDATE'),
+                   has_table_privilege(%s,%s,'DELETE'),
+                   has_table_privilege(%s,%s,'TRUNCATE'),
+                   has_table_privilege(%s,%s,'REFERENCES'),
+                   has_table_privilege(%s,%s,'TRIGGER')
+            """,
+            tuple(
+                value
+                for action in (*TABLE_ACTIONS, "TRUNCATE", "REFERENCES", "TRIGGER")
+                for value in (role, qualified)
+            ),
+        ).fetchone()
+        wanted = tuple(action in expected_actions for action in TABLE_ACTIONS) + (
+            False,
+            False,
+            False,
+        )
+        if privileges != wanted:
+            raise RuntimeError(f"runtime table ACL mismatch:{role}:{qualified}")
+        columns = connection.execute(
+            """
+            SELECT column_name FROM information_schema.columns
+            WHERE table_schema=%s AND table_name=%s ORDER BY ordinal_position
+            """,
+            (schema, name),
+        ).fetchall()
+        scoped_updates = frozenset(expected.update_columns if expected else ())
+        actual_columns = {str(row[0]) for row in columns}
+        if not scoped_updates <= actual_columns:
+            raise RuntimeError(f"runtime ACL manifest columns missing:{role}:{qualified}")
+        for column_row in columns:
+            column = str(column_row[0])
+            update_allowed = connection.execute(
+                "SELECT has_column_privilege(%s,%s,%s,'UPDATE')",
+                (role, qualified, column),
+            ).fetchone()
+            column_expected = "UPDATE" in expected_actions or column in scoped_updates
+            if update_allowed != (column_expected,):
+                raise RuntimeError(f"runtime column ACL mismatch:{role}:{qualified}:{column}")
+
+    sequences = connection.execute(
+        """
+        SELECT namespace.nspname,relation.relname
+        FROM pg_class relation
+        JOIN pg_namespace namespace ON namespace.oid=relation.relnamespace
+        WHERE namespace.nspname=ANY(%s) AND relation.relkind='S'
+        ORDER BY 1,2
+        """,
+        (list(SCHEMAS),),
+    ).fetchall()
+    actual_sequences = {f"{schema}.{name}" for schema, name in sequences}
+    missing_sequences = set(SEQUENCE_GRANTS[role]) - actual_sequences
+    if missing_sequences:
+        raise RuntimeError(
+            f"runtime ACL manifest sequences missing:{role}:{sorted(missing_sequences)}"
+        )
+    for schema, name in sequences:
+        qualified = f"{schema}.{name}"
+        expected = qualified in SEQUENCE_GRANTS[role]
+        observed = connection.execute(
+            """
+            SELECT has_sequence_privilege(%s,%s,'USAGE'),
+                   has_sequence_privilege(%s,%s,'SELECT'),
+                   has_sequence_privilege(%s,%s,'UPDATE')
+            """,
+            (role, qualified, role, qualified, role, qualified),
+        ).fetchone()
+        wanted = tuple(expected and action in {"USAGE", "SELECT"} for action in SEQUENCE_ACTIONS)
+        if observed != wanted:
+            raise RuntimeError(f"runtime sequence ACL mismatch:{role}:{qualified}")
+
+    functions = connection.execute(
+        """
+        SELECT procedure.oid::regprocedure::text
+        FROM pg_proc procedure
+        JOIN pg_namespace namespace ON namespace.oid=procedure.pronamespace
+        WHERE namespace.nspname=ANY(%s)
+        ORDER BY 1
+        """,
+        (list(SCHEMAS),),
+    ).fetchall()
+    expected_functions: set[str] = set()
+    missing_functions: set[str] = set()
+    for declared_function in FUNCTION_GRANTS[role]:
+        resolved = connection.execute(
+            "SELECT to_regprocedure(%s)::text", (declared_function,)
+        ).fetchone()
+        if resolved is None or resolved[0] is None:
+            missing_functions.add(declared_function)
+        else:
+            expected_functions.add(str(resolved[0]))
+    if missing_functions:
+        raise RuntimeError(
+            f"runtime ACL manifest functions missing:{role}:{sorted(missing_functions)}"
+        )
+    for function_row in functions:
+        function = str(function_row[0])
+        allowed = connection.execute(
+            "SELECT has_function_privilege(%s,%s,'EXECUTE')", (role, function)
+        ).fetchone()
+        if allowed != (function in expected_functions,):
+            raise RuntimeError(f"runtime function ACL mismatch:{role}:{function}")
+
+    public_acl = connection.execute(
+        """
+        SELECT count(*)
+        FROM (
+          SELECT privilege.grantee
+          FROM pg_class relation
+          JOIN pg_namespace namespace ON namespace.oid=relation.relnamespace
+          CROSS JOIN LATERAL aclexplode(
+            COALESCE(
+              relation.relacl,
+              acldefault(
+                CASE WHEN relation.relkind='S' THEN 'S'::"char" ELSE 'r'::"char" END,
+                relation.relowner
+              )
+            )
+          ) privilege
+          WHERE namespace.nspname=ANY(%s) AND privilege.grantee=0
+          UNION ALL
+          SELECT privilege.grantee
+          FROM pg_proc procedure
+          JOIN pg_namespace namespace ON namespace.oid=procedure.pronamespace
+          CROSS JOIN LATERAL aclexplode(
+            COALESCE(procedure.proacl,acldefault('f',procedure.proowner))
+          ) privilege
+          WHERE namespace.nspname=ANY(%s) AND privilege.grantee=0
+        ) exposed
+        """,
+        (list(SCHEMAS), list(SCHEMAS)),
+    ).fetchone()
+    if public_acl != (0,):
+        raise RuntimeError("managed runtime objects retain PUBLIC privileges")
+
+    unsafe_defaults = connection.execute(
+        """
+        WITH owners AS (
+          SELECT DISTINCT relation.relowner AS owner_oid
+          FROM pg_class relation
+          JOIN pg_namespace namespace ON namespace.oid=relation.relnamespace
+          WHERE namespace.nspname=ANY(%s)
+          UNION
+          SELECT DISTINCT procedure.proowner
+          FROM pg_proc procedure
+          JOIN pg_namespace namespace ON namespace.oid=procedure.pronamespace
+          WHERE namespace.nspname=ANY(%s)
+        ), kinds(kind) AS (
+          VALUES ('r'::"char"),('S'::"char"),('f'::"char")
+        ), unsafe AS (
+          SELECT privilege.grantee
+          FROM owners CROSS JOIN kinds
+          CROSS JOIN LATERAL aclexplode(COALESCE(
+            (SELECT defaults.defaclacl FROM pg_default_acl defaults
+             WHERE defaults.defaclrole=owners.owner_oid
+               AND defaults.defaclnamespace=0
+               AND defaults.defaclobjtype=kinds.kind),
+            acldefault(kinds.kind,owners.owner_oid)
+          )) privilege
+          WHERE privilege.grantee=0
+             OR privilege.grantee IN (
+               SELECT oid FROM pg_roles WHERE rolname=ANY(%s)
+             )
+          UNION ALL
+          SELECT privilege.grantee
+          FROM pg_default_acl defaults
+          JOIN owners ON owners.owner_oid=defaults.defaclrole
+          JOIN pg_namespace namespace ON namespace.oid=defaults.defaclnamespace
+          CROSS JOIN LATERAL aclexplode(defaults.defaclacl) privilege
+          WHERE namespace.nspname=ANY(%s)
+            AND (
+              privilege.grantee=0
+              OR privilege.grantee IN (
+                SELECT oid FROM pg_roles WHERE rolname=ANY(%s)
+              )
+            )
+        )
+        SELECT count(*)
+        FROM unsafe
+        """,
+        (
+            list(SCHEMAS),
+            list(SCHEMAS),
+            list(RUNTIME_ROLES),
+            list(SCHEMAS),
+            list(RUNTIME_ROLES),
+        ),
+    ).fetchone()
+    if unsafe_defaults != (0,):
+        raise RuntimeError("managed schemas retain unsafe default privileges")
+
+
 def install_role(owner_dsn: str, password: str, *, role: str, bypass_rls: bool) -> None:
-    parsed = urlsplit(owner_dsn.replace("postgresql+psycopg://", "postgresql://"))
-    owner = unquote(parsed.username or "")
     with psycopg.connect(owner_dsn.replace("postgresql+psycopg://", "postgresql://")) as connection:
         database = connection.info.dbname
         exists = connection.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", (role,)).fetchone()
@@ -800,57 +1104,7 @@ def install_role(owner_dsn: str, password: str, *, role: str, bypass_rls: bool) 
                 sql.Identifier(database), sql.Identifier(role)
             )
         )
-        for schema in SCHEMAS:
-            connection.execute(
-                sql.SQL("GRANT USAGE ON SCHEMA {} TO {}").format(
-                    sql.Identifier(schema), sql.Identifier(role)
-                )
-            )
-            connection.execute(
-                sql.SQL(
-                    "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA {} TO {}"
-                ).format(sql.Identifier(schema), sql.Identifier(role))
-            )
-            connection.execute(
-                sql.SQL("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA {} TO {}").format(
-                    sql.Identifier(schema), sql.Identifier(role)
-                )
-            )
-            connection.execute(
-                sql.SQL("GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA {} TO {}").format(
-                    sql.Identifier(schema), sql.Identifier(role)
-                )
-            )
-            connection.execute(
-                sql.SQL(
-                    "ALTER DEFAULT PRIVILEGES FOR ROLE {} IN SCHEMA {} REVOKE ALL ON TABLES FROM {}"
-                ).format(
-                    sql.Identifier(owner),
-                    sql.Identifier(schema),
-                    sql.Identifier(role),
-                )
-            )
-            connection.execute(
-                sql.SQL(
-                    "ALTER DEFAULT PRIVILEGES FOR ROLE {} IN SCHEMA {} "
-                    "REVOKE ALL ON SEQUENCES FROM {}"
-                ).format(
-                    sql.Identifier(owner),
-                    sql.Identifier(schema),
-                    sql.Identifier(role),
-                )
-            )
-            connection.execute(
-                sql.SQL(
-                    "ALTER DEFAULT PRIVILEGES FOR ROLE {} IN SCHEMA {} "
-                    "REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC"
-                ).format(
-                    sql.Identifier(owner),
-                    sql.Identifier(schema),
-                )
-            )
-        apply_stage2_minimum_acl(connection, role=role)
-        apply_stage3_minimum_acl(connection, role=role)
+        apply_runtime_acl(connection, role=role)
 
 
 def verify_role(dsn: str, *, bypass_rls: bool) -> None:
@@ -863,8 +1117,7 @@ def verify_role(dsn: str, *, bypass_rls: bool) -> None:
         ).fetchone()
         if role is None or role[1:] != (False, False, False, bypass_rls):
             raise RuntimeError("runtime database role is privileged")
-        verify_stage2_minimum_acl(connection, role=str(role[0]))
-        verify_stage3_minimum_acl(connection, role=str(role[0]))
+        verify_runtime_acl(connection, role=str(role[0]))
         connection.execute("SELECT count(*) FROM sop.project").fetchone()
         tenant = connection.execute(
             "SELECT id,pub_id FROM platform.tenant ORDER BY id LIMIT 1"
@@ -877,7 +1130,8 @@ def verify_role(dsn: str, *, bypass_rls: bool) -> None:
                 """,
                 (str(tenant[0]), tenant[1]),
             )
-            connection.execute("SELECT count(*) FROM platform.membership").fetchone()
+            if role[0] == API_ROLE:
+                connection.execute("SELECT count(*) FROM platform.membership").fetchone()
             connection.execute("SELECT count(*) FROM analytics.metric_daily").fetchone()
 
 
@@ -943,5 +1197,20 @@ def main() -> None:
     )
 
 
+def cli() -> int:
+    try:
+        main()
+    except Exception as error:  # noqa: BLE001 - suppress traceback and connection details
+        print(
+            json.dumps(
+                {"result": "failed", "error": safe_exception_summary(error)},
+                ensure_ascii=True,
+            ),
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
 if __name__ == "__main__":
-    main()
+    raise SystemExit(cli())

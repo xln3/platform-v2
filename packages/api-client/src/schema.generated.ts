@@ -585,6 +585,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/collection/runs/cursor": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Runs Cursor
+         * @deprecated
+         * @description Internal keyset compatibility endpoint, separate from numbered paging.
+         */
+        get: operations["list_runs_cursor_api_v2_collection_runs_cursor_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/collection/runs/summary": {
         parameters: {
             query?: never;
@@ -3245,6 +3266,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/internal/service2-source-corpus/projects/{project_pub_id}/manifests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Manifests
+         * @description List exact immutable Service 2 fact sets available to formal production.
+         */
+        get: operations["list_manifests_api_v2_internal_service2_source_corpus_projects__project_pub_id__manifests_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/sop/projects": {
         parameters: {
             query?: never;
@@ -5287,17 +5328,53 @@ export interface components {
             output_usd_per_million_tokens: number | null;
             /** Context Window Tokens */
             context_window_tokens: number | null;
+            /**
+             * Web Search Audit Status
+             * @constant
+             */
+            web_search_audit_status: "verified_provider_citation";
+            /** Web Search Audited At */
+            web_search_audited_at: string;
+            /**
+             * Auditable Source Mode
+             * @enum {string}
+             */
+            auditable_source_mode: "provider_citation" | "provider_tool";
             /** Recommended */
             recommended: boolean;
+            /** Catalog Revision */
+            catalog_revision: string;
             /** Pricing Observed At */
             pricing_observed_at: string;
             /** Pricing Source Url */
             pricing_source_url: string;
             /**
+             * Pricing Currency
+             * @constant
+             */
+            pricing_currency: "USD";
+            /**
+             * Token Price Unit
+             * @constant
+             */
+            token_price_unit: "per_million_tokens";
+            /** Web Search Usd Per Call */
+            web_search_usd_per_call: number | null;
+            /**
+             * Web Search Pricing Status
+             * @constant
+             */
+            web_search_pricing_status: "not_published_in_catalog_snapshot";
+            /**
              * Pricing Notice
              * @constant
              */
             pricing_notice: "catalog_snapshot_provider_invoice_authoritative";
+            /**
+             * Web Search Audit Policy
+             * @constant
+             */
+            web_search_audit_policy: "provider_search_event_and_provider_citation_required";
         };
         /** AnchorSource */
         AnchorSource: {
@@ -8734,6 +8811,10 @@ export interface components {
             service_catalog_version: "legacy_report_services_v1" | "quotation_services_v2";
             /** Sop Project Pub Id */
             sop_project_pub_id: string | null;
+            /** Service2 Manifest Pub Id */
+            service2_manifest_pub_id?: string | null;
+            /** Service2 Manifest Hash */
+            service2_manifest_hash?: string | null;
             /**
              * Status
              * @enum {string}
@@ -8826,6 +8907,42 @@ export interface components {
             };
             /** Question Groups */
             question_groups?: components["schemas"]["QueryGroupDraft"][];
+        };
+        /** FrozenManifestOptionView */
+        FrozenManifestOptionView: {
+            /**
+             * Schema Version
+             * @default formal-service2-source-corpus-v2
+             * @constant
+             */
+            schema_version: "formal-service2-source-corpus-v2";
+            /** Batch Pub Id */
+            batch_pub_id: string;
+            /** Manifest Pub Id */
+            manifest_pub_id: string;
+            /** Revision */
+            revision: number;
+            /** Manifest Hash */
+            manifest_hash: string;
+            /** Case Count */
+            case_count: number;
+            /** Evidence Reference Count */
+            evidence_reference_count: number;
+            /**
+             * Window Start
+             * Format: date-time
+             */
+            window_start: string;
+            /**
+             * Window End
+             * Format: date-time
+             */
+            window_end: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /** FrozenManifestView */
         FrozenManifestView: {
@@ -11190,6 +11307,10 @@ export interface components {
              * @constant
              */
             service_catalog_version: "quotation_services_v2";
+            /** Service2 Manifest Pub Id */
+            service2_manifest_pub_id?: string | null;
+            /** Service2 Manifest Hash */
+            service2_manifest_hash?: string | null;
         };
         /** Readiness */
         Readiness: {
@@ -11846,6 +11967,11 @@ export interface components {
         RunInspectionRequest: {
             /** Profile Pub Id */
             profile_pub_id?: string | null;
+        };
+        /** RunRetryRequest */
+        RunRetryRequest: {
+            /** Task Pub Ids */
+            task_pub_ids: string[];
         };
         /** RunSummaryView */
         RunSummaryView: {
@@ -16819,9 +16945,8 @@ export interface operations {
         parameters: {
             query?: {
                 project_pub_id?: string | null;
-                cursor?: string | null;
-                page?: number | null;
-                limit?: number;
+                page?: number;
+                page_size?: number;
             };
             header?: {
                 "X-Tenant-Id"?: string | null;
@@ -16842,7 +16967,6 @@ export interface operations {
             /** @description Successful Response */
             200: {
                 headers: {
-                    "X-Next-Cursor"?: string;
                     "X-Has-More"?: boolean;
                     "X-Page"?: number;
                     "X-Page-Size"?: number;
@@ -16993,6 +17117,78 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccountView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_runs_cursor_api_v2_collection_runs_cursor_get: {
+        parameters: {
+            query?: {
+                project_pub_id?: string | null;
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    "X-Next-Cursor"?: string;
+                    "X-Has-More"?: boolean;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunView"][];
                 };
             };
             /** @description Bad Request */
@@ -17190,7 +17386,11 @@ export interface operations {
                 "__Host-geo_oidc"?: string | null;
             };
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RunRetryRequest"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -27943,6 +28143,78 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FrozenManifestView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_manifests_api_v2_internal_service2_source_corpus_projects__project_pub_id__manifests_get: {
+        parameters: {
+            query?: {
+                window_start?: string | null;
+                window_end?: string | null;
+                limit?: number;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FrozenManifestOptionView"][];
                 };
             };
             /** @description Bad Request */

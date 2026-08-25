@@ -172,7 +172,7 @@ class PostCollectionAnalysisWorkflow:
         except (asyncio.CancelledError, CancelledError):
             raise
         except Exception as exc:  # stage failure is isolated from sibling stages
-            workflow.logger.warning("%s failed: %r", analyzer_kind, exc)
+            workflow.logger.warning("%s failed: %s", analyzer_kind, type(exc).__name__)
             await self._mark(
                 data,
                 analyzer_kind,

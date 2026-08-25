@@ -44,6 +44,8 @@ from typing import Any
 
 import structlog
 
+from domain.security.redaction import safe_exception_summary
+
 log = structlog.get_logger()
 
 # (context, page, is_resident)
@@ -231,7 +233,11 @@ class _BrowserFenceLock:
                         fencing_token=token,
                     )
         except Exception as exc:  # 释放失败不炸：本地锁必须解开，DB 租约靠 TTL 回收
-            log.warning("browser_fence_release_failed", platform=self._platform, error=str(exc))
+            log.warning(
+                "browser_fence_release_failed",
+                platform=self._platform,
+                error_type=type(exc).__name__,
+            )
         finally:
             self._local.release()
 
@@ -273,7 +279,9 @@ class _BrowserFenceLock:
                     return
             except Exception as exc:  # 瞬时 DB 故障：如实记 log，下一拍再试（TTL 兜底）
                 log.warning(
-                    "browser_fence_heartbeat_failed", platform=self._platform, error=str(exc)
+                    "browser_fence_heartbeat_failed",
+                    platform=self._platform,
+                    error=safe_exception_summary(exc),
                 )
 
 

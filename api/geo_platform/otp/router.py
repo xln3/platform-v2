@@ -309,7 +309,11 @@ def _sync_phone_account_best_effort(phone: str, owner_note: str | None) -> None:
             upsert_phone_account(session, phone=phone, owner_note=owner_note)
             session.commit()
     except Exception as e:  # noqa: BLE001 — 迁库失败绝不阻断注册（文件已落）
-        log.warning("otp_phone_account_sync_failed", phone=mask_phone(phone), error=repr(e))
+        log.warning(
+            "otp_phone_account_sync_failed",
+            phone=mask_phone(phone),
+            error_type=type(e).__name__,
+        )
 
 
 def _record_sms_best_effort(phone: str) -> None:
@@ -319,7 +323,11 @@ def _record_sms_best_effort(phone: str) -> None:
             record_sms_received(session, phone=phone)
             session.commit()
     except Exception as e:  # noqa: BLE001 — 回填失败绝不阻断推送（收件箱已落）
-        log.warning("otp_sms_backfill_failed", phone=mask_phone(phone), error=repr(e))
+        log.warning(
+            "otp_sms_backfill_failed",
+            phone=mask_phone(phone),
+            error_type=type(e).__name__,
+        )
 
 
 def _extract_code(norm: dict[str, Any]) -> tuple[str, str, str]:

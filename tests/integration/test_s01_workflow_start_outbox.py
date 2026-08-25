@@ -49,7 +49,12 @@ def bootstrap(client: TestClient, subject: str) -> tuple[str, dict[str, str]]:
     }
 
 
-def create_run(client: TestClient, headers: dict[str, str]) -> tuple[str, str, dict[str, object]]:
+def create_run(
+    client: TestClient,
+    headers: dict[str, str],
+    *,
+    query_texts: tuple[str, ...] = ("What is GEO?",),
+) -> tuple[str, str, dict[str, object]]:
     project = client.post(
         "/api/v2/projects",
         headers=headers,
@@ -62,7 +67,7 @@ def create_run(client: TestClient, headers: dict[str, str]) -> tuple[str, str, d
         f"/api/v2/projects/{project_pub_id}/config/freeze",
         headers=headers,
         json={
-            "query_groups": [{"name": "Core", "items": [{"text": "What is GEO?"}]}],
+            "query_groups": [{"name": "Core", "items": [{"text": text} for text in query_texts]}],
             "regions": ["CN-BJ"],
             "models": ["fixed"],
             "modes": ["fast"],
@@ -161,18 +166,14 @@ async def test_legacy_answer_command_is_routed_to_detached_analysis_queue() -> N
 def test_distinct_collection_results_serialize_run_completion() -> None:
     with TestClient(app) as client:
         tenant, headers = bootstrap(client, "activity-accounting-" + secrets.token_hex(8))
-        workflow_id, _, run_request = create_run(client, headers)
+        workflow_id, _, run_request = create_run(
+            client,
+            headers,
+            query_texts=("query-a", "query-b"),
+        )
 
     run_pub_id = workflow_id.rsplit("/", 1)[-1]
     with psycopg.connect(POSTGRES_DSN) as connection:
-        connection.execute(
-            """
-                UPDATE platform.collection_run
-                SET total_tasks=2
-                WHERE pub_id=%s
-                """,
-            (run_pub_id,),
-        )
         connection.execute(
             """
             INSERT INTO platform.brand
@@ -182,14 +183,32 @@ def test_distinct_collection_results_serialize_run_completion() -> None:
             """,
             (str(uuid.uuid4()), f"brd_{secrets.token_hex(10)}", run_pub_id),
         )
-
-    task_inputs = (
-        CollectionTaskInput("business-a", "query-a", "model-a", "region-a", "mode-a"),
-        CollectionTaskInput("business-b", "query-b", "model-b", "region-b", "mode-b"),
+        planned_rows = connection.execute(
+            """
+            SELECT task.business_key,task.matrix_json::jsonb
+            FROM platform.collection_task task
+            JOIN platform.collection_run run ON run.id=task.run_id
+            WHERE run.pub_id=%s
+            ORDER BY task.matrix_json::jsonb->>'query'
+            """,
+            (run_pub_id,),
+        ).fetchall()
+    assert len(planned_rows) == 2
+    task_inputs = tuple(
+        CollectionTaskInput(
+            str(business_key),
+            str(matrix["query"]),
+            str(matrix["model"]),
+            str(matrix["region"]),
+            str(matrix["mode"]),
+            str(matrix["adapter"]),
+        )
+        for business_key, matrix in planned_rows
     )
+    business_keys = {task.business_key for task in task_inputs}
     results = (
         CollectionTaskResult(
-            "business-a",
+            task_inputs[0].business_key,
             "answer-a",
             "screen-a",
             "accepted",
@@ -202,7 +221,12 @@ def test_distinct_collection_results_serialize_run_completion() -> None:
                 }
             ],
         ),
-        CollectionTaskResult("business-b", "answer-b  \r\n", "screen-b", "accepted"),
+        CollectionTaskResult(
+            task_inputs[1].business_key,
+            "answer-b  \r\n",
+            "screen-b",
+            "accepted",
+        ),
     )
     with ThreadPoolExecutor(max_workers=2) as pool:
         futures = [
@@ -215,7 +239,12 @@ def test_distinct_collection_results_serialize_run_completion() -> None:
         persist_collection_result(
             tenant,
             run_pub_id,
-            CollectionTaskResult("business-a", "changed", "screen-a", "accepted"),
+            CollectionTaskResult(
+                task_inputs[0].business_key,
+                "changed",
+                "screen-a",
+                "accepted",
+            ),
             task_inputs[0],
         )
     with pytest.raises(ApplicationError, match="collection result rejected by DLP"):
@@ -288,14 +317,11 @@ def test_distinct_collection_results_serialize_run_completion() -> None:
     assert {row[0]["query"] for row in matrices} == {"query-a", "query-b"}
     # Capture, evidence, capture event and analysis admission commit together,
     # before the run-completion activity is called.
-    assert [row[0]["business_key"] for row in capture_events] == [
-        "business-a",
-        "business-b",
-    ]
-    assert [(row[0], row[1], row[2], row[3]) for row in admitted_jobs] == [
-        ("queued", "answer_basic", "answer-basic-v1", "business-a"),
-        ("queued", "answer_basic", "answer-basic-v1", "business-b"),
-    ]
+    assert {row[0]["business_key"] for row in capture_events} == business_keys
+    assert {(row[0], row[1], row[2], row[3]) for row in admitted_jobs} == {
+        ("queued", "answer_basic", "answer-basic-v1", business_key)
+        for business_key in business_keys
+    }
     assert all(row[4] == "geo-platform-v2-analysis" for row in admitted_jobs)
     assert all("text" not in row[5] and "capture_ref" in row[5] for row in admitted_jobs)
 
@@ -410,8 +436,7 @@ def test_distinct_collection_results_serialize_run_completion() -> None:
         "answer-b  \r\n",
     }
     assert {item[0]["capture_ref"]["business_key"] for item in analysis_commands} == {
-        "business-a",
-        "business-b",
+        task.business_key for task in task_inputs
     }
     assert {
         item[0]["analysis_context"]["dimensions"]["query_text"] for item in analysis_commands
@@ -887,13 +912,35 @@ async def test_post_analysis_workflow_failure_only_fails_analysis_jobs() -> None
         tenant, headers = bootstrap(client, "analysis-isolation-" + secrets.token_hex(8))
         collection_workflow_id, _, _ = create_run(client, headers)
     run_pub_id = collection_workflow_id.rsplit("/", 1)[-1]
+    with psycopg.connect(POSTGRES_DSN) as connection:
+        planned = connection.execute(
+            """
+            SELECT task.business_key,task.matrix_json::jsonb
+            FROM platform.collection_task task
+            JOIN platform.collection_run run ON run.id=task.run_id
+            WHERE run.pub_id=%s
+            """,
+            (run_pub_id,),
+        ).fetchone()
+    assert planned is not None
+    business_key, matrix = planned
     task_input = CollectionTaskInput(
-        "isolated-business", "isolated-query", "fixed", "CN-BJ", "fast"
+        str(business_key),
+        str(matrix["query"]),
+        str(matrix["model"]),
+        str(matrix["region"]),
+        str(matrix["mode"]),
+        str(matrix["adapter"]),
     )
     persist_collection_result(
         tenant,
         run_pub_id,
-        CollectionTaskResult("isolated-business", "captured answer survives", "screen", "accepted"),
+        CollectionTaskResult(
+            task_input.business_key,
+            "captured answer survives",
+            "screen",
+            "accepted",
+        ),
         task_input,
     )
     publish_downstream_event(run_pub_id, tenant, [task_input], True)

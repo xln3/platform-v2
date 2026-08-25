@@ -104,7 +104,7 @@ class PageInspectionWorkflow:
                 retry_policy=_WORK_RETRY,
             )
         except Exception as exc:
-            workflow.logger.warning("page inspection failed: %r", exc)
+            workflow.logger.warning("page inspection failed: %s", type(exc).__name__)
             await self._mark(data, "failed", error_code="activity_failed")
             return {"state": "failed", "run_pub_id": data.run_pub_id}
         terminal = _state(result)

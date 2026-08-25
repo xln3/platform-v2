@@ -7,12 +7,14 @@ from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from types import SimpleNamespace
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import psycopg
 import pytest
 from fastapi import Response
 from geo_platform.identity.policy import Principal, Role
-from geo_platform.service2_corpus.router import list_corpus_items
+from geo_platform.service2_corpus.analysis_models import model_snapshot
+from geo_platform.service2_corpus.router import list_corpus_items, list_manifests
 from geo_platform.service2_corpus.schemas import BatchCreate, FindingCreate
 from geo_platform.service2_corpus.service import Conflict, NotFound, Service2CorpusService
 from geo_platform.tenancy.database import WorkerSessionLocal
@@ -242,6 +244,7 @@ def seeded_all_u_scope() -> Any:
             "service2_finding_review",
             "service2_relation_finding",
             "service2_analysis_attempt",
+            "service2_model_call",
             "service2_corpus_item",
             "service2_corpus_batch_query",
             "service2_corpus_batch_run",
@@ -379,25 +382,25 @@ def test_materialization_pagination_and_fetch_shards_keep_the_all_u_denominator(
         "workflows.activities.service2_source_corpus.activity.heartbeat",
         lambda *_args: None,
     )
-    first_work_page = process_service2_corpus_page(
-        Service2CorpusPageInput(
-            tenant_pub_id=scope.tenant_pub_id,
-            project_pub_id=scope.project_pub_id,
-            batch_pub_id=receipt.batch_pub_id,
-            page_size=4,
+    work_pages = []
+    work_cursor = None
+    while True:
+        page = process_service2_corpus_page(
+            Service2CorpusPageInput(
+                tenant_pub_id=scope.tenant_pub_id,
+                project_pub_id=scope.project_pub_id,
+                batch_pub_id=receipt.batch_pub_id,
+                cursor=work_cursor,
+                page_size=1,
+            )
         )
-    )
-    second_work_page = process_service2_corpus_page(
-        Service2CorpusPageInput(
-            tenant_pub_id=scope.tenant_pub_id,
-            project_pub_id=scope.project_pub_id,
-            batch_pub_id=receipt.batch_pub_id,
-            cursor=first_work_page.next_cursor,
-            page_size=4,
-        )
-    )
-    assert first_work_page.processed == 4 and first_work_page.has_more
-    assert second_work_page.processed == 1 and not second_work_page.has_more
+        work_pages.append(page)
+        if not page.has_more:
+            break
+        work_cursor = page.next_cursor
+    assert [page.processed for page in work_pages] == [1, 1, 1, 1, 1]
+    assert all(page.has_more for page in work_pages[:-1])
+    assert not work_pages[-1].has_more
     assert (
         finish_service2_corpus_batch(
             Service2BatchInput(
@@ -412,6 +415,33 @@ def test_materialization_pagination_and_fetch_shards_keep_the_all_u_denominator(
     with WorkerSessionLocal() as session:
         TenantRepository(session, scope.tenant_pub_id)
         freeze_key = f"service2-freeze-{uuid.uuid4().hex}"
+        with pytest.raises(Conflict, match="service2_processing_incomplete"):
+            service.freeze(
+                session,
+                tenant_id=scope.tenant_id,
+                project_id=scope.project_id,
+                tenant_pub_id=scope.tenant_pub_id,
+                batch_pub_id=receipt.batch_pub_id,
+                actor_pub_id="usr_service2_reviewer",
+                idempotency_key=freeze_key,
+            )
+        # Fixture-only projection of completed manual evidence review. The
+        # first freeze proves blocked/partial items cannot be frozen; after an
+        # operator resolves every item as no-entity/not-applicable, the same
+        # batch can become an honest complete manifest.
+        session.execute(
+            text(
+                """
+                UPDATE platform.service2_corpus_item
+                SET processing_state='processed',entity_state='no_entities',
+                    judgment_state='not_applicable',review_state='not_applicable',
+                    failure_code=NULL,manual_evidence_state='provided',
+                    version=version+1,updated_at=now()
+                WHERE batch_id=:batch_id AND processing_state<>'processed'
+                """
+            ),
+            {"batch_id": row["id"]},
+        )
         manifest, replayed = service.freeze(
             session,
             tenant_id=scope.tenant_id,
@@ -461,11 +491,32 @@ def test_materialization_pagination_and_fetch_shards_keep_the_all_u_denominator(
     assert replay_manifest["manifest_hash"] == manifest["manifest_hash"]
     assert manifest["facts"]["coverage"]["expected_occurrences"] == 5
     assert manifest["facts"]["coverage"]["distinct_urls"] == 3
-    assert manifest["facts"]["coverage"]["processing_states"] == {
-        "blocked": 1,
-        "manual_evidence_required": 4,
-    }
+    assert manifest["facts"]["coverage"]["processing_states"] == {"processed": 5}
     assert manifest["facts"]["cases"] == []
+
+    shanghai = ZoneInfo("Asia/Shanghai")
+    with WorkerSessionLocal() as session:
+        exact_options = list_manifests(
+            project_pub_id=scope.project_pub_id,
+            window_start=(scope.boundary - timedelta(days=1)).astimezone(shanghai).date(),
+            window_end=scope.boundary.astimezone(shanghai).date(),
+            limit=50,
+            principal=principal,
+            session=session,
+        )
+        no_match = list_manifests(
+            project_pub_id=scope.project_pub_id,
+            window_start=(scope.boundary - timedelta(days=3)).astimezone(shanghai).date(),
+            window_end=scope.boundary.astimezone(shanghai).date(),
+            limit=50,
+            principal=principal,
+            session=session,
+        )
+    assert len(exact_options) == 1
+    assert exact_options[0].manifest_pub_id == manifest["pub_id"]
+    assert exact_options[0].manifest_hash == manifest["manifest_hash"]
+    assert exact_options[0].batch_pub_id == receipt.batch_pub_id
+    assert no_match == []
 
 
 def test_draft_cancel_is_terminal_idempotent_and_cannot_freeze(
@@ -587,6 +638,110 @@ def test_draft_cancel_is_terminal_idempotent_and_cannot_freeze(
     assert replayed is False and was_replayed is True
     assert version == replay_version
     assert processing == {"blocked": 1, "cancelled": 4}
+
+
+def test_entitlement_must_cover_the_closed_window_for_create_start_resume_and_retry(
+    seeded_all_u_scope: Any,
+) -> None:
+    scope = seeded_all_u_scope
+    service = Service2CorpusService()
+    window_start = scope.boundary - timedelta(days=1)
+    window_end = scope.boundary
+    with WorkerSessionLocal() as session:
+        TenantRepository(session, scope.tenant_pub_id)
+        session.execute(
+            text(
+                """
+                UPDATE platform.project_service_entitlement
+                SET authorized_from=:window_start,authorized_until=:window_end,updated_at=now()
+                WHERE tenant_id=:tenant_id AND project_id=:project_id
+                  AND service_code='outbound_disparagement_audit'
+                """
+            ),
+            {
+                "tenant_id": scope.tenant_id,
+                "project_id": scope.project_id,
+                "window_start": window_start,
+                "window_end": window_end,
+            },
+        )
+        receipt = service.create_batch(
+            session,
+            tenant_id=scope.tenant_id,
+            tenant_pub_id=scope.tenant_pub_id,
+            project_id=scope.project_id,
+            project_pub_id=scope.project_pub_id,
+            actor_pub_id="usr_service2_test",
+            idempotency_key=f"service2-entitlement-exact-{uuid.uuid4().hex}",
+            body=BatchCreate(
+                run_pub_ids=scope.run_pub_ids,
+                window_start=window_start,
+                window_end=window_end,
+                source_snapshot_boundary=scope.boundary,
+            ),
+        )
+
+        with pytest.raises(Conflict, match="service2_entitlement_required"):
+            service.create_batch(
+                session,
+                tenant_id=scope.tenant_id,
+                tenant_pub_id=scope.tenant_pub_id,
+                project_id=scope.project_id,
+                project_pub_id=scope.project_pub_id,
+                actor_pub_id="usr_service2_test",
+                idempotency_key=f"service2-entitlement-partial-{uuid.uuid4().hex}",
+                body=BatchCreate(
+                    run_pub_ids=scope.run_pub_ids,
+                    window_start=window_start - timedelta(microseconds=1),
+                    window_end=window_end,
+                    source_snapshot_boundary=scope.boundary,
+                ),
+            )
+
+        session.execute(
+            text(
+                """
+                UPDATE platform.project_service_entitlement
+                SET authorized_from=:partial_start,updated_at=now()
+                WHERE tenant_id=:tenant_id AND project_id=:project_id
+                  AND service_code='outbound_disparagement_audit'
+                """
+            ),
+            {
+                "tenant_id": scope.tenant_id,
+                "project_id": scope.project_id,
+                "partial_start": window_start + timedelta(microseconds=1),
+            },
+        )
+        for action, state in (("start", "draft"), ("resume", "paused"), ("retry", "failed")):
+            session.execute(
+                text(
+                    """
+                    UPDATE platform.service2_corpus_batch SET status=:state,updated_at=now()
+                    WHERE tenant_id=:tenant_id AND pub_id=:batch_pub_id
+                    """
+                ),
+                {
+                    "tenant_id": scope.tenant_id,
+                    "batch_pub_id": receipt.batch_pub_id,
+                    "state": state,
+                },
+            )
+            with pytest.raises(Conflict, match="service2_entitlement_inactive"):
+                service.transition(
+                    session,
+                    tenant_id=scope.tenant_id,
+                    project_id=scope.project_id,
+                    tenant_pub_id=scope.tenant_pub_id,
+                    project_pub_id=scope.project_pub_id,
+                    batch_pub_id=receipt.batch_pub_id,
+                    actor_pub_id="usr_service2_test",
+                    idempotency_key=f"service2-entitlement-{action}-{uuid.uuid4().hex}",
+                    action=action,
+                    task_queue="unused-analysis-queue",
+                    source_task_queue="unused-source-queue",
+                )
+        session.commit()
 
 
 def test_batch_scope_rejects_a_run_that_is_not_terminal(seeded_all_u_scope: Any) -> None:
@@ -816,6 +971,225 @@ def test_terminal_partial_run_keeps_successful_query_u_and_ledgers_failed_querie
     assert dict(query_rows) == {"failed": 3, "succeeded": 1}
 
 
+def test_retry_child_success_replaces_only_its_root_query_failure(
+    seeded_all_u_scope: Any,
+) -> None:
+    scope = seeded_all_u_scope
+    service = Service2CorpusService()
+    root_run_id = uuid.uuid4()
+    root_run_pub_id = f"run_s2u_retry_root_{uuid.uuid4().hex[:8]}"
+    retry_run_id = uuid.uuid4()
+    retry_run_pub_id = f"run_s2u_retry_child_{uuid.uuid4().hex[:8]}"
+    success_business_key = f"retry-success-{uuid.uuid4().hex}"
+    failed_business_key = f"retry-failed-{uuid.uuid4().hex}"
+    root_success_task_id = uuid.uuid4()
+    root_failed_task_id = uuid.uuid4()
+    retry_success_task_id = uuid.uuid4()
+    captured_at = scope.boundary - timedelta(minutes=2)
+    matrix_json = json.dumps(
+        {
+            "query": "重试链查询",
+            "adapter": "doubao",
+            "model": "fixed-model",
+            "region": "CN-SH",
+            "mode": "normal",
+        },
+        ensure_ascii=False,
+    )
+    with WorkerSessionLocal() as session:
+        TenantRepository(session, scope.tenant_pub_id)
+        config_version_id = session.execute(
+            text(
+                """
+                SELECT version.id
+                FROM platform.monitoring_config_version version
+                JOIN platform.monitoring_config config ON config.id=version.config_id
+                WHERE version.tenant_id=:tenant_id AND config.project_id=:project_id
+                ORDER BY version.created_at DESC LIMIT 1
+                """
+            ),
+            {"tenant_id": scope.tenant_id, "project_id": scope.project_id},
+        ).scalar_one()
+        session.execute(
+            text(
+                """
+                INSERT INTO platform.collection_run
+                  (id,pub_id,tenant_id,version,created_at,updated_at,project_id,
+                   config_version_id,idempotency_key,workflow_id,state,total_tasks,
+                   completed_tasks,failed_tasks,paused,retry_of_run_pub_id,source)
+                VALUES
+                  (:root_id,:root_pub_id,:tenant_id,1,:captured_at,:captured_at,:project_id,
+                   :config_id,:root_idem,:root_workflow,'completed_with_failures',2,1,1,
+                   false,NULL,'manual'),
+                  (:retry_id,:retry_pub_id,:tenant_id,1,:captured_at,:captured_at,:project_id,
+                   :config_id,:retry_idem,:retry_workflow,'completed',1,1,0,
+                   false,:root_pub_id,'retry')
+                """
+            ),
+            {
+                "root_id": root_run_id,
+                "root_pub_id": root_run_pub_id,
+                "retry_id": retry_run_id,
+                "retry_pub_id": retry_run_pub_id,
+                "tenant_id": scope.tenant_id,
+                "project_id": scope.project_id,
+                "config_id": config_version_id,
+                "captured_at": captured_at,
+                "root_idem": f"service2-retry-root-{uuid.uuid4().hex}",
+                "retry_idem": f"service2-retry-child-{uuid.uuid4().hex}",
+                "root_workflow": f"service2/retry/root/{uuid.uuid4().hex}",
+                "retry_workflow": f"service2/retry/child/{uuid.uuid4().hex}",
+            },
+        )
+        session.execute(
+            text(
+                """
+                INSERT INTO platform.collection_task
+                  (id,pub_id,tenant_id,version,created_at,updated_at,terminal_at,run_id,
+                   business_key,matrix_json,state,attempt_count,answer_text,quality_state)
+                VALUES
+                  (:root_success_id,:root_success_pub,:tenant_id,1,:captured_at,:captured_at,
+                   :captured_at,:root_run_id,:success_key,:matrix,'completed',1,
+                   'root success',NULL),
+                  (:root_failed_id,:root_failed_pub,:tenant_id,1,:captured_at,:captured_at,
+                   :captured_at,:root_run_id,:failed_key,:matrix,'failed',1,NULL,
+                   'provider_timeout'),
+                  (:retry_success_id,:retry_success_pub,:tenant_id,1,:captured_at,:captured_at,
+                   :captured_at,:retry_run_id,:failed_key,:matrix,'completed',1,
+                   'retry success',NULL)
+                """
+            ),
+            {
+                "root_success_id": root_success_task_id,
+                "root_success_pub": new_pub_id("ans"),
+                "root_failed_id": root_failed_task_id,
+                "root_failed_pub": new_pub_id("ans"),
+                "retry_success_id": retry_success_task_id,
+                "retry_success_pub": new_pub_id("ans"),
+                "tenant_id": scope.tenant_id,
+                "captured_at": captured_at,
+                "root_run_id": root_run_id,
+                "retry_run_id": retry_run_id,
+                "success_key": success_business_key,
+                "failed_key": failed_business_key,
+                "matrix": matrix_json,
+            },
+        )
+        source = (
+            session.execute(
+                text(
+                    """
+                    SELECT id,canonical_url FROM platform.source_url
+                    WHERE tenant_id=:tenant_id ORDER BY created_at,pub_id LIMIT 1
+                    """
+                ),
+                {"tenant_id": scope.tenant_id},
+            )
+            .mappings()
+            .one()
+        )
+        session.execute(
+            text(
+                """
+                INSERT INTO platform.answer_source_occurrence
+                  (id,pub_id,tenant_id,project_id,run_id,answer_task_id,retrieval_event_id,
+                   source_url_id,occurrence_ordinal,query_text,raw_url,u_state,u_rank,v_state,
+                   v_open_order,final_reference_state,final_reference_ordinal,w_state,title,
+                   summary,evidence_pub_id,captured_at,created_at)
+                VALUES
+                  (:first_id,:first_pub,:tenant_id,:project_id,:root_run_id,
+                   :root_success_task_id,NULL,:source_id,1,'首轮成功',:raw_url,'observed',1,
+                   'not_entered',NULL,'not_referenced',NULL,'no_evidence','title',NULL,NULL,
+                   :captured_at,:captured_at),
+                  (:second_id,:second_pub,:tenant_id,:project_id,:retry_run_id,
+                   :retry_success_task_id,NULL,:source_id,1,'重试成功',:raw_url,'observed',1,
+                   'not_entered',NULL,'not_referenced',NULL,'no_evidence','title',NULL,NULL,
+                   :captured_at,:captured_at)
+                """
+            ),
+            {
+                "first_id": uuid.uuid4(),
+                "first_pub": new_pub_id("aso"),
+                "second_id": uuid.uuid4(),
+                "second_pub": new_pub_id("aso"),
+                "tenant_id": scope.tenant_id,
+                "project_id": scope.project_id,
+                "root_run_id": root_run_id,
+                "retry_run_id": retry_run_id,
+                "root_success_task_id": root_success_task_id,
+                "retry_success_task_id": retry_success_task_id,
+                "source_id": source["id"],
+                "raw_url": source["canonical_url"],
+                "captured_at": captured_at,
+            },
+        )
+
+        receipt = service.create_batch(
+            session,
+            tenant_id=scope.tenant_id,
+            tenant_pub_id=scope.tenant_pub_id,
+            project_id=scope.project_id,
+            project_pub_id=scope.project_pub_id,
+            actor_pub_id="usr_service2_test",
+            idempotency_key=f"service2-retry-lineage-{uuid.uuid4().hex}",
+            body=BatchCreate(
+                # Selecting root and child together must still mean one logical
+                # run scope, not three query rows or a duplicated occurrence.
+                run_pub_ids=[root_run_pub_id, retry_run_pub_id],
+                window_start=scope.boundary - timedelta(days=1),
+                window_end=scope.boundary,
+                source_snapshot_boundary=scope.boundary,
+            ),
+        )
+        batch = service.batch_row(
+            session,
+            tenant_id=scope.tenant_id,
+            project_id=scope.project_id,
+            batch_pub_id=receipt.batch_pub_id,
+        )
+        coverage = service.coverage(session, tenant_id=scope.tenant_id, batch_id=batch["id"])
+        ledger = (
+            session.execute(
+                text(
+                    """
+                SELECT root_run_pub_id,run_pub_id,business_key,retry_depth,outcome
+                FROM platform.service2_corpus_batch_query
+                WHERE batch_id=:batch_id ORDER BY business_key
+                """
+                ),
+                {"batch_id": batch["id"]},
+            )
+            .mappings()
+            .all()
+        )
+        linked_runs = list(
+            session.execute(
+                text(
+                    """
+                    SELECT run_pub_id FROM platform.service2_corpus_batch_run
+                    WHERE batch_id=:batch_id ORDER BY ordinal
+                    """
+                ),
+                {"batch_id": batch["id"]},
+            ).scalars()
+        )
+        session.commit()
+
+    assert coverage["selected_queries"] == 2
+    assert coverage["successful_queries"] == 2
+    assert coverage["failed_queries"] == 0
+    assert coverage["expected_occurrences"] == 2
+    assert linked_runs == [root_run_pub_id]
+    assert {row["root_run_pub_id"] for row in ledger} == {root_run_pub_id}
+    assert {
+        (row["business_key"], row["run_pub_id"], row["retry_depth"], row["outcome"])
+        for row in ledger
+    } == {
+        (success_business_key, root_run_pub_id, 0, "succeeded"),
+        (failed_business_key, retry_run_pub_id, 1, "succeeded"),
+    }
+
+
 def test_finding_item_must_belong_to_the_requested_batch_before_audit_write(
     seeded_all_u_scope: Any,
 ) -> None:
@@ -914,6 +1288,177 @@ def test_finding_item_must_belong_to_the_requested_batch_before_audit_write(
     assert attempts == 0
 
 
+def test_paid_model_call_claim_is_single_and_replays_stored_response(
+    seeded_all_u_scope: Any,
+) -> None:
+    scope = seeded_all_u_scope
+    service = Service2CorpusService()
+    body = BatchCreate(
+        run_pub_ids=scope.run_pub_ids,
+        window_start=scope.boundary - timedelta(days=1),
+        window_end=scope.boundary,
+        source_snapshot_boundary=scope.boundary,
+    )
+    with WorkerSessionLocal() as session:
+        TenantRepository(session, scope.tenant_pub_id)
+        receipt = service.create_batch(
+            session,
+            tenant_id=scope.tenant_id,
+            tenant_pub_id=scope.tenant_pub_id,
+            project_id=scope.project_id,
+            project_pub_id=scope.project_pub_id,
+            actor_pub_id="usr_service2_test",
+            idempotency_key=f"service2-paid-call-{uuid.uuid4().hex}",
+            body=body,
+        )
+        item = (
+            session.execute(
+                text(
+                    """
+                    SELECT item.* FROM platform.service2_corpus_item item
+                    JOIN platform.service2_corpus_batch batch ON batch.id=item.batch_id
+                    WHERE batch.pub_id=:batch_pub_id AND item.snapshot_id IS NOT NULL
+                    ORDER BY item.pub_id LIMIT 1
+                    """
+                ),
+                {"batch_pub_id": receipt.batch_pub_id},
+            )
+            .mappings()
+            .one()
+        )
+        frozen_catalog = model_snapshot("gpt-5.6-luna")
+        call, claimed = service.claim_model_call(
+            session,
+            item=item,
+            snapshot_id=item["snapshot_id"],
+            input_hash="a" * 64,
+            model="gpt-5.6-luna",
+            prompt_version="service2-relation-web-search-v2",
+            policy_version="service2-entity-relation-v1",
+            catalog_snapshot=frozen_catalog,
+        )
+        call_pub_id = str(call["pub_id"])
+        session.commit()
+        frozen_catalog["provider"] = "mutated-after-claim"
+    assert claimed
+
+    with WorkerSessionLocal() as session:
+        TenantRepository(session, scope.tenant_pub_id)
+        item = (
+            session.execute(
+                text(
+                    """
+                    SELECT item.* FROM platform.service2_corpus_item item
+                    JOIN platform.service2_corpus_batch batch ON batch.id=item.batch_id
+                    WHERE batch.pub_id=:batch_pub_id AND item.snapshot_id IS NOT NULL
+                    ORDER BY item.pub_id LIMIT 1
+                    """
+                ),
+                {"batch_pub_id": receipt.batch_pub_id},
+            )
+            .mappings()
+            .one()
+        )
+        replay_before_response, claimed_again = service.claim_model_call(
+            session,
+            item=item,
+            snapshot_id=item["snapshot_id"],
+            input_hash="a" * 64,
+            model="gpt-5.6-luna",
+            prompt_version="service2-relation-web-search-v2",
+            policy_version="service2-entity-relation-v1",
+            catalog_snapshot=model_snapshot("gpt-5.6-luna"),
+        )
+        assert not claimed_again
+        assert replay_before_response["state"] == "claimed"
+        service.complete_model_call(
+            session,
+            call_pub_id=call_pub_id,
+            data={"findings": []},
+            sources=[{"url": "https://docs.python.org/", "title": "Python docs"}],
+            usage={"input_tokens": 100, "output_tokens": 20},
+            transport="responses",
+            resolved_model="gpt-5.6-luna",
+            provider_request_id="req_fixture",
+            provider_response_id="resp_fixture",
+            resolved_provider="openai",
+            provider_resolution_source="provider_response",
+            gateway_host="api.inferera.com",
+            protocol_route="/v1/responses",
+            web_search_observed=True,
+            search_event_count=1,
+            provider_citation_count=1,
+            source_origin="provider_citation",
+        )
+        session.commit()
+
+    with WorkerSessionLocal() as session:
+        TenantRepository(session, scope.tenant_pub_id)
+        item = (
+            session.execute(
+                text(
+                    """
+                    SELECT item.* FROM platform.service2_corpus_item item
+                    JOIN platform.service2_corpus_batch batch ON batch.id=item.batch_id
+                    WHERE batch.pub_id=:batch_pub_id AND item.snapshot_id IS NOT NULL
+                    ORDER BY item.pub_id LIMIT 1
+                    """
+                ),
+                {"batch_pub_id": receipt.batch_pub_id},
+            )
+            .mappings()
+            .one()
+        )
+        replay, third_claim = service.claim_model_call(
+            session,
+            item=item,
+            snapshot_id=item["snapshot_id"],
+            input_hash="a" * 64,
+            model="gpt-5.6-luna",
+            prompt_version="service2-relation-web-search-v2",
+            policy_version="service2-entity-relation-v1",
+            catalog_snapshot=model_snapshot("gpt-5.6-luna"),
+        )
+        call_count = session.execute(
+            text(
+                """
+                SELECT count(*) FROM platform.service2_model_call
+                WHERE corpus_item_id=:item_id AND input_hash=:input_hash
+                """
+            ),
+            {"item_id": item["id"], "input_hash": "a" * 64},
+        ).scalar_one()
+        session.commit()
+    assert not third_claim
+    assert replay["state"] == "succeeded"
+    assert replay["response_data"] == {"findings": []}
+    assert replay["response_sources"] == [
+        {"url": "https://docs.python.org/", "title": "Python docs"}
+    ]
+    assert replay["catalog_snapshot"]["provider"] == "gpt"
+    assert replay["catalog_revision"] == model_snapshot("gpt-5.6-luna")["catalog_revision"]
+    assert replay["catalog_provider"] == "gpt"
+    assert replay["resolved_provider"] == "openai"
+    assert replay["resolved_model"] == "gpt-5.6-luna"
+    assert replay["transport"] == "responses"
+    assert replay["protocol_route"] == "/v1/responses"
+    assert replay["gateway_host"] == "api.inferera.com"
+    assert replay["provider_request_id"] == "req_fixture"
+    assert replay["provider_response_id"] == "resp_fixture"
+    assert replay["input_tokens"] == 100
+    assert replay["output_tokens"] == 20
+    assert replay["web_search_observed"] is True
+    assert replay["search_event_count"] == 1
+    assert replay["provider_citation_count"] == 1
+    assert replay["source_origin"] == "provider_citation"
+    assert str(replay["estimated_token_cost_usd"]) == "0.0000440000"
+    assert replay["estimated_search_cost_usd"] is None
+    assert replay["estimated_total_cost_usd"] is None
+    assert replay["cost_completeness"] == "token_only_search_price_unknown"
+    assert replay["audit_completeness"] == "complete"
+    assert call_count == 1
+
+
 def test_service2_tables_force_rls_in_the_running_database() -> None:
     with psycopg.connect(POSTGRES_DSN, row_factory=dict_row) as connection:
         rows = connection.execute(
@@ -925,5 +1470,5 @@ def test_service2_tables_force_rls_in_the_running_database() -> None:
             ORDER BY c.relname
             """
         ).fetchall()
-    assert len(rows) == 9
+    assert "service2_model_call" in {row["relname"] for row in rows}
     assert all(row["relrowsecurity"] and row["relforcerowsecurity"] for row in rows)

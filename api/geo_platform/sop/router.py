@@ -11,6 +11,14 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..config import get_settings
 from ..identity.policy import Principal, get_principal
+from .pagination_policy import (
+    SOP_DEFAULT_PAGE_NUMBER,
+    SOP_DEFAULT_PAGE_SIZE,
+    SOP_MAX_PAGE_NUMBER,
+    SOP_MAX_PAGE_SIZE,
+    SOP_MIN_PAGE_NUMBER,
+    SOP_MIN_PAGE_SIZE,
+)
 from .service import SopInvalidState, SopNotFound, SopPageResult, SopService
 
 router = APIRouter(prefix="/api/v2/sop", tags=["sop"])
@@ -34,6 +42,8 @@ IdempotencyKey = Annotated[
         pattern=r"^[\x20-\x7e]+$",
     ),
 ]
+SopPageNumber = Annotated[int, Query(ge=SOP_MIN_PAGE_NUMBER, le=SOP_MAX_PAGE_NUMBER)]
+SopPageSize = Annotated[int, Query(ge=SOP_MIN_PAGE_SIZE, le=SOP_MAX_PAGE_SIZE)]
 
 
 class StrictModel(BaseModel):
@@ -41,8 +51,8 @@ class StrictModel(BaseModel):
 
 
 class PageMeta(StrictModel):
-    page: int = Field(ge=1)
-    page_size: int = Field(ge=1, le=100)
+    page: int = Field(ge=SOP_MIN_PAGE_NUMBER, le=SOP_MAX_PAGE_NUMBER)
+    page_size: int = Field(ge=SOP_MIN_PAGE_SIZE, le=SOP_MAX_PAGE_SIZE)
     total_count: int = Field(ge=0)
     total_pages: int = Field(ge=0)
 
@@ -609,8 +619,8 @@ def create_project(
 @router.get("/projects", response_model=SopPage[ProjectView])
 def list_projects(
     status: Literal["active", "archived"] | None = None,
-    page: int = Query(default=1, ge=1, le=1_000_000),
-    page_size: int = Query(default=4, ge=1, le=100),
+    page: SopPageNumber = SOP_DEFAULT_PAGE_NUMBER,
+    page_size: SopPageSize = SOP_DEFAULT_PAGE_SIZE,
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any]:
     principal.require("sop:read")
@@ -656,8 +666,8 @@ def update_project(
 @router.get("/projects/{project_pub_id}/dashboard", response_model=DashboardView)
 def get_dashboard(
     project_pub_id: str,
-    page: int = Query(default=1, ge=1, le=1_000_000),
-    page_size: int = Query(default=4, ge=1, le=100),
+    page: SopPageNumber = SOP_DEFAULT_PAGE_NUMBER,
+    page_size: SopPageSize = SOP_DEFAULT_PAGE_SIZE,
     principal: Principal = Depends(get_principal),
 ) -> DashboardView:
     principal.require("sop:read")
@@ -705,8 +715,8 @@ def create_query_set(
 )
 def list_query_sets(
     project_pub_id: str,
-    page: int = Query(default=1, ge=1, le=1_000_000),
-    page_size: int = Query(default=4, ge=1, le=100),
+    page: SopPageNumber = SOP_DEFAULT_PAGE_NUMBER,
+    page_size: SopPageSize = SOP_DEFAULT_PAGE_SIZE,
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any]:
     principal.require("sop:read")
@@ -766,8 +776,8 @@ def freeze_query_set(
 )
 def list_query_items(
     query_set_pub_id: str,
-    page: int = Query(default=1, ge=1, le=1_000_000),
-    page_size: int = Query(default=4, ge=1, le=100),
+    page: SopPageNumber = SOP_DEFAULT_PAGE_NUMBER,
+    page_size: SopPageSize = SOP_DEFAULT_PAGE_SIZE,
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any]:
     principal.require("sop:read")
@@ -813,8 +823,8 @@ def list_baseline_answers(
     query_item_pub_id: str | None = None,
     platform: str | None = None,
     capture_status: CaptureStatus | None = None,
-    page: int = Query(default=1, ge=1, le=1_000_000),
-    page_size: int = Query(default=4, ge=1, le=100),
+    page: SopPageNumber = SOP_DEFAULT_PAGE_NUMBER,
+    page_size: SopPageSize = SOP_DEFAULT_PAGE_SIZE,
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any]:
     principal.require("sop:read")
@@ -860,8 +870,8 @@ def create_insight(
 )
 def list_insights(
     project_pub_id: str,
-    page: int = Query(default=1, ge=1, le=1_000_000),
-    page_size: int = Query(default=4, ge=1, le=100),
+    page: SopPageNumber = SOP_DEFAULT_PAGE_NUMBER,
+    page_size: SopPageSize = SOP_DEFAULT_PAGE_SIZE,
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any]:
     principal.require("sop:read")
@@ -905,8 +915,8 @@ def create_evidence(
 def list_evidence(
     project_pub_id: str,
     source_level: Literal["official", "third_party", "experience"] | None = None,
-    page: int = Query(default=1, ge=1, le=1_000_000),
-    page_size: int = Query(default=4, ge=1, le=100),
+    page: SopPageNumber = SOP_DEFAULT_PAGE_NUMBER,
+    page_size: SopPageSize = SOP_DEFAULT_PAGE_SIZE,
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any]:
     principal.require("sop:read")
@@ -967,8 +977,8 @@ def create_opportunity(
 def list_opportunities(
     project_pub_id: str,
     status: Literal["candidate", "selected", "rejected", "fulfilled"] | None = None,
-    page: int = Query(default=1, ge=1, le=1_000_000),
-    page_size: int = Query(default=4, ge=1, le=100),
+    page: SopPageNumber = SOP_DEFAULT_PAGE_NUMBER,
+    page_size: SopPageSize = SOP_DEFAULT_PAGE_SIZE,
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any]:
     principal.require("sop:read")
@@ -1028,8 +1038,8 @@ def create_article(
 )
 def list_articles(
     project_pub_id: str,
-    page: int = Query(default=1, ge=1, le=1_000_000),
-    page_size: int = Query(default=4, ge=1, le=100),
+    page: SopPageNumber = SOP_DEFAULT_PAGE_NUMBER,
+    page_size: SopPageSize = SOP_DEFAULT_PAGE_SIZE,
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any]:
     principal.require("sop:read")
@@ -1102,8 +1112,8 @@ def create_article_version(
 )
 def list_article_versions(
     article_pub_id: str,
-    page: int = Query(default=1, ge=1, le=1_000_000),
-    page_size: int = Query(default=4, ge=1, le=100),
+    page: SopPageNumber = SOP_DEFAULT_PAGE_NUMBER,
+    page_size: SopPageSize = SOP_DEFAULT_PAGE_SIZE,
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any]:
     principal.require("sop:read")
@@ -1179,8 +1189,8 @@ def create_check(
 )
 def list_checks(
     version_pub_id: str,
-    page: int = Query(default=1, ge=1, le=1_000_000),
-    page_size: int = Query(default=4, ge=1, le=100),
+    page: SopPageNumber = SOP_DEFAULT_PAGE_NUMBER,
+    page_size: SopPageSize = SOP_DEFAULT_PAGE_SIZE,
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any]:
     principal.require("sop:read")
@@ -1225,8 +1235,8 @@ def list_publications(
     project_pub_id: str,
     status: str | None = None,
     platform: str | None = None,
-    page: int = Query(default=1, ge=1, le=1_000_000),
-    page_size: int = Query(default=4, ge=1, le=100),
+    page: SopPageNumber = SOP_DEFAULT_PAGE_NUMBER,
+    page_size: SopPageSize = SOP_DEFAULT_PAGE_SIZE,
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any]:
     principal.require("sop:read")
@@ -1301,8 +1311,8 @@ def create_observation(
 )
 def list_observations(
     publication_pub_id: str,
-    page: int = Query(default=1, ge=1, le=1_000_000),
-    page_size: int = Query(default=4, ge=1, le=100),
+    page: SopPageNumber = SOP_DEFAULT_PAGE_NUMBER,
+    page_size: SopPageSize = SOP_DEFAULT_PAGE_SIZE,
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any]:
     principal.require("sop:read")
@@ -1346,8 +1356,8 @@ def create_retest_answer(
 def list_retest_answers(
     publication_pub_id: str,
     query_item_pub_id: str | None = None,
-    page: int = Query(default=1, ge=1, le=1_000_000),
-    page_size: int = Query(default=4, ge=1, le=100),
+    page: SopPageNumber = SOP_DEFAULT_PAGE_NUMBER,
+    page_size: SopPageSize = SOP_DEFAULT_PAGE_SIZE,
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any]:
     principal.require("sop:read")
@@ -1391,8 +1401,8 @@ def upsert_comparison(
 )
 def list_comparisons(
     publication_pub_id: str,
-    page: int = Query(default=1, ge=1, le=1_000_000),
-    page_size: int = Query(default=4, ge=1, le=100),
+    page: SopPageNumber = SOP_DEFAULT_PAGE_NUMBER,
+    page_size: SopPageSize = SOP_DEFAULT_PAGE_SIZE,
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any]:
     principal.require("sop:read")
@@ -1453,8 +1463,8 @@ def create_experiment(
 def list_experiments(
     project_pub_id: str,
     status: Literal["planned", "running", "done", "abandoned"] | None = None,
-    page: int = Query(default=1, ge=1, le=1_000_000),
-    page_size: int = Query(default=4, ge=1, le=100),
+    page: SopPageNumber = SOP_DEFAULT_PAGE_NUMBER,
+    page_size: SopPageSize = SOP_DEFAULT_PAGE_SIZE,
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any]:
     principal.require("sop:read")
@@ -1516,8 +1526,8 @@ def create_work_log(
 def list_work_logs(
     project_pub_id: str,
     entry_type: Literal["progress", "failure", "blocker", "decision", "note"] | None = None,
-    page: int = Query(default=1, ge=1, le=1_000_000),
-    page_size: int = Query(default=4, ge=1, le=100),
+    page: SopPageNumber = SOP_DEFAULT_PAGE_NUMBER,
+    page_size: SopPageSize = SOP_DEFAULT_PAGE_SIZE,
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any]:
     principal.require("sop:read")

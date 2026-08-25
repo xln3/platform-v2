@@ -91,7 +91,7 @@ class AnswerAnalysisWorkflow:
                     retry_policy=_RETRY,
                 )
             except Exception as exc:
-                workflow.logger.warning("brandrank extract sidecar failed: %r", exc)
+                workflow.logger.warning("brandrank extract sidecar failed: %s", type(exc).__name__)
                 result["brand_extract"] = {"state": "sidecar_failed"}
         persistence = result.get("persistence")
         await mark(

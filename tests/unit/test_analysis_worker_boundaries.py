@@ -32,6 +32,7 @@ def test_authenticated_collection_worker_has_no_analysis_or_public_fetch_activit
     assert collection.isdisjoint(analysis)
     assert source == {
         "capture_own_site_snapshots",
+        "enrich_service2_evidence_page",
         "fetch_post_snapshot",
         "fetch_run_sources",
     }

@@ -60,6 +60,84 @@ def _descriptor(prefix: str) -> dict[str, str]:
     }
 
 
+def test_outbound_service2_renderer_loads_every_frozen_visual_blob(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict[str, bytes] = {}
+
+    def renderer(_facts: dict[str, Any], *, visual_screenshots: dict[str, bytes]) -> bytes:
+        observed.update(visual_screenshots)
+        return b"service2-docx"
+
+    monkeypatch.setattr(
+        production,
+        "import_module",
+        lambda _name: SimpleNamespace(render_service2_source_corpus_docx=renderer),
+    )
+    loads: list[tuple[str, str]] = []
+
+    def blob_loader(object_key: str, digest: str) -> bytes:
+        loads.append((object_key, digest))
+        return b"verified-png"
+
+    payload = production._OutboundService2Adapter().render(
+        {
+            "cases": [
+                {
+                    "finding_pub_id": "s2f_exact",
+                    "visual_screenshot": {
+                        "object_key": "cas/exact.png",
+                        "sha256": "d" * 64,
+                    },
+                }
+            ]
+        },
+        blob_loader=blob_loader,
+    )
+
+    assert payload == b"service2-docx"
+    assert loads == [("cas/exact.png", "d" * 64)]
+    assert observed == {"s2f_exact": b"verified-png"}
+
+
+def test_outbound_service2_renderer_fails_closed_for_missing_or_tampered_visual_blob(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    adapter = production._OutboundService2Adapter()
+    with pytest.raises(FormalProductionInvalid, match="service2_visual_screenshot_required"):
+        adapter.render(
+            {"cases": [{"finding_pub_id": "s2f_missing"}]},
+            blob_loader=lambda *_: b"unused",
+        )
+
+    monkeypatch.setattr(
+        production,
+        "import_module",
+        lambda _name: SimpleNamespace(
+            render_service2_source_corpus_docx=lambda *_args, **_kwargs: b"must-not-render"
+        ),
+    )
+
+    def reject_tampered(_object_key: str, _digest: str) -> bytes:
+        raise ValueError("object integrity verification failed")
+
+    with pytest.raises(ValueError, match="object integrity verification failed"):
+        adapter.render(
+            {
+                "cases": [
+                    {
+                        "finding_pub_id": "s2f_tampered",
+                        "visual_screenshot": {
+                            "object_key": "cas/tampered.png",
+                            "sha256": "d" * 64,
+                        },
+                    }
+                ]
+            },
+            blob_loader=reject_tampered,
+        )
+
+
 def test_request_contract_requires_service4_windows_and_rejects_duplicates() -> None:
     window = FormalWindow(date(2026, 7, 1), date(2026, 7, 31))
     with pytest.raises(FormalProductionInvalid, match="invalid_services"):
@@ -899,7 +977,8 @@ def test_s02_worker_preflights_before_accepting_work(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(s02_worker, "report_runtime_preflight", lambda: events.append("preflight"))
     monkeypatch.setattr(s02_worker, "Client", FakeClient)
     monkeypatch.setattr(s02_worker, "Worker", FakeWorker)
-    monkeypatch.setattr(s02_worker, "get_settings", lambda: object())
+    monkeypatch.setattr(s02_worker, "get_settings", lambda: SimpleNamespace(log_level="INFO"))
+    monkeypatch.setattr(s02_worker, "configure_logging", lambda _level: None)
     monkeypatch.setattr(s02_worker, "configure_tracing", lambda *args, **kwargs: None)
     asyncio.run(s02_worker.run_s02_worker())
     assert events == ["preflight", "connect", "run"]

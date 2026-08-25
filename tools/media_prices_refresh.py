@@ -38,6 +38,8 @@ from urllib.parse import unquote
 
 import httpx
 
+from domain.security.redaction import safe_exception_summary
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -1397,7 +1399,7 @@ def main() -> int:
                     "window.PRICE_DATA = " + blob.decode("utf-8") + ";\n", encoding="utf-8"
                 )
         except OSError as exc:
-            print(f"data.js 同步失败（不阻断）: {exc}", file=sys.stderr)
+            print(f"data.js 同步失败（不阻断）: {type(exc).__name__}", file=sys.stderr)
         message = _summary_message(sources)
         _write_refresh("done", message, sources, started_at)
         print(
@@ -1408,8 +1410,8 @@ def main() -> int:
         )
         return 0
     except Exception as exc:
-        _write_refresh("failed", f"{type(exc).__name__}: {exc}"[:200], sources, started_at)
-        print(f"failed: {exc}", file=sys.stderr)
+        _write_refresh("failed", safe_exception_summary(exc), sources, started_at)
+        print(f"failed: {type(exc).__name__}", file=sys.stderr)
         return 1
     finally:
         _release_lock()
