@@ -6,7 +6,7 @@ import {
   type IdentitySessionHeaders,
   type SopProjectSummary,
 } from '@geo/api-client';
-import { Badge, FormField, StatePanel, TableRegion, Toast } from '@geo/design-system';
+import { Badge, FormField, Pagination, StatePanel, TableRegion, Toast } from '@geo/design-system';
 import './sop.css';
 
 type ProjectState =
@@ -14,8 +14,10 @@ type ProjectState =
   | {
       kind: 'ready';
       data: SopProjectSummary[];
-      nextCursor: string | null;
-      hasMore: boolean;
+      page: number;
+      pageSize: number;
+      totalCount: number;
+      totalPages: number;
     }
   | { kind: 'forbidden' }
   | { kind: 'failed' };
@@ -30,8 +32,8 @@ export function SopProjects({
   const navigate = useNavigate();
   const [state, setState] = useState<ProjectState>({ kind: 'loading' });
   const [attempt, setAttempt] = useState(0);
+  const [page, setPage] = useState(1);
   const [busy, setBusy] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [notice, setNotice] = useState<{ tone: 'positive' | 'negative'; text: string } | null>(
     null,
   );
@@ -45,8 +47,9 @@ export function SopProjects({
   useEffect(() => {
     let cancelled = false;
     setState({ kind: 'loading' });
-    void listSopProjects(headers).then((result) => {
+    void listSopProjects(headers, page).then((result) => {
       if (cancelled) return;
+      if (result.kind === 'ready') setPage(result.data.page);
       setState(
         result.kind === 'ready'
           ? { kind: 'ready', ...result.data }
@@ -58,32 +61,7 @@ export function SopProjects({
     return () => {
       cancelled = true;
     };
-  }, [headers, attempt]);
-
-  const loadMore = () => {
-    if (state.kind !== 'ready' || !state.hasMore || !state.nextCursor || loadingMore) return;
-    const requestedCursor = state.nextCursor;
-    setLoadingMore(true);
-    setNotice(null);
-    void listSopProjects(headers, requestedCursor).then((result) => {
-      setLoadingMore(false);
-      if (result.kind !== 'ready') {
-        setNotice({ tone: 'negative', text: '加载更多项目失败，请重试。' });
-        return;
-      }
-      setState((current) => {
-        if (current.kind !== 'ready' || current.nextCursor !== requestedCursor) return current;
-        const projects = new Map(current.data.map((project) => [project.pubId, project]));
-        for (const project of result.data.data) projects.set(project.pubId, project);
-        return {
-          kind: 'ready',
-          data: [...projects.values()],
-          nextCursor: result.data.nextCursor,
-          hasMore: result.data.hasMore,
-        };
-      });
-    });
-  };
+  }, [headers, attempt, page]);
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -180,16 +158,13 @@ export function SopProjects({
                   </tbody>
                 </table>
               </TableRegion>
-              {state.hasMore ? (
-                <button
-                  className="button button-secondary"
-                  type="button"
-                  disabled={loadingMore}
-                  onClick={loadMore}
-                >
-                  {loadingMore ? '正在加载…' : '加载更多项目'}
-                </button>
-              ) : null}
+              <Pagination
+                page={state.page}
+                pageCount={state.totalPages}
+                totalItems={state.totalCount}
+                onPageChange={setPage}
+                label="SOP 项目分页"
+              />
             </>
           )}
         </section>

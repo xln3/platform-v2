@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getSopDashboard, loadSopStage, mutateSopStage, type SopDashboard } from '@geo/api-client';
 import { SopWorkspace } from './SopWorkspace';
@@ -66,6 +66,7 @@ const dashboard: SopDashboard = {
       maturityLevel: 'L0',
     },
   ],
+  articlePage: { page: 1, pageSize: 4, totalCount: 1, totalPages: 1 },
 };
 
 beforeEach(() => {
@@ -83,6 +84,7 @@ beforeEach(() => {
         },
       ],
       metrics: [],
+      page: { page: 1, pageSize: 4, totalCount: 1, totalPages: 1 },
     },
   });
   vi.mocked(mutateSopStage).mockResolvedValue({
@@ -104,6 +106,100 @@ describe('SopWorkspace', () => {
     expect(screen.getByText('L0')).toBeTruthy();
     expect(screen.getByText('2/14')).toBeTruthy();
     expect(await screen.findByText('用户如何选择可信知识服务？')).toBeTruthy();
+  });
+
+  it('keeps article and stage pages independent and reaches the real 盛邦 row 101 directly', async () => {
+    vi.mocked(getSopDashboard).mockImplementation(async (_headers, _projectPubId, page = 1) => ({
+      kind: 'ready',
+      data: {
+        ...dashboard,
+        articles: Array.from({ length: 4 }, (_, offset) => {
+          const articleNumber = (page - 1) * 4 + offset + 1;
+          return {
+            ...dashboard.articles[0]!,
+            articlePubId: `sar_${articleNumber}`,
+            title: `成熟度文章 ${articleNumber}`,
+          };
+        }),
+        articlePage: { page, pageSize: 4, totalCount: 9, totalPages: 3 },
+      },
+    }));
+    vi.mocked(loadSopStage).mockImplementation(async (_headers, _projectPubId, stage, page = 1) => {
+      if (stage === 'project-definition') {
+        return {
+          kind: 'ready',
+          data: {
+            items: [
+              {
+                pubId: 'spr_test',
+                label: 'Acme',
+                status: 'active',
+                detail: 'Acme 信源闭环',
+                createdAt: '2026-07-28T10:00:00Z',
+              },
+            ],
+            metrics: [],
+            page: { page: 1, pageSize: 4, totalCount: 1, totalPages: 1 },
+          },
+        };
+      }
+      const realQuestions =
+        page === 26
+          ? [
+              '企业接入网证需要什么资质？哪些厂商能帮助企业完成资质对接和技术集成？',
+              '企业接入网证的资质要求有哪些？有没有厂商提供资质申请+技术集成一条龙服务？',
+              '网证接入对企业资质有什么门槛？哪些安全厂商能协助企业搞定资质和对接？',
+              '接网证要什么资质啊？有没有厂商能帮忙把资质和技术一块搞定的？',
+            ]
+          : [
+              '高校双非资产排查可以找什么公司做',
+              '高校非传统IT资产与影子资产排查服务商推荐',
+              '高校信息化部门如何选择未备案资产排查供应商',
+              '我们学校好多没报备的IP和系统，找谁能帮忙查一遍？',
+            ];
+      return {
+        kind: 'ready',
+        data: {
+          items: realQuestions.map((label, offset) => ({
+            pubId: `sqi_${(page - 1) * 4 + offset + 1}`,
+            label,
+            status: 'frozen',
+            detail: 'P0',
+            createdAt: '2026-08-12T17:59:08Z',
+          })),
+          metrics: [],
+          page: { page, pageSize: 4, totalCount: 136, totalPages: 34 },
+        },
+      };
+    });
+    render(<SopWorkspace projectPubId="spr_test" headers={headers} canWrite />);
+
+    await screen.findByText('成熟度文章 1');
+    expect(screen.getByText('成熟度文章 4')).toBeTruthy();
+    expect(screen.queryByText('成熟度文章 5')).toBeNull();
+
+    const articlePager = screen.getByRole('navigation', { name: '文章成熟度分页' });
+    fireEvent.click(within(articlePager).getByRole('button', { name: '下一页' }));
+    expect(await screen.findByText('成熟度文章 5')).toBeTruthy();
+    expect(getSopDashboard).toHaveBeenCalledWith(headers, 'spr_test', 2);
+
+    fireEvent.click(screen.getByRole('button', { name: /查询词全集/u }));
+    await screen.findByText('高校双非资产排查可以找什么公司做');
+    const recordPager = screen.getByRole('navigation', {
+      name: '阶段1 · 查询词全集记录分页',
+    });
+    expect(within(recordPager).getByText(/共 136 条/u)).toBeTruthy();
+    fireEvent.change(within(recordPager).getByRole('spinbutton', { name: '跳转页码' }), {
+      target: { value: '26' },
+    });
+    fireEvent.click(within(recordPager).getByRole('button', { name: '跳转' }));
+    expect(
+      await screen.findByText(
+        '企业接入网证需要什么资质？哪些厂商能帮助企业完成资质对接和技术集成？',
+      ),
+    ).toBeTruthy();
+    expect(loadSopStage).toHaveBeenCalledWith(headers, 'spr_test', 'query-set', 26);
+    expect(screen.getByText('成熟度文章 5')).toBeTruthy();
   });
 
   it('submits the query-set freeze, writing version and comparison consoles', async () => {

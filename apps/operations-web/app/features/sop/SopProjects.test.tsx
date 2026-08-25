@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { createSopProject, listSopProjects } from '@geo/api-client';
@@ -40,8 +40,10 @@ describe('SopProjects', () => {
             updatedAt: '2026-07-28T10:00:00Z',
           },
         ],
-        nextCursor: null,
-        hasMore: false,
+        page: 1,
+        pageSize: 4,
+        totalCount: 1,
+        totalPages: 1,
       },
     });
     vi.mocked(createSopProject).mockResolvedValue({
@@ -94,7 +96,7 @@ describe('SopProjects', () => {
     expect(await screen.findByText('项目工作区已打开')).toBeTruthy();
   });
 
-  it('loads subsequent cursor pages without hiding projects after the first page', async () => {
+  it('shows server totals and jumps directly to project rows beyond 100', async () => {
     vi.mocked(listSopProjects)
       .mockResolvedValueOnce({
         kind: 'ready',
@@ -108,8 +110,10 @@ describe('SopProjects', () => {
               updatedAt: '2026-07-28T10:00:00Z',
             },
           ],
-          nextCursor: 'spr_first',
-          hasMore: true,
+          page: 1,
+          pageSize: 4,
+          totalCount: 105,
+          totalPages: 27,
         },
       })
       .mockResolvedValueOnce({
@@ -117,15 +121,35 @@ describe('SopProjects', () => {
         data: {
           data: [
             {
-              pubId: 'spr_second',
-              name: '第二页项目',
+              pubId: 'spr_105',
+              name: '第 105 条项目',
               brandStandardName: 'Acme',
               status: 'active',
               updatedAt: '2026-07-28T11:00:00Z',
             },
           ],
-          nextCursor: null,
-          hasMore: false,
+          page: 27,
+          pageSize: 4,
+          totalCount: 105,
+          totalPages: 27,
+        },
+      })
+      .mockResolvedValueOnce({
+        kind: 'ready',
+        data: {
+          data: [
+            {
+              pubId: 'spr_101',
+              name: '第 101 条项目',
+              brandStandardName: 'Acme',
+              status: 'active',
+              updatedAt: '2026-07-28T10:00:00Z',
+            },
+          ],
+          page: 26,
+          pageSize: 4,
+          totalCount: 105,
+          totalPages: 27,
         },
       });
 
@@ -136,9 +160,18 @@ describe('SopProjects', () => {
     );
 
     expect(await screen.findByText('第一页项目')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: '加载更多项目' }));
-    expect(await screen.findByText('第二页项目')).toBeTruthy();
-    expect(listSopProjects).toHaveBeenNthCalledWith(2, headers, 'spr_first');
-    expect(screen.queryByRole('button', { name: '加载更多项目' })).toBeNull();
+    const pager = screen.getByRole('navigation', { name: 'SOP 项目分页' });
+    expect(within(pager).getByText('共 105 条 ·')).toBeTruthy();
+    expect(within(pager).getByText('第 1 / 27 页')).toBeTruthy();
+    fireEvent.change(within(pager).getByRole('spinbutton', { name: '跳转页码' }), {
+      target: { value: '27' },
+    });
+    fireEvent.click(within(pager).getByRole('button', { name: '跳转' }));
+    expect(await screen.findByText('第 105 条项目')).toBeTruthy();
+    expect(listSopProjects).toHaveBeenNthCalledWith(2, headers, 27);
+    expect(screen.queryByText('第一页项目')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '上一页' }));
+    expect(await screen.findByText('第 101 条项目')).toBeTruthy();
+    expect(listSopProjects).toHaveBeenNthCalledWith(3, headers, 26);
   });
 });

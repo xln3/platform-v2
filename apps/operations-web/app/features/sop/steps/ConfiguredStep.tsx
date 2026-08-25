@@ -1,5 +1,12 @@
 import { useMemo, useState, type FormEvent } from 'react';
-import { Badge, FormField, MetricGrid, StatePanel, TableRegion } from '@geo/design-system';
+import {
+  Badge,
+  FormField,
+  MetricGrid,
+  Pagination,
+  StatePanel,
+  TableRegion,
+} from '@geo/design-system';
 import type { SopConsoleValue, SopStepDefinition, SopStepProps } from './types';
 
 const statusTone = (status: string): 'positive' | 'warning' | 'neutral' =>
@@ -19,6 +26,7 @@ export function ConfiguredStep({
   canWrite,
   busy,
   onRetry,
+  onPageChange,
   onSubmit,
 }: SopStepProps & { definition: SopStepDefinition }) {
   const initialValues = useMemo(
@@ -76,6 +84,13 @@ export function ConfiguredStep({
                 ))}
               </tbody>
             </table>
+            <Pagination
+              page={snapshot.page.page}
+              pageCount={snapshot.page.totalPages}
+              totalItems={snapshot.page.totalCount}
+              onPageChange={onPageChange}
+              label={`${definition.title}记录分页`}
+            />
           </TableRegion>
         )}
       </div>

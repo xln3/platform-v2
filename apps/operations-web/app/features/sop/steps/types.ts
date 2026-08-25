@@ -34,6 +34,7 @@ export type SopStepProps = {
   canWrite: boolean;
   busy: boolean;
   onRetry: () => void;
+  onPageChange: (page: number) => void;
   onSubmit: (command: SopMutationCommand) => Promise<void>;
 };
 

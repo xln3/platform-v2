@@ -4,6 +4,7 @@ import json
 import uuid
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
+from dataclasses import dataclass
 from hashlib import sha256
 from typing import Any
 
@@ -11,6 +12,7 @@ import psycopg
 from psycopg.rows import dict_row
 
 from ..config import get_settings
+from ..pagination import NumberedPage, numbered_page
 from ..tenancy.ids import new_pub_id
 from ..tenancy.psycopg import tenant_connection
 
@@ -21,6 +23,12 @@ class SopNotFound(LookupError):
 
 class SopInvalidState(RuntimeError):
     """The requested transition or write violates the sop workflow state machine."""
+
+
+@dataclass(frozen=True, slots=True)
+class SopPageResult:
+    data: list[dict[str, Any]]
+    page: NumberedPage
 
 
 def _public(row: Mapping[str, Any]) -> dict[str, Any]:
@@ -103,6 +111,39 @@ class SopService:
     ) -> Mapping[str, Any]:
         return self._require(connection.execute(sql, params).fetchone())
 
+    @staticmethod
+    def _page_rows(
+        connection: psycopg.Connection[Any],
+        *,
+        statement: str,
+        params: tuple[Any, ...],
+        order_by: str,
+        requested_page: int,
+        page_size: int,
+    ) -> SopPageResult:
+        """Run one scoped COUNT plus one bounded page query.
+
+        ``statement`` and ``order_by`` are internal SQL constants, never caller input.
+        The returned page is clamped against the current count so a shrinking collection
+        cannot leave the UI stranded on an empty out-of-range page.
+        """
+
+        count_row = connection.execute(
+            f"SELECT count(*) AS count FROM ({statement}) AS sop_page_source",
+            params,
+        ).fetchone()
+        total_count = int(count_row["count"]) if count_row is not None else 0
+        page = numbered_page(
+            requested_page=requested_page,
+            page_size=page_size,
+            total_count=total_count,
+        )
+        rows = connection.execute(
+            f"{statement} ORDER BY {order_by} LIMIT %s OFFSET %s",
+            (*params, page.page_size, page.offset),
+        ).fetchall()
+        return SopPageResult(data=[_public(row) for row in rows], page=page)
+
     def _require_project(
         self, connection: psycopg.Connection[Any], tenant_pub_id: str, project_pub_id: str
     ) -> Mapping[str, Any]:
@@ -152,21 +193,22 @@ class SopService:
         *,
         tenant_pub_id: str,
         status: str | None,
-        cursor: str | None,
-        limit: int,
-    ) -> list[dict[str, Any]]:
+        page: int,
+        page_size: int,
+    ) -> SopPageResult:
         with self._conn(tenant_pub_id) as connection:
-            rows = connection.execute(
-                """
+            return self._page_rows(
+                connection,
+                statement="""
                 SELECT * FROM sop.project
                 WHERE tenant_pub_id=%s
                   AND (%s::text IS NULL OR status=%s)
-                  AND (%s::text IS NULL OR pub_id>%s)
-                ORDER BY pub_id LIMIT %s
                 """,
-                (tenant_pub_id, status, status, cursor, cursor, limit + 1),
-            ).fetchall()
-        return [_public(row) for row in rows]
+                params=(tenant_pub_id, status, status),
+                order_by="created_at DESC,pub_id DESC",
+                requested_page=page,
+                page_size=page_size,
+            )
 
     def get_project(self, *, tenant_pub_id: str, project_pub_id: str) -> dict[str, Any]:
         with self._conn(tenant_pub_id) as connection:
@@ -237,25 +279,26 @@ class SopService:
         *,
         tenant_pub_id: str,
         project_pub_id: str,
-        cursor: str | None,
-        limit: int,
-    ) -> list[dict[str, Any]]:
+        page: int,
+        page_size: int,
+    ) -> SopPageResult:
         with self._conn(tenant_pub_id) as connection:
             self._require_project(connection, tenant_pub_id, project_pub_id)
-            rows = connection.execute(
-                """
+            return self._page_rows(
+                connection,
+                statement="""
                 SELECT qs.*,
                        (SELECT count(*) FROM sop.query_item qi
                         WHERE qi.tenant_pub_id=qs.tenant_pub_id
                           AND qi.query_set_pub_id=qs.pub_id) AS item_count
                 FROM sop.query_set qs
                 WHERE qs.tenant_pub_id=%s AND qs.project_pub_id=%s
-                  AND (%s::text IS NULL OR qs.pub_id>%s)
-                ORDER BY qs.pub_id LIMIT %s
                 """,
-                (tenant_pub_id, project_pub_id, cursor, cursor, limit + 1),
-            ).fetchall()
-        return [_public(row) for row in rows]
+                params=(tenant_pub_id, project_pub_id),
+                order_by="version_no DESC,pub_id DESC",
+                requested_page=page,
+                page_size=page_size,
+            )
 
     def _require_query_set(
         self,
@@ -371,21 +414,22 @@ class SopService:
         *,
         tenant_pub_id: str,
         query_set_pub_id: str,
-        cursor: str | None,
-        limit: int,
-    ) -> list[dict[str, Any]]:
+        page: int,
+        page_size: int,
+    ) -> SopPageResult:
         with self._conn(tenant_pub_id) as connection:
             self._require_query_set(connection, tenant_pub_id, query_set_pub_id)
-            rows = connection.execute(
-                """
+            return self._page_rows(
+                connection,
+                statement="""
                 SELECT * FROM sop.query_item
                 WHERE tenant_pub_id=%s AND query_set_pub_id=%s
-                  AND (%s::text IS NULL OR pub_id>%s)
-                ORDER BY pub_id LIMIT %s
                 """,
-                (tenant_pub_id, query_set_pub_id, cursor, cursor, limit + 1),
-            ).fetchall()
-        return [_public(row) for row in rows]
+                params=(tenant_pub_id, query_set_pub_id),
+                order_by="ordinal,pub_id",
+                requested_page=page,
+                page_size=page_size,
+            )
 
     # -- Stage 2: baseline answers ------------------------------------------
 
@@ -453,22 +497,21 @@ class SopService:
         query_item_pub_id: str | None,
         platform: str | None,
         capture_status: str | None,
-        cursor: str | None,
-        limit: int,
-    ) -> list[dict[str, Any]]:
+        page: int,
+        page_size: int,
+    ) -> SopPageResult:
         with self._conn(tenant_pub_id) as connection:
             self._require_project(connection, tenant_pub_id, project_pub_id)
-            rows = connection.execute(
-                """
+            return self._page_rows(
+                connection,
+                statement="""
                 SELECT * FROM sop.baseline_answer
                 WHERE tenant_pub_id=%s AND project_pub_id=%s
                   AND (%s::text IS NULL OR query_item_pub_id=%s)
                   AND (%s::text IS NULL OR platform=%s)
                   AND (%s::text IS NULL OR capture_status=%s)
-                  AND (%s::text IS NULL OR pub_id>%s)
-                ORDER BY pub_id LIMIT %s
                 """,
-                (
+                params=(
                     tenant_pub_id,
                     project_pub_id,
                     query_item_pub_id,
@@ -477,12 +520,11 @@ class SopService:
                     platform,
                     capture_status,
                     capture_status,
-                    cursor,
-                    cursor,
-                    limit + 1,
                 ),
-            ).fetchall()
-        return [_public(row) for row in rows]
+                order_by="created_at DESC,pub_id DESC",
+                requested_page=page,
+                page_size=page_size,
+            )
 
     # -- Stage 3: retrieval insights -----------------------------------------
 
@@ -520,21 +562,22 @@ class SopService:
         *,
         tenant_pub_id: str,
         project_pub_id: str,
-        cursor: str | None,
-        limit: int,
-    ) -> list[dict[str, Any]]:
+        page: int,
+        page_size: int,
+    ) -> SopPageResult:
         with self._conn(tenant_pub_id) as connection:
             self._require_project(connection, tenant_pub_id, project_pub_id)
-            rows = connection.execute(
-                """
+            return self._page_rows(
+                connection,
+                statement="""
                 SELECT * FROM sop.retrieval_insight
                 WHERE tenant_pub_id=%s AND project_pub_id=%s
-                  AND (%s::text IS NULL OR pub_id>%s)
-                ORDER BY pub_id LIMIT %s
                 """,
-                (tenant_pub_id, project_pub_id, cursor, cursor, limit + 1),
-            ).fetchall()
-        return [_public(row) for row in rows]
+                params=(tenant_pub_id, project_pub_id),
+                order_by="created_at DESC,pub_id DESC",
+                requested_page=page,
+                page_size=page_size,
+            )
 
     # -- generic helpers -----------------------------------------------------
 
@@ -614,30 +657,23 @@ class SopService:
         tenant_pub_id: str,
         project_pub_id: str,
         source_level: str | None,
-        cursor: str | None,
-        limit: int,
-    ) -> list[dict[str, Any]]:
+        page: int,
+        page_size: int,
+    ) -> SopPageResult:
         with self._conn(tenant_pub_id) as connection:
             self._require_project(connection, tenant_pub_id, project_pub_id)
-            rows = connection.execute(
-                """
+            return self._page_rows(
+                connection,
+                statement="""
                 SELECT * FROM sop.evidence_item
                 WHERE tenant_pub_id=%s AND project_pub_id=%s
                   AND (%s::text IS NULL OR source_level=%s)
-                  AND (%s::text IS NULL OR pub_id>%s)
-                ORDER BY pub_id LIMIT %s
                 """,
-                (
-                    tenant_pub_id,
-                    project_pub_id,
-                    source_level,
-                    source_level,
-                    cursor,
-                    cursor,
-                    limit + 1,
-                ),
-            ).fetchall()
-        return [_public(row) for row in rows]
+                params=(tenant_pub_id, project_pub_id, source_level, source_level),
+                order_by="created_at DESC,pub_id DESC",
+                requested_page=page,
+                page_size=page_size,
+            )
 
     def update_evidence(
         self,
@@ -686,22 +722,23 @@ class SopService:
         tenant_pub_id: str,
         project_pub_id: str,
         status: str | None,
-        cursor: str | None,
-        limit: int,
-    ) -> list[dict[str, Any]]:
+        page: int,
+        page_size: int,
+    ) -> SopPageResult:
         with self._conn(tenant_pub_id) as connection:
             self._require_project(connection, tenant_pub_id, project_pub_id)
-            rows = connection.execute(
-                """
+            return self._page_rows(
+                connection,
+                statement="""
                 SELECT * FROM sop.opportunity
                 WHERE tenant_pub_id=%s AND project_pub_id=%s
                   AND (%s::text IS NULL OR status=%s)
-                  AND (%s::text IS NULL OR pub_id>%s)
-                ORDER BY pub_id LIMIT %s
                 """,
-                (tenant_pub_id, project_pub_id, status, status, cursor, cursor, limit + 1),
-            ).fetchall()
-        return [_public(row) for row in rows]
+                params=(tenant_pub_id, project_pub_id, status, status),
+                order_by="created_at DESC,pub_id DESC",
+                requested_page=page,
+                page_size=page_size,
+            )
 
     def update_opportunity(
         self,
@@ -830,13 +867,14 @@ class SopService:
         *,
         tenant_pub_id: str,
         project_pub_id: str,
-        cursor: str | None,
-        limit: int,
-    ) -> list[dict[str, Any]]:
+        page: int,
+        page_size: int,
+    ) -> SopPageResult:
         with self._conn(tenant_pub_id) as connection:
             self._require_project(connection, tenant_pub_id, project_pub_id)
-            rows = connection.execute(
-                """
+            result = self._page_rows(
+                connection,
+                statement="""
                 SELECT a.*,
                        (SELECT count(*) FROM sop.article_version av
                         WHERE av.tenant_pub_id=a.tenant_pub_id
@@ -846,30 +884,65 @@ class SopService:
                           AND av.article_pub_id=a.pub_id) AS latest_version_no
                 FROM sop.article a
                 WHERE a.tenant_pub_id=%s AND a.project_pub_id=%s
-                  AND (%s::text IS NULL OR a.pub_id>%s)
-                ORDER BY a.pub_id LIMIT %s
                 """,
-                (tenant_pub_id, project_pub_id, cursor, cursor, limit + 1),
-            ).fetchall()
-            return [
-                {
-                    **_public(row),
-                    "maturity_level": self._article_maturity(
-                        connection, tenant_pub_id, str(row["pub_id"])
-                    ),
-                }
-                for row in rows
-            ]
+                params=(tenant_pub_id, project_pub_id),
+                order_by="created_at DESC,pub_id DESC",
+                requested_page=page,
+                page_size=page_size,
+            )
+            return SopPageResult(
+                data=[
+                    {
+                        **row,
+                        "maturity_level": self._article_maturity(
+                            connection, tenant_pub_id, str(row["pub_id"])
+                        ),
+                    }
+                    for row in result.data
+                ],
+                page=result.page,
+            )
 
     def get_article(self, *, tenant_pub_id: str, article_pub_id: str) -> dict[str, Any]:
         with self._conn(tenant_pub_id) as connection:
             article = self._fetch_required(
                 connection,
-                "SELECT * FROM sop.article WHERE tenant_pub_id=%s AND pub_id=%s",
+                """
+                SELECT a.*,
+                       (SELECT count(*) FROM sop.article_version av
+                        WHERE av.tenant_pub_id=a.tenant_pub_id
+                          AND av.article_pub_id=a.pub_id) AS version_count,
+                       (SELECT max(av.version_no) FROM sop.article_version av
+                        WHERE av.tenant_pub_id=a.tenant_pub_id
+                          AND av.article_pub_id=a.pub_id) AS latest_version_no
+                FROM sop.article a
+                WHERE a.tenant_pub_id=%s AND a.pub_id=%s
+                """,
                 (tenant_pub_id, article_pub_id),
             )
-            versions = connection.execute(
-                """
+            maturity = self._article_maturity(connection, tenant_pub_id, article_pub_id)
+        return {
+            **_public(article),
+            "maturity_level": maturity,
+        }
+
+    def list_article_versions(
+        self,
+        *,
+        tenant_pub_id: str,
+        article_pub_id: str,
+        page: int,
+        page_size: int,
+    ) -> SopPageResult:
+        with self._conn(tenant_pub_id) as connection:
+            self._fetch_required(
+                connection,
+                "SELECT pub_id FROM sop.article WHERE tenant_pub_id=%s AND pub_id=%s",
+                (tenant_pub_id, article_pub_id),
+            )
+            return self._page_rows(
+                connection,
+                statement="""
                 SELECT av.pub_id,av.tenant_pub_id,av.article_pub_id,av.version_no,av.title,
                        av.body_sha256,av.change_note,av.readiness_checklist,av.publication_ready,
                        av.created_at,
@@ -878,16 +951,12 @@ class SopService:
                           AND c.article_version_pub_id=av.pub_id) AS check_count
                 FROM sop.article_version av
                 WHERE av.tenant_pub_id=%s AND av.article_pub_id=%s
-                ORDER BY av.version_no
                 """,
-                (tenant_pub_id, article_pub_id),
-            ).fetchall()
-            maturity = self._article_maturity(connection, tenant_pub_id, article_pub_id)
-        return {
-            **_public(article),
-            "maturity_level": maturity,
-            "versions": [_public(row) for row in versions],
-        }
+                params=(tenant_pub_id, article_pub_id),
+                order_by="version_no DESC,pub_id DESC",
+                requested_page=page,
+                page_size=page_size,
+            )
 
     def update_article(
         self,
@@ -965,18 +1034,17 @@ class SopService:
         with self._conn(tenant_pub_id) as connection:
             version = self._fetch_required(
                 connection,
-                "SELECT * FROM sop.article_version WHERE tenant_pub_id=%s AND pub_id=%s",
-                (tenant_pub_id, version_pub_id),
-            )
-            checks = connection.execute(
                 """
-                SELECT * FROM sop.pre_publish_check
-                WHERE tenant_pub_id=%s AND article_version_pub_id=%s
-                ORDER BY pub_id
+                SELECT av.*,
+                       (SELECT count(*) FROM sop.pre_publish_check c
+                        WHERE c.tenant_pub_id=av.tenant_pub_id
+                          AND c.article_version_pub_id=av.pub_id) AS check_count
+                FROM sop.article_version av
+                WHERE av.tenant_pub_id=%s AND av.pub_id=%s
                 """,
                 (tenant_pub_id, version_pub_id),
-            ).fetchall()
-        return {**_public(version), "checks": [_public(row) for row in checks]}
+            )
+        return _public(version)
 
     def update_article_version(
         self,
@@ -1042,25 +1110,26 @@ class SopService:
         *,
         tenant_pub_id: str,
         version_pub_id: str,
-        cursor: str | None,
-        limit: int,
-    ) -> list[dict[str, Any]]:
+        page: int,
+        page_size: int,
+    ) -> SopPageResult:
         with self._conn(tenant_pub_id) as connection:
             self._fetch_required(
                 connection,
                 "SELECT pub_id FROM sop.article_version WHERE tenant_pub_id=%s AND pub_id=%s",
                 (tenant_pub_id, version_pub_id),
             )
-            rows = connection.execute(
-                """
+            return self._page_rows(
+                connection,
+                statement="""
                 SELECT * FROM sop.pre_publish_check
                 WHERE tenant_pub_id=%s AND article_version_pub_id=%s
-                  AND (%s::text IS NULL OR pub_id>%s)
-                ORDER BY pub_id LIMIT %s
                 """,
-                (tenant_pub_id, version_pub_id, cursor, cursor, limit + 1),
-            ).fetchall()
-        return [_public(row) for row in rows]
+                params=(tenant_pub_id, version_pub_id),
+                order_by="created_at DESC,pub_id DESC",
+                requested_page=page,
+                page_size=page_size,
+            )
 
     # -- Stage 9: publications -------------------------------------------------
 
@@ -1132,33 +1201,31 @@ class SopService:
         project_pub_id: str,
         status: str | None,
         platform: str | None,
-        cursor: str | None,
-        limit: int,
-    ) -> list[dict[str, Any]]:
+        page: int,
+        page_size: int,
+    ) -> SopPageResult:
         with self._conn(tenant_pub_id) as connection:
             self._require_project(connection, tenant_pub_id, project_pub_id)
-            rows = connection.execute(
-                """
+            return self._page_rows(
+                connection,
+                statement="""
                 SELECT * FROM sop.publication
                 WHERE tenant_pub_id=%s AND project_pub_id=%s
                   AND (%s::text IS NULL OR status=%s)
                   AND (%s::text IS NULL OR platform=%s)
-                  AND (%s::text IS NULL OR pub_id>%s)
-                ORDER BY pub_id LIMIT %s
                 """,
-                (
+                params=(
                     tenant_pub_id,
                     project_pub_id,
                     status,
                     status,
                     platform,
                     platform,
-                    cursor,
-                    cursor,
-                    limit + 1,
                 ),
-            ).fetchall()
-        return [_public(row) for row in rows]
+                order_by="created_at DESC,pub_id DESC",
+                requested_page=page,
+                page_size=page_size,
+            )
 
     def _require_publication(
         self,
@@ -1178,14 +1245,6 @@ class SopService:
     def get_publication(self, *, tenant_pub_id: str, publication_pub_id: str) -> dict[str, Any]:
         with self._conn(tenant_pub_id) as connection:
             publication = self._require_publication(connection, tenant_pub_id, publication_pub_id)
-            observations = connection.execute(
-                """
-                SELECT * FROM sop.index_observation
-                WHERE tenant_pub_id=%s AND publication_pub_id=%s
-                ORDER BY observed_at,pub_id
-                """,
-                (tenant_pub_id, publication_pub_id),
-            ).fetchall()
             retest_count = connection.execute(
                 """
                 SELECT count(*) AS count FROM sop.retest_answer
@@ -1202,7 +1261,6 @@ class SopService:
             ).fetchone()
         return {
             **_public(publication),
-            "observations": [_public(row) for row in observations],
             "retest_count": int(self._require(retest_count)["count"]),
             "comparison_count": int(self._require(comparison_count)["count"]),
         }
@@ -1271,21 +1329,22 @@ class SopService:
         *,
         tenant_pub_id: str,
         publication_pub_id: str,
-        cursor: str | None,
-        limit: int,
-    ) -> list[dict[str, Any]]:
+        page: int,
+        page_size: int,
+    ) -> SopPageResult:
         with self._conn(tenant_pub_id) as connection:
             self._require_publication(connection, tenant_pub_id, publication_pub_id)
-            rows = connection.execute(
-                """
+            return self._page_rows(
+                connection,
+                statement="""
                 SELECT * FROM sop.index_observation
                 WHERE tenant_pub_id=%s AND publication_pub_id=%s
-                  AND (%s::text IS NULL OR pub_id>%s)
-                ORDER BY pub_id LIMIT %s
                 """,
-                (tenant_pub_id, publication_pub_id, cursor, cursor, limit + 1),
-            ).fetchall()
-        return [_public(row) for row in rows]
+                params=(tenant_pub_id, publication_pub_id),
+                order_by="created_at DESC,pub_id DESC",
+                requested_page=page,
+                page_size=page_size,
+            )
 
     # -- Stage 11: retest answers ----------------------------------------------
 
@@ -1326,30 +1385,28 @@ class SopService:
         tenant_pub_id: str,
         publication_pub_id: str,
         query_item_pub_id: str | None,
-        cursor: str | None,
-        limit: int,
-    ) -> list[dict[str, Any]]:
+        page: int,
+        page_size: int,
+    ) -> SopPageResult:
         with self._conn(tenant_pub_id) as connection:
             self._require_publication(connection, tenant_pub_id, publication_pub_id)
-            rows = connection.execute(
-                """
+            return self._page_rows(
+                connection,
+                statement="""
                 SELECT * FROM sop.retest_answer
                 WHERE tenant_pub_id=%s AND publication_pub_id=%s
                   AND (%s::text IS NULL OR query_item_pub_id=%s)
-                  AND (%s::text IS NULL OR pub_id>%s)
-                ORDER BY pub_id LIMIT %s
                 """,
-                (
+                params=(
                     tenant_pub_id,
                     publication_pub_id,
                     query_item_pub_id,
                     query_item_pub_id,
-                    cursor,
-                    cursor,
-                    limit + 1,
                 ),
-            ).fetchall()
-        return [_public(row) for row in rows]
+                order_by="created_at DESC,pub_id DESC",
+                requested_page=page,
+                page_size=page_size,
+            )
 
     # -- Stages 12-13: comparisons ----------------------------------------------
 
@@ -1466,21 +1523,22 @@ class SopService:
         *,
         tenant_pub_id: str,
         publication_pub_id: str,
-        cursor: str | None,
-        limit: int,
-    ) -> list[dict[str, Any]]:
+        page: int,
+        page_size: int,
+    ) -> SopPageResult:
         with self._conn(tenant_pub_id) as connection:
             self._require_publication(connection, tenant_pub_id, publication_pub_id)
-            rows = connection.execute(
-                """
+            return self._page_rows(
+                connection,
+                statement="""
                 SELECT * FROM sop.comparison
                 WHERE tenant_pub_id=%s AND publication_pub_id=%s
-                  AND (%s::text IS NULL OR pub_id>%s)
-                ORDER BY pub_id LIMIT %s
                 """,
-                (tenant_pub_id, publication_pub_id, cursor, cursor, limit + 1),
-            ).fetchall()
-        return [_public(row) for row in rows]
+                params=(tenant_pub_id, publication_pub_id),
+                order_by="created_at DESC,pub_id DESC",
+                requested_page=page,
+                page_size=page_size,
+            )
 
     @staticmethod
     def _rate(numerator: int, denominator: int) -> float | None:
@@ -1668,22 +1726,23 @@ class SopService:
         tenant_pub_id: str,
         project_pub_id: str,
         status: str | None,
-        cursor: str | None,
-        limit: int,
-    ) -> list[dict[str, Any]]:
+        page: int,
+        page_size: int,
+    ) -> SopPageResult:
         with self._conn(tenant_pub_id) as connection:
             self._require_project(connection, tenant_pub_id, project_pub_id)
-            rows = connection.execute(
-                """
+            return self._page_rows(
+                connection,
+                statement="""
                 SELECT * FROM sop.experiment
                 WHERE tenant_pub_id=%s AND project_pub_id=%s
                   AND (%s::text IS NULL OR status=%s)
-                  AND (%s::text IS NULL OR pub_id>%s)
-                ORDER BY pub_id LIMIT %s
                 """,
-                (tenant_pub_id, project_pub_id, status, status, cursor, cursor, limit + 1),
-            ).fetchall()
-        return [_public(row) for row in rows]
+                params=(tenant_pub_id, project_pub_id, status, status),
+                order_by="created_at DESC,pub_id DESC",
+                requested_page=page,
+                page_size=page_size,
+            )
 
     def update_experiment(
         self,
@@ -1752,22 +1811,23 @@ class SopService:
         tenant_pub_id: str,
         project_pub_id: str,
         entry_type: str | None,
-        cursor: str | None,
-        limit: int,
-    ) -> list[dict[str, Any]]:
+        page: int,
+        page_size: int,
+    ) -> SopPageResult:
         with self._conn(tenant_pub_id) as connection:
             self._require_project(connection, tenant_pub_id, project_pub_id)
-            rows = connection.execute(
-                """
+            return self._page_rows(
+                connection,
+                statement="""
                 SELECT * FROM sop.work_log
                 WHERE tenant_pub_id=%s AND project_pub_id=%s
                   AND (%s::text IS NULL OR entry_type=%s)
-                  AND (%s::text IS NULL OR pub_id>%s)
-                ORDER BY pub_id LIMIT %s
                 """,
-                (tenant_pub_id, project_pub_id, entry_type, entry_type, cursor, cursor, limit + 1),
-            ).fetchall()
-        return [_public(row) for row in rows]
+                params=(tenant_pub_id, project_pub_id, entry_type, entry_type),
+                order_by="created_at DESC,pub_id DESC",
+                requested_page=page,
+                page_size=page_size,
+            )
 
     # -- Dashboard aggregation ------------------------------------------------------
 
@@ -1801,7 +1861,14 @@ class SopService:
             return 0
         return int(row["count"])
 
-    def dashboard(self, *, tenant_pub_id: str, project_pub_id: str) -> dict[str, Any]:
+    def dashboard(
+        self,
+        *,
+        tenant_pub_id: str,
+        project_pub_id: str,
+        article_page: int,
+        article_page_size: int,
+    ) -> dict[str, Any]:
         with self._conn(tenant_pub_id) as connection:
             project = self._require_project(connection, tenant_pub_id, project_pub_id)
             scoped = (tenant_pub_id, project_pub_id)
@@ -2026,8 +2093,9 @@ class SopService:
                 scoped,
             )
 
-            article_rows = connection.execute(
-                """
+            article_page_result = self._page_rows(
+                connection,
+                statement="""
                 SELECT a.pub_id AS article_pub_id,a.title,a.status,
                        (SELECT count(*) FROM sop.article_version av
                         WHERE av.tenant_pub_id=a.tenant_pub_id
@@ -2047,10 +2115,12 @@ class SopService:
                        ) AS has_publication
                 FROM sop.article a
                 WHERE a.tenant_pub_id=%s AND a.project_pub_id=%s
-                ORDER BY a.pub_id
                 """,
-                scoped,
-            ).fetchall()
+                params=scoped,
+                order_by="a.created_at DESC,a.pub_id DESC",
+                requested_page=article_page,
+                page_size=article_page_size,
+            )
             dashboard_articles = [
                 {
                     "article_pub_id": str(row["article_pub_id"]),
@@ -2063,7 +2133,7 @@ class SopService:
                         connection, tenant_pub_id, str(row["article_pub_id"])
                     ),
                 }
-                for row in article_rows
+                for row in article_page_result.data
             ]
 
         brand_profile_keys = len(project["brand_profile"] or {})
@@ -2144,5 +2214,5 @@ class SopService:
         return {
             "project": _public(project),
             "steps": steps,
-            "articles": dashboard_articles,
+            "articles": SopPageResult(data=dashboard_articles, page=article_page_result.page),
         }

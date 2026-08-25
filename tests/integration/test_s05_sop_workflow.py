@@ -59,17 +59,24 @@ def test_s05_sop_workflow_full_loop_and_tenant_rbac_boundaries() -> None:
     )
     assert second_project.status_code == 201
     second_project_pub_id = second_project.json()["pub_id"]
-    first_page = client.get("/api/v2/sop/projects?limit=1")
+    first_page = client.get("/api/v2/sop/projects", params={"page": 1, "page_size": 1})
     assert first_page.status_code == 200
     assert len(first_page.json()["data"]) == 1
-    assert first_page.json()["page"]["has_more"] is True
-    assert first_page.json()["page"]["next_cursor"]
+    assert first_page.json()["page"] == {
+        "page": 1,
+        "page_size": 1,
+        "total_count": 2,
+        "total_pages": 2,
+    }
     second_page = client.get(
         "/api/v2/sop/projects",
-        params={"limit": 1, "cursor": first_page.json()["page"]["next_cursor"]},
+        params={"page": 2, "page_size": 1},
     )
     assert second_page.status_code == 200
     assert len(second_page.json()["data"]) == 1
+    assert second_page.json()["page"]["page"] == 2
+    assert client.get("/api/v2/sop/projects", params={"limit": 1}).status_code == 422
+    assert client.get("/api/v2/sop/projects", params={"cursor": "spr_old"}).status_code == 422
 
     query_set_one = client.post(
         f"/api/v2/sop/projects/{project_pub_id}/query-sets",
@@ -139,6 +146,40 @@ def test_s05_sop_workflow_full_loop_and_tenant_rbac_boundaries() -> None:
     )
     assert query_item_two.status_code == 201
     frozen_query_item_pub_id = query_item_two.json()[0]["pub_id"]
+    pagination_boundary_items = client.post(
+        f"/api/v2/sop/query-sets/{query_set_two_pub_id}/items",
+        json={
+            "items": [
+                {
+                    "query_text": f"分页边界问题 {ordinal:03d}",
+                    "layer": "C",
+                    "priority": "P1",
+                }
+                for ordinal in range(2, 106)
+            ]
+        },
+        headers={"Idempotency-Key": f"sop-query-items-boundary-{suffix}"},
+    )
+    assert pagination_boundary_items.status_code == 201
+    assert len(pagination_boundary_items.json()) == 104
+    query_item_page_26 = client.get(
+        f"/api/v2/sop/query-sets/{query_set_two_pub_id}/items",
+        params={"page": 26, "page_size": 4},
+    )
+    assert query_item_page_26.status_code == 200
+    assert [row["ordinal"] for row in query_item_page_26.json()["data"]] == [101, 102, 103, 104]
+    assert query_item_page_26.json()["page"] == {
+        "page": 26,
+        "page_size": 4,
+        "total_count": 105,
+        "total_pages": 27,
+    }
+    query_item_page_27 = client.get(
+        f"/api/v2/sop/query-sets/{query_set_two_pub_id}/items",
+        params={"page": 27, "page_size": 4},
+    )
+    assert query_item_page_27.status_code == 200
+    assert [row["ordinal"] for row in query_item_page_27.json()["data"]] == [105]
     freeze_two = client.post(
         f"/api/v2/sop/query-sets/{query_set_two_pub_id}/freeze",
         headers={"Idempotency-Key": f"sop-freeze-2-{suffix}"},
@@ -269,7 +310,19 @@ def test_s05_sop_workflow_full_loop_and_tenant_rbac_boundaries() -> None:
     article_detail = client.get(f"/api/v2/sop/articles/{article_pub_id}")
     assert article_detail.status_code == 200
     assert article_detail.json()["status"] == "in_review"
-    assert len(article_detail.json()["versions"]) == 2
+    assert article_detail.json()["version_count"] == 2
+    version_page = client.get(
+        f"/api/v2/sop/articles/{article_pub_id}/versions",
+        params={"page": 2, "page_size": 1},
+    )
+    assert version_page.status_code == 200
+    assert len(version_page.json()["data"]) == 1
+    assert version_page.json()["page"] == {
+        "page": 2,
+        "page_size": 1,
+        "total_count": 2,
+        "total_pages": 2,
+    }
 
     check = client.post(
         f"/api/v2/sop/article-versions/{version_pub_id}/checks",
@@ -564,9 +617,17 @@ def test_s05_sop_workflow_full_loop_and_tenant_rbac_boundaries() -> None:
     ]
     assert all(step["status"] == "done" for step in steps)
     dashboard_article = next(
-        row for row in dashboard.json()["articles"] if row["article_pub_id"] == article_pub_id
+        row
+        for row in dashboard.json()["articles"]["data"]
+        if row["article_pub_id"] == article_pub_id
     )
     assert dashboard_article["maturity_level"] == "L4"
+    assert dashboard.json()["articles"]["page"] == {
+        "page": 1,
+        "page_size": 4,
+        "total_count": 1,
+        "total_pages": 1,
+    }
 
     current_principal["value"] = Principal(
         subject="foreign",

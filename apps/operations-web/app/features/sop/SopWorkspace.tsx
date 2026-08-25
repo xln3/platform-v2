@@ -9,7 +9,7 @@ import {
   type SopStageKey,
   type SopStageSnapshot,
 } from '@geo/api-client';
-import { Badge, MetricGrid, StatePanel, Toast } from '@geo/design-system';
+import { Badge, MetricGrid, Pagination, StatePanel, Toast } from '@geo/design-system';
 import {
   ArchiveLog,
   Baseline,
@@ -62,7 +62,9 @@ export function SopWorkspace({
   canWrite: boolean;
 }) {
   const [dashboard, setDashboard] = useState<DashboardState>({ kind: 'loading' });
+  const [articlePage, setArticlePage] = useState(1);
   const [selected, setSelected] = useState<SopStageKey>('project-definition');
+  const [stagePage, setStagePage] = useState(1);
   const [tab, setTab] = useState<'monitor' | 'console'>('monitor');
   const [snapshot, setSnapshot] = useState<SopStageSnapshot | null>(null);
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'failed' | 'forbidden'>(
@@ -77,8 +79,9 @@ export function SopWorkspace({
   useEffect(() => {
     let cancelled = false;
     setDashboard((current) => (current.kind === 'ready' ? current : { kind: 'loading' }));
-    void getSopDashboard(headers, projectPubId).then((result) => {
+    void getSopDashboard(headers, projectPubId, articlePage).then((result) => {
       if (cancelled) return;
+      if (result.kind === 'ready') setArticlePage(result.data.articlePage.page);
       setDashboard(
         result.kind === 'ready'
           ? { kind: 'ready', data: result.data }
@@ -90,16 +93,20 @@ export function SopWorkspace({
     return () => {
       cancelled = true;
     };
-  }, [headers, projectPubId, attempt]);
+  }, [headers, projectPubId, articlePage, attempt]);
+
+  useEffect(() => setArticlePage(1), [projectPubId]);
+  useEffect(() => setStagePage(1), [projectPubId, selected]);
 
   useEffect(() => {
     let cancelled = false;
     setLoadState('loading');
     setSnapshot(null);
-    void loadSopStage(headers, projectPubId, selected).then((result) => {
+    void loadSopStage(headers, projectPubId, selected, stagePage).then((result) => {
       if (cancelled) return;
       if (result.kind === 'ready') {
         setSnapshot(result.data);
+        setStagePage(result.data.page.page);
         setLoadState('ready');
       } else {
         setLoadState(result.kind === 'forbidden' ? 'forbidden' : 'failed');
@@ -108,7 +115,7 @@ export function SopWorkspace({
     return () => {
       cancelled = true;
     };
-  }, [headers, projectPubId, selected, attempt]);
+  }, [headers, projectPubId, selected, stagePage, attempt]);
 
   const progress = useMemo(() => {
     if (dashboard.kind !== 'ready') return { done: 0, total: 14 };
@@ -117,7 +124,6 @@ export function SopWorkspace({
       total: dashboard.data.steps.length,
     };
   }, [dashboard]);
-
   if (dashboard.kind === 'loading') {
     return (
       <main className="sop-page">
@@ -184,13 +190,22 @@ export function SopWorkspace({
       </section>
 
       {dashboard.data.articles.length > 0 ? (
-        <MetricGrid
-          metrics={dashboard.data.articles.slice(0, 4).map((article) => ({
-            label: article.title,
-            value: article.maturityLevel,
-            detail: `${article.versionCount} 个版本 · ${article.status}`,
-          }))}
-        />
+        <section aria-label="文章成熟度记录">
+          <MetricGrid
+            metrics={dashboard.data.articles.map((article) => ({
+              label: article.title,
+              value: article.maturityLevel,
+              detail: `${article.versionCount} 个版本 · ${article.status}`,
+            }))}
+          />
+          <Pagination
+            page={dashboard.data.articlePage.page}
+            pageCount={dashboard.data.articlePage.totalPages}
+            totalItems={dashboard.data.articlePage.totalCount}
+            onPageChange={setArticlePage}
+            label="文章成熟度分页"
+          />
+        </section>
       ) : null}
 
       <div className="sop-workspace">
@@ -269,6 +284,7 @@ export function SopWorkspace({
             canWrite={canWrite}
             busy={busy}
             onRetry={() => setAttempt((value) => value + 1)}
+            onPageChange={setStagePage}
             onSubmit={submit}
           />
         </section>

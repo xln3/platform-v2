@@ -6,12 +6,12 @@ from contextlib import contextmanager
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..config import get_settings
 from ..identity.policy import Principal, get_principal
-from .service import SopInvalidState, SopNotFound, SopService
+from .service import SopInvalidState, SopNotFound, SopPageResult, SopService
 
 router = APIRouter(prefix="/api/v2/sop", tags=["sop"])
 
@@ -41,8 +41,10 @@ class StrictModel(BaseModel):
 
 
 class PageMeta(StrictModel):
-    next_cursor: str | None
-    has_more: bool
+    page: int = Field(ge=1)
+    page_size: int = Field(ge=1, le=100)
+    total_count: int = Field(ge=0)
+    total_pages: int = Field(ge=0)
 
 
 class SopPage[PageItem: BaseModel](StrictModel):
@@ -315,13 +317,8 @@ class CheckView(CheckCreate):
     created_at: datetime
 
 
-class ArticleDetail(ArticleView):
-    versions: list[ArticleVersionView]
-
-
 class ArticleVersionDetail(ArticleVersionView):
     body: str
-    checks: list[CheckView]
 
 
 class PublicationCreate(StrictModel):
@@ -394,7 +391,6 @@ class ObservationView(ObservationCreate):
 
 
 class PublicationDetail(PublicationView):
-    observations: list[ObservationView]
     retest_count: int
     comparison_count: int
 
@@ -515,7 +511,7 @@ class DashboardArticle(StrictModel):
 class DashboardView(StrictModel):
     project: ProjectView
     steps: list[StepView]
-    articles: list[DashboardArticle]
+    articles: SopPage[DashboardArticle]
 
 
 class ComparisonQueryView(StrictModel):
@@ -568,21 +564,28 @@ def _write_fields(model: BaseModel) -> dict[str, Any]:
 
 
 def _page(
-    rows: list[dict[str, Any]],
+    result: SopPageResult,
     *,
-    limit: int,
     validator: Callable[[Mapping[str, Any]], BaseModel],
 ) -> dict[str, Any]:
-    has_more = len(rows) > limit
-    visible = rows[:limit]
-    data = [validator(row) for row in visible]
+    data = [validator(row) for row in result.data]
     return {
         "data": data,
         "page": {
-            "next_cursor": str(visible[-1]["pub_id"]) if has_more and visible else None,
-            "has_more": has_more,
+            "page": result.page.page,
+            "page_size": result.page.page_size,
+            "total_count": result.page.total_count,
+            "total_pages": result.page.total_pages,
         },
     }
+
+
+def _reject_legacy_pagination(request: Request) -> None:
+    if "cursor" in request.query_params or "limit" in request.query_params:
+        raise HTTPException(status_code=422, detail={"code": "legacy_pagination_removed"})
+
+
+router.dependencies.append(Depends(_reject_legacy_pagination))
 
 
 @router.post("/projects", response_model=ProjectView, status_code=201)
@@ -606,18 +609,18 @@ def create_project(
 @router.get("/projects", response_model=SopPage[ProjectView])
 def list_projects(
     status: Literal["active", "archived"] | None = None,
-    cursor: str | None = None,
-    limit: int = Query(default=50, ge=1, le=100),
+    page: int = Query(default=1, ge=1, le=1_000_000),
+    page_size: int = Query(default=4, ge=1, le=100),
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any]:
     principal.require("sop:read")
     rows = _service().list_projects(
         tenant_pub_id=principal.tenant_pub_id,
         status=status,
-        cursor=cursor,
-        limit=limit,
+        page=page,
+        page_size=page_size,
     )
-    return _page(rows, limit=limit, validator=ProjectView.model_validate)
+    return _page(rows, validator=ProjectView.model_validate)
 
 
 @router.get("/projects/{project_pub_id}", response_model=ProjectView)
@@ -653,6 +656,8 @@ def update_project(
 @router.get("/projects/{project_pub_id}/dashboard", response_model=DashboardView)
 def get_dashboard(
     project_pub_id: str,
+    page: int = Query(default=1, ge=1, le=1_000_000),
+    page_size: int = Query(default=4, ge=1, le=100),
     principal: Principal = Depends(get_principal),
 ) -> DashboardView:
     principal.require("sop:read")
@@ -660,8 +665,15 @@ def get_dashboard(
         row = _service().dashboard(
             tenant_pub_id=principal.tenant_pub_id,
             project_pub_id=project_pub_id,
+            article_page=page,
+            article_page_size=page_size,
         )
-    return DashboardView.model_validate(row)
+    articles = row.get("articles")
+    if not isinstance(articles, SopPageResult):
+        raise HTTPException(status_code=500, detail={"code": "invalid_dashboard_page"})
+    return DashboardView.model_validate(
+        {**row, "articles": _page(articles, validator=DashboardArticle.model_validate)}
+    )
 
 
 @router.post(
@@ -693,8 +705,8 @@ def create_query_set(
 )
 def list_query_sets(
     project_pub_id: str,
-    cursor: str | None = None,
-    limit: int = Query(default=50, ge=1, le=100),
+    page: int = Query(default=1, ge=1, le=1_000_000),
+    page_size: int = Query(default=4, ge=1, le=100),
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any]:
     principal.require("sop:read")
@@ -702,10 +714,10 @@ def list_query_sets(
         rows = _service().list_query_sets(
             tenant_pub_id=principal.tenant_pub_id,
             project_pub_id=project_pub_id,
-            cursor=cursor,
-            limit=limit,
+            page=page,
+            page_size=page_size,
         )
-    return _page(rows, limit=limit, validator=QuerySetView.model_validate)
+    return _page(rows, validator=QuerySetView.model_validate)
 
 
 @router.post(
@@ -754,8 +766,8 @@ def freeze_query_set(
 )
 def list_query_items(
     query_set_pub_id: str,
-    cursor: str | None = None,
-    limit: int = Query(default=50, ge=1, le=100),
+    page: int = Query(default=1, ge=1, le=1_000_000),
+    page_size: int = Query(default=4, ge=1, le=100),
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any]:
     principal.require("sop:read")
@@ -763,10 +775,10 @@ def list_query_items(
         rows = _service().list_query_items(
             tenant_pub_id=principal.tenant_pub_id,
             query_set_pub_id=query_set_pub_id,
-            cursor=cursor,
-            limit=limit,
+            page=page,
+            page_size=page_size,
         )
-    return _page(rows, limit=limit, validator=QueryItemView.model_validate)
+    return _page(rows, validator=QueryItemView.model_validate)
 
 
 @router.post(
@@ -801,8 +813,8 @@ def list_baseline_answers(
     query_item_pub_id: str | None = None,
     platform: str | None = None,
     capture_status: CaptureStatus | None = None,
-    cursor: str | None = None,
-    limit: int = Query(default=50, ge=1, le=100),
+    page: int = Query(default=1, ge=1, le=1_000_000),
+    page_size: int = Query(default=4, ge=1, le=100),
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any]:
     principal.require("sop:read")
@@ -813,10 +825,10 @@ def list_baseline_answers(
             query_item_pub_id=query_item_pub_id,
             platform=platform,
             capture_status=capture_status,
-            cursor=cursor,
-            limit=limit,
+            page=page,
+            page_size=page_size,
         )
-    return _page(rows, limit=limit, validator=BaselineAnswerView.model_validate)
+    return _page(rows, validator=BaselineAnswerView.model_validate)
 
 
 @router.post(
@@ -848,8 +860,8 @@ def create_insight(
 )
 def list_insights(
     project_pub_id: str,
-    cursor: str | None = None,
-    limit: int = Query(default=50, ge=1, le=100),
+    page: int = Query(default=1, ge=1, le=1_000_000),
+    page_size: int = Query(default=4, ge=1, le=100),
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any]:
     principal.require("sop:read")
@@ -857,10 +869,10 @@ def list_insights(
         rows = _service().list_insights(
             tenant_pub_id=principal.tenant_pub_id,
             project_pub_id=project_pub_id,
-            cursor=cursor,
-            limit=limit,
+            page=page,
+            page_size=page_size,
         )
-    return _page(rows, limit=limit, validator=InsightView.model_validate)
+    return _page(rows, validator=InsightView.model_validate)
 
 
 @router.post(
@@ -893,8 +905,8 @@ def create_evidence(
 def list_evidence(
     project_pub_id: str,
     source_level: Literal["official", "third_party", "experience"] | None = None,
-    cursor: str | None = None,
-    limit: int = Query(default=50, ge=1, le=100),
+    page: int = Query(default=1, ge=1, le=1_000_000),
+    page_size: int = Query(default=4, ge=1, le=100),
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any]:
     principal.require("sop:read")
@@ -903,10 +915,10 @@ def list_evidence(
             tenant_pub_id=principal.tenant_pub_id,
             project_pub_id=project_pub_id,
             source_level=source_level,
-            cursor=cursor,
-            limit=limit,
+            page=page,
+            page_size=page_size,
         )
-    return _page(rows, limit=limit, validator=EvidenceView.model_validate)
+    return _page(rows, validator=EvidenceView.model_validate)
 
 
 @router.patch("/evidence/{evidence_pub_id}", response_model=EvidenceView)
@@ -955,8 +967,8 @@ def create_opportunity(
 def list_opportunities(
     project_pub_id: str,
     status: Literal["candidate", "selected", "rejected", "fulfilled"] | None = None,
-    cursor: str | None = None,
-    limit: int = Query(default=50, ge=1, le=100),
+    page: int = Query(default=1, ge=1, le=1_000_000),
+    page_size: int = Query(default=4, ge=1, le=100),
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any]:
     principal.require("sop:read")
@@ -965,10 +977,10 @@ def list_opportunities(
             tenant_pub_id=principal.tenant_pub_id,
             project_pub_id=project_pub_id,
             status=status,
-            cursor=cursor,
-            limit=limit,
+            page=page,
+            page_size=page_size,
         )
-    return _page(rows, limit=limit, validator=OpportunityView.model_validate)
+    return _page(rows, validator=OpportunityView.model_validate)
 
 
 @router.patch("/opportunities/{opportunity_pub_id}", response_model=OpportunityView)
@@ -1016,8 +1028,8 @@ def create_article(
 )
 def list_articles(
     project_pub_id: str,
-    cursor: str | None = None,
-    limit: int = Query(default=50, ge=1, le=100),
+    page: int = Query(default=1, ge=1, le=1_000_000),
+    page_size: int = Query(default=4, ge=1, le=100),
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any]:
     principal.require("sop:read")
@@ -1025,24 +1037,24 @@ def list_articles(
         rows = _service().list_articles(
             tenant_pub_id=principal.tenant_pub_id,
             project_pub_id=project_pub_id,
-            cursor=cursor,
-            limit=limit,
+            page=page,
+            page_size=page_size,
         )
-    return _page(rows, limit=limit, validator=ArticleView.model_validate)
+    return _page(rows, validator=ArticleView.model_validate)
 
 
-@router.get("/articles/{article_pub_id}", response_model=ArticleDetail)
+@router.get("/articles/{article_pub_id}", response_model=ArticleView)
 def get_article(
     article_pub_id: str,
     principal: Principal = Depends(get_principal),
-) -> ArticleDetail:
+) -> ArticleView:
     principal.require("sop:read")
     with _service_errors():
         row = _service().get_article(
             tenant_pub_id=principal.tenant_pub_id,
             article_pub_id=article_pub_id,
         )
-    return ArticleDetail.model_validate(row)
+    return ArticleView.model_validate(row)
 
 
 @router.patch("/articles/{article_pub_id}", response_model=ArticleView)
@@ -1082,6 +1094,27 @@ def create_article_version(
         )
     _echo_idempotency(response, idempotency_key)
     return ArticleVersionView.model_validate(row)
+
+
+@router.get(
+    "/articles/{article_pub_id}/versions",
+    response_model=SopPage[ArticleVersionView],
+)
+def list_article_versions(
+    article_pub_id: str,
+    page: int = Query(default=1, ge=1, le=1_000_000),
+    page_size: int = Query(default=4, ge=1, le=100),
+    principal: Principal = Depends(get_principal),
+) -> dict[str, Any]:
+    principal.require("sop:read")
+    with _service_errors():
+        rows = _service().list_article_versions(
+            tenant_pub_id=principal.tenant_pub_id,
+            article_pub_id=article_pub_id,
+            page=page,
+            page_size=page_size,
+        )
+    return _page(rows, validator=ArticleVersionView.model_validate)
 
 
 @router.get("/article-versions/{version_pub_id}", response_model=ArticleVersionDetail)
@@ -1146,8 +1179,8 @@ def create_check(
 )
 def list_checks(
     version_pub_id: str,
-    cursor: str | None = None,
-    limit: int = Query(default=50, ge=1, le=100),
+    page: int = Query(default=1, ge=1, le=1_000_000),
+    page_size: int = Query(default=4, ge=1, le=100),
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any]:
     principal.require("sop:read")
@@ -1155,10 +1188,10 @@ def list_checks(
         rows = _service().list_checks(
             tenant_pub_id=principal.tenant_pub_id,
             version_pub_id=version_pub_id,
-            cursor=cursor,
-            limit=limit,
+            page=page,
+            page_size=page_size,
         )
-    return _page(rows, limit=limit, validator=CheckView.model_validate)
+    return _page(rows, validator=CheckView.model_validate)
 
 
 @router.post(
@@ -1192,8 +1225,8 @@ def list_publications(
     project_pub_id: str,
     status: str | None = None,
     platform: str | None = None,
-    cursor: str | None = None,
-    limit: int = Query(default=50, ge=1, le=100),
+    page: int = Query(default=1, ge=1, le=1_000_000),
+    page_size: int = Query(default=4, ge=1, le=100),
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any]:
     principal.require("sop:read")
@@ -1203,10 +1236,10 @@ def list_publications(
             project_pub_id=project_pub_id,
             status=status,
             platform=platform,
-            cursor=cursor,
-            limit=limit,
+            page=page,
+            page_size=page_size,
         )
-    return _page(rows, limit=limit, validator=PublicationView.model_validate)
+    return _page(rows, validator=PublicationView.model_validate)
 
 
 @router.get("/publications/{publication_pub_id}", response_model=PublicationDetail)
@@ -1268,8 +1301,8 @@ def create_observation(
 )
 def list_observations(
     publication_pub_id: str,
-    cursor: str | None = None,
-    limit: int = Query(default=50, ge=1, le=100),
+    page: int = Query(default=1, ge=1, le=1_000_000),
+    page_size: int = Query(default=4, ge=1, le=100),
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any]:
     principal.require("sop:read")
@@ -1277,10 +1310,10 @@ def list_observations(
         rows = _service().list_observations(
             tenant_pub_id=principal.tenant_pub_id,
             publication_pub_id=publication_pub_id,
-            cursor=cursor,
-            limit=limit,
+            page=page,
+            page_size=page_size,
         )
-    return _page(rows, limit=limit, validator=ObservationView.model_validate)
+    return _page(rows, validator=ObservationView.model_validate)
 
 
 @router.post(
@@ -1313,8 +1346,8 @@ def create_retest_answer(
 def list_retest_answers(
     publication_pub_id: str,
     query_item_pub_id: str | None = None,
-    cursor: str | None = None,
-    limit: int = Query(default=50, ge=1, le=100),
+    page: int = Query(default=1, ge=1, le=1_000_000),
+    page_size: int = Query(default=4, ge=1, le=100),
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any]:
     principal.require("sop:read")
@@ -1323,10 +1356,10 @@ def list_retest_answers(
             tenant_pub_id=principal.tenant_pub_id,
             publication_pub_id=publication_pub_id,
             query_item_pub_id=query_item_pub_id,
-            cursor=cursor,
-            limit=limit,
+            page=page,
+            page_size=page_size,
         )
-    return _page(rows, limit=limit, validator=RetestAnswerView.model_validate)
+    return _page(rows, validator=RetestAnswerView.model_validate)
 
 
 @router.post(
@@ -1358,8 +1391,8 @@ def upsert_comparison(
 )
 def list_comparisons(
     publication_pub_id: str,
-    cursor: str | None = None,
-    limit: int = Query(default=50, ge=1, le=100),
+    page: int = Query(default=1, ge=1, le=1_000_000),
+    page_size: int = Query(default=4, ge=1, le=100),
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any]:
     principal.require("sop:read")
@@ -1367,10 +1400,10 @@ def list_comparisons(
         rows = _service().list_comparisons(
             tenant_pub_id=principal.tenant_pub_id,
             publication_pub_id=publication_pub_id,
-            cursor=cursor,
-            limit=limit,
+            page=page,
+            page_size=page_size,
         )
-    return _page(rows, limit=limit, validator=ComparisonView.model_validate)
+    return _page(rows, validator=ComparisonView.model_validate)
 
 
 @router.get(
@@ -1420,8 +1453,8 @@ def create_experiment(
 def list_experiments(
     project_pub_id: str,
     status: Literal["planned", "running", "done", "abandoned"] | None = None,
-    cursor: str | None = None,
-    limit: int = Query(default=50, ge=1, le=100),
+    page: int = Query(default=1, ge=1, le=1_000_000),
+    page_size: int = Query(default=4, ge=1, le=100),
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any]:
     principal.require("sop:read")
@@ -1430,10 +1463,10 @@ def list_experiments(
             tenant_pub_id=principal.tenant_pub_id,
             project_pub_id=project_pub_id,
             status=status,
-            cursor=cursor,
-            limit=limit,
+            page=page,
+            page_size=page_size,
         )
-    return _page(rows, limit=limit, validator=ExperimentView.model_validate)
+    return _page(rows, validator=ExperimentView.model_validate)
 
 
 @router.patch("/experiments/{experiment_pub_id}", response_model=ExperimentView)
@@ -1483,8 +1516,8 @@ def create_work_log(
 def list_work_logs(
     project_pub_id: str,
     entry_type: Literal["progress", "failure", "blocker", "decision", "note"] | None = None,
-    cursor: str | None = None,
-    limit: int = Query(default=50, ge=1, le=100),
+    page: int = Query(default=1, ge=1, le=1_000_000),
+    page_size: int = Query(default=4, ge=1, le=100),
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any]:
     principal.require("sop:read")
@@ -1493,7 +1526,7 @@ def list_work_logs(
             tenant_pub_id=principal.tenant_pub_id,
             project_pub_id=project_pub_id,
             entry_type=entry_type,
-            cursor=cursor,
-            limit=limit,
+            page=page,
+            page_size=page_size,
         )
-    return _page(rows, limit=limit, validator=WorkLogView.model_validate)
+    return _page(rows, validator=WorkLogView.model_validate)
