@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   getOperationsBusinessOverview,
+  projectOperationsBusinessOverviewRequestHeaders,
   projectOperationsBusinessOverview,
 } from './business-overview';
 
@@ -82,6 +83,27 @@ const payload = () => ({
 afterEach(() => vi.restoreAllMocks());
 
 describe('Operations business overview browser boundary', () => {
+  it('keeps validated actor headers local in production and forwards them only to fixtures', () => {
+    expect(
+      projectOperationsBusinessOverviewRequestHeaders(headers, {
+        DEV: false,
+        VITE_ALLOW_CONTRACT_FIXTURES: 'false',
+      }),
+    ).toEqual({ Accept: 'application/json' });
+    expect(
+      projectOperationsBusinessOverviewRequestHeaders(headers, {
+        DEV: true,
+        VITE_ALLOW_CONTRACT_FIXTURES: 'false',
+      }),
+    ).toEqual({ Accept: 'application/json', ...headers });
+    expect(
+      projectOperationsBusinessOverviewRequestHeaders(
+        { ...headers, 'X-Actor-Role': 'invalid-role' },
+        { DEV: true },
+      ),
+    ).toBeNull();
+  });
+
   it('loads one strict response and preserves false versus missing facts', async () => {
     const request = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL(String(input));

@@ -110,18 +110,18 @@ const applications = [
   },
   {
     name: 'operations-sessions',
-    url: '/platform/operations/?section=sessions',
-    expectedHeading: '授权、租约与会话健康',
+    url: '/platform/operations/execution#platform-accounts',
+    expectedHeading: '平台账号目录与 Profile 健康',
   },
   {
     name: 'operations-interventions',
-    url: '/platform/operations/?section=interventions',
+    url: '/platform/operations/execution#interventions',
     expectedHeading: '人工接管队列',
   },
   {
     name: 'operations-events',
-    url: '/platform/operations/?section=events',
-    expectedHeading: '账号生命周期事件',
+    url: '/platform/operations/execution#events',
+    expectedHeading: '工作流与会话时间线',
   },
   {
     name: 'operations-execution',

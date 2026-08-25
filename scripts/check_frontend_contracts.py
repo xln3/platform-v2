@@ -3550,11 +3550,11 @@ for fragment in (
     "name: 'operations-overview'",
     "expectedHeading: '项目组合'",
     "name: 'operations-sessions'",
-    "expectedHeading: '授权、租约与会话健康'",
+    "expectedHeading: '平台账号目录与 Profile 健康'",
     "name: 'operations-interventions'",
     "expectedHeading: '人工接管队列'",
     "name: 'operations-events'",
-    "expectedHeading: '账号生命周期事件'",
+    "expectedHeading: '工作流与会话时间线'",
 ):
     if fragment not in production_acceptance:
         errors.append(

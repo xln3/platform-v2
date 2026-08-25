@@ -1,3 +1,5 @@
+import { allowsFixtureIdentityHeaders, type BrowserBuildIdentityEnv } from './index';
+
 export const businessOverviewProjectStates = ['draft', 'active', 'paused', 'archived'] as const;
 export type BusinessOverviewProjectState = (typeof businessOverviewProjectStates)[number];
 
@@ -699,6 +701,14 @@ const safeHeaders = (headers: OperationsIdentityHeaders): boolean => {
   return Boolean(tenant && /^tnt_[A-Za-z0-9_-]{1,116}$/.test(tenant) && actor && role);
 };
 
+export const projectOperationsBusinessOverviewRequestHeaders = (
+  headers: OperationsIdentityHeaders,
+  env: BrowserBuildIdentityEnv | undefined,
+): Record<string, string> | null => {
+  if (!allowsFixtureIdentityHeaders(env)) return { Accept: 'application/json' };
+  return safeHeaders(headers) ? { Accept: 'application/json', ...headers } : null;
+};
+
 export async function getOperationsBusinessOverview(
   headers: OperationsIdentityHeaders,
   query: OperationsBusinessOverviewQuery = {},
@@ -707,12 +717,16 @@ export async function getOperationsBusinessOverview(
   const normalized = normalizedQuery(query);
   const baseUrl = options.baseUrl ?? configuredApiBase;
   const url = normalized ? safeRequestUrl(baseUrl, normalized) : null;
-  if (!normalized || !url || !safeHeaders(headers)) return { kind: 'unavailable' };
+  const requestHeaders = projectOperationsBusinessOverviewRequestHeaders(
+    headers,
+    (import.meta as ImportMeta & { env?: BrowserBuildIdentityEnv }).env,
+  );
+  if (!normalized || !url || !requestHeaders) return { kind: 'unavailable' };
   try {
     const response = await (options.fetcher ?? globalThis.fetch)(url, {
       method: 'GET',
       credentials: 'include',
-      headers: { Accept: 'application/json', ...headers },
+      headers: requestHeaders,
       ...(options.signal ? { signal: options.signal } : {}),
     });
     if (response.status === 401 || response.status === 403) return { kind: 'forbidden' };
