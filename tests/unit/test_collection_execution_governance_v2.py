@@ -33,6 +33,7 @@ from geo_platform.collection.identity_v2 import (
 )
 from geo_platform.collection.owner_authorization_wal_v2 import (
     EncryptedFileSubmissionOwnerAuthorizationWalStore,
+    configure_owner_authorization_wal_runtime,
 )
 from geo_platform.collection.resource_owner_gateway_v2 import (
     AuthorizedSubmitOnceGateway,
@@ -45,6 +46,7 @@ from geo_platform.collection.resource_owner_gateway_v2 import (
     prepare_submission_owner_turn,
 )
 from geo_platform.collection.vault import LocalKms, ProfileVault
+from geo_platform.config import Settings
 from pydantic import ValidationError
 
 from domain.collection.execution_governance import (
@@ -2215,10 +2217,13 @@ def test_encrypted_file_owner_wal_round_trip_drives_one_submit(
         retention_policy_revision="owner-wal-retention-v2",
     )
     assert restarted_store.load(owner_dispatch_ref=owner_dispatch_ref) == turn.wal_record
-    restarted_retention = restarted_store.retention_metadata(
-        owner_dispatch_ref=owner_dispatch_ref
-    )
+    restarted_retention = restarted_store.retention_metadata(owner_dispatch_ref=owner_dispatch_ref)
     assert restarted_retention == retention
+    startup_audit = restarted_store.verify_retained_records()
+    assert startup_audit.record_count == 1
+    assert startup_audit.earliest_retain_until == retention.retain_until
+    assert startup_audit.latest_retain_until == retention.retain_until
+    assert startup_audit.record_set_sha256 != "0" * 64
     replay = restarted_store.put(turn.wal_record)
     assert replay == turn.wal_record
     assert wal_files[0].read_bytes() == wal_bytes
@@ -2346,6 +2351,78 @@ def test_encrypted_file_owner_wal_configuration_and_missing_record_are_explicit(
         retention_policy_revision="owner-wal-retention-v1",
     )
     assert store.load(owner_dispatch_ref="owner-dispatch-missing") is None
+
+    (tmp_path / "owner-wal-missing" / "incomplete.tmp").write_bytes(b"partial")
+    with pytest.raises(ResourceOwnerGatewayError) as startup_error:
+        store.verify_retained_records()
+    assert startup_error.value.code == "resource_owner_authorization_wal_startup_audit_failed"
+
+
+def test_owner_wal_runtime_requires_explicit_volume_and_production_vault(
+    tmp_path: Path,
+) -> None:
+    missing_volume = Settings(
+        _env_file=None,
+        collection_owner_wal_dir="",
+        collection_owner_wal_retention_policy_revision="owner-wal-retention-v1",
+    )
+    with pytest.raises(ResourceOwnerGatewayError) as volume_error:
+        configure_owner_authorization_wal_runtime(missing_volume)
+    assert volume_error.value.code == "resource_owner_authorization_wal_configuration_invalid"
+
+    development = Settings(
+        _env_file=None,
+        env="development",
+        kms_provider="unavailable",
+        kms_master_key="owner-wal-development-test-key",
+        collection_owner_wal_dir=str(tmp_path / "owner-wal-runtime-development"),
+        collection_owner_wal_retention_days=30,
+        collection_owner_wal_retention_policy_revision="owner-wal-retention-v1",
+    )
+    development_runtime = configure_owner_authorization_wal_runtime(development)
+    assert development_runtime.startup_audit.record_count == 0
+
+    production_without_vault = Settings(
+        _env_file=None,
+        env="production",
+        kms_provider="unavailable",
+        collection_owner_wal_dir=str(tmp_path / "owner-wal-runtime-production-denied"),
+        collection_owner_wal_retention_days=30,
+        collection_owner_wal_retention_policy_revision="owner-wal-retention-v1",
+    )
+    with pytest.raises(ResourceOwnerGatewayError) as kms_error:
+        configure_owner_authorization_wal_runtime(production_without_vault)
+    assert kms_error.value.code == "resource_owner_authorization_wal_kms_unavailable"
+
+    token_file = tmp_path / "vault-token"
+    token_file.write_text("unit-test-token", encoding="utf-8")
+    os.chmod(token_file, 0o600)
+    production = Settings(
+        _env_file=None,
+        env="production",
+        kms_provider="vault_transit",
+        vault_transit_address="https://vault.example",
+        vault_transit_token_file=str(token_file),
+        vault_transit_key_name="owner-wal-test-key",
+        collection_owner_wal_dir=str(tmp_path / "owner-wal-runtime-production"),
+        collection_owner_wal_retention_days=30,
+        collection_owner_wal_retention_policy_revision="owner-wal-retention-v1",
+    )
+    production_runtime = configure_owner_authorization_wal_runtime(production)
+    assert production_runtime.startup_audit.record_count == 0
+
+    os.chmod(token_file, 0o644)
+    with pytest.raises(ResourceOwnerGatewayError) as unsafe_token:
+        configure_owner_authorization_wal_runtime(
+            production.model_copy(
+                update={
+                    "collection_owner_wal_dir": str(
+                        tmp_path / "owner-wal-runtime-production-unsafe-token"
+                    )
+                }
+            )
+        )
+    assert unsafe_token.value.code == "resource_owner_authorization_wal_kms_unavailable"
 
 
 def test_durable_owner_wal_loader_does_not_cache_a_removed_record() -> None:

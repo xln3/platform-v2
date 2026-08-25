@@ -21,6 +21,7 @@ import stat
 import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
@@ -33,11 +34,19 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from domain.collection.submission import OpaqueId, Sha256Hex, canonical_json
 from domain.collection.surface import CollectionSurface
 
+from ..config import Settings
 from .resource_owner_gateway_v2 import (
     ResourceOwnerGatewayError,
     SubmissionOwnerAuthorizationWalRecord,
 )
-from .vault import KmsUnavailableError, SealedProfile, profile_aad
+from .vault import (
+    KmsUnavailableError,
+    LocalKms,
+    ProfileVault,
+    SealedProfile,
+    VaultTransitKms,
+    profile_aad,
+)
 
 OWNER_AUTHORIZATION_WAL_ENVELOPE_SCHEMA: Literal[
     "collection-owner-authorization-wal-envelope-v1"
@@ -46,6 +55,8 @@ MAX_OWNER_AUTHORIZATION_WAL_PLAINTEXT_BYTES = 512 * 1024
 MAX_OWNER_AUTHORIZATION_WAL_ENVELOPE_BYTES = 1024 * 1024
 
 _OPAQUE_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_WAL_FILENAME_RE = re.compile(r"^(?P<lookup>[0-9a-f]{64})\.wal$")
+_LOCK_FILENAME_RE = re.compile(r"^\.(?P<lookup>[0-9a-f]{64})\.lock$")
 _MAX_RETENTION = timedelta(days=3650)
 
 
@@ -77,6 +88,35 @@ class OwnerAuthorizationWalRetentionMetadata(BaseModel):
         if value.tzinfo is None or value.utcoffset() is None:
             raise ValueError("owner_authorization_wal_retention_time_must_be_aware")
         return value
+
+
+class OwnerAuthorizationWalStartupAudit(BaseModel):
+    """Bounded proof that every retained physical record was readable."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, validate_default=True)
+
+    schema_version: Literal["collection-owner-authorization-wal-startup-audit-v1"] = (
+        "collection-owner-authorization-wal-startup-audit-v1"
+    )
+    record_count: int = Field(strict=True, ge=0)
+    record_set_sha256: Sha256Hex
+    earliest_retain_until: datetime | None = None
+    latest_retain_until: datetime | None = None
+
+    @model_validator(mode="after")
+    def retention_range_matches_count(self) -> Self:
+        if self.record_count == 0:
+            if self.earliest_retain_until is not None or self.latest_retain_until is not None:
+                raise ValueError("empty_owner_wal_audit_cannot_have_retention_range")
+            return self
+        if self.earliest_retain_until is None or self.latest_retain_until is None:
+            raise ValueError("owner_wal_audit_retention_range_missing")
+        for value in (self.earliest_retain_until, self.latest_retain_until):
+            if value.tzinfo is None or value.utcoffset() is None:
+                raise ValueError("owner_wal_audit_retention_time_must_be_aware")
+        if self.latest_retain_until < self.earliest_retain_until:
+            raise ValueError("owner_wal_audit_retention_range_invalid")
+        return self
 
 
 class _OwnerAuthorizationWalEnvelopeMetadata(BaseModel):
@@ -215,9 +255,7 @@ class EncryptedFileSubmissionOwnerAuthorizationWalStore:
         record: SubmissionOwnerAuthorizationWalRecord,
     ) -> SubmissionOwnerAuthorizationWalRecord:
         if not isinstance(record, SubmissionOwnerAuthorizationWalRecord):
-            raise ResourceOwnerGatewayError(
-                "resource_owner_authorization_wal_write_invalid"
-            )
+            raise ResourceOwnerGatewayError("resource_owner_authorization_wal_write_invalid")
         lookup_sha256 = _lookup_sha256(record.owner_dispatch_ref)
         path = self._record_path(lookup_sha256)
         with self._lock(lookup_sha256):
@@ -233,9 +271,7 @@ class EncryptedFileSubmissionOwnerAuthorizationWalStore:
 
             payload = canonical_json(record).encode()
             if not payload or len(payload) > MAX_OWNER_AUTHORIZATION_WAL_PLAINTEXT_BYTES:
-                raise ResourceOwnerGatewayError(
-                    "resource_owner_authorization_wal_write_invalid"
-                )
+                raise ResourceOwnerGatewayError("resource_owner_authorization_wal_write_invalid")
             metadata = self._metadata(record, lookup_sha256=lookup_sha256)
             try:
                 sealed = self._vault.seal(payload, _envelope_aad(metadata))
@@ -244,9 +280,7 @@ class EncryptedFileSubmissionOwnerAuthorizationWalStore:
                     "resource_owner_authorization_wal_encrypt_failed"
                 ) from exc
             if not isinstance(sealed, SealedProfile):
-                raise ResourceOwnerGatewayError(
-                    "resource_owner_authorization_wal_encrypt_failed"
-                )
+                raise ResourceOwnerGatewayError("resource_owner_authorization_wal_encrypt_failed")
             envelope = _OwnerAuthorizationWalEnvelope(
                 **metadata.model_dump(mode="python"),
                 ciphertext_b64=base64.b64encode(sealed.ciphertext).decode("ascii"),
@@ -256,9 +290,7 @@ class EncryptedFileSubmissionOwnerAuthorizationWalStore:
             )
             encoded = canonical_json(envelope).encode()
             if not encoded or len(encoded) > MAX_OWNER_AUTHORIZATION_WAL_ENVELOPE_BYTES:
-                raise ResourceOwnerGatewayError(
-                    "resource_owner_authorization_wal_write_invalid"
-                )
+                raise ResourceOwnerGatewayError("resource_owner_authorization_wal_write_invalid")
             self._atomic_write(path, encoded)
             return record
 
@@ -279,6 +311,67 @@ class EncryptedFileSubmissionOwnerAuthorizationWalStore:
 
         entry = self._load_entry(owner_dispatch_ref)
         return None if entry is None else entry[1].retention
+
+    def verify_retained_records(self) -> OwnerAuthorizationWalStartupAudit:
+        """Decrypt and validate every retained WAL before an owner reports ready."""
+
+        try:
+            paths = tuple(sorted(self._root.iterdir(), key=lambda item: item.name))
+        except OSError as exc:
+            raise ResourceOwnerGatewayError(
+                "resource_owner_authorization_wal_startup_audit_failed"
+            ) from exc
+        retained: list[tuple[str, str, datetime]] = []
+        for path in paths:
+            wal_match = _WAL_FILENAME_RE.fullmatch(path.name)
+            if wal_match is not None:
+                lookup_sha256 = wal_match.group("lookup")
+                try:
+                    with self._lock(lookup_sha256):
+                        encoded = self._read_file(path)
+                        record, envelope = self._decode_entry(
+                            encoded,
+                            lookup_sha256=lookup_sha256,
+                            expected_owner_dispatch_ref=None,
+                        )
+                except FileNotFoundError as exc:
+                    raise ResourceOwnerGatewayError(
+                        "resource_owner_authorization_wal_startup_audit_failed"
+                    ) from exc
+                retained.append(
+                    (
+                        lookup_sha256,
+                        record.evidence_sha256,
+                        envelope.retention.retain_until.astimezone(UTC),
+                    )
+                )
+                continue
+            if _LOCK_FILENAME_RE.fullmatch(path.name) is not None:
+                self._validate_lock_file(path)
+                continue
+            raise ResourceOwnerGatewayError(
+                "resource_owner_authorization_wal_startup_audit_failed"
+            )
+
+        digest = sha256(b"collection-owner-authorization-wal-startup-audit-v1\n")
+        for lookup_sha256, evidence_sha256, retain_until in retained:
+            digest.update(
+                canonical_json(
+                    {
+                        "evidence_sha256": evidence_sha256,
+                        "lookup_sha256": lookup_sha256,
+                        "retain_until": retain_until,
+                    }
+                ).encode()
+            )
+            digest.update(b"\n")
+        retention_times = [item[2] for item in retained]
+        return OwnerAuthorizationWalStartupAudit(
+            record_count=len(retained),
+            record_set_sha256=digest.hexdigest(),
+            earliest_retain_until=min(retention_times) if retention_times else None,
+            latest_retain_until=max(retention_times) if retention_times else None,
+        )
 
     def _metadata(
         self,
@@ -314,10 +407,13 @@ class EncryptedFileSubmissionOwnerAuthorizationWalStore:
     def _load_entry(
         self,
         owner_dispatch_ref: str,
-    ) -> tuple[
-        SubmissionOwnerAuthorizationWalRecord,
-        _OwnerAuthorizationWalEnvelope,
-    ] | None:
+    ) -> (
+        tuple[
+            SubmissionOwnerAuthorizationWalRecord,
+            _OwnerAuthorizationWalEnvelope,
+        ]
+        | None
+    ):
         lookup_sha256 = _lookup_sha256(owner_dispatch_ref)
         try:
             encoded = self._read_file(self._record_path(lookup_sha256))
@@ -329,6 +425,22 @@ class EncryptedFileSubmissionOwnerAuthorizationWalStore:
             raise ResourceOwnerGatewayError(
                 "resource_owner_authorization_wal_storage_unavailable"
             ) from exc
+        return self._decode_entry(
+            encoded,
+            lookup_sha256=lookup_sha256,
+            expected_owner_dispatch_ref=owner_dispatch_ref,
+        )
+
+    def _decode_entry(
+        self,
+        encoded: bytes,
+        *,
+        lookup_sha256: str,
+        expected_owner_dispatch_ref: str | None,
+    ) -> tuple[
+        SubmissionOwnerAuthorizationWalRecord,
+        _OwnerAuthorizationWalEnvelope,
+    ]:
         try:
             envelope = _OwnerAuthorizationWalEnvelope.model_validate_json(encoded)
             if encoded != canonical_json(envelope).encode():
@@ -353,16 +465,18 @@ class EncryptedFileSubmissionOwnerAuthorizationWalStore:
                 "resource_owner_authorization_wal_decrypt_failed"
             ) from exc
         if not payload or len(payload) > MAX_OWNER_AUTHORIZATION_WAL_PLAINTEXT_BYTES:
-            raise ResourceOwnerGatewayError(
-                "resource_owner_authorization_wal_record_invalid"
-            )
+            raise ResourceOwnerGatewayError("resource_owner_authorization_wal_record_invalid")
         try:
             record = SubmissionOwnerAuthorizationWalRecord.model_validate_json(payload)
             if payload != canonical_json(record).encode():
                 raise ValueError("owner_authorization_wal_payload_noncanonical")
             authorization = record.owner_authorization
             if (
-                record.owner_dispatch_ref != owner_dispatch_ref
+                _lookup_sha256(record.owner_dispatch_ref) != lookup_sha256
+                or (
+                    expected_owner_dispatch_ref is not None
+                    and record.owner_dispatch_ref != expected_owner_dispatch_ref
+                )
                 or record.evidence_sha256 != envelope.evidence_sha256
                 or authorization.tenant_id != envelope.tenant_id
                 or authorization.project_id != envelope.project_id
@@ -411,10 +525,7 @@ class EncryptedFileSubmissionOwnerAuthorizationWalStore:
         try:
             descriptor = os.open(
                 path,
-                os.O_CREAT
-                | os.O_RDWR
-                | getattr(os, "O_CLOEXEC", 0)
-                | getattr(os, "O_NOFOLLOW", 0),
+                os.O_CREAT | os.O_RDWR | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
                 0o600,
             )
             metadata = os.fstat(descriptor)
@@ -451,9 +562,7 @@ class EncryptedFileSubmissionOwnerAuthorizationWalStore:
                 or metadata.st_size <= 0
                 or metadata.st_size > MAX_OWNER_AUTHORIZATION_WAL_ENVELOPE_BYTES
             ):
-                raise ResourceOwnerGatewayError(
-                    "resource_owner_authorization_wal_record_invalid"
-                )
+                raise ResourceOwnerGatewayError("resource_owner_authorization_wal_record_invalid")
             chunks: list[bytes] = []
             remaining = metadata.st_size
             while remaining:
@@ -464,12 +573,35 @@ class EncryptedFileSubmissionOwnerAuthorizationWalStore:
                 remaining -= len(chunk)
             payload = b"".join(chunks)
             if len(payload) != metadata.st_size:
-                raise ResourceOwnerGatewayError(
-                    "resource_owner_authorization_wal_record_invalid"
-                )
+                raise ResourceOwnerGatewayError("resource_owner_authorization_wal_record_invalid")
             return payload
         finally:
             os.close(descriptor)
+
+    @staticmethod
+    def _validate_lock_file(path: Path) -> None:
+        try:
+            descriptor = os.open(
+                path,
+                os.O_RDONLY
+                | getattr(os, "O_CLOEXEC", 0)
+                | getattr(os, "O_NOFOLLOW", 0),
+            )
+            try:
+                metadata = os.fstat(descriptor)
+                if (
+                    not stat.S_ISREG(metadata.st_mode)
+                    or metadata.st_uid != os.geteuid()
+                    or metadata.st_mode & 0o077
+                    or metadata.st_nlink != 1
+                ):
+                    raise OSError("owner WAL lock is unsafe")
+            finally:
+                os.close(descriptor)
+        except OSError as exc:
+            raise ResourceOwnerGatewayError(
+                "resource_owner_authorization_wal_startup_audit_failed"
+            ) from exc
 
     def _atomic_write(self, destination: Path, payload: bytes) -> None:
         temporary_path: str | None = None
@@ -516,11 +648,119 @@ class EncryptedFileSubmissionOwnerAuthorizationWalStore:
             os.close(descriptor)
 
 
+@dataclass(frozen=True, slots=True)
+class ConfiguredOwnerAuthorizationWalRuntime:
+    """Fail-closed runtime store paired with its completed startup audit."""
+
+    store: EncryptedFileSubmissionOwnerAuthorizationWalStore
+    startup_audit: OwnerAuthorizationWalStartupAudit
+
+
+def _validate_owner_wal_vault_token_file(path_text: str) -> None:
+    path = Path(path_text)
+    if not path.is_absolute():
+        raise ResourceOwnerGatewayError(
+            "resource_owner_authorization_wal_kms_unavailable"
+        )
+    try:
+        descriptor = os.open(
+            path,
+            os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
+        )
+        try:
+            metadata = os.fstat(descriptor)
+            raw = os.read(descriptor, 4097)
+        finally:
+            os.close(descriptor)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != os.geteuid()
+            or metadata.st_mode & 0o077
+            or not raw
+            or len(raw) > 4096
+        ):
+            raise OSError("owner WAL Vault token is unsafe")
+        token = raw.decode("utf-8").strip()
+        if not token or "\n" in token or "\r" in token:
+            raise OSError("owner WAL Vault token is invalid")
+    except (OSError, UnicodeError) as exc:
+        raise ResourceOwnerGatewayError(
+            "resource_owner_authorization_wal_kms_unavailable"
+        ) from exc
+
+
+def _configured_owner_wal_vault(settings: Settings) -> ProfileVault:
+    production = settings.env.strip().lower() in {"production", "prod"}
+    if settings.kms_provider == "vault_transit":
+        _validate_owner_wal_vault_token_file(settings.vault_transit_token_file)
+        try:
+            return ProfileVault(
+                VaultTransitKms(
+                    settings.vault_transit_address,
+                    settings.vault_transit_token_file,
+                    settings.vault_transit_key_name,
+                )
+            )
+        except ValueError as exc:
+            raise ResourceOwnerGatewayError(
+                "resource_owner_authorization_wal_kms_unavailable"
+            ) from exc
+    if production or not settings.kms_master_key:
+        raise ResourceOwnerGatewayError(
+            "resource_owner_authorization_wal_kms_unavailable"
+        )
+    return ProfileVault(LocalKms(settings.kms_master_key))
+
+
+def configure_owner_authorization_wal_runtime(
+    settings: Settings,
+) -> ConfiguredOwnerAuthorizationWalRuntime:
+    """Build an explicit runtime store and audit every retained record.
+
+    This does not wire any submit transport.  Production refuses LocalKms and
+    refuses to return a runtime unless its durable root, policy, token file, and
+    retained records all pass their respective gates.
+    """
+
+    root_text = settings.collection_owner_wal_dir.strip()
+    retention_days = settings.collection_owner_wal_retention_days
+    if (
+        not root_text
+        or isinstance(retention_days, bool)
+        or not 1 <= retention_days <= _MAX_RETENTION.days
+    ):
+        raise ResourceOwnerGatewayError(
+            "resource_owner_authorization_wal_configuration_invalid"
+        )
+    try:
+        retention_period = timedelta(days=retention_days)
+    except OverflowError as exc:
+        raise ResourceOwnerGatewayError(
+            "resource_owner_authorization_wal_configuration_invalid"
+        ) from exc
+    store = EncryptedFileSubmissionOwnerAuthorizationWalStore(
+        Path(root_text),
+        vault=_configured_owner_wal_vault(settings),
+        retention_period=retention_period,
+        retention_policy_revision=(
+            settings.collection_owner_wal_retention_policy_revision
+        ),
+        encryption_key_revision=(settings.collection_owner_wal_encryption_key_revision),
+    )
+    return ConfiguredOwnerAuthorizationWalRuntime(
+        store=store,
+        startup_audit=store.verify_retained_records(),
+    )
+
+
 __all__ = [
+    "ConfiguredOwnerAuthorizationWalRuntime",
     "EncryptedFileSubmissionOwnerAuthorizationWalStore",
     "MAX_OWNER_AUTHORIZATION_WAL_ENVELOPE_BYTES",
     "MAX_OWNER_AUTHORIZATION_WAL_PLAINTEXT_BYTES",
     "OWNER_AUTHORIZATION_WAL_ENVELOPE_SCHEMA",
     "OwnerAuthorizationWalRetentionMetadata",
+    "OwnerAuthorizationWalStartupAudit",
     "OwnerAuthorizationWalVault",
+    "configure_owner_authorization_wal_runtime",
 ]

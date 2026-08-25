@@ -40,6 +40,13 @@ class Settings(BaseSettings):
     vault_transit_token_file: str = ""
     vault_transit_deletion_token_file: str = ""
     vault_transit_key_name: str = ""
+    # Collection-v2 resource-owner authorization WAL.  Runtime construction is
+    # opt-in: an explicit durable directory and policy revision are mandatory,
+    # and production additionally requires Vault Transit.
+    collection_owner_wal_dir: str = ""
+    collection_owner_wal_retention_days: int = 90
+    collection_owner_wal_retention_policy_revision: str = ""
+    collection_owner_wal_encryption_key_revision: int = 1
     bootstrap_secret: str = "development-bootstrap"
     identity_mode: str = "trusted_headers"
     native_auth_pepper: str = DEFAULT_NATIVE_AUTH_PEPPER
