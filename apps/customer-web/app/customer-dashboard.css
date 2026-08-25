@@ -12,6 +12,7 @@ main:has(> .geo-customer-dashboard) > .page-heading {
   --geo-rose: #be185d;
   --geo-red: #b91c1c;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
   min-width: 0;
 }

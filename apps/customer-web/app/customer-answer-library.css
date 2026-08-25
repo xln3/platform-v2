@@ -3,10 +3,12 @@
   --answer-muted: #667085;
   --answer-line: #e4e8f0;
   --answer-soft: #f6f7fb;
-  --answer-violet: #6d4aff;
+  --answer-violet: #5637d5;
   --answer-violet-soft: #f0ecff;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 20px;
+  min-width: 0;
   color: var(--answer-ink);
 }
 
@@ -123,7 +125,11 @@
 }
 
 .geo-answer-library__path button {
+  max-width: none;
+  flex: 0 0 auto;
+  overflow: visible;
   cursor: pointer;
+  text-overflow: clip;
 }
 
 .geo-answer-library__path button:hover,
@@ -154,7 +160,7 @@
 }
 
 .geo-answer-library__snapshot small {
-  color: #607596;
+  color: #596174;
   line-height: 1.55;
 }
 
@@ -266,7 +272,7 @@
 }
 
 .geo-answer-library__totals small {
-  color: #8a92a4;
+  color: #626b7e;
 }
 
 .geo-answer-library__loading,
@@ -394,7 +400,7 @@
 .geo-answer-library__meta-main time,
 .geo-answer-library__run-copy time {
   flex: 0 0 auto;
-  color: #8c94a5;
+  color: #626b7e;
   font-size: 11px;
 }
 
@@ -414,7 +420,7 @@
 
 .geo-answer-library__stats dt {
   overflow: hidden;
-  color: #7b8497;
+  color: #596174;
   font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -459,7 +465,7 @@
 }
 
 .geo-answer-library__question-preview small {
-  color: #8c94a4;
+  color: #586174;
 }
 
 .geo-answer-library__tags,
@@ -487,7 +493,7 @@
 }
 
 .geo-answer-library__tags small {
-  color: #969daf;
+  color: #626b7e;
 }
 
 .geo-answer-library__tags b {
@@ -495,7 +501,7 @@
 }
 
 .geo-answer-library__tags em {
-  color: #8a92a4;
+  color: #626b7e;
   font-size: 10px;
   font-style: normal;
 }
@@ -526,7 +532,7 @@
 
 .geo-answer-library__root-footer > small {
   max-width: 260px;
-  color: #8c94a5;
+  color: #596174;
   line-height: 1.5;
 }
 
@@ -538,7 +544,7 @@
 }
 
 .geo-answer-library__pager > span {
-  color: #737c8f;
+  color: #596174;
   font-size: 11px;
 }
 
@@ -622,7 +628,7 @@
 }
 
 .geo-answer-library__question-grid header b {
-  color: #98a0af;
+  color: #626b7e;
   font-size: 11px;
 }
 
@@ -831,7 +837,7 @@
   border: 0;
   border-radius: 7px;
   background: transparent;
-  color: #697185;
+  color: #626b7e;
   font-size: 11px;
   font-weight: 750;
   white-space: nowrap;

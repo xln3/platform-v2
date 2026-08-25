@@ -2611,6 +2611,7 @@ export function ProductShell({
   title,
   description,
   nav,
+  additionalSectionIds = [],
   currentNavId,
   children,
   probe,
@@ -2619,6 +2620,7 @@ export function ProductShell({
   title: string;
   description: string;
   nav: NavItem[];
+  additionalSectionIds?: readonly string[];
   currentNavId?: string;
   children: (active: string) => ReactNode;
   probe: () => Promise<{ status: string }>;
@@ -2628,7 +2630,15 @@ export function ProductShell({
     () => safeNav.filter((item) => !item.href && !item.disabledExternal),
     [safeNav],
   );
-  const navIds = useMemo(() => sectionNav.map((item) => item.id), [sectionNav]);
+  const navIds = useMemo(() => {
+    const projectedAdditionalIds = additionalSectionIds
+      .slice(0, 32)
+      .filter((id) => safeNavigationText(id, 64) === id && /^[A-Za-z][A-Za-z0-9_-]*$/u.test(id));
+    return [...new Set([...sectionNav.map((item) => item.id), ...projectedAdditionalIds])].slice(
+      0,
+      32,
+    );
+  }, [additionalSectionIds, sectionNav]);
   const [active, setActive] = useUrlParam('section', sectionNav[0]?.id ?? '', navIds);
   const [status, setStatus] = useState('checking');
   const [contextOpen, setContextOpen] = useState(false);

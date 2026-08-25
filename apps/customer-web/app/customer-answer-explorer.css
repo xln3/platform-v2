@@ -285,6 +285,8 @@
 
 .geo-answer-dossier__citation-host,
 .geo-answer-dossier__citation-article {
+  min-height: 24px;
+  align-items: center;
   color: #172033;
   font-weight: 750;
   line-height: 1.45;
@@ -297,8 +299,12 @@
   text-decoration: underline;
 }
 
+.geo-answer-dossier__citation-host {
+  display: inline-flex;
+}
+
 .geo-answer-dossier__citation-article {
-  display: block;
+  display: flex;
   font-size: 11px;
 }
 
@@ -340,7 +346,7 @@
 .geo-answer-dossier__citation-table td > small {
   display: block;
   margin-top: 4px;
-  color: #94a3b8;
+  color: #64748b;
   font-size: 9px;
   line-height: 1.5;
 }
@@ -1324,8 +1330,8 @@
 
 .geo-answer-dossier__markdown a[href^='#citation-'] {
   display: inline-grid;
-  min-width: 19px;
-  min-height: 19px;
+  min-width: 24px;
+  min-height: 24px;
   place-items: center;
   margin-inline: 2px;
   border-radius: 5px;

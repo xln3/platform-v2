@@ -1013,6 +1013,26 @@ describe('shared experience primitives', () => {
     expect(document.body.textContent).not.toMatch(/access_token|token-nav-canary|Bearer/);
   });
 
+  it('allows safe hidden compatibility sections without rendering extra navigation controls', () => {
+    window.history.replaceState(null, '', '/platform/customer/?section=monitoring');
+    render(
+      <ProductShell
+        product="Customer Web"
+        title="客户工作台"
+        description="安全导航"
+        nav={[{ id: 'home', label: '经营总览' }]}
+        additionalSectionIds={['monitoring', 'Bearer hidden-section-canary']}
+        probe={async () => ({ status: 'ok' })}
+      >
+        {(active) => <section>{active}</section>}
+      </ProductShell>,
+    );
+
+    expect(screen.getByText('monitoring')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'monitoring' })).toBeNull();
+    expect(document.body.textContent).not.toContain('hidden-section-canary');
+  });
+
   it('marks the current standalone workspace link without changing section state', () => {
     render(
       <ProductShell

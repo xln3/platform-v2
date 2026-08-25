@@ -167,13 +167,21 @@ const nav = [
     badge: '2',
   },
 ];
+const customerLegacyAnalyticsSectionIds = [
+  'answers',
+  'monitoring',
+  'competition',
+  'sources',
+  'reputation',
+  'opportunities',
+] as const;
 const liveNav = nav.map((item) =>
   item.id === 'accounts' ? { id: item.id, label: item.label, group: item.group } : item,
 );
 const noClientSecret = (value: string): boolean => !containsClientSecret(value);
 const noClientSecretMessage =
   '请勿在普通表单粘贴验证码、Cookie、token、密码、完整手机号或 profile 路径';
-const customerNavIds = nav.map((item) => item.id);
+const customerNavIds = [...nav.map((item) => item.id), ...customerLegacyAnalyticsSectionIds];
 const navigateCustomerSection = (section: string) => navigateClientSection(section, customerNavIds);
 const optionalExperienceScope = (
   experience: ReturnType<typeof useOptionalExperienceContext>,
@@ -10150,6 +10158,7 @@ export default function Shell() {
         title="客户工作台"
         description="围绕已授权五项服务、报告交付和项目资料的客户安全入口。"
         nav={experience?.source === 'live' ? liveNav : nav}
+        additionalSectionIds={customerLegacyAnalyticsSectionIds}
         probe={getHealth}
       >
         {(active) => (

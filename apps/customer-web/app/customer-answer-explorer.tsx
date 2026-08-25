@@ -432,7 +432,12 @@ function FallbackAnswer({
             },
             img: () => null,
             table: ({ children }) => (
-              <div className="geo-answer-dossier__table-scroll">
+              <div
+                className="geo-answer-dossier__table-scroll"
+                role="region"
+                aria-label="回答正文数据表"
+                tabIndex={0}
+              >
                 <table>{children}</table>
               </div>
             ),
