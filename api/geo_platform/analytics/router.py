@@ -20,6 +20,7 @@ from ..brandrank import compare as brandrank_compare
 from ..brandrank import service as brandrank_service
 from ..config import get_settings
 from ..identity.policy import Principal, get_principal
+from ..pagination import decode_keyset_cursor, encode_keyset_cursor, numbered_page
 from ..tenancy.psycopg import tenant_connection
 from . import comparisons
 from .sampling_progress import (
@@ -139,12 +140,20 @@ class SamplingProgressRowView(StrictModel):
     cells: list[SamplingProgressCellView]
 
 
+class NumberedPageView(StrictModel):
+    page: int
+    page_size: int
+    total_count: int
+    total_pages: int
+
+
 class SamplingProgressView(StrictModel):
     project_pub_id: str
     config_revision_start: int | None
     config_revision_end: int | None
     columns: list[SamplingProgressColumnView]
     rows: list[SamplingProgressRowView]
+    page: NumberedPageView
     observed_cells: int
     total_cells: int
     answer_count: int
@@ -601,6 +610,8 @@ def _project_fact_check(value: object) -> DisparagementFactCheckView | None:
 @router.get("/sampling-progress", response_model=SamplingProgressView)
 def sampling_progress(
     project_pub_id: str,
+    page: int = Query(default=1, ge=1, le=1_000_000),
+    page_size: int = Query(default=4, ge=1, le=100),
     principal: Principal = Depends(get_principal),
 ) -> SamplingProgressView:
     """Latest logical sampling batch as query × formal sampling-leg coverage.
@@ -667,12 +678,23 @@ def sampling_progress(
             parse_sampling_configs(config_rows), baseline_pub_id=catalog_config_pub_id
         )
         if baseline is None:
+            empty_page = numbered_page(
+                requested_page=page,
+                page_size=page_size,
+                total_count=0,
+            )
             return SamplingProgressView(
                 project_pub_id=project_pub_id,
                 config_revision_start=None,
                 config_revision_end=None,
                 columns=[],
                 rows=[],
+                page=NumberedPageView(
+                    page=empty_page.page,
+                    page_size=empty_page.page_size,
+                    total_count=empty_page.total_count,
+                    total_pages=empty_page.total_pages,
+                ),
                 observed_cells=0,
                 total_cells=0,
                 answer_count=0,
@@ -795,6 +817,11 @@ def sampling_progress(
     observed_cells = len(mode_rows_by_cell)
 
     quotation_appendices = uses_quotation_appendices(plan_items)
+    page_meta = numbered_page(
+        requested_page=page,
+        page_size=page_size,
+        total_count=len(plan_items),
+    )
     rows = [
         SamplingProgressRowView(
             appendix=("附录二" if item.group_index <= 18 else "附录三")
@@ -806,7 +833,7 @@ def sampling_progress(
             query_text=item.query_text,
             cells=cells_by_query.get(item.query_text, []),
         )
-        for item in plan_items
+        for item in plan_items[page_meta.offset : page_meta.offset + page_meta.page_size]
     ]
     revisions = [config.revision for config in campaign]
     return SamplingProgressView(
@@ -824,8 +851,14 @@ def sampling_progress(
             for column in columns
         ],
         rows=rows,
+        page=NumberedPageView(
+            page=page_meta.page,
+            page_size=page_meta.page_size,
+            total_count=page_meta.total_count,
+            total_pages=page_meta.total_pages,
+        ),
         observed_cells=observed_cells,
-        total_cells=len(rows) * len(columns),
+        total_cells=len(plan_items) * len(columns),
         answer_count=answer_count,
         latest_capture_time=latest_capture_time,
         live_runs=int(live_runs),
@@ -836,7 +869,7 @@ def sampling_progress(
 def answers(
     project_pub_id: str,
     answer_pub_id: str | None = Query(default=None, pattern=r"^ans_[A-Za-z0-9_-]{1,116}$"),
-    cursor: str | None = None,
+    cursor: str | None = Query(default=None, min_length=16, max_length=2_048),
     limit: int = Query(default=50, ge=1, le=100),
     model: str | None = None,
     region: str | None = None,
@@ -845,6 +878,24 @@ def answers(
     principal: Principal = Depends(get_principal),
 ) -> AnswerPage:
     principal.require("project:read")
+    filters = {
+        "project_pub_id": project_pub_id,
+        "answer_pub_id": answer_pub_id,
+        "model": model,
+        "region": region,
+        "mode": mode,
+        "run_pub_id": run_pub_id,
+    }
+    anchor = (
+        decode_keyset_cursor(
+            cursor,
+            kind="analytics-answers",
+            tenant_pub_id=principal.tenant_pub_id,
+            filters=filters,
+        )
+        if cursor is not None
+        else None
+    )
     with tenant_connection(_dsn(), principal.tenant_pub_id, row_factory=dict_row) as connection:
         tenant_row = connection.execute(
             "SELECT id FROM platform.tenant WHERE pub_id=%s",
@@ -970,8 +1021,8 @@ def answers(
                 principal.tenant_pub_id,
                 answer_pub_id,
                 answer_pub_id,
-                cursor,
-                cursor,
+                anchor.pub_id if anchor else None,
+                anchor.pub_id if anchor else None,
                 model,
                 model,
                 region,
@@ -985,10 +1036,20 @@ def answers(
         ).fetchall()
     has_more = len(rows) > limit
     data = rows[:limit]
+    next_cursor = None
+    if has_more and data:
+        last = data[-1]
+        next_cursor = encode_keyset_cursor(
+            kind="analytics-answers",
+            tenant_pub_id=principal.tenant_pub_id,
+            filters=filters,
+            created_at=last["capture_time"],
+            pub_id=last["pub_id"],
+        )
     return AnswerPage(
         data=[AnswerView(**dict(row)) for row in data],
         page={
-            "next_cursor": data[-1]["pub_id"] if has_more else None,
+            "next_cursor": next_cursor,
             "has_more": has_more,
         },
     )
@@ -1681,13 +1742,44 @@ def create_run_comparison(
 @router.get("/comparisons")
 def list_run_comparisons(
     project_pub_id: str,
+    cursor: str | None = Query(default=None, min_length=16, max_length=2_048),
     limit: int = Query(default=100, ge=1, le=500),
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any]:
-    """项目下全部 run 组对比实体（created_at 倒序）。"""
+    """项目下 run 组对比实体；不透明游标绑定租户与项目过滤。"""
     principal.require("project:read")
-    items = comparisons.list_comparisons(_dsn(), principal.tenant_pub_id, project_pub_id, limit)
-    return {"items": items}
+    filters = {"project_pub_id": project_pub_id}
+    anchor = (
+        decode_keyset_cursor(
+            cursor,
+            kind="analytics-run-comparisons",
+            tenant_pub_id=principal.tenant_pub_id,
+            filters=filters,
+        )
+        if cursor is not None
+        else None
+    )
+    rows = comparisons.list_comparisons(
+        _dsn(),
+        principal.tenant_pub_id,
+        project_pub_id,
+        limit + 1,
+        cursor_created_at=anchor.created_at if anchor else None,
+        cursor_pub_id=anchor.pub_id if anchor else None,
+    )
+    has_more = len(rows) > limit
+    items = rows[:limit]
+    next_cursor = None
+    if has_more and items:
+        last = items[-1]
+        next_cursor = encode_keyset_cursor(
+            kind="analytics-run-comparisons",
+            tenant_pub_id=principal.tenant_pub_id,
+            filters=filters,
+            created_at=last["created_at"],
+            pub_id=last["pub_id"],
+        )
+    return {"items": items, "next_cursor": next_cursor, "has_more": has_more}
 
 
 @router.get("/comparisons/{comparison_pub_id}", response_model=None)

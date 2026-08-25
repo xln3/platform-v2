@@ -240,6 +240,33 @@ export const test = base.extend<{ browserRuntimeGuard: void }>({
           await installDefaultCustomerDashboardRoutes(page);
         }
         if (testInfo.project.name.startsWith('operations-')) {
+          await page.route('**/api/v2/operations/business-overview**', (route) =>
+            route.fulfill({
+              status: 200,
+              contentType: 'application/json',
+              body: JSON.stringify({
+                schema_version: 1,
+                as_of: '2026-08-24T10:30:00Z',
+                summary: {
+                  scope: 'filtered',
+                  tenant_project_count: 0,
+                  project_count: 0,
+                  project_state_counts: { draft: 0, active: 0, paused: 0, archived: 0 },
+                  setup_ready_project_count: 0,
+                  project_with_entitlement_record_count: 0,
+                  active_entitlement_count: 0,
+                  attention_project_count: 0,
+                },
+                commercial_capabilities: {
+                  quotation_history: 'unsupported',
+                  signed_contract_ledger: 'unsupported',
+                  invoice_receivable_payment_ledger: 'unsupported',
+                },
+                items: [],
+                page: { limit: 4, next_cursor: null, has_more: false, filtered_total: 0 },
+              }),
+            }),
+          );
           await page.route('**/api/v2/operations/lifecycle**', (route) =>
             route.fulfill({
               status: 200,

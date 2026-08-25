@@ -106,7 +106,7 @@ const applications = [
   {
     name: 'operations-overview',
     url: '/platform/operations/?section=overview',
-    expectedHeading: '运行时间线',
+    expectedHeading: '项目组合',
   },
   {
     name: 'operations-sessions',

@@ -222,6 +222,71 @@ def test_docx_batch_auto_submits_and_refreshes_per_media_status(
     assert any(event["to_status"] == "published" for event in refreshed.json()["events"])
 
 
+def test_posting_batches_use_four_row_scope_bound_keyset_pages(
+    posting_dataset: Path,
+) -> None:
+    del posting_dataset
+    client = TestClient(app)
+    suffix = secrets.token_hex(6)
+    _tenant, headers = _bootstrap(client, f"posting-pages-{suffix}")
+    created_ids: set[str] = set()
+    for index in range(9):
+        created = _create_batch(
+            client,
+            headers,
+            key=f"posting-page-{suffix}-{index:02d}",
+            auto_submit=False,
+        )
+        assert created.status_code == 201, created.text
+        created_ids.add(created.json()["pub_id"])
+
+    first = client.get(
+        "/api/v2/posting/batches",
+        params={"status": "draft"},
+        headers=headers,
+    )
+    assert first.status_code == 200, first.text
+    assert len(first.json()) == 4
+    assert first.headers["x-total-count"] == "9"
+    assert first.headers["x-has-more"] == "true"
+    first_cursor = first.headers["x-next-cursor"]
+
+    second = client.get(
+        "/api/v2/posting/batches",
+        params={"status": "draft", "cursor": first_cursor},
+        headers=headers,
+    )
+    assert second.status_code == 200, second.text
+    assert len(second.json()) == 4
+    assert second.headers["x-has-more"] == "true"
+
+    third = client.get(
+        "/api/v2/posting/batches",
+        params={"status": "draft", "cursor": second.headers["x-next-cursor"]},
+        headers=headers,
+    )
+    assert third.status_code == 200, third.text
+    assert len(third.json()) == 1
+    assert third.headers["x-has-more"] == "false"
+    assert {
+        row["pub_id"] for response in (first, second, third) for row in response.json()
+    } == created_ids
+
+    filter_mismatch = client.get(
+        "/api/v2/posting/batches",
+        params={"cursor": first_cursor},
+        headers=headers,
+    )
+    assert filter_mismatch.status_code == 422
+    _other_tenant, other_headers = _bootstrap(client, f"posting-pages-other-{suffix}")
+    tenant_mismatch = client.get(
+        "/api/v2/posting/batches",
+        params={"status": "draft", "cursor": first_cursor},
+        headers=other_headers,
+    )
+    assert tenant_mismatch.status_code == 422
+
+
 def test_posting_enforces_budget_permission_and_tenant_isolation(
     posting_dataset: Path,
     monkeypatch: pytest.MonkeyPatch,

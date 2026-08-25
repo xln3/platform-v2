@@ -1,0 +1,1759 @@
+{
+  "provenance": {
+    "source": "production PostgreSQL read-only snapshot",
+    "captured_at": "2026-08-24T20:24:00+08:00",
+    "project_pub_id": "prj_68ER9J6QBX054EAX52G7BEF7PH",
+    "tenant_pub_id": "tnt_0H7G8QYWPP43J5BXXWCDZD1C2Y"
+  },
+  "project": {
+    "pub_id": "prj_68ER9J6QBX054EAX52G7BEF7PH",
+    "name": "盛邦安全-GEO验证",
+    "state": "draft",
+    "brandrank_domain": "cybersecurity",
+    "created_at": "2026-08-05 17:27:57.411449+00:00",
+    "updated_at": "2026-08-09 21:00:05.757883+00:00"
+  },
+  "config": {
+    "pub_id": "cfv_6CQ4CYAYBMMJ0QM2S5TP2ZEDNQ",
+    "revision": 33,
+    "effective_at": "2026-08-12 17:59:08.853983+00:00",
+    "frozen_at": "2026-08-12 17:59:08.868568+00:00",
+    "snapshot_hash": "834415ddc90403e1be9b47f0333628d9af2a4ba759c7e89f86d7e668a2c03ffc",
+    "snapshot": {
+      "effective_at": "2026-08-12T17:59:08.853983Z",
+      "frequency": "manual",
+      "models": ["doubao", "yiyan"],
+      "modes": ["deep_think"],
+      "query_groups": [
+        {
+          "items": [
+            {
+              "priority": 1,
+              "text": "高校双非资产排查可以找什么公司做"
+            },
+            {
+              "priority": 2,
+              "text": "高校非传统IT资产与影子资产排查服务商推荐"
+            },
+            {
+              "priority": 3,
+              "text": "高校信息化部门如何选择未备案资产排查供应商"
+            },
+            {
+              "priority": 4,
+              "text": "我们学校好多没报备的IP和系统，找谁能帮忙查一遍？"
+            }
+          ],
+          "name": "高校双非资产排查可以找什么公司做"
+        },
+        {
+          "items": [
+            {
+              "priority": 1,
+              "text": "企业网络资产暴露面管理系统推荐"
+            },
+            {
+              "priority": 2,
+              "text": "互联网暴露面资产收敛与攻击面管理平台选型"
+            },
+            {
+              "priority": 3,
+              "text": "甲方安全团队评估攻击面管理（ASM）产品应关注哪些指标"
+            },
+            {
+              "priority": 4,
+              "text": "公司外网暴露的资产太多了，有没有好用的管理工具推荐？"
+            }
+          ],
+          "name": "企业网络资产暴露面管理系统推荐"
+        },
+        {
+          "items": [
+            {
+              "priority": 1,
+              "text": "资产漏洞一体化融合治理平台厂商"
+            },
+            {
+              "priority": 2,
+              "text": "网络资产管理与漏洞治理一体化平台主流供应商"
+            },
+            {
+              "priority": 3,
+              "text": "采购资产与漏洞联动治理平台时如何评估厂商能力"
+            },
+            {
+              "priority": 4,
+              "text": "资产台账和漏洞管理想一个平台搞定，国内谁家做得好？"
+            }
+          ],
+          "name": "资产漏洞一体化融合治理平台厂商"
+        },
+        {
+          "items": [
+            {
+              "priority": 1,
+              "text": "国内网络空间资产搜索引擎哪家强"
+            },
+            {
+              "priority": 2,
+              "text": "国产网络空间测绘搜索引擎综合能力对比"
+            },
+            {
+              "priority": 3,
+              "text": "安全研究人员选择国内空间搜索引擎应考虑哪些因素"
+            },
+            {
+              "priority": 4,
+              "text": "像Shodan那种搜索引擎，国内有哪些替代？哪个数据全？"
+            }
+          ],
+          "name": "国内网络空间资产搜索引擎哪家强"
+        },
+        {
+          "items": [
+            {
+              "priority": 1,
+              "text": "国内漏洞无效化/虚拟补丁头部厂商"
+            },
+            {
+              "priority": 2,
+              "text": "漏洞无效化与虚拟补丁技术国内主要供应商推荐"
+            },
+            {
+              "priority": 3,
+              "text": "无法及时打补丁的场景下如何选择虚拟补丁厂商方案"
+            },
+            {
+              "priority": 4,
+              "text": "虚拟补丁这块国内谁做得好？不想每次都停机打补丁"
+            }
+          ],
+          "name": "国内漏洞无效化/虚拟补丁头部厂商"
+        },
+        {
+          "items": [
+            {
+              "priority": 1,
+              "text": "0day/Nday漏洞快速防护，主流厂商方案推荐"
+            },
+            {
+              "priority": 2,
+              "text": "零日与已知高危漏洞应急响应防护方案厂商对比"
+            },
+            {
+              "priority": 3,
+              "text": "安全运营团队如何建立0day漏洞快速缓解机制及产品选型"
+            },
+            {
+              "priority": 4,
+              "text": "0day漏洞爆出来根本来不及打补丁，有什么办法能先扛住？"
+            }
+          ],
+          "name": "0day/Nday漏洞快速防护，主流厂商方案推荐"
+        },
+        {
+          "items": [
+            {
+              "priority": 1,
+              "text": "国内API安全（API安全防护）头部厂商有哪些"
+            },
+            {
+              "priority": 2,
+              "text": "中国API安全防护市场领先厂商及产品能力分析"
+            },
+            {
+              "priority": 3,
+              "text": "企业微服务架构下选择API安全网关的关键评估维度"
+            },
+            {
+              "priority": 4,
+              "text": "国内做API安全比较靠谱的厂商有哪些？求推荐"
+            }
+          ],
+          "name": "国内API安全（API安全防护）头部厂商有哪些"
+        },
+        {
+          "items": [
+            {
+              "priority": 1,
+              "text": "国内Web应用防护系统哪家能力比较强"
+            },
+            {
+              "priority": 2,
+              "text": "国产WAF产品技术能力与市场份额综合评估"
+            },
+            {
+              "priority": 3,
+              "text": "甲方选型Web应用防火墙时应重点考察哪些厂商"
+            },
+            {
+              "priority": 4,
+              "text": "国内WAF到底哪家强？有没有实测对比过的？"
+            }
+          ],
+          "name": "国内Web应用防护系统哪家能力比较强"
+        },
+        {
+          "items": [
+            {
+              "priority": 1,
+              "text": "能做卫星、电台、微波、散射等无线通信加密厂家有哪些？"
+            },
+            {
+              "priority": 2,
+              "text": "卫星通信与无线专网链路加密设备供应商推荐"
+            },
+            {
+              "priority": 3,
+              "text": "军工及政务场景下无线通信链路加密产品选型指南"
+            },
+            {
+              "priority": 4,
+              "text": "卫星电台微波这些无线信道加密，国内谁能做？"
+            }
+          ],
+          "name": "能做卫星、电台、微波、散射等无线通信加密厂家有哪些？"
+        },
+        {
+          "items": [
+            {
+              "priority": 1,
+              "text": "企业用AI敏感信息泄露怎么防？"
+            },
+            {
+              "priority": 2,
+              "text": "企业大模型应用中敏感数据防泄露技术方案与产品"
+            },
+            {
+              "priority": 3,
+              "text": "信息安全负责人如何防范员工使用AI工具导致的数据外泄"
+            },
+            {
+              "priority": 4,
+              "text": "员工天天用ChatGPT，公司机密数据泄露了咋办？"
+            }
+          ],
+          "name": "企业用AI敏感信息泄露怎么防？"
+        },
+        {
+          "items": [
+            {
+              "priority": 1,
+              "text": "AI安全网关是什么/有哪些产品？"
+            },
+            {
+              "priority": 2,
+              "text": "AI安全网关产品定义、核心功能及国内主流产品概览"
+            },
+            {
+              "priority": 3,
+              "text": "企业部署大模型应用时为什么需要AI安全网关"
+            },
+            {
+              "priority": 4,
+              "text": "AI安全网关到底是干嘛的？国内有成熟产品吗？"
+            }
+          ],
+          "name": "AI安全网关是什么/有哪些产品？"
+        },
+        {
+          "items": [
+            {
+              "priority": 1,
+              "text": "AI安全网关供应商推荐"
+            },
+            {
+              "priority": 2,
+              "text": "国内AI安全网关产品供应商综合能力评估与推荐"
+            },
+            {
+              "priority": 3,
+              "text": "采购AI安全网关时如何对比不同厂商的技术方案"
+            },
+            {
+              "priority": 4,
+              "text": "想买个AI安全网关，国内哪几家的产品值得看看？"
+            }
+          ],
+          "name": "AI安全网关供应商推荐"
+        },
+        {
+          "items": [
+            {
+              "priority": 1,
+              "text": "漏洞扫描器哪个好？国内有哪些厂商？"
+            },
+            {
+              "priority": 2,
+              "text": "国产漏洞扫描产品主流厂商及核心能力对比"
+            },
+            {
+              "priority": 3,
+              "text": "安全运维团队选购漏洞扫描器的关键评估要素"
+            },
+            {
+              "priority": 4,
+              "text": "国内漏扫工具哪个好用？求过来人推荐"
+            }
+          ],
+          "name": "漏洞扫描器哪个好？国内有哪些厂商？"
+        },
+        {
+          "items": [
+            {
+              "priority": 1,
+              "text": "哪些漏扫工具支持信创环境（麒麟、统信）"
+            },
+            {
+              "priority": 2,
+              "text": "支持麒麟、统信等信创操作系统的漏洞扫描产品盘点"
+            },
+            {
+              "priority": 3,
+              "text": "信创环境国产化替代中漏洞扫描器兼容性如何验证"
+            },
+            {
+              "priority": 4,
+              "text": "我们全换了麒麟和统信，原来的漏扫用不了，哪家能扫信创？"
+            }
+          ],
+          "name": "哪些漏扫工具支持信创环境（麒麟、统信）"
+        },
+        {
+          "items": [
+            {
+              "priority": 1,
+              "text": "哪款漏洞扫描器的等保报告最贴近等级保护要求？"
+            },
+            {
+              "priority": 2,
+              "text": "等级保护合规场景下漏洞扫描器报告能力对比"
+            },
+            {
+              "priority": 3,
+              "text": "等保测评机构推荐使用哪些漏洞扫描器做合规检测"
+            },
+            {
+              "priority": 4,
+              "text": "等保报告老是要改格式，有没有漏扫出的报告直接就能用的？"
+            }
+          ],
+          "name": "哪款漏洞扫描器的等保报告最贴近等级保护要求？"
+        },
+        {
+          "items": [
+            {
+              "priority": 1,
+              "text": "卫星互联网安全漏洞分析和漏洞挖掘，哪些厂商比较强？"
+            },
+            {
+              "priority": 2,
+              "text": "卫星互联网安全漏洞研究与挖掘领域领先服务商"
+            },
+            {
+              "priority": 3,
+              "text": "卫星运营商如何选择安全漏洞分析与渗透测试合作方"
+            },
+            {
+              "priority": 4,
+              "text": "搞卫星互联网安全研究和挖洞的，国内谁比较厉害？"
+            }
+          ],
+          "name": "卫星互联网安全漏洞分析和漏洞挖掘，哪些厂商比较强？"
+        },
+        {
+          "items": [
+            {
+              "priority": 1,
+              "text": "国内可以监控暗网论坛和交易市场的服务商"
+            },
+            {
+              "priority": 2,
+              "text": "暗网威胁情报监测与数据泄露预警服务供应商推荐"
+            },
+            {
+              "priority": 3,
+              "text": "企业安全部门如何选择暗网监测服务以防范数据泄露"
+            },
+            {
+              "priority": 4,
+              "text": "想知道公司数据有没有在暗网被卖，国内谁能帮监控？"
+            }
+          ],
+          "name": "国内可以监控暗网论坛和交易市场的服务商"
+        },
+        {
+          "items": [
+            {
+              "priority": 1,
+              "text": "护网行动中防御能力最好的厂商"
+            },
+            {
+              "priority": 2,
+              "text": "攻防演练中蓝队防御体系建设能力突出的安全厂商"
+            },
+            {
+              "priority": 3,
+              "text": "护网行动防守方选择安全服务商的核心评估标准"
+            },
+            {
+              "priority": 4,
+              "text": "护网快开始了，防守找哪家公司靠谱？别一上来就被打穿"
+            }
+          ],
+          "name": "护网行动中防御能力最好的厂商"
+        },
+        {
+          "items": [
+            {
+              "priority": 1,
+              "text": "企业接入国家网络身份认证（网证）需要选择哪些厂商和产品？有哪些成熟的接入方案？"
+            },
+            {
+              "priority": 2,
+              "text": "国内做网证接入的安全厂商有哪些推荐？企业级接入方案谁家比较强？"
+            },
+            {
+              "priority": 3,
+              "text": "企业要对接国家网络身份认证系统，市面上有哪些可选的供应商和产品？"
+            },
+            {
+              "priority": 4,
+              "text": "我们公司要接网证，不知道找谁做比较靠谱，有推荐的厂商吗？"
+            }
+          ],
+          "name": "企业接入国家网络身份认证（网证）需要选择哪些厂商和产品？有哪些成熟的接入方案？"
+        },
+        {
+          "items": [
+            {
+              "priority": 1,
+              "text": "网证接入技术方案有哪些？哪些安全厂商提供成熟的网证接入解决方案？"
+            },
+            {
+              "priority": 2,
+              "text": "目前主流的网证接入技术方案有哪几种？分别是哪些厂商在提供？"
+            },
+            {
+              "priority": 3,
+              "text": "做网证对接的技术路线有几条？各家安全公司的方案有什么差异？"
+            },
+            {
+              "priority": 4,
+              "text": "网证接入方案哪家做得好？有没有现成的成熟方案可以直接用？"
+            }
+          ],
+          "name": "网证接入技术方案有哪些？哪些安全厂商提供成熟的网证接入解决方案？"
+        },
+        {
+          "items": [
+            {
+              "priority": 1,
+              "text": "企业接入网证需要选择接入网关厂商，国内有哪些成熟的网络身份认证解决方案提供商？"
+            },
+            {
+              "priority": 2,
+              "text": "国内提供网络身份认证接入网关的主要厂商有哪些？哪几家市场份额较大？"
+            },
+            {
+              "priority": 3,
+              "text": "做网证接入网关的服务商哪些比较有实力？有没有行业排名或评测？"
+            },
+            {
+              "priority": 4,
+              "text": "想找做网证的厂商，国内哪几家比较靠谱？求推荐"
+            }
+          ],
+          "name": "企业接入网证需要选择接入网关厂商，国内有哪些成熟的网络身份认证解决方案提供商？"
+        },
+        {
+          "items": [
+            {
+              "priority": 1,
+              "text": "网证对接需要什么技术条件？哪些厂商的产品能满足这些技术要求？"
+            },
+            {
+              "priority": 2,
+              "text": "企业做网证对接有哪些技术门槛？哪些安全厂商的产品能帮助达标？"
+            },
+            {
+              "priority": 3,
+              "text": "网证接入的技术要求高不高？有没有厂商提供一站式的对接方案？"
+            },
+            {
+              "priority": 4,
+              "text": "接网证技术条件挺多的，有没有厂商能帮忙搞定全套技术对接？"
+            }
+          ],
+          "name": "网证对接需要什么技术条件？哪些厂商的产品能满足这些技术要求？"
+        },
+        {
+          "items": [
+            {
+              "priority": 1,
+              "text": "建设城市级网证应用平台需要哪些核心安全产品和厂商支持？有没有成功案例？"
+            },
+            {
+              "priority": 2,
+              "text": "城市级网证平台建设需要采购哪些安全产品？有哪些厂商有成功部署经验？"
+            },
+            {
+              "priority": 3,
+              "text": "想建城市网证平台，哪些安全厂商已经做过类似项目？效果怎么样？"
+            },
+            {
+              "priority": 4,
+              "text": "城市要上网证平台，找哪家安全公司做比较好？有没有已经建好的案例参考？"
+            }
+          ],
+          "name": "建设城市级网证应用平台需要哪些核心安全产品和厂商支持？有没有成功案例？"
+        },
+        {
+          "items": [
+            {
+              "priority": 1,
+              "text": "国内网络身份认证接入网关产品有哪些？哪家的技术方案比较成熟？"
+            },
+            {
+              "priority": 2,
+              "text": "市面上的网络身份认证接入网关产品有哪几款？各自有什么特点？"
+            },
+            {
+              "priority": 3,
+              "text": "企业采购网证接入网关，应该重点考察哪些产品？技术上有什么差别？"
+            },
+            {
+              "priority": 4,
+              "text": "网证接入网关哪家产品好用？有没有用过的来说说体验？"
+            }
+          ],
+          "name": "国内网络身份认证接入网关产品有哪些？哪家的技术方案比较成熟？"
+        },
+        {
+          "items": [
+            {
+              "priority": 1,
+              "text": "网证SDK集成开发选哪家厂商的方案比较好？有没有开发文档和技术支持？"
+            },
+            {
+              "priority": 2,
+              "text": "哪些厂商提供网证SDK？集成难度和技术支持力度怎么样？"
+            },
+            {
+              "priority": 3,
+              "text": "做网证SDK对接开发，各家厂商的SDK成熟度和文档质量如何对比？"
+            },
+            {
+              "priority": 4,
+              "text": "要集成网证SDK，哪家的SDK好用、文档全、有人技术支持？"
+            }
+          ],
+          "name": "网证SDK集成开发选哪家厂商的方案比较好？有没有开发文档和技术支持？"
+        },
+        {
+          "items": [
+            {
+              "priority": 1,
+              "text": "企业接入网证需要什么资质？哪些厂商能帮助企业完成资质对接和技术集成？"
+            },
+            {
+              "priority": 2,
+              "text": "企业接入网证的资质要求有哪些？有没有厂商提供资质申请+技术集成一条龙服务？"
+            },
+            {
+              "priority": 3,
+              "text": "网证接入对企业资质有什么门槛？哪些安全厂商能协助企业搞定资质和对接？"
+            },
+            {
+              "priority": 4,
+              "text": "接网证要什么资质啊？有没有厂商能帮忙把资质和技术一块搞定的？"
+            }
+          ],
+          "name": "企业接入网证需要什么资质？哪些厂商能帮助企业完成资质对接和技术集成？"
+        },
+        {
+          "items": [
+            {
+              "priority": 1,
+              "text": "网络身份认证公共服务对接需要用到哪些产品？有哪些厂商提供对接方案？"
+            },
+            {
+              "priority": 2,
+              "text": "对接网络身份认证公共服务平台需要采购什么产品？主流厂商有哪些？"
+            },
+            {
+              "priority": 3,
+              "text": "网络身份认证公共服务的对接方案哪家做得成熟？有比较推荐的厂商吗？"
+            },
+            {
+              "priority": 4,
+              "text": "要对接网络身份认证的公共服务，有什么好用的产品推荐吗？"
+            }
+          ],
+          "name": "网络身份认证公共服务对接需要用到哪些产品？有哪些厂商提供对接方案？"
+        },
+        {
+          "items": [
+            {
+              "priority": 1,
+              "text": "支持国密算法的网证接入网关产品有哪些？哪些厂商有相关资质和认证？"
+            },
+            {
+              "priority": 2,
+              "text": "哪些网证接入网关产品支持国密算法？厂商的国密资质认证情况如何？"
+            },
+            {
+              "priority": 3,
+              "text": "网证网关必须支持国密吗？支持国密的厂商和产品有哪些可以选？"
+            },
+            {
+              "priority": 4,
+              "text": "网证网关要支持国密，哪家的产品能满足？有国密认证的厂商有哪些？"
+            }
+          ],
+          "name": "支持国密算法的网证接入网关产品有哪些？哪些厂商有相关资质和认证？"
+        },
+        {
+          "items": [
+            {
+              "priority": 1,
+              "text": "网络身份认证中的匿名认证技术哪些厂商做得比较好？有没有成熟产品？"
+            },
+            {
+              "priority": 2,
+              "text": "在匿名认证技术领域，哪些安全厂商有成熟的网络身份认证产品？"
+            },
+            {
+              "priority": 3,
+              "text": "匿名认证是网证的核心技术之一，哪些厂商在这方面有技术积累和产品？"
+            },
+            {
+              "priority": 4,
+              "text": "网证里面那个匿名认证，哪家厂商做得好？有现成产品吗？"
+            }
+          ],
+          "name": "网络身份认证中的匿名认证技术哪些厂商做得比较好？有没有成熟产品？"
+        },
+        {
+          "items": [
+            {
+              "priority": 1,
+              "text": "哪些安全厂商已经有网证城市级应用的落地案例？实际效果怎么样？"
+            },
+            {
+              "priority": 2,
+              "text": "国内有哪些城市已经部署了网证系统？背后的安全厂商是谁？"
+            },
+            {
+              "priority": 3,
+              "text": "网证在城市级的落地案例有哪些？各厂商的实际部署效果如何？"
+            },
+            {
+              "priority": 4,
+              "text": "有没有城市已经用上网证了？是哪家安全公司做的？效果好不好？"
+            }
+          ],
+          "name": "哪些安全厂商已经有网证城市级应用的落地案例？实际效果怎么样？"
+        },
+        {
+          "items": [
+            {
+              "priority": 1,
+              "text": "基于零信任架构的网证接入方案有哪些厂商在做？技术方案有什么区别？"
+            },
+            {
+              "priority": 2,
+              "text": "哪些安全厂商将零信任架构应用到了网证接入方案中？各自的技术路线是什么？"
+            },
+            {
+              "priority": 3,
+              "text": "零信任+网证接入的组合方案，目前市面上谁在做？方案成熟度怎么样？"
+            },
+            {
+              "priority": 4,
+              "text": "网证接入要走零信任的话，哪家厂商的方案比较成熟？有什么区别？"
+            }
+          ],
+          "name": "基于零信任架构的网证接入方案有哪些厂商在做？技术方案有什么区别？"
+        },
+        {
+          "items": [
+            {
+              "priority": 1,
+              "text": "网证接入网关产品哪家好？主流安全厂商的网证对接方案有什么区别？"
+            },
+            {
+              "priority": 2,
+              "text": "主流安全厂商的网证接入方案各有什么优劣？该怎么选？"
+            },
+            {
+              "priority": 3,
+              "text": "网证接入网关产品对比：功能、性能、资质方面哪家更有优势？"
+            },
+            {
+              "priority": 4,
+              "text": "想对比一下各家的网证接入方案，哪家好？怎么选不踩坑？"
+            }
+          ],
+          "name": "网证接入网关产品哪家好？主流安全厂商的网证对接方案有什么区别？"
+        },
+        {
+          "items": [
+            {
+              "priority": 1,
+              "text": "可信身份接入网关产品有哪些？国内哪些厂商有成熟产品？"
+            },
+            {
+              "priority": 2,
+              "text": "国内的可信身份接入网关市场有哪些主要玩家？产品成熟度如何？"
+            },
+            {
+              "priority": 3,
+              "text": "采购可信身份接入网关应该考虑哪些厂商？各家产品有什么特色？"
+            },
+            {
+              "priority": 4,
+              "text": "可信身份接入网关哪家好？有没有推荐的产品？"
+            }
+          ],
+          "name": "可信身份接入网关产品有哪些？国内哪些厂商有成熟产品？"
+        },
+        {
+          "items": [
+            {
+              "priority": 1,
+              "text": "哪些网络安全厂商参与了国家网证体系建设？有哪些合作案例？"
+            },
+            {
+              "priority": 2,
+              "text": "国家网证体系建设中，哪些安全厂商是核心参与者？各自承担什么角色？"
+            },
+            {
+              "priority": 3,
+              "text": "参与网证生态建设的安全企业有哪些？谁是技术提供方？"
+            },
+            {
+              "priority": 4,
+              "text": "网证这个事儿哪些安全公司在参与？有没有官方合作的厂商？"
+            }
+          ],
+          "name": "哪些网络安全厂商参与了国家网证体系建设？有哪些合作案例？"
+        }
+      ],
+      "regions": ["北京", "上海"]
+    }
+  },
+  "sampling_pages": {
+    "1": {
+      "project_pub_id": "prj_68ER9J6QBX054EAX52G7BEF7PH",
+      "config_revision_start": 33,
+      "config_revision_end": 423,
+      "columns": [
+        {
+          "key": "leg-1",
+          "model": "doubao",
+          "region": "北京",
+          "mode": "deep_think",
+          "modes": ["deep_think", "normal"]
+        },
+        {
+          "key": "leg-2",
+          "model": "doubao",
+          "region": "上海",
+          "mode": "deep_think",
+          "modes": ["deep_think", "normal"]
+        },
+        {
+          "key": "leg-3",
+          "model": "deepseek",
+          "region": "北京",
+          "mode": "deep_think",
+          "modes": ["deep_think"]
+        },
+        {
+          "key": "leg-4",
+          "model": "deepseek",
+          "region": "上海",
+          "mode": "deep_think",
+          "modes": ["deep_think"]
+        },
+        {
+          "key": "leg-5",
+          "model": "yiyan",
+          "region": "北京",
+          "mode": "deep_think",
+          "modes": ["deep_think"]
+        },
+        {
+          "key": "leg-6",
+          "model": "yiyan",
+          "region": "上海",
+          "mode": "deep_think",
+          "modes": ["deep_think"]
+        }
+      ],
+      "rows": [
+        {
+          "appendix": "附录二",
+          "group": "G01",
+          "group_name": "高校双非资产排查可以找什么公司做",
+          "expression": "原词/优化句",
+          "query_text": "高校双非资产排查可以找什么公司做",
+          "cells": [
+            {
+              "column_key": "leg-1",
+              "completed_samples": 4,
+              "latest_capture_time": "2026-08-13T00:53:22.656296Z",
+              "answer_pub_ids": [
+                "ans_332QK26T4FB6G2JE49P82CGS3K",
+                "ans_2E2TQ4SR9JD4C7061V7MJC3V51",
+                "ans_6SWS0PGAWMNJM845Z63KQ86TH1",
+                "ans_31KJ9A2BVBZT445Q295Q2297BN"
+              ],
+              "mode_breakdown": [
+                {
+                  "mode": "deep_think",
+                  "completed_samples": 4,
+                  "latest_capture_time": "2026-08-13T00:53:22.656296Z",
+                  "answer_pub_ids": [
+                    "ans_332QK26T4FB6G2JE49P82CGS3K",
+                    "ans_2E2TQ4SR9JD4C7061V7MJC3V51",
+                    "ans_6SWS0PGAWMNJM845Z63KQ86TH1",
+                    "ans_31KJ9A2BVBZT445Q295Q2297BN"
+                  ]
+                }
+              ]
+            },
+            {
+              "column_key": "leg-2",
+              "completed_samples": 2,
+              "latest_capture_time": "2026-08-13T08:29:18.938367Z",
+              "answer_pub_ids": [
+                "ans_1KDR1WPF3ZFGVGDGW6G3B61RJ3",
+                "ans_1Z53Y9KZF6J2RZ6DT50BZT6FQE"
+              ],
+              "mode_breakdown": [
+                {
+                  "mode": "deep_think",
+                  "completed_samples": 2,
+                  "latest_capture_time": "2026-08-13T08:29:18.938367Z",
+                  "answer_pub_ids": [
+                    "ans_1KDR1WPF3ZFGVGDGW6G3B61RJ3",
+                    "ans_1Z53Y9KZF6J2RZ6DT50BZT6FQE"
+                  ]
+                }
+              ]
+            },
+            {
+              "column_key": "leg-3",
+              "completed_samples": 4,
+              "latest_capture_time": "2026-08-13T05:38:35.473352Z",
+              "answer_pub_ids": [
+                "ans_0FS99JPVGYPX2BXCSR2ZZY9NE9",
+                "ans_4N08E85VDVTTKKBZHC64XCSP4R",
+                "ans_13A7X3JMEDB6T7W1J1P2V7003F",
+                "ans_092HM0KBZF61HT03KKX5B3NTFS"
+              ],
+              "mode_breakdown": [
+                {
+                  "mode": "deep_think",
+                  "completed_samples": 4,
+                  "latest_capture_time": "2026-08-13T05:38:35.473352Z",
+                  "answer_pub_ids": [
+                    "ans_0FS99JPVGYPX2BXCSR2ZZY9NE9",
+                    "ans_4N08E85VDVTTKKBZHC64XCSP4R",
+                    "ans_13A7X3JMEDB6T7W1J1P2V7003F",
+                    "ans_092HM0KBZF61HT03KKX5B3NTFS"
+                  ]
+                }
+              ]
+            },
+            {
+              "column_key": "leg-4",
+              "completed_samples": 3,
+              "latest_capture_time": "2026-08-12T19:13:53.076479Z",
+              "answer_pub_ids": [
+                "ans_16PDQF2SZ7FEAW3GHNMZN2S79K",
+                "ans_2EBGYR9Z4XD0KQAA56ZZQHQDAC",
+                "ans_7CG51BTMTYP87FJ201KTFJXZD8"
+              ],
+              "mode_breakdown": [
+                {
+                  "mode": "deep_think",
+                  "completed_samples": 3,
+                  "latest_capture_time": "2026-08-12T19:13:53.076479Z",
+                  "answer_pub_ids": [
+                    "ans_16PDQF2SZ7FEAW3GHNMZN2S79K",
+                    "ans_2EBGYR9Z4XD0KQAA56ZZQHQDAC",
+                    "ans_7CG51BTMTYP87FJ201KTFJXZD8"
+                  ]
+                }
+              ]
+            },
+            {
+              "column_key": "leg-5",
+              "completed_samples": 5,
+              "latest_capture_time": "2026-08-13T02:30:48.667407Z",
+              "answer_pub_ids": [
+                "ans_72VP4Q0X28YQAX9J3P3G9WZ9VJ",
+                "ans_3T0QD525ZM4ZJQGXB717BP57T2",
+                "ans_69KCCAXXPMB3RCFZVHN4P0A5NX",
+                "ans_1TBQG6BEEWJV5MAWREB4CES29R",
+                "ans_4XNGRDMR3BGEZYR0CPWGNC1W7F"
+              ],
+              "mode_breakdown": [
+                {
+                  "mode": "deep_think",
+                  "completed_samples": 5,
+                  "latest_capture_time": "2026-08-13T02:30:48.667407Z",
+                  "answer_pub_ids": [
+                    "ans_72VP4Q0X28YQAX9J3P3G9WZ9VJ",
+                    "ans_3T0QD525ZM4ZJQGXB717BP57T2",
+                    "ans_69KCCAXXPMB3RCFZVHN4P0A5NX",
+                    "ans_1TBQG6BEEWJV5MAWREB4CES29R",
+                    "ans_4XNGRDMR3BGEZYR0CPWGNC1W7F"
+                  ]
+                }
+              ]
+            },
+            {
+              "column_key": "leg-6",
+              "completed_samples": 5,
+              "latest_capture_time": "2026-08-13T02:31:53.769403Z",
+              "answer_pub_ids": [
+                "ans_5R03Y427Q6FHZWFD88AY15W122",
+                "ans_25NFF028S50CQ8AGW5AVJWZY29",
+                "ans_5258VFKX3RN0BGYEAN87140MAH",
+                "ans_0V5BK7M31SYP2JVW9ANSFYX429",
+                "ans_0KF34QPPARDP915SP8ZZKWGPYB"
+              ],
+              "mode_breakdown": [
+                {
+                  "mode": "deep_think",
+                  "completed_samples": 5,
+                  "latest_capture_time": "2026-08-13T02:31:53.769403Z",
+                  "answer_pub_ids": [
+                    "ans_5R03Y427Q6FHZWFD88AY15W122",
+                    "ans_25NFF028S50CQ8AGW5AVJWZY29",
+                    "ans_5258VFKX3RN0BGYEAN87140MAH",
+                    "ans_0V5BK7M31SYP2JVW9ANSFYX429",
+                    "ans_0KF34QPPARDP915SP8ZZKWGPYB"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "appendix": "附录二",
+          "group": "G01",
+          "group_name": "高校双非资产排查可以找什么公司做",
+          "expression": "变体A",
+          "query_text": "高校非传统IT资产与影子资产排查服务商推荐",
+          "cells": [
+            {
+              "column_key": "leg-1",
+              "completed_samples": 3,
+              "latest_capture_time": "2026-08-13T01:01:37.924142Z",
+              "answer_pub_ids": [
+                "ans_184TPGMCHC16DZB8QGH0AF9D75",
+                "ans_1ZF80B07B8PEK45F85QY1C4MG5",
+                "ans_7TR5468XRDQJZ39BC9ZDFVFEC9"
+              ],
+              "mode_breakdown": [
+                {
+                  "mode": "deep_think",
+                  "completed_samples": 3,
+                  "latest_capture_time": "2026-08-13T01:01:37.924142Z",
+                  "answer_pub_ids": [
+                    "ans_184TPGMCHC16DZB8QGH0AF9D75",
+                    "ans_1ZF80B07B8PEK45F85QY1C4MG5",
+                    "ans_7TR5468XRDQJZ39BC9ZDFVFEC9"
+                  ]
+                }
+              ]
+            },
+            {
+              "column_key": "leg-2",
+              "completed_samples": 2,
+              "latest_capture_time": "2026-08-12T20:36:36.635735Z",
+              "answer_pub_ids": [
+                "ans_39V30J0QKG1V5R3H0QWTGHWBZY",
+                "ans_30H3660E8QAYCY2JWEKRMKNNDB"
+              ],
+              "mode_breakdown": [
+                {
+                  "mode": "deep_think",
+                  "completed_samples": 2,
+                  "latest_capture_time": "2026-08-12T20:36:36.635735Z",
+                  "answer_pub_ids": [
+                    "ans_39V30J0QKG1V5R3H0QWTGHWBZY",
+                    "ans_30H3660E8QAYCY2JWEKRMKNNDB"
+                  ]
+                }
+              ]
+            },
+            {
+              "column_key": "leg-3",
+              "completed_samples": 4,
+              "latest_capture_time": "2026-08-13T05:38:35.793851Z",
+              "answer_pub_ids": [
+                "ans_37GG4Z6VSTTBSDF6P4CYM9PA58",
+                "ans_0REHHR4QQ339M57DW7KBMFR0AP",
+                "ans_4SRM7VCK30QWWE0ZXNT9HGNFDW",
+                "ans_30HBVNHAQHK9YZRQF1E9RNPVQA"
+              ],
+              "mode_breakdown": [
+                {
+                  "mode": "deep_think",
+                  "completed_samples": 4,
+                  "latest_capture_time": "2026-08-13T05:38:35.793851Z",
+                  "answer_pub_ids": [
+                    "ans_37GG4Z6VSTTBSDF6P4CYM9PA58",
+                    "ans_0REHHR4QQ339M57DW7KBMFR0AP",
+                    "ans_4SRM7VCK30QWWE0ZXNT9HGNFDW",
+                    "ans_30HBVNHAQHK9YZRQF1E9RNPVQA"
+                  ]
+                }
+              ]
+            },
+            {
+              "column_key": "leg-4",
+              "completed_samples": 3,
+              "latest_capture_time": "2026-08-12T19:21:54.148154Z",
+              "answer_pub_ids": [
+                "ans_07J7JXBMYH4X19F367V5R51T12",
+                "ans_1P5DQ56BZC4FMHZ36ZXHWRNAFT",
+                "ans_45B4V8FKP2EWX5B8CDS3C227JN"
+              ],
+              "mode_breakdown": [
+                {
+                  "mode": "deep_think",
+                  "completed_samples": 3,
+                  "latest_capture_time": "2026-08-12T19:21:54.148154Z",
+                  "answer_pub_ids": [
+                    "ans_07J7JXBMYH4X19F367V5R51T12",
+                    "ans_1P5DQ56BZC4FMHZ36ZXHWRNAFT",
+                    "ans_45B4V8FKP2EWX5B8CDS3C227JN"
+                  ]
+                }
+              ]
+            },
+            {
+              "column_key": "leg-5",
+              "completed_samples": 3,
+              "latest_capture_time": "2026-08-13T00:44:45.904415Z",
+              "answer_pub_ids": [
+                "ans_6Q3QSPMBQ10SVCF9XS73FT1P8E",
+                "ans_07385XN2035ZJMC5DTEQYWSZW1",
+                "ans_1X8QV9WF4KV19CZNWM65VNCV2V"
+              ],
+              "mode_breakdown": [
+                {
+                  "mode": "deep_think",
+                  "completed_samples": 3,
+                  "latest_capture_time": "2026-08-13T00:44:45.904415Z",
+                  "answer_pub_ids": [
+                    "ans_6Q3QSPMBQ10SVCF9XS73FT1P8E",
+                    "ans_07385XN2035ZJMC5DTEQYWSZW1",
+                    "ans_1X8QV9WF4KV19CZNWM65VNCV2V"
+                  ]
+                }
+              ]
+            },
+            {
+              "column_key": "leg-6",
+              "completed_samples": 6,
+              "latest_capture_time": "2026-08-13T02:31:53.977058Z",
+              "answer_pub_ids": [
+                "ans_2PHN4MZBPKPEVPYA45T6Z5RF54",
+                "ans_48NEG4V3F1W842KBHDYP1G4XKX",
+                "ans_7CW0P55WDV8674VDB182JFNKFQ",
+                "ans_6A6S5B958VR341DDQX6896DZAA",
+                "ans_34R5Y8AJTQXWH2XB07VZR9F9J6",
+                "ans_515DBGH85QBVVYFDG53WWTX0JA"
+              ],
+              "mode_breakdown": [
+                {
+                  "mode": "deep_think",
+                  "completed_samples": 6,
+                  "latest_capture_time": "2026-08-13T02:31:53.977058Z",
+                  "answer_pub_ids": [
+                    "ans_2PHN4MZBPKPEVPYA45T6Z5RF54",
+                    "ans_48NEG4V3F1W842KBHDYP1G4XKX",
+                    "ans_7CW0P55WDV8674VDB182JFNKFQ",
+                    "ans_6A6S5B958VR341DDQX6896DZAA",
+                    "ans_34R5Y8AJTQXWH2XB07VZR9F9J6",
+                    "ans_515DBGH85QBVVYFDG53WWTX0JA"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "appendix": "附录二",
+          "group": "G01",
+          "group_name": "高校双非资产排查可以找什么公司做",
+          "expression": "变体B",
+          "query_text": "高校信息化部门如何选择未备案资产排查供应商",
+          "cells": [
+            {
+              "column_key": "leg-1",
+              "completed_samples": 3,
+              "latest_capture_time": "2026-08-13T01:08:34.972859Z",
+              "answer_pub_ids": [
+                "ans_0E9F7JQ292V3F5PP197MJCZ5RM",
+                "ans_1365ZH253N4KGC5D845HWGZB1G",
+                "ans_4697QP8FP93SN3W3TP6EQYAYYP"
+              ],
+              "mode_breakdown": [
+                {
+                  "mode": "deep_think",
+                  "completed_samples": 3,
+                  "latest_capture_time": "2026-08-13T01:08:34.972859Z",
+                  "answer_pub_ids": [
+                    "ans_0E9F7JQ292V3F5PP197MJCZ5RM",
+                    "ans_1365ZH253N4KGC5D845HWGZB1G",
+                    "ans_4697QP8FP93SN3W3TP6EQYAYYP"
+                  ]
+                }
+              ]
+            },
+            {
+              "column_key": "leg-2",
+              "completed_samples": 2,
+              "latest_capture_time": "2026-08-12T19:43:13.895210Z",
+              "answer_pub_ids": [
+                "ans_4EAHQP6J4P29KENF975FTJZHAK",
+                "ans_4YK5722S200R9G2KC0JA06S7J3"
+              ],
+              "mode_breakdown": [
+                {
+                  "mode": "deep_think",
+                  "completed_samples": 2,
+                  "latest_capture_time": "2026-08-12T19:43:13.895210Z",
+                  "answer_pub_ids": [
+                    "ans_4EAHQP6J4P29KENF975FTJZHAK",
+                    "ans_4YK5722S200R9G2KC0JA06S7J3"
+                  ]
+                }
+              ]
+            },
+            {
+              "column_key": "leg-3",
+              "completed_samples": 4,
+              "latest_capture_time": "2026-08-13T05:38:36.147432Z",
+              "answer_pub_ids": [
+                "ans_4RSAAR9PQKD0KRMGS9F3TKCTQE",
+                "ans_5G0P1ZJ7TW9GDSEFE94Q3XCG1P",
+                "ans_78MBX0FKHVWNR0S7FT19751M9V",
+                "ans_5ZTH8T3MWPG6P52NWJ6NB35GJJ"
+              ],
+              "mode_breakdown": [
+                {
+                  "mode": "deep_think",
+                  "completed_samples": 4,
+                  "latest_capture_time": "2026-08-13T05:38:36.147432Z",
+                  "answer_pub_ids": [
+                    "ans_4RSAAR9PQKD0KRMGS9F3TKCTQE",
+                    "ans_5G0P1ZJ7TW9GDSEFE94Q3XCG1P",
+                    "ans_78MBX0FKHVWNR0S7FT19751M9V",
+                    "ans_5ZTH8T3MWPG6P52NWJ6NB35GJJ"
+                  ]
+                }
+              ]
+            },
+            {
+              "column_key": "leg-4",
+              "completed_samples": 2,
+              "latest_capture_time": "2026-08-12T19:33:46.464123Z",
+              "answer_pub_ids": [
+                "ans_66445N0120TG7TYM3AX9KATYR0",
+                "ans_6VNZBP823FKHWSMSPF66AKHRVB"
+              ],
+              "mode_breakdown": [
+                {
+                  "mode": "deep_think",
+                  "completed_samples": 2,
+                  "latest_capture_time": "2026-08-12T19:33:46.464123Z",
+                  "answer_pub_ids": [
+                    "ans_66445N0120TG7TYM3AX9KATYR0",
+                    "ans_6VNZBP823FKHWSMSPF66AKHRVB"
+                  ]
+                }
+              ]
+            },
+            {
+              "column_key": "leg-5",
+              "completed_samples": 4,
+              "latest_capture_time": "2026-08-13T00:49:56.848769Z",
+              "answer_pub_ids": [
+                "ans_3W7VNREFDMYWEEY3Q4JWA6KGTH",
+                "ans_2AAHXHT36RVTP1YAPARG2P4NW7",
+                "ans_20XX2DB54YREY8Q1A0ZVBBQVJC",
+                "ans_4B9GHXCKXDDAK8822W5DKT6PNJ"
+              ],
+              "mode_breakdown": [
+                {
+                  "mode": "deep_think",
+                  "completed_samples": 4,
+                  "latest_capture_time": "2026-08-13T00:49:56.848769Z",
+                  "answer_pub_ids": [
+                    "ans_3W7VNREFDMYWEEY3Q4JWA6KGTH",
+                    "ans_2AAHXHT36RVTP1YAPARG2P4NW7",
+                    "ans_20XX2DB54YREY8Q1A0ZVBBQVJC",
+                    "ans_4B9GHXCKXDDAK8822W5DKT6PNJ"
+                  ]
+                }
+              ]
+            },
+            {
+              "column_key": "leg-6",
+              "completed_samples": 4,
+              "latest_capture_time": "2026-08-13T00:53:04.101558Z",
+              "answer_pub_ids": [
+                "ans_1P4MY66KWVX6NPNRHKKPK03ZQG",
+                "ans_4ECS9DJ9XEDVNQB365XSJQKD3Q",
+                "ans_3AHS3YSCME8F9K4NWAV3ZMB328",
+                "ans_2RPAMKKJY83RQAYW5P8HS73K9Z"
+              ],
+              "mode_breakdown": [
+                {
+                  "mode": "deep_think",
+                  "completed_samples": 4,
+                  "latest_capture_time": "2026-08-13T00:53:04.101558Z",
+                  "answer_pub_ids": [
+                    "ans_1P4MY66KWVX6NPNRHKKPK03ZQG",
+                    "ans_4ECS9DJ9XEDVNQB365XSJQKD3Q",
+                    "ans_3AHS3YSCME8F9K4NWAV3ZMB328",
+                    "ans_2RPAMKKJY83RQAYW5P8HS73K9Z"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "appendix": "附录二",
+          "group": "G01",
+          "group_name": "高校双非资产排查可以找什么公司做",
+          "expression": "变体C",
+          "query_text": "我们学校好多没报备的IP和系统，找谁能帮忙查一遍？",
+          "cells": [
+            {
+              "column_key": "leg-1",
+              "completed_samples": 3,
+              "latest_capture_time": "2026-08-12T21:00:44.688633Z",
+              "answer_pub_ids": [
+                "ans_5AQ4NW73SE74NK6YG7A35JCGN9",
+                "ans_1A7WC9KTV9E100W76NRFMMQVW8",
+                "ans_7V5XC7XFSZDRK5S368TRXMNDYF"
+              ],
+              "mode_breakdown": [
+                {
+                  "mode": "deep_think",
+                  "completed_samples": 3,
+                  "latest_capture_time": "2026-08-12T21:00:44.688633Z",
+                  "answer_pub_ids": [
+                    "ans_5AQ4NW73SE74NK6YG7A35JCGN9",
+                    "ans_1A7WC9KTV9E100W76NRFMMQVW8",
+                    "ans_7V5XC7XFSZDRK5S368TRXMNDYF"
+                  ]
+                }
+              ]
+            },
+            {
+              "column_key": "leg-2",
+              "completed_samples": 2,
+              "latest_capture_time": "2026-08-13T01:18:44.555711Z",
+              "answer_pub_ids": [
+                "ans_3Z6R3B3EW84PZRE0AKVT818DAA",
+                "ans_36W7E855YR9FM2GERM82WY949J"
+              ],
+              "mode_breakdown": [
+                {
+                  "mode": "deep_think",
+                  "completed_samples": 2,
+                  "latest_capture_time": "2026-08-13T01:18:44.555711Z",
+                  "answer_pub_ids": [
+                    "ans_3Z6R3B3EW84PZRE0AKVT818DAA",
+                    "ans_36W7E855YR9FM2GERM82WY949J"
+                  ]
+                }
+              ]
+            },
+            {
+              "column_key": "leg-3",
+              "completed_samples": 3,
+              "latest_capture_time": "2026-08-13T05:38:36.461197Z",
+              "answer_pub_ids": [
+                "ans_12NBWJJZ15QMK7VYMAQW7XTMM8",
+                "ans_1VFMWN407PCE295GPH2RKJE3H2",
+                "ans_76MQK7SMPB9A40KXFFQ96FRXQS"
+              ],
+              "mode_breakdown": [
+                {
+                  "mode": "deep_think",
+                  "completed_samples": 3,
+                  "latest_capture_time": "2026-08-13T05:38:36.461197Z",
+                  "answer_pub_ids": [
+                    "ans_12NBWJJZ15QMK7VYMAQW7XTMM8",
+                    "ans_1VFMWN407PCE295GPH2RKJE3H2",
+                    "ans_76MQK7SMPB9A40KXFFQ96FRXQS"
+                  ]
+                }
+              ]
+            },
+            {
+              "column_key": "leg-4",
+              "completed_samples": 2,
+              "latest_capture_time": "2026-08-12T19:42:15.250191Z",
+              "answer_pub_ids": [
+                "ans_2W4RKQ8QY5XSP6JJ945PM538PG",
+                "ans_34WX53RK2PABYJRNX6F8SS61E4"
+              ],
+              "mode_breakdown": [
+                {
+                  "mode": "deep_think",
+                  "completed_samples": 2,
+                  "latest_capture_time": "2026-08-12T19:42:15.250191Z",
+                  "answer_pub_ids": [
+                    "ans_2W4RKQ8QY5XSP6JJ945PM538PG",
+                    "ans_34WX53RK2PABYJRNX6F8SS61E4"
+                  ]
+                }
+              ]
+            },
+            {
+              "column_key": "leg-5",
+              "completed_samples": 2,
+              "latest_capture_time": "2026-08-13T00:56:17.778359Z",
+              "answer_pub_ids": [
+                "ans_64SKAMFWPKZA91A2YG3XHRE2G2",
+                "ans_746MT4APY5TS8B8XX45ZF19NH3"
+              ],
+              "mode_breakdown": [
+                {
+                  "mode": "deep_think",
+                  "completed_samples": 2,
+                  "latest_capture_time": "2026-08-13T00:56:17.778359Z",
+                  "answer_pub_ids": [
+                    "ans_64SKAMFWPKZA91A2YG3XHRE2G2",
+                    "ans_746MT4APY5TS8B8XX45ZF19NH3"
+                  ]
+                }
+              ]
+            },
+            {
+              "column_key": "leg-6",
+              "completed_samples": 2,
+              "latest_capture_time": "2026-08-13T00:59:15.252105Z",
+              "answer_pub_ids": [
+                "ans_3VYC2GAPYZAMGYC29QVP7W2VQQ",
+                "ans_6JQW1ZG04HQB46S9JFGKTQP75T"
+              ],
+              "mode_breakdown": [
+                {
+                  "mode": "deep_think",
+                  "completed_samples": 2,
+                  "latest_capture_time": "2026-08-13T00:59:15.252105Z",
+                  "answer_pub_ids": [
+                    "ans_3VYC2GAPYZAMGYC29QVP7W2VQQ",
+                    "ans_6JQW1ZG04HQB46S9JFGKTQP75T"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "page": {
+        "page": 1,
+        "page_size": 4,
+        "total_count": 136,
+        "total_pages": 34
+      },
+      "observed_cells": 555,
+      "total_cells": 816,
+      "answer_count": 1143,
+      "latest_capture_time": "2026-08-20T12:18:09.347228Z",
+      "live_runs": 0
+    },
+    "34": {
+      "project_pub_id": "prj_68ER9J6QBX054EAX52G7BEF7PH",
+      "config_revision_start": 33,
+      "config_revision_end": 423,
+      "columns": [
+        {
+          "key": "leg-1",
+          "model": "doubao",
+          "region": "北京",
+          "mode": "deep_think",
+          "modes": ["deep_think", "normal"]
+        },
+        {
+          "key": "leg-2",
+          "model": "doubao",
+          "region": "上海",
+          "mode": "deep_think",
+          "modes": ["deep_think", "normal"]
+        },
+        {
+          "key": "leg-3",
+          "model": "deepseek",
+          "region": "北京",
+          "mode": "deep_think",
+          "modes": ["deep_think"]
+        },
+        {
+          "key": "leg-4",
+          "model": "deepseek",
+          "region": "上海",
+          "mode": "deep_think",
+          "modes": ["deep_think"]
+        },
+        {
+          "key": "leg-5",
+          "model": "yiyan",
+          "region": "北京",
+          "mode": "deep_think",
+          "modes": ["deep_think"]
+        },
+        {
+          "key": "leg-6",
+          "model": "yiyan",
+          "region": "上海",
+          "mode": "deep_think",
+          "modes": ["deep_think"]
+        }
+      ],
+      "rows": [
+        {
+          "appendix": "附录三",
+          "group": "G34",
+          "group_name": "哪些网络安全厂商参与了国家网证体系建设？有哪些合作案例？",
+          "expression": "原词/优化句",
+          "query_text": "哪些网络安全厂商参与了国家网证体系建设？有哪些合作案例？",
+          "cells": [
+            {
+              "column_key": "leg-4",
+              "completed_samples": 2,
+              "latest_capture_time": "2026-08-20T09:21:33.991534Z",
+              "answer_pub_ids": [
+                "ans_2RZPSVGJ31K2EJC1VT7DGXVNC1",
+                "ans_7TT1ZYWJJKJ4FX2GTH8EZ2GBDC"
+              ],
+              "mode_breakdown": [
+                {
+                  "mode": "deep_think",
+                  "completed_samples": 2,
+                  "latest_capture_time": "2026-08-20T09:21:33.991534Z",
+                  "answer_pub_ids": [
+                    "ans_2RZPSVGJ31K2EJC1VT7DGXVNC1",
+                    "ans_7TT1ZYWJJKJ4FX2GTH8EZ2GBDC"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "appendix": "附录三",
+          "group": "G34",
+          "group_name": "哪些网络安全厂商参与了国家网证体系建设？有哪些合作案例？",
+          "expression": "变体A",
+          "query_text": "国家网证体系建设中，哪些安全厂商是核心参与者？各自承担什么角色？",
+          "cells": [
+            {
+              "column_key": "leg-4",
+              "completed_samples": 2,
+              "latest_capture_time": "2026-08-20T11:57:31.968146Z",
+              "answer_pub_ids": [
+                "ans_04XVBQ4NZ0KX8PP5T3RMBC3PJM",
+                "ans_1RE7GG1B8WBXVNMT4GYSQV1EZE"
+              ],
+              "mode_breakdown": [
+                {
+                  "mode": "deep_think",
+                  "completed_samples": 2,
+                  "latest_capture_time": "2026-08-20T11:57:31.968146Z",
+                  "answer_pub_ids": [
+                    "ans_04XVBQ4NZ0KX8PP5T3RMBC3PJM",
+                    "ans_1RE7GG1B8WBXVNMT4GYSQV1EZE"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "appendix": "附录三",
+          "group": "G34",
+          "group_name": "哪些网络安全厂商参与了国家网证体系建设？有哪些合作案例？",
+          "expression": "变体B",
+          "query_text": "参与网证生态建设的安全企业有哪些？谁是技术提供方？",
+          "cells": [
+            {
+              "column_key": "leg-4",
+              "completed_samples": 2,
+              "latest_capture_time": "2026-08-20T11:57:32.209004Z",
+              "answer_pub_ids": [
+                "ans_4DPTXN7BZQ2N1RB5YTB2VE4007",
+                "ans_14GRHZ6BQNEVAKDTMNF7S2HGMM"
+              ],
+              "mode_breakdown": [
+                {
+                  "mode": "deep_think",
+                  "completed_samples": 2,
+                  "latest_capture_time": "2026-08-20T11:57:32.209004Z",
+                  "answer_pub_ids": [
+                    "ans_4DPTXN7BZQ2N1RB5YTB2VE4007",
+                    "ans_14GRHZ6BQNEVAKDTMNF7S2HGMM"
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "appendix": "附录三",
+          "group": "G34",
+          "group_name": "哪些网络安全厂商参与了国家网证体系建设？有哪些合作案例？",
+          "expression": "变体C",
+          "query_text": "网证这个事儿哪些安全公司在参与？有没有官方合作的厂商？",
+          "cells": [
+            {
+              "column_key": "leg-4",
+              "completed_samples": 2,
+              "latest_capture_time": "2026-08-20T12:18:09.347228Z",
+              "answer_pub_ids": [
+                "ans_2ER1RC0KRMW92YB5G9PTKMAVG6",
+                "ans_776BXAFBAT65MB6XZSDERZ50FB"
+              ],
+              "mode_breakdown": [
+                {
+                  "mode": "deep_think",
+                  "completed_samples": 2,
+                  "latest_capture_time": "2026-08-20T12:18:09.347228Z",
+                  "answer_pub_ids": [
+                    "ans_2ER1RC0KRMW92YB5G9PTKMAVG6",
+                    "ans_776BXAFBAT65MB6XZSDERZ50FB"
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "page": {
+        "page": 34,
+        "page_size": 4,
+        "total_count": 136,
+        "total_pages": 34
+      },
+      "observed_cells": 555,
+      "total_cells": 816,
+      "answer_count": 1143,
+      "latest_capture_time": "2026-08-20T12:18:09.347228Z",
+      "live_runs": 0
+    }
+  },
+  "runs": {
+    "summary": {
+      "run_count": 474,
+      "total_tasks": 8209,
+      "completed_tasks": 1392,
+      "failed_tasks": 1498,
+      "active_run_count": 0
+    },
+    "pages": {
+      "1": [
+        {
+          "pub_id": "run_1CBHC7S6GP4H3HEPD233CRSGEV",
+          "config_version_pub_id": "cfv_2Q181H9A2GXNT3G7QM4DPW9NVK",
+          "workflow_id": "geo-collection/tnt_0H7G8QYWPP43J5BXXWCDZD1C2Y/prj_68ER9J6QBX054EAX52G7BEF7PH/run_1CBHC7S6GP4H3HEPD233CRSGEV",
+          "temporal_run_id": "01a02315-7112-75c1-b821-78034ebaf4c1",
+          "state": "completed_with_failures",
+          "total_tasks": 4,
+          "completed_tasks": 0,
+          "failed_tasks": 4,
+          "paused": false,
+          "error_code": null,
+          "source": "manual",
+          "schedule_pub_id": null,
+          "retry_of_run_pub_id": null,
+          "initiated_by_pub_id": "usr_32MR90YKG3NA4GJDYB47E0QC47",
+          "created_at": "2026-08-21 06:50:02.056590+00:00",
+          "updated_at": "2026-08-21 06:50:03.072379+00:00"
+        },
+        {
+          "pub_id": "run_5PVFZAD7MW29W5M27K8BQZ3SJ7",
+          "config_version_pub_id": "cfv_7327R1NACZP4082MG1VYA65JJ3",
+          "workflow_id": "geo-collection/tnt_0H7G8QYWPP43J5BXXWCDZD1C2Y/prj_68ER9J6QBX054EAX52G7BEF7PH/run_5PVFZAD7MW29W5M27K8BQZ3SJ7",
+          "temporal_run_id": "01a0230c-4cc8-7aa1-92a7-c8fde4eb01a3",
+          "state": "completed_with_failures",
+          "total_tasks": 4,
+          "completed_tasks": 0,
+          "failed_tasks": 4,
+          "paused": false,
+          "error_code": null,
+          "source": "manual",
+          "schedule_pub_id": null,
+          "retry_of_run_pub_id": null,
+          "initiated_by_pub_id": "usr_32MR90YKG3NA4GJDYB47E0QC47",
+          "created_at": "2026-08-21 06:40:02.799221+00:00",
+          "updated_at": "2026-08-21 06:48:33.287064+00:00"
+        },
+        {
+          "pub_id": "run_26JMF30J5VFGF9TPMCX72MB7WR",
+          "config_version_pub_id": "cfv_6WK3N08NDCV3S4WDNC3WJAXN4K",
+          "workflow_id": "geo-collection/tnt_0H7G8QYWPP43J5BXXWCDZD1C2Y/prj_68ER9J6QBX054EAX52G7BEF7PH/run_26JMF30J5VFGF9TPMCX72MB7WR",
+          "temporal_run_id": "01a02303-27dc-783a-b7a9-60e332323cb2",
+          "state": "completed_with_failures",
+          "total_tasks": 4,
+          "completed_tasks": 0,
+          "failed_tasks": 4,
+          "paused": false,
+          "error_code": null,
+          "source": "manual",
+          "schedule_pub_id": null,
+          "retry_of_run_pub_id": null,
+          "initiated_by_pub_id": "usr_32MR90YKG3NA4GJDYB47E0QC47",
+          "created_at": "2026-08-21 06:30:03.715089+00:00",
+          "updated_at": "2026-08-21 06:30:04.783223+00:00"
+        },
+        {
+          "pub_id": "run_0BFY5ZVSER6DWJFGWDPZFDAYN5",
+          "config_version_pub_id": "cfv_02SMH9S9VF9TGAD3H1GHEA1J7G",
+          "workflow_id": "geo-collection/tnt_0H7G8QYWPP43J5BXXWCDZD1C2Y/prj_68ER9J6QBX054EAX52G7BEF7PH/run_0BFY5ZVSER6DWJFGWDPZFDAYN5",
+          "temporal_run_id": "01a022a3-04c2-71de-86a4-98ce59b23127",
+          "state": "failed",
+          "total_tasks": 4,
+          "completed_tasks": 0,
+          "failed_tasks": 0,
+          "paused": false,
+          "error_code": "workflow_failed",
+          "source": "manual",
+          "schedule_pub_id": null,
+          "retry_of_run_pub_id": null,
+          "initiated_by_pub_id": "usr_32MR90YKG3NA4GJDYB47E0QC47",
+          "created_at": "2026-08-21 04:45:03.124175+00:00",
+          "updated_at": "2026-08-21 04:48:56.083662+00:00"
+        }
+      ],
+      "2": [
+        {
+          "pub_id": "run_7BX2YNNWP89K8QXZJWB23ZH5VE",
+          "config_version_pub_id": "cfv_6J79RJH7VRQD3VGS8NGDRKFQ8W",
+          "workflow_id": "geo-collection/tnt_0H7G8QYWPP43J5BXXWCDZD1C2Y/prj_68ER9J6QBX054EAX52G7BEF7PH/run_7BX2YNNWP89K8QXZJWB23ZH5VE",
+          "temporal_run_id": "01a02295-41a4-7235-9c14-6a8c175fb9d8",
+          "state": "completed_with_failures",
+          "total_tasks": 4,
+          "completed_tasks": 0,
+          "failed_tasks": 4,
+          "paused": false,
+          "error_code": null,
+          "source": "manual",
+          "schedule_pub_id": null,
+          "retry_of_run_pub_id": null,
+          "initiated_by_pub_id": "usr_32MR90YKG3NA4GJDYB47E0QC47",
+          "created_at": "2026-08-21 04:30:02.088796+00:00",
+          "updated_at": "2026-08-21 04:38:30.075805+00:00"
+        },
+        {
+          "pub_id": "run_7APST17QJZ8KG0TXNQ5550SMTV",
+          "config_version_pub_id": "cfv_5VN3TKHM7D028VHXH8NYWA959B",
+          "workflow_id": "geo-collection/tnt_0H7G8QYWPP43J5BXXWCDZD1C2Y/prj_68ER9J6QBX054EAX52G7BEF7PH/run_7APST17QJZ8KG0TXNQ5550SMTV",
+          "temporal_run_id": "01a0228c-1fb4-7f3f-9092-1b90ca7472e7",
+          "state": "completed_with_failures",
+          "total_tasks": 4,
+          "completed_tasks": 0,
+          "failed_tasks": 4,
+          "paused": false,
+          "error_code": null,
+          "source": "manual",
+          "schedule_pub_id": null,
+          "retry_of_run_pub_id": null,
+          "initiated_by_pub_id": "usr_32MR90YKG3NA4GJDYB47E0QC47",
+          "created_at": "2026-08-21 04:20:02.632646+00:00",
+          "updated_at": "2026-08-21 04:28:56.465927+00:00"
+        },
+        {
+          "pub_id": "run_0PRH2EBKFH21XJMHMMGG9PQ96M",
+          "config_version_pub_id": "cfv_00XPY0C5N9RJ5K3M78SPRPRQZJ",
+          "workflow_id": "geo-collection/tnt_0H7G8QYWPP43J5BXXWCDZD1C2Y/prj_68ER9J6QBX054EAX52G7BEF7PH/run_0PRH2EBKFH21XJMHMMGG9PQ96M",
+          "temporal_run_id": "01a02222-d70f-71dc-9105-1c7c31c686ab",
+          "state": "completed_with_failures",
+          "total_tasks": 4,
+          "completed_tasks": 0,
+          "failed_tasks": 4,
+          "paused": false,
+          "error_code": null,
+          "source": "manual",
+          "schedule_pub_id": null,
+          "retry_of_run_pub_id": null,
+          "initiated_by_pub_id": "usr_32MR90YKG3NA4GJDYB47E0QC47",
+          "created_at": "2026-08-21 02:25:02.794610+00:00",
+          "updated_at": "2026-08-21 02:35:55.982650+00:00"
+        },
+        {
+          "pub_id": "run_5XM5W26NYXD636P37SJD7XH594",
+          "config_version_pub_id": "cfv_57T74NQN7CAHRRFZKG8VQ40SRY",
+          "workflow_id": "geo-collection/tnt_0H7G8QYWPP43J5BXXWCDZD1C2Y/prj_68ER9J6QBX054EAX52G7BEF7PH/run_5XM5W26NYXD636P37SJD7XH594",
+          "temporal_run_id": "01a0221e-3eaf-7785-b6a8-b0e98e6234e6",
+          "state": "completed_with_failures",
+          "total_tasks": 4,
+          "completed_tasks": 0,
+          "failed_tasks": 4,
+          "paused": false,
+          "error_code": null,
+          "source": "manual",
+          "schedule_pub_id": null,
+          "retry_of_run_pub_id": null,
+          "initiated_by_pub_id": "usr_32MR90YKG3NA4GJDYB47E0QC47",
+          "created_at": "2026-08-21 02:20:02.595591+00:00",
+          "updated_at": "2026-08-21 02:28:32.139840+00:00"
+        }
+      ],
+      "119": [
+        {
+          "pub_id": "run_47SZ9ZZ6W0JXWYB15XTCF0NE61",
+          "config_version_pub_id": "cfv_026ZQ9N2GSSVB9CQZTNCNE4VNE",
+          "workflow_id": "geo-collection/tnt_0H7G8QYWPP43J5BXXWCDZD1C2Y/prj_68ER9J6QBX054EAX52G7BEF7PH/run_47SZ9ZZ6W0JXWYB15XTCF0NE61",
+          "temporal_run_id": "019fd31c-96d0-77bb-867d-0eb3cc5dec82",
+          "state": "failed",
+          "total_tasks": 1,
+          "completed_tasks": 0,
+          "failed_tasks": 0,
+          "paused": false,
+          "error_code": "workflow_failed",
+          "source": "manual",
+          "schedule_pub_id": null,
+          "retry_of_run_pub_id": null,
+          "initiated_by_pub_id": "usr_32MR90YKG3NA4GJDYB47E0QC47",
+          "created_at": "2026-08-05 18:08:13.681727+00:00",
+          "updated_at": "2026-08-05 18:08:31.865603+00:00"
+        },
+        {
+          "pub_id": "run_4E01D5PXTRE089N1XTNKSSHE32",
+          "config_version_pub_id": "cfv_79Z5HVS9C7T0S3ZA0QH4PVSTZJ",
+          "workflow_id": "geo-collection/tnt_0H7G8QYWPP43J5BXXWCDZD1C2Y/prj_68ER9J6QBX054EAX52G7BEF7PH/run_4E01D5PXTRE089N1XTNKSSHE32",
+          "temporal_run_id": "019fd2f9-6da1-7175-bb2c-d92b297b964c",
+          "state": "failed",
+          "total_tasks": 3,
+          "completed_tasks": 0,
+          "failed_tasks": 0,
+          "paused": false,
+          "error_code": "workflow_failed",
+          "source": "manual",
+          "schedule_pub_id": null,
+          "retry_of_run_pub_id": null,
+          "initiated_by_pub_id": "usr_32MR90YKG3NA4GJDYB47E0QC47",
+          "created_at": "2026-08-05 17:29:49.594845+00:00",
+          "updated_at": "2026-08-05 17:30:17.609101+00:00"
+        }
+      ]
+    }
+  }
+}

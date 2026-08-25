@@ -112,12 +112,8 @@ describe('OperationsLifecycleSnapshot', () => {
     const snapshot = fixtureOperationsLifecycleSnapshot!;
 
     const { rerender } = render(
-      <OperationsLifecycleWorkspace section="overview" snapshot={snapshot} />,
+      <OperationsLifecycleWorkspace section="sessions" snapshot={snapshot} />,
     );
-    expect(screen.getByRole('heading', { name: '运行时间线' })).toBeTruthy();
-    expect(screen.getByText('18')).toBeTruthy();
-
-    rerender(<OperationsLifecycleWorkspace section="sessions" snapshot={snapshot} />);
     expect(screen.getByRole('heading', { name: '授权、租约与会话健康' })).toBeTruthy();
     expect(screen.getByText('适配器就绪 · 未经 live 验证')).toBeTruthy();
 

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { PlatformBadge } from '../../platforms';
 import {
   ONBOARDING_FREQUENCIES,
   ONBOARDING_MODELS,
@@ -8,14 +9,6 @@ import {
   type OnboardingView,
   type SessionContext,
 } from './api';
-
-const MODEL_LABELS: Record<OnboardingModel, string> = {
-  doubao: '豆包',
-  deepseek: 'DeepSeek',
-  yiyan: '文心一言',
-  tongyi: '通义千问',
-  yuanbao: '腾讯元宝',
-};
 
 const FREQUENCY_LABELS: Record<OnboardingFrequency, string> = {
   'one-off': '一次性',
@@ -262,7 +255,7 @@ export function OnboardingWizard({ session }: Props) {
                       )
                     }
                   />
-                  {MODEL_LABELS[slug]}
+                  <PlatformBadge platform={slug} />
                 </label>
               ))}
             </div>

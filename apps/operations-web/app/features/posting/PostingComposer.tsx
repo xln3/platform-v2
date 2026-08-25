@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { CursorPagination, Pagination } from '@geo/design-system';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   backfillPostingTarget,
   createPostingBatch,
@@ -10,10 +11,10 @@ import {
   type MediaPricesPlatform,
   type PostingBatch,
   type PostingBatchStatus,
-  type PostingBatchSummary,
   type PostingTargetStatus,
   type ProviderAccountStatus,
 } from '@geo/api-client';
+import { PAGE_SIZE, useCursorCollection, usePageWindow } from '../../pagination';
 import type { PostingHandoffTarget } from './selection-handoff';
 
 const PROVIDER_LABELS: Record<MediaPricesPlatform, string> = {
@@ -131,13 +132,31 @@ export function PostingComposer({
     tone: 'info' | 'warn' | 'error';
     text: string;
   } | null>(null);
-  const [recent, setRecent] = useState<PostingBatchSummary[]>([]);
   const [currentBatch, setCurrentBatch] = useState<PostingBatch | null>(null);
   const [backfillUrls, setBackfillUrls] = useState<Record<string, string>>({});
-  const [recentState, setRecentState] = useState<'loading' | 'ready' | 'forbidden' | 'failed'>(
-    'loading',
-  );
+  const [recentAccess, setRecentAccess] = useState<'ready' | 'forbidden' | 'failed'>('ready');
   const idempotencyKeyRef = useRef(newIdempotencyKey());
+
+  const loadRecent = useCallback(
+    async (cursor?: string) => {
+      const result = await listPostingBatches(requestHeaders, {
+        limit: PAGE_SIZE,
+        ...(cursor ? { cursor } : {}),
+      });
+      if (result.kind === 'ready') {
+        setRecentAccess('ready');
+        return result.data;
+      }
+      setRecentAccess(result.kind === 'forbidden' ? 'forbidden' : 'failed');
+      throw new Error(result.kind);
+    },
+    [requestHeaders],
+  );
+  const recentPage = useCursorCollection(loadRecent, `${session.tenantId}:${session.actorId}`);
+  const targetWindow = usePageWindow(
+    currentBatch?.targets ?? [],
+    currentBatch?.pubId ?? 'no-current-batch',
+  );
 
   useEffect(() => {
     setMaxTotalAmount((current) => {
@@ -148,20 +167,6 @@ export function PostingComposer({
         : current;
     });
   }, [quotedTotal]);
-
-  const reloadRecent = async () => {
-    const result = await listPostingBatches(requestHeaders);
-    if (result.kind === 'ready') {
-      setRecent(result.data);
-      setRecentState('ready');
-    } else {
-      setRecentState(result.kind === 'forbidden' ? 'forbidden' : 'failed');
-    }
-  };
-
-  useEffect(() => {
-    void reloadRecent();
-  }, [requestHeaders]);
 
   useEffect(() => {
     if (
@@ -176,14 +181,14 @@ export function PostingComposer({
       void getPostingBatch(currentBatch.pubId, requestHeaders).then((result) => {
         if (cancelled || result.kind !== 'ready') return;
         setCurrentBatch(result.data);
-        void reloadRecent();
+        void recentPage.refresh(true);
       });
     }, POLL_INTERVAL_MS);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [currentBatch, requestHeaders]);
+  }, [currentBatch, recentPage.refresh, requestHeaders]);
 
   const createBatch = async () => {
     const maximum = Number(maxTotalAmount);
@@ -251,7 +256,7 @@ export function PostingComposer({
       });
       idempotencyKeyRef.current = newIdempotencyKey();
       setConfirmSpend(false);
-      void reloadRecent();
+      void recentPage.refresh(true);
       return;
     }
     if (result.kind === 'conflict') {
@@ -288,7 +293,7 @@ export function PostingComposer({
     if (result.kind === 'ready') {
       setCurrentBatch(result.data);
       setNotice({ tone: 'info', text: '供应商状态同步完成。' });
-      void reloadRecent();
+      void recentPage.refresh(true);
     } else {
       setNotice({ tone: 'error', text: '供应商状态暂时无法同步，请稍后重试。' });
     }
@@ -309,7 +314,7 @@ export function PostingComposer({
         tone: 'info',
         text: retrying ? '受阻目标已重新排队。' : '预算已确认，发帖任务已直接进入队列。',
       });
-      void reloadRecent();
+      void recentPage.refresh(true);
     } else {
       setNotice({ tone: 'error', text: '开始发帖失败，请核对预算、登录态和批次状态。' });
     }
@@ -331,7 +336,7 @@ export function PostingComposer({
     if (result.kind === 'ready') {
       setCurrentBatch(result.data);
       setNotice({ tone: 'info', text: '公开回链与发布状态已回填。' });
-      void reloadRecent();
+      void recentPage.refresh(true);
     } else {
       setNotice({ tone: 'error', text: '回填失败，请确认使用有效的 http(s) 公开链接。' });
     }
@@ -539,7 +544,7 @@ export function PostingComposer({
             <pre>{currentBatch.contentText}</pre>
           </details>
           <div className="posting-target-statuses">
-            {currentBatch.targets.map((target) => (
+            {targetWindow.visibleItems.map((target) => (
               <article key={target.pubId}>
                 <div>
                   <strong>{target.mediaName}</strong>
@@ -581,39 +586,61 @@ export function PostingComposer({
               </article>
             ))}
           </div>
+          {currentBatch.targets.length > PAGE_SIZE ? (
+            <Pagination
+              page={targetWindow.page}
+              pageCount={targetWindow.pageCount}
+              onPageChange={targetWindow.setPage}
+              label="当前发帖目标分页"
+            />
+          ) : null}
         </section>
       ) : null}
 
       <section className="posting-history" aria-label="最近发帖批次">
         <h4>最近发帖批次</h4>
-        {recentState === 'loading' ? <p>正在读取…</p> : null}
-        {recentState === 'forbidden' ? <p>无权查看发帖记录。</p> : null}
-        {recentState === 'failed' ? (
+        {recentPage.state === 'loading' ? <p>正在读取…</p> : null}
+        {recentPage.state === 'failed' && recentAccess === 'forbidden' ? (
+          <p>无权查看发帖记录。</p>
+        ) : null}
+        {recentPage.state === 'failed' && recentAccess !== 'forbidden' ? (
           <p>
             发帖记录暂不可用。{' '}
-            <button type="button" onClick={() => void reloadRecent()}>
+            <button type="button" onClick={() => void recentPage.refresh()}>
               重试
             </button>
           </p>
         ) : null}
-        {recentState === 'ready' && recent.length === 0 ? <p>尚无发帖批次。</p> : null}
-        {recent.length > 0 ? (
-          <div className="posting-history-list">
-            {recent.map((batch) => (
-              <button type="button" key={batch.pubId} onClick={() => void openBatch(batch.pubId)}>
-                <span>
-                  <strong>{batch.title}</strong>
-                  <small>
-                    {batch.targetCount} 个媒体 · {batch.submittedCount} 已提交 ·{' '}
-                    {batch.publishedCount} 已发出
-                  </small>
-                </span>
-                <span className={`posting-status ${statusTone(batch.status)}`}>
-                  {BATCH_STATUS_LABELS[batch.status]}
-                </span>
-              </button>
-            ))}
-          </div>
+        {recentPage.state === 'ready' && recentPage.data.length === 0 ? (
+          <p>尚无发帖批次。</p>
+        ) : null}
+        {recentPage.data.length > 0 ? (
+          <>
+            <div className="posting-history-list">
+              {recentPage.data.map((batch) => (
+                <button type="button" key={batch.pubId} onClick={() => void openBatch(batch.pubId)}>
+                  <span>
+                    <strong>{batch.title}</strong>
+                    <small>
+                      {batch.targetCount} 个媒体 · {batch.submittedCount} 已提交 ·{' '}
+                      {batch.publishedCount} 已发出
+                    </small>
+                  </span>
+                  <span className={`posting-status ${statusTone(batch.status)}`}>
+                    {BATCH_STATUS_LABELS[batch.status]}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <CursorPagination
+              page={recentPage.pageNumber}
+              hasPrevious={recentPage.hasPrevious}
+              hasNext={recentPage.hasNext}
+              onPrevious={recentPage.previous}
+              onNext={recentPage.next}
+              label="最近发帖批次分页"
+            />
+          </>
         ) : null}
       </section>
     </section>

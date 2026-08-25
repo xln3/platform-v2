@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { CursorPagination } from '@geo/design-system';
+import { PAGE_SIZE, useCursorCollection } from '../../pagination';
 import type { SessionContext } from '../execution/api';
 import {
   accountPhoneLabel,
@@ -27,16 +29,25 @@ const RSS_WARN_BYTES = 1.5 * GB;
 const RSS_BAD_BYTES = 2 * GB;
 
 export function BrowsersPage({ session }: { session: SessionContext }) {
-  const [browsers, setBrowsers] = useState<CollectionBrowserRow[]>([]);
   const [accounts, setAccounts] = useState<CollectionAccountRow[]>([]);
   const [regions, setRegions] = useState<CollectionRegionRow[]>([]);
-  const [state, setState] = useState<'loading' | 'ready' | 'failed'>('loading');
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [syncResult, setSyncResult] = useState<BrowserSyncResult | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const toastSeq = useRef(0);
   const now = useNow();
+
+  const loadBrowsers = useCallback(
+    (cursor?: string) =>
+      accountGovApi.listBrowsers(session, {
+        ...(cursor ? { cursor } : {}),
+        limit: PAGE_SIZE,
+      }),
+    [session],
+  );
+  const browsersPage = useCursorCollection(loadBrowsers, session.tenantId);
+  const browsers = browsersPage.data;
 
   const pushToast = useCallback((tone: ToastMessage['tone'], text: string) => {
     toastSeq.current += 1;
@@ -45,26 +56,27 @@ export function BrowsersPage({ session }: { session: SessionContext }) {
     window.setTimeout(() => setToasts((current) => current.filter((t) => t.id !== id)), 8_000);
   }, []);
 
-  const refresh = useCallback(async () => {
+  const refreshAux = useCallback(async () => {
     try {
-      const [browserRows, accountRows, regionRows] = await Promise.all([
-        accountGovApi.listBrowsers(session),
+      const [accountPage, regionRows] = await Promise.all([
         accountGovApi.listAccounts(session),
         accountGovApi.listRegions(session),
       ]);
-      setBrowsers(browserRows);
-      setAccounts(accountRows);
+      setAccounts(accountPage.data);
       setRegions(regionRows);
-      setState('ready');
     } catch {
-      setState('failed');
+      setAccounts([]);
+      setRegions([]);
     }
   }, [session]);
 
+  const refresh = useCallback(async () => {
+    await Promise.allSettled([browsersPage.refresh(true), refreshAux()]);
+  }, [browsersPage.refresh, refreshAux]);
+
   useEffect(() => {
-    setState('loading');
-    void refresh();
-  }, [refresh]);
+    void refreshAux();
+  }, [refreshAux]);
   useVisiblePolling(() => void refresh(), POLL_MS);
 
   const phoneByPubId = new Map(accounts.map((row) => [row.phone_account_pub_id, row]));
@@ -137,49 +149,60 @@ export function BrowsersPage({ session }: { session: SessionContext }) {
           同步错误：{syncResult.errors.join('；')}
         </p>
       ) : null}
-      {state === 'loading' ? (
+      {browsersPage.state === 'loading' ? (
         <p className="acct-gov-empty">正在加载浏览器实例…</p>
-      ) : state === 'failed' ? (
+      ) : browsersPage.state === 'failed' ? (
         <p className="acct-gov-empty">
-          浏览器实例加载失败。<button onClick={() => void refresh()}>重试</button>
+          浏览器实例加载失败。
+          <button onClick={() => void browsersPage.refresh()}>重试</button>
         </p>
       ) : browsers.length === 0 ? (
         <p className="acct-gov-empty">
           尚无浏览器实例记录。点击「同步实例清单」从 GEO_BROWSER_INSTANCES 同步。
         </p>
       ) : (
-        <div className="acct-gov-table-scroll">
-          <table aria-label="采集浏览器列表" className="acct-gov-table">
-            <thead>
-              <tr>
-                <th>实例</th>
-                <th>开启时长</th>
-                <th>内存占用</th>
-                <th>地域</th>
-                <th>IP 地址</th>
-                {COLLECTION_PLATFORMS.map((platform) => (
-                  <th key={platform}>{PLATFORM_LABELS[platform]}</th>
+        <>
+          <div className="acct-gov-table-scroll">
+            <table aria-label="采集浏览器列表" className="acct-gov-table">
+              <thead>
+                <tr>
+                  <th>实例</th>
+                  <th>开启时长</th>
+                  <th>内存占用</th>
+                  <th>地域</th>
+                  <th>IP 地址</th>
+                  {COLLECTION_PLATFORMS.map((platform) => (
+                    <th key={platform}>{PLATFORM_LABELS[platform]}</th>
+                  ))}
+                  <th>活动</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {browsers.map((row) => (
+                  <BrowserRow
+                    key={row.browser_pub_id}
+                    row={row}
+                    now={now}
+                    busy={busyKey === row.instance_key}
+                    phoneByPubId={phoneByPubId}
+                    regionNameByGb={regionNameByGb}
+                    onRestart={() => void restart(row)}
+                    onReleaseLock={() => void releaseLock(row)}
+                  />
                 ))}
-                <th>活动</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {browsers.map((row) => (
-                <BrowserRow
-                  key={row.browser_pub_id}
-                  row={row}
-                  now={now}
-                  busy={busyKey === row.instance_key}
-                  phoneByPubId={phoneByPubId}
-                  regionNameByGb={regionNameByGb}
-                  onRestart={() => void restart(row)}
-                  onReleaseLock={() => void releaseLock(row)}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </tbody>
+            </table>
+          </div>
+          <CursorPagination
+            page={browsersPage.pageNumber}
+            hasPrevious={browsersPage.hasPrevious}
+            hasNext={browsersPage.hasNext}
+            onPrevious={browsersPage.previous}
+            onNext={browsersPage.next}
+            label="采集浏览器分页"
+          />
+        </>
       )}
       <ToastStack toasts={toasts} />
     </main>

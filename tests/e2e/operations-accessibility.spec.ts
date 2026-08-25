@@ -22,8 +22,16 @@ test('operations shell and account lifecycle view are WCAG AA clean', async ({ p
     'href',
     '/platform/operations/media-prices?project=prj_01K0CONTRACTFIXTURE0000000',
   );
-  for (const workspace of [/会话健康/, /待人工/, /事件审计/]) {
-    await page.getByRole('button', { name: workspace }).click();
-    await expectAccessible(page);
-  }
+  await expect(page.getByRole('link', { name: /会话健康/ })).toHaveAttribute(
+    'href',
+    '/platform/operations/execution?project=prj_01K0CONTRACTFIXTURE0000000#platform-accounts',
+  );
+  await expect(page.getByRole('link', { name: /人工接管/ })).toHaveAttribute(
+    'href',
+    '/platform/operations/execution?project=prj_01K0CONTRACTFIXTURE0000000#interventions',
+  );
+  await expect(page.getByRole('link', { name: /事件审计/ })).toHaveAttribute(
+    'href',
+    '/platform/operations/execution?project=prj_01K0CONTRACTFIXTURE0000000#events',
+  );
 });

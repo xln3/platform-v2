@@ -1,5 +1,7 @@
+import { Dialog, Pagination } from '@geo/design-system';
 import { useCallback, useEffect, useState } from 'react';
-import { executionApi, type Run } from '../execution/api';
+import { PAGE_SIZE, useNumberedCollection } from '../../pagination';
+import { executionApi, type Run, type RunSummary } from '../execution/api';
 import { AnswerExplorer } from './AnswerExplorer';
 import type { SessionContext } from './api';
 
@@ -11,8 +13,6 @@ export const TERMINAL_RUN_STATES: readonly string[] = [
   'skipped',
 ];
 
-type RunRow = Run & { created_at?: string | null };
-
 type Props = {
   session: SessionContext;
   projectPubId: string;
@@ -20,38 +20,47 @@ type Props = {
 };
 
 export function RunsPanel({ session, projectPubId, readOnly = false }: Props) {
-  const [runs, setRuns] = useState<RunRow[]>([]);
-  const [state, setState] = useState<'loading' | 'ready' | 'failed'>('loading');
+  const loadPage = useCallback(
+    (page: number) =>
+      executionApi.runPage(session, {
+        projectPubId,
+        page,
+        limit: PAGE_SIZE,
+      }),
+    [session, projectPubId],
+  );
+  const runsPage = useNumberedCollection(loadPage, projectPubId);
+  const [summary, setSummary] = useState<RunSummary | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [answersOpenRunId, setAnswersOpenRunId] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
+  const refreshSummary = useCallback(async () => {
     try {
-      const items = (await executionApi.runs(session)) as RunRow[];
-      setRuns(items.filter((run) => run.project_pub_id === projectPubId));
-      setState('ready');
+      setSummary(await executionApi.runSummary(session, projectPubId));
     } catch {
-      setState('failed');
+      setSummary(null);
     }
   }, [session, projectPubId]);
 
   useEffect(() => {
-    setState('loading');
-    void refresh();
-  }, [refresh]);
+    void refreshSummary();
+  }, [refreshSummary]);
 
-  const hasLive = runs.some((run) => !TERMINAL_RUN_STATES.includes(run.state as never));
+  const hasLive = (summary?.active_run_count ?? 0) > 0;
   useEffect(() => {
     if (!hasLive) return;
-    const timer = window.setInterval(() => void refresh(), 15_000);
+    const timer = window.setInterval(() => {
+      void runsPage.refresh(true);
+      void refreshSummary();
+    }, 15_000);
     return () => window.clearInterval(timer);
-  }, [hasLive, refresh]);
+  }, [hasLive, refreshSummary, runsPage.refresh]);
 
-  async function control(run: RunRow, action: 'pause' | 'resume' | 'cancel' | 'retry') {
+  async function control(run: Run, action: 'pause' | 'resume' | 'cancel' | 'retry') {
     setNotice(null);
     try {
       await executionApi.controlRun(session, run.pub_id, action);
-      await refresh();
+      await Promise.all([runsPage.refresh(), refreshSummary()]);
     } catch (cause) {
       setNotice(cause instanceof Error ? cause.message : '控制操作失败');
     }
@@ -61,128 +70,133 @@ export function RunsPanel({ session, projectPubId, readOnly = false }: Props) {
     <section className="execution-card runs-panel">
       <div className="section-title">
         <h2>采样记录</h2>
-        <span>{hasLive ? '存在进行中的 run，每 15 秒自动刷新' : '全部 run 已到终态'}</span>
+        <span>
+          {summary
+            ? `项目共 ${summary.run_count} 个 run${hasLive ? '，进行中时每 15 秒刷新当前页' : ''}`
+            : '按创建时间稳定倒序'}
+        </span>
       </div>
       {notice ? (
         <p className="launcher-error" role="alert">
           控制失败：{notice}
         </p>
       ) : null}
-      {state === 'loading' ? (
+      {runsPage.state === 'loading' ? (
         <p className="empty">正在加载运行列表…</p>
-      ) : state === 'failed' ? (
+      ) : runsPage.state === 'failed' ? (
         <p className="empty">
-          运行列表加载失败。<button onClick={() => void refresh()}>重试</button>
+          运行列表加载失败。<button onClick={() => void runsPage.refresh()}>重试</button>
         </p>
-      ) : runs.length === 0 ? (
-        <p className="empty">该项目尚无采集 run。冻结配置并启动采样后会出现在这里。</p>
+      ) : runsPage.data.length === 0 ? (
+        <p className="empty">该项目尚无采集 run。配置在客户/项目页生效后会显示在这里。</p>
       ) : (
-        <div className="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>运行</th>
-                <th>状态</th>
-                <th>进度</th>
-                <th>失败</th>
-                <th>时间</th>
-                <th>问答</th>
-                {readOnly ? null : <th>控制</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {runs.map((run) => (
-                <RunsPanelRow
-                  key={run.pub_id}
-                  run={run}
-                  session={session}
-                  projectPubId={projectPubId}
-                  readOnly={readOnly}
-                  answersOpen={answersOpenRunId === run.pub_id}
-                  onToggleAnswers={() =>
-                    setAnswersOpenRunId((current) => (current === run.pub_id ? null : run.pub_id))
-                  }
-                  onControl={(action) => void control(run, action)}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>运行</th>
+                  <th>状态</th>
+                  <th>进度</th>
+                  <th>失败</th>
+                  <th>时间</th>
+                  <th>问答</th>
+                  {readOnly ? null : <th>控制</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {runsPage.data.map((run) => (
+                  <RunsPanelRow
+                    key={run.pub_id}
+                    run={run}
+                    readOnly={readOnly}
+                    onOpenAnswers={() => setAnswersOpenRunId(run.pub_id)}
+                    onControl={(action) => void control(run, action)}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <Pagination
+            page={runsPage.pageNumber}
+            pageCount={runsPage.meta?.totalPages ?? 1}
+            totalItems={runsPage.meta?.totalCount ?? summary?.run_count ?? 0}
+            onPageChange={runsPage.goToPage}
+            label="采样记录分页"
+          />
+        </>
       )}
+      {answersOpenRunId ? (
+        <Dialog
+          title={`运行 ${answersOpenRunId} 的问答`}
+          closeLabel="关闭运行问答"
+          size="wide"
+          onClose={() => setAnswersOpenRunId(null)}
+        >
+          <AnswerExplorer
+            session={session}
+            projectPubId={projectPubId}
+            runPubId={answersOpenRunId}
+          />
+        </Dialog>
+      ) : null}
     </section>
   );
 }
 
-function runTone(run: RunRow): 'ok' | 'warn' | 'bad' {
+function runTone(run: Run): 'ok' | 'warn' | 'bad' {
   if (run.paused) return 'warn';
   if (run.state === 'completed') return 'ok';
   if (['failed', 'cancelled', 'completed_with_failures'].includes(run.state)) return 'bad';
   return 'warn';
 }
 
-type RunsPanelRowProps = {
-  run: RunRow;
-  session: SessionContext;
-  projectPubId: string;
-  readOnly: boolean;
-  answersOpen: boolean;
-  onToggleAnswers: () => void;
-  onControl: (action: 'pause' | 'resume' | 'cancel' | 'retry') => void;
-};
-
 function RunsPanelRow({
   run,
-  session,
-  projectPubId,
   readOnly,
-  answersOpen,
-  onToggleAnswers,
+  onOpenAnswers,
   onControl,
-}: RunsPanelRowProps) {
+}: {
+  run: Run;
+  readOnly: boolean;
+  onOpenAnswers: () => void;
+  onControl: (action: 'pause' | 'resume' | 'cancel' | 'retry') => void;
+}) {
   return (
-    <>
-      <tr>
-        <td data-label="运行">{run.pub_id}</td>
-        <td data-label="状态">
-          <span className={`status ${runTone(run)}`}>{run.paused ? 'paused' : run.state}</span>
+    <tr>
+      <td data-label="运行">{run.pub_id}</td>
+      <td data-label="状态">
+        <span className={`status ${runTone(run)}`}>{run.paused ? 'paused' : run.state}</span>
+      </td>
+      <td data-label="进度">
+        {run.completed_tasks}/{run.total_tasks}
+      </td>
+      <td data-label="失败">{run.failed_tasks}</td>
+      <td data-label="时间">
+        {new Date(run.created_at || run.updated_at).toLocaleString('zh-CN')}
+      </td>
+      <td data-label="问答">
+        <button type="button" onClick={onOpenAnswers}>
+          问答
+        </button>
+      </td>
+      {readOnly ? null : (
+        <td data-label="控制" className="actions">
+          {(run.paused || ['pending', 'queued', 'running'].includes(run.state)) && (
+            <button onClick={() => onControl(run.paused ? 'resume' : 'pause')}>
+              {run.paused ? '恢复' : '暂停'}
+            </button>
+          )}
+          {['pending', 'queued', 'running', 'waiting_intervention'].includes(run.state) && (
+            <button className="danger" onClick={() => onControl('cancel')}>
+              取消
+            </button>
+          )}
+          {['failed', 'completed_with_failures', 'cancelled', 'skipped'].includes(run.state) && (
+            <button onClick={() => onControl('retry')}>重试</button>
+          )}
         </td>
-        <td data-label="进度">
-          {run.completed_tasks}/{run.total_tasks}
-        </td>
-        <td data-label="失败">{run.failed_tasks}</td>
-        <td data-label="时间">
-          {new Date(run.created_at ?? run.updated_at).toLocaleString('zh-CN')}
-        </td>
-        <td data-label="问答">
-          <button aria-expanded={answersOpen} onClick={onToggleAnswers}>
-            {answersOpen ? '收起' : '问答'}
-          </button>
-        </td>
-        {readOnly ? null : (
-          <td data-label="控制" className="actions">
-            {(run.paused || ['pending', 'queued', 'running'].includes(run.state)) && (
-              <button onClick={() => onControl(run.paused ? 'resume' : 'pause')}>
-                {run.paused ? '恢复' : '暂停'}
-              </button>
-            )}
-            {['pending', 'queued', 'running', 'waiting_intervention'].includes(run.state) && (
-              <button className="danger" onClick={() => onControl('cancel')}>
-                取消
-              </button>
-            )}
-            {['failed', 'completed_with_failures', 'cancelled', 'skipped'].includes(run.state) && (
-              <button onClick={() => onControl('retry')}>重试</button>
-            )}
-          </td>
-        )}
-      </tr>
-      {answersOpen ? (
-        <tr className="answer-explorer-row">
-          <td colSpan={readOnly ? 6 : 7}>
-            <AnswerExplorer session={session} projectPubId={projectPubId} runPubId={run.pub_id} />
-          </td>
-        </tr>
-      ) : null}
-    </>
+      )}
+    </tr>
   );
 }

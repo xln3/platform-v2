@@ -1,5 +1,9 @@
 import { allowsFixtureIdentityHeaders, type BrowserBuildIdentityEnv } from '@geo/api-client';
+import { COLLECTION_PLATFORM_SLUGS, type CollectionPlatformSlug } from '../../platforms';
+import { pageFromResponse, type CursorPage } from '../../pagination';
 import type { SessionContext } from '../execution/api';
+
+export { PLATFORM_LABELS } from '../../platforms';
 
 const API_BASE =
   (import.meta as ImportMeta & { env?: { VITE_GEO_API_BASE?: string } }).env?.VITE_GEO_API_BASE ??
@@ -59,6 +63,24 @@ async function govGet<T>(session: SessionContext, path: string): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function govGetPage<T>(
+  session: SessionContext,
+  path: string,
+  input: { cursor?: string; limit?: number } = {},
+): Promise<CursorPage<T>> {
+  const url = new URL(`${API_BASE}${path}`);
+  url.searchParams.set('limit', String(input.limit ?? 100));
+  if (input.cursor) url.searchParams.set('cursor', input.cursor);
+  const response = await fetch(url, {
+    headers: { Accept: 'application/json', ...fixtureIdentityHeaders(session) },
+    cache: 'no-store',
+    redirect: 'error',
+    referrerPolicy: 'no-referrer',
+  });
+  if (!response.ok) throw await readApiError(response);
+  return pageFromResponse((await response.json()) as T[], response);
+}
+
 async function govSend<T>(
   session: SessionContext,
   method: 'POST' | 'PATCH',
@@ -86,16 +108,8 @@ async function govSend<T>(
 
 // ── 契约类型（字段逐字按后端契约，勿凭想象改） ──
 
-export const COLLECTION_PLATFORMS = ['doubao', 'yiyan', 'deepseek', 'yuanbao', 'tongyi'] as const;
-export type CollectionPlatform = (typeof COLLECTION_PLATFORMS)[number];
-
-export const PLATFORM_LABELS: Record<CollectionPlatform, string> = {
-  doubao: '豆包',
-  yiyan: '文心一言',
-  deepseek: 'DeepSeek',
-  yuanbao: '腾讯元宝',
-  tongyi: '通义千问',
-};
+export const COLLECTION_PLATFORMS = COLLECTION_PLATFORM_SLUGS;
+export type CollectionPlatform = CollectionPlatformSlug;
 
 /** 手机号 × 平台格（runtime_state：idle/running/muted/quota_exhausted/captcha/error）。 */
 export type PlatformAccountCell = {
@@ -240,8 +254,8 @@ export type PlatformAccountPatch = {
 };
 
 export const accountGovApi = {
-  listAccounts: (session: SessionContext) =>
-    govGet<CollectionAccountRow[]>(session, '/api/v2/collection-accounts'),
+  listAccounts: (session: SessionContext, input: { cursor?: string; limit?: number } = {}) =>
+    govGetPage<CollectionAccountRow>(session, '/api/v2/collection-accounts', input),
   listQuotaObservations: (session: SessionContext) =>
     govGet<AccountQuotaObservation[]>(session, '/api/v2/collection-account-quota-observations'),
   createAccount: (session: SessionContext, input: { phone: string; owner_note?: string }) =>
@@ -278,13 +292,18 @@ export const accountGovApi = {
       `/api/v2/collection-accounts/${phoneAccountPubId}/link-test`,
       { channel },
     ),
-  listAccountEvents: (session: SessionContext, phoneAccountPubId: string) =>
-    govGet<CollectionAccountEvent[]>(
+  listAccountEvents: (
+    session: SessionContext,
+    phoneAccountPubId: string,
+    input: { cursor?: string; limit?: number } = {},
+  ) =>
+    govGetPage<CollectionAccountEvent>(
       session,
       `/api/v2/collection-accounts/${phoneAccountPubId}/events`,
+      input,
     ),
-  listBrowsers: (session: SessionContext) =>
-    govGet<CollectionBrowserRow[]>(session, '/api/v2/collection-browsers'),
+  listBrowsers: (session: SessionContext, input: { cursor?: string; limit?: number } = {}) =>
+    govGetPage<CollectionBrowserRow>(session, '/api/v2/collection-browsers', input),
   syncBrowsers: (session: SessionContext) =>
     govSend<BrowserSyncResult>(session, 'POST', '/api/v2/collection-browsers/sync', {}),
   restartBrowser: (session: SessionContext, instanceKey: string) =>

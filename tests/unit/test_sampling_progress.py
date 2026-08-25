@@ -463,7 +463,9 @@ def test_sampling_progress_route_projects_counts_and_establishes_both_tenant_con
     monkeypatch.setattr(analytics_router, "_dsn", lambda: "postgresql://unused")
     result = analytics_router.sampling_progress(
         "prj_test",
-        Principal(
+        page=1,
+        page_size=100,
+        principal=Principal(
             subject="test",
             role=Role.ADMIN,
             tenant_pub_id="tnt_test",
@@ -477,6 +479,12 @@ def test_sampling_progress_route_projects_counts_and_establishes_both_tenant_con
     assert result.observed_cells == 1
     assert result.total_cells == 2
     assert result.live_runs == 1
+    assert result.page.model_dump() == {
+        "page": 1,
+        "page_size": 100,
+        "total_count": 2,
+        "total_pages": 1,
+    }
     assert len(result.columns) == 1
     assert result.columns[0].mode == "deep_think"
     assert result.columns[0].modes == ["deep_think", "normal"]
@@ -503,3 +511,24 @@ def test_sampling_progress_route_projects_counts_and_establishes_both_tenant_con
     assert any("FROM platform.answer_library_catalog" in sql for sql, _ in calls)
     config_params = next(params for sql, params in calls if sql == config_sql)
     assert config_params == ("tnt_test", "prj_test", captured_at, captured_at)
+
+    second_page = analytics_router.sampling_progress(
+        "prj_test",
+        page=2,
+        page_size=1,
+        principal=Principal(
+            subject="test",
+            role=Role.ADMIN,
+            tenant_pub_id="tnt_test",
+            user_pub_id="usr_test",
+        ),
+    )
+    assert second_page.page.model_dump() == {
+        "page": 2,
+        "page_size": 1,
+        "total_count": 2,
+        "total_pages": 2,
+    }
+    assert [row.query_text for row in second_page.rows] == ["问题二"]
+    assert second_page.total_cells == 2
+    assert second_page.answer_count == 3

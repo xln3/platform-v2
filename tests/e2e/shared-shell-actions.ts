@@ -86,9 +86,10 @@ export function verifySharedShellActions({
       expect(projected.hash).toBe('');
     }
     for (const label of liveNavLabelsWithoutBadges) {
-      await expect(page.getByRole('button', { name: new RegExp(label) }).locator('em')).toHaveCount(
-        0,
-      );
+      const navigationEntry = page
+        .getByRole('link', { name: new RegExp(label) })
+        .or(page.getByRole('button', { name: new RegExp(label) }));
+      await expect(navigationEntry.locator('em')).toHaveCount(0);
     }
 
     await page.locator('.project-switcher').click();

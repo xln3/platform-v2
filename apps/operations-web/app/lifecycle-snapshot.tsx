@@ -1,9 +1,7 @@
 import {
   AccountSummary,
-  Badge,
   containsClientSecret,
   InterventionStatus,
-  MetricGrid,
   RevocationReceipt,
   StatePanel,
   projectSafeAccountSummary,
@@ -223,7 +221,7 @@ export function OperationsLifecycleWorkspace({
   snapshot,
   unavailableState = 'insufficient',
 }: {
-  section: 'overview' | 'sessions' | 'interventions' | 'events';
+  section: 'sessions' | 'interventions' | 'events';
   snapshot: OperationsLifecycleSnapshot | null;
   unavailableState?: 'loading' | 'insufficient' | 'failed' | 'forbidden';
 }) {
@@ -233,86 +231,13 @@ export function OperationsLifecycleWorkspace({
       <Sessions snapshot={snapshot} />
     ) : section === 'interventions' ? (
       <Interventions snapshot={snapshot} />
-    ) : section === 'events' ? (
-      <Events snapshot={snapshot} />
     ) : (
-      <Overview snapshot={snapshot} />
+      <Events snapshot={snapshot} />
     );
   return (
     <>
       {snapshot.projectionTruncated ? <StatePanel state="delayed" /> : null}
       {content}
-    </>
-  );
-}
-
-function Overview({ snapshot }: { snapshot: OperationsLifecycleSnapshot }) {
-  return (
-    <>
-      <MetricGrid
-        metrics={[
-          {
-            label: '运行中',
-            value: String(snapshot.metrics.runningRuns),
-            detail: `${snapshot.metrics.projectCount} 个项目`,
-          },
-          {
-            label: '待人工',
-            value: String(snapshot.metrics.pendingInterventions),
-            detail: '仅显示安全状态摘要',
-          },
-          {
-            label: '健康会话',
-            value: `${snapshot.metrics.healthySessions}/${snapshot.metrics.totalSessions}`,
-            detail: '不包含秘密字段',
-          },
-          {
-            label: '延迟任务',
-            value: String(snapshot.metrics.delayedRuns),
-            detail: `P95 ${snapshot.metrics.p95DelayLabel}`,
-          },
-        ]}
-      />
-      <section className="panel">
-        <h2>运行时间线</h2>
-        <p className="panel-subtitle">
-          execution 业务文件由 S01 拥有；此处仅消费其单一安全只读快照，不复制账号状态或 API 调用。
-        </p>
-        {snapshot.activity.length === 0 ? (
-          <StatePanel state="empty" />
-        ) : (
-          <div
-            className="table-scroll"
-            role="region"
-            aria-label="可横向滚动的运行时间线"
-            tabIndex={0}
-          >
-            <table className="data-table">
-              <caption className="sr-only">运行时间线安全事件</caption>
-              <thead>
-                <tr>
-                  <th scope="col">时间</th>
-                  <th scope="col">事件</th>
-                  <th scope="col">对象</th>
-                  <th scope="col">结果</th>
-                </tr>
-              </thead>
-              <tbody>
-                {snapshot.activity.map((item) => (
-                  <tr key={item.pubId}>
-                    <td>{item.occurredAtLabel}</td>
-                    <td>{item.eventLabel}</td>
-                    <td>{item.objectLabel}</td>
-                    <td>
-                      <Badge tone={item.tone}>{item.resultLabel}</Badge>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
     </>
   );
 }

@@ -13,6 +13,7 @@ compute_run_comparison 现场产出（与报告 before_after 扩展组同一份�
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Any
 
 from psycopg.rows import dict_row
@@ -104,19 +105,36 @@ def create_comparison(
 
 
 def list_comparisons(
-    dsn: str, tenant_pub_id: str, project_pub_id: str, limit: int
+    dsn: str,
+    tenant_pub_id: str,
+    project_pub_id: str,
+    limit: int,
+    *,
+    cursor_created_at: datetime | None = None,
+    cursor_pub_id: str | None = None,
 ) -> list[dict[str, Any]]:
-    """项目下全部对比实体，created_at 倒序（pub_id 倒序决胜，稳定分页外语义）。"""
+    """Project-scoped stable keyset page; the router owns cursor verification."""
     with tenant_connection(dsn, tenant_pub_id, row_factory=dict_row) as connection:
         rows = connection.execute(
             f"""
             SELECT {_ENTITY_COLUMNS}
             FROM analytics.run_comparison
             WHERE tenant_pub_id=%s AND project_pub_id=%s
+              AND (
+                %s::timestamptz IS NULL
+                OR (created_at,pub_id) < (%s::timestamptz,%s::text)
+              )
             ORDER BY created_at DESC, pub_id DESC
             LIMIT %s
             """,
-            (tenant_pub_id, project_pub_id, limit),
+            (
+                tenant_pub_id,
+                project_pub_id,
+                cursor_created_at,
+                cursor_created_at,
+                cursor_pub_id,
+                limit,
+            ),
         ).fetchall()
     return [dict(row) for row in rows]
 

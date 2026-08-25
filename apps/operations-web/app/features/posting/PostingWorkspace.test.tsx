@@ -10,6 +10,7 @@ import {
   listProviderAccounts,
   saveProviderAccount,
   startProviderAccountLogin,
+  type PostingBatchSummary,
   type ProviderAccountStatus,
 } from '@geo/api-client';
 import { PostingWorkspace } from './PostingWorkspace';
@@ -85,6 +86,36 @@ function accounts(prfabuStatus: ProviderAccountStatus['sessionStatus'] = 'not_co
   );
 }
 
+function batchSummary(index: number): PostingBatchSummary {
+  return {
+    pubId: `pbt_${index}`,
+    sourceFilename: `article-${index}.docx`,
+    sourceSha256: String(index).padStart(64, '0'),
+    title: `发帖批次 ${index}`,
+    imageCount: 1,
+    customerName: '测试品牌',
+    releaseTime: null,
+    autoSubmit: false,
+    spendConfirmedAt: null,
+    maxTotalAmount: 88,
+    quotedTotalAmount: 88,
+    status: 'draft',
+    note: '',
+    sopProjectPubId: null,
+    articleVersionPubId: null,
+    approvalState: 'draft',
+    approvalRequestedByPubId: null,
+    approvedByPubId: null,
+    approvedAt: null,
+    createdAt: `2026-08-24T00:00:0${index}Z`,
+    updatedAt: `2026-08-24T00:00:0${index}Z`,
+    contentExcerpt: `正文 ${index}`,
+    targetCount: index,
+    submittedCount: 0,
+    publishedCount: 0,
+  };
+}
+
 function renderWorkspace() {
   const created = createPostingHandoff({
     tenantId: session.tenantId,
@@ -101,7 +132,10 @@ function renderWorkspace() {
 describe('PostingWorkspace', () => {
   beforeEach(() => {
     window.sessionStorage.clear();
-    vi.mocked(listPostingBatches).mockResolvedValue({ kind: 'ready', data: [] });
+    vi.mocked(listPostingBatches).mockResolvedValue({
+      kind: 'ready',
+      data: { data: [], nextCursor: null, hasMore: false, totalCount: 0 },
+    });
     vi.mocked(listProviderAccounts).mockResolvedValue({ kind: 'ready', data: accounts() });
     vi.mocked(createPostingBatch).mockResolvedValue({ kind: 'unavailable' });
   });
@@ -125,6 +159,39 @@ describe('PostingWorkspace', () => {
     expect(screen.getByRole('link', { name: '返回比价台修改目标' }).getAttribute('href')).toBe(
       '/platform/operations/media-prices',
     );
+  });
+
+  it('shows exactly four recent batches and navigates independent opaque cursor pages', async () => {
+    vi.mocked(listPostingBatches).mockImplementation(async (_headers, input = {}) => {
+      const page = input.cursor === 'cursor-2' ? 2 : input.cursor === 'cursor-3' ? 3 : 1;
+      const rows = page === 1 ? [1, 2, 3, 4] : page === 2 ? [5, 6, 7, 8] : [9];
+      return {
+        kind: 'ready',
+        data: {
+          data: rows.map(batchSummary),
+          nextCursor: page === 1 ? 'cursor-2' : page === 2 ? 'cursor-3' : null,
+          hasMore: page < 3,
+          totalCount: 9,
+        },
+      };
+    });
+    renderWorkspace();
+
+    await screen.findByText('发帖批次 1');
+    expect(screen.getByText('发帖批次 4')).toBeTruthy();
+    expect(screen.queryByText('发帖批次 5')).toBeNull();
+    const pager = screen.getByRole('navigation', { name: '最近发帖批次分页' });
+    fireEvent.click(within(pager).getByRole('button', { name: '下一页' }));
+    await screen.findByText('发帖批次 5');
+    expect(screen.getByText('发帖批次 8')).toBeTruthy();
+    expect(screen.queryByText('发帖批次 1')).toBeNull();
+    fireEvent.click(within(pager).getByRole('button', { name: '下一页' }));
+    await screen.findByText('发帖批次 9');
+    expect(screen.queryByText('发帖批次 8')).toBeNull();
+    expect(listPostingBatches).toHaveBeenLastCalledWith(session.headers, {
+      cursor: 'cursor-3',
+      limit: 4,
+    });
   });
 
   it('saves credentials, clears the browser password, and completes captcha login in-page', async () => {

@@ -4,7 +4,7 @@ import json
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import asdict
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from hashlib import sha256
 from typing import Any
@@ -312,8 +312,20 @@ class PostingService:
         tenant_pub_id: str,
         status: str | None,
         limit: int,
-    ) -> list[dict[str, Any]]:
+        anchor_created_at: datetime | None = None,
+        anchor_pub_id: str | None = None,
+    ) -> tuple[list[dict[str, Any]], int]:
         with self._conn(tenant_pub_id) as connection:
+            count_row = connection.execute(
+                """
+                SELECT count(*) AS total
+                FROM posting.batch
+                WHERE tenant_pub_id=%s
+                  AND (%s::text IS NULL OR status=%s)
+                """,
+                (tenant_pub_id, status, status),
+            ).fetchone()
+            total = int(count_row["total"]) if count_row is not None else 0
             rows = connection.execute(
                 """
                 SELECT b.*,
@@ -329,11 +341,23 @@ class PostingService:
                   ON t.tenant_pub_id=b.tenant_pub_id AND t.batch_pub_id=b.pub_id
                 WHERE b.tenant_pub_id=%s
                   AND (%s::text IS NULL OR b.status=%s)
+                  AND (
+                    %s::timestamptz IS NULL
+                    OR (b.created_at,b.pub_id) < (%s::timestamptz,%s)
+                  )
                 GROUP BY b.id
                 ORDER BY b.created_at DESC,b.pub_id DESC
                 LIMIT %s
                 """,
-                (tenant_pub_id, status, status, limit),
+                (
+                    tenant_pub_id,
+                    status,
+                    status,
+                    anchor_created_at,
+                    anchor_created_at,
+                    anchor_pub_id,
+                    limit,
+                ),
             ).fetchall()
         summaries: list[dict[str, Any]] = []
         for row in rows:
@@ -343,7 +367,7 @@ class PostingService:
             content_text = str(item.pop("content_text", ""))
             item["content_excerpt"] = content_text[:300]
             summaries.append(item)
-        return summaries
+        return summaries, total
 
     def get_batch(self, *, tenant_pub_id: str, batch_pub_id: str) -> dict[str, Any]:
         with self._conn(tenant_pub_id) as connection:

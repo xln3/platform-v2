@@ -29,7 +29,7 @@ test('media prices uses the shared shell, URL history, pagination and safe CSV e
   );
   await expect(page.getByRole('link', { name: '会话健康' })).toHaveAttribute(
     'href',
-    '/platform/operations/?section=sessions&project=prj_media_prices_live',
+    '/platform/operations/execution?project=prj_media_prices_live#platform-accounts',
   );
   await expect(page.getByText('价差媒体', { exact: true })).toBeVisible();
   await expect(page.getByText('人民网', { exact: true })).toHaveCount(0);

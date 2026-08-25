@@ -8,13 +8,14 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from domain.brandrank.rules import load_domain
 
 from ..contracts import PageMeta, ProjectPage, ProjectSummary
 from ..identity.policy import Principal, get_principal
+from ..pagination import decode_keyset_cursor, encode_keyset_cursor
 from ..tenancy.database import get_db
 from ..tenancy.ids import new_pub_id
 from ..tenancy.models import AuditLog
@@ -91,6 +92,35 @@ class FrozenConfigView(StrictModel):
     frozen_at: datetime
     snapshot_hash: str
     snapshot: dict[str, Any]
+    question_groups: list[QueryGroupDraft] = Field(default_factory=list)
+
+
+class CurrentConfigView(StrictModel):
+    """Read-only v1 projection with explicit effective/pending semantics."""
+
+    effective: FrozenConfigView | None
+    next_pending: FrozenConfigView | None
+
+
+def _frozen_config_view(version: MonitoringConfigVersion) -> FrozenConfigView:
+    if version.frozen_at is None:
+        raise ValueError("config_version_not_frozen")
+    snapshot = json.loads(version.snapshot_json)
+    raw_groups = snapshot.get("query_groups") if isinstance(snapshot, dict) else None
+    question_groups = (
+        [QueryGroupDraft.model_validate(group) for group in raw_groups]
+        if isinstance(raw_groups, list)
+        else []
+    )
+    return FrozenConfigView(
+        pub_id=version.pub_id,
+        revision=version.revision,
+        effective_at=version.effective_at,
+        frozen_at=version.frozen_at,
+        snapshot_hash=version.snapshot_hash,
+        snapshot=snapshot,
+        question_groups=question_groups,
+    )
 
 
 def as_summary(project: Project, tenant_pub_id: str) -> ProjectSummary:
@@ -107,7 +137,7 @@ def as_summary(project: Project, tenant_pub_id: str) -> ProjectSummary:
 
 @router.get("", response_model=ProjectPage, operation_id="listProjects")
 def list_projects(
-    cursor: str | None = Query(default=None),
+    cursor: str | None = Query(default=None, min_length=16, max_length=2_048),
     limit: int = Query(default=50, ge=1, le=100),
     principal: Principal = Depends(get_principal),
     session: Session = Depends(get_db),
@@ -117,15 +147,43 @@ def list_projects(
         repository = TenantRepository(session, principal.tenant_pub_id)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail={"code": "tenant_not_found"}) from exc
+    filters: dict[str, str | None] = {}
+    anchor = (
+        decode_keyset_cursor(
+            cursor,
+            kind="projects",
+            tenant_pub_id=principal.tenant_pub_id,
+            filters=filters,
+        )
+        if cursor is not None
+        else None
+    )
     statement = select(Project).where(Project.tenant_id == repository.tenant.id)
-    if cursor:
-        statement = statement.where(Project.pub_id > cursor)
-    rows = session.scalars(statement.order_by(Project.pub_id).limit(limit + 1)).all()
+    if anchor is not None:
+        statement = statement.where(
+            or_(
+                Project.created_at < anchor.created_at,
+                and_(Project.created_at == anchor.created_at, Project.pub_id < anchor.pub_id),
+            )
+        )
+    rows = session.scalars(
+        statement.order_by(Project.created_at.desc(), Project.pub_id.desc()).limit(limit + 1)
+    ).all()
     has_more = len(rows) > limit
     data = rows[:limit]
+    next_cursor = None
+    if has_more and data:
+        last = data[-1]
+        next_cursor = encode_keyset_cursor(
+            kind="projects",
+            tenant_pub_id=principal.tenant_pub_id,
+            filters=filters,
+            created_at=last.created_at,
+            pub_id=last.pub_id,
+        )
     return ProjectPage(
         data=[as_summary(item, principal.tenant_pub_id) for item in data],
-        page=PageMeta(next_cursor=data[-1].pub_id if has_more else None, has_more=has_more),
+        page=PageMeta(next_cursor=next_cursor, has_more=has_more),
     )
 
 
@@ -363,14 +421,60 @@ def list_config_versions(
         .order_by(MonitoringConfigVersion.revision.desc())
         .limit(limit)
     ).all()
-    return [
-        FrozenConfigView(
-            pub_id=row.pub_id,
-            revision=row.revision,
-            effective_at=row.effective_at,
-            frozen_at=row.frozen_at,
-            snapshot_hash=row.snapshot_hash,
-            snapshot=json.loads(row.snapshot_json),
+    return [_frozen_config_view(row) for row in rows]
+
+
+@router.get("/{project_pub_id}/config/current", response_model=CurrentConfigView)
+def current_config(
+    project_pub_id: str,
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db),
+) -> CurrentConfigView:
+    """Resolve the effective revision and nearest future revision server-side.
+
+    This endpoint is intentionally read-only.  It preserves v1 snapshot bytes
+    and hash while giving the service workspace deterministic time semantics.
+    Session 04 can extend the same projection to the canonical v2 store once
+    activation and commercial admission are wired.
+    """
+
+    principal.require("project:read")
+    repository = TenantRepository(session, principal.tenant_pub_id)
+    project = session.scalar(
+        select(Project).where(
+            Project.tenant_id == repository.tenant.id,
+            Project.pub_id == project_pub_id,
         )
-        for row in rows
-    ]
+    )
+    if project is None:
+        raise HTTPException(status_code=404, detail={"code": "project_not_found"})
+    now = datetime.now(UTC)
+    base = (
+        select(MonitoringConfigVersion)
+        .join(MonitoringConfig, MonitoringConfig.id == MonitoringConfigVersion.config_id)
+        .where(
+            MonitoringConfigVersion.tenant_id == repository.tenant.id,
+            MonitoringConfigVersion.frozen_at.is_not(None),
+            MonitoringConfig.project_id == project.id,
+        )
+    )
+    effective = session.scalar(
+        base.where(MonitoringConfigVersion.effective_at <= now)
+        .order_by(
+            MonitoringConfigVersion.effective_at.desc(),
+            MonitoringConfigVersion.revision.desc(),
+        )
+        .limit(1)
+    )
+    pending = session.scalar(
+        base.where(MonitoringConfigVersion.effective_at > now)
+        .order_by(
+            MonitoringConfigVersion.effective_at.asc(),
+            MonitoringConfigVersion.revision.asc(),
+        )
+        .limit(1)
+    )
+    return CurrentConfigView(
+        effective=_frozen_config_view(effective) if effective is not None else None,
+        next_pending=_frozen_config_view(pending) if pending is not None else None,
+    )

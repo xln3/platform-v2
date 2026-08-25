@@ -21,6 +21,60 @@ afterEach(() => {
 });
 
 describe('SamplingProgressPanel', () => {
+  it('shows at most four question rows and keeps full-cohort summaries while paging', async () => {
+    const requestedPages: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string | URL | Request) => {
+        const url = new URL(input instanceof Request ? input.url : String(input));
+        const requestedPage = url.searchParams.get('page') ?? '1';
+        requestedPages.push(requestedPage);
+        const allRows = Array.from({ length: 5 }, (_, index) => ({
+          appendix: null,
+          group: `G0${index + 1}`,
+          group_name: `问题组 ${index + 1}`,
+          expression: '原词',
+          query_text: `问题 ${index + 1}`,
+          cells: [],
+        }));
+        const page = Number(requestedPage);
+        return new Response(
+          JSON.stringify({
+            project_pub_id: 'prj_test',
+            config_revision_start: 2,
+            config_revision_end: 2,
+            columns: [
+              { key: 'leg-1', model: 'doubao', region: '北京', mode: 'normal', modes: ['normal'] },
+            ],
+            rows: allRows.slice((page - 1) * 4, page * 4),
+            page: { page, page_size: 4, total_count: 5, total_pages: 2 },
+            observed_cells: 0,
+            total_cells: 5,
+            answer_count: 0,
+            latest_capture_time: null,
+            live_runs: 0,
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }),
+    );
+
+    render(<SamplingProgressPanel session={session} projectPubId="prj_test" />);
+    const table = await screen.findByRole('table', { name: '问题采样进度总览' });
+    expect(within(table).getAllByRole('row')).toHaveLength(5);
+    expect(screen.getByText('5 问')).toBeTruthy();
+    expect(screen.getByText('已观测 0/5 格')).toBeTruthy();
+    expect(screen.queryByText('问题 5')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '下一页' }));
+    expect(await screen.findByText('问题 5')).toBeTruthy();
+    expect(
+      within(screen.getByRole('table', { name: '问题采样进度总览' })).getAllByRole('row'),
+    ).toHaveLength(2);
+    expect(screen.getByText('5 问')).toBeTruthy();
+    expect(requestedPages).toEqual(['1', '2']);
+  });
+
   it('renders the overview matrix with repeat counts and latest Shanghai time', async () => {
     vi.stubGlobal(
       'fetch',
@@ -78,6 +132,7 @@ describe('SamplingProgressPanel', () => {
                   ],
                 },
               ],
+              page: { page: 1, page_size: 4, total_count: 1, total_pages: 1 },
               observed_cells: 1,
               total_cells: 2,
               answer_count: 4,
@@ -96,8 +151,8 @@ describe('SamplingProgressPanel', () => {
     expect(screen.getByText('已观测 1/2 格')).toBeTruthy();
     expect(screen.getByText('共 4 条有效回答')).toBeTruthy();
     expect(screen.getByText(/每格仅汇总合格且非降级的有效回答/)).toBeTruthy();
-    expect(within(table).getByText('豆包×北京')).toBeTruthy();
-    expect(within(table).getByText('DeepSeek×上海')).toBeTruthy();
+    expect(within(table).getByRole('columnheader', { name: '豆包×北京' })).toBeTruthy();
+    expect(within(table).getByRole('columnheader', { name: 'DeepSeek×上海' })).toBeTruthy();
     expect(within(table).getByText('深度思考 3遍 · 快速模式 1遍')).toBeTruthy();
     expect(within(table).getByText('4遍')).toBeTruthy();
     expect(within(table).getByText('08-13 08:53')).toBeTruthy();
@@ -144,6 +199,7 @@ describe('SamplingProgressPanel', () => {
                   cells: [],
                 },
               ],
+              page: { page: 1, page_size: 4, total_count: 1, total_pages: 1 },
               observed_cells: 0,
               total_cells: 2,
               answer_count: 0,
@@ -225,6 +281,7 @@ describe('SamplingProgressPanel', () => {
                   ],
                 },
               ],
+              page: { page: 1, page_size: 4, total_count: 1, total_pages: 1 },
               observed_cells: 1,
               total_cells: 1,
               answer_count: 4,

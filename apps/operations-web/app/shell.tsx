@@ -3,6 +3,7 @@ import { getHealth, getOperationsLifecycle } from '@geo/api-client';
 import { getValidatedIdentityHeaders } from '@geo/auth';
 import { ProductShell, useOptionalExperienceContext } from '@geo/design-system';
 import { Navigate } from 'react-router';
+import { BusinessOverviewContainer, type BusinessOverviewLoader } from './business-overview';
 import {
   OperationsLifecycleWorkspace,
   fixtureOperationsLifecycleSnapshot,
@@ -108,9 +109,26 @@ export const operationsNav = [
     href: '/platform/operations/quotations',
     group: '项目与商务',
   },
-  { id: 'sessions', label: '会话健康', badge: '3', group: '采集' },
-  { id: 'interventions', label: '人工接管', badge: '2', group: '采集' },
-  { id: 'events', label: '采集事件审计', group: '采集' },
+  {
+    id: 'sessions',
+    label: '会话健康',
+    href: '/platform/operations/execution#platform-accounts',
+    badge: '3',
+    group: '采集',
+  },
+  {
+    id: 'interventions',
+    label: '人工接管',
+    href: '/platform/operations/execution#interventions',
+    badge: '2',
+    group: '采集',
+  },
+  {
+    id: 'events',
+    label: '采集事件审计',
+    href: '/platform/operations/execution#events',
+    group: '采集',
+  },
 ];
 
 const liveOperationsNav = operationsNav.map((item) => ({
@@ -134,9 +152,50 @@ export const liveOperationsRouteNav = operationsRouteNav.map((item) => ({
   href: item.href,
 }));
 
-export default function Shell() {
-  const experience = useOptionalExperienceContext();
-  const fixtureMode = experience?.source !== 'live';
+export type OperationsRootSection = 'overview' | 'sessions' | 'interventions' | 'events';
+
+type LifecycleLoader = typeof getOperationsLifecycle;
+
+export function OperationsActiveWorkspace({
+  section,
+  fixtureMode,
+  roles,
+  loadBusiness,
+  loadLifecycle = getOperationsLifecycle,
+}: {
+  section: OperationsRootSection;
+  fixtureMode: boolean;
+  roles: readonly string[];
+  loadBusiness?: BusinessOverviewLoader;
+  loadLifecycle?: LifecycleLoader;
+}) {
+  if (section === 'overview') {
+    return (
+      <BusinessOverviewContainer
+        fixtureMode={fixtureMode}
+        roles={roles}
+        {...(loadBusiness ? { loadBusiness } : {})}
+      />
+    );
+  }
+  return (
+    <OperationsLifecycleSection
+      section={section}
+      fixtureMode={fixtureMode}
+      loadLifecycle={loadLifecycle}
+    />
+  );
+}
+
+export function OperationsLifecycleSection({
+  section,
+  fixtureMode,
+  loadLifecycle = getOperationsLifecycle,
+}: {
+  section: Exclude<OperationsRootSection, 'overview'>;
+  fixtureMode: boolean;
+  loadLifecycle?: LifecycleLoader;
+}) {
   const [liveSnapshot, setLiveSnapshot] = useState<OperationsLifecycleSnapshot | null>(null);
   const [liveState, setLiveState] = useState<'loading' | 'ready' | 'failed' | 'forbidden'>(
     fixtureMode ? 'ready' : 'loading',
@@ -156,7 +215,7 @@ export default function Shell() {
     let cancelled = false;
     setLiveSnapshot(null);
     setLiveState('loading');
-    void getOperationsLifecycle(headers).then((result) => {
+    void loadLifecycle(headers).then((result) => {
       if (cancelled) return;
       if (result.kind === 'ready') {
         setLiveSnapshot(result.data);
@@ -169,30 +228,43 @@ export default function Shell() {
     return () => {
       cancelled = true;
     };
-  }, [experience?.tenantPubId, fixtureMode]);
+  }, [fixtureMode, loadLifecycle]);
+  return (
+    <OperationsLifecycleWorkspace
+      section={section}
+      snapshot={fixtureMode ? fixtureOperationsLifecycleSnapshot : liveSnapshot}
+      unavailableState={liveState === 'ready' ? 'insufficient' : liveState}
+    />
+  );
+}
+
+export default function Shell() {
+  const experience = useOptionalExperienceContext();
+  const fixtureMode = experience?.source !== 'live';
   if (!experience) {
     return <Navigate to="login" replace />;
   }
-  const snapshot = fixtureMode ? fixtureOperationsLifecycleSnapshot : liveSnapshot;
   return (
     <ProductShell
       product="Operations Web"
-      title="运行总览"
-      description="可靠采集、会话生命周期、人工接管与数据新鲜度。"
+      title="项目商务总览"
+      description="按现有系统事实汇总项目建档、服务、执行与交付；报价、签约及回款台账尚未接入。"
       probe={getHealth}
       nav={experience?.source === 'live' ? liveOperationsNav : operationsNav}
     >
-      {(active) => (
-        <OperationsLifecycleWorkspace
-          section={
-            active === 'sessions' || active === 'interventions' || active === 'events'
-              ? active
-              : 'overview'
-          }
-          snapshot={snapshot}
-          unavailableState={liveState === 'ready' ? 'insufficient' : liveState}
-        />
-      )}
+      {(active) => {
+        const section: OperationsRootSection =
+          active === 'sessions' || active === 'interventions' || active === 'events'
+            ? active
+            : 'overview';
+        return (
+          <OperationsActiveWorkspace
+            section={section}
+            fixtureMode={fixtureMode}
+            roles={experience.roles}
+          />
+        );
+      }}
     </ProductShell>
   );
 }

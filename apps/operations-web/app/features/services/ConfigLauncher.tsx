@@ -1,15 +1,12 @@
 import { useMemo, useState } from 'react';
+import { COLLECTION_PLATFORM_SLUGS, PlatformBadge, PLATFORM_REGISTRY } from '../../platforms';
 import { executionApi } from '../execution/api';
 import { DEFAULT_REGIONS, RegionMultiSelect } from './RegionMultiSelect';
 import type { SessionContext } from './api';
 
-export const LAUNCHER_PLATFORMS = [
-  ['doubao', '豆包'],
-  ['deepseek', 'DeepSeek'],
-  ['yiyan', '文心一言'],
-  ['tongyi', '通义千问'],
-  ['yuanbao', '腾讯元宝'],
-] as const;
+export const LAUNCHER_PLATFORMS = COLLECTION_PLATFORM_SLUGS.map(
+  (slug) => [slug, PLATFORM_REGISTRY[slug].label] as const,
+);
 
 const FREQUENCIES = [
   ['manual', '手动'],
@@ -189,7 +186,7 @@ export function ConfigLauncher({
         <fieldset>
           <legend>2. 采集平台</legend>
           <div className="platform-checks">
-            {LAUNCHER_PLATFORMS.map(([slug, label]) => (
+            {LAUNCHER_PLATFORMS.map(([slug]) => (
               <label key={slug}>
                 <input
                   type="checkbox"
@@ -202,7 +199,7 @@ export function ConfigLauncher({
                     )
                   }
                 />
-                {label}
+                <PlatformBadge platform={slug} />
               </label>
             ))}
           </div>

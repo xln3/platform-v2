@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./business-overview": "./src/business-overview.ts"
   },
   "scripts": {
     "build": "tsc --noEmit",

@@ -4,7 +4,7 @@ import { installOperationsMediaIdentity, routeReadyMediaPrices } from './media-p
 import { prepareVisualPage } from './visual-regression';
 
 const workspaces = [
-  { section: 'overview', snapshot: 'operations-shell.png', ready: '运行时间线' },
+  { section: 'overview', snapshot: 'operations-shell.png', ready: '项目组合' },
   { section: 'sessions', snapshot: 'operations-session-health.png', ready: '授权、租约与会话健康' },
   { section: 'interventions', snapshot: 'operations-interventions.png', ready: '人工接管队列' },
   { section: 'events', snapshot: 'operations-events.png', ready: '账号生命周期事件' },

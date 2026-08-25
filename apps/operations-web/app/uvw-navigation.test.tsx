@@ -1,10 +1,24 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OutboundRiskWorkspace } from './features/services/service-outbound-risk/OutboundRiskWorkspace';
 import { operationsNav } from './shell';
 
-afterEach(cleanup);
+const session = {
+  tenantId: 'tnt_fixture',
+  actorId: 'usr_fixture',
+  role: 'operator' as const,
+  headers: {
+    'X-Tenant-Id': 'tnt_fixture',
+    'X-Actor-Id': 'usr_fixture',
+    'X-Actor-Role': 'operator',
+  },
+};
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 describe('operations UVW information architecture', () => {
   it('places every collection lifecycle entry under collection and splits services 2 and 3', () => {
@@ -19,9 +33,56 @@ describe('operations UVW information architecture', () => {
     expect(operationsNav.some((item) => item.group === '系统运营')).toBe(false);
   });
 
-  it('keeps service 2 scoped to owned content and directs external U risk to service 3', () => {
+  it('defines service 2 from the frozen all-U scope independently of attribution', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string | URL | Request) => {
+        const request = input instanceof Request ? input : new Request(input);
+        if (
+          request.url.includes('/service2-source-corpus/') &&
+          request.url.endsWith('/analysis-models')
+        ) {
+          return Response.json({
+            default_model: 'fast-model',
+            models: [
+              {
+                model: 'fast-model',
+                label: 'Fast Model',
+                provider: 'fixture',
+                tier: 'economy',
+                capability: '全量初筛',
+                web_search_mode: 'fixture_search',
+                input_usd_per_million_tokens: 0.2,
+                output_usd_per_million_tokens: 1.2,
+                context_window_tokens: 1000000,
+                recommended: true,
+                pricing_observed_at: '2026-08-25',
+                pricing_source_url: 'https://example.com/models',
+                pricing_notice: 'catalog_snapshot_provider_invoice_authoritative',
+              },
+            ],
+            credential_source: 'server_environment_only',
+          });
+        }
+        if (request.url.includes('/service2-source-corpus/')) {
+          return new Response(JSON.stringify({ error: { code: 'service2_batch_not_found' } }), {
+            status: 404,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        if (request.url.includes('/api/v2/collection/runs')) {
+          return new Response(JSON.stringify([]), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json', 'X-Has-More': 'false' },
+          });
+        }
+        throw new Error(`unexpected request: ${request.url}`);
+      }),
+    );
+
     render(
       <OutboundRiskWorkspace
+        session={session}
         project={{
           pub_id: 'prj_fixture',
           name: 'Fixture Project',
@@ -31,8 +92,8 @@ describe('operations UVW information architecture', () => {
       />,
     );
 
-    expect(screen.getAllByText(/己方归属证据/).length).toBeGreaterThan(0);
-    expect(screen.getByText(/本页不读取互联网 U 页面作为“己方内容”/)).toBeTruthy();
-    expect(screen.getByRole('link', { name: '打开信源 SOP' })).toBeTruthy();
+    expect(await screen.findByText('建立全 U 核查批次')).toBeTruthy();
+    expect(screen.getByText(/不按作者、委托、己方\/竞品归属/)).toBeTruthy();
+    expect(screen.queryByText(/本页不读取互联网 U 页面/)).toBeNull();
   });
 });

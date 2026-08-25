@@ -13,7 +13,8 @@ import {
   type PostAnalysisItemRow,
   type PostAnalysisTaskDetail as PostAnalysisTaskDetailData,
 } from '@geo/api-client';
-import { Badge, StatePanel, Toast, VerifiedBlobImage } from '@geo/design-system';
+import { Badge, CursorPagination, StatePanel, Toast, VerifiedBlobImage } from '@geo/design-system';
+import { PAGE_SIZE } from '../../pagination';
 import {
   annotationStatusLabel,
   annotationTypeLabel,
@@ -60,16 +61,6 @@ const POLL_INTERVAL_MS = 4000;
 
 const isActiveTask = (status: string): boolean => status === 'queued' || status === 'running';
 
-/** 轮询/分页合并：按 pubId 去重更新，按任务内 ordinal 升序展示。 */
-function mergeItems(
-  current: PostAnalysisItemRow[],
-  incoming: PostAnalysisItemRow[],
-): PostAnalysisItemRow[] {
-  const byId = new Map(current.map((row) => [row.pubId, row]));
-  for (const row of incoming) byId.set(row.pubId, row);
-  return [...byId.values()].sort((a, b) => a.ordinal - b.ordinal);
-}
-
 const ITEM_STATUS_ORDER: readonly string[] = [
   'completed',
   'fetch_failed',
@@ -94,7 +85,8 @@ export function PostAnalysisTaskDetail({
   const [itemsState, setItemsState] = useState<ItemsState>({ kind: 'loading' });
   const [expanded, setExpanded] = useState<Record<string, ItemDetailState>>({});
   const [attempt, setAttempt] = useState(0);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const [itemsCursor, setItemsCursor] = useState<string | null>(null);
+  const [itemsBackStack, setItemsBackStack] = useState<Array<string | null>>([]);
   const [notice, setNotice] = useState<{ tone: 'positive' | 'negative'; text: string } | null>(
     null,
   );
@@ -104,7 +96,6 @@ export function PostAnalysisTaskDetail({
   useEffect(() => {
     let cancelled = false;
     setTaskState({ kind: 'loading' });
-    setItemsState({ kind: 'loading' });
     void getPostAnalysisTask(headers, taskPubId).then((result) => {
       if (cancelled) return;
       setTaskState(
@@ -115,13 +106,34 @@ export function PostAnalysisTaskDetail({
             : { kind: 'failed' },
       );
     });
-    void listPostAnalysisItems(headers, taskPubId).then((result) => {
+    return () => {
+      cancelled = true;
+    };
+  }, [headers, taskPubId, attempt]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setItemsState({ kind: 'loading' });
+    void listPostAnalysisItems(headers, taskPubId, {
+      ...(itemsCursor ? { cursor: itemsCursor } : {}),
+      limit: PAGE_SIZE,
+    }).then((result) => {
       if (cancelled) return;
+      if (
+        result.kind === 'ready' &&
+        result.data.data.length === 0 &&
+        itemsCursor !== null &&
+        itemsBackStack.length > 0
+      ) {
+        setItemsCursor(itemsBackStack.at(-1) ?? null);
+        setItemsBackStack((current) => current.slice(0, -1));
+        return;
+      }
       setItemsState(
         result.kind === 'ready'
           ? {
               kind: 'ready',
-              data: mergeItems([], result.data.data),
+              data: result.data.data,
               nextCursor: result.data.nextCursor,
               hasMore: result.data.hasMore,
             }
@@ -133,7 +145,12 @@ export function PostAnalysisTaskDetail({
     return () => {
       cancelled = true;
     };
-  }, [headers, taskPubId, attempt]);
+  }, [headers, taskPubId, attempt, itemsBackStack, itemsCursor]);
+
+  useEffect(() => {
+    setItemsCursor(null);
+    setItemsBackStack([]);
+  }, [taskPubId]);
 
   const hasActive = taskState.kind === 'ready' && isActiveTask(taskState.data.task.status);
   useEffect(() => {
@@ -145,11 +162,19 @@ export function PostAnalysisTaskDetail({
           current.kind === 'ready' ? { kind: 'ready', data: result.data } : current,
         );
       });
-      void listPostAnalysisItems(headers, taskPubId).then((result) => {
+      void listPostAnalysisItems(headers, taskPubId, {
+        ...(itemsCursor ? { cursor: itemsCursor } : {}),
+        limit: PAGE_SIZE,
+      }).then((result) => {
         if (result.kind !== 'ready') return;
         setItemsState((current) =>
           current.kind === 'ready'
-            ? { ...current, data: mergeItems(current.data, result.data.data) }
+            ? {
+                ...current,
+                data: result.data.data,
+                nextCursor: result.data.nextCursor,
+                hasMore: result.data.hasMore,
+              }
             : current,
         );
       });
@@ -165,30 +190,18 @@ export function PostAnalysisTaskDetail({
       }
     }, POLL_INTERVAL_MS);
     return () => clearInterval(timer);
-  }, [hasActive, headers, taskPubId]);
+  }, [hasActive, headers, itemsCursor, taskPubId]);
 
-  const loadMore = () => {
-    if (itemsState.kind !== 'ready' || !itemsState.hasMore || !itemsState.nextCursor || loadingMore)
-      return;
-    const requestedCursor = itemsState.nextCursor;
-    setLoadingMore(true);
-    setNotice(null);
-    void listPostAnalysisItems(headers, taskPubId, requestedCursor).then((result) => {
-      setLoadingMore(false);
-      if (result.kind !== 'ready') {
-        setNotice({ tone: 'negative', text: '加载更多条目失败，请重试。' });
-        return;
-      }
-      setItemsState((current) => {
-        if (current.kind !== 'ready' || current.nextCursor !== requestedCursor) return current;
-        return {
-          kind: 'ready',
-          data: mergeItems(current.data, result.data.data),
-          nextCursor: result.data.nextCursor,
-          hasMore: result.data.hasMore,
-        };
-      });
-    });
+  const nextItemsPage = () => {
+    if (itemsState.kind !== 'ready' || !itemsState.hasMore || !itemsState.nextCursor) return;
+    setItemsBackStack((current) => [...current, itemsCursor]);
+    setItemsCursor(itemsState.nextCursor);
+  };
+
+  const previousItemsPage = () => {
+    if (itemsBackStack.length === 0) return;
+    setItemsCursor(itemsBackStack.at(-1) ?? null);
+    setItemsBackStack((current) => current.slice(0, -1));
   };
 
   const loadItemDetail = (itemPubId: string) => {
@@ -334,16 +347,14 @@ export function PostAnalysisTaskDetail({
                     />
                   ))}
                 </div>
-                {itemsState.hasMore ? (
-                  <button
-                    className="button button-secondary"
-                    type="button"
-                    disabled={loadingMore}
-                    onClick={loadMore}
-                  >
-                    {loadingMore ? '正在加载…' : '加载更多条目'}
-                  </button>
-                ) : null}
+                <CursorPagination
+                  page={itemsBackStack.length + 1}
+                  hasPrevious={itemsBackStack.length > 0}
+                  hasNext={itemsState.hasMore && itemsState.nextCursor !== null}
+                  onPrevious={previousItemsPage}
+                  onNext={nextItemsPage}
+                  label="帖子分析条目分页"
+                />
               </>
             )}
           </section>

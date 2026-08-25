@@ -3,6 +3,13 @@ import {
   type IdentitySessionHeaders,
   type ProjectPageResponse,
 } from '@geo/api-client';
+import {
+  numberedPageFromResponse,
+  pageFromResponse,
+  readCount,
+  type CursorPage,
+  type NumberedPage,
+} from '../../pagination';
 
 const API_BASE =
   (import.meta as ImportMeta & { env?: { VITE_GEO_API_BASE?: string } }).env?.VITE_GEO_API_BASE ??
@@ -57,7 +64,17 @@ export type Run = {
   schedule_pub_id: string | null;
   retry_of_run_pub_id: string | null;
   initiated_by_pub_id: string | null;
+  created_at: string;
   updated_at: string;
+};
+
+export type RunSummary = {
+  project_pub_id: string | null;
+  run_count: number;
+  active_run_count: number;
+  total_tasks: number;
+  completed_tasks: number;
+  failed_tasks: number;
 };
 
 export type Project = {
@@ -74,6 +91,7 @@ export type Intervention = {
   pub_id: string;
   account_pub_id: string;
   account_mask: string;
+  account_custody_mode?: string | null;
   challenge_type: string;
   allowed_domain: string;
   action: string;
@@ -92,6 +110,15 @@ export type FrozenConfig = {
   frozen_at: string;
   snapshot_hash: string;
   snapshot: Record<string, unknown>;
+  question_groups?: Array<{
+    name: string;
+    items: Array<{ text: string; priority?: number }>;
+  }>;
+};
+
+export type CurrentConfig = {
+  effective: FrozenConfig | null;
+  next_pending: FrozenConfig | null;
 };
 
 export type Schedule = {
@@ -132,6 +159,7 @@ export type PlatformSla = {
 
 export type SessionEvent = {
   pub_id: string;
+  account_pub_id?: string | null;
   event_type: string;
   summary: Record<string, unknown>;
   occurred_at: string;
@@ -159,17 +187,52 @@ function requireData<T>(result: { data?: T; error?: unknown; response: Response 
   );
 }
 
+function requireCursorPage<T>(
+  result: { data?: T[]; error?: unknown; response: Response },
+  countHeaders: string[] = [],
+): CursorPage<T> {
+  const page = pageFromResponse(requireData(result), result.response);
+  const counts = Object.fromEntries(
+    countHeaders.flatMap((header) => {
+      const value = readCount(result.response, header);
+      return value === undefined ? [] : [[header, value]];
+    }),
+  );
+  return Object.keys(counts).length > 0 ? { ...page, counts } : page;
+}
+
+function requireNumberedPage<T>(result: {
+  data?: T[];
+  error?: unknown;
+  response: Response;
+}): NumberedPage<T> {
+  return numberedPageFromResponse(requireData(result), result.response);
+}
+
 export const executionApi = {
-  accounts: async (session: SessionContext): Promise<Account[]> =>
-    requireData(
+  accounts: async (
+    session: SessionContext,
+    input: { cursor?: string; limit?: number } = {},
+  ): Promise<CursorPage<Account>> =>
+    requireCursorPage(
       await client.GET('/api/v2/platform-accounts', {
-        params: { header: session.headers },
+        params: {
+          header: session.headers,
+          query: { ...(input.cursor ? { cursor: input.cursor } : {}), limit: input.limit ?? 100 },
+        },
       }),
+      ['X-Active-Count'],
     ),
-  projects: async (session: SessionContext): Promise<ProjectPageResponse> =>
+  projects: async (
+    session: SessionContext,
+    input: { cursor?: string; limit?: number } = {},
+  ): Promise<ProjectPageResponse> =>
     requireData(
       await client.GET('/api/v2/projects', {
-        params: { header: session.headers, query: { limit: 100 } },
+        params: {
+          header: session.headers,
+          query: { ...(input.cursor ? { cursor: input.cursor } : {}), limit: input.limit ?? 100 },
+        },
       }),
     ),
   createProject: async (
@@ -195,6 +258,12 @@ export const executionApi = {
           query: { limit: 20 },
           header: session.headers,
         },
+      }),
+    ),
+  currentConfig: async (session: SessionContext, projectId: string): Promise<CurrentConfig> =>
+    requireData(
+      await client.GET('/api/v2/projects/{project_pub_id}/config/current', {
+        params: { path: { project_pub_id: projectId }, header: session.headers },
       }),
     ),
   freezeConfig: async (
@@ -245,30 +314,95 @@ export const executionApi = {
         },
       }),
     ),
-  runs: async (session: SessionContext): Promise<Run[]> =>
-    requireData(
+  runs: async (
+    session: SessionContext,
+    input: { projectPubId?: string; cursor?: string; limit?: number } = {},
+  ): Promise<CursorPage<Run>> =>
+    requireCursorPage(
       await client.GET('/api/v2/collection/runs', {
-        params: { header: session.headers },
+        params: {
+          header: session.headers,
+          query: {
+            ...(input.projectPubId ? { project_pub_id: input.projectPubId } : {}),
+            ...(input.cursor ? { cursor: input.cursor } : {}),
+            limit: input.limit ?? 50,
+          },
+        },
       }),
     ),
-  interventions: async (session: SessionContext): Promise<Intervention[]> =>
+  runPage: async (
+    session: SessionContext,
+    input: { projectPubId?: string; page: number; limit?: number },
+  ): Promise<NumberedPage<Run>> =>
+    requireNumberedPage(
+      await client.GET('/api/v2/collection/runs', {
+        params: {
+          header: session.headers,
+          query: {
+            ...(input.projectPubId ? { project_pub_id: input.projectPubId } : {}),
+            page: input.page,
+            limit: input.limit ?? 50,
+          },
+        },
+      }),
+    ),
+  runSummary: async (session: SessionContext, projectPubId?: string): Promise<RunSummary> =>
     requireData(
+      await client.GET('/api/v2/collection/runs/summary', {
+        params: {
+          header: session.headers,
+          query: { ...(projectPubId ? { project_pub_id: projectPubId } : {}) },
+        },
+      }),
+    ),
+  interventions: async (
+    session: SessionContext,
+    input: { cursor?: string; limit?: number } = {},
+  ): Promise<CursorPage<Intervention>> =>
+    requireCursorPage(
       await client.GET('/api/v2/interventions', {
-        params: { header: session.headers },
+        params: {
+          header: session.headers,
+          query: { ...(input.cursor ? { cursor: input.cursor } : {}), limit: input.limit ?? 100 },
+        },
       }),
+      ['X-Open-Count'],
     ),
-  breakGlassRequests: async (session: SessionContext): Promise<BreakGlassRequest[]> =>
-    requireData(
+  breakGlassRequests: async (
+    session: SessionContext,
+    input: { cursor?: string; limit?: number } = {},
+  ): Promise<CursorPage<BreakGlassRequest>> =>
+    requireCursorPage(
       await client.GET('/api/v2/break-glass', {
-        params: { header: session.headers },
+        params: {
+          header: session.headers,
+          query: { ...(input.cursor ? { cursor: input.cursor } : {}), limit: input.limit ?? 100 },
+        },
       }),
     ),
-  events: async (session: SessionContext, accountId: string): Promise<SessionEvent[]> =>
-    requireData(
+  events: async (
+    session: SessionContext,
+    input: { cursor?: string; limit?: number } = {},
+  ): Promise<CursorPage<SessionEvent>> =>
+    requireCursorPage(
+      await client.GET('/api/v2/platform-events', {
+        params: {
+          header: session.headers,
+          query: { ...(input.cursor ? { cursor: input.cursor } : {}), limit: input.limit ?? 100 },
+        },
+      }),
+    ),
+  accountEvents: async (
+    session: SessionContext,
+    accountId: string,
+    input: { cursor?: string; limit?: number } = {},
+  ): Promise<CursorPage<SessionEvent>> =>
+    requireCursorPage(
       await client.GET('/api/v2/platform-accounts/{account_pub_id}/events', {
         params: {
           path: { account_pub_id: accountId },
           header: session.headers,
+          query: { ...(input.cursor ? { cursor: input.cursor } : {}), limit: input.limit ?? 100 },
         },
       }),
     ),
@@ -302,10 +436,16 @@ export const executionApi = {
         body: { reason },
       }),
     ),
-  schedules: async (session: SessionContext): Promise<Schedule[]> =>
-    requireData(
+  schedules: async (
+    session: SessionContext,
+    input: { cursor?: string; limit?: number } = {},
+  ): Promise<CursorPage<Schedule>> =>
+    requireCursorPage(
       await client.GET('/api/v2/schedules', {
-        params: { query: { limit: 100 }, header: session.headers },
+        params: {
+          query: { ...(input.cursor ? { cursor: input.cursor } : {}), limit: input.limit ?? 100 },
+          header: session.headers,
+        },
       }),
     ),
   createSchedule: async (

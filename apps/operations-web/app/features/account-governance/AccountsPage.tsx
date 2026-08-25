@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Dialog } from '@geo/design-system';
+import { CursorPagination, Dialog } from '@geo/design-system';
+import { PAGE_SIZE, useCursorCollection } from '../../pagination';
 import type { SessionContext } from '../execution/api';
 import {
   accountPhoneLabel,
@@ -42,10 +43,8 @@ type QuotaEditRequest = {
 };
 
 export function AccountsPage({ session }: { session: SessionContext }) {
-  const [accounts, setAccounts] = useState<CollectionAccountRow[]>([]);
   const [regions, setRegions] = useState<CollectionRegionRow[]>([]);
   const [quotaObservations, setQuotaObservations] = useState<AccountQuotaObservation[]>([]);
-  const [state, setState] = useState<'loading' | 'ready' | 'failed'>('loading');
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [eventsOpenId, setEventsOpenId] = useState<string | null>(null);
   const [regionChange, setRegionChange] = useState<RegionChangeRequest | null>(null);
@@ -57,6 +56,17 @@ export function AccountsPage({ session }: { session: SessionContext }) {
   const toastSeq = useRef(0);
   const now = useNow();
 
+  const loadAccounts = useCallback(
+    (cursor?: string) =>
+      accountGovApi.listAccounts(session, {
+        ...(cursor ? { cursor } : {}),
+        limit: PAGE_SIZE,
+      }),
+    [session],
+  );
+  const accountsPage = useCursorCollection(loadAccounts, session.tenantId);
+  const accounts = accountsPage.data;
+
   const pushToast = useCallback((tone: ToastMessage['tone'], text: string) => {
     toastSeq.current += 1;
     const id = toastSeq.current;
@@ -64,35 +74,36 @@ export function AccountsPage({ session }: { session: SessionContext }) {
     window.setTimeout(() => setToasts((current) => current.filter((t) => t.id !== id)), 8_000);
   }, []);
 
-  const refresh = useCallback(async () => {
+  const refreshAux = useCallback(async () => {
     try {
-      const [accountRows, regionRows, quotaRows] = await Promise.all([
-        accountGovApi.listAccounts(session),
+      const [regionRows, quotaRows] = await Promise.all([
         accountGovApi.listRegions(session),
         accountGovApi.listQuotaObservations(session),
       ]);
-      setAccounts(accountRows);
       setRegions(regionRows);
       setQuotaObservations(quotaRows);
-      setState('ready');
     } catch {
-      setState('failed');
+      setRegions([]);
+      setQuotaObservations([]);
     }
   }, [session]);
 
+  const refresh = useCallback(async () => {
+    await Promise.allSettled([accountsPage.refresh(true), refreshAux()]);
+  }, [accountsPage.refresh, refreshAux]);
+
   useEffect(() => {
-    setState('loading');
-    void refresh();
-  }, [refresh]);
+    void refreshAux();
+  }, [refreshAux]);
   useVisiblePolling(() => void refresh(), POLL_MS);
 
   // 浏览器管理页「绑定账号」跳转锚点：数据就绪后滚到目标行。
   useEffect(() => {
-    if (state !== 'ready' || typeof window === 'undefined') return;
+    if (accountsPage.state !== 'ready' || typeof window === 'undefined') return;
     const hash = window.location.hash;
     if (!hash) return;
     document.getElementById(decodeURIComponent(hash.slice(1)))?.scrollIntoView({ block: 'center' });
-  }, [state]);
+  }, [accountsPage.state, accounts]);
 
   async function runPushTest(row: CollectionAccountRow) {
     try {
@@ -147,60 +158,71 @@ export function AccountsPage({ session }: { session: SessionContext }) {
         regions={regions}
         now={now}
       />
-      {state === 'loading' ? (
+      {accountsPage.state === 'loading' ? (
         <p className="acct-gov-empty">正在加载账号列表…</p>
-      ) : state === 'failed' ? (
+      ) : accountsPage.state === 'failed' ? (
         <p className="acct-gov-empty">
-          账号列表加载失败。<button onClick={() => void refresh()}>重试</button>
+          账号列表加载失败。
+          <button onClick={() => void accountsPage.refresh()}>重试</button>
         </p>
       ) : accounts.length === 0 ? (
         <p className="acct-gov-empty">尚无采集账号。点击右上「添加帐号」登记第一个手机号。</p>
       ) : (
-        <div className="acct-gov-table-scroll">
-          <table aria-label="采集账号列表" className="acct-gov-table">
-            <thead>
-              <tr>
-                <th rowSpan={2}>手机号</th>
-                <th rowSpan={2}>转码</th>
-                <th rowSpan={2}>接管</th>
-                {COLLECTION_PLATFORMS.map((platform) => (
-                  <th key={platform} colSpan={3}>
-                    {PLATFORM_LABELS[platform]}
-                  </th>
+        <>
+          <div className="acct-gov-table-scroll">
+            <table aria-label="采集账号列表" className="acct-gov-table">
+              <thead>
+                <tr>
+                  <th rowSpan={2}>手机号</th>
+                  <th rowSpan={2}>转码</th>
+                  <th rowSpan={2}>接管</th>
+                  {COLLECTION_PLATFORMS.map((platform) => (
+                    <th key={platform} colSpan={3}>
+                      {PLATFORM_LABELS[platform]}
+                    </th>
+                  ))}
+                  <th rowSpan={2}>操作</th>
+                </tr>
+                <tr>
+                  {COLLECTION_PLATFORMS.map((platform) => (
+                    <PlatformSubHead key={platform} />
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {accounts.map((row) => (
+                  <AccountRow
+                    key={row.phone_account_pub_id}
+                    row={row}
+                    regions={regions}
+                    now={now}
+                    eventsOpen={eventsOpenId === row.phone_account_pub_id}
+                    session={session}
+                    onToggleEvents={() =>
+                      setEventsOpenId((current) =>
+                        current === row.phone_account_pub_id ? null : row.phone_account_pub_id,
+                      )
+                    }
+                    onRegionChange={(platform, cell, to) =>
+                      setRegionChange({ row, platform, cell, to })
+                    }
+                    onQuotaEdit={(platform, cell) => setQuotaEdit({ row, platform, cell })}
+                    onSmsTest={() => setSmsTestRow(row)}
+                    onPushTest={() => void runPushTest(row)}
+                  />
                 ))}
-                <th rowSpan={2}>操作</th>
-              </tr>
-              <tr>
-                {COLLECTION_PLATFORMS.map((platform) => (
-                  <PlatformSubHead key={platform} />
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {accounts.map((row) => (
-                <AccountRow
-                  key={row.phone_account_pub_id}
-                  row={row}
-                  regions={regions}
-                  now={now}
-                  eventsOpen={eventsOpenId === row.phone_account_pub_id}
-                  session={session}
-                  onToggleEvents={() =>
-                    setEventsOpenId((current) =>
-                      current === row.phone_account_pub_id ? null : row.phone_account_pub_id,
-                    )
-                  }
-                  onRegionChange={(platform, cell, to) =>
-                    setRegionChange({ row, platform, cell, to })
-                  }
-                  onQuotaEdit={(platform, cell) => setQuotaEdit({ row, platform, cell })}
-                  onSmsTest={() => setSmsTestRow(row)}
-                  onPushTest={() => void runPushTest(row)}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </tbody>
+            </table>
+          </div>
+          <CursorPagination
+            page={accountsPage.pageNumber}
+            hasPrevious={accountsPage.hasPrevious}
+            hasNext={accountsPage.hasNext}
+            onPrevious={accountsPage.previous}
+            onNext={accountsPage.next}
+            label="采集账号分页"
+          />
+        </>
       )}
       {regionChange ? (
         <RegionConfirmDialog
@@ -870,53 +892,54 @@ function AccountEventsPanel({
   session: SessionContext;
   phoneAccountPubId: string;
 }) {
-  const [events, setEvents] = useState<CollectionAccountEvent[]>([]);
-  const [state, setState] = useState<'loading' | 'ready' | 'failed'>('loading');
+  const loadEvents = useCallback(
+    (cursor?: string) =>
+      accountGovApi.listAccountEvents(session, phoneAccountPubId, {
+        ...(cursor ? { cursor } : {}),
+        limit: PAGE_SIZE,
+      }),
+    [phoneAccountPubId, session],
+  );
+  const eventsPage = useCursorCollection(loadEvents, phoneAccountPubId);
 
-  useEffect(() => {
-    let cancelled = false;
-    accountGovApi
-      .listAccountEvents(session, phoneAccountPubId)
-      .then((rows) => {
-        if (cancelled) return;
-        setEvents(rows);
-        setState('ready');
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setState('failed');
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [session, phoneAccountPubId]);
-
-  if (state === 'loading') return <p className="acct-gov-empty">正在加载事件…</p>;
-  if (state === 'failed') return <p className="acct-gov-empty">事件加载失败。</p>;
-  if (events.length === 0) return <p className="acct-gov-empty">暂无事件。</p>;
+  if (eventsPage.state === 'loading') return <p className="acct-gov-empty">正在加载事件…</p>;
+  if (eventsPage.state === 'failed') return <p className="acct-gov-empty">事件加载失败。</p>;
+  if (eventsPage.data.length === 0) return <p className="acct-gov-empty">暂无事件。</p>;
   return (
-    <ol className="acct-gov-events" aria-label="账号事件时间线">
-      {events.map((event) => (
-        <li key={event.event_pub_id}>
-          <time dateTime={event.created_at}>
-            {new Date(event.created_at).toLocaleString('zh-CN', { hour12: false })}
-          </time>
-          <strong>{event.event_type}</strong>
-          <span>{event.actor}</span>
-          {event.old_value !== null || event.new_value !== null ? (
-            <span>
-              {event.old_value ?? '—'} → {event.new_value ?? '—'}
-            </span>
-          ) : null}
-          {event.evidence !== null ? (
-            <small>
-              {typeof event.evidence === 'string' ? event.evidence : JSON.stringify(event.evidence)}
-            </small>
-          ) : null}
-          {event.run_pub_id ? <small>{event.run_pub_id}</small> : null}
-        </li>
-      ))}
-    </ol>
+    <>
+      <ol className="acct-gov-events" aria-label="账号事件时间线">
+        {eventsPage.data.map((event: CollectionAccountEvent) => (
+          <li key={event.event_pub_id}>
+            <time dateTime={event.created_at}>
+              {new Date(event.created_at).toLocaleString('zh-CN', { hour12: false })}
+            </time>
+            <strong>{event.event_type}</strong>
+            <span>{event.actor}</span>
+            {event.old_value !== null || event.new_value !== null ? (
+              <span>
+                {event.old_value ?? '—'} → {event.new_value ?? '—'}
+              </span>
+            ) : null}
+            {event.evidence !== null ? (
+              <small>
+                {typeof event.evidence === 'string'
+                  ? event.evidence
+                  : JSON.stringify(event.evidence)}
+              </small>
+            ) : null}
+            {event.run_pub_id ? <small>{event.run_pub_id}</small> : null}
+          </li>
+        ))}
+      </ol>
+      <CursorPagination
+        page={eventsPage.pageNumber}
+        hasPrevious={eventsPage.hasPrevious}
+        hasNext={eventsPage.hasNext}
+        onPrevious={eventsPage.previous}
+        onNext={eventsPage.next}
+        label="账号事件分页"
+      />
+    </>
   );
 }
 

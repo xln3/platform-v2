@@ -133,11 +133,18 @@ class _FakeConnection:
             return _Result([self._entity(row)])
         if "FROM analytics.run_comparison" in normalized:
             if "ORDER BY created_at DESC" in normalized:
-                tenant, project, limit = params
+                tenant, project, cursor_created_at, _cursor_created_at, cursor_pub_id, limit = (
+                    params
+                )
                 rows = [
                     r
                     for r in self._store.comparisons.values()
-                    if r["tenant_pub_id"] == tenant and r["project_pub_id"] == project
+                    if r["tenant_pub_id"] == tenant
+                    and r["project_pub_id"] == project
+                    and (
+                        cursor_created_at is None
+                        or (r["created_at"], r["pub_id"]) < (cursor_created_at, cursor_pub_id)
+                    )
                 ]
                 rows.sort(key=lambda r: (r["created_at"], r["pub_id"]), reverse=True)
                 return _Result([self._entity(r) for r in rows[:limit]])

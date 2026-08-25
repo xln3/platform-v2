@@ -296,6 +296,101 @@
   padding: 12px;
   margin: 14px 0 0;
 }
+
+.readonly-config-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+
+.readonly-config-meta > div,
+.readonly-config-block {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface) 92%, var(--accent) 8%);
+  padding: 12px;
+}
+
+.readonly-config-meta dt {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.readonly-config-meta dd {
+  margin: 6px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.readonly-config-meta details {
+  margin-top: 6px;
+}
+
+.readonly-config-full-hash {
+  display: block;
+  margin-top: 6px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.readonly-config-copy-hash {
+  margin-left: 0.5rem;
+  border: 0;
+  padding: 0;
+  color: var(--color-action, #2563eb);
+  background: transparent;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.readonly-config-block {
+  margin-top: 14px;
+}
+
+.readonly-config-block h3 {
+  margin-top: 0;
+}
+
+.readonly-config-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.readonly-config-tag {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  padding: 5px 10px;
+}
+
+.readonly-config-targets,
+.readonly-config-questions {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.readonly-config-targets li + li,
+.readonly-config-questions li + li {
+  margin-top: 8px;
+}
+
+.readonly-config-questions span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.readonly-config-questions p {
+  margin: 2px 0 0;
+}
+
+.readonly-config-navigation,
+.readonly-config-empty {
+  margin-bottom: 0;
+}
 .region-multi-select {
   display: flex;
   flex-wrap: wrap;
@@ -441,6 +536,14 @@
 }
 .services-page .table-scroll {
   overflow: auto;
+}
+.services-page .runs-panel table {
+  min-width: 760px;
+}
+.services-page .runs-panel th:first-child,
+.services-page .runs-panel td:first-child,
+.services-page .runs-panel .status {
+  white-space: nowrap;
 }
 .services-page table {
   width: 100%;

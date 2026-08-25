@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router';
 import {
   createPostAnalysisTask,
@@ -6,36 +6,23 @@ import {
   type IdentitySessionHeaders,
   type PostAnalysisTaskSummary,
 } from '@geo/api-client';
-import { Badge, FormField, StatePanel, TableRegion, Toast } from '@geo/design-system';
+import {
+  Badge,
+  CursorPagination,
+  FormField,
+  StatePanel,
+  TableRegion,
+  Toast,
+} from '@geo/design-system';
+import { PAGE_SIZE, useCursorCollection, type CursorPage } from '../../pagination';
 import { formatDateTime, taskStatusLabel, taskStatusTone } from './labels';
 import './post-analysis.css';
-
-type TaskListState =
-  | { kind: 'loading' }
-  | {
-      kind: 'ready';
-      data: PostAnalysisTaskSummary[];
-      nextCursor: string | null;
-      hasMore: boolean;
-    }
-  | { kind: 'forbidden' }
-  | { kind: 'failed' };
 
 const POLL_INTERVAL_MS = 4000;
 const MAX_URLS_PER_TASK = 50;
 const MAX_ALIASES = 20;
 
 const isActiveTask = (status: string): boolean => status === 'queued' || status === 'running';
-
-/** 合并分页/轮询结果：按 pubId 去重更新，按创建时间倒序展示（keyset 顺序与时间无关）。 */
-function mergeTasks(
-  current: PostAnalysisTaskSummary[],
-  incoming: PostAnalysisTaskSummary[],
-): PostAnalysisTaskSummary[] {
-  const byId = new Map(current.map((task) => [task.pubId, task]));
-  for (const task of incoming) byId.set(task.pubId, task);
-  return [...byId.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-}
 
 /** 每行一个 URL：去空、http/https 校验、客户端去重（保持首次出现顺序）。 */
 export function parseUrlLines(text: string): { urls: string[]; invalid: string[] } {
@@ -71,10 +58,8 @@ export function PostAnalysisTasks({
   canWrite: boolean;
 }) {
   const navigate = useNavigate();
-  const [state, setState] = useState<TaskListState>({ kind: 'loading' });
-  const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
+  const [accessState, setAccessState] = useState<'ready' | 'forbidden' | 'failed'>('ready');
   const [notice, setNotice] = useState<{ tone: 'positive' | 'negative'; text: string } | null>(
     null,
   );
@@ -87,67 +72,31 @@ export function PostAnalysisTasks({
     openInvestigation: true,
   });
 
-  useEffect(() => {
-    let cancelled = false;
-    setState({ kind: 'loading' });
-    void listPostAnalysisTasks(headers).then((result) => {
-      if (cancelled) return;
-      setState(
-        result.kind === 'ready'
-          ? {
-              kind: 'ready',
-              data: mergeTasks([], result.data.data),
-              nextCursor: result.data.nextCursor,
-              hasMore: result.data.hasMore,
-            }
-          : result.kind === 'forbidden'
-            ? { kind: 'forbidden' }
-            : { kind: 'failed' },
-      );
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [headers, attempt]);
-
-  const hasActive = state.kind === 'ready' && state.data.some((task) => isActiveTask(task.status));
+  const loadTasks = useCallback(
+    async (cursor?: string): Promise<CursorPage<PostAnalysisTaskSummary>> => {
+      const result = await listPostAnalysisTasks(headers, {
+        ...(cursor ? { cursor } : {}),
+        limit: PAGE_SIZE,
+      });
+      if (result.kind === 'ready') {
+        setAccessState('ready');
+        return result.data;
+      }
+      setAccessState(result.kind === 'forbidden' ? 'forbidden' : 'failed');
+      throw new Error(result.kind);
+    },
+    [headers],
+  );
+  const tasksPage = useCursorCollection(
+    loadTasks,
+    `${headers['X-Tenant-Id']}:${headers['X-Actor-Id']}:${headers['X-Actor-Role']}`,
+  );
+  const hasActive = tasksPage.data.some((task) => isActiveTask(task.status));
   useEffect(() => {
     if (!hasActive) return;
-    const timer = setInterval(() => {
-      void listPostAnalysisTasks(headers).then((result) => {
-        if (result.kind !== 'ready') return;
-        setState((current) =>
-          current.kind === 'ready'
-            ? { ...current, data: mergeTasks(current.data, result.data.data) }
-            : current,
-        );
-      });
-    }, POLL_INTERVAL_MS);
+    const timer = setInterval(() => void tasksPage.refresh(true), POLL_INTERVAL_MS);
     return () => clearInterval(timer);
-  }, [hasActive, headers]);
-
-  const loadMore = () => {
-    if (state.kind !== 'ready' || !state.hasMore || !state.nextCursor || loadingMore) return;
-    const requestedCursor = state.nextCursor;
-    setLoadingMore(true);
-    setNotice(null);
-    void listPostAnalysisTasks(headers, requestedCursor).then((result) => {
-      setLoadingMore(false);
-      if (result.kind !== 'ready') {
-        setNotice({ tone: 'negative', text: '加载更多任务失败，请重试。' });
-        return;
-      }
-      setState((current) => {
-        if (current.kind !== 'ready' || current.nextCursor !== requestedCursor) return current;
-        return {
-          kind: 'ready',
-          data: mergeTasks(current.data, result.data.data),
-          nextCursor: result.data.nextCursor,
-          hasMore: result.data.hasMore,
-        };
-      });
-    });
-  };
+  }, [hasActive, tasksPage.refresh]);
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -230,18 +179,18 @@ export function PostAnalysisTasks({
             <button
               className="button button-secondary"
               type="button"
-              onClick={() => setAttempt((value) => value + 1)}
+              onClick={() => void tasksPage.refresh()}
             >
               刷新
             </button>
           </div>
-          {state.kind === 'loading' ? (
+          {tasksPage.state === 'loading' ? (
             <StatePanel state="loading" />
-          ) : state.kind === 'forbidden' ? (
+          ) : accessState === 'forbidden' ? (
             <StatePanel state="forbidden" />
-          ) : state.kind === 'failed' ? (
-            <StatePanel state="failed" onRetry={() => setAttempt((value) => value + 1)} />
-          ) : state.data.length === 0 ? (
+          ) : tasksPage.state === 'failed' || accessState === 'failed' ? (
+            <StatePanel state="failed" onRetry={() => void tasksPage.refresh()} />
+          ) : tasksPage.data.length === 0 ? (
             <StatePanel state="empty" />
           ) : (
             <>
@@ -257,7 +206,7 @@ export function PostAnalysisTasks({
                     </tr>
                   </thead>
                   <tbody>
-                    {state.data.map((task) => (
+                    {tasksPage.data.map((task) => (
                       <tr key={task.pubId}>
                         <td>
                           <strong>{task.targetBrand}</strong>
@@ -283,16 +232,14 @@ export function PostAnalysisTasks({
                   </tbody>
                 </table>
               </TableRegion>
-              {state.hasMore ? (
-                <button
-                  className="button button-secondary"
-                  type="button"
-                  disabled={loadingMore}
-                  onClick={loadMore}
-                >
-                  {loadingMore ? '正在加载…' : '加载更多任务'}
-                </button>
-              ) : null}
+              <CursorPagination
+                page={tasksPage.pageNumber}
+                hasPrevious={tasksPage.hasPrevious}
+                hasNext={tasksPage.hasNext}
+                onPrevious={tasksPage.previous}
+                onNext={tasksPage.next}
+                label="帖子分析任务分页"
+              />
             </>
           )}
         </section>

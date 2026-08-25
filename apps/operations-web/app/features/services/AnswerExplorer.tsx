@@ -1,6 +1,9 @@
+import { CursorPagination } from '@geo/design-system';
 import { useCallback, useEffect, useState } from 'react';
 import { allowsFixtureIdentityHeaders, type BrowserBuildIdentityEnv } from '@geo/api-client';
 import { EvidenceImageFrame, type EvidenceAnchor } from '@geo/evidence-viewer';
+import { platformDisplayName } from '../../platforms';
+import { PAGE_SIZE, useCursorCollection, type CursorPage } from '../../pagination';
 import {
   executionApi,
   type AnswerRelations,
@@ -15,17 +18,7 @@ const API_BASE =
 
 // ── 纯逻辑（AnswerExplorer.test.tsx 覆盖）──
 
-export const PLATFORM_DISPLAY_NAMES: Record<string, string> = {
-  doubao: '豆包',
-  deepseek: 'DeepSeek',
-  yiyan: '文心一言',
-  tongyi: '通义千问',
-  yuanbao: '腾讯元宝',
-};
-
-export function platformDisplayName(model: string): string {
-  return PLATFORM_DISPLAY_NAMES[model] ?? model;
-}
+export { platformDisplayName };
 
 export function truncateText(text: string, max = 60): string {
   return text.length > max ? `${text.slice(0, max)}…` : text;
@@ -345,73 +338,45 @@ export function AnswerRowsTable({
 }
 
 export function AnswerExplorer({ session, projectPubId, runPubId }: Props) {
-  const [rows, setRows] = useState<AnswerRow[]>([]);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
-  const [state, setState] = useState<'loading' | 'ready' | 'failed'>('loading');
-  const [loadingMore, setLoadingMore] = useState(false);
   const [selected, setSelected] = useState<AnswerRow | null>(null);
 
   const load = useCallback(
-    async (cursor?: string) => {
+    async (cursor?: string): Promise<CursorPage<AnswerRow>> => {
       const page = await executionApi.answers(session, {
         projectPubId,
         runPubId,
-        limit: 50,
+        limit: PAGE_SIZE,
         ...(cursor ? { cursor } : {}),
       });
-      return page;
+      return {
+        data: page.data,
+        nextCursor: typeof page.page.next_cursor === 'string' ? page.page.next_cursor : null,
+        hasMore: page.page.has_more === true,
+      };
     },
     [session, projectPubId, runPubId],
   );
-
-  useEffect(() => {
-    let cancelled = false;
-    setState('loading');
-    load()
-      .then((page) => {
-        if (cancelled) return;
-        setRows(page.data);
-        setNextCursor(typeof page.page.next_cursor === 'string' ? page.page.next_cursor : null);
-        setState('ready');
-      })
-      .catch(() => {
-        if (!cancelled) setState('failed');
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [load]);
-
-  async function loadMore() {
-    if (!nextCursor) return;
-    setLoadingMore(true);
-    try {
-      const page = await load(nextCursor);
-      setRows((current) => [...current, ...page.data]);
-      setNextCursor(typeof page.page.next_cursor === 'string' ? page.page.next_cursor : null);
-    } finally {
-      setLoadingMore(false);
-    }
-  }
+  const answersPage = useCursorCollection(load, `${projectPubId}:${runPubId}`);
 
   return (
     <div className="answer-explorer">
-      {state === 'loading' ? (
+      {answersPage.state === 'loading' ? (
         <p className="empty">正在加载该 run 的问答…</p>
-      ) : state === 'failed' ? (
+      ) : answersPage.state === 'failed' ? (
         <p className="empty">问答列表加载失败。</p>
-      ) : rows.length === 0 ? (
+      ) : answersPage.data.length === 0 ? (
         <p className="empty">该 run 尚无采集问答。答案扇出到 analytics 后才会出现在这里。</p>
       ) : (
         <>
-          <AnswerRowsTable answers={rows} onSelect={setSelected} />
-          {nextCursor ? (
-            <p className="answer-explorer-more">
-              <button disabled={loadingMore} onClick={() => void loadMore()}>
-                {loadingMore ? '加载中…' : '加载更多'}
-              </button>
-            </p>
-          ) : null}
+          <AnswerRowsTable answers={answersPage.data} onSelect={setSelected} />
+          <CursorPagination
+            page={answersPage.pageNumber}
+            hasPrevious={answersPage.hasPrevious}
+            hasNext={answersPage.hasNext}
+            onPrevious={answersPage.previous}
+            onNext={answersPage.next}
+            label="运行回答分页"
+          />
         </>
       )}
       {selected ? (

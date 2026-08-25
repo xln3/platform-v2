@@ -55,6 +55,7 @@ ROLE_PERMISSIONS: dict[Role, frozenset[str]] = {
             "evidence:read",
             "intake:read",
             "intake:write",
+            "operations:business:read",
             "sop:read",
             "sop:write",
         }
@@ -71,6 +72,7 @@ ROLE_PERMISSIONS: dict[Role, frozenset[str]] = {
             "intelligence:read",
             "intelligence:write",
             "intake:read",
+            "operations:business:read",
             "sop:read",
             "sop:write",
         }
@@ -91,6 +93,7 @@ ROLE_PERMISSIONS: dict[Role, frozenset[str]] = {
             "intelligence:read",
             "intelligence:review",
             "intake:read",
+            "operations:business:read",
             "sop:read",
         }
     ),

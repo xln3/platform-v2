@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from ..config import get_settings
 from ..evidence.object_store import ContentAddressedObjectStore
 from ..identity.policy import Principal, get_principal
+from ..pagination import decode_keyset_cursor, encode_keyset_cursor
 from .service import (
     PostAnalysisConflict,
     PostAnalysisInvalid,
@@ -173,6 +174,9 @@ def _page(
     *,
     limit: int,
     validator: Callable[[Mapping[str, Any]], BaseModel],
+    kind: str,
+    tenant_pub_id: str,
+    filters: Mapping[str, str | None],
 ) -> dict[str, Any]:
     has_more = len(rows) > limit
     visible = rows[:limit]
@@ -180,7 +184,17 @@ def _page(
     return {
         "data": data,
         "page": {
-            "next_cursor": str(visible[-1]["pub_id"]) if has_more and visible else None,
+            "next_cursor": (
+                encode_keyset_cursor(
+                    kind=kind,
+                    tenant_pub_id=tenant_pub_id,
+                    filters=filters,
+                    created_at=visible[-1]["created_at"],
+                    pub_id=str(visible[-1]["pub_id"]),
+                )
+                if has_more and visible
+                else None
+            ),
             "has_more": has_more,
         },
     }
@@ -215,13 +229,35 @@ def create_task(
 
 @router.get("/tasks", response_model=PostAnalysisPage[TaskView])
 def list_tasks(
-    cursor: str | None = None,
+    cursor: str | None = Query(default=None, min_length=16, max_length=2_048),
     limit: int = Query(default=50, ge=1, le=100),
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any]:
     principal.require("project:read")
-    rows = _service().list_tasks(tenant_pub_id=principal.tenant_pub_id, cursor=cursor, limit=limit)
-    return _page(rows, limit=limit, validator=TaskView.model_validate)
+    filters: dict[str, str | None] = {}
+    anchor = (
+        decode_keyset_cursor(
+            cursor,
+            kind="post-analysis-tasks",
+            tenant_pub_id=principal.tenant_pub_id,
+            filters=filters,
+        )
+        if cursor is not None
+        else None
+    )
+    rows = _service().list_tasks(
+        tenant_pub_id=principal.tenant_pub_id,
+        cursor=anchor.pub_id if anchor else None,
+        limit=limit,
+    )
+    return _page(
+        rows,
+        limit=limit,
+        validator=TaskView.model_validate,
+        kind="post-analysis-tasks",
+        tenant_pub_id=principal.tenant_pub_id,
+        filters=filters,
+    )
 
 
 @router.get("/tasks/{task_pub_id}", response_model=TaskDetailView)
@@ -238,19 +274,37 @@ def get_task(
 @router.get("/tasks/{task_pub_id}/items", response_model=PostAnalysisPage[ItemListRow])
 def list_items(
     task_pub_id: str,
-    cursor: str | None = None,
+    cursor: str | None = Query(default=None, min_length=16, max_length=2_048),
     limit: int = Query(default=50, ge=1, le=100),
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any]:
     principal.require("project:read")
+    filters = {"task_pub_id": task_pub_id}
+    anchor = (
+        decode_keyset_cursor(
+            cursor,
+            kind="post-analysis-items",
+            tenant_pub_id=principal.tenant_pub_id,
+            filters=filters,
+        )
+        if cursor is not None
+        else None
+    )
     with _service_errors():
         rows = _service().list_items(
             tenant_pub_id=principal.tenant_pub_id,
             task_pub_id=task_pub_id,
-            cursor=cursor,
+            cursor=anchor.pub_id if anchor else None,
             limit=limit,
         )
-    return _page(rows, limit=limit, validator=ItemListRow.model_validate)
+    return _page(
+        rows,
+        limit=limit,
+        validator=ItemListRow.model_validate,
+        kind="post-analysis-items",
+        tenant_pub_id=principal.tenant_pub_id,
+        filters=filters,
+    )
 
 
 @router.get("/items/{item_pub_id}", response_model=ItemDetailView)

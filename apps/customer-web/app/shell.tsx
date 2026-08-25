@@ -11,6 +11,7 @@ import {
   FormField as Field,
   InterventionStatus,
   MetricGrid,
+  ModelSelect,
   navigateClientSection,
   Pagination,
   ProjectionLimitNotice,
@@ -29,6 +30,7 @@ import {
   type AccountSummaryProjection,
   type DataState,
   type ProjectionLimitNoticeItem,
+  type ModelSelectOption,
   type RevocationReceiptProjection,
   type SafeHtmlDocumentProjection,
   useOptionalExperienceContext,
@@ -10078,6 +10080,14 @@ function AiOpsDock() {
   }, [experience, live, expanded, catalog]);
   const models = catalog?.models ?? [];
   const groups = catalog?.groups ?? [];
+  const modelOptions: ModelSelectOption[] = models.map((model, index) => {
+    const provider = groups.find((group) => group.models.includes(model))?.provider;
+    return {
+      value: model,
+      ...(provider ? { group: provider } : {}),
+      isDefault: index === 0,
+    };
+  });
   const toggle = () => {
     setExpanded((current) => {
       writeAiDockStorage(aiDockExpandedKey, current ? '0' : '1');
@@ -10114,40 +10124,14 @@ function AiOpsDock() {
               </summary>
               <div className="ai-op-body">
                 <p>{op.description}</p>
-                <label>
-                  调研模型
-                  <select
-                    aria-label={`${op.label}模型选择`}
-                    value={effective}
-                    disabled={models.length === 0}
-                    onChange={(event) => choose(op.id, event.target.value)}
-                  >
-                    {models.length ? (
-                      groups.length ? (
-                        // 同 provider 的模型归为一组（级联选项）
-                        groups.map((group) => (
-                          <optgroup key={group.provider} label={group.provider}>
-                            {group.models.map((model) => (
-                              <option key={model} value={model}>
-                                {model === models[0] ? `${model}（默认）` : model}
-                              </option>
-                            ))}
-                          </optgroup>
-                        ))
-                      ) : (
-                        models.map((model, index) => (
-                          <option key={model} value={model}>
-                            {index === 0 ? `${model}（默认）` : model}
-                          </option>
-                        ))
-                      )
-                    ) : (
-                      <option value="">
-                        {live ? '模型清单加载中…' : '登录真实项目后可选模型'}
-                      </option>
-                    )}
-                  </select>
-                </label>
+                <ModelSelect
+                  label="调研模型"
+                  ariaLabel={`${op.label}模型选择`}
+                  value={effective}
+                  options={modelOptions}
+                  onChange={(model) => choose(op.id, model)}
+                  emptyLabel={live ? '模型清单加载中…' : '登录真实项目后可选模型'}
+                />
               </div>
             </details>
           ))}

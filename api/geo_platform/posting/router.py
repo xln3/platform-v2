@@ -22,6 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, TypeAdapter, Valid
 
 from ..config import get_settings
 from ..identity.policy import Principal, get_principal
+from ..pagination import decode_keyset_cursor, encode_keyset_cursor, set_cursor_headers
 from .catalog import CatalogInvalid, RequestedTarget, resolve_targets
 from .docx import DOCX_MIME, DocxInvalid, parse_docx
 from .provider_auth import (
@@ -638,17 +639,50 @@ async def create_batch(
 
 @router.get("/batches", response_model=list[BatchSummary])
 def list_batches(
+    response: Response,
     status: BatchStatus | None = None,
-    limit: int = Query(default=20, ge=1, le=100),
+    limit: int = Query(default=4, ge=1, le=100),
+    cursor: str | None = Query(default=None, min_length=16, max_length=2048),
     principal: Principal = Depends(get_principal),
 ) -> list[BatchSummary]:
     principal.require("account:read")
-    rows = _service().list_batches(
+    filters = {"status": status}
+    anchor = (
+        decode_keyset_cursor(
+            cursor,
+            kind="posting-batches",
+            tenant_pub_id=principal.tenant_pub_id,
+            filters=filters,
+        )
+        if cursor
+        else None
+    )
+    rows, total_count = _service().list_batches(
         tenant_pub_id=principal.tenant_pub_id,
         status=status,
-        limit=limit,
+        limit=limit + 1,
+        anchor_created_at=anchor.created_at if anchor else None,
+        anchor_pub_id=anchor.pub_id if anchor else None,
     )
-    return [BatchSummary.model_validate(row) for row in rows]
+    has_more = len(rows) > limit
+    visible = rows[:limit]
+    next_cursor = None
+    if has_more and visible:
+        last = visible[-1]
+        next_cursor = encode_keyset_cursor(
+            kind="posting-batches",
+            tenant_pub_id=principal.tenant_pub_id,
+            filters=filters,
+            created_at=last["created_at"],
+            pub_id=str(last["pub_id"]),
+        )
+    set_cursor_headers(
+        response,
+        next_cursor=next_cursor,
+        has_more=has_more,
+        total_count=total_count,
+    )
+    return [BatchSummary.model_validate(row) for row in visible]
 
 
 @router.get("/batches/{batch_pub_id}", response_model=BatchView)

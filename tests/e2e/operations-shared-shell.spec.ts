@@ -6,7 +6,7 @@ verifySharedShellActions({
   product: 'Operations Web',
   path: '/platform/operations/',
   role: 'operator',
-  liveNavLabelsWithoutBadges: ['会话健康', '待人工'],
+  liveNavLabelsWithoutBadges: ['会话健康', '人工接管'],
   internalLink: {
     label: '执行与账号',
     href: '/platform/operations/execution',
@@ -17,14 +17,14 @@ verifyHostileUrlBoundary({
   product: 'Operations Web',
   path: '/platform/operations/',
   role: 'operator',
-  heading: '运行总览',
-  defaultSection: '总览',
+  heading: '项目商务总览',
+  defaultSection: '项目与商务总览',
 });
 
 verifyOversizedJsonBoundary({
   product: 'Operations Web',
   path: '/platform/operations/',
   role: 'operator',
-  heading: '运行总览',
+  heading: '项目商务总览',
   failureSurface: 'login',
 });

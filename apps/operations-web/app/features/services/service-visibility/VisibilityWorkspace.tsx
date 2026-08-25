@@ -7,7 +7,8 @@ import {
   type AnalyticsCompetitorProjection,
   type AnalyticsOverviewProjection,
 } from '@geo/api-client';
-import { ConfigLauncher } from '../ConfigLauncher';
+import { PlatformBadge } from '../../../platforms';
+import { ReadonlyConfigSummary } from '../ReadonlyConfigSummary';
 import { RunsPanel } from '../RunsPanel';
 import { SamplingProgressPanel } from '../SamplingProgressPanel';
 import { WindowPicker } from '../WindowPicker';
@@ -24,14 +25,6 @@ const METRIC_LABELS: Record<string, string> = {
   average_rank: '平均排名',
   top3_rate: 'Top 3 占比',
   citation_coverage: '引用覆盖',
-};
-
-const PLATFORM_LABELS: Record<string, string> = {
-  doubao: '豆包',
-  deepseek: 'DeepSeek',
-  yiyan: '文心一言',
-  tongyi: '通义千问',
-  yuanbao: '腾讯元宝',
 };
 
 function formatMetric(metric: string, value: number | null): string {
@@ -65,7 +58,6 @@ export function VisibilityWorkspace({
   const [brands, setBrands] = useState<BrandVisibilityResult | { kind: 'loading' }>({
     kind: 'loading',
   });
-  const [samplingVersion, setSamplingVersion] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -116,23 +108,9 @@ export function VisibilityWorkspace({
 
   return (
     <>
-      <ConfigLauncher
-        session={session}
-        projectPubId={project.pub_id}
-        groupName="品牌AI认知评测"
-        queryPlaceholder="国内网络空间资产搜索引擎哪家强"
-        onChanged={() => setSamplingVersion((current) => current + 1)}
-      />
-      <SamplingProgressPanel
-        key={`progress-${samplingVersion}`}
-        session={session}
-        projectPubId={project.pub_id}
-      />
-      <RunsPanel
-        key={`records-${samplingVersion}`}
-        session={session}
-        projectPubId={project.pub_id}
-      />
+      <ReadonlyConfigSummary session={session} projectPubId={project.pub_id} />
+      <SamplingProgressPanel session={session} projectPubId={project.pub_id} />
+      <RunsPanel session={session} projectPubId={project.pub_id} readOnly />
       <section className="execution-card">
         <div className="section-title">
           <h2>评测结果</h2>
@@ -183,7 +161,9 @@ export function VisibilityWorkspace({
               <tbody>
                 {breakdown.data.data.map((row, index) => (
                   <tr key={`${row.model ?? ''}-${index}`}>
-                    <td>{PLATFORM_LABELS[row.model ?? ''] ?? row.model ?? '—'}</td>
+                    <td>
+                      <PlatformBadge platform={row.model ?? '—'} />
+                    </td>
                     <td>{row.answer_count}</td>
                     <td>{row.mentioned_count}</td>
                     <td>

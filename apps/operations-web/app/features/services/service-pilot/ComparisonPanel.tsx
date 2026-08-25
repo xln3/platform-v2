@@ -1,4 +1,6 @@
+import { CursorPagination } from '@geo/design-system';
 import { useCallback, useEffect, useState } from 'react';
+import { PAGE_SIZE, useCursorCollection } from '../../../pagination';
 import { executionApi, type Run } from '../../execution/api';
 import {
   ServicesApiError,
@@ -90,9 +92,7 @@ export function ComparisonPanel({
   project: Project;
   runsVersion?: number;
 }) {
-  const [items, setItems] = useState<RunComparison[]>([]);
-  const [listState, setListState] = useState<'loading' | 'ready' | 'failed'>('loading');
-  const [runs, setRuns] = useState<RunRow[]>([]);
+  const [comparisonVersion, setComparisonVersion] = useState(0);
   const [name, setName] = useState('');
   const [note, setNote] = useState('');
   const [baselineIds, setBaselineIds] = useState<string[]>([]);
@@ -102,37 +102,29 @@ export function ComparisonPanel({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<DetailState | null>(null);
 
-  const refreshList = useCallback(async () => {
-    try {
-      const list = await servicesApi.listComparisons(session, { projectPubId: project.pub_id });
-      setItems(list);
-      setListState('ready');
-    } catch {
-      // 创建后刷新失败保留既有列表；首次加载失败才落 failed。
-      setListState((current) => (current === 'loading' ? 'failed' : current));
-    }
-  }, [session, project.pub_id]);
-
-  useEffect(() => {
-    setListState('loading');
-    void refreshList();
-  }, [refreshList]);
-
-  useEffect(() => {
-    let cancelled = false;
-    void executionApi.runs(session).then(
-      (fetched) => {
-        if (cancelled) return;
-        setRuns((fetched as RunRow[]).filter((run) => run.project_pub_id === project.pub_id));
-      },
-      () => {
-        if (!cancelled) setRuns([]);
-      },
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [session, project.pub_id, runsVersion]);
+  const loadRuns = useCallback(
+    (cursor?: string) =>
+      executionApi.runs(session, {
+        projectPubId: project.pub_id,
+        ...(cursor ? { cursor } : {}),
+        limit: PAGE_SIZE,
+      }),
+    [project.pub_id, session],
+  );
+  const runsPage = useCursorCollection(loadRuns, `${project.pub_id}:${runsVersion}`);
+  const loadComparisons = useCallback(
+    (cursor?: string) =>
+      servicesApi.listComparisons(session, {
+        projectPubId: project.pub_id,
+        ...(cursor ? { cursor } : {}),
+        limit: PAGE_SIZE,
+      }),
+    [project.pub_id, session],
+  );
+  const comparisonsPage = useCursorCollection(
+    loadComparisons,
+    `${project.pub_id}:${comparisonVersion}`,
+  );
 
   useEffect(() => {
     if (!expandedId) {
@@ -190,7 +182,7 @@ export function ComparisonPanel({
         optimizedRunPubIds: optimizedIds,
         ...(trimmedNote ? { note: trimmedNote } : {}),
       });
-      await refreshList();
+      setComparisonVersion((current) => current + 1);
       setExpandedId(created.pub_id);
       setName('');
       setNote('');
@@ -211,11 +203,15 @@ export function ComparisonPanel({
     return (
       <fieldset>
         <legend>{legend}</legend>
-        {runs.length === 0 ? (
+        {runsPage.state === 'loading' ? (
+          <p className="empty">正在加载 run…</p>
+        ) : runsPage.state === 'failed' ? (
+          <p className="empty">run 列表加载失败。</p>
+        ) : runsPage.data.length === 0 ? (
           <p className="empty">该项目尚无采集 run。</p>
         ) : (
           <div className="run-checks">
-            {runs.map((run) => (
+            {(runsPage.data as RunRow[]).map((run) => (
               <label key={run.pub_id}>
                 <input
                   type="checkbox"
@@ -258,6 +254,16 @@ export function ComparisonPanel({
           {runCheckboxes('基线 run（优化前，多选）', baselineIds, setBaselineIds)}
           {runCheckboxes('优化后 run（多选）', optimizedIds, setOptimizedIds)}
         </div>
+        {runsPage.state === 'ready' && runsPage.data.length > 0 ? (
+          <CursorPagination
+            page={runsPage.pageNumber}
+            hasPrevious={runsPage.hasPrevious}
+            hasNext={runsPage.hasNext}
+            onPrevious={runsPage.previous}
+            onNext={runsPage.next}
+            label="对比 run 分页"
+          />
+        ) : null}
         <label>
           备注（可选）
           <input
@@ -278,46 +284,56 @@ export function ComparisonPanel({
         </p>
       ) : null}
 
-      {listState === 'loading' ? (
+      {comparisonsPage.state === 'loading' ? (
         <p className="empty">正在加载对比列表…</p>
-      ) : listState === 'failed' ? (
+      ) : comparisonsPage.state === 'failed' ? (
         <p className="empty">对比列表加载失败。</p>
-      ) : items.length === 0 ? (
+      ) : comparisonsPage.data.length === 0 ? (
         <p className="empty">尚无前后对比——选择基线与优化后 run 创建第一个。</p>
       ) : (
-        <div className="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>名称</th>
-                <th>创建时间</th>
-                <th>基线 run</th>
-                <th>优化后 run</th>
-                <th>详情</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item) => (
-                <tr key={item.pub_id}>
-                  <td>{item.name}</td>
-                  <td>{new Date(item.created_at).toLocaleString('zh-CN', { hour12: false })}</td>
-                  <td>{item.baseline_run_pub_ids.length} 个</td>
-                  <td>{item.optimized_run_pub_ids.length} 个</td>
-                  <td>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setExpandedId((current) => (current === item.pub_id ? null : item.pub_id))
-                      }
-                    >
-                      {expandedId === item.pub_id ? '收起' : '展开'}
-                    </button>
-                  </td>
+        <>
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>名称</th>
+                  <th>创建时间</th>
+                  <th>基线 run</th>
+                  <th>优化后 run</th>
+                  <th>详情</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {comparisonsPage.data.map((item: RunComparison) => (
+                  <tr key={item.pub_id}>
+                    <td>{item.name}</td>
+                    <td>{new Date(item.created_at).toLocaleString('zh-CN', { hour12: false })}</td>
+                    <td>{item.baseline_run_pub_ids.length} 个</td>
+                    <td>{item.optimized_run_pub_ids.length} 个</td>
+                    <td>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedId((current) => (current === item.pub_id ? null : item.pub_id))
+                        }
+                      >
+                        {expandedId === item.pub_id ? '收起' : '展开'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <CursorPagination
+            page={comparisonsPage.pageNumber}
+            hasPrevious={comparisonsPage.hasPrevious}
+            hasNext={comparisonsPage.hasNext}
+            onPrevious={comparisonsPage.previous}
+            onNext={comparisonsPage.next}
+            label="前后对比记录分页"
+          />
+        </>
       )}
 
       {expandedId ? (

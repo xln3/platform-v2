@@ -1,4 +1,7 @@
+import { Pagination } from '@geo/design-system';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { PlatformBadge, platformDisplayName } from '../../platforms';
+import { usePageWindow } from '../../pagination';
 import { executionApi, type AnswerRow } from '../execution/api';
 import { AnswerDetail, AnswerRowsTable } from './AnswerExplorer';
 import {
@@ -8,14 +11,6 @@ import {
   type SamplingProgressColumn,
   type SessionContext,
 } from './api';
-
-const PLATFORM_LABELS: Record<string, string> = {
-  doubao: '豆包',
-  deepseek: 'DeepSeek',
-  yiyan: '文心一言',
-  tongyi: '通义千问',
-  yuanbao: '腾讯元宝',
-};
 
 const MODE_LABELS: Record<string, string> = {
   normal: '快速模式',
@@ -121,6 +116,11 @@ function SamplingAnswersDialog({
   const [state, setState] = useState<AnswerLoadState>({ kind: 'loading' });
   const [selected, setSelected] = useState<AnswerRow | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
+  const answers = state.kind === 'ready' ? state.answers : [];
+  const answerWindow = usePageWindow(
+    answers,
+    `${target.queryText}:${target.column.key}:${reloadToken}`,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -170,7 +170,7 @@ function SamplingAnswersDialog({
     return <AnswerDetail session={session} answer={selected} onClose={() => setSelected(null)} />;
   }
 
-  const platform = PLATFORM_LABELS[target.column.model] ?? target.column.model;
+  const platform = platformDisplayName(target.column.model);
   return (
     <div
       className="answer-detail-overlay"
@@ -203,9 +203,15 @@ function SamplingAnswersDialog({
               </p>
             ) : null}
             <AnswerRowsTable
-              answers={state.answers}
+              answers={answerWindow.visibleItems}
               onSelect={setSelected}
               ariaLabel="该采样位具体回答"
+            />
+            <Pagination
+              page={answerWindow.page}
+              pageCount={answerWindow.pageCount}
+              onPageChange={answerWindow.setPage}
+              label="采样具体回答分页"
             />
           </>
         )}
@@ -217,6 +223,7 @@ function SamplingAnswersDialog({
 export function SamplingProgressPanel({ session, projectPubId }: Props) {
   const [state, setState] = useState<LoadState>('loading');
   const [progress, setProgress] = useState<SamplingProgress | null>(null);
+  const [page, setPage] = useState(1);
   const [answerTarget, setAnswerTarget] = useState<SamplingAnswerTarget | null>(null);
   const requestSerial = useRef(0);
 
@@ -225,17 +232,25 @@ export function SamplingProgressPanel({ session, projectPubId }: Props) {
       const requestId = ++requestSerial.current;
       if (!background) setState('loading');
       try {
-        const next = await servicesApi.samplingProgress(session, projectPubId);
+        const next = await servicesApi.samplingProgress(session, projectPubId, page, 4);
         if (requestId !== requestSerial.current) return;
         setProgress(next);
+        setPage(next.page.page);
         setState('ready');
       } catch {
         if (requestId !== requestSerial.current) return;
         if (!background) setState('failed');
       }
     },
-    [session, projectPubId],
+    [session, projectPubId, page],
   );
+
+  useEffect(() => {
+    setPage(1);
+    setProgress(null);
+    setState('loading');
+    requestSerial.current += 1;
+  }, [projectPubId]);
 
   useEffect(() => {
     void refresh();
@@ -258,7 +273,6 @@ export function SamplingProgressPanel({ session, projectPubId }: Props) {
     }
     return new Set([...counts.entries()].filter(([, count]) => count > 1).map(([leg]) => leg));
   }, [progress]);
-
   return (
     <section className="execution-card sampling-progress-panel">
       <div className="section-title">
@@ -275,13 +289,13 @@ export function SamplingProgressPanel({ session, projectPubId }: Props) {
         <p className="empty">
           采样进度加载失败。<button onClick={() => void refresh()}>重试</button>
         </p>
-      ) : !progress || progress.rows.length === 0 ? (
+      ) : !progress || progress.page.total_count === 0 ? (
         <p className="empty">该项目尚无可展示的冻结采样配置。</p>
       ) : (
         <>
           <div className="sampling-progress-summary" aria-label="采样进度摘要">
             <span>{samplingRevisionLabel(progress)}</span>
-            <span>{progress.rows.length} 问</span>
+            <span>{progress.page.total_count} 问</span>
             <span>{progress.columns.length} 个采样位</span>
             <span>
               已观测 {progress.observed_cells}/{progress.total_cells} 格
@@ -300,9 +314,12 @@ export function SamplingProgressPanel({ session, projectPubId }: Props) {
                   <th>表述</th>
                   <th>问题</th>
                   {progress.columns.map((column) => (
-                    <th key={column.key}>
+                    <th
+                      key={column.key}
+                      aria-label={`${platformDisplayName(column.model)}×${column.region}`}
+                    >
                       <span>
-                        {PLATFORM_LABELS[column.model] ?? column.model}×{column.region}
+                        <PlatformBadge platform={column.model} />×{column.region}
                       </span>
                       {multiModeFormalLegs.has(`${column.model}\u0000${column.region}`) ? (
                         <small>{MODE_LABELS[column.mode] ?? column.mode}</small>
@@ -335,7 +352,7 @@ export function SamplingProgressPanel({ session, projectPubId }: Props) {
                                   <button
                                     type="button"
                                     className="sampling-progress-count"
-                                    aria-label={`${row.query_text}，${PLATFORM_LABELS[column.model] ?? column.model}×${column.region}，${cell.completed_samples}遍，${modeBreakdownLabel(column, cell)}，查看具体回答`}
+                                    aria-label={`${row.query_text}，${platformDisplayName(column.model)}×${column.region}，${cell.completed_samples}遍，${modeBreakdownLabel(column, cell)}，查看具体回答`}
                                     onClick={() =>
                                       setAnswerTarget({
                                         queryText: row.query_text,
@@ -371,6 +388,13 @@ export function SamplingProgressPanel({ session, projectPubId }: Props) {
               </tbody>
             </table>
           </div>
+          <Pagination
+            page={progress.page.page}
+            pageCount={progress.page.total_pages}
+            totalItems={progress.page.total_count}
+            onPageChange={setPage}
+            label="采样进度问题分页"
+          />
         </>
       )}
       {answerTarget ? (
