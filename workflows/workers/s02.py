@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 
 from geo_platform.config import get_settings
+from geo_platform.logging import configure_logging
 from geo_platform.observability import configure_tracing
 from temporalio.client import Client
 from temporalio.contrib.opentelemetry import TracingInterceptor
@@ -66,6 +67,7 @@ async def run_s02_worker(
     # repeats this check as an activity so dependency drift is also caught per run.
     await asyncio.to_thread(report_runtime_preflight)
     settings = get_settings()
+    configure_logging(settings.log_level)
     configure_tracing(settings, service_name="geo-platform-v2-s02-worker")
     client = await Client.connect(
         address,
