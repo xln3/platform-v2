@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 import structlog
 from geo_platform.config import get_settings
@@ -88,14 +89,16 @@ async def run_worker() -> None:
         address=settings.temporal_address,
         task_queue=settings.analysis_temporal_task_queue,
     )
-    worker = Worker(
-        client,
-        task_queue=settings.analysis_temporal_task_queue,
-        workflows=list(ANALYSIS_WORKFLOWS),
-        activities=list(ANALYSIS_ACTIVITIES),
-        max_concurrent_activities=8,
-    )
-    await worker.run()
+    with ThreadPoolExecutor(max_workers=8, thread_name_prefix="geo-analysis-activity") as executor:
+        worker = Worker(
+            client,
+            task_queue=settings.analysis_temporal_task_queue,
+            workflows=list(ANALYSIS_WORKFLOWS),
+            activities=list(ANALYSIS_ACTIVITIES),
+            activity_executor=executor,
+            max_concurrent_activities=8,
+        )
+        await worker.run()
 
 
 if __name__ == "__main__":
