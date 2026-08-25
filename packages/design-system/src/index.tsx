@@ -968,10 +968,12 @@ const projectSafeInternalNavigationHref = (value: unknown): string | null => {
         /^[a-z][a-z0-9-]{0,63}$/u.test(searchEntries[0][1]) &&
         !containsClientSecretKey(searchEntries[0][1]) &&
         !containsClientSecret(searchEntries[0][1]));
+    const hasSafeFragment =
+      parsed.hash.length === 0 || /^#[A-Za-z][A-Za-z0-9_-]{0,63}$/u.test(parsed.hash);
     return parsed.origin === 'https://geo-navigation.invalid' &&
-      `${parsed.pathname}${parsed.search}` === href &&
+      `${parsed.pathname}${parsed.search}${parsed.hash}` === href &&
       parsed.pathname.startsWith('/platform/') &&
-      !parsed.hash &&
+      hasSafeFragment &&
       hasSafeSectionQuery &&
       !containsClientSecret(decodeClientUrlValue(href))
       ? href
@@ -1879,25 +1881,119 @@ export function VerifiedBlobDownload({
 export function Pagination({
   page,
   pageCount,
+  totalItems,
   onPageChange,
   label = '分页',
 }: {
   page: number;
   pageCount: number;
+  totalItems?: number;
   onPageChange: (page: number) => void;
   label?: string;
 }) {
   const safePageCount = Math.max(1, pageCount);
   const safePage = Math.min(Math.max(1, page), safePageCount);
+  const [jumpPage, setJumpPage] = useState(String(safePage));
+  useEffect(() => setJumpPage(String(safePage)), [safePage]);
+  const pageItems = paginationWindow(safePage, safePageCount);
   return (
     <nav className="pagination" aria-label={label}>
-      <button disabled={safePage === 1} onClick={() => onPageChange(safePage - 1)}>
+      <span className="pagination-summary">
+        {totalItems === undefined ? null : `共 ${Math.max(0, totalItems)} 条 · `}
+        <span>
+          第 {safePage} / {safePageCount} 页
+        </span>
+      </span>
+      <div className="pagination-window">
+        <button type="button" disabled={safePage === 1} onClick={() => onPageChange(safePage - 1)}>
+          上一页
+        </button>
+        {pageItems.map((item) =>
+          typeof item === 'number' ? (
+            <button
+              type="button"
+              key={item}
+              className={item === safePage ? 'pagination-page-active' : undefined}
+              aria-label={`第 ${item} 页`}
+              aria-current={item === safePage ? 'page' : undefined}
+              onClick={() => onPageChange(item)}
+            >
+              {item}
+            </button>
+          ) : (
+            <span key={item} className="pagination-ellipsis" aria-hidden="true">
+              …
+            </span>
+          ),
+        )}
+        <button
+          type="button"
+          disabled={safePage === safePageCount}
+          onClick={() => onPageChange(safePage + 1)}
+        >
+          下一页
+        </button>
+      </div>
+      <form
+        className="pagination-jump"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const parsed = Number(jumpPage);
+          if (!Number.isSafeInteger(parsed)) return;
+          const target = Math.min(Math.max(1, parsed), safePageCount);
+          setJumpPage(String(target));
+          onPageChange(target);
+        }}
+      >
+        <label>
+          跳至
+          <input
+            type="number"
+            min={1}
+            max={safePageCount}
+            value={jumpPage}
+            onChange={(event) => setJumpPage(event.target.value)}
+            aria-label="跳转页码"
+          />
+          页
+        </label>
+        <button type="submit">跳转</button>
+      </form>
+    </nav>
+  );
+}
+
+function paginationWindow(page: number, pageCount: number): Array<number | string> {
+  if (pageCount <= 7) return Array.from({ length: pageCount }, (_, index) => index + 1);
+  if (page <= 4) return [1, 2, 3, 4, 5, 'end-ellipsis', pageCount];
+  if (page >= pageCount - 3) {
+    return [1, 'start-ellipsis', ...Array.from({ length: 5 }, (_, index) => pageCount - 4 + index)];
+  }
+  return [1, 'start-ellipsis', page - 1, page, page + 1, 'end-ellipsis', pageCount];
+}
+
+export function CursorPagination({
+  page,
+  hasPrevious,
+  hasNext,
+  onPrevious,
+  onNext,
+  label = '分页',
+}: {
+  page: number;
+  hasPrevious: boolean;
+  hasNext: boolean;
+  onPrevious: () => void;
+  onNext: () => void;
+  label?: string;
+}) {
+  return (
+    <nav className="pagination" aria-label={label}>
+      <button type="button" disabled={!hasPrevious} onClick={onPrevious}>
         上一页
       </button>
-      <span aria-current="page">
-        第 {safePage} / {safePageCount} 页
-      </span>
-      <button disabled={safePage === safePageCount} onClick={() => onPageChange(safePage + 1)}>
+      <span aria-current="page">第 {Math.max(1, page)} 页</span>
+      <button type="button" disabled={!hasNext} onClick={onNext}>
         下一页
       </button>
     </nav>
@@ -2015,6 +2111,107 @@ export function FormField({
           {error.message}
         </span>
       ) : null}
+    </div>
+  );
+}
+
+export type ModelSelectOption = Readonly<{
+  value: string;
+  label?: string;
+  group?: string;
+  capability?: string;
+  priceLabel?: string;
+  isDefault?: boolean;
+  recommended?: boolean;
+  disabled?: boolean;
+}>;
+
+/**
+ * Shared AI-model selector. Business applications own catalog loading and
+ * persistence; this primitive owns grouping, default/recommended markers and
+ * the selected model's capability/price disclosure.
+ */
+export function ModelSelect({
+  id,
+  label,
+  ariaLabel,
+  value,
+  options,
+  onChange,
+  disabled = false,
+  emptyLabel = '模型清单加载中…',
+  hint,
+  className = '',
+}: {
+  id?: string;
+  label: string;
+  ariaLabel: string;
+  value: string;
+  options: readonly ModelSelectOption[];
+  onChange: (value: string) => void;
+  disabled?: boolean;
+  emptyLabel?: string;
+  hint?: string;
+  className?: string;
+}) {
+  const generatedId = useId();
+  const selectId = id ?? generatedId;
+  const selected = options.find((option) => option.value === value);
+  const ungrouped: ModelSelectOption[] = [];
+  const grouped = new Map<string, ModelSelectOption[]>();
+  for (const option of options) {
+    if (!option.group) {
+      ungrouped.push(option);
+      continue;
+    }
+    const group = grouped.get(option.group) ?? [];
+    group.push(option);
+    grouped.set(option.group, group);
+  }
+  const optionNode = (option: ModelSelectOption) => {
+    const markers = [
+      option.isDefault ? '默认' : '',
+      option.recommended && !option.isDefault ? '推荐' : '',
+      option.priceLabel ?? '',
+    ].filter(Boolean);
+    return (
+      <option key={option.value} value={option.value} disabled={option.disabled}>
+        {option.label ?? option.value}
+        {markers.length ? `（${markers.join(' · ')}）` : ''}
+      </option>
+    );
+  };
+
+  return (
+    <div className={`model-select ${className}`.trim()}>
+      <label htmlFor={selectId}>{label}</label>
+      <select
+        id={selectId}
+        aria-label={ariaLabel}
+        value={value}
+        disabled={disabled || options.length === 0}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        {options.length ? (
+          <>
+            {ungrouped.map(optionNode)}
+            {[...grouped.entries()].map(([group, groupOptions]) => (
+              <optgroup key={group} label={group}>
+                {groupOptions.map(optionNode)}
+              </optgroup>
+            ))}
+          </>
+        ) : (
+          <option value="">{emptyLabel}</option>
+        )}
+      </select>
+      {selected?.capability || selected?.priceLabel ? (
+        <span className="model-select-detail">
+          {selected.capability ? <span>{selected.capability}</span> : null}
+          {selected.priceLabel ? <strong>{selected.priceLabel}</strong> : null}
+        </span>
+      ) : null}
+      {hint ? <span className="field-hint">{hint}</span> : null}
     </div>
   );
 }
@@ -2443,7 +2640,7 @@ export function ProductShell({
     }
     const target = new URL(href, 'https://geo-navigation.invalid');
     target.searchParams.set('project', experience.projectPubId);
-    return `${target.pathname}${target.search}`;
+    return `${target.pathname}${target.search}${target.hash}`;
   };
   useEffect(() => {
     let active = true;

@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   clearSafePdfCanvas,
+  CursorPagination,
   Dialog,
   downloadSafeGeneratedFile,
   ExperienceProvider,
@@ -13,6 +14,8 @@ import {
   identitySessionHintStorageKeys,
   logoutPlatformSession,
   MetricGrid,
+  ModelSelect,
+  type ModelSelectOption,
   Pagination,
   platformLoginHref,
   ProjectionLimitNotice,
@@ -43,6 +46,81 @@ afterEach(() => {
 });
 
 describe('shared experience primitives', () => {
+  it('shares grouped model selection with default, capability and price semantics', () => {
+    const onChange = vi.fn();
+    render(
+      <ModelSelect
+        label="分析模型"
+        ariaLabel="拉踩分析模型选择"
+        value="fast-model"
+        options={[
+          {
+            value: 'fast-model',
+            label: 'Fast Model',
+            group: 'provider-a',
+            capability: '适合全量初筛',
+            priceLabel: '输入 $0.20 / 输出 $1.20（每百万 tokens）',
+            isDefault: true,
+            recommended: true,
+          },
+          { value: 'deep-model', group: 'provider-b', recommended: true },
+        ]}
+        onChange={onChange}
+      />,
+    );
+
+    const select = screen.getByRole('combobox', { name: '拉踩分析模型选择' });
+    expect(within(select).getByRole('group', { name: 'provider-a' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: /Fast Model（默认/ })).toBeTruthy();
+    expect(screen.getByText('适合全量初筛')).toBeTruthy();
+    expect(
+      screen.getByText(/输入 \$0\.20/, { selector: '.model-select-detail strong' }),
+    ).toBeTruthy();
+    fireEvent.change(select, { target: { value: 'deep-model' } });
+    expect(onChange).toHaveBeenCalledWith('deep-model');
+  });
+
+  it('keeps two model-selector instances independent while sharing one option contract', () => {
+    const options: ModelSelectOption[] = [
+      { value: 'gpt-model', group: 'gpt' },
+      { value: 'qwen-model', group: 'qwen' },
+      { value: 'claude-model', group: 'claude' },
+    ];
+    const IndependentSelectors = () => {
+      const [researchModel, setResearchModel] = useState('gpt-model');
+      const [service2Model, setService2Model] = useState('qwen-model');
+      return (
+        <>
+          <ModelSelect
+            label="品牌调研"
+            ariaLabel="品牌调研模型"
+            value={researchModel}
+            options={options.map((option) => ({ ...option }))}
+            onChange={setResearchModel}
+          />
+          <ModelSelect
+            label="Service 2"
+            ariaLabel="Service 2 分析模型"
+            value={service2Model}
+            options={options.map((option) => ({ ...option }))}
+            onChange={setService2Model}
+          />
+        </>
+      );
+    };
+    render(<IndependentSelectors />);
+
+    const research = screen.getByRole('combobox', { name: '品牌调研模型' });
+    const service2 = screen.getByRole('combobox', { name: 'Service 2 分析模型' });
+    fireEvent.change(research, { target: { value: 'claude-model' } });
+
+    expect((research as HTMLSelectElement).value).toBe('claude-model');
+    expect((service2 as HTMLSelectElement).value).toBe('qwen-model');
+    fireEvent.change(service2, { target: { value: 'gpt-model' } });
+    expect((research as HTMLSelectElement).value).toBe('claude-model');
+    expect((service2 as HTMLSelectElement).value).toBe('gpt-model');
+  });
+
   it('drops every Query cache and local state when the safe experience scope changes', async () => {
     const first = {
       tenantPubId: 'tnt_safe',
@@ -336,6 +414,56 @@ describe('shared experience primitives', () => {
     expect((screen.getByRole('button', { name: '下一页' }) as HTMLButtonElement).disabled).toBe(
       true,
     );
+  });
+
+  it('renders cursor pagination without inventing a total page count', () => {
+    const onPrevious = vi.fn();
+    const onNext = vi.fn();
+    render(
+      <CursorPagination
+        page={3}
+        hasPrevious
+        hasNext={false}
+        onPrevious={onPrevious}
+        onNext={onNext}
+        label="运行分页"
+      />,
+    );
+
+    expect(screen.getByRole('navigation', { name: '运行分页' })).toBeTruthy();
+    expect(screen.getByText('第 3 页')).toBeTruthy();
+    expect(screen.queryByText(/共/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '上一页' }));
+    expect(onPrevious).toHaveBeenCalledOnce();
+    expect((screen.getByRole('button', { name: '下一页' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+  });
+
+  it('renders a bounded numbered window, total count and direct page jump', () => {
+    const onPageChange = vi.fn();
+    render(
+      <Pagination
+        page={17}
+        pageCount={34}
+        totalItems={136}
+        onPageChange={onPageChange}
+        label="采样进度分页"
+      />,
+    );
+
+    expect(screen.getByText(/共 136 条/)).toBeTruthy();
+    expect(screen.getByText('第 17 / 34 页')).toBeTruthy();
+    for (const page of [1, 16, 17, 18, 34]) {
+      expect(screen.getByRole('button', { name: `第 ${page} 页` })).toBeTruthy();
+    }
+    expect(screen.queryByRole('button', { name: '第 15 页' })).toBeNull();
+
+    fireEvent.change(screen.getByRole('spinbutton', { name: '跳转页码' }), {
+      target: { value: '34' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: '跳转' }));
+    expect(onPageChange).toHaveBeenLastCalledWith(34);
   });
 
   it('discloses bounded browser projections without claiming the collection is complete', () => {
@@ -753,7 +881,7 @@ describe('shared experience primitives', () => {
           description="安全工作区"
           nav={[
             { id: 'home', label: '首页' },
-            { id: 'reports', label: '报告', href: '/platform/customer/reports' },
+            { id: 'reports', label: '报告', href: '/platform/customer/reports#queue' },
           ]}
           probe={async () => ({ status: 'ok' })}
         >
@@ -763,7 +891,7 @@ describe('shared experience primitives', () => {
     );
 
     expect(screen.getByRole('link', { name: '报告' }).getAttribute('href')).toBe(
-      '/platform/customer/reports?project=prj_security',
+      '/platform/customer/reports?project=prj_security#queue',
     );
     fireEvent.click(screen.getByRole('button', { name: /安全租户.*盛邦安全/u }));
     const dialog = screen.getByRole('dialog', { name: '当前项目上下文' });

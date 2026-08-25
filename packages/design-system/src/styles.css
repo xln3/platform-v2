@@ -986,6 +986,44 @@ main {
   font-size: 12px;
   color: var(--danger);
 }
+.model-select {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-width: 0;
+}
+.model-select > label {
+  font-size: 12px;
+  font-weight: 750;
+  color: #45534e;
+}
+.model-select > select {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 2.65rem;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--ink);
+  padding: 10px 12px;
+  line-height: 1.4;
+}
+.model-select > select:focus {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 1px;
+  border-color: var(--green);
+}
+.model-select-detail {
+  display: grid;
+  gap: 2px;
+  color: var(--muted);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.model-select-detail strong {
+  color: var(--ink);
+  font-weight: 700;
+}
 .check-field {
   display: flex;
   align-items: flex-start;
@@ -1175,16 +1213,62 @@ main {
 }
 .pagination {
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
   align-items: center;
-  gap: 14px;
+  gap: 10px 14px;
   margin: 20px;
+}
+.pagination-summary {
+  color: var(--muted);
+  white-space: nowrap;
+}
+.pagination-window,
+.pagination-jump,
+.pagination-jump label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 .pagination button {
   border: 1px solid var(--line);
   background: #fff;
   border-radius: 8px;
   padding: 8px 12px;
+}
+.pagination-window button:not(:first-child):not(:last-child) {
+  min-width: 38px;
+  padding-inline: 8px;
+}
+.pagination button.pagination-page-active {
+  border-color: var(--green);
+  background: var(--green);
+  color: #fff;
+}
+.pagination-ellipsis {
+  min-width: 18px;
+  text-align: center;
+}
+.pagination-jump input {
+  width: 64px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+}
+@media (max-width: 520px) {
+  .pagination {
+    margin-inline: 0;
+  }
+  .pagination-summary,
+  .pagination-jump {
+    flex-basis: 100%;
+    justify-content: center;
+    text-align: center;
+  }
+  .pagination-window {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
 }
 .pagination button:disabled {
   opacity: 0.45;
