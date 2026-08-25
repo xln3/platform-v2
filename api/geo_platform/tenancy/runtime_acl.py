@@ -524,14 +524,10 @@ def _build_table_policy(role: str) -> MappingProxyType[str, TableGrant]:
         "platform.collection_failure_knowledge",
     ):
         grants[table] = TableGrant(
-            frozenset({"SELECT", "INSERT"})
-            if role == WORKER_ROLE
-            else frozenset({"SELECT"})
+            frozenset({"SELECT", "INSERT"}) if role == WORKER_ROLE else frozenset({"SELECT"})
         )
     grants["platform.service2_model_call"] = TableGrant(
-        frozenset({"SELECT", "INSERT", "UPDATE"})
-        if role == WORKER_ROLE
-        else frozenset({"SELECT"})
+        frozenset({"SELECT", "INSERT", "UPDATE"}) if role == WORKER_ROLE else frozenset({"SELECT"})
     )
     if role == WORKER_ROLE:
         grants["platform.collection_submission_operation"] = TableGrant(frozenset({"SELECT"}))
