@@ -215,7 +215,14 @@ def _b64url(value: bytes) -> str:
 
 
 def _b64url_decode(value: str) -> bytes:
-    return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+    decoded = base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+    # Python's decoder accepts multiple textual spellings for the same final
+    # byte sequence when unused Base64 padding bits are non-zero.  A signed
+    # cursor is an opaque canonical token, so accepting those aliases would let
+    # an attacker change the token text without invalidating its signature.
+    if not hmac.compare_digest(_b64url(decoded), value):
+        raise ValueError("noncanonical_base64")
+    return decoded
 
 
 __all__ = [

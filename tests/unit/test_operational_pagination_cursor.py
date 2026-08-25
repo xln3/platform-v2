@@ -60,9 +60,10 @@ def test_cursor_is_bound_to_endpoint_tenant_and_filters(
 
 def test_cursor_rejects_tampering_and_expiry() -> None:
     signed = token()
+    payload, signature = signed.split(".", 1)
     with pytest.raises(HTTPException) as tampered:
         decode_keyset_cursor(
-            signed[:-1] + ("A" if signed[-1] != "A" else "B"),
+            f"{payload}.{'A' if signature[0] != 'A' else 'B'}{signature[1:]}",
             kind="collection-runs",
             tenant_pub_id="tnt_a",
             filters={"project_pub_id": "prj_a"},
@@ -79,6 +80,30 @@ def test_cursor_rejects_tampering_and_expiry() -> None:
             now=_NOW + timedelta(hours=24, seconds=1),
         )
     assert expired.value.detail == {"code": "cursor_expired"}
+
+
+def test_cursor_rejects_noncanonical_base64_signature_alias() -> None:
+    signed = token()
+    payload, signature = signed.split(".", 1)
+    alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+    final_index = alphabet.index(signature[-1])
+    # A 32-byte HMAC has two unused bits in its final unpadded Base64 character.
+    # Flip only those bits: permissive decoders yield the same signature bytes,
+    # but the cursor text is not the exact canonical token the server emitted.
+    alias_index = (final_index & ~0b11) | ((final_index + 1) & 0b11)
+    alias = f"{payload}.{signature[:-1]}{alphabet[alias_index]}"
+
+    with pytest.raises(HTTPException) as caught:
+        decode_keyset_cursor(
+            alias,
+            kind="collection-runs",
+            tenant_pub_id="tnt_a",
+            filters={"project_pub_id": "prj_a"},
+            now=_NOW,
+        )
+
+    assert caught.value.status_code == 422
+    assert caught.value.detail == {"code": "invalid_cursor"}
 
 
 @pytest.mark.parametrize(
