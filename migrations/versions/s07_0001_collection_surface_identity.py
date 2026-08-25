@@ -200,45 +200,45 @@ def _create_config_tables() -> None:
             "revision_hash",
             name="uq_collection_config_v2_id_hash_scope",
         ),
-        sa.CheckConstraint("revision > 0", name="ck_collection_config_v2_revision"),
+        sa.CheckConstraint("revision > 0", name=op.f("ck_collection_config_v2_revision")),
         sa.CheckConstraint(
             "lifecycle_state IN ('draft','candidate','frozen','active','superseded','retired')",
-            name="ck_collection_config_v2_lifecycle",
+            name=op.f("ck_collection_config_v2_lifecycle"),
         ),
         sa.CheckConstraint(
             "schema_version = 'collection-config-v2'",
-            name="ck_collection_config_v2_schema",
+            name=op.f("ck_collection_config_v2_schema"),
         ),
         sa.CheckConstraint(
             "revision_hash ~ '^[0-9a-f]{64}$'",
-            name="ck_collection_config_v2_hash",
+            name=op.f("ck_collection_config_v2_hash"),
         ),
         sa.CheckConstraint(
             "parent_revision_id IS NULL OR parent_revision_id <> id",
-            name="ck_collection_config_v2_parent",
+            name=op.f("ck_collection_config_v2_parent"),
         ),
         sa.CheckConstraint(
             "samples_per_cell > 0",
-            name="ck_collection_config_v2_samples",
+            name=op.f("ck_collection_config_v2_samples"),
         ),
         sa.CheckConstraint(
             "jsonb_typeof(canonical_json::jsonb) = 'object'",
-            name="ck_collection_config_v2_canonical_json",
+            name=op.f("ck_collection_config_v2_canonical_json"),
         ),
         sa.CheckConstraint(
             "jsonb_typeof(province_codes_json::jsonb) = 'array'",
-            name="ck_collection_config_v2_provinces_json",
+            name=op.f("ck_collection_config_v2_provinces_json"),
         ),
         sa.CheckConstraint(
             "jsonb_typeof(schedule_policy_json::jsonb) = 'object'",
-            name="ck_collection_config_v2_schedule_json",
+            name=op.f("ck_collection_config_v2_schedule_json"),
         ),
         sa.CheckConstraint(
             "btrim(question_set_revision) <> '' "
             "AND btrim(capability_registry_revision) <> '' "
             "AND btrim(comparison_policy_revision) <> '' "
             "AND btrim(change_reason) <> ''",
-            name="ck_collection_config_v2_required_text",
+            name=op.f("ck_collection_config_v2_required_text"),
         ),
         sa.CheckConstraint(
             "(lifecycle_state IN ('draft','candidate') "
@@ -249,7 +249,7 @@ def _create_config_tables() -> None:
             "AND frozen_at IS NOT NULL AND activated_at IS NOT NULL) OR "
             "(lifecycle_state IN ('superseded','retired') "
             "AND frozen_at IS NOT NULL)",
-            name="ck_collection_config_v2_lifecycle_times",
+            name=op.f("ck_collection_config_v2_lifecycle_times"),
         ),
         schema="platform",
     )
@@ -305,20 +305,20 @@ def _create_config_tables() -> None:
         ),
         sa.CheckConstraint(
             _SURFACE_CHECK.format(column="collection_surface"),
-            name="ck_collection_config_target_v2_surface",
+            name=op.f("ck_collection_config_target_v2_surface"),
         ),
         sa.CheckConstraint(
             "btrim(target_key) <> '' AND btrim(platform) <> '' AND btrim(product_variant) <> ''",
-            name="ck_collection_config_target_v2_required_text",
+            name=op.f("ck_collection_config_target_v2_required_text"),
         ),
         sa.CheckConstraint(
             "jsonb_typeof(interaction_modes_json::jsonb) = 'array' "
             "AND jsonb_array_length(interaction_modes_json::jsonb) > 0",
-            name="ck_collection_config_target_v2_modes_json",
+            name=op.f("ck_collection_config_target_v2_modes_json"),
         ),
         sa.CheckConstraint(
             "jsonb_typeof(capability_revisions_json::jsonb) IN ('array','object')",
-            name="ck_collection_config_target_v2_caps_json",
+            name=op.f("ck_collection_config_target_v2_caps_json"),
         ),
         schema="platform",
     )
@@ -428,17 +428,17 @@ def _create_campaign_tables() -> None:
             "digest(membership_specification_json, 'sha256'), 'hex') "
             "AND (membership_hash IS NULL "
             "OR membership_hash ~ '^[0-9a-f]{64}$')",
-            name="ck_collection_campaign_hashes",
+            name=op.f("ck_collection_campaign_hashes"),
         ),
         sa.CheckConstraint(
             "jsonb_typeof(membership_specification_json::jsonb) = 'object'",
-            name="ck_collection_campaign_membership_specification_json",
+            name=op.f("ck_collection_campaign_membership_specification_json"),
         ),
         sa.CheckConstraint(
             "specification_schema_version = 'collection-campaign-membership-v1' "
             "AND slot_generator_version = 'collection-slot-generator-v1' "
             "AND membership_digest_version = 'collection-membership-chain-v1'",
-            name="ck_collection_campaign_materialization_versions",
+            name=op.f("ck_collection_campaign_materialization_versions"),
         ),
         sa.CheckConstraint(
             "btrim(question_set_revision) <> '' AND btrim(time_window_key) <> '' "
@@ -450,7 +450,7 @@ def _create_campaign_tables() -> None:
             "AND btrim(membership_digest_version) <> '' "
             "AND btrim(created_by_pub_id) <> '' "
             "AND btrim(triggered_by_pub_id) <> ''",
-            name="ck_collection_campaign_required_text",
+            name=op.f("ck_collection_campaign_required_text"),
         ),
         sa.CheckConstraint(
             "expected_primary_slot_count > 0 "
@@ -460,11 +460,11 @@ def _create_campaign_tables() -> None:
             "AND materialized_slot_count >= 0 "
             "AND materialized_slot_count <= expected_slot_count "
             "AND materialization_cursor = materialized_slot_count",
-            name="ck_collection_campaign_materialization_counts",
+            name=op.f("ck_collection_campaign_materialization_counts"),
         ),
         sa.CheckConstraint(
             "materialization_state IN ('pending','materializing','complete')",
-            name="ck_collection_campaign_materialization_state",
+            name=op.f("ck_collection_campaign_materialization_state"),
         ),
         sa.CheckConstraint(
             "(materialization_state = 'pending' "
@@ -474,11 +474,11 @@ def _create_campaign_tables() -> None:
             "AND materialization_cursor < expected_slot_count) OR "
             "(materialization_state = 'complete' "
             "AND materialization_cursor = expected_slot_count)",
-            name="ck_collection_campaign_materialization_progress",
+            name=op.f("ck_collection_campaign_materialization_progress"),
         ),
         sa.CheckConstraint(
             "state IN ('assembling','frozen')",
-            name="ck_collection_campaign_state",
+            name=op.f("ck_collection_campaign_state"),
         ),
         sa.CheckConstraint(
             "(state = 'assembling' AND frozen_at IS NULL "
@@ -487,7 +487,7 @@ def _create_campaign_tables() -> None:
             "AND membership_hash IS NOT NULL "
             "AND materialization_state = 'complete' "
             "AND materialization_cursor = expected_slot_count)",
-            name="ck_collection_campaign_freeze",
+            name=op.f("ck_collection_campaign_freeze"),
         ),
         schema="platform",
     )
@@ -568,22 +568,22 @@ def _create_campaign_tables() -> None:
         ),
         sa.CheckConstraint(
             _SURFACE_CHECK.format(column="collection_surface"),
-            name="ck_collection_campaign_target_surface",
+            name=op.f("ck_collection_campaign_target_surface"),
         ),
         sa.CheckConstraint(
             "btrim(target_key) <> '' AND btrim(platform) <> '' "
             "AND btrim(product_variant) <> '' "
             "AND btrim(binding_policy_revision) <> ''",
-            name="ck_collection_campaign_target_required_text",
+            name=op.f("ck_collection_campaign_target_required_text"),
         ),
         sa.CheckConstraint(
             "jsonb_typeof(interaction_modes_json::jsonb) = 'array' "
             "AND jsonb_array_length(interaction_modes_json::jsonb) > 0",
-            name="ck_collection_campaign_target_modes_json",
+            name=op.f("ck_collection_campaign_target_modes_json"),
         ),
         sa.CheckConstraint(
             "jsonb_typeof(capability_revisions_json::jsonb) IN ('array','object')",
-            name="ck_collection_campaign_target_caps_json",
+            name=op.f("ck_collection_campaign_target_caps_json"),
         ),
         schema="platform",
     )
@@ -656,16 +656,16 @@ def _create_campaign_tables() -> None:
         ),
         sa.CheckConstraint(
             _SURFACE_CHECK.format(column="collection_surface"),
-            name="ck_collection_sampling_leg_surface",
+            name=op.f("ck_collection_sampling_leg_surface"),
         ),
         sa.CheckConstraint(
             "province_code ~ '^[0-9]{6}$'",
-            name="ck_collection_sampling_leg_province",
+            name=op.f("ck_collection_sampling_leg_province"),
         ),
         sa.CheckConstraint(
             "btrim(leg_key) <> '' AND btrim(platform) <> '' "
             "AND btrim(product_variant) <> '' AND btrim(interaction_mode) <> ''",
-            name="ck_collection_sampling_leg_required_text",
+            name=op.f("ck_collection_sampling_leg_required_text"),
         ),
         schema="platform",
     )
@@ -734,27 +734,27 @@ def _create_campaign_tables() -> None:
             "start_slot_ordinal >= 0 "
             "AND end_slot_ordinal_exclusive > start_slot_ordinal "
             "AND slot_count = end_slot_ordinal_exclusive - start_slot_ordinal",
-            name="ck_collection_campaign_batch_range",
+            name=op.f("ck_collection_campaign_batch_range"),
         ),
         sa.CheckConstraint(
             "specification_hash ~ '^[0-9a-f]{64}$' "
             "AND chunk_hash ~ '^[0-9a-f]{64}$' "
             "AND prior_membership_chain_hash ~ '^[0-9a-f]{64}$' "
             "AND membership_chain_hash ~ '^[0-9a-f]{64}$'",
-            name="ck_collection_campaign_batch_hashes",
+            name=op.f("ck_collection_campaign_batch_hashes"),
         ),
         sa.CheckConstraint(
             "btrim(slot_generator_version) <> '' AND btrim(idempotency_key) <> ''",
-            name="ck_collection_campaign_batch_required_text",
+            name=op.f("ck_collection_campaign_batch_required_text"),
         ),
         sa.CheckConstraint(
             "batch_state IN ('preparing','completed')",
-            name="ck_collection_campaign_batch_state",
+            name=op.f("ck_collection_campaign_batch_state"),
         ),
         sa.CheckConstraint(
             "(batch_state = 'preparing' AND committed_at IS NULL) OR "
             "(batch_state = 'completed' AND committed_at IS NOT NULL)",
-            name="ck_collection_campaign_batch_commit",
+            name=op.f("ck_collection_campaign_batch_commit"),
         ),
         schema="platform",
     )
@@ -880,18 +880,18 @@ def _create_campaign_tables() -> None:
             "slot_role",
             name="uq_collection_primary_slot_logical_identity",
         ),
-        sa.CheckConstraint("sample_ordinal >= 1", name="ck_collection_primary_slot_sample"),
+        sa.CheckConstraint("sample_ordinal >= 1", name=op.f("ck_collection_primary_slot_sample")),
         sa.CheckConstraint(
             "slot_ordinal >= 0",
-            name="ck_collection_primary_slot_ordinal",
+            name=op.f("ck_collection_primary_slot_ordinal"),
         ),
         sa.CheckConstraint(
             "slot_identity_hash ~ '^[0-9a-f]{64}$'",
-            name="ck_collection_primary_slot_identity_hash",
+            name=op.f("ck_collection_primary_slot_identity_hash"),
         ),
         sa.CheckConstraint(
             "slot_role IN ('primary','supplementary','topup')",
-            name="ck_collection_primary_slot_role",
+            name=op.f("ck_collection_primary_slot_role"),
         ),
         sa.CheckConstraint(
             "(slot_role = 'primary' AND role_reason IS NULL "
@@ -899,21 +899,21 @@ def _create_campaign_tables() -> None:
             "(slot_role <> 'primary' AND role_reason IS NOT NULL "
             "AND btrim(role_reason) <> '' "
             "AND related_primary_slot_key IS NOT NULL)",
-            name="ck_collection_primary_slot_role_reason",
+            name=op.f("ck_collection_primary_slot_role_reason"),
         ),
         sa.CheckConstraint(
             _SURFACE_CHECK.format(column="collection_surface"),
-            name="ck_collection_primary_slot_surface",
+            name=op.f("ck_collection_primary_slot_surface"),
         ),
         sa.CheckConstraint(
             "province_code ~ '^[0-9]{6}$'",
-            name="ck_collection_primary_slot_province",
+            name=op.f("ck_collection_primary_slot_province"),
         ),
         sa.CheckConstraint(
             "btrim(slot_key) <> '' AND btrim(question_slot_id) <> '' "
             "AND btrim(question_revision) <> '' AND btrim(platform) <> '' "
             "AND btrim(product_variant) <> '' AND btrim(interaction_mode) <> ''",
-            name="ck_collection_primary_slot_required_text",
+            name=op.f("ck_collection_primary_slot_required_text"),
         ),
         schema="platform",
     )
@@ -976,42 +976,42 @@ def _create_backfill_audit_table() -> None:
         ),
         sa.CheckConstraint(
             "execution_mode IN ('dry_run','apply')",
-            name="ck_collection_surface_backfill_mode",
+            name=op.f("ck_collection_surface_backfill_mode"),
         ),
         sa.CheckConstraint(
             "state IN ('running','completed','failed')",
-            name="ck_collection_surface_backfill_state",
+            name=op.f("ck_collection_surface_backfill_state"),
         ),
         sa.CheckConstraint(
             "collection_surface = 'consumer_web'",
-            name="ck_collection_surface_backfill_surface",
+            name=op.f("ck_collection_surface_backfill_surface"),
         ),
         sa.CheckConstraint(
             "selector_hash ~ '^[0-9a-f]{64}$'",
-            name="ck_collection_surface_backfill_selector_hash",
+            name=op.f("ck_collection_surface_backfill_selector_hash"),
         ),
-        sa.CheckConstraint("batch_size > 0", name="ck_collection_surface_backfill_batch"),
+        sa.CheckConstraint("batch_size > 0", name=op.f("ck_collection_surface_backfill_batch")),
         sa.CheckConstraint(
             "candidate_count >= 0 AND assigned_count >= 0 "
             "AND already_consistent_count >= 0 AND conflict_count >= 0 "
             "AND orphan_count >= 0 AND excluded_count >= 0",
-            name="ck_collection_surface_backfill_counts",
+            name=op.f("ck_collection_surface_backfill_counts"),
         ),
         sa.CheckConstraint(
             "jsonb_typeof(sample_fact_pub_ids_json) = 'array'",
-            name="ck_collection_surface_backfill_samples_json",
+            name=op.f("ck_collection_surface_backfill_samples_json"),
         ),
         sa.CheckConstraint(
             "btrim(selector_version) <> '' AND btrim(batch_key) <> '' "
             "AND btrim(idempotency_key) <> '' AND btrim(requested_by_pub_id) <> '' "
             "AND btrim(surface_assignment_basis) <> '' "
             "AND btrim(legacy_contract_version) <> ''",
-            name="ck_collection_surface_backfill_required_text",
+            name=op.f("ck_collection_surface_backfill_required_text"),
         ),
         sa.CheckConstraint(
             "(state = 'running' AND completed_at IS NULL) OR "
             "(state IN ('completed','failed') AND completed_at IS NOT NULL)",
-            name="ck_collection_surface_backfill_completion",
+            name=op.f("ck_collection_surface_backfill_completion"),
         ),
         schema="platform",
     )
@@ -1806,13 +1806,13 @@ def _add_fact_surface_columns() -> None:
         )
 
     op.create_check_constraint(
-        "ck_collection_task_observed_product_s07",
+        op.f("ck_collection_task_observed_product_s07"),
         "collection_task",
         "observed_product_variant IS NULL OR btrim(observed_product_variant) <> ''",
         schema="platform",
     )
     op.create_check_constraint(
-        "ck_analysis_job_observed_product_s07",
+        op.f("ck_analysis_job_observed_product_s07"),
         "analysis_job",
         "observed_product_variant IS NULL OR btrim(observed_product_variant) <> ''",
         schema="platform",
@@ -1837,7 +1837,7 @@ def _add_fact_surface_columns() -> None:
         referent_schema="platform",
     )
     op.create_check_constraint(
-        "ck_collection_run_campaign_config_s07",
+        op.f("ck_collection_run_campaign_config_s07"),
         "collection_run",
         "campaign_id IS NULL OR config_revision_v2_id IS NOT NULL",
         schema="platform",

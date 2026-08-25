@@ -159,7 +159,7 @@ def _extend_resource_registration() -> None:
         schema="platform",
     )
     op.create_check_constraint(
-        "ck_resource_registration_v2_shape_s07",
+        op.f("ck_resource_registration_v2_shape_s07"),
         "resource_registration",
         """
         (resource_schema_version IS NULL AND project_id IS NULL
@@ -304,13 +304,15 @@ def _create_capability_tables() -> None:
         ),
         sa.CheckConstraint(
             "schema_version = 'collection-capability-registry-v1'",
-            name="ck_cap_registry_schema",
+            name=op.f("ck_cap_registry_schema"),
         ),
         sa.CheckConstraint(
             "lifecycle_state IN ('draft','candidate','frozen','active','superseded','retired')",
-            name="ck_cap_registry_lifecycle",
+            name=op.f("ck_cap_registry_lifecycle"),
         ),
-        sa.CheckConstraint(_SHA256.format(column="revision_hash"), name="ck_cap_registry_hash"),
+        sa.CheckConstraint(
+            _SHA256.format(column="revision_hash"), name=op.f("ck_cap_registry_hash")
+        ),
         sa.CheckConstraint(
             "(lifecycle_state IN ('draft','candidate') AND frozen_at IS NULL "
             "AND activated_at IS NULL AND retired_at IS NULL) OR "
@@ -320,7 +322,7 @@ def _create_capability_tables() -> None:
             "AND activated_at IS NOT NULL AND retired_at IS NULL) OR "
             "(lifecycle_state = 'retired' AND frozen_at IS NOT NULL "
             "AND activated_at IS NOT NULL AND retired_at IS NOT NULL)",
-            name="ck_cap_registry_timestamps",
+            name=op.f("ck_cap_registry_timestamps"),
         ),
         schema="platform",
     )
@@ -383,31 +385,31 @@ def _create_capability_tables() -> None:
         ),
         sa.CheckConstraint(
             "schema_version = 'collection-capability-v1'",
-            name="ck_cap_declaration_schema",
+            name=op.f("ck_cap_declaration_schema"),
         ),
         sa.CheckConstraint(
             _SURFACE.format(column="collection_surface"),
-            name="ck_cap_declaration_surface",
+            name=op.f("ck_cap_declaration_surface"),
         ),
         sa.CheckConstraint(
             "status IN ('supported','pilot','unsupported')",
-            name="ck_cap_declaration_status",
+            name=op.f("ck_cap_declaration_status"),
         ),
         sa.CheckConstraint(
             "status <> 'unsupported' OR "
             "(production_allowed = false AND btrim(unsupported_reason) <> '')",
-            name="ck_cap_declaration_unsupported",
+            name=op.f("ck_cap_declaration_unsupported"),
         ),
         sa.CheckConstraint(
             "jsonb_typeof(required_resource_kinds_json::jsonb) = 'array' "
             "AND jsonb_array_length(required_resource_kinds_json::jsonb) > 0",
-            name="ck_cap_declaration_resource_kinds",
+            name=op.f("ck_cap_declaration_resource_kinds"),
         ),
         sa.CheckConstraint(
             "btrim(declaration_key) <> '' AND btrim(capability_revision) <> '' "
             "AND btrim(platform) <> '' AND btrim(product_variant) <> '' "
             "AND btrim(interaction_mode) <> ''",
-            name="ck_cap_declaration_required_text",
+            name=op.f("ck_cap_declaration_required_text"),
         ),
         schema="platform",
     )
@@ -596,19 +598,19 @@ def _create_quota_policy_tables() -> None:
         ),
         sa.CheckConstraint(
             "schema_version = 'quota-scope-registry-v1'",
-            name="ck_quota_registry_schema",
+            name=op.f("ck_quota_registry_schema"),
         ),
         sa.CheckConstraint(
             "lock_order_version = 'quota-scope-lock-order-v1'",
-            name="ck_quota_registry_lock_order",
+            name=op.f("ck_quota_registry_lock_order"),
         ),
         sa.CheckConstraint(
             "lifecycle_state IN ('draft','candidate','frozen','active','superseded','retired')",
-            name="ck_quota_registry_lifecycle",
+            name=op.f("ck_quota_registry_lifecycle"),
         ),
         sa.CheckConstraint(
             _SHA256.format(column="revision_hash"),
-            name="ck_quota_registry_hash",
+            name=op.f("ck_quota_registry_hash"),
         ),
         sa.CheckConstraint(
             "(lifecycle_state IN ('draft','candidate') AND frozen_at IS NULL "
@@ -619,7 +621,7 @@ def _create_quota_policy_tables() -> None:
             "AND activated_at IS NOT NULL AND retired_at IS NULL) OR "
             "(lifecycle_state = 'retired' AND frozen_at IS NOT NULL "
             "AND activated_at IS NOT NULL AND retired_at IS NOT NULL)",
-            name="ck_quota_registry_timestamps",
+            name=op.f("ck_quota_registry_timestamps"),
         ),
         schema="platform",
     )
@@ -685,46 +687,46 @@ def _create_quota_policy_tables() -> None:
         ),
         sa.CheckConstraint(
             "schema_version = 'quota-scope-v1'",
-            name="ck_quota_scope_schema",
+            name=op.f("ck_quota_scope_schema"),
         ),
         sa.CheckConstraint(
             "scope_kind IN "
             "('provider','account','credential','project','contract',"
             "'platform_surface','mode')",
-            name="ck_quota_scope_kind",
+            name=op.f("ck_quota_scope_kind"),
         ),
         sa.CheckConstraint(
             "collection_surface IS NULL OR " + _SURFACE.format(column="collection_surface"),
-            name="ck_quota_scope_surface",
+            name=op.f("ck_quota_scope_surface"),
         ),
         sa.CheckConstraint(
             "collection_surface IS NULL OR platform IS NOT NULL",
-            name="ck_quota_scope_surface_platform",
+            name=op.f("ck_quota_scope_surface_platform"),
         ),
         sa.CheckConstraint(
             "product_variant IS NULL OR platform IS NOT NULL",
-            name="ck_quota_scope_product_platform",
+            name=op.f("ck_quota_scope_product_platform"),
         ),
         sa.CheckConstraint(
             "scope_kind <> 'platform_surface' OR "
             "(platform IS NOT NULL AND collection_surface IS NOT NULL)",
-            name="ck_quota_scope_platform_surface",
+            name=op.f("ck_quota_scope_platform_surface"),
         ),
         sa.CheckConstraint(
             "scope_kind <> 'mode' OR interaction_mode IS NOT NULL",
-            name="ck_quota_scope_mode",
+            name=op.f("ck_quota_scope_mode"),
         ),
         sa.CheckConstraint(
             "window_schema_version = 'quota-window-v1'",
-            name="ck_quota_scope_window_schema",
+            name=op.f("ck_quota_scope_window_schema"),
         ),
         sa.CheckConstraint(
             "window_unit IN ('day','week','year','provider_custom')",
-            name="ck_quota_scope_window_unit",
+            name=op.f("ck_quota_scope_window_unit"),
         ),
         sa.CheckConstraint(
             "window_size > 0 AND limit_units > 0 AND lock_order_ordinal >= 0",
-            name="ck_quota_scope_positive_values",
+            name=op.f("ck_quota_scope_positive_values"),
         ),
         sa.CheckConstraint(
             "lock_order_ordinal = CASE scope_kind "
@@ -732,21 +734,21 @@ def _create_quota_policy_tables() -> None:
             "WHEN 'credential' THEN 2 WHEN 'project' THEN 3 "
             "WHEN 'contract' THEN 4 WHEN 'platform_surface' THEN 5 "
             "WHEN 'mode' THEN 6 END",
-            name="ck_quota_scope_canonical_lock_order",
+            name=op.f("ck_quota_scope_canonical_lock_order"),
         ),
         sa.CheckConstraint(
             "(window_unit = 'provider_custom' AND "
             "btrim(provider_window_code) <> '') OR "
             "(window_unit <> 'provider_custom' AND provider_window_code IS NULL)",
-            name="ck_quota_scope_provider_window",
+            name=op.f("ck_quota_scope_provider_window"),
         ),
         sa.CheckConstraint(
             "share_policy IN ('shared','dedicated')",
-            name="ck_quota_scope_share_policy",
+            name=op.f("ck_quota_scope_share_policy"),
         ),
         sa.CheckConstraint(
             "limit_source IN ('contract','provider','project_policy','manual_approval')",
-            name="ck_quota_scope_limit_source",
+            name=op.f("ck_quota_scope_limit_source"),
         ),
         sa.CheckConstraint(
             "btrim(scope_policy_key) <> '' AND btrim(selector_key) <> '' "
@@ -754,7 +756,7 @@ def _create_quota_policy_tables() -> None:
             "AND btrim(window_timezone) <> '' "
             "AND btrim(window_boundary_revision) <> '' "
             "AND btrim(settlement_policy_revision) <> ''",
-            name="ck_quota_scope_required_text",
+            name=op.f("ck_quota_scope_required_text"),
         ),
         schema="platform",
     )
@@ -982,20 +984,20 @@ def _create_binding_tables() -> None:
         ),
         sa.CheckConstraint(
             "schema_version = 'collection-binding-v1'",
-            name="ck_binding_v2_schema",
+            name=op.f("ck_binding_v2_schema"),
         ),
         sa.CheckConstraint(
             _SURFACE.format(column="collection_surface"),
-            name="ck_binding_v2_surface",
+            name=op.f("ck_binding_v2_surface"),
         ),
         sa.CheckConstraint(
             "binding_revision > 0 AND effective_from < expires_at",
-            name="ck_binding_v2_revision_window",
+            name=op.f("ck_binding_v2_revision_window"),
         ),
-        sa.CheckConstraint(_SHA256.format(column="binding_hash"), name="ck_binding_v2_hash"),
+        sa.CheckConstraint(_SHA256.format(column="binding_hash"), name=op.f("ck_binding_v2_hash")),
         sa.CheckConstraint(
             "lifecycle_state IN ('draft','candidate','active','suspended','revoked','superseded')",
-            name="ck_binding_v2_lifecycle",
+            name=op.f("ck_binding_v2_lifecycle"),
         ),
         sa.CheckConstraint(
             "(lifecycle_state IN ('draft','candidate') AND activated_at IS NULL "
@@ -1011,7 +1013,7 @@ def _create_binding_tables() -> None:
             "AND revoked_at IS NOT NULL AND superseded_at IS NULL) OR "
             "(lifecycle_state = 'superseded' AND activated_at IS NOT NULL "
             "AND superseded_at IS NOT NULL AND revoked_at IS NULL)",
-            name="ck_binding_v2_lifecycle_timestamps",
+            name=op.f("ck_binding_v2_lifecycle_timestamps"),
         ),
         sa.CheckConstraint(
             "btrim(binding_key) <> '' AND btrim(binding_policy_revision) <> '' "
@@ -1025,12 +1027,12 @@ def _create_binding_tables() -> None:
             "AND btrim(resource_policy_revision) <> '' "
             "AND btrim(readiness_revision) <> '' "
             "AND btrim(owner_pub_id) <> ''",
-            name="ck_binding_v2_required_text",
+            name=op.f("ck_binding_v2_required_text"),
         ),
         sa.CheckConstraint(
             "jsonb_typeof(required_resource_kinds_json::jsonb) = 'array' "
             "AND jsonb_array_length(required_resource_kinds_json::jsonb) > 0",
-            name="ck_binding_v2_resource_kinds",
+            name=op.f("ck_binding_v2_resource_kinds"),
         ),
         schema="platform",
     )
@@ -1105,7 +1107,7 @@ def _create_binding_subtypes() -> None:
         sa.CheckConstraint(
             "credential_state = 'ready' AND entitlement_state = 'ready' "
             "AND provider_account_state = 'ready'",
-            name="ck_api_binding_v2_ready",
+            name=op.f("ck_api_binding_v2_ready"),
         ),
         sa.CheckConstraint(
             "provider_gateway_handle ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$' "
@@ -1113,7 +1115,7 @@ def _create_binding_subtypes() -> None:
             "AND provider_account_ref ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$' "
             "AND provider_contract_ref ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$' "
             "AND credential_slot_ref ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'",
-            name="ck_api_binding_v2_opaque_refs",
+            name=op.f("ck_api_binding_v2_opaque_refs"),
         ),
         schema="platform",
     )
@@ -1144,14 +1146,14 @@ def _create_binding_subtypes() -> None:
         sa.CheckConstraint(
             "login_state = 'ready' AND captcha_state = 'ready' "
             "AND risk_state = 'ready' AND human_assist_state = 'ready'",
-            name="ck_web_binding_v2_ready",
+            name=op.f("ck_web_binding_v2_ready"),
         ),
         sa.CheckConstraint(
             "governed_account_ref ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$' "
             "AND browser_owner_handle ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$' "
             "AND browser_profile_ref ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$' "
             "AND web_session_ref ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'",
-            name="ck_web_binding_v2_opaque_refs",
+            name=op.f("ck_web_binding_v2_opaque_refs"),
         ),
         schema="platform",
     )
@@ -1185,7 +1187,7 @@ def _create_binding_subtypes() -> None:
         sa.CheckConstraint(
             "session_state = 'ready' AND attestation_state = 'ready' "
             "AND device_health_state = 'ready' AND human_assist_state = 'ready'",
-            name="ck_app_binding_v2_ready",
+            name=op.f("ck_app_binding_v2_ready"),
         ),
         sa.CheckConstraint(
             "governed_account_ref ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$' "
@@ -1193,7 +1195,7 @@ def _create_binding_subtypes() -> None:
             "AND managed_device_ref ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$' "
             "AND app_install_ref ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$' "
             "AND app_session_ref ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'",
-            name="ck_app_binding_v2_opaque_refs",
+            name=op.f("ck_app_binding_v2_opaque_refs"),
         ),
         schema="platform",
     )
@@ -1284,11 +1286,11 @@ def _create_binding_mappings() -> None:
         ),
         sa.CheckConstraint(
             "requirement_state IN ('required','optional') AND ordinal >= 0",
-            name="ck_binding_capability_requirement",
+            name=op.f("ck_binding_capability_requirement"),
         ),
         sa.CheckConstraint(
             _SURFACE.format(column="collection_surface"),
-            name="ck_binding_capability_surface",
+            name=op.f("ck_binding_capability_surface"),
         ),
         schema="platform",
     )
@@ -1359,14 +1361,14 @@ def _create_binding_mappings() -> None:
             "mapping_revision",
             name="uq_binding_resource_grant_mapping",
         ),
-        sa.CheckConstraint("ordinal >= 0", name="ck_binding_resource_ordinal"),
+        sa.CheckConstraint("ordinal >= 0", name=op.f("ck_binding_resource_ordinal")),
         sa.CheckConstraint(
             "resource_kind IN " + str(_RESOURCE_KINDS).replace('"', "'"),
-            name="ck_binding_resource_kind",
+            name=op.f("ck_binding_resource_kind"),
         ),
         sa.CheckConstraint(
             "btrim(resource_role) <> '' AND btrim(mapping_revision) <> ''",
-            name="ck_binding_resource_required_text",
+            name=op.f("ck_binding_resource_required_text"),
         ),
         schema="platform",
     )
@@ -1433,7 +1435,7 @@ def _create_binding_mappings() -> None:
         ),
         sa.CheckConstraint(
             "quota_units > 0 AND ordinal >= 0",
-            name="ck_binding_quota_scope_values",
+            name=op.f("ck_binding_quota_scope_values"),
         ),
         schema="platform",
     )
@@ -2000,25 +2002,25 @@ def _create_submission_operation() -> None:
         ),
         sa.CheckConstraint(
             _SURFACE.format(column="collection_surface"),
-            name="ck_submission_operation_surface",
+            name=op.f("ck_submission_operation_surface"),
         ),
         sa.CheckConstraint(
             "province_code ~ '^[0-9]{6}$'",
-            name="ck_submission_operation_province",
+            name=op.f("ck_submission_operation_province"),
         ),
         sa.CheckConstraint(
             "operation_generation > 0 AND send_state_version > 0",
-            name="ck_submission_operation_versions",
+            name=op.f("ck_submission_operation_versions"),
         ),
         sa.CheckConstraint(
             "send_state IN "
             "('NOT_SENT','SENDING','CONFIRMED_SENT','SEND_UNKNOWN',"
             "'CONFIRMED_NOT_SENT')",
-            name="ck_submission_operation_send_state",
+            name=op.f("ck_submission_operation_send_state"),
         ),
         sa.CheckConstraint(
             "reconciliation_state IN ('not_required','pending','in_progress','resolved','blocked')",
-            name="ck_submission_operation_reconciliation",
+            name=op.f("ck_submission_operation_reconciliation"),
         ),
         sa.CheckConstraint(
             "(send_state = 'NOT_SENT' AND send_started_at IS NULL "
@@ -2028,18 +2030,18 @@ def _create_submission_operation() -> None:
             "(send_state IN ('CONFIRMED_SENT','SEND_UNKNOWN') "
             "AND send_started_at IS NOT NULL AND send_resolved_at IS NOT NULL) OR "
             "(send_state = 'CONFIRMED_NOT_SENT' AND send_resolved_at IS NOT NULL)",
-            name="ck_submission_operation_timestamps",
+            name=op.f("ck_submission_operation_timestamps"),
         ),
         sa.CheckConstraint(
             "send_state <> 'SEND_UNKNOWN' OR reconciliation_state <> 'not_required'",
-            name="ck_submission_operation_unknown_reconcile",
+            name=op.f("ck_submission_operation_unknown_reconcile"),
         ),
         sa.CheckConstraint(
             "btrim(slot_key) <> '' AND btrim(operation_key) <> '' "
             "AND btrim(operation_policy_revision) <> '' "
             "AND btrim(platform) <> '' AND btrim(product_variant) <> '' "
             "AND btrim(interaction_mode) <> '' AND btrim(state_reason) <> ''",
-            name="ck_submission_operation_required_text",
+            name=op.f("ck_submission_operation_required_text"),
         ),
         schema="platform",
     )
@@ -2221,22 +2223,22 @@ def _create_submission_reconciliation_proof() -> None:
         ),
         sa.CheckConstraint(
             "proof_kind = 'owner_proved_not_sent' AND proof_state = 'accepted'",
-            name="ck_submission_reconciliation_proof_kind_state",
+            name=op.f("ck_submission_reconciliation_proof_kind_state"),
         ),
         sa.CheckConstraint(
             "owner_gateway_revision ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$' "
             "AND owner_evidence_ref ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'",
-            name="ck_submission_reconciliation_proof_opaque_refs",
+            name=op.f("ck_submission_reconciliation_proof_opaque_refs"),
         ),
         sa.CheckConstraint(
             _SHA256.format(column="evidence_hash")
             + " AND "
             + _SHA256.format(column="terminated_lease_set_hash"),
-            name="ck_submission_reconciliation_proof_hashes",
+            name=op.f("ck_submission_reconciliation_proof_hashes"),
         ),
         sa.CheckConstraint(
             "terminated_lease_count > 0 AND btrim(reason_code) <> '' AND btrim(recorded_by) <> ''",
-            name="ck_submission_reconciliation_proof_required",
+            name=op.f("ck_submission_reconciliation_proof_required"),
         ),
         schema="platform",
     )
@@ -2458,7 +2460,7 @@ def _create_resource_governance_tables() -> None:
             "source_kind IN "
             "('s01_platform_account','s01_browser_profile','s06_platform_account',"
             "'s06_browser','s06_region')",
-            name="ck_resource_adoption_source_kind",
+            name=op.f("ck_resource_adoption_source_kind"),
         ),
         sa.CheckConstraint(
             "(source_kind='s01_platform_account' "
@@ -2484,15 +2486,15 @@ def _create_resource_governance_tables() -> None:
             "AND source_browser_profile_id IS NULL "
             "AND source_s06_platform_account_id IS NULL "
             "AND source_s06_browser_id IS NULL AND source_s06_region_id IS NOT NULL)",
-            name="ck_resource_adoption_exact_source",
+            name=op.f("ck_resource_adoption_exact_source"),
         ),
         sa.CheckConstraint(
             "verification_state IN ('proposed','verified','rejected','revoked')",
-            name="ck_resource_adoption_state",
+            name=op.f("ck_resource_adoption_state"),
         ),
         sa.CheckConstraint(
             _SHA256.format(column="verification_hash"),
-            name="ck_resource_adoption_hash",
+            name=op.f("ck_resource_adoption_hash"),
         ),
         sa.CheckConstraint(
             "(verification_state='proposed' AND verified_at IS NULL "
@@ -2504,7 +2506,7 @@ def _create_resource_governance_tables() -> None:
             "AND adopted_at IS NULL AND revoked_at IS NULL) OR "
             "(verification_state='revoked' AND verified_at IS NOT NULL "
             "AND adopted_at IS NOT NULL AND revoked_at IS NOT NULL)",
-            name="ck_resource_adoption_timestamps",
+            name=op.f("ck_resource_adoption_timestamps"),
         ),
         schema="platform",
     )
@@ -2580,17 +2582,17 @@ def _create_resource_governance_tables() -> None:
         ),
         sa.CheckConstraint(
             "unit_ordinal >= 1 AND current_fencing_token >= 0",
-            name="ck_resource_capacity_numbers",
+            name=op.f("ck_resource_capacity_numbers"),
         ),
         sa.CheckConstraint(
             "capacity_state IN ('candidate','available','leased','quarantined','revoked')",
-            name="ck_resource_capacity_state",
+            name=op.f("ck_resource_capacity_state"),
         ),
         sa.CheckConstraint(
             "(capacity_state NOT IN ('quarantined','revoked')) OR "
             "(capacity_state='quarantined' AND quarantined_at IS NOT NULL) OR "
             "(capacity_state='revoked' AND revoked_at IS NOT NULL)",
-            name="ck_resource_capacity_timestamps",
+            name=op.f("ck_resource_capacity_timestamps"),
         ),
         schema="platform",
     )
@@ -2813,7 +2815,7 @@ def _extend_resource_lease() -> None:
         schema="platform",
     )
     op.create_check_constraint(
-        "ck_resource_lease_v2_shape_s07",
+        op.f("ck_resource_lease_v2_shape_s07"),
         "resource_lease",
         """
         (lease_schema_version IS NULL AND project_id IS NULL
@@ -3065,7 +3067,7 @@ def _create_quota_runtime_tables() -> None:
         ),
         sa.CheckConstraint(
             _SHA256.format(column="bucket_hash"),
-            name="ck_quota_bucket_hash",
+            name=op.f("ck_quota_bucket_hash"),
         ),
         sa.CheckConstraint(
             "window_start < window_end AND limit_units > 0 "
@@ -3073,11 +3075,11 @@ def _create_quota_runtime_tables() -> None:
             "AND settled_unknown_units >= 0 AND fence_version > 0 "
             "AND reserved_units + settled_consumed_units "
             "+ settled_unknown_units <= limit_units",
-            name="ck_quota_bucket_capacity",
+            name=op.f("ck_quota_bucket_capacity"),
         ),
         sa.CheckConstraint(
             "bucket_state IN ('open','reconciling','closed')",
-            name="ck_quota_bucket_state",
+            name=op.f("ck_quota_bucket_state"),
         ),
         schema="platform",
     )
@@ -3162,15 +3164,15 @@ def _create_quota_runtime_tables() -> None:
             "reservation_state IN "
             "('preparing','reserved','reconciling','settled_consumed',"
             "'settled_unknown','released')",
-            name="ck_quota_reservation_state",
+            name=op.f("ck_quota_reservation_state"),
         ),
         sa.CheckConstraint(
             "requested_units > 0 AND expected_effect_count > 0",
-            name="ck_quota_reservation_positive",
+            name=op.f("ck_quota_reservation_positive"),
         ),
         sa.CheckConstraint(
             _SHA256.format(column="effect_set_hash"),
-            name="ck_quota_reservation_effect_hash",
+            name=op.f("ck_quota_reservation_effect_hash"),
         ),
         sa.CheckConstraint(
             "(reservation_state='preparing' AND reserved_at IS NULL "
@@ -3180,7 +3182,7 @@ def _create_quota_runtime_tables() -> None:
             "(reservation_state IN "
             "('settled_consumed','settled_unknown','released') "
             "AND reserved_at IS NOT NULL AND finalized_at IS NOT NULL)",
-            name="ck_quota_reservation_timestamps",
+            name=op.f("ck_quota_reservation_timestamps"),
         ),
         schema="platform",
     )
@@ -3250,10 +3252,10 @@ def _create_quota_runtime_tables() -> None:
             "quota_scope_policy_id",
             name="uq_quota_effect_ledger_identity",
         ),
-        sa.CheckConstraint("units > 0", name="ck_quota_effect_units"),
+        sa.CheckConstraint("units > 0", name=op.f("ck_quota_effect_units")),
         sa.CheckConstraint(
             "effect_state IN ('reserved','settled_consumed','settled_unknown','released')",
-            name="ck_quota_effect_state",
+            name=op.f("ck_quota_effect_state"),
         ),
         sa.CheckConstraint(
             "(effect_state='reserved' AND settled_at IS NULL "
@@ -3262,7 +3264,7 @@ def _create_quota_runtime_tables() -> None:
             "AND settled_at IS NOT NULL AND released_at IS NULL) OR "
             "(effect_state='released' AND settled_at IS NULL "
             "AND released_at IS NOT NULL)",
-            name="ck_quota_effect_timestamps",
+            name=op.f("ck_quota_effect_timestamps"),
         ),
         schema="platform",
     )
@@ -3318,10 +3320,10 @@ def _create_quota_runtime_tables() -> None:
             "idempotency_key",
             name="uq_quota_ledger_idempotency",
         ),
-        sa.CheckConstraint("units > 0", name="ck_quota_ledger_units"),
+        sa.CheckConstraint("units > 0", name=op.f("ck_quota_ledger_units")),
         sa.CheckConstraint(
             "effect_kind IN ('reserve','settle_consumed','settle_unknown','release')",
-            name="ck_quota_ledger_kind",
+            name=op.f("ck_quota_ledger_kind"),
         ),
         sa.CheckConstraint(
             "(effect_kind='reserve' AND from_state IS NULL "
@@ -3332,7 +3334,7 @@ def _create_quota_runtime_tables() -> None:
             "AND to_state='settled_unknown') OR "
             "(effect_kind='release' AND from_state='reserved' "
             "AND to_state='released')",
-            name="ck_quota_ledger_transition",
+            name=op.f("ck_quota_ledger_transition"),
         ),
         schema="platform",
     )
@@ -4062,25 +4064,27 @@ def _create_execution_grant_tables() -> None:
         ),
         sa.CheckConstraint(
             "schema_version = 'collection-execution-grant-v1'",
-            name="ck_execution_grant_schema",
+            name=op.f("ck_execution_grant_schema"),
         ),
         sa.CheckConstraint(
             "grant_state IN ('assembling','issued','revoked','expired')",
-            name="ck_execution_grant_state",
+            name=op.f("ck_execution_grant_state"),
         ),
         sa.CheckConstraint(
             "grant_revision > 0 AND expires_at > created_at",
-            name="ck_execution_grant_revision_window",
+            name=op.f("ck_execution_grant_revision_window"),
         ),
         sa.CheckConstraint(
             _SURFACE.format(column="collection_surface"),
-            name="ck_execution_grant_surface",
+            name=op.f("ck_execution_grant_surface"),
         ),
         sa.CheckConstraint(
             "province_code ~ '^[0-9]{6}$'",
-            name="ck_execution_grant_province",
+            name=op.f("ck_execution_grant_province"),
         ),
-        sa.CheckConstraint(_SHA256.format(column="grant_hash"), name="ck_execution_grant_hash"),
+        sa.CheckConstraint(
+            _SHA256.format(column="grant_hash"), name=op.f("ck_execution_grant_hash")
+        ),
         sa.CheckConstraint(
             "(grant_state='assembling' AND issued_at IS NULL "
             "AND revoked_at IS NULL AND revocation_reason IS NULL) OR "
@@ -4091,7 +4095,7 @@ def _create_execution_grant_tables() -> None:
             "AND revoked_at IS NOT NULL AND btrim(revocation_reason) <> '') OR "
             "(grant_state='expired' AND issued_at IS NOT NULL "
             "AND revoked_at IS NULL)",
-            name="ck_execution_grant_timestamps",
+            name=op.f("ck_execution_grant_timestamps"),
         ),
         sa.CheckConstraint(
             "btrim(grant_key) <> '' AND btrim(capability_revision) <> '' "
@@ -4104,7 +4108,7 @@ def _create_execution_grant_tables() -> None:
             "AND btrim(gateway_protocol_revision) <> '' "
             "AND btrim(worker_build_id) <> '' "
             "AND btrim(issued_by_pub_id) <> '' AND btrim(issuance_reason) <> ''",
-            name="ck_execution_grant_required_text",
+            name=op.f("ck_execution_grant_required_text"),
         ),
         schema="platform",
     )
@@ -4171,7 +4175,7 @@ def _create_execution_grant_subtypes() -> None:
             "'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$' "
             "AND provider_quota_subject_ref ~ "
             "'^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'",
-            name="ck_api_execution_grant_v2_opaque_refs",
+            name=op.f("ck_api_execution_grant_v2_opaque_refs"),
         ),
         schema="platform",
     )
@@ -4196,7 +4200,7 @@ def _create_execution_grant_subtypes() -> None:
             "AND governed_account_ref ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$' "
             "AND browser_profile_ref ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$' "
             "AND web_session_ref ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'",
-            name="ck_web_execution_grant_v2_opaque_refs",
+            name=op.f("ck_web_execution_grant_v2_opaque_refs"),
         ),
         schema="platform",
     )
@@ -4225,7 +4229,7 @@ def _create_execution_grant_subtypes() -> None:
             "AND managed_device_ref ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$' "
             "AND app_install_ref ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$' "
             "AND app_session_ref ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'",
-            name="ck_app_execution_grant_v2_opaque_refs",
+            name=op.f("ck_app_execution_grant_v2_opaque_refs"),
         ),
         schema="platform",
     )
@@ -4355,16 +4359,16 @@ def _create_execution_grant_resources() -> None:
         ),
         sa.CheckConstraint(
             "resource_kind IN " + str(_RESOURCE_KINDS).replace('"', "'"),
-            name="ck_execution_grant_resource_kind",
+            name=op.f("ck_execution_grant_resource_kind"),
         ),
         sa.CheckConstraint(
             "resource_ordinal >= 0 AND fence_generation > 0 "
             "AND btrim(binding_resource_mapping_revision) <> ''",
-            name="ck_execution_grant_resource_numbers",
+            name=op.f("ck_execution_grant_resource_numbers"),
         ),
         sa.CheckConstraint(
             "owner_gateway_handle ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'",
-            name="ck_execution_grant_resource_owner_handle",
+            name=op.f("ck_execution_grant_resource_owner_handle"),
         ),
         schema="platform",
     )
