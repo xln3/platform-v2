@@ -46,6 +46,7 @@ _NON_FINAL_NOTICE = "非最终模板合规产物（仅供内部回归，禁止�
 _CANONICAL_SOURCE = (ROOT.parent / "client-sbaq" / "报价单-盛邦-final(2).docx").resolve()
 _CANONICAL_SOURCE_SIGNATURE = ("client-sbaq", "报价单-盛邦-final(2).docx")
 _TEMPLATE_ASSETS = (ROOT / "api" / "geo_platform" / "quotations" / "assets").resolve()
+_TEMPLATE_ASSETS_SIGNATURE = ("api", "geo_platform", "quotations", "assets")
 
 
 def _is_protected_template_output(path: Path) -> bool:
@@ -57,9 +58,14 @@ def _is_protected_template_output(path: Path) -> bool:
     """
     resolved = path.resolve()
     canonical_signature = tuple(resolved.parts[-2:]) == _CANONICAL_SOURCE_SIGNATURE
+    template_asset_signature = (
+        resolved.suffix.lower() == ".docx"
+        and tuple(resolved.parts[-5:-1]) == _TEMPLATE_ASSETS_SIGNATURE
+    )
     return (
         resolved == _CANONICAL_SOURCE
         or canonical_signature
+        or template_asset_signature
         or (resolved.suffix.lower() == ".docx" and resolved.is_relative_to(_TEMPLATE_ASSETS))
     )
 

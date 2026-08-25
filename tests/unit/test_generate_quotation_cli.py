@@ -70,6 +70,12 @@ def test_cli_refuses_canonical_source_and_versioned_template_asset_outputs() -> 
             "quotation-template-v1.docx"
         )
     )
+    assert _is_protected_template_output(
+        Path(
+            "/opt/runner/another-checkout/api/geo_platform/quotations/assets/"
+            "quotation-template-v2.docx"
+        )
+    )
     assert not _is_protected_template_output(Path("/tmp/internal-quotation.docx"))
 
 
