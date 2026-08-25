@@ -84,7 +84,16 @@ app.add_middleware(
         "X-Quotation-Total-Cents",
         "X-Quotation-Maximum-Total-Cents",
         "X-Quotation-Query-Appendix",
+        "X-Quotation-Template-Compliance",
         "X-Quotation-SHA256",
+        "X-Next-Cursor",
+        "X-Has-More",
+        "X-Total-Count",
+        "X-Page",
+        "X-Page-Size",
+        "X-Page-Count",
+        "X-Active-Count",
+        "X-Open-Count",
     ],
 )
 instrument_app(app, settings)

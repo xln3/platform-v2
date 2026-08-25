@@ -659,12 +659,22 @@ implementation_invariants = {
         "<RevocationReceipt",
     ),
     "apps/operations-web/app/shell.tsx": (
+        "BusinessOverviewContainer",
         "OperationsLifecycleWorkspace",
         "fixtureOperationsLifecycleSnapshot",
-        "getOperationsLifecycle(headers)",
+        "if (section === 'overview')",
+        "loadLifecycle(headers)",
         "getValidatedIdentityHeaders()",
         "setLiveSnapshot(result.data)",
         "experience?.source !== 'live'",
+    ),
+    "apps/operations-web/app/business-overview.tsx": (
+        "getOperationsBusinessOverview",
+        "updateClientUrlParameters(",
+        "controller.abort()",
+        "createFixtureOperationsBusinessOverview",
+        "每页最多 4 个项目",
+        "系统目前未保存可查询的报价历史、已签合同、开票应收与回款台账",
     ),
     "apps/report-studio/app/shell.tsx": (
         "import('pdfjs-dist')",
@@ -3538,7 +3548,7 @@ production_runtime_evidence_test = (root / "tools/browser_runtime_evidence.test.
 production_mock_scan = (root / "tools/production_mock_scan.mjs").read_text(encoding="utf-8")
 for fragment in (
     "name: 'operations-overview'",
-    "expectedHeading: '运行时间线'",
+    "expectedHeading: '项目组合'",
     "name: 'operations-sessions'",
     "expectedHeading: '授权、租约与会话健康'",
     "name: 'operations-interventions'",

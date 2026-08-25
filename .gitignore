@@ -21,6 +21,8 @@ tests/s04-evidence/backups/
 .production-backups/
 tests/e2e-results/
 tests/e2e-results-*/
+tests/e2e-results-*.json
+test-results/
 
 # 离线刷新的媒体比价数据集制品（~12MB，由 developlog build_data.py 产出）
 .datasets/

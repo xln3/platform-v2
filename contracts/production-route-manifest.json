@@ -1,11 +1,11 @@
 {
   "deployment_template": {
     "path": "deploy/production/geo-platform-v2.conf",
-    "sha256": "d89c17ccbc8985a31b2079dc3268791da41bac8f5c50bbe16f5110ca39fee06c"
+    "sha256": "b04138b2a4a928c2b13c1db3b4ed16c0e91f3f9c8a7512e5f00295b7bb44f6d0"
   },
   "v2_include": {
     "path": "deploy/production/nginx-v2-locations.conf",
-    "sha256": "33ebc6e106839307e879ebe06197d5b36b4e84236e67ffbc2ef6e6301bbc369a"
+    "sha256": "fbdc8ff296dd467b95966c0fa4b8a85f7354cc02195ab7b8adbf174125a99044"
   },
   "customer_answer_http": {
     "path": "deploy/production/geo-platform-v2-customer-answer-http.conf",
@@ -17,7 +17,7 @@
   },
   "customer_answer_backend": {
     "path": "deploy/production/geo-platform-v2-customer-answer-backend.conf",
-    "sha256": "023cc3a315747ba77a3a05503e22df8acf76725a8c10dcd7b1cb60ac5c98980b"
+    "sha256": "fbd1692a006b7a70eb4575e31cd819bb8f486b0f43e9b93b1b1d1c35c10bbeff"
   },
   "required_routes": [
     "/api/v2/",

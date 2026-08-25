@@ -85,6 +85,7 @@ import {
   listReportDeliveries,
   listReports,
   loadProjectReportCatalog,
+  loadSopStage,
   listResponsibleMembers,
   listSopProjects,
   logoutIdentitySession,
@@ -6511,8 +6512,9 @@ describe('quotation generation browser boundary', () => {
         status: 200,
         headers: {
           'content-type': docxMime,
-          'content-disposition':
-            "attachment; filename*=UTF-8''%E6%8A%A5%E4%BB%B7%E5%8D%95-%E7%9B%9B%E9%82%A6%E5%AE%89%E5%85%A8-GEO%E6%95%88%E6%9E%9C%E8%AF%84%E6%B5%8B-20260812.docx",
+          'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(
+            '非最终模板合规产物-报价单-盛邦安全-GEO效果评测-20260812.docx',
+          )}`,
           'x-quotation-sha256': sha256,
           'x-quotation-target-query-count': '64',
           'x-quotation-selected-query-count': '18',
@@ -6524,6 +6526,7 @@ describe('quotation generation browser boundary', () => {
           'x-quotation-total-cents': '5000000',
           'x-quotation-maximum-total-cents': '5000000',
           'x-quotation-query-appendix': 'included',
+          'x-quotation-template-compliance': 'non-final-template',
         },
       });
     });
@@ -6543,7 +6546,7 @@ describe('quotation generation browser boundary', () => {
     expect(result).toMatchObject({
       kind: 'ready',
       data: {
-        fileName: '报价单-盛邦安全-GEO效果评测-20260812.docx',
+        fileName: '非最终模板合规产物-报价单-盛邦安全-GEO效果评测-20260812.docx',
         sha256,
         targetQueryCount: 64,
         selectedQueryCount: 18,
@@ -6553,6 +6556,7 @@ describe('quotation generation browser boundary', () => {
         serviceCount: 4,
         totalPriceCents: 5_000_000,
         queryAppendixIncluded: true,
+        templateCompliance: 'non-final-template',
       },
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -6571,8 +6575,8 @@ describe('quotation generation browser boundary', () => {
       const hasAppendix = artifactKind === 'query_appendix';
       const fileName =
         artifactKind === 'quote_table'
-          ? '报价单-盛邦安全-GEO效果评测-报价单表格-20260812.docx'
-          : '报价单-盛邦安全-GEO效果评测-查询附件-20260812.docx';
+          ? '非最终模板合规产物-报价单-盛邦安全-GEO效果评测-报价单表格-20260812.docx'
+          : '非最终模板合规产物-报价单-盛邦安全-GEO效果评测-查询附件-20260812.docx';
       return new Response(bytes, {
         status: 200,
         headers: {
@@ -6589,6 +6593,7 @@ describe('quotation generation browser boundary', () => {
           'x-quotation-total-cents': '5000000',
           'x-quotation-maximum-total-cents': '5000000',
           'x-quotation-query-appendix': hasAppendix ? 'included' : 'not-included',
+          'x-quotation-template-compliance': 'non-final-template',
         },
       });
     });
@@ -6650,8 +6655,9 @@ describe('quotation generation browser boundary', () => {
           status: 200,
           headers: {
             'content-type': docxMime,
-            'content-disposition':
-              "attachment; filename*=UTF-8''%E6%8A%A5%E4%BB%B7%E5%8D%95-%E7%9B%9B%E9%82%A6%E5%AE%89%E5%85%A8-GEO%E6%95%88%E6%9E%9C%E8%AF%84%E6%B5%8B-20260812.docx",
+            'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(
+              '非最终模板合规产物-报价单-盛邦安全-GEO效果评测-20260812.docx',
+            )}`,
             'x-quotation-sha256': sha256,
             'x-quotation-target-query-count': '0',
             'x-quotation-selected-query-count': '0',
@@ -6663,6 +6669,7 @@ describe('quotation generation browser boundary', () => {
             'x-quotation-total-cents': '5000000',
             'x-quotation-maximum-total-cents': '5000000',
             'x-quotation-query-appendix': 'not-included',
+            'x-quotation-template-compliance': 'non-final-template',
           },
         });
       }),
@@ -6710,8 +6717,9 @@ describe('quotation generation browser boundary', () => {
           status: 200,
           headers: {
             'content-type': docxMime,
-            'content-disposition':
-              "attachment; filename*=UTF-8''%E6%8A%A5%E4%BB%B7%E5%8D%95-%E7%9B%9B%E9%82%A6%E5%AE%89%E5%85%A8-GEO%E6%95%88%E6%9E%9C%E8%AF%84%E6%B5%8B-20260812.docx",
+            'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(
+              '非最终模板合规产物-报价单-盛邦安全-GEO效果评测-20260812.docx',
+            )}`,
             'x-quotation-sha256': sha256,
             'x-quotation-target-query-count': '0',
             'x-quotation-selected-query-count': '0',
@@ -6723,6 +6731,7 @@ describe('quotation generation browser boundary', () => {
             'x-quotation-total-cents': 'pending',
             'x-quotation-maximum-total-cents': 'pending',
             'x-quotation-query-appendix': 'not-included',
+            'x-quotation-template-compliance': 'non-final-template',
           },
         });
       }),
@@ -6745,7 +6754,7 @@ describe('quotation generation browser boundary', () => {
     const sha256 = [...new Uint8Array(digest)]
       .map((value) => value.toString(16).padStart(2, '0'))
       .join('');
-    const fileName = '报价单-盛邦安全-GEO最小验证-20260812.docx';
+    const fileName = '非最终模板合规产物-报价单-盛邦安全-GEO最小验证-20260812.docx';
     vi.stubGlobal(
       'fetch',
       vi.fn(
@@ -6766,6 +6775,7 @@ describe('quotation generation browser boundary', () => {
               'x-quotation-total-cents': '8200000',
               'x-quotation-maximum-total-cents': '9200000',
               'x-quotation-query-appendix': 'not-included',
+              'x-quotation-template-compliance': 'non-final-template',
             },
           }),
       ),
@@ -6819,6 +6829,48 @@ describe('quotation generation browser boundary', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it('rejects a legacy DOCX response without the explicit non-final template marker', async () => {
+    const bytes = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00]);
+    const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);
+    const sha256 = [...new Uint8Array(digest)]
+      .map((value) => value.toString(16).padStart(2, '0'))
+      .join('');
+    const file = new File(['xlsx'], '不应上传.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    const { targetWords: _, ...input } = quotationInput(file);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(bytes, {
+            status: 200,
+            headers: {
+              'content-type': docxMime,
+              'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(
+                '非最终模板合规产物-报价单-盛邦安全-GEO效果评测-20260812.docx',
+              )}`,
+              'x-quotation-sha256': sha256,
+              'x-quotation-target-query-count': '0',
+              'x-quotation-selected-query-count': '0',
+              'x-quotation-opportunity-count': '0',
+              'x-quotation-package-code': 'geo_effect_assessment',
+              'x-quotation-artifact-kind': 'complete',
+              'x-quotation-service-count': '4',
+              'x-quotation-pricing-status': 'priced',
+              'x-quotation-total-cents': '5000000',
+              'x-quotation-maximum-total-cents': '5000000',
+              'x-quotation-query-appendix': 'not-included',
+            },
+          }),
+      ),
+    );
+
+    await expect(
+      generateQuotation(input, quotationHeaders, createGeoApiClient('https://geo.example')),
+    ).resolves.toEqual({ kind: 'unavailable' });
+  });
+
   it('rejects a digest mismatch and classifies an unavailable model configuration', async () => {
     const file = new File(['xlsx'], '目标词.xlsx', {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -6831,8 +6883,9 @@ describe('quotation generation browser boundary', () => {
             status: 200,
             headers: {
               'content-type': docxMime,
-              'content-disposition':
-                "attachment; filename*=UTF-8''%E6%8A%A5%E4%BB%B7%E5%8D%95-%E7%9B%9B%E9%82%A6%E5%AE%89%E5%85%A8-GEO%E6%95%88%E6%9E%9C%E8%AF%84%E6%B5%8B-20260812.docx",
+              'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(
+                '非最终模板合规产物-报价单-盛邦安全-GEO效果评测-20260812.docx',
+              )}`,
               'x-quotation-sha256': 'a'.repeat(64),
               'x-quotation-target-query-count': '10',
               'x-quotation-selected-query-count': '10',
@@ -6844,6 +6897,7 @@ describe('quotation generation browser boundary', () => {
               'x-quotation-total-cents': '5000000',
               'x-quotation-maximum-total-cents': '5000000',
               'x-quotation-query-appendix': 'included',
+              'x-quotation-template-compliance': 'non-final-template',
             },
           }),
       ),
@@ -8341,29 +8395,29 @@ describe('fixed-field browser boundaries (Round170)', () => {
     expect(JSON.stringify({ deliveries, assets, history, diffs })).not.toMatch(extensionPattern);
   });
 
-  it('exposes and sends SOP project cursors so later pages remain reachable', async () => {
+  it('requests SOP project pages directly and projects exact totals beyond row 100', async () => {
     const request = vi.fn(async (input: RequestInfo | URL) => {
       const url = new URL((input as Request).url);
-      expect(url.searchParams.get('cursor')).toBe('spr_previous');
-      expect(url.searchParams.get('limit')).toBe('100');
+      expect(url.searchParams.get('page')).toBe('26');
+      expect(url.searchParams.get('page_size')).toBe('4');
+      expect(url.searchParams.has('cursor')).toBe(false);
+      expect(url.searchParams.has('limit')).toBe(false);
       return new Response(
         JSON.stringify({
-          data: [
-            {
-              pub_id: 'spr_next',
-              tenant_pub_id: boundaryHeaders['X-Tenant-Id'],
-              name: '下一页项目',
-              brand_standard_name: 'Acme',
-              brand_profile: {},
-              target_platforms: [],
-              success_definition: [],
-              status: 'active',
-              created_by_pub_id: 'usr_operator',
-              created_at: '2026-07-29T08:00:00Z',
-              updated_at: '2026-07-29T09:00:00Z',
-            },
-          ],
-          page: { next_cursor: 'spr_next', has_more: true },
+          data: Array.from({ length: 4 }, (_, offset) => ({
+            pub_id: `spr_${101 + offset}`,
+            tenant_pub_id: boundaryHeaders['X-Tenant-Id'],
+            name: `SOP 项目 ${101 + offset}`,
+            brand_standard_name: 'Acme',
+            brand_profile: {},
+            target_platforms: [],
+            success_definition: [],
+            status: 'active',
+            created_by_pub_id: 'usr_operator',
+            created_at: '2026-07-29T08:00:00Z',
+            updated_at: '2026-07-29T09:00:00Z',
+          })),
+          page: { page: 26, page_size: 4, total_count: 105, total_pages: 27 },
         }),
         { status: 200, headers: { 'content-type': 'application/json' } },
       );
@@ -8372,27 +8426,107 @@ describe('fixed-field browser boundaries (Round170)', () => {
 
     const result = await listSopProjects(
       boundaryHeaders,
-      'spr_previous',
+      26,
       createGeoApiClient('http://127.0.0.1:45200'),
     );
 
-    expect(result).toEqual({
-      kind: 'ready',
-      data: {
-        data: [
-          {
-            pubId: 'spr_next',
-            name: '下一页项目',
-            brandStandardName: 'Acme',
-            status: 'active',
-            updatedAt: '2026-07-29T09:00:00Z',
-          },
-        ],
-        nextCursor: 'spr_next',
-        hasMore: true,
-      },
+    expect(result.kind).toBe('ready');
+    if (result.kind !== 'ready') return;
+    expect(result.data.data.map((project) => project.pubId)).toEqual([
+      'spr_101',
+      'spr_102',
+      'spr_103',
+      'spr_104',
+    ]);
+    expect(result.data).toMatchObject({
+      page: 26,
+      pageSize: 4,
+      totalCount: 105,
+      totalPages: 27,
     });
     expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it('loads only the requested SOP stage page without a 100-row prefetch', async () => {
+    const realSbaqQuestions = [
+      '企业接入网证需要什么资质？哪些厂商能帮助企业完成资质对接和技术集成？',
+      '企业接入网证的资质要求有哪些？有没有厂商提供资质申请+技术集成一条龙服务？',
+      '网证接入对企业资质有什么门槛？哪些安全厂商能协助企业搞定资质和对接？',
+      '接网证要什么资质啊？有没有厂商能帮忙把资质和技术一块搞定的？',
+    ];
+    const request = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL((input as Request).url);
+      expect(url.searchParams.has('cursor')).toBe(false);
+      expect(url.searchParams.has('limit')).toBe(false);
+      if (url.pathname.endsWith('/query-sets')) {
+        expect(url.searchParams.get('page')).toBe('1');
+        expect(url.searchParams.get('page_size')).toBe('1');
+        return new Response(
+          JSON.stringify({
+            data: [
+              {
+                pub_id: 'sqs_sbaq_revision_33',
+                tenant_pub_id: boundaryHeaders['X-Tenant-Id'],
+                project_pub_id: 'spr_sbaq',
+                version_no: 33,
+                note: '已冻结问题集',
+                status: 'frozen',
+                frozen_at: '2026-08-12T17:59:08Z',
+                created_at: '2026-08-12T17:59:08Z',
+                item_count: 136,
+              },
+            ],
+            page: { page: 1, page_size: 1, total_count: 1, total_pages: 1 },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      expect(url.pathname).toContain('/query-sets/sqs_sbaq_revision_33/items');
+      expect(url.searchParams.get('page')).toBe('26');
+      expect(url.searchParams.get('page_size')).toBe('4');
+      return new Response(
+        JSON.stringify({
+          data: realSbaqQuestions.map((queryText, offset) => ({
+            pub_id: `sqi_sbaq_${101 + offset}`,
+            tenant_pub_id: boundaryHeaders['X-Tenant-Id'],
+            query_set_pub_id: 'sqs_sbaq_revision_33',
+            ordinal: 101 + offset,
+            query_text: queryText,
+            layer: 'C',
+            contains_brand: false,
+            intent: '',
+            persona: '',
+            decision_stage: '',
+            expected_facts: '',
+            priority: 'P1',
+            created_at: '2026-08-12T17:59:08Z',
+          })),
+          page: { page: 26, page_size: 4, total_count: 136, total_pages: 34 },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    });
+    vi.stubGlobal('fetch', request);
+
+    const result = await loadSopStage(
+      boundaryHeaders,
+      'spr_sbaq',
+      'query-set',
+      26,
+      createGeoApiClient('http://127.0.0.1:45200'),
+    );
+
+    expect(result.kind).toBe('ready');
+    if (result.kind !== 'ready') return;
+    expect(result.data.items.map((item) => item.label)).toEqual(realSbaqQuestions);
+    expect(result.data.page).toEqual({
+      page: 26,
+      pageSize: 4,
+      totalCount: 136,
+      totalPages: 34,
+    });
+    expect(result.data.metrics).toContainEqual({ label: '查询词数', value: '136' });
+    expect(request).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -8540,22 +8674,24 @@ describe('post analysis browser boundary', () => {
     });
 
   it('projects task pages and fails closed on hostile rows or cursor drift', async () => {
+    const requestCursor = `${'r'.repeat(32)}.${'s'.repeat(43)}`;
+    const responseCursor = `${'n'.repeat(32)}.${'x'.repeat(43)}`;
     const request = vi.fn(async (_input: RequestInfo | URL) =>
       jsonResponse({
         data: [postAnalysisTaskRow],
-        page: { next_cursor: `pat_${'a'.repeat(26)}`, has_more: true },
+        page: { next_cursor: responseCursor, has_more: true },
       }),
     );
     vi.stubGlobal('fetch', request);
     const client = createGeoApiClient('http://127.0.0.1:45200');
 
-    const ready = await listPostAnalysisTasks(postAnalysisHeaders, `pat_${'0'.repeat(26)}`, client);
+    const ready = await listPostAnalysisTasks(postAnalysisHeaders, requestCursor, client);
     expect(ready).toEqual({
       kind: 'ready',
-      data: { data: [postAnalysisTaskSummary], nextCursor: `pat_${'a'.repeat(26)}`, hasMore: true },
+      data: { data: [postAnalysisTaskSummary], nextCursor: responseCursor, hasMore: true },
     });
     const outbound = request.mock.calls[0]?.[0] as Request;
-    expect(outbound.url).toContain(`cursor=pat_${'0'.repeat(26)}`);
+    expect(outbound.url).toContain(`cursor=${encodeURIComponent(requestCursor)}`);
 
     vi.stubGlobal(
       'fetch',

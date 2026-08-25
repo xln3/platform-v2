@@ -12,3 +12,4 @@ tests/s04-evidence/*.json
 tests/s04-evidence/playwright-*
 tests/e2e-results
 tests/e2e-results-*
+test-results

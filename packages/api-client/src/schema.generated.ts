@@ -228,6 +228,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/projects/{project_pub_id}/config/current": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Current Config
+         * @description Resolve the effective revision and nearest future revision server-side.
+         *
+         *     This endpoint is intentionally read-only.  It preserves v1 snapshot bytes
+         *     and hash while giving the service workspace deterministic time semantics.
+         *     Session 04 can extend the same projection to the canonical v2 store once
+         *     activation and commercial admission are wired.
+         */
+        get: operations["current_config_api_v2_projects__project_pub_id__config_current_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/quotations/generate": {
         parameters: {
             query?: never;
@@ -560,6 +585,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/collection/runs/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Summarize Runs
+         * @description Return full-cohort run/task totals, never a subtotal of the visible page.
+         */
+        get: operations["summarize_runs_api_v2_collection_runs_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/collection/tasks/{task_pub_id}/trace": {
         parameters: {
             query?: never;
@@ -859,6 +904,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/platform-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Platform Events
+         * @description Tenant-wide account/session timeline without a first-N-account fan-out.
+         */
+        get: operations["platform_events_api_v2_platform_events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/platform-accounts/{account_pub_id}/events": {
         parameters: {
             query?: never;
@@ -1018,7 +1083,7 @@ export interface paths {
         };
         /**
          * List Account Events
-         * @description 该手机号（含其平台行）的审计事件，倒序 50 条。
+         * @description 该手机号（含其平台行）的完整审计事件游标页。
          */
         get: operations["list_account_events_api_v2_collection_accounts__pub_id__events_get"];
         put?: never;
@@ -1613,6 +1678,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/operations/business-overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Operations Business Overview
+         * @description Return one bounded, secret-free portfolio snapshot for internal Operations roles.
+         */
+        get: operations["getOperationsBusinessOverview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/resources": {
         parameters: {
             query?: never;
@@ -2054,7 +2139,7 @@ export interface paths {
         };
         /**
          * List Run Comparisons
-         * @description 项目下全部 run 组对比实体（created_at 倒序）。
+         * @description 项目下 run 组对比实体；不透明游标绑定租户与项目过滤。
          */
         get: operations["list_run_comparisons_api_v2_analytics_comparisons_get"];
         put?: never;
@@ -2972,6 +3057,194 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/internal/service2-source-corpus/projects/{project_pub_id}/analysis-models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Analysis Models */
+        get: operations["analysis_models_api_v2_internal_service2_source_corpus_projects__project_pub_id__analysis_models_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/internal/service2-source-corpus/projects/{project_pub_id}/batches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Batch */
+        post: operations["create_batch_api_v2_internal_service2_source_corpus_projects__project_pub_id__batches_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/internal/service2-source-corpus/projects/{project_pub_id}/batches/current": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Current Batch */
+        get: operations["current_batch_api_v2_internal_service2_source_corpus_projects__project_pub_id__batches_current_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/internal/service2-source-corpus/projects/{project_pub_id}/batches/{batch_pub_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Batch */
+        get: operations["get_batch_api_v2_internal_service2_source_corpus_projects__project_pub_id__batches__batch_pub_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/internal/service2-source-corpus/projects/{project_pub_id}/batches/{batch_pub_id}/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Corpus Items */
+        get: operations["list_corpus_items_api_v2_internal_service2_source_corpus_projects__project_pub_id__batches__batch_pub_id__items_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/internal/service2-source-corpus/projects/{project_pub_id}/batches/{batch_pub_id}/findings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Findings */
+        get: operations["list_findings_api_v2_internal_service2_source_corpus_projects__project_pub_id__batches__batch_pub_id__findings_get"];
+        put?: never;
+        /** Create Finding */
+        post: operations["create_finding_api_v2_internal_service2_source_corpus_projects__project_pub_id__batches__batch_pub_id__findings_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/internal/service2-source-corpus/projects/{project_pub_id}/batches/{batch_pub_id}/findings/{finding_pub_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Finding */
+        get: operations["get_finding_api_v2_internal_service2_source_corpus_projects__project_pub_id__batches__batch_pub_id__findings__finding_pub_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/internal/service2-source-corpus/projects/{project_pub_id}/batches/{batch_pub_id}/findings/{finding_pub_id}/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Review Finding */
+        post: operations["review_finding_api_v2_internal_service2_source_corpus_projects__project_pub_id__batches__batch_pub_id__findings__finding_pub_id__reviews_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/internal/service2-source-corpus/projects/{project_pub_id}/batches/{batch_pub_id}/actions/{action}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Lifecycle Action */
+        post: operations["lifecycle_action_api_v2_internal_service2_source_corpus_projects__project_pub_id__batches__batch_pub_id__actions__action__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/internal/service2-source-corpus/projects/{project_pub_id}/batches/{batch_pub_id}/freeze": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Freeze Batch */
+        post: operations["freeze_batch_api_v2_internal_service2_source_corpus_projects__project_pub_id__batches__batch_pub_id__freeze_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/internal/service2-source-corpus/projects/{project_pub_id}/batches/{batch_pub_id}/manifest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Manifest */
+        get: operations["get_manifest_api_v2_internal_service2_source_corpus_projects__project_pub_id__batches__batch_pub_id__manifest_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/sop/projects": {
         parameters: {
             query?: never;
@@ -3227,7 +3500,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** List Article Versions */
+        get: operations["list_article_versions_api_v2_sop_articles__article_pub_id__versions_get"];
         put?: never;
         /** Create Article Version */
         post: operations["create_article_version_api_v2_sop_articles__article_pub_id__versions_post"];
@@ -4980,6 +5254,51 @@ export interface components {
              */
             updated_at: string;
         };
+        /** AnalysisModelCatalogView */
+        AnalysisModelCatalogView: {
+            /** Default Model */
+            default_model: string;
+            /** Models */
+            models: components["schemas"]["AnalysisModelOptionView"][];
+            /**
+             * Credential Source
+             * @default server_environment_only
+             * @constant
+             */
+            credential_source: "server_environment_only";
+        };
+        /** AnalysisModelOptionView */
+        AnalysisModelOptionView: {
+            /** Model */
+            model: string;
+            /** Label */
+            label: string;
+            /** Provider */
+            provider: string;
+            /** Tier */
+            tier: string;
+            /** Capability */
+            capability: string;
+            /** Web Search Mode */
+            web_search_mode: string;
+            /** Input Usd Per Million Tokens */
+            input_usd_per_million_tokens: number | null;
+            /** Output Usd Per Million Tokens */
+            output_usd_per_million_tokens: number | null;
+            /** Context Window Tokens */
+            context_window_tokens: number | null;
+            /** Recommended */
+            recommended: boolean;
+            /** Pricing Observed At */
+            pricing_observed_at: string;
+            /** Pricing Source Url */
+            pricing_source_url: string;
+            /**
+             * Pricing Notice
+             * @constant
+             */
+            pricing_notice: "catalog_snapshot_provider_invoice_authoritative";
+        };
         /** AnchorSource */
         AnchorSource: {
             /** Name */
@@ -5248,39 +5567,6 @@ export interface components {
             /** Opportunity Pub Id */
             opportunity_pub_id?: string | null;
         };
-        /** ArticleDetail */
-        ArticleDetail: {
-            /** Pub Id */
-            pub_id: string;
-            /** Tenant Pub Id */
-            tenant_pub_id: string;
-            /** Project Pub Id */
-            project_pub_id: string;
-            /** Opportunity Pub Id */
-            opportunity_pub_id: string | null;
-            /** Title */
-            title: string;
-            /** Status */
-            status: string;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /**
-             * Updated At
-             * Format: date-time
-             */
-            updated_at: string;
-            /** Version Count */
-            version_count?: number | null;
-            /** Latest Version No */
-            latest_version_no?: number | null;
-            /** Maturity Level */
-            maturity_level?: string | null;
-            /** Versions */
-            versions: components["schemas"]["ArticleVersionView"][];
-        };
         /** ArticleUpdate */
         ArticleUpdate: {
             /** Title */
@@ -5331,8 +5617,6 @@ export interface components {
             created_at: string;
             /** Check Count */
             check_count?: number | null;
-            /** Checks */
-            checks: components["schemas"]["CheckView"][];
         };
         /** ArticleVersionUpdate */
         ArticleVersionUpdate: {
@@ -5456,6 +5740,21 @@ export interface components {
             /** Truth Confirmed */
             truth_confirmed: boolean;
         };
+        /**
+         * AttentionCode
+         * @enum {string}
+         */
+        AttentionCode: "collection_failed_or_delayed" | "formal_production_failed" | "formal_review_required" | "delivery_confirmation_required" | "setup_records_missing" | "intake_truth_confirmation_required" | "service_entitlement_unrecorded" | "no_current_attention";
+        /**
+         * AttentionSeverity
+         * @enum {string}
+         */
+        AttentionSeverity: "danger" | "warning" | "neutral";
+        /**
+         * AttributionConfidence
+         * @enum {string}
+         */
+        AttributionConfidence: "verified" | "probable" | "weak" | "unknown";
         /** AttributionCreate */
         AttributionCreate: {
             /** Target Pub Id */
@@ -5481,6 +5780,17 @@ export interface components {
              * @default
              */
             note: string;
+        };
+        /** AttributionInput */
+        AttributionInput: {
+            /** Party */
+            party?: string | null;
+            /** @default unknown */
+            confidence: components["schemas"]["AttributionConfidence"];
+            /** Evidence */
+            evidence?: {
+                [key: string]: unknown;
+            }[];
         };
         /** AttributionView */
         AttributionView: {
@@ -5695,6 +6005,43 @@ export interface components {
              */
             created_at: string;
         };
+        /** BatchCreate */
+        BatchCreate: {
+            /** Run Pub Ids */
+            run_pub_ids: string[];
+            /**
+             * Analysis Model
+             * @default gpt-5.6-luna
+             */
+            analysis_model: string;
+            /**
+             * Window Start
+             * Format: date-time
+             */
+            window_start: string;
+            /**
+             * Window End
+             * Format: date-time
+             */
+            window_end: string;
+            /**
+             * Source Snapshot Boundary
+             * Format: date-time
+             */
+            source_snapshot_boundary: string;
+            /**
+             * Corpus Policy Version
+             * @default service2-all-u-occurrence-v1
+             * @constant
+             */
+            corpus_policy_version: "service2-all-u-occurrence-v1";
+            /**
+             * Judgment Policy Version
+             * @default service2-entity-relation-v1
+             * @constant
+             */
+            judgment_policy_version: "service2-entity-relation-v1";
+        };
         /** BatchSummary */
         BatchSummary: {
             /** Pub Id */
@@ -5765,75 +6112,6 @@ export interface components {
             submitted_count: number;
             /** Published Count */
             published_count: number;
-        };
-        /** BatchView */
-        BatchView: {
-            /** Pub Id */
-            pub_id: string;
-            /** Tenant Pub Id */
-            tenant_pub_id: string;
-            /** Source Filename */
-            source_filename: string;
-            /** Source Sha256 */
-            source_sha256: string;
-            /** Catalog Sha256 */
-            catalog_sha256: string;
-            /** Title */
-            title: string;
-            /** Content Text */
-            content_text: string;
-            /** Image Count */
-            image_count: number;
-            /** Customer Name */
-            customer_name: string;
-            /** Release Time */
-            release_time: string | null;
-            /** Auto Submit */
-            auto_submit: boolean;
-            /** Spend Confirmed At */
-            spend_confirmed_at: string | null;
-            /** Max Total Amount */
-            max_total_amount: string | null;
-            /** Quoted Total Amount */
-            quoted_total_amount: string;
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "draft" | "queued" | "processing" | "partially_submitted" | "submitted" | "published" | "blocked" | "failed" | "canceled";
-            /** Note */
-            note: string;
-            /** Sop Project Pub Id */
-            sop_project_pub_id: string | null;
-            /** Article Version Pub Id */
-            article_version_pub_id: string | null;
-            /**
-             * Approval State
-             * @enum {string}
-             */
-            approval_state: "draft" | "pending" | "approved" | "rejected";
-            /** Approval Requested By Pub Id */
-            approval_requested_by_pub_id: string | null;
-            /** Approved By Pub Id */
-            approved_by_pub_id: string | null;
-            /** Approved At */
-            approved_at: string | null;
-            /** Created By Pub Id */
-            created_by_pub_id: string;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /**
-             * Updated At
-             * Format: date-time
-             */
-            updated_at: string;
-            /** Targets */
-            targets: components["schemas"]["TargetView"][];
-            /** Events */
-            events: components["schemas"]["geo_platform__posting__router__EventView"][];
         };
         /** Body_create_batch_api_v2_posting_batches_post */
         Body_create_batch_api_v2_posting_batches_post: {
@@ -6014,6 +6292,79 @@ export interface components {
             errors: string[];
             /** Instances */
             instances: string[];
+        };
+        /** BusinessOverviewItem */
+        BusinessOverviewItem: {
+            project: components["schemas"]["ProjectIdentityView"];
+            customer: components["schemas"]["CustomerIdentityView"];
+            setup: components["schemas"]["SetupView"];
+            /** Service Entitlements */
+            service_entitlements: components["schemas"]["ServiceEntitlementView"][];
+            collection: components["schemas"]["CollectionSummaryView"];
+            formal_report: components["schemas"]["FormalReportSummaryView"];
+            delivery: components["schemas"]["DeliverySummaryView"];
+            /** Contract Draft Export */
+            contract_draft_export?: null;
+            primary_attention: components["schemas"]["PrimaryAttentionView"];
+            /**
+             * Last Business Fact At
+             * Format: date-time
+             */
+            last_business_fact_at: string;
+        };
+        /** BusinessOverviewPage */
+        BusinessOverviewPage: {
+            /** Limit */
+            limit: number;
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /** Has More */
+            has_more: boolean;
+            /** Filtered Total */
+            filtered_total: number;
+        };
+        /** BusinessOverviewSummary */
+        BusinessOverviewSummary: {
+            /**
+             * Scope
+             * @constant
+             */
+            scope: "filtered";
+            /** Tenant Project Count */
+            tenant_project_count: number;
+            /** Project Count */
+            project_count: number;
+            /** Project State Counts */
+            project_state_counts: {
+                [key: string]: number;
+            };
+            /** Setup Ready Project Count */
+            setup_ready_project_count: number;
+            /** Project With Entitlement Record Count */
+            project_with_entitlement_record_count: number;
+            /** Active Entitlement Count */
+            active_entitlement_count: number;
+            /** Attention Project Count */
+            attention_project_count: number;
+        };
+        /** BusinessOverviewView */
+        BusinessOverviewView: {
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            summary: components["schemas"]["BusinessOverviewSummary"];
+            commercial_capabilities: components["schemas"]["CommercialCapabilities"];
+            /** Items */
+            items: components["schemas"]["BusinessOverviewItem"][];
+            page: components["schemas"]["BusinessOverviewPage"];
         };
         /** CapabilityLeaseCreate */
         CapabilityLeaseCreate: {
@@ -6366,12 +6717,50 @@ export interface components {
             /** Note */
             note: string | null;
         };
+        /**
+         * CollectionRunState
+         * @enum {string}
+         */
+        CollectionRunState: "pending" | "starting" | "running" | "pausing" | "paused" | "resuming" | "cancelling" | "completed" | "completed_with_failures" | "failed" | "cancelled" | "skipped";
+        /** CollectionSummaryView */
+        CollectionSummaryView: {
+            /** Active Count */
+            active_count: number;
+            /** Failed Count */
+            failed_count: number;
+            /** Delayed Count */
+            delayed_count: number;
+            latest_state: components["schemas"]["CollectionRunState"] | null;
+            /** Latest At */
+            latest_at: string | null;
+        };
         /** CommentCreate */
         CommentCreate: {
             /** Body */
             body: string;
             /** Parent Pub Id */
             parent_pub_id?: string | null;
+        };
+        /** CommercialCapabilities */
+        CommercialCapabilities: {
+            /**
+             * Quotation History
+             * @default unsupported
+             * @constant
+             */
+            quotation_history: "unsupported";
+            /**
+             * Signed Contract Ledger
+             * @default unsupported
+             * @constant
+             */
+            signed_contract_ledger: "unsupported";
+            /**
+             * Invoice Receivable Payment Ledger
+             * @default unsupported
+             * @constant
+             */
+            invoice_receivable_payment_ledger: "unsupported";
         };
         /** ComparisonQueryView */
         ComparisonQueryView: {
@@ -6567,6 +6956,106 @@ export interface components {
             /** Domain Pub Id */
             domain_pub_id?: string | null;
         };
+        /** CorpusItemView */
+        CorpusItemView: {
+            /** Item Pub Id */
+            item_pub_id: string;
+            /** Occurrence Pub Id */
+            occurrence_pub_id: string;
+            /** Run Pub Id */
+            run_pub_id: string;
+            /** Answer Pub Id */
+            answer_pub_id: string;
+            /** Source Url Pub Id */
+            source_url_pub_id: string;
+            /** Snapshot Pub Id */
+            snapshot_pub_id: string | null;
+            /** Source Document Pub Id */
+            source_document_pub_id: string | null;
+            /** Fetch Attempt Pub Id */
+            fetch_attempt_pub_id: string | null;
+            /** Raw Url */
+            raw_url: string;
+            /** Canonical Url */
+            canonical_url: string;
+            /** Site Host */
+            site_host: string;
+            /** Occurrence Ordinal */
+            occurrence_ordinal: number;
+            /** U Rank */
+            u_rank?: number | null;
+            /**
+             * Captured At
+             * Format: date-time
+             */
+            captured_at: string;
+            /** Platform */
+            platform: string;
+            /** Model */
+            model: string;
+            /** Region */
+            region: string;
+            /** Collection Surface */
+            collection_surface: string | null;
+            /** Question */
+            question: string;
+            /** Retrieval Query */
+            retrieval_query: string | null;
+            /** U State */
+            u_state: string;
+            /**
+             * Fetch State
+             * @enum {string}
+             */
+            fetch_state: "queued" | "fetching" | "succeeded" | "partial" | "blocked" | "gone" | "retry_wait" | "failed" | "unobserved";
+            /**
+             * Processing State
+             * @enum {string}
+             */
+            processing_state: "queued" | "fetching" | "retry_wait" | "manual_evidence_required" | "processed" | "partial" | "blocked" | "gone" | "unobservable" | "failed" | "cancelled";
+            /** Entity State */
+            entity_state: string;
+            /** Judgment State */
+            judgment_state: string;
+            /**
+             * Review State
+             * @enum {string}
+             */
+            review_state: "unreviewed" | "not_applicable" | "in_review" | "accepted" | "rejected";
+            /** Entered Judgment */
+            entered_judgment: boolean;
+            /** Finding Count */
+            finding_count: number;
+            /** Retry Count */
+            retry_count: number;
+            /** Failure Code */
+            failure_code: string | null;
+            /** Manual Evidence State */
+            manual_evidence_state: string;
+            /** Version */
+            version: number;
+        };
+        /** CorpusPage */
+        CorpusPage: {
+            /**
+             * Schema Version
+             * @default internal-service2-corpus-items-v1
+             * @constant
+             */
+            schema_version: "internal-service2-corpus-items-v1";
+            /** Batch Pub Id */
+            batch_pub_id: string;
+            /** Data */
+            data: components["schemas"]["CorpusItemView"][];
+            /** Filtered Count */
+            filtered_count: number;
+            /** All U Total */
+            all_u_total: number;
+            /** Next Cursor */
+            next_cursor: string | null;
+            /** Has More */
+            has_more: boolean;
+        };
         /** CoverageBucket */
         CoverageBucket: {
             /** Total Cells */
@@ -6594,6 +7083,59 @@ export interface components {
             gaps: {
                 [key: string]: string;
             }[];
+        };
+        /** CoverageSummary */
+        CoverageSummary: {
+            /** Selected Queries */
+            selected_queries: number;
+            /** Successful Queries */
+            successful_queries: number;
+            /** Failed Queries */
+            failed_queries: number;
+            /** Successful Queries With U */
+            successful_queries_with_u: number;
+            /** Successful Queries Without U */
+            successful_queries_without_u: number;
+            /** Query Failure Codes */
+            query_failure_codes: {
+                [key: string]: number;
+            };
+            /** Query Outcomes Complete */
+            query_outcomes_complete: boolean;
+            /** Query Coverage Complete */
+            query_coverage_complete: boolean;
+            /** Expected Occurrences */
+            expected_occurrences: number;
+            /** Materialized Items */
+            materialized_items: number;
+            /** Distinct Urls */
+            distinct_urls: number;
+            /** Processing States */
+            processing_states: {
+                [key: string]: number;
+            };
+            /** Fetch States */
+            fetch_states: {
+                [key: string]: number;
+            };
+            /** Entered Judgment */
+            entered_judgment: number;
+            /** Findings */
+            findings: number;
+            /** Reviewed Findings */
+            reviewed_findings: number;
+            /** Eligible Cases */
+            eligible_cases: number;
+            /** Coverage Complete */
+            coverage_complete: boolean;
+        };
+        /**
+         * CurrentConfigView
+         * @description Read-only v1 projection with explicit effective/pending semantics.
+         */
+        CurrentConfigView: {
+            effective: components["schemas"]["FrozenConfigView"] | null;
+            next_pending: components["schemas"]["FrozenConfigView"] | null;
         };
         /** CursorPage */
         CursorPage: {
@@ -7077,6 +7619,13 @@ export interface components {
              */
             occurred_at: string;
         };
+        /** CustomerIdentityView */
+        CustomerIdentityView: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+        };
         /** CustomerMetricCatalogView */
         CustomerMetricCatalogView: {
             /**
@@ -7350,8 +7899,7 @@ export interface components {
             project: components["schemas"]["ProjectView"];
             /** Steps */
             steps: components["schemas"]["StepView"][];
-            /** Articles */
-            articles: components["schemas"]["DashboardArticle"][];
+            articles: components["schemas"]["SopPage_DashboardArticle_"];
         };
         /** DeliveryConfirm */
         DeliveryConfirm: {
@@ -7362,6 +7910,15 @@ export interface components {
         DeliveryCreate: {
             /** Recipient Pub Id */
             recipient_pub_id: string;
+        };
+        /** DeliverySummaryView */
+        DeliverySummaryView: {
+            /** Delivered At */
+            delivered_at: string | null;
+            /** Confirmed At */
+            confirmed_at: string | null;
+            /** Pending Confirmation Count */
+            pending_confirmation_count: number;
         };
         /** DeliveryView */
         DeliveryView: {
@@ -7432,6 +7989,11 @@ export interface components {
              */
             checked_at: string;
         };
+        /**
+         * DisparagementLevel
+         * @enum {string}
+         */
+        DisparagementLevel: "L0" | "L1" | "L2a" | "L2b" | "L3a" | "L3b" | "L4";
         /** DisparagementRateView */
         DisparagementRateView: {
             /**
@@ -7505,6 +8067,11 @@ export interface components {
              */
             created_at: string;
         };
+        /**
+         * EntitlementState
+         * @enum {string}
+         */
+        EntitlementState: "inactive" | "active" | "suspended" | "expired";
         /** EvaluationDatasetApprove */
         EvaluationDatasetApprove: {
             /** Rationale */
@@ -7989,45 +8556,112 @@ export interface components {
              */
             updated_at: string;
         };
-        /** FindingView */
-        FindingView: {
-            /** Pub Id */
-            pub_id: string;
-            /** Ordinal */
-            ordinal: number;
+        /**
+         * FactAnchorState
+         * @enum {string}
+         */
+        FactAnchorState: "present" | "absent" | "disputed" | "not_applicable";
+        /** FindingCreate */
+        FindingCreate: {
+            /** Corpus Item Pub Id */
+            corpus_item_pub_id: string;
+            /** Snapshot Pub Id */
+            snapshot_pub_id: string;
+            ledger: components["schemas"]["Ledger"];
+            level: components["schemas"]["DisparagementLevel"];
+            relation_direction: components["schemas"]["RelationDirection"];
+            /** Textual Speaker */
+            textual_speaker: string;
+            /** Target Entity */
+            target_entity: string;
+            /** Beneficiary Entity */
+            beneficiary_entity?: string | null;
+            /** Is Disparagement */
+            is_disparagement: boolean;
+            fact_anchor_state: components["schemas"]["FactAnchorState"];
+            /** Evidence Quote */
+            evidence_quote: string;
+            /** Quote Start */
+            quote_start: number;
+            /** Quote End */
+            quote_end: number;
+            /** Context Text */
+            context_text: string;
+            /** Context Start */
+            context_start: number;
+            /** Context End */
+            context_end: number;
+            /** Snapshot Text Sha256 */
+            snapshot_text_sha256: string;
+            /** Visual Anchor Pub Id */
+            visual_anchor_pub_id?: string | null;
+            flags: components["schemas"]["OrthogonalFlagsInput"];
+            /** Comparison Dimensions */
+            comparison_dimensions?: string[];
+            /** Omitted Facts */
+            omitted_facts?: string[];
             /**
-             * Code
+             * Method
              * @enum {string}
              */
-            code: "A0" | "A1" | "A2" | "A3" | "A4" | "A5" | "B1" | "B2" | "B3" | "C1" | "C2" | "C3" | "C4";
+            method: "llm" | "human" | "dictionary_experimental";
+            /** Model */
+            model: string;
+            /** Prompt Version */
+            prompt_version: string;
             /**
-             * Ledger
-             * @enum {string}
+             * Policy Version
+             * @default service2-entity-relation-v1
+             * @constant
              */
-            ledger: "statement" | "exposure";
-            /** Variant */
-            variant: string;
-            /**
-             * Finding Status
-             * @enum {string}
-             */
-            finding_status: "confirmed" | "needs_review";
-            /** Summary */
-            summary: string;
-            /** Action */
-            action: string;
-            /** Evidence Chain */
-            evidence_chain: components["schemas"]["EvidenceChainLinkView"][];
-            /** Self Check */
-            self_check: {
+            policy_version: "service2-entity-relation-v1";
+            /** Confidence */
+            confidence: number;
+            publisher?: components["schemas"]["AttributionInput"];
+            commissioner?: components["schemas"]["AttributionInput"];
+            /** Factcheck Claim */
+            factcheck_claim?: string | null;
+            /** Factcheck Verdict */
+            factcheck_verdict?: ("supported" | "refuted" | "mixed" | "unverifiable") | null;
+            /** Factcheck Evidence */
+            factcheck_evidence?: {
                 [key: string]: unknown;
-            };
-            /** Validation */
-            validation: {
-                [key: string]: unknown;
-            };
-            /** Spans */
-            spans: components["schemas"]["EvidenceSpanView"][];
+            }[];
+            /** Factcheck Boundary */
+            factcheck_boundary?: string | null;
+        };
+        /** FindingPage */
+        FindingPage: {
+            /**
+             * Schema Version
+             * @default internal-service2-findings-v1
+             * @constant
+             */
+            schema_version: "internal-service2-findings-v1";
+            /** Batch Pub Id */
+            batch_pub_id: string;
+            /** Data */
+            data: components["schemas"]["geo_platform__service2_corpus__schemas__FindingView"][];
+            /** Filtered Count */
+            filtered_count: number;
+            /** All Findings Total */
+            all_findings_total: number;
+            /** Next Cursor */
+            next_cursor: string | null;
+            /** Has More */
+            has_more: boolean;
+        };
+        /** FindingReviewCreate */
+        FindingReviewCreate: {
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "accepted" | "rejected" | "needs_changes";
+            /** Reason Code */
+            reason_code: string;
+            /** Rationale */
+            rationale: string;
         };
         /** FormalArtifactView */
         FormalArtifactView: {
@@ -8080,6 +8714,11 @@ export interface components {
             /** Has More */
             has_more: boolean;
         };
+        /**
+         * FormalProductionState
+         * @enum {string}
+         */
+        FormalProductionState: "queued" | "running" | "failed" | "awaiting_review" | "signed";
         /** FormalProductionView */
         FormalProductionView: {
             /** Pub Id */
@@ -8145,6 +8784,14 @@ export interface components {
              */
             updated_at: string;
         };
+        /** FormalReportSummaryView */
+        FormalReportSummaryView: {
+            /** Production Count */
+            production_count: number;
+            latest_state: components["schemas"]["FormalProductionState"] | null;
+            /** Latest At */
+            latest_at: string | null;
+        };
         /** FormalReviewCreate */
         FormalReviewCreate: {
             /**
@@ -8177,6 +8824,38 @@ export interface components {
             snapshot: {
                 [key: string]: unknown;
             };
+            /** Question Groups */
+            question_groups?: components["schemas"]["QueryGroupDraft"][];
+        };
+        /** FrozenManifestView */
+        FrozenManifestView: {
+            /**
+             * Schema Version
+             * @default formal-service2-source-corpus-v2
+             * @constant
+             */
+            schema_version: "formal-service2-source-corpus-v2";
+            /** Batch Pub Id */
+            batch_pub_id: string;
+            /** Manifest Pub Id */
+            manifest_pub_id: string;
+            /** Revision */
+            revision: number;
+            /** Manifest Hash */
+            manifest_hash: string;
+            /** Case Count */
+            case_count: number;
+            /** Evidence Reference Count */
+            evidence_reference_count: number;
+            /** Facts */
+            facts: {
+                [key: string]: unknown;
+            };
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
         };
         /** GenerateRequest */
         GenerateRequest: {
@@ -8392,7 +9071,7 @@ export interface components {
             /** Profile Hash */
             profile_hash: string;
             /** Findings */
-            findings: components["schemas"]["FindingView"][];
+            findings: components["schemas"]["geo_platform__source_analysis__router__FindingView"][];
             /**
              * Created At
              * Format: date-time
@@ -8408,7 +9087,7 @@ export interface components {
         InspectionPage: {
             /** Data */
             data: components["schemas"]["InspectionSummary"][];
-            page: components["schemas"]["PageMeta"];
+            page: components["schemas"]["geo_platform__source_analysis__router__PageMeta"];
         };
         /** InspectionSummary */
         InspectionSummary: {
@@ -8525,6 +9204,8 @@ export interface components {
             account_pub_id: string;
             /** Account Mask */
             account_mask: string;
+            /** Account Custody Mode */
+            account_custody_mode?: string | null;
             /** Challenge Type */
             challenge_type: string;
             /** Allowed Domain */
@@ -8777,6 +9458,12 @@ export interface components {
             /** Released At */
             released_at: string | null;
         };
+        /**
+         * Ledger
+         * @description A is a quotable statement; B is exposure context and is not disparagement.
+         * @enum {string}
+         */
+        Ledger: "statement" | "exposure";
         /** LegacyFormalProductionCreate */
         LegacyFormalProductionCreate: {
             /** Project Pub Id */
@@ -8830,6 +9517,20 @@ export interface components {
              * @constant
              */
             service_catalog_version?: "legacy_report_services_v1";
+        };
+        /** LifecycleReceipt */
+        LifecycleReceipt: {
+            /** Batch Pub Id */
+            batch_pub_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "draft" | "queued" | "running" | "paused" | "cancel_requested" | "cancelled" | "review" | "frozen" | "failed";
+            /** Version */
+            version: number;
+            /** Replayed */
+            replayed: boolean;
         };
         /** LinkTestRequest */
         LinkTestRequest: {
@@ -8979,6 +9680,17 @@ export interface components {
         NativePasswordSet: {
             /** Password */
             password: string;
+        };
+        /** NumberedPageView */
+        NumberedPageView: {
+            /** Page */
+            page: number;
+            /** Page Size */
+            page_size: number;
+            /** Total Count */
+            total_count: number;
+            /** Total Pages */
+            total_pages: number;
         };
         /** ObservationCreate */
         ObservationCreate: {
@@ -9427,6 +10139,49 @@ export interface components {
             /** Effect Retests */
             effect_retests: components["schemas"]["EffectRetestView"][];
         };
+        /** OrthogonalFlagsInput */
+        OrthogonalFlagsInput: {
+            /**
+             * Comparison Present
+             * @default false
+             */
+            comparison_present: boolean;
+            /**
+             * Peer Elevated
+             * @default false
+             */
+            peer_elevated: boolean;
+            /**
+             * Scope Narrowed
+             * @default false
+             */
+            scope_narrowed: boolean;
+            /**
+             * Industry Wide
+             * @default false
+             */
+            industry_wide: boolean;
+            /**
+             * Direct Target Negative
+             * @default false
+             */
+            direct_target_negative: boolean;
+            /**
+             * Secondary Position
+             * @default false
+             */
+            secondary_position: boolean;
+            /**
+             * Comparison Manipulated
+             * @default false
+             */
+            comparison_manipulated: boolean;
+            /**
+             * Key Fact Omitted
+             * @default false
+             */
+            key_fact_omitted: boolean;
+        };
         /** OtpRegistrySyncResult */
         OtpRegistrySyncResult: {
             /** Scanned */
@@ -9490,13 +10245,6 @@ export interface components {
             normalized_text_hash: string | null;
             /** Perceptual Hash */
             perceptual_hash: string | null;
-        };
-        /** PageMeta */
-        PageMeta: {
-            /** Next Cursor */
-            next_cursor: string | null;
-            /** Has More */
-            has_more: boolean;
         };
         /** PairingView */
         PairingView: {
@@ -9751,13 +10499,13 @@ export interface components {
         PostAnalysisPage_ItemListRow_: {
             /** Data */
             data: components["schemas"]["ItemListRow"][];
-            page: components["schemas"]["PageMeta"];
+            page: components["schemas"]["geo_platform__post_analysis__router__PageMeta"];
         };
         /** PostAnalysisPage[TaskView] */
         PostAnalysisPage_TaskView_: {
             /** Data */
             data: components["schemas"]["TaskView"][];
-            page: components["schemas"]["PageMeta"];
+            page: components["schemas"]["geo_platform__post_analysis__router__PageMeta"];
         };
         /** PrfabuCaptchaView */
         PrfabuCaptchaView: {
@@ -9793,6 +10541,13 @@ export interface components {
             message: string;
             /** Balance */
             balance?: string | null;
+        };
+        /** PrimaryAttentionView */
+        PrimaryAttentionView: {
+            code: components["schemas"]["AttentionCode"];
+            severity: components["schemas"]["AttentionSeverity"];
+            /** Additional Count */
+            additional_count: number;
         };
         /** ProfileEnroll */
         ProfileEnroll: {
@@ -9891,11 +10646,19 @@ export interface components {
                 [key: string]: string;
             }[] | null;
         };
+        /** ProjectIdentityView */
+        ProjectIdentityView: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            state: components["schemas"]["ProjectState"];
+        };
         /** ProjectPage */
         ProjectPage: {
             /** Data */
             data: components["schemas"]["ProjectSummary"][];
-            page: components["schemas"]["PageMeta"];
+            page: components["schemas"]["geo_platform__contracts__PageMeta"];
         };
         /** ProjectPatch */
         ProjectPatch: {
@@ -9908,6 +10671,11 @@ export interface components {
             /** Expected Version */
             expected_version: number;
         };
+        /**
+         * ProjectState
+         * @enum {string}
+         */
+        ProjectState: "draft" | "active" | "paused" | "archived";
         /** ProjectSummary */
         ProjectSummary: {
             /** Pub Id */
@@ -10157,8 +10925,6 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
-            /** Observations */
-            observations: components["schemas"]["ObservationView"][];
             /** Retest Count */
             retest_count: number;
             /** Comparison Count */
@@ -10491,6 +11257,11 @@ export interface components {
             /** Alerted */
             alerted: boolean;
         };
+        /**
+         * RelationDirection
+         * @enum {string}
+         */
+        RelationDirection: "target_negative" | "target_degraded" | "target_compared" | "target_omitted" | "context_only";
         /** ReleaseLockResult */
         ReleaseLockResult: {
             /** Ok */
@@ -11076,6 +11847,21 @@ export interface components {
             /** Profile Pub Id */
             profile_pub_id?: string | null;
         };
+        /** RunSummaryView */
+        RunSummaryView: {
+            /** Project Pub Id */
+            project_pub_id: string | null;
+            /** Run Count */
+            run_count: number;
+            /** Active Run Count */
+            active_run_count: number;
+            /** Total Tasks */
+            total_tasks: number;
+            /** Completed Tasks */
+            completed_tasks: number;
+            /** Failed Tasks */
+            failed_tasks: number;
+        };
         /** RunView */
         RunView: {
             /** Pub Id */
@@ -11108,6 +11894,11 @@ export interface components {
             retry_of_run_pub_id: string | null;
             /** Initiated By Pub Id */
             initiated_by_pub_id: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
             /**
              * Updated At
              * Format: date-time
@@ -11184,6 +11975,7 @@ export interface components {
             columns: components["schemas"]["SamplingProgressColumnView"][];
             /** Rows */
             rows: components["schemas"]["SamplingProgressRowView"][];
+            page: components["schemas"]["NumberedPageView"];
             /** Observed Cells */
             observed_cells: number;
             /** Total Cells */
@@ -11335,6 +12127,20 @@ export interface components {
              */
             expires_at: string;
         };
+        /** ServiceEntitlementView */
+        ServiceEntitlementView: {
+            /** Service Code */
+            service_code: string;
+            /** Service Name */
+            service_name: string;
+            state: components["schemas"]["EntitlementState"];
+            /** Authorized From */
+            authorized_from: string | null;
+            /** Authorized Until */
+            authorized_until: string | null;
+            /** Effective Now */
+            effective_now: boolean;
+        };
         /** SessionView */
         SessionView: {
             /** Tenant Pub Id */
@@ -11344,6 +12150,21 @@ export interface components {
             role: components["schemas"]["Role"];
             /** Permissions */
             permissions: string[];
+        };
+        /** SetupView */
+        SetupView: {
+            /** Client Profile Revision */
+            client_profile_revision?: number | null;
+            /** Asset Confirmation Revision */
+            asset_confirmation_revision?: number | null;
+            /** Frozen Monitoring Config Revision */
+            frozen_monitoring_config_revision?: number | null;
+            /** Setup Ready */
+            setup_ready: boolean;
+            /** Intake Profile Exists */
+            intake_profile_exists: boolean;
+            /** Intake Truth Confirmed */
+            intake_truth_confirmed: boolean | null;
         };
         /** SiteAuditSuggestionView */
         SiteAuditSuggestionView: {
@@ -11486,95 +12307,107 @@ export interface components {
             /** Extractor Version */
             extractor_version: string | null;
         };
+        /** SopPage[ArticleVersionView] */
+        SopPage_ArticleVersionView_: {
+            /** Data */
+            data: components["schemas"]["ArticleVersionView"][];
+            page: components["schemas"]["geo_platform__sop__router__PageMeta"];
+        };
         /** SopPage[ArticleView] */
         SopPage_ArticleView_: {
             /** Data */
             data: components["schemas"]["ArticleView"][];
-            page: components["schemas"]["PageMeta"];
+            page: components["schemas"]["geo_platform__sop__router__PageMeta"];
         };
         /** SopPage[BaselineAnswerView] */
         SopPage_BaselineAnswerView_: {
             /** Data */
             data: components["schemas"]["BaselineAnswerView"][];
-            page: components["schemas"]["PageMeta"];
+            page: components["schemas"]["geo_platform__sop__router__PageMeta"];
         };
         /** SopPage[CheckView] */
         SopPage_CheckView_: {
             /** Data */
             data: components["schemas"]["CheckView"][];
-            page: components["schemas"]["PageMeta"];
+            page: components["schemas"]["geo_platform__sop__router__PageMeta"];
         };
         /** SopPage[ComparisonView] */
         SopPage_ComparisonView_: {
             /** Data */
             data: components["schemas"]["ComparisonView"][];
-            page: components["schemas"]["PageMeta"];
+            page: components["schemas"]["geo_platform__sop__router__PageMeta"];
+        };
+        /** SopPage[DashboardArticle] */
+        SopPage_DashboardArticle_: {
+            /** Data */
+            data: components["schemas"]["DashboardArticle"][];
+            page: components["schemas"]["geo_platform__sop__router__PageMeta"];
         };
         /** SopPage[EvidenceView] */
         SopPage_EvidenceView_: {
             /** Data */
             data: components["schemas"]["EvidenceView"][];
-            page: components["schemas"]["PageMeta"];
+            page: components["schemas"]["geo_platform__sop__router__PageMeta"];
         };
         /** SopPage[ExperimentView] */
         SopPage_ExperimentView_: {
             /** Data */
             data: components["schemas"]["ExperimentView"][];
-            page: components["schemas"]["PageMeta"];
+            page: components["schemas"]["geo_platform__sop__router__PageMeta"];
         };
         /** SopPage[InsightView] */
         SopPage_InsightView_: {
             /** Data */
             data: components["schemas"]["InsightView"][];
-            page: components["schemas"]["PageMeta"];
+            page: components["schemas"]["geo_platform__sop__router__PageMeta"];
         };
         /** SopPage[ObservationView] */
         SopPage_ObservationView_: {
             /** Data */
             data: components["schemas"]["ObservationView"][];
-            page: components["schemas"]["PageMeta"];
+            page: components["schemas"]["geo_platform__sop__router__PageMeta"];
         };
         /** SopPage[OpportunityView] */
         SopPage_OpportunityView_: {
             /** Data */
             data: components["schemas"]["OpportunityView"][];
-            page: components["schemas"]["PageMeta"];
+            page: components["schemas"]["geo_platform__sop__router__PageMeta"];
         };
         /** SopPage[ProjectView] */
         SopPage_ProjectView_: {
             /** Data */
             data: components["schemas"]["ProjectView"][];
-            page: components["schemas"]["PageMeta"];
+            page: components["schemas"]["geo_platform__sop__router__PageMeta"];
         };
         /** SopPage[PublicationView] */
         SopPage_PublicationView_: {
             /** Data */
             data: components["schemas"]["PublicationView"][];
-            page: components["schemas"]["PageMeta"];
+            page: components["schemas"]["geo_platform__sop__router__PageMeta"];
         };
         /** SopPage[QueryItemView] */
         SopPage_QueryItemView_: {
             /** Data */
             data: components["schemas"]["QueryItemView"][];
-            page: components["schemas"]["PageMeta"];
+            page: components["schemas"]["geo_platform__sop__router__PageMeta"];
         };
         /** SopPage[QuerySetView] */
         SopPage_QuerySetView_: {
             /** Data */
             data: components["schemas"]["QuerySetView"][];
-            page: components["schemas"]["PageMeta"];
+            page: components["schemas"]["geo_platform__sop__router__PageMeta"];
         };
         /** SopPage[RetestAnswerView] */
         SopPage_RetestAnswerView_: {
             /** Data */
             data: components["schemas"]["RetestAnswerView"][];
-            page: components["schemas"]["PageMeta"];
+            page: components["schemas"]["geo_platform__sop__router__PageMeta"];
         };
         /** SopPage[WorkLogView] */
         SopPage_WorkLogView_: {
             /** Data */
             data: components["schemas"]["WorkLogView"][];
-            page: components["schemas"]["PageMeta"];
+            page: components["schemas"]["geo_platform__sop__router__PageMeta"];
         };
         /** SourceAuditHostView */
         SourceAuditHostView: {
@@ -12674,6 +13507,8 @@ export interface components {
         geo_platform__collection__router__EventView: {
             /** Pub Id */
             pub_id: string;
+            /** Account Pub Id */
+            account_pub_id?: string | null;
             /** Event Type */
             event_type: string;
             /** Summary */
@@ -12702,6 +13537,13 @@ export interface components {
             ciphertext_sha256: string | null;
             /** Expires At */
             expires_at: string | null;
+        };
+        /** PageMeta */
+        geo_platform__contracts__PageMeta: {
+            /** Next Cursor */
+            next_cursor: string | null;
+            /** Has More */
+            has_more: boolean;
         };
         /** ProfileView */
         geo_platform__intake__schemas__ProfileView: {
@@ -12766,6 +13608,82 @@ export interface components {
                 [key: string]: string;
             }[];
         };
+        /** PageMeta */
+        geo_platform__post_analysis__router__PageMeta: {
+            /** Next Cursor */
+            next_cursor: string | null;
+            /** Has More */
+            has_more: boolean;
+        };
+        /** BatchView */
+        geo_platform__posting__router__BatchView: {
+            /** Pub Id */
+            pub_id: string;
+            /** Tenant Pub Id */
+            tenant_pub_id: string;
+            /** Source Filename */
+            source_filename: string;
+            /** Source Sha256 */
+            source_sha256: string;
+            /** Catalog Sha256 */
+            catalog_sha256: string;
+            /** Title */
+            title: string;
+            /** Content Text */
+            content_text: string;
+            /** Image Count */
+            image_count: number;
+            /** Customer Name */
+            customer_name: string;
+            /** Release Time */
+            release_time: string | null;
+            /** Auto Submit */
+            auto_submit: boolean;
+            /** Spend Confirmed At */
+            spend_confirmed_at: string | null;
+            /** Max Total Amount */
+            max_total_amount: string | null;
+            /** Quoted Total Amount */
+            quoted_total_amount: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "draft" | "queued" | "processing" | "partially_submitted" | "submitted" | "published" | "blocked" | "failed" | "canceled";
+            /** Note */
+            note: string;
+            /** Sop Project Pub Id */
+            sop_project_pub_id: string | null;
+            /** Article Version Pub Id */
+            article_version_pub_id: string | null;
+            /**
+             * Approval State
+             * @enum {string}
+             */
+            approval_state: "draft" | "pending" | "approved" | "rejected";
+            /** Approval Requested By Pub Id */
+            approval_requested_by_pub_id: string | null;
+            /** Approved By Pub Id */
+            approved_by_pub_id: string | null;
+            /** Approved At */
+            approved_at: string | null;
+            /** Created By Pub Id */
+            created_by_pub_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Targets */
+            targets: components["schemas"]["TargetView"][];
+            /** Events */
+            events: components["schemas"]["geo_platform__posting__router__EventView"][];
+        };
         /** EventView */
         geo_platform__posting__router__EventView: {
             /** Pub Id */
@@ -12820,6 +13738,176 @@ export interface components {
             /** Brandrank Domain */
             brandrank_domain?: string | null;
         };
+        /** BatchView */
+        geo_platform__service2_corpus__schemas__BatchView: {
+            /**
+             * Schema Version
+             * @default formal-service2-source-corpus-v2
+             * @constant
+             */
+            schema_version: "formal-service2-source-corpus-v2";
+            /** Batch Pub Id */
+            batch_pub_id: string;
+            /** Project Pub Id */
+            project_pub_id: string;
+            /** Service Entitlement Pub Id */
+            service_entitlement_pub_id: string;
+            /** Service Entitlement Revision */
+            service_entitlement_revision: string;
+            /** Run Pub Ids */
+            run_pub_ids: string[];
+            /** Analysis Model */
+            analysis_model: string;
+            /**
+             * Window Start
+             * Format: date-time
+             */
+            window_start: string;
+            /**
+             * Window End
+             * Format: date-time
+             */
+            window_end: string;
+            /**
+             * Source Snapshot Boundary
+             * Format: date-time
+             */
+            source_snapshot_boundary: string;
+            /** Corpus Policy Version */
+            corpus_policy_version: string;
+            /** Judgment Policy Version */
+            judgment_policy_version: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "draft" | "queued" | "running" | "paused" | "cancel_requested" | "cancelled" | "review" | "frozen" | "failed";
+            /** Version */
+            version: number;
+            /** Workflow Id */
+            workflow_id: string | null;
+            /** Frozen At */
+            frozen_at: string | null;
+            /** Manifest Hash */
+            manifest_hash: string | null;
+            /** Error Code */
+            error_code: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            coverage: components["schemas"]["CoverageSummary"];
+        };
+        /** FindingView */
+        geo_platform__service2_corpus__schemas__FindingView: {
+            /** Finding Pub Id */
+            finding_pub_id: string;
+            /** Batch Pub Id */
+            batch_pub_id: string;
+            /** Corpus Item Pub Id */
+            corpus_item_pub_id: string;
+            /** Occurrence Pub Id */
+            occurrence_pub_id: string;
+            /** Snapshot Pub Id */
+            snapshot_pub_id: string;
+            /** Canonical Url */
+            canonical_url: string;
+            ledger: components["schemas"]["Ledger"];
+            level: components["schemas"]["DisparagementLevel"];
+            relation_direction: components["schemas"]["RelationDirection"];
+            /** Textual Speaker */
+            textual_speaker: string;
+            /** Target Entity */
+            target_entity: string;
+            /** Beneficiary Entity */
+            beneficiary_entity: string | null;
+            /** Is Disparagement */
+            is_disparagement: boolean;
+            fact_anchor_state: components["schemas"]["FactAnchorState"];
+            /** Evidence Quote */
+            evidence_quote: string;
+            /** Quote Start */
+            quote_start: number;
+            /** Quote End */
+            quote_end: number;
+            /** Context Text */
+            context_text: string;
+            /** Context Start */
+            context_start: number;
+            /** Context End */
+            context_end: number;
+            /** Snapshot Text Sha256 */
+            snapshot_text_sha256: string;
+            /** Visual Anchor Pub Id */
+            visual_anchor_pub_id: string | null;
+            /** Visual Evidence Pub Id */
+            visual_evidence_pub_id: string | null;
+            /** Visual Bbox */
+            visual_bbox: [
+                number,
+                number,
+                number,
+                number
+            ] | null;
+            /** Visual Page Number */
+            visual_page_number: number | null;
+            /**
+             * Visual Validation Status
+             * @enum {string}
+             */
+            visual_validation_status: "verified" | "unavailable" | "mismatch" | "needs_review";
+            flags: components["schemas"]["OrthogonalFlagsInput"];
+            /** Comparison Dimensions */
+            comparison_dimensions: string[];
+            /** Omitted Facts */
+            omitted_facts: string[];
+            /**
+             * Method
+             * @enum {string}
+             */
+            method: "llm" | "human" | "dictionary_experimental";
+            /** Policy Version */
+            policy_version: string;
+            /** Confidence */
+            confidence: number;
+            /**
+             * Validation Status
+             * @enum {string}
+             */
+            validation_status: "exact" | "needs_review" | "rejected" | "experimental";
+            /** Validation Failures */
+            validation_failures: string[];
+            publisher: components["schemas"]["AttributionInput"];
+            commissioner: components["schemas"]["AttributionInput"];
+            /** Factcheck Claim */
+            factcheck_claim: string | null;
+            /** Factcheck Verdict */
+            factcheck_verdict: ("supported" | "refuted" | "mixed" | "unverifiable") | null;
+            /** Factcheck Evidence */
+            factcheck_evidence: {
+                [key: string]: unknown;
+            }[];
+            /** Factcheck Boundary */
+            factcheck_boundary: string | null;
+            /**
+             * Current Review State
+             * @enum {string}
+             */
+            current_review_state: "unreviewed" | "accepted" | "rejected" | "needs_changes";
+            /** Version */
+            version: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
         /** ComparisonCreate */
         geo_platform__sop__router__ComparisonCreate: {
             /** Query Item Pub Id */
@@ -12853,6 +13941,17 @@ export interface components {
             /** Next Actions */
             next_actions?: unknown[];
         };
+        /** PageMeta */
+        geo_platform__sop__router__PageMeta: {
+            /** Page */
+            page: number;
+            /** Page Size */
+            page_size: number;
+            /** Total Count */
+            total_count: number;
+            /** Total Pages */
+            total_pages: number;
+        };
         /** ProjectCreate */
         geo_platform__sop__router__ProjectCreate: {
             /** Name */
@@ -12871,6 +13970,53 @@ export interface components {
             success_definition?: ({
                 [key: string]: unknown;
             } | string)[];
+        };
+        /** FindingView */
+        geo_platform__source_analysis__router__FindingView: {
+            /** Pub Id */
+            pub_id: string;
+            /** Ordinal */
+            ordinal: number;
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "A0" | "A1" | "A2" | "A3" | "A4" | "A5" | "B1" | "B2" | "B3" | "C1" | "C2" | "C3" | "C4";
+            /**
+             * Ledger
+             * @enum {string}
+             */
+            ledger: "statement" | "exposure";
+            /** Variant */
+            variant: string;
+            /**
+             * Finding Status
+             * @enum {string}
+             */
+            finding_status: "confirmed" | "needs_review";
+            /** Summary */
+            summary: string;
+            /** Action */
+            action: string;
+            /** Evidence Chain */
+            evidence_chain: components["schemas"]["EvidenceChainLinkView"][];
+            /** Self Check */
+            self_check: {
+                [key: string]: unknown;
+            };
+            /** Validation */
+            validation: {
+                [key: string]: unknown;
+            };
+            /** Spans */
+            spans: components["schemas"]["EvidenceSpanView"][];
+        };
+        /** PageMeta */
+        geo_platform__source_analysis__router__PageMeta: {
+            /** Next Cursor */
+            next_cursor: string | null;
+            /** Has More */
+            has_more: boolean;
         };
     };
     responses: never;
@@ -13974,6 +15120,74 @@ export interface operations {
             };
         };
     };
+    current_config_api_v2_projects__project_pub_id__config_current_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CurrentConfigView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     generateQuotation: {
         parameters: {
             query?: never;
@@ -14011,6 +15225,7 @@ export interface operations {
                     "X-Quotation-Total-Cents"?: string;
                     "X-Quotation-Maximum-Total-Cents"?: string;
                     "X-Quotation-Query-Appendix"?: string;
+                    "X-Quotation-Template-Compliance"?: string;
                     "X-Quotation-SHA256"?: string;
                     "Cache-Control"?: string;
                     [name: string]: unknown;
@@ -15603,6 +16818,9 @@ export interface operations {
     list_runs_api_v2_collection_runs_get: {
         parameters: {
             query?: {
+                project_pub_id?: string | null;
+                cursor?: string | null;
+                page?: number | null;
                 limit?: number;
             };
             header?: {
@@ -15624,6 +16842,12 @@ export interface operations {
             /** @description Successful Response */
             200: {
                 headers: {
+                    "X-Next-Cursor"?: string;
+                    "X-Has-More"?: boolean;
+                    "X-Page"?: number;
+                    "X-Page-Size"?: number;
+                    "X-Total-Count"?: number;
+                    "X-Page-Count"?: number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -15809,6 +17033,74 @@ export interface operations {
             };
         };
     };
+    summarize_runs_api_v2_collection_runs_summary_get: {
+        parameters: {
+            query?: {
+                project_pub_id?: string | null;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunSummaryView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     collection_task_trace_api_v2_collection_tasks__task_pub_id__trace_get: {
         parameters: {
             query?: never;
@@ -15949,7 +17241,10 @@ export interface operations {
     };
     list_accounts_api_v2_platform_accounts_get: {
         parameters: {
-            query?: never;
+            query?: {
+                cursor?: string | null;
+                limit?: number;
+            };
             header?: {
                 "X-Tenant-Id"?: string | null;
                 "X-Actor-Id"?: string | null;
@@ -15969,6 +17264,10 @@ export interface operations {
             /** @description Successful Response */
             200: {
                 headers: {
+                    "X-Next-Cursor"?: string;
+                    "X-Has-More"?: boolean;
+                    "X-Total-Count"?: number;
+                    "X-Active-Count"?: number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -16586,7 +17885,10 @@ export interface operations {
     };
     list_interventions_api_v2_interventions_get: {
         parameters: {
-            query?: never;
+            query?: {
+                cursor?: string | null;
+                limit?: number;
+            };
             header?: {
                 "X-Tenant-Id"?: string | null;
                 "X-Actor-Id"?: string | null;
@@ -16606,6 +17908,10 @@ export interface operations {
             /** @description Successful Response */
             200: {
                 headers: {
+                    "X-Next-Cursor"?: string;
+                    "X-Has-More"?: boolean;
+                    "X-Total-Count"?: number;
+                    "X-Open-Count"?: number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -17076,9 +18382,83 @@ export interface operations {
             };
         };
     };
+    platform_events_api_v2_platform_events_get: {
+        parameters: {
+            query?: {
+                cursor?: string | null;
+                limit?: number;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    "X-Next-Cursor"?: string;
+                    "X-Has-More"?: boolean;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["geo_platform__collection__router__EventView"][];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     account_events_api_v2_platform_accounts__account_pub_id__events_get: {
         parameters: {
-            query?: never;
+            query?: {
+                cursor?: string | null;
+                limit?: number;
+            };
             header?: {
                 "X-Tenant-Id"?: string | null;
                 "X-Actor-Id"?: string | null;
@@ -17100,6 +18480,8 @@ export interface operations {
             /** @description Successful Response */
             200: {
                 headers: {
+                    "X-Next-Cursor"?: string;
+                    "X-Has-More"?: boolean;
                     [name: string]: unknown;
                 };
                 content: {
@@ -17146,7 +18528,10 @@ export interface operations {
     };
     list_collection_accounts_api_v2_collection_accounts_get: {
         parameters: {
-            query?: never;
+            query?: {
+                cursor?: string | null;
+                limit?: number;
+            };
             header?: {
                 "X-Tenant-Id"?: string | null;
                 "X-Actor-Id"?: string | null;
@@ -17166,6 +18551,9 @@ export interface operations {
             /** @description Successful Response */
             200: {
                 headers: {
+                    "X-Next-Cursor"?: string;
+                    "X-Has-More"?: boolean;
+                    "X-Total-Count"?: number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -17630,7 +19018,10 @@ export interface operations {
     };
     list_account_events_api_v2_collection_accounts__pub_id__events_get: {
         parameters: {
-            query?: never;
+            query?: {
+                cursor?: string | null;
+                limit?: number;
+            };
             header?: {
                 "X-Tenant-Id"?: string | null;
                 "X-Actor-Id"?: string | null;
@@ -17652,6 +19043,9 @@ export interface operations {
             /** @description Successful Response */
             200: {
                 headers: {
+                    "X-Next-Cursor"?: string;
+                    "X-Has-More"?: boolean;
+                    "X-Total-Count"?: number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -17698,7 +19092,10 @@ export interface operations {
     };
     list_collection_browsers_api_v2_collection_browsers_get: {
         parameters: {
-            query?: never;
+            query?: {
+                cursor?: string | null;
+                limit?: number;
+            };
             header?: {
                 "X-Tenant-Id"?: string | null;
                 "X-Actor-Id"?: string | null;
@@ -17718,6 +19115,9 @@ export interface operations {
             /** @description Successful Response */
             200: {
                 headers: {
+                    "X-Next-Cursor"?: string;
+                    "X-Has-More"?: boolean;
+                    "X-Total-Count"?: number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -19089,6 +20489,7 @@ export interface operations {
     list_schedules_api_v2_schedules_get: {
         parameters: {
             query?: {
+                cursor?: string | null;
                 limit?: number;
             };
             header?: {
@@ -19110,6 +20511,8 @@ export interface operations {
             /** @description Successful Response */
             200: {
                 headers: {
+                    "X-Next-Cursor"?: string;
+                    "X-Has-More"?: boolean;
                     [name: string]: unknown;
                 };
                 content: {
@@ -19369,6 +20772,7 @@ export interface operations {
     list_schedule_events_api_v2_schedules__schedule_pub_id__events_get: {
         parameters: {
             query?: {
+                cursor?: string | null;
                 limit?: number;
             };
             header?: {
@@ -19392,6 +20796,8 @@ export interface operations {
             /** @description Successful Response */
             200: {
                 headers: {
+                    "X-Next-Cursor"?: string;
+                    "X-Has-More"?: boolean;
                     [name: string]: unknown;
                 };
                 content: {
@@ -19602,6 +21008,78 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PlatformSlaView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getOperationsBusinessOverview: {
+        parameters: {
+            query?: {
+                cursor?: string | null;
+                limit?: number;
+                q?: string | null;
+                project_state?: components["schemas"]["ProjectState"] | null;
+                attention?: components["schemas"]["AttentionCode"] | null;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessOverviewView"];
                 };
             };
             /** @description Bad Request */
@@ -20064,7 +21542,10 @@ export interface operations {
     };
     list_break_glass_requests_api_v2_break_glass_get: {
         parameters: {
-            query?: never;
+            query?: {
+                cursor?: string | null;
+                limit?: number;
+            };
             header?: {
                 "X-Tenant-Id"?: string | null;
                 "X-Actor-Id"?: string | null;
@@ -20084,6 +21565,8 @@ export interface operations {
             /** @description Successful Response */
             200: {
                 headers: {
+                    "X-Next-Cursor"?: string;
+                    "X-Has-More"?: boolean;
                     [name: string]: unknown;
                 };
                 content: {
@@ -21080,6 +22563,8 @@ export interface operations {
         parameters: {
             query: {
                 project_pub_id: string;
+                page?: number;
+                page_size?: number;
             };
             header?: {
                 "X-Tenant-Id"?: string | null;
@@ -21516,6 +23001,7 @@ export interface operations {
         parameters: {
             query: {
                 project_pub_id: string;
+                cursor?: string | null;
                 limit?: number;
             };
             header?: {
@@ -25639,12 +27125,870 @@ export interface operations {
             };
         };
     };
+    analysis_models_api_v2_internal_service2_source_corpus_projects__project_pub_id__analysis_models_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AnalysisModelCatalogView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_batch_api_v2_internal_service2_source_corpus_projects__project_pub_id__batches_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["geo_platform__service2_corpus__schemas__BatchView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    current_batch_api_v2_internal_service2_source_corpus_projects__project_pub_id__batches_current_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["geo_platform__service2_corpus__schemas__BatchView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_batch_api_v2_internal_service2_source_corpus_projects__project_pub_id__batches__batch_pub_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+                batch_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["geo_platform__service2_corpus__schemas__BatchView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_corpus_items_api_v2_internal_service2_source_corpus_projects__project_pub_id__batches__batch_pub_id__items_get: {
+        parameters: {
+            query?: {
+                cursor?: string | null;
+                page_size?: number;
+                processing_state?: ("queued" | "fetching" | "retry_wait" | "manual_evidence_required" | "processed" | "partial" | "blocked" | "gone" | "unobservable" | "failed" | "cancelled") | null;
+                fetch_state?: ("queued" | "fetching" | "succeeded" | "partial" | "blocked" | "gone" | "retry_wait" | "failed" | "unobserved") | null;
+                review_state?: ("unreviewed" | "not_applicable" | "in_review" | "accepted" | "rejected") | null;
+                attribution_confidence?: ("verified" | "probable" | "weak" | "unknown") | null;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+                batch_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CorpusPage"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_findings_api_v2_internal_service2_source_corpus_projects__project_pub_id__batches__batch_pub_id__findings_get: {
+        parameters: {
+            query?: {
+                cursor?: string | null;
+                page_size?: number;
+                review_state?: ("unreviewed" | "accepted" | "rejected" | "needs_changes") | null;
+                level?: ("L0" | "L1" | "L2a" | "L2b" | "L3a" | "L3b" | "L4") | null;
+                ledger?: ("statement" | "exposure") | null;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+                batch_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FindingPage"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_finding_api_v2_internal_service2_source_corpus_projects__project_pub_id__batches__batch_pub_id__findings_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+                batch_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FindingCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["geo_platform__service2_corpus__schemas__FindingView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_finding_api_v2_internal_service2_source_corpus_projects__project_pub_id__batches__batch_pub_id__findings__finding_pub_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+                batch_pub_id: string;
+                finding_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["geo_platform__service2_corpus__schemas__FindingView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    review_finding_api_v2_internal_service2_source_corpus_projects__project_pub_id__batches__batch_pub_id__findings__finding_pub_id__reviews_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                "If-Match": string;
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+                batch_pub_id: string;
+                finding_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FindingReviewCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["geo_platform__service2_corpus__schemas__FindingView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    lifecycle_action_api_v2_internal_service2_source_corpus_projects__project_pub_id__batches__batch_pub_id__actions__action__post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+                batch_pub_id: string;
+                action: "start" | "pause" | "resume" | "retry" | "cancel";
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LifecycleReceipt"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    freeze_batch_api_v2_internal_service2_source_corpus_projects__project_pub_id__batches__batch_pub_id__freeze_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+                batch_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FrozenManifestView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_manifest_api_v2_internal_service2_source_corpus_projects__project_pub_id__batches__batch_pub_id__manifest_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+                batch_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FrozenManifestView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_projects_api_v2_sop_projects_get: {
         parameters: {
             query?: {
                 status?: ("active" | "archived") | null;
-                cursor?: string | null;
-                limit?: number;
+                page?: number;
+                page_size?: number;
             };
             header?: {
                 "X-Tenant-Id"?: string | null;
@@ -25922,7 +28266,10 @@ export interface operations {
     };
     get_dashboard_api_v2_sop_projects__project_pub_id__dashboard_get: {
         parameters: {
-            query?: never;
+            query?: {
+                page?: number;
+                page_size?: number;
+            };
             header?: {
                 "X-Tenant-Id"?: string | null;
                 "X-Actor-Id"?: string | null;
@@ -25991,8 +28338,8 @@ export interface operations {
     list_query_sets_api_v2_sop_projects__project_pub_id__query_sets_get: {
         parameters: {
             query?: {
-                cursor?: string | null;
-                limit?: number;
+                page?: number;
+                page_size?: number;
             };
             header?: {
                 "X-Tenant-Id"?: string | null;
@@ -26135,8 +28482,8 @@ export interface operations {
     list_query_items_api_v2_sop_query_sets__query_set_pub_id__items_get: {
         parameters: {
             query?: {
-                cursor?: string | null;
-                limit?: number;
+                page?: number;
+                page_size?: number;
             };
             header?: {
                 "X-Tenant-Id"?: string | null;
@@ -26351,8 +28698,8 @@ export interface operations {
                 query_item_pub_id?: string | null;
                 platform?: string | null;
                 capture_status?: ("success" | "captcha" | "login_wall" | "interrupted" | "incomplete" | "risk_control" | "search_disabled" | "sources_unloaded") | null;
-                cursor?: string | null;
-                limit?: number;
+                page?: number;
+                page_size?: number;
             };
             header?: {
                 "X-Tenant-Id"?: string | null;
@@ -26495,8 +28842,8 @@ export interface operations {
     list_insights_api_v2_sop_projects__project_pub_id__insights_get: {
         parameters: {
             query?: {
-                cursor?: string | null;
-                limit?: number;
+                page?: number;
+                page_size?: number;
             };
             header?: {
                 "X-Tenant-Id"?: string | null;
@@ -26640,8 +28987,8 @@ export interface operations {
         parameters: {
             query?: {
                 source_level?: ("official" | "third_party" | "experience") | null;
-                cursor?: string | null;
-                limit?: number;
+                page?: number;
+                page_size?: number;
             };
             header?: {
                 "X-Tenant-Id"?: string | null;
@@ -26857,8 +29204,8 @@ export interface operations {
         parameters: {
             query?: {
                 status?: ("candidate" | "selected" | "rejected" | "fulfilled") | null;
-                cursor?: string | null;
-                limit?: number;
+                page?: number;
+                page_size?: number;
             };
             header?: {
                 "X-Tenant-Id"?: string | null;
@@ -27073,8 +29420,8 @@ export interface operations {
     list_articles_api_v2_sop_projects__project_pub_id__articles_get: {
         parameters: {
             query?: {
-                cursor?: string | null;
-                limit?: number;
+                page?: number;
+                page_size?: number;
             };
             header?: {
                 "X-Tenant-Id"?: string | null;
@@ -27241,7 +29588,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ArticleDetail"];
+                    "application/json": components["schemas"]["ArticleView"];
                 };
             };
             /** @description Bad Request */
@@ -27314,6 +29661,77 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ArticleView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_article_versions_api_v2_sop_articles__article_pub_id__versions_get: {
+        parameters: {
+            query?: {
+                page?: number;
+                page_size?: number;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                article_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SopPage_ArticleVersionView_"];
                 };
             };
             /** @description Bad Request */
@@ -27570,8 +29988,8 @@ export interface operations {
     list_checks_api_v2_sop_article_versions__version_pub_id__checks_get: {
         parameters: {
             query?: {
-                cursor?: string | null;
-                limit?: number;
+                page?: number;
+                page_size?: number;
             };
             header?: {
                 "X-Tenant-Id"?: string | null;
@@ -27789,8 +30207,8 @@ export interface operations {
             query?: {
                 status?: string | null;
                 platform?: string | null;
-                cursor?: string | null;
-                limit?: number;
+                page?: number;
+                page_size?: number;
             };
             header?: {
                 "X-Tenant-Id"?: string | null;
@@ -28000,8 +30418,8 @@ export interface operations {
     list_observations_api_v2_sop_publications__publication_pub_id__observations_get: {
         parameters: {
             query?: {
-                cursor?: string | null;
-                limit?: number;
+                page?: number;
+                page_size?: number;
             };
             header?: {
                 "X-Tenant-Id"?: string | null;
@@ -28145,8 +30563,8 @@ export interface operations {
         parameters: {
             query?: {
                 query_item_pub_id?: string | null;
-                cursor?: string | null;
-                limit?: number;
+                page?: number;
+                page_size?: number;
             };
             header?: {
                 "X-Tenant-Id"?: string | null;
@@ -28289,8 +30707,8 @@ export interface operations {
     list_comparisons_api_v2_sop_publications__publication_pub_id__comparisons_get: {
         parameters: {
             query?: {
-                cursor?: string | null;
-                limit?: number;
+                page?: number;
+                page_size?: number;
             };
             header?: {
                 "X-Tenant-Id"?: string | null;
@@ -28502,8 +30920,8 @@ export interface operations {
         parameters: {
             query?: {
                 status?: ("planned" | "running" | "done" | "abandoned") | null;
-                cursor?: string | null;
-                limit?: number;
+                page?: number;
+                page_size?: number;
             };
             header?: {
                 "X-Tenant-Id"?: string | null;
@@ -28719,8 +31137,8 @@ export interface operations {
         parameters: {
             query?: {
                 entry_type?: ("progress" | "failure" | "blocker" | "decision" | "note") | null;
-                cursor?: string | null;
-                limit?: number;
+                page?: number;
+                page_size?: number;
             };
             header?: {
                 "X-Tenant-Id"?: string | null;
@@ -29675,6 +32093,7 @@ export interface operations {
             query?: {
                 status?: ("draft" | "queued" | "processing" | "partially_submitted" | "submitted" | "published" | "blocked" | "failed" | "canceled") | null;
                 limit?: number;
+                cursor?: string | null;
             };
             header?: {
                 "X-Tenant-Id"?: string | null;
@@ -29769,7 +32188,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["BatchView"];
+                    "application/json": components["schemas"]["geo_platform__posting__router__BatchView"];
                 };
             };
             /** @description Bad Request */
@@ -29837,7 +32256,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["BatchView"];
+                    "application/json": components["schemas"]["geo_platform__posting__router__BatchView"];
                 };
             };
             /** @description Bad Request */
@@ -29909,7 +32328,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["BatchView"];
+                    "application/json": components["schemas"]["geo_platform__posting__router__BatchView"];
                 };
             };
             /** @description Bad Request */
@@ -29981,7 +32400,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["BatchView"];
+                    "application/json": components["schemas"]["geo_platform__posting__router__BatchView"];
                 };
             };
             /** @description Bad Request */
@@ -30053,7 +32472,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["BatchView"];
+                    "application/json": components["schemas"]["geo_platform__posting__router__BatchView"];
                 };
             };
             /** @description Bad Request */
@@ -30126,7 +32545,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["BatchView"];
+                    "application/json": components["schemas"]["geo_platform__posting__router__BatchView"];
                 };
             };
             /** @description Bad Request */
@@ -30334,7 +32753,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["BatchView"];
+                    "application/json": components["schemas"]["geo_platform__posting__router__BatchView"];
                 };
             };
             /** @description Bad Request */

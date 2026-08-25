@@ -10376,6 +10376,13 @@ export type PostingBatchSummary = {
   publishedCount: number;
 };
 
+export type PostingBatchPage = {
+  data: PostingBatchSummary[];
+  nextCursor: string | null;
+  hasMore: boolean;
+  totalCount?: number;
+};
+
 export type CreatePostingBatchInput = {
   document: File;
   targets: PostingTargetInput[];
@@ -10911,17 +10918,39 @@ export async function completeProviderAccountLogin(
 
 export async function listPostingBatches(
   headers: IdentitySessionHeaders,
+  input: { status?: PostingBatchStatus; cursor?: string; limit?: number } = {},
   client: ProjectedApiClientOverride = apiClient,
-): Promise<PostingResourceResult<PostingBatchSummary[]>> {
+): Promise<PostingResourceResult<PostingBatchPage>> {
   try {
     const result = await projectedApiClient(client).GET('/api/v2/posting/batches', {
-      params: { header: headers, query: { limit: 20 } },
+      params: {
+        header: headers,
+        query: {
+          limit: input.limit ?? 4,
+          ...(input.status ? { status: input.status } : {}),
+          ...(input.cursor ? { cursor: input.cursor } : {}),
+        },
+      },
     });
     if (!result.data) return classifyPostingFailure(result.response.status);
     const projected = result.data.map(projectPostingBatchSummary);
-    return projected.some((item) => item === null)
-      ? { kind: 'unavailable' }
-      : { kind: 'ready', data: projected as PostingBatchSummary[] };
+    if (projected.some((item) => item === null)) return { kind: 'unavailable' };
+    const nextCursor = result.response.headers.get('X-Next-Cursor');
+    const hasMore = result.response.headers.get('X-Has-More') === 'true';
+    const rawTotal = result.response.headers.get('X-Total-Count');
+    const totalCount = rawTotal && /^\d+$/u.test(rawTotal) ? Number(rawTotal) : undefined;
+    const page: PostingBatchPage = {
+      data: projected as PostingBatchSummary[],
+      nextCursor,
+      hasMore,
+    };
+    if (totalCount !== undefined && Number.isSafeInteger(totalCount)) {
+      page.totalCount = totalCount;
+    }
+    return {
+      kind: 'ready',
+      data: page,
+    };
   } catch {
     return { kind: 'unavailable' };
   }
@@ -11119,10 +11148,15 @@ export type SopProjectSummary = {
   updatedAt: string;
 };
 
-export type SopProjectPage = {
+export type SopPageMeta = {
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+};
+
+export type SopProjectPage = SopPageMeta & {
   data: SopProjectSummary[];
-  nextCursor: string | null;
-  hasMore: boolean;
 };
 
 export type SopDashboardStep = {
@@ -11147,6 +11181,7 @@ export type SopDashboard = {
   project: SopProjectSummary;
   steps: SopDashboardStep[];
   articles: SopDashboardArticle[];
+  articlePage: SopPageMeta;
 };
 
 export type SopStageItem = {
@@ -11160,6 +11195,7 @@ export type SopStageItem = {
 export type SopStageSnapshot = {
   items: SopStageItem[];
   metrics: { label: string; value: string }[];
+  page: SopPageMeta;
 };
 
 export type SopMutationReceipt = {
@@ -11408,7 +11444,7 @@ const projectSopMetrics = (value: unknown): { label: string; value: string }[] =
 
 const projectSopDashboard = (value: SopDashboardContract): SopDashboard | null => {
   const project = projectSopProject(value.project);
-  if (!project || value.steps.length !== 14 || value.articles.length > 500) return null;
+  if (!project || value.steps.length !== 14) return null;
   const steps = value.steps.flatMap((step) => {
     if (
       !sopStageKeys.has(step.key as SopStageKey) ||
@@ -11429,7 +11465,7 @@ const projectSopDashboard = (value: SopDashboardContract): SopDashboard | null =
     ];
   });
   if (steps.length !== 14) return null;
-  const articles = value.articles.flatMap((article) => {
+  const articles = value.articles.data.flatMap((article) => {
     if (
       !article.article_pub_id.startsWith('sar_') ||
       !article.title.trim() ||
@@ -11449,7 +11485,10 @@ const projectSopDashboard = (value: SopDashboardContract): SopDashboard | null =
       },
     ];
   });
-  return articles.length === value.articles.length ? { project, steps, articles } : null;
+  const articlePage = projectSopPageMeta(value.articles.page, articles.length);
+  return articles.length === value.articles.data.length && articlePage
+    ? { project, steps, articles, articlePage }
+    : null;
 };
 
 const projectSopStageItem = (value: object): SopStageItem | null => {
@@ -11501,11 +11540,68 @@ const projectSopStageItem = (value: object): SopStageItem | null => {
   return { pubId, label, status, detail, createdAt };
 };
 
-const projectSopItems = (values: object[], limit = 100): SopStageItem[] =>
-  values.slice(0, limit).flatMap((value) => {
+const projectSopItems = (values: object[]): SopStageItem[] =>
+  values.flatMap((value) => {
     const item = projectSopStageItem(value);
     return item ? [item] : [];
   });
+
+const emptySopPage = (): SopPageMeta => ({
+  page: 1,
+  pageSize: 4,
+  totalCount: 0,
+  totalPages: 0,
+});
+
+const projectSopPageMeta = (value: unknown, itemCount: number): SopPageMeta | null => {
+  if (!isSopRecord(value)) return null;
+  const page = value.page;
+  const pageSize = value.page_size;
+  const totalCount = value.total_count;
+  const totalPages = value.total_pages;
+  if (
+    !Number.isSafeInteger(page) ||
+    Number(page) < 1 ||
+    !Number.isSafeInteger(pageSize) ||
+    Number(pageSize) < 1 ||
+    Number(pageSize) > 100 ||
+    !Number.isSafeInteger(totalCount) ||
+    Number(totalCount) < 0 ||
+    !Number.isSafeInteger(totalPages) ||
+    Number(totalPages) < 0 ||
+    Number(totalPages) !== Math.ceil(Number(totalCount) / Number(pageSize)) ||
+    (Number(totalPages) === 0 ? Number(page) !== 1 : Number(page) > Number(totalPages)) ||
+    itemCount > Number(pageSize) ||
+    (Number(totalCount) === 0 && itemCount !== 0)
+  ) {
+    return null;
+  }
+  return {
+    page: Number(page),
+    pageSize: Number(pageSize),
+    totalCount: Number(totalCount),
+    totalPages: Number(totalPages),
+  };
+};
+
+const projectSopStagePage = (
+  value: unknown,
+): { items: SopStageItem[]; page: SopPageMeta } | null => {
+  if (!isSopRecord(value) || !Array.isArray(value.data)) return null;
+  const items = projectSopItems(value.data.filter(isSopRecord));
+  const page = projectSopPageMeta(value.page, items.length);
+  return items.length === value.data.length && page ? { items, page } : null;
+};
+
+const sopStageSnapshotResult = (
+  value: unknown,
+  metrics: { label: string; value: string }[] = [],
+): ProjectResourceResult<SopStageSnapshot> => {
+  const projected = projectSopStagePage(value);
+  return projected
+    ? { kind: 'ready', data: { items: projected.items, page: projected.page, metrics } }
+    : { kind: 'unavailable' };
+};
 
 const sopWriteHeaders = (
   headers: IdentitySessionHeaders,
@@ -11520,19 +11616,15 @@ const sopMutationFailure = (status: number): ProjectResourceResult<SopMutationRe
 
 export async function listSopProjects(
   headers: IdentitySessionHeaders,
-  cursorOrOverride: string | null | ProjectedApiClientOverride = null,
+  page = 1,
   override: ProjectedApiClientOverride = apiClient,
 ): Promise<ProjectResourceResult<SopProjectPage>> {
   try {
-    const cursor = typeof cursorOrOverride === 'string' ? cursorOrOverride : null;
-    const clientOverride =
-      cursorOrOverride !== null && typeof cursorOrOverride !== 'string'
-        ? cursorOrOverride
-        : override;
-    const projected = projectedApiClient(clientOverride);
+    if (!Number.isSafeInteger(page) || page < 1) return { kind: 'unavailable' };
+    const projected = projectedApiClient(override);
     const result = await projected.GET('/api/v2/sop/projects', {
       params: {
-        query: { limit: 100, ...(cursor ? { cursor } : {}) },
+        query: { page, page_size: 4 },
         header: headers,
       },
     });
@@ -11541,23 +11633,9 @@ export async function listSopProjects(
       const project = projectSopProject(value);
       return project ? [project] : [];
     });
-    const rawNextCursor = result.data.page.next_cursor;
-    const rawHasMore = result.data.page.has_more;
-    const hasMore = rawHasMore === true;
-    const nextCursor =
-      typeof rawNextCursor === 'string' && /^spr_[A-Za-z0-9_-]{1,124}$/u.test(rawNextCursor)
-        ? rawNextCursor
-        : null;
-    const pageIsValid =
-      projects.length === result.data.data.length &&
-      typeof rawHasMore === 'boolean' &&
-      ((hasMore && nextCursor !== null && nextCursor === projects.at(-1)?.pubId) ||
-        (!hasMore && rawNextCursor === null));
-    return pageIsValid
-      ? {
-          kind: 'ready',
-          data: { data: projects, nextCursor: hasMore ? nextCursor : null, hasMore },
-        }
+    const pageMeta = projectSopPageMeta(result.data.page, projects.length);
+    return projects.length === result.data.data.length && pageMeta
+      ? { kind: 'ready', data: { data: projects, ...pageMeta } }
       : { kind: 'unavailable' };
   } catch {
     return { kind: 'unavailable' };
@@ -11595,12 +11673,18 @@ export async function createSopProject(
 export async function getSopDashboard(
   headers: IdentitySessionHeaders,
   projectPubId: string,
+  page = 1,
   override: ProjectedApiClientOverride = apiClient,
 ): Promise<ProjectResourceResult<SopDashboard>> {
   try {
+    if (!Number.isSafeInteger(page) || page < 1) return { kind: 'unavailable' };
     const projected = projectedApiClient(override);
     const result = await projected.GET('/api/v2/sop/projects/{project_pub_id}/dashboard', {
-      params: { path: { project_pub_id: projectPubId }, header: headers },
+      params: {
+        path: { project_pub_id: projectPubId },
+        query: { page, page_size: 4 },
+        header: headers,
+      },
     });
     if (!result.data) return classifyResourceFailure(result.response.status);
     const dashboard = projectSopDashboard(result.data);
@@ -11614,10 +11698,13 @@ export async function loadSopStage(
   headers: IdentitySessionHeaders,
   projectPubId: string,
   stage: SopStageKey,
+  page = 1,
   override: ProjectedApiClientOverride = apiClient,
 ): Promise<ProjectResourceResult<SopStageSnapshot>> {
   try {
+    if (!Number.isSafeInteger(page) || page < 1) return { kind: 'unavailable' };
     const projected = projectedApiClient(override);
+    const query = { page, page_size: 4 } as const;
     if (stage === 'project-definition') {
       const result = await projected.GET('/api/v2/sop/projects/{project_pub_id}', {
         params: { path: { project_pub_id: projectPubId }, header: headers },
@@ -11635,6 +11722,7 @@ export async function loadSopStage(
               createdAt: result.data.created_at,
             },
           ],
+          page: { page: 1, pageSize: 4, totalCount: 1, totalPages: 1 },
           metrics: [
             { label: '目标平台', value: String(result.data.target_platforms.length) },
             { label: '成功定义', value: String(result.data.success_definition.length) },
@@ -11646,140 +11734,119 @@ export async function loadSopStage(
       const sets = await projected.GET('/api/v2/sop/projects/{project_pub_id}/query-sets', {
         params: {
           path: { project_pub_id: projectPubId },
-          query: { limit: 100 },
+          query: { page: 1, page_size: 1 },
           header: headers,
         },
       });
       if (!sets.data) return classifyResourceFailure(sets.response.status);
-      const selected = [...sets.data.data]
-        .reverse()
-        .find((item) => item.status === 'frozen' || item.status === 'draft');
-      if (!selected) return { kind: 'ready', data: { items: [], metrics: [] } };
+      const setsPage = projectSopStagePage(sets.data);
+      if (!setsPage) return { kind: 'unavailable' };
+      const selected = sets.data.data[0];
+      if (!selected || (selected.status !== 'frozen' && selected.status !== 'draft')) {
+        return { kind: 'ready', data: { items: [], metrics: [], page: emptySopPage() } };
+      }
       const items = await projected.GET('/api/v2/sop/query-sets/{query_set_pub_id}/items', {
         params: {
           path: { query_set_pub_id: selected.pub_id },
-          query: { limit: 100 },
+          query,
           header: headers,
         },
       });
       if (!items.data) return classifyResourceFailure(items.response.status);
-      return {
-        kind: 'ready',
-        data: {
-          items: projectSopItems(items.data.data),
-          metrics: [
-            { label: '查询集版本', value: String(selected.version_no) },
-            { label: '查询集状态', value: selected.status },
-            { label: '查询词数', value: String(items.data.data.length) },
-          ],
-        },
-      };
+      const itemPage = projectSopStagePage(items.data);
+      return itemPage
+        ? {
+            kind: 'ready',
+            data: {
+              ...itemPage,
+              metrics: [
+                { label: '查询集版本', value: String(selected.version_no) },
+                { label: '查询集状态', value: selected.status },
+                { label: '查询词数', value: String(itemPage.page.totalCount) },
+              ],
+            },
+          }
+        : { kind: 'unavailable' };
     }
     if (stage === 'baseline') {
       const result = await projected.GET('/api/v2/sop/projects/{project_pub_id}/baseline-answers', {
         params: {
           path: { project_pub_id: projectPubId },
-          query: { limit: 100 },
+          query,
           header: headers,
         },
       });
       if (!result.data) return classifyResourceFailure(result.response.status);
-      return {
-        kind: 'ready',
-        data: {
-          items: projectSopItems(result.data.data),
-          metrics: [
-            { label: '样本', value: String(result.data.data.length) },
-            {
-              label: '成功',
-              value: String(
-                result.data.data.filter((item) => item.capture_status === 'success').length,
-              ),
-            },
-          ],
-        },
-      };
+      return sopStageSnapshotResult(result.data);
     }
     if (stage === 'retrieval-review') {
       const result = await projected.GET('/api/v2/sop/projects/{project_pub_id}/insights', {
         params: {
           path: { project_pub_id: projectPubId },
-          query: { limit: 100 },
+          query,
           header: headers,
         },
       });
       if (!result.data) return classifyResourceFailure(result.response.status);
-      return {
-        kind: 'ready',
-        data: { items: projectSopItems(result.data.data), metrics: [] },
-      };
+      return sopStageSnapshotResult(result.data);
     }
     if (stage === 'evidence-ledger') {
       const result = await projected.GET('/api/v2/sop/projects/{project_pub_id}/evidence', {
         params: {
           path: { project_pub_id: projectPubId },
-          query: { limit: 100 },
+          query,
           header: headers,
         },
       });
       if (!result.data) return classifyResourceFailure(result.response.status);
-      return {
-        kind: 'ready',
-        data: {
-          items: projectSopItems(result.data.data),
-          metrics: [
-            {
-              label: '允许公开',
-              value: String(result.data.data.filter((item) => item.allowed_public).length),
-            },
-          ],
-        },
-      };
+      return sopStageSnapshotResult(result.data);
     }
     if (stage === 'opportunities') {
       const result = await projected.GET('/api/v2/sop/projects/{project_pub_id}/opportunities', {
         params: {
           path: { project_pub_id: projectPubId },
-          query: { limit: 100 },
+          query,
           header: headers,
         },
       });
       if (!result.data) return classifyResourceFailure(result.response.status);
-      return {
-        kind: 'ready',
-        data: { items: projectSopItems(result.data.data), metrics: [] },
-      };
+      return sopStageSnapshotResult(result.data);
     }
     if (stage === 'writing' || stage === 'pre-publish') {
       const result = await projected.GET('/api/v2/sop/projects/{project_pub_id}/articles', {
         params: {
           path: { project_pub_id: projectPubId },
-          query: { limit: 100 },
+          query: stage === 'writing' ? query : { page: 1, page_size: 1 },
           header: headers,
         },
       });
       if (!result.data) return classifyResourceFailure(result.response.status);
-      if (stage === 'writing' || result.data.data.length === 0) {
-        return {
-          kind: 'ready',
-          data: { items: projectSopItems(result.data.data), metrics: [] },
-        };
+      const articlePage = projectSopStagePage(result.data);
+      if (!articlePage) return { kind: 'unavailable' };
+      if (stage === 'writing') {
+        return { kind: 'ready', data: { ...articlePage, metrics: [] } };
       }
-      const article = result.data.data.at(-1)!;
-      const detail = await projected.GET('/api/v2/sop/articles/{article_pub_id}', {
-        params: { path: { article_pub_id: article.pub_id }, header: headers },
+      const article = result.data.data[0];
+      if (!article) {
+        return { kind: 'ready', data: { items: [], metrics: [], page: emptySopPage() } };
+      }
+      const versions = await projected.GET('/api/v2/sop/articles/{article_pub_id}/versions', {
+        params: { path: { article_pub_id: article.pub_id }, query, header: headers },
       });
-      if (!detail.data) return classifyResourceFailure(detail.response.status);
-      return {
-        kind: 'ready',
-        data: {
-          items: projectSopItems(detail.data.versions),
-          metrics: [
-            { label: '文章', value: article.title },
-            { label: '版本', value: String(detail.data.versions.length) },
-          ],
-        },
-      };
+      if (!versions.data) return classifyResourceFailure(versions.response.status);
+      const versionPage = projectSopStagePage(versions.data);
+      return versionPage
+        ? {
+            kind: 'ready',
+            data: {
+              ...versionPage,
+              metrics: [
+                { label: '文章', value: article.title },
+                { label: '版本', value: String(versionPage.page.totalCount) },
+              ],
+            },
+          }
+        : { kind: 'unavailable' };
     }
     if (
       stage === 'publishing' ||
@@ -11792,35 +11859,34 @@ export async function loadSopStage(
         {
           params: {
             path: { project_pub_id: projectPubId },
-            query: { limit: 100 },
+            query: stage === 'publishing' ? query : { page: 1, page_size: 1 },
             header: headers,
           },
         },
       );
       if (!publications.data) return classifyResourceFailure(publications.response.status);
-      if (stage === 'publishing' || publications.data.data.length === 0) {
-        return {
-          kind: 'ready',
-          data: { items: projectSopItems(publications.data.data), metrics: [] },
-        };
+      const publicationPage = projectSopStagePage(publications.data);
+      if (!publicationPage) return { kind: 'unavailable' };
+      if (stage === 'publishing') {
+        return { kind: 'ready', data: { ...publicationPage, metrics: [] } };
       }
-      const publication = publications.data.data.at(-1)!;
+      const publication = publications.data.data[0];
+      if (!publication) {
+        return { kind: 'ready', data: { items: [], metrics: [], page: emptySopPage() } };
+      }
       if (stage === 'index-watch') {
         const result = await projected.GET(
           '/api/v2/sop/publications/{publication_pub_id}/observations',
           {
             params: {
               path: { publication_pub_id: publication.pub_id },
-              query: { limit: 100 },
+              query,
               header: headers,
             },
           },
         );
         if (!result.data) return classifyResourceFailure(result.response.status);
-        return {
-          kind: 'ready',
-          data: { items: projectSopItems(result.data.data), metrics: [] },
-        };
+        return sopStageSnapshotResult(result.data);
       }
       if (stage === 'retest') {
         const result = await projected.GET(
@@ -11828,23 +11894,20 @@ export async function loadSopStage(
           {
             params: {
               path: { publication_pub_id: publication.pub_id },
-              query: { limit: 100 },
+              query,
               header: headers,
             },
           },
         );
         if (!result.data) return classifyResourceFailure(result.response.status);
-        return {
-          kind: 'ready',
-          data: { items: projectSopItems(result.data.data), metrics: [] },
-        };
+        return sopStageSnapshotResult(result.data);
       }
       const comparisons = await projected.GET(
         '/api/v2/sop/publications/{publication_pub_id}/comparisons',
         {
           params: {
             path: { publication_pub_id: publication.pub_id },
-            query: { limit: 100 },
+            query,
             header: headers,
           },
         },
@@ -11857,62 +11920,59 @@ export async function loadSopStage(
         },
       );
       if (!summary.data) return classifyResourceFailure(summary.response.status);
-      return {
-        kind: 'ready',
-        data: {
-          items: projectSopItems(comparisons.data.data),
-          metrics: [
-            {
-              label: '文章召回率',
-              value:
-                summary.data.retrieval.article_recall_rate === null
-                  ? '—'
-                  : String(summary.data.retrieval.article_recall_rate),
+      const comparisonPage = projectSopStagePage(comparisons.data);
+      return comparisonPage
+        ? {
+            kind: 'ready',
+            data: {
+              ...comparisonPage,
+              metrics: [
+                {
+                  label: '文章召回率',
+                  value:
+                    summary.data.retrieval.article_recall_rate === null
+                      ? '—'
+                      : String(summary.data.retrieval.article_recall_rate),
+                },
+                {
+                  label: '引用率',
+                  value:
+                    summary.data.citation.citation_rate === null
+                      ? '—'
+                      : String(summary.data.citation.citation_rate),
+                },
+                {
+                  label: '品牌提及率',
+                  value:
+                    summary.data.brand.retest_mention_rate === null
+                      ? '—'
+                      : String(summary.data.brand.retest_mention_rate),
+                },
+              ],
             },
-            {
-              label: '引用率',
-              value:
-                summary.data.citation.citation_rate === null
-                  ? '—'
-                  : String(summary.data.citation.citation_rate),
-            },
-            {
-              label: '品牌提及率',
-              value:
-                summary.data.brand.retest_mention_rate === null
-                  ? '—'
-                  : String(summary.data.brand.retest_mention_rate),
-            },
-          ],
-        },
-      };
+          }
+        : { kind: 'unavailable' };
     }
     if (stage === 'experiments') {
       const result = await projected.GET('/api/v2/sop/projects/{project_pub_id}/experiments', {
         params: {
           path: { project_pub_id: projectPubId },
-          query: { limit: 100 },
+          query,
           header: headers,
         },
       });
       if (!result.data) return classifyResourceFailure(result.response.status);
-      return {
-        kind: 'ready',
-        data: { items: projectSopItems(result.data.data), metrics: [] },
-      };
+      return sopStageSnapshotResult(result.data);
     }
     const result = await projected.GET('/api/v2/sop/projects/{project_pub_id}/work-logs', {
       params: {
         path: { project_pub_id: projectPubId },
-        query: { limit: 100 },
+        query,
         header: headers,
       },
     });
     if (!result.data) return classifyResourceFailure(result.response.status);
-    return {
-      kind: 'ready',
-      data: { items: projectSopItems(result.data.data), metrics: [] },
-    };
+    return sopStageSnapshotResult(result.data);
   } catch {
     return { kind: 'unavailable' };
   }
@@ -13288,6 +13348,8 @@ export type GeneratedQuotationDocument = {
   totalPriceCents: number | null;
   maximumTotalPriceCents: number | null;
   queryAppendixIncluded: boolean;
+  /** Phase A stop-loss marker: this legacy document is not approved for customer use. */
+  templateCompliance: 'non-final-template';
 };
 
 export type QuotationGenerationResult =
@@ -13395,7 +13457,7 @@ const classifyQuotationFailure = (status: number): QuotationGenerationResult => 
 
 /**
  * 运营端报价单生成：multipart 提交报价配置和可选 XLSX，DOCX 只经受控 Blob 通道返回；同时校验
- * MIME、ZIP 签名、体积、服务端 SHA-256 与计数元数据，失败时不把响应交给下载层。
+ * MIME、ZIP 签名、体积、服务端 SHA-256、计数元数据与模板合规标识，失败时不把响应交给下载层。
  */
 export async function generateQuotation(
   input: QuotationGenerationInput,
@@ -13582,12 +13644,14 @@ export async function generateQuotation(
     ) as QuotationArtifactKind | null;
     const queryAppendixIncluded =
       result.response.headers.get('x-quotation-query-appendix') === 'included';
+    const templateCompliance = result.response.headers.get('x-quotation-template-compliance');
     if (
       result.data.type !== quotationDocxMimeType ||
       result.data.size <= 0 ||
       result.data.size > quotationMaxDocumentBytes ||
       !sha256 ||
       !fileName ||
+      !fileName.startsWith('非最终模板合规产物-') ||
       targetQueryCount === null ||
       selectedQueryCount === null ||
       opportunityCount === null ||
@@ -13599,6 +13663,7 @@ export async function generateQuotation(
       packageCode !== input.packageCode ||
       returnedArtifactKind !== artifactKind ||
       returnedPricingStatus !== input.pricingStatus ||
+      templateCompliance !== 'non-final-template' ||
       queryAppendixIncluded !== expectsQueryAppendix
     ) {
       return { kind: 'unavailable' };
@@ -13636,6 +13701,7 @@ export async function generateQuotation(
         maximumTotalPriceCents:
           input.pricingStatus === 'priced' ? returnedMaximumTotalPriceCents : null,
         queryAppendixIncluded,
+        templateCompliance,
       },
     };
   } catch {
@@ -14676,6 +14742,27 @@ export type VerifiedPostAnalysisAsset = PostAnalysisAssetIntegrity & { blob: Blo
 
 const postAnalysisTaskPubIdPattern = /^pat_[A-Za-z0-9_-]{1,124}$/u;
 const postAnalysisItemPubIdPattern = /^pai_[A-Za-z0-9_-]{1,124}$/u;
+type OperationalPageRequest = { cursor?: string | null; limit?: number };
+
+function operationalPageRequest(input: string | null | OperationalPageRequest): {
+  cursor: string | null;
+  limit: number;
+} {
+  const rawCursor = typeof input === 'object' && input !== null ? input.cursor : input;
+  const rawLimit = typeof input === 'object' && input !== null ? input.limit : undefined;
+  const cursor =
+    typeof rawCursor === 'string' &&
+    rawCursor.length >= 16 &&
+    rawCursor.length <= 2048 &&
+    /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/u.test(rawCursor)
+      ? rawCursor
+      : null;
+  const limit =
+    typeof rawLimit === 'number' && Number.isInteger(rawLimit) && rawLimit >= 1 && rawLimit <= 100
+      ? rawLimit
+      : 100;
+  return { cursor, limit };
+}
 
 /** 情报调查 pub_id 投影：inv_ 词表外的值一律 fail-closed 降级 null（不阻断任务详情）。 */
 const projectPostAnalysisInvestigationPubId = (value: unknown): string | null =>
@@ -15003,14 +15090,14 @@ const projectPostAnalysisItemDetail = (value: unknown): PostAnalysisItemDetail |
 
 export async function listPostAnalysisTasks(
   headers: IdentitySessionHeaders,
-  cursor: string | null = null,
+  input: string | null | OperationalPageRequest = null,
   client: ProjectedApiClientOverride = apiClient,
 ): Promise<ProjectResourceResult<PostAnalysisTaskPage>> {
   try {
-    const requestedCursor = cursor && postAnalysisTaskPubIdPattern.test(cursor) ? cursor : null;
+    const request = operationalPageRequest(input);
     const result = await projectedApiClient(client).GET('/api/v2/post-analysis/tasks', {
       params: {
-        query: { limit: 100, ...(requestedCursor ? { cursor: requestedCursor } : {}) },
+        query: { limit: request.limit, ...(request.cursor ? { cursor: request.cursor } : {}) },
         header: headers,
       },
     });
@@ -15022,15 +15109,11 @@ export async function listPostAnalysisTasks(
     const rawNextCursor = result.data.page.next_cursor;
     const rawHasMore = result.data.page.has_more;
     const hasMore = rawHasMore === true;
-    const nextCursor =
-      typeof rawNextCursor === 'string' && postAnalysisTaskPubIdPattern.test(rawNextCursor)
-        ? rawNextCursor
-        : null;
+    const nextCursor = operationalPageRequest(rawNextCursor).cursor;
     const pageIsValid =
       tasks.length === result.data.data.length &&
       typeof rawHasMore === 'boolean' &&
-      ((hasMore && nextCursor !== null && nextCursor === tasks.at(-1)?.pubId) ||
-        (!hasMore && rawNextCursor === null));
+      ((hasMore && nextCursor !== null) || (!hasMore && rawNextCursor === null));
     return pageIsValid
       ? { kind: 'ready', data: { data: tasks, nextCursor: hasMore ? nextCursor : null, hasMore } }
       : { kind: 'unavailable' };
@@ -15108,18 +15191,18 @@ export async function getPostAnalysisTask(
 export async function listPostAnalysisItems(
   headers: IdentitySessionHeaders,
   taskPubId: string,
-  cursor: string | null = null,
+  input: string | null | OperationalPageRequest = null,
   client: ProjectedApiClientOverride = apiClient,
 ): Promise<ProjectResourceResult<PostAnalysisItemPage>> {
   try {
     if (!projectAnalyticsPubId(taskPubId, 'pat_')) return { kind: 'unavailable' };
-    const requestedCursor = cursor && postAnalysisItemPubIdPattern.test(cursor) ? cursor : null;
+    const request = operationalPageRequest(input);
     const result = await projectedApiClient(client).GET(
       '/api/v2/post-analysis/tasks/{task_pub_id}/items',
       {
         params: {
           path: { task_pub_id: taskPubId },
-          query: { limit: 100, ...(requestedCursor ? { cursor: requestedCursor } : {}) },
+          query: { limit: request.limit, ...(request.cursor ? { cursor: request.cursor } : {}) },
           header: headers,
         },
       },
@@ -15132,15 +15215,11 @@ export async function listPostAnalysisItems(
     const rawNextCursor = result.data.page.next_cursor;
     const rawHasMore = result.data.page.has_more;
     const hasMore = rawHasMore === true;
-    const nextCursor =
-      typeof rawNextCursor === 'string' && postAnalysisItemPubIdPattern.test(rawNextCursor)
-        ? rawNextCursor
-        : null;
+    const nextCursor = operationalPageRequest(rawNextCursor).cursor;
     const pageIsValid =
       items.length === result.data.data.length &&
       typeof rawHasMore === 'boolean' &&
-      ((hasMore && nextCursor !== null && nextCursor === items.at(-1)?.pubId) ||
-        (!hasMore && rawNextCursor === null));
+      ((hasMore && nextCursor !== null) || (!hasMore && rawNextCursor === null));
     return pageIsValid
       ? { kind: 'ready', data: { data: items, nextCursor: hasMore ? nextCursor : null, hasMore } }
       : { kind: 'unavailable' };
