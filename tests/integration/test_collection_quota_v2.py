@@ -1,8 +1,9 @@
-"""Real-PostgreSQL lock and production-service tests for collection-v2 quota.
+"""Stage-2 PostgreSQL lock and runtime-role tests for collection-v2 quota.
 
 These tests only run against an explicitly configured local/isolated database.
 They create durable submission operations but never contact a provider or perform
-an external send.
+an external send.  The suite intentionally targets the ``s07_0002`` ACL boundary:
+Stage 3 replaces its direct worker DML with restricted s10 repository entrypoints.
 """
 
 from __future__ import annotations
@@ -87,6 +88,20 @@ def _test_dsn() -> str:
     parsed = urlparse(dsn)
     if parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
         pytest.skip("quota integration tests refuse non-loopback PostgreSQL")
+    if os.getenv("COLLECTION_QUOTA_V2_TEST_AS_WORKER") != "1":
+        pytest.skip("Stage-2 quota integration requires the geo_worker role gate")
+    with psycopg.connect(dsn) as connection:
+        revisions = tuple(
+            str(row[0])
+            for row in connection.execute(
+                "SELECT version_num FROM alembic_version ORDER BY version_num"
+            ).fetchall()
+        )
+    if revisions != ("s07_0002_execution_governance",):
+        pytest.skip(
+            "Stage-2 direct-DML quota integration requires exact s07_0002; "
+            "use the restricted repository suite at s10 or later"
+        )
     return dsn
 
 
@@ -116,9 +131,8 @@ def _ensure_migration(connection: psycopg.Connection[tuple[object, ...]]) -> Non
 
 
 def _activate_worker_role(connection: psycopg.Connection[tuple[object, ...]]) -> None:
-    if os.getenv("COLLECTION_QUOTA_V2_TEST_AS_WORKER") == "1":
-        connection.execute("SET ROLE geo_worker")
-        connection.commit()
+    connection.execute("SET ROLE geo_worker")
+    connection.commit()
 
 
 def _sqlalchemy_dsn(dsn: str) -> str:
