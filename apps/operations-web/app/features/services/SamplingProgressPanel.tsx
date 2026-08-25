@@ -11,6 +11,12 @@ import {
   type SamplingProgressColumn,
   type SessionContext,
 } from './api';
+import {
+  SAMPLING_ANSWERS_PAGE_NUMBER_WINDOW_SIZE,
+  SAMPLING_ANSWERS_PAGE_SIZE,
+  SAMPLING_PROGRESS_DEFAULT_PAGE_SIZE,
+  SAMPLING_PROGRESS_PAGE_NUMBER_WINDOW_SIZE,
+} from './pagination-policy';
 
 const MODE_LABELS: Record<string, string> = {
   normal: '快速模式',
@@ -120,6 +126,7 @@ function SamplingAnswersDialog({
   const answerWindow = usePageWindow(
     answers,
     `${target.queryText}:${target.column.key}:${reloadToken}`,
+    SAMPLING_ANSWERS_PAGE_SIZE,
   );
 
   useEffect(() => {
@@ -210,6 +217,7 @@ function SamplingAnswersDialog({
             <Pagination
               page={answerWindow.page}
               pageCount={answerWindow.pageCount}
+              windowSize={SAMPLING_ANSWERS_PAGE_NUMBER_WINDOW_SIZE}
               onPageChange={answerWindow.setPage}
               label="采样具体回答分页"
             />
@@ -232,7 +240,12 @@ export function SamplingProgressPanel({ session, projectPubId }: Props) {
       const requestId = ++requestSerial.current;
       if (!background) setState('loading');
       try {
-        const next = await servicesApi.samplingProgress(session, projectPubId, page, 4);
+        const next = await servicesApi.samplingProgress(
+          session,
+          projectPubId,
+          page,
+          SAMPLING_PROGRESS_DEFAULT_PAGE_SIZE,
+        );
         if (requestId !== requestSerial.current) return;
         setProgress(next);
         setPage(next.page.page);
@@ -391,6 +404,7 @@ export function SamplingProgressPanel({ session, projectPubId }: Props) {
           <Pagination
             page={progress.page.page}
             pageCount={progress.page.total_pages}
+            windowSize={SAMPLING_PROGRESS_PAGE_NUMBER_WINDOW_SIZE}
             totalItems={progress.page.total_count}
             onPageChange={setPage}
             label="采样进度问题分页"

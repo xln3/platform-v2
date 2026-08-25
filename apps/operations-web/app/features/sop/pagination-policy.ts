@@ -1,0 +1,4 @@
+import { SOP_DEFAULT_PAGE_SIZE as API_SOP_DEFAULT_PAGE_SIZE } from '@geo/api-client';
+
+export const SOP_DEFAULT_PAGE_SIZE = API_SOP_DEFAULT_PAGE_SIZE;
+export const SOP_PAGE_NUMBER_WINDOW_SIZE = 7;

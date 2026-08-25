@@ -14,7 +14,7 @@ import {
   type PostAnalysisTaskDetail as PostAnalysisTaskDetailData,
 } from '@geo/api-client';
 import { Badge, CursorPagination, StatePanel, Toast, VerifiedBlobImage } from '@geo/design-system';
-import { PAGE_SIZE } from '../../pagination';
+import { POST_ANALYSIS_ITEMS_PAGE_SIZE } from './pagination-policy';
 import {
   annotationStatusLabel,
   annotationTypeLabel,
@@ -116,7 +116,7 @@ export function PostAnalysisTaskDetail({
     setItemsState({ kind: 'loading' });
     void listPostAnalysisItems(headers, taskPubId, {
       ...(itemsCursor ? { cursor: itemsCursor } : {}),
-      limit: PAGE_SIZE,
+      limit: POST_ANALYSIS_ITEMS_PAGE_SIZE,
     }).then((result) => {
       if (cancelled) return;
       if (
@@ -164,7 +164,7 @@ export function PostAnalysisTaskDetail({
       });
       void listPostAnalysisItems(headers, taskPubId, {
         ...(itemsCursor ? { cursor: itemsCursor } : {}),
-        limit: PAGE_SIZE,
+        limit: POST_ANALYSIS_ITEMS_PAGE_SIZE,
       }).then((result) => {
         if (result.kind !== 'ready') return;
         setItemsState((current) =>

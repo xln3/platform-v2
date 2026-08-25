@@ -7,6 +7,7 @@ import {
   StatePanel,
   TableRegion,
 } from '@geo/design-system';
+import { SOP_PAGE_NUMBER_WINDOW_SIZE } from '../pagination-policy';
 import type { SopConsoleValue, SopStepDefinition, SopStepProps } from './types';
 
 const statusTone = (status: string): 'positive' | 'warning' | 'neutral' =>
@@ -87,6 +88,7 @@ export function ConfiguredStep({
             <Pagination
               page={snapshot.page.page}
               pageCount={snapshot.page.totalPages}
+              windowSize={SOP_PAGE_NUMBER_WINDOW_SIZE}
               totalItems={snapshot.page.totalCount}
               onPageChange={onPageChange}
               label={`${definition.title}记录分页`}

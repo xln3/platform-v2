@@ -14,7 +14,8 @@ import {
   TableRegion,
   Toast,
 } from '@geo/design-system';
-import { PAGE_SIZE, useCursorCollection, type CursorPage } from '../../pagination';
+import { useCursorCollection, type CursorPage } from '../../pagination';
+import { POST_ANALYSIS_TASKS_PAGE_SIZE } from './pagination-policy';
 import { formatDateTime, taskStatusLabel, taskStatusTone } from './labels';
 import './post-analysis.css';
 
@@ -76,7 +77,7 @@ export function PostAnalysisTasks({
     async (cursor?: string): Promise<CursorPage<PostAnalysisTaskSummary>> => {
       const result = await listPostAnalysisTasks(headers, {
         ...(cursor ? { cursor } : {}),
-        limit: PAGE_SIZE,
+        limit: POST_ANALYSIS_TASKS_PAGE_SIZE,
       });
       if (result.kind === 'ready') {
         setAccessState('ready');

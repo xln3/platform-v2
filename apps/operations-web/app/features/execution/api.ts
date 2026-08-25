@@ -10,6 +10,10 @@ import {
   type CursorPage,
   type NumberedPage,
 } from '../../pagination';
+import {
+  COLLECTION_RUNS_CURSOR_DEFAULT_PAGE_SIZE,
+  COLLECTION_RUNS_DEFAULT_PAGE_SIZE,
+} from './pagination-policy';
 
 const API_BASE =
   (import.meta as ImportMeta & { env?: { VITE_GEO_API_BASE?: string } }).env?.VITE_GEO_API_BASE ??
@@ -319,20 +323,20 @@ export const executionApi = {
     input: { projectPubId?: string; cursor?: string; limit?: number } = {},
   ): Promise<CursorPage<Run>> =>
     requireCursorPage(
-      await client.GET('/api/v2/collection/runs', {
+      await client.GET('/api/v2/collection/runs/cursor', {
         params: {
           header: session.headers,
           query: {
             ...(input.projectPubId ? { project_pub_id: input.projectPubId } : {}),
             ...(input.cursor ? { cursor: input.cursor } : {}),
-            limit: input.limit ?? 50,
+            limit: input.limit ?? COLLECTION_RUNS_CURSOR_DEFAULT_PAGE_SIZE,
           },
         },
       }),
     ),
   runPage: async (
     session: SessionContext,
-    input: { projectPubId?: string; page: number; limit?: number },
+    input: { projectPubId?: string; page: number; pageSize?: number },
   ): Promise<NumberedPage<Run>> =>
     requireNumberedPage(
       await client.GET('/api/v2/collection/runs', {
@@ -341,7 +345,7 @@ export const executionApi = {
           query: {
             ...(input.projectPubId ? { project_pub_id: input.projectPubId } : {}),
             page: input.page,
-            limit: input.limit ?? 50,
+            page_size: input.pageSize ?? COLLECTION_RUNS_DEFAULT_PAGE_SIZE,
           },
         },
       }),

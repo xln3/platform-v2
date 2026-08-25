@@ -3,7 +3,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { allowsFixtureIdentityHeaders, type BrowserBuildIdentityEnv } from '@geo/api-client';
 import { EvidenceImageFrame, type EvidenceAnchor } from '@geo/evidence-viewer';
 import { platformDisplayName } from '../../platforms';
-import { PAGE_SIZE, useCursorCollection, type CursorPage } from '../../pagination';
+import { useCursorCollection, type CursorPage } from '../../pagination';
+import { ANSWER_EXPLORER_PAGE_SIZE } from './pagination-policy';
 import {
   executionApi,
   type AnswerRelations,
@@ -345,7 +346,7 @@ export function AnswerExplorer({ session, projectPubId, runPubId }: Props) {
       const page = await executionApi.answers(session, {
         projectPubId,
         runPubId,
-        limit: PAGE_SIZE,
+        limit: ANSWER_EXPLORER_PAGE_SIZE,
         ...(cursor ? { cursor } : {}),
       });
       return {

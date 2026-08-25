@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { RunsPanel } from './RunsPanel';
 
@@ -74,7 +74,7 @@ describe('RunsPanel', () => {
         const url = new URL(input instanceof Request ? input.url : String(input));
         if (url.pathname.endsWith('/summary')) return summary(9);
         expect(url.searchParams.get('project_pub_id')).toBe('prj_alpha');
-        expect(url.searchParams.get('limit')).toBe('4');
+        expect(url.searchParams.get('page_size')).toBe('4');
         const page = url.searchParams.get('page') ?? '1';
         requested.push(page);
         if (page === '1') {
@@ -135,6 +135,57 @@ describe('RunsPanel', () => {
       ).toBe(true),
     );
   });
+
+  it('ignores a delayed old-project summary after the new project succeeds', async () => {
+    let resolveAlpha!: (response: Response) => void;
+    const alphaSummary = new Promise<Response>((resolve) => {
+      resolveAlpha = resolve;
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string | URL | Request) => {
+        const url = new URL(input instanceof Request ? input.url : String(input));
+        const project = url.searchParams.get('project_pub_id') ?? '';
+        if (url.pathname.endsWith('/summary')) {
+          return project === 'prj_alpha' ? alphaSummary : summary(2, 'prj_beta');
+        }
+        return json([run(1, project)], pageHeaders(1, 1));
+      }),
+    );
+
+    const view = render(<RunsPanel session={session} projectPubId="prj_alpha" readOnly />);
+    await screen.findByText('run_1');
+    view.rerender(<RunsPanel session={session} projectPubId="prj_beta" readOnly />);
+    expect(await screen.findByText(/项目共 2 个 run/)).toBeTruthy();
+    await act(async () => resolveAlpha(summary(9, 'prj_alpha')));
+    expect(screen.getByText(/项目共 2 个 run/)).toBeTruthy();
+    expect(screen.queryByText(/项目共 9 个 run/)).toBeNull();
+  });
+
+  it('does not let an old-project failure clear the new summary', async () => {
+    let rejectAlpha!: (cause: Error) => void;
+    const alphaSummary = new Promise<Response>((_resolve, reject) => {
+      rejectAlpha = reject;
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string | URL | Request) => {
+        const url = new URL(input instanceof Request ? input.url : String(input));
+        const project = url.searchParams.get('project_pub_id') ?? '';
+        if (url.pathname.endsWith('/summary')) {
+          return project === 'prj_alpha' ? alphaSummary : summary(3, 'prj_beta');
+        }
+        return json([run(1, project)], pageHeaders(1, 1));
+      }),
+    );
+
+    const view = render(<RunsPanel session={session} projectPubId="prj_alpha" readOnly />);
+    await screen.findByText('run_1');
+    view.rerender(<RunsPanel session={session} projectPubId="prj_beta" readOnly />);
+    expect(await screen.findByText(/项目共 3 个 run/)).toBeTruthy();
+    await act(async () => rejectAlpha(new Error('delayed_alpha_failure')));
+    expect(screen.getByText(/项目共 3 个 run/)).toBeTruthy();
+  });
 });
 
 function json(value: unknown, headers: Record<string, string> = {}) {
@@ -144,9 +195,9 @@ function json(value: unknown, headers: Record<string, string> = {}) {
   });
 }
 
-function summary(count: number) {
+function summary(count: number, projectPubId = 'prj_alpha') {
   return json({
-    project_pub_id: 'prj_alpha',
+    project_pub_id: projectPubId,
     run_count: count,
     active_run_count: 0,
     total_tasks: count * 10,

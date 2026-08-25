@@ -57,6 +57,7 @@ const GEO_BADGE_SHORT: Record<string, string> = {
 const GEO_ORDER = ['a', 'b', 'c', 'd', 'e', 'f', 'z'] as const;
 
 const PAGE_SIZE = 100;
+const PAGE_NUMBER_WINDOW_SIZE = 7;
 type MediaCatalogTab = 'news' | 'wemedia';
 
 function readMediaCatalogTab(): MediaCatalogTab {
@@ -1274,6 +1275,7 @@ export function MediaPrices({ session }: { session: Session | undefined }) {
           <Pagination
             page={safePage}
             pageCount={pageCount}
+            windowSize={PAGE_NUMBER_WINDOW_SIZE}
             onPageChange={(nextPage) => {
               setPage(nextPage);
               setExportNotice(null);

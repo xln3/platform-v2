@@ -2,6 +2,10 @@ import { Pagination } from '@geo/design-system';
 import { useEffect, useMemo, useState } from 'react';
 import { PlatformBadge, platformDisplayName } from '../../platforms';
 import { usePageWindow } from '../../pagination';
+import {
+  READONLY_CONFIG_PAGE_NUMBER_WINDOW_SIZE,
+  READONLY_CONFIG_PAGE_SIZE,
+} from './pagination-policy';
 import { type CurrentConfig, type FrozenConfig } from '../execution/api';
 import { servicesApi, type SessionContext } from './api';
 
@@ -143,7 +147,11 @@ function ConfigRevisionSummary({
     () => parseConfig(config.snapshot, config.question_groups),
     [config.question_groups, config.snapshot],
   );
-  const questions = usePageWindow(parsed.questions, `${projectPubId}:${config.pub_id}`);
+  const questions = usePageWindow(
+    parsed.questions,
+    `${projectPubId}:${config.pub_id}`,
+    READONLY_CONFIG_PAGE_SIZE,
+  );
   const platforms = [...new Set(parsed.targets.map((target) => target.platform))];
   const surfaces = [...new Set(parsed.targets.map((target) => target.collectionSurface))];
   const modes = [...new Set(parsed.targets.flatMap((target) => target.modes))];
@@ -288,6 +296,7 @@ function ConfigRevisionSummary({
           <Pagination
             page={questions.page}
             pageCount={questions.pageCount}
+            windowSize={READONLY_CONFIG_PAGE_NUMBER_WINDOW_SIZE}
             totalItems={parsed.questions.length}
             onPageChange={questions.setPage}
             label="冻结问题分页"

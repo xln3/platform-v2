@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CursorPagination } from '@geo/design-system';
-import { PAGE_SIZE, useCursorCollection } from '../../pagination';
+import { useCursorCollection } from '../../pagination';
+import { ACCOUNT_GOVERNANCE_PAGE_SIZE } from './pagination-policy';
 import type { SessionContext } from '../execution/api';
 import {
   accountPhoneLabel,
@@ -42,7 +43,7 @@ export function BrowsersPage({ session }: { session: SessionContext }) {
     (cursor?: string) =>
       accountGovApi.listBrowsers(session, {
         ...(cursor ? { cursor } : {}),
-        limit: PAGE_SIZE,
+        limit: ACCOUNT_GOVERNANCE_PAGE_SIZE,
       }),
     [session],
   );

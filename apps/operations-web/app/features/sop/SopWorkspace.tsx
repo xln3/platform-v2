@@ -27,6 +27,7 @@ import {
   Writing,
   type SopStepProps,
 } from './steps';
+import { SOP_PAGE_NUMBER_WINDOW_SIZE } from './pagination-policy';
 import './sop.css';
 
 const stepComponents: Record<SopStageKey, ComponentType<SopStepProps>> = {
@@ -201,6 +202,7 @@ export function SopWorkspace({
           <Pagination
             page={dashboard.data.articlePage.page}
             pageCount={dashboard.data.articlePage.totalPages}
+            windowSize={SOP_PAGE_NUMBER_WINDOW_SIZE}
             totalItems={dashboard.data.articlePage.totalCount}
             onPageChange={setArticlePage}
             label="文章成熟度分页"

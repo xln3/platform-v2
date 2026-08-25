@@ -1,6 +1,7 @@
 import { CursorPagination } from '@geo/design-system';
 import { useCallback, useEffect, useState } from 'react';
-import { PAGE_SIZE, useCursorCollection } from '../../../pagination';
+import { useCursorCollection } from '../../../pagination';
+import { SERVICE_PILOT_PAGE_SIZE } from '../pagination-policy';
 import { executionApi, type Run } from '../../execution/api';
 import {
   ServicesApiError,
@@ -107,7 +108,7 @@ export function ComparisonPanel({
       executionApi.runs(session, {
         projectPubId: project.pub_id,
         ...(cursor ? { cursor } : {}),
-        limit: PAGE_SIZE,
+        limit: SERVICE_PILOT_PAGE_SIZE,
       }),
     [project.pub_id, session],
   );
@@ -117,7 +118,7 @@ export function ComparisonPanel({
       servicesApi.listComparisons(session, {
         projectPubId: project.pub_id,
         ...(cursor ? { cursor } : {}),
-        limit: PAGE_SIZE,
+        limit: SERVICE_PILOT_PAGE_SIZE,
       }),
     [project.pub_id, session],
   );

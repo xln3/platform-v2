@@ -916,6 +916,8 @@ export type NavItem = {
   group?: string;
   badge?: string;
   href?: string;
+  /** Append the active project only when the destination explicitly consumes it. */
+  projectAware?: boolean;
 };
 export type SafeNavItem = {
   id: string;
@@ -923,6 +925,7 @@ export type SafeNavItem = {
   group?: string;
   badge?: string;
   href?: string;
+  projectAware?: true;
   disabledExternal?: true;
 };
 
@@ -976,6 +979,7 @@ export function projectSafeProductNavigation(items: readonly NavItem[]): SafeNav
     if (item.group !== undefined && !group) continue;
     const badge = item.badge === undefined ? null : safeNavigationText(item.badge, 12);
     if (item.badge !== undefined && !badge) continue;
+    if (item.projectAware !== undefined && typeof item.projectAware !== 'boolean') continue;
     seenIds.add(id);
     if (item.href !== undefined) {
       const href = projectSafeInternalNavigationHref(item.href);
@@ -984,6 +988,7 @@ export function projectSafeProductNavigation(items: readonly NavItem[]): SafeNav
         label,
         ...(group ? { group } : {}),
         ...(badge ? { badge } : {}),
+        ...(item.projectAware === true ? { projectAware: true as const } : {}),
         ...(href ? { href } : { disabledExternal: true as const }),
       });
       continue;
@@ -1862,16 +1867,21 @@ export function VerifiedBlobDownload({
 export function Pagination({
   page,
   pageCount,
+  windowSize = 5,
   totalItems,
   onPageChange,
   label = '分页',
 }: {
   page: number;
   pageCount: number;
+  windowSize?: number;
   totalItems?: number;
   onPageChange: (page: number) => void;
   label?: string;
 }) {
+  if (!Number.isSafeInteger(windowSize) || windowSize < 3) {
+    throw new Error('invalid_pagination_window_size');
+  }
   const safePageCount = Math.max(1, pageCount);
   const safePage = Math.min(Math.max(1, page), safePageCount);
   const [jumpDraft, setJumpDraft] = useState({
@@ -1879,7 +1889,7 @@ export function Pagination({
     value: String(safePage),
   });
   const jumpPage = jumpDraft.page === safePage ? jumpDraft.value : String(safePage);
-  const pageItems = paginationWindow(safePage, safePageCount);
+  const pageItems = paginationWindow(safePage, safePageCount, windowSize);
   return (
     <nav className="pagination" aria-label={label}>
       <span className="pagination-summary">
@@ -1947,13 +1957,29 @@ export function Pagination({
   );
 }
 
-function paginationWindow(page: number, pageCount: number): Array<number | string> {
-  if (pageCount <= 7) return Array.from({ length: pageCount }, (_, index) => index + 1);
-  if (page <= 4) return [1, 2, 3, 4, 5, 'end-ellipsis', pageCount];
-  if (page >= pageCount - 3) {
-    return [1, 'start-ellipsis', ...Array.from({ length: 5 }, (_, index) => pageCount - 4 + index)];
+function paginationWindow(
+  page: number,
+  pageCount: number,
+  windowSize: number,
+): Array<number | string> {
+  if (pageCount <= windowSize) {
+    return Array.from({ length: pageCount }, (_, index) => index + 1);
   }
-  return [1, 'start-ellipsis', page - 1, page, page + 1, 'end-ellipsis', pageCount];
+  const innerCount = windowSize - 2;
+  let start = Math.max(2, page - Math.floor((innerCount - 1) / 2));
+  let end = start + innerCount - 1;
+  if (end >= pageCount) {
+    end = pageCount - 1;
+    start = end - innerCount + 1;
+  }
+  const inner = Array.from({ length: end - start + 1 }, (_, index) => start + index);
+  return [
+    1,
+    ...(start > 2 ? ['start-ellipsis'] : []),
+    ...inner,
+    ...(end < pageCount - 1 ? ['end-ellipsis'] : []),
+    pageCount,
+  ];
 }
 
 export function CursorPagination({
@@ -2628,11 +2654,16 @@ export function ProductShell({
   const experience = useOptionalExperienceContext();
   const navId = useId();
   const mainRef = useRef<HTMLElement>(null);
-  const projectAwareHref = (href: string) => {
-    if (!experience?.projectPubId || !/^prj_[A-Za-z0-9_-]{1,116}$/.test(experience.projectPubId)) {
-      return href;
+  const projectAwareHref = (item: SafeNavItem) => {
+    if (
+      !item.href ||
+      !item.projectAware ||
+      !experience?.projectPubId ||
+      !/^prj_[A-Za-z0-9_-]{1,116}$/.test(experience.projectPubId)
+    ) {
+      return item.href ?? '';
     }
-    const target = new URL(href, 'https://geo-navigation.invalid');
+    const target = new URL(item.href, 'https://geo-navigation.invalid');
     target.searchParams.set('project', experience.projectPubId);
     return `${target.pathname}${target.search}${target.hash}`;
   };
@@ -2711,7 +2742,7 @@ export function ProductShell({
                     aria-label={item.label}
                     aria-current={currentNavId === item.id ? 'page' : undefined}
                     className={currentNavId === item.id ? 'nav-active' : undefined}
-                    href={projectAwareHref(item.href)}
+                    href={projectAwareHref(item)}
                   >
                     <span>{item.label}</span>
                     {item.badge ? <em>{item.badge}</em> : null}

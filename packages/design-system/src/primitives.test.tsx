@@ -881,7 +881,13 @@ describe('shared experience primitives', () => {
           description="安全工作区"
           nav={[
             { id: 'home', label: '首页' },
-            { id: 'reports', label: '报告', href: '/platform/customer/reports#queue' },
+            {
+              id: 'reports',
+              label: '报告',
+              href: '/platform/customer/reports#queue',
+              projectAware: true,
+            },
+            { id: 'generic', label: '通用入口', href: '/platform/customer/help' },
           ]}
           probe={async () => ({ status: 'ok' })}
         >
@@ -892,6 +898,9 @@ describe('shared experience primitives', () => {
 
     expect(screen.getByRole('link', { name: '报告' }).getAttribute('href')).toBe(
       '/platform/customer/reports?project=prj_security#queue',
+    );
+    expect(screen.getByRole('link', { name: '通用入口' }).getAttribute('href')).toBe(
+      '/platform/customer/help',
     );
     fireEvent.click(screen.getByRole('button', { name: /安全租户.*盛邦安全/u }));
     const dialog = screen.getByRole('dialog', { name: '当前项目上下文' });

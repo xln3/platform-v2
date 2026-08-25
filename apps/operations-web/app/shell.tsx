@@ -16,36 +16,42 @@ export const operationsNav = [
     id: 'service-visibility',
     label: '1 · AI 推荐排名测试',
     href: '/platform/operations/service-visibility',
+    projectAware: true,
     group: '五项服务生产',
   },
   {
     id: 'service-outbound-risk',
     label: '2 · 主动拉踩内容核查',
     href: '/platform/operations/service-outbound-risk',
+    projectAware: true,
     group: '五项服务生产',
   },
   {
     id: 'service-inbound-risk',
     label: '3 · 被拉踩内容核查',
     href: '/platform/operations/service-inbound-risk',
+    projectAware: true,
     group: '五项服务生产',
   },
   {
     id: 'service-site-audit',
     label: '4 · 官网引用效率',
     href: '/platform/operations/service-site-audit',
+    projectAware: true,
     group: '五项服务生产',
   },
   {
     id: 'service-pilot',
     label: '5 · 内容发布试点',
     href: '/platform/operations/service-pilot',
+    projectAware: true,
     group: '五项服务生产',
   },
   {
     id: 'formal-reports',
     label: '正式报告生成',
     href: '/platform/operations/formal-reports',
+    projectAware: true,
     group: '报告与交付',
   },
   {
@@ -136,6 +142,7 @@ const liveOperationsNav = operationsNav.map((item) => ({
   label: item.label,
   ...(item.href ? { href: item.href } : {}),
   ...(item.group ? { group: item.group } : {}),
+  ...(item.projectAware ? { projectAware: true } : {}),
 }));
 
 export const operationsRouteNav = operationsNav.map((item) => ({
@@ -144,12 +151,14 @@ export const operationsRouteNav = operationsNav.map((item) => ({
   href: item.href ?? `/platform/operations/${item.id === 'overview' ? '' : `?section=${item.id}`}`,
   ...(item.group ? { group: item.group } : {}),
   ...(item.badge ? { badge: item.badge } : {}),
+  ...(item.projectAware ? { projectAware: true } : {}),
 }));
 
 export const liveOperationsRouteNav = operationsRouteNav.map((item) => ({
   id: item.id,
   label: item.label,
   href: item.href,
+  ...(item.projectAware ? { projectAware: true } : {}),
 }));
 
 export type OperationsRootSection = 'overview' | 'sessions' | 'interventions' | 'events';

@@ -194,10 +194,19 @@ describe('OutboundRiskWorkspace all-U service 2 projection', () => {
                 input_usd_per_million_tokens: 0.2,
                 output_usd_per_million_tokens: 1.2,
                 context_window_tokens: 1000000,
+                web_search_audit_status: 'verified_provider_citation',
+                web_search_audited_at: '2026-08-25',
+                auditable_source_mode: 'provider_citation',
                 recommended: true,
+                catalog_revision: 'fixture-v1',
                 pricing_observed_at: '2026-08-25',
                 pricing_source_url: 'https://example.com/models',
+                pricing_currency: 'USD',
+                token_price_unit: 'per_million_tokens',
+                web_search_usd_per_call: null,
+                web_search_pricing_status: 'not_published_in_catalog_snapshot',
                 pricing_notice: 'catalog_snapshot_provider_invoice_authoritative',
+                web_search_audit_policy: 'provider_search_event_and_provider_citation_required',
               },
             ],
             credential_source: 'server_environment_only',
@@ -206,7 +215,7 @@ describe('OutboundRiskWorkspace all-U service 2 projection', () => {
         if (url.pathname.endsWith('/batches/current')) {
           return Response.json(batch);
         }
-        if (url.pathname === '/api/v2/collection/runs') {
+        if (url.pathname === '/api/v2/collection/runs/cursor') {
           return Response.json([], { headers: { 'X-Has-More': 'false' } });
         }
         if (url.pathname.endsWith('/items')) {
@@ -321,10 +330,19 @@ describe('OutboundRiskWorkspace all-U service 2 projection', () => {
           input_usd_per_million_tokens: 0.2,
           output_usd_per_million_tokens: 1.2,
           context_window_tokens: 1000000,
+          web_search_audit_status: 'verified_provider_citation',
+          web_search_audited_at: '2026-08-25',
+          auditable_source_mode: 'provider_citation',
           recommended: true,
+          catalog_revision: 'fixture-v1',
           pricing_observed_at: '2026-08-25',
           pricing_source_url: 'https://example.com/models',
+          pricing_currency: 'USD',
+          token_price_unit: 'per_million_tokens',
+          web_search_usd_per_call: null,
+          web_search_pricing_status: 'not_published_in_catalog_snapshot',
           pricing_notice: 'catalog_snapshot_provider_invoice_authoritative',
+          web_search_audit_policy: 'provider_search_event_and_provider_citation_required',
         },
         {
           model: 'deep-model',
@@ -336,10 +354,19 @@ describe('OutboundRiskWorkspace all-U service 2 projection', () => {
           input_usd_per_million_tokens: 5,
           output_usd_per_million_tokens: 25,
           context_window_tokens: 1000000,
+          web_search_audit_status: 'verified_provider_citation',
+          web_search_audited_at: '2026-08-25',
+          auditable_source_mode: 'provider_tool',
           recommended: false,
+          catalog_revision: 'fixture-v1',
           pricing_observed_at: '2026-08-25',
           pricing_source_url: 'https://example.com/models',
+          pricing_currency: 'USD',
+          token_price_unit: 'per_million_tokens',
+          web_search_usd_per_call: null,
+          web_search_pricing_status: 'not_published_in_catalog_snapshot',
           pricing_notice: 'catalog_snapshot_provider_invoice_authoritative',
+          web_search_audit_policy: 'provider_search_event_and_provider_citation_required',
         },
       ],
       credential_source: 'server_environment_only',
@@ -353,7 +380,7 @@ describe('OutboundRiskWorkspace all-U service 2 projection', () => {
         if (url.pathname.endsWith('/batches/current')) {
           return Response.json({ error: { code: 'service2_batch_not_found' } }, { status: 404 });
         }
-        if (url.pathname === '/api/v2/collection/runs') {
+        if (url.pathname === '/api/v2/collection/runs/cursor') {
           return Response.json(
             [
               {
@@ -450,6 +477,13 @@ describe('OutboundRiskWorkspace all-U service 2 projection', () => {
     }) as HTMLSelectElement;
     expect(service2Model.value).toBe('fast-model');
     expect(localStorage.getItem('geo.ai.model.intake-research')).toBe('deep-model');
+    fireEvent.click(partial);
+    expect((partial as HTMLInputElement).checked).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: '刷新可选运行' }));
+    const refreshedPartial = await screen.findByRole('checkbox', { name: /run_partial/ });
+    await waitFor(() => expect((refreshedPartial as HTMLInputElement).checked).toBe(false));
+    fireEvent.click(refreshedPartial);
+    expect((refreshedPartial as HTMLInputElement).checked).toBe(true);
     fireEvent.change(service2Model, { target: { value: 'deep-model' } });
     fireEvent.click(screen.getByRole('button', { name: '物化全部 U occurrence' }));
 

@@ -7,6 +7,7 @@ import {
   type SopProjectSummary,
 } from '@geo/api-client';
 import { Badge, FormField, Pagination, StatePanel, TableRegion, Toast } from '@geo/design-system';
+import { SOP_PAGE_NUMBER_WINDOW_SIZE } from './pagination-policy';
 import './sop.css';
 
 type ProjectState =
@@ -161,6 +162,7 @@ export function SopProjects({
               <Pagination
                 page={state.page}
                 pageCount={state.totalPages}
+                windowSize={SOP_PAGE_NUMBER_WINDOW_SIZE}
                 totalItems={state.totalCount}
                 onPageChange={setPage}
                 label="SOP 项目分页"

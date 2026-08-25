@@ -1,6 +1,7 @@
 import { CursorPagination } from '@geo/design-system';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { PAGE_SIZE, useCursorCollection } from '../../../pagination';
+import { useCursorCollection } from '../../../pagination';
+import { FORMAL_REPORTS_PAGE_SIZE } from '../pagination-policy';
 import {
   defaultWindow,
   servicesApi,
@@ -13,6 +14,7 @@ import {
   type FormalReportServiceCatalogVersion,
   type FormalReportWindow,
   type Project,
+  type Service2ManifestOption,
   type SessionContext,
 } from '../api';
 
@@ -162,6 +164,9 @@ export function FormalReportWorkspace({
   const [window_, setWindow] = useState<FormalReportWindow>(() => defaultWindow(30));
   const [pilotWindows, setPilotWindows] = useState(initialPilotWindows);
   const [sopProjectPubId, setSopProjectPubId] = useState('');
+  const [service2Manifests, setService2Manifests] = useState<Service2ManifestOption[]>([]);
+  const [selectedService2ManifestId, setSelectedService2ManifestId] = useState('');
+  const [service2ManifestLoading, setService2ManifestLoading] = useState(false);
   const [documentStatus, setDocumentStatus] =
     useState<FormalReportCreatableDocumentStatus>('internal_review');
   const [version, setVersion] = useState('V1.0');
@@ -176,13 +181,17 @@ export function FormalReportWorkspace({
   const [notice, setNotice] = useState<string | null>(null);
 
   const includesService5 = services.includes(5);
+  const includesService2 = services.includes(2);
   const includesSopBoundService = includesService5;
+  const selectedService2Manifest = service2Manifests.find(
+    (manifest) => manifest.manifest_pub_id === selectedService2ManifestId,
+  );
   const loadProductions = useCallback(
     (cursor?: string) =>
       servicesApi.formalReportProductions(session, {
         projectPubId: project.pub_id,
         ...(cursor ? { cursor } : {}),
-        limit: PAGE_SIZE,
+        limit: FORMAL_REPORTS_PAGE_SIZE,
       }),
     [project.pub_id, session],
   );
@@ -202,6 +211,8 @@ export function FormalReportWorkspace({
     if (!preparedBy.trim() || !preparedDate) return '请填写编制人和编制日期。';
     if (includesSopBoundService && !sopProjectPubId.trim())
       return '服务 5 需要填写用于审批与发布证据核验的 SOP 项目 ID。';
+    if (includesService2 && !selectedService2Manifest)
+      return '服务 2 必须选择与事实窗口完全一致的冻结 manifest。';
     if (documentStatus === 'delivery_candidate' && (!reviewedBy.trim() || !reviewedDate))
       return '客户交付候选稿必须先填写复核人和复核日期。';
     if (!window_.start || !window_.end || window_.start > window_.end)
@@ -216,17 +227,60 @@ export function FormalReportWorkspace({
   }, [
     documentStatus,
     includesService5,
+    includesService2,
     includesSopBoundService,
     pilotWindows,
     preparedBy,
     preparedDate,
     reviewedBy,
     reviewedDate,
+    selectedService2Manifest,
     services.length,
     sopProjectPubId,
     version,
     window_,
   ]);
+
+  useEffect(() => {
+    if (!includesService2 || !window_.start || !window_.end || window_.start > window_.end) {
+      setService2Manifests([]);
+      setSelectedService2ManifestId('');
+      setService2ManifestLoading(false);
+      return;
+    }
+    let active = true;
+    setService2ManifestLoading(true);
+    void servicesApi
+      .service2Manifests(session, {
+        projectPubId: project.pub_id,
+        windowStart: window_.start,
+        windowEnd: window_.end,
+      })
+      .then((manifests) => {
+        if (!active) return;
+        const options = Array.isArray(manifests) ? manifests : [];
+        setService2Manifests(options);
+        setSelectedService2ManifestId((current) =>
+          options.some((manifest) => manifest.manifest_pub_id === current)
+            ? current
+            : (options[0]?.manifest_pub_id ?? ''),
+        );
+      })
+      .catch((error) => {
+        if (!active) return;
+        setService2Manifests([]);
+        setSelectedService2ManifestId('');
+        setNotice(
+          `服务 2 冻结清单加载失败：${error instanceof Error ? error.message : 'unknown_error'}`,
+        );
+      })
+      .finally(() => {
+        if (active) setService2ManifestLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [includesService2, project.pub_id, session, window_.end, window_.start]);
 
   useEffect(() => {
     if (!hasActiveProduction) return;
@@ -252,6 +306,12 @@ export function FormalReportWorkspace({
         services,
         serviceCatalogVersion: 'quotation_services_v2',
         ...(includesSopBoundService ? { sopProjectPubId: sopProjectPubId.trim() } : {}),
+        ...(selectedService2Manifest
+          ? {
+              service2ManifestPubId: selectedService2Manifest.manifest_pub_id,
+              service2ManifestHash: selectedService2Manifest.manifest_hash,
+            }
+          : {}),
         window: window_,
         documentStatus,
         version,
@@ -331,6 +391,33 @@ export function FormalReportWorkspace({
             </label>
           ))}
         </fieldset>
+
+        {includesService2 ? (
+          <label className="formal-sop-project">
+            服务 2 冻结事实清单
+            <select
+              aria-label="服务 2 冻结事实清单"
+              value={selectedService2ManifestId}
+              disabled={service2ManifestLoading}
+              onChange={(event) => setSelectedService2ManifestId(event.target.value)}
+            >
+              <option value="">
+                {service2ManifestLoading
+                  ? '正在加载与事实窗口匹配的清单…'
+                  : '没有与事实窗口完全一致的冻结清单'}
+              </option>
+              {service2Manifests.map((manifest) => (
+                <option key={manifest.manifest_pub_id} value={manifest.manifest_pub_id}>
+                  {manifest.manifest_pub_id} · {manifest.case_count} 个案例 ·{' '}
+                  {manifest.manifest_hash.slice(0, 12)}…
+                </option>
+              ))}
+            </select>
+            <small>
+              正式生产会同时冻结 manifest ID 与完整 SHA-256；窗口相同也不会自动改选“最新批次”。
+            </small>
+          </label>
+        ) : null}
 
         {includesSopBoundService ? (
           <label className="formal-sop-project">
@@ -504,7 +591,7 @@ export function FormalReportWorkspace({
           <span>
             {hasActiveProduction
               ? '当前页存在进行中任务，每 15 秒自动刷新'
-              : `每页最多 ${PAGE_SIZE} 条`}
+              : `每页最多 ${FORMAL_REPORTS_PAGE_SIZE} 条`}
           </span>
         </div>
         {productionsPage.state === 'loading' ? (
@@ -543,6 +630,12 @@ export function FormalReportWorkspace({
                             serviceLabel(production.service_catalog_version, service),
                           )
                           .join('、')}
+                        {production.service2_manifest_pub_id ? (
+                          <small>
+                            服务 2 清单：{production.service2_manifest_pub_id} ·{' '}
+                            {production.service2_manifest_hash?.slice(0, 12)}…
+                          </small>
+                        ) : null}
                       </td>
                       <td data-label="窗口">
                         {production.window_start} ~ {production.window_end}

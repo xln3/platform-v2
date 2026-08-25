@@ -7,6 +7,10 @@ import {
   type Project,
   type SessionContext,
 } from '../execution/api';
+import {
+  SAMPLING_PROGRESS_DEFAULT_PAGE_SIZE,
+  SERVICE2_CORPUS_DEFAULT_PAGE_SIZE,
+} from './pagination-policy';
 
 const CONFIGURED_API_BASE =
   (
@@ -436,6 +440,8 @@ export type FormalReportProduction = {
   services: FormalReportService[];
   service_catalog_version: FormalReportServiceCatalogVersion;
   sop_project_pub_id: string | null;
+  service2_manifest_pub_id: string | null;
+  service2_manifest_hash: string | null;
   status: FormalReportProductionStatus;
   document_status: FormalReportDocumentStatus;
   window_start: string;
@@ -456,6 +462,8 @@ export type FormalReportProductionCreate = {
   services: FormalReportService[];
   serviceCatalogVersion: 'quotation_services_v2';
   sopProjectPubId?: string;
+  service2ManifestPubId?: string;
+  service2ManifestHash?: string;
   window: FormalReportWindow;
   documentStatus: FormalReportCreatableDocumentStatus;
   version: string;
@@ -535,10 +543,19 @@ export type Service2AnalysisModel = {
   input_usd_per_million_tokens: number | null;
   output_usd_per_million_tokens: number | null;
   context_window_tokens: number | null;
+  web_search_audit_status: 'verified_provider_citation';
+  web_search_audited_at: string;
+  auditable_source_mode: 'provider_citation' | 'provider_tool';
   recommended: boolean;
+  catalog_revision: string;
   pricing_observed_at: string;
   pricing_source_url: string;
+  pricing_currency: 'USD';
+  token_price_unit: 'per_million_tokens';
+  web_search_usd_per_call: number | null;
+  web_search_pricing_status: 'not_published_in_catalog_snapshot';
   pricing_notice: 'catalog_snapshot_provider_invoice_authoritative';
+  web_search_audit_policy: 'provider_search_event_and_provider_citation_required';
 };
 
 export type Service2AnalysisModelCatalog = {
@@ -661,6 +678,19 @@ export type Service2Manifest = {
   case_count: number;
   evidence_reference_count: number;
   facts: Record<string, unknown>;
+  created_at: string;
+};
+
+export type Service2ManifestOption = {
+  schema_version: 'formal-service2-source-corpus-v2';
+  batch_pub_id: string;
+  manifest_pub_id: string;
+  revision: number;
+  manifest_hash: string;
+  case_count: number;
+  evidence_reference_count: number;
+  window_start: string;
+  window_end: string;
   created_at: string;
 };
 
@@ -881,7 +911,7 @@ export const servicesApi = {
     session: SessionContext,
     projectPubId: string,
     page = 1,
-    pageSize = 4,
+    pageSize = SAMPLING_PROGRESS_DEFAULT_PAGE_SIZE,
   ): Promise<SamplingProgress> =>
     servicesGet(session, '/api/v2/analytics/sampling-progress', {
       project_pub_id: projectPubId,
@@ -1097,6 +1127,12 @@ export const servicesApi = {
         services: input.services,
         service_catalog_version: input.serviceCatalogVersion,
         ...(input.sopProjectPubId ? { sop_project_pub_id: input.sopProjectPubId } : {}),
+        ...(input.service2ManifestPubId
+          ? { service2_manifest_pub_id: input.service2ManifestPubId }
+          : {}),
+        ...(input.service2ManifestHash
+          ? { service2_manifest_hash: input.service2ManifestHash }
+          : {}),
         window_start: input.window.start,
         window_end: input.window.end,
         document_status: input.documentStatus,
@@ -1181,7 +1217,7 @@ export const servicesApi = {
       session,
       `/api/v2/internal/service2-source-corpus/projects/${encodeURIComponent(input.projectPubId)}/batches/${encodeURIComponent(input.batchPubId)}/items`,
       {
-        page_size: 4,
+        page_size: SERVICE2_CORPUS_DEFAULT_PAGE_SIZE,
         ...(input.cursor ? { cursor: input.cursor } : {}),
         ...(input.processingState ? { processing_state: input.processingState } : {}),
         ...(input.attributionConfidence
@@ -1202,7 +1238,7 @@ export const servicesApi = {
       session,
       `/api/v2/internal/service2-source-corpus/projects/${encodeURIComponent(input.projectPubId)}/batches/${encodeURIComponent(input.batchPubId)}/findings`,
       {
-        page_size: 4,
+        page_size: SERVICE2_CORPUS_DEFAULT_PAGE_SIZE,
         ...(input.cursor ? { cursor: input.cursor } : {}),
         ...(input.reviewState ? { review_state: input.reviewState } : {}),
       },
@@ -1264,6 +1300,19 @@ export const servicesApi = {
       session,
       `/api/v2/internal/service2-source-corpus/projects/${encodeURIComponent(input.projectPubId)}/batches/${encodeURIComponent(input.batchPubId)}/manifest`,
       {},
+    ),
+  service2Manifests: (
+    session: SessionContext,
+    input: { projectPubId: string; windowStart?: string; windowEnd?: string; limit?: number },
+  ): Promise<Service2ManifestOption[]> =>
+    servicesGet(
+      session,
+      `/api/v2/internal/service2-source-corpus/projects/${encodeURIComponent(input.projectPubId)}/manifests`,
+      {
+        ...(input.windowStart ? { window_start: input.windowStart } : {}),
+        ...(input.windowEnd ? { window_end: input.windowEnd } : {}),
+        limit: input.limit ?? 50,
+      },
     ),
   service2EvidenceBlob: async (session: SessionContext, evidencePubId: string): Promise<Blob> => {
     const response = await fetch(

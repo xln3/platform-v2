@@ -24,12 +24,28 @@ const project = {
   updated_at: '2026-08-12T00:00:00Z',
 };
 
+const service2Manifest = {
+  schema_version: 'formal-service2-source-corpus-v2',
+  batch_pub_id: 's2b_test_exact',
+  manifest_pub_id: 's2m_test_exact',
+  revision: 1,
+  manifest_hash: 'a'.repeat(64),
+  case_count: 2,
+  evidence_reference_count: 4,
+  window_start: '2026-08-01T00:00:00+08:00',
+  window_end: '2026-08-12T23:59:59+08:00',
+  created_at: '2026-08-13T00:00:00Z',
+};
+
 function production(overrides: Record<string, unknown> = {}) {
   return {
     pub_id: 'frp_test_001',
     project_pub_id: 'prj_test',
     services: [1, 2, 3],
     service_catalog_version: 'quotation_services_v2',
+    sop_project_pub_id: null,
+    service2_manifest_pub_id: 's2m_test_exact',
+    service2_manifest_hash: 'a'.repeat(64),
     status: 'queued',
     document_status: 'internal_review',
     window_start: '2026-08-01',
@@ -83,6 +99,9 @@ describe('FormalReportWorkspace', () => {
             headers: { 'Content-Type': 'application/json' },
           });
         }
+        if (new URL(request.url).pathname.endsWith('/manifests')) {
+          return Response.json([service2Manifest]);
+        }
         return new Response(JSON.stringify({ items: listItems }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
@@ -123,6 +142,8 @@ describe('FormalReportWorkspace', () => {
       project_pub_id: 'prj_test',
       services: [1, 2, 3, 4],
       service_catalog_version: 'quotation_services_v2',
+      service2_manifest_pub_id: 's2m_test_exact',
+      service2_manifest_hash: 'a'.repeat(64),
       window_start: '2026-08-01',
       window_end: '2026-08-12',
       document_status: 'internal_review',

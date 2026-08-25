@@ -59,7 +59,7 @@ describe('ExecutionControlPlane', () => {
           ];
           headers['X-Total-Count'] = '1';
           headers['X-Active-Count'] = '1';
-        } else if (url.pathname === '/api/v2/collection/runs') {
+        } else if (url.pathname === '/api/v2/collection/runs/cursor') {
           data = [
             {
               pub_id: 'run_test',
@@ -336,7 +336,7 @@ type OperationalKind =
 function operationalKind(pathname: string): OperationalKind | null {
   const paths: Record<string, OperationalKind> = {
     '/api/v2/projects': 'projects',
-    '/api/v2/collection/runs': 'runs',
+    '/api/v2/collection/runs/cursor': 'runs',
     '/api/v2/schedules': 'schedules',
     '/api/v2/platform-accounts': 'accounts',
     '/api/v2/break-glass': 'break-glass',

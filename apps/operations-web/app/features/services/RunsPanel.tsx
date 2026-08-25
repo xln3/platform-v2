@@ -1,7 +1,11 @@
 import { Dialog, Pagination } from '@geo/design-system';
-import { useCallback, useEffect, useState } from 'react';
-import { PAGE_SIZE, useNumberedCollection } from '../../pagination';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useNumberedCollection } from '../../pagination';
 import { executionApi, type Run, type RunSummary } from '../execution/api';
+import {
+  COLLECTION_RUNS_DEFAULT_PAGE_SIZE,
+  COLLECTION_RUNS_PAGE_NUMBER_WINDOW_SIZE,
+} from '../execution/pagination-policy';
 import { AnswerExplorer } from './AnswerExplorer';
 import type { SessionContext } from './api';
 
@@ -25,7 +29,7 @@ export function RunsPanel({ session, projectPubId, readOnly = false }: Props) {
       executionApi.runPage(session, {
         projectPubId,
         page,
-        limit: PAGE_SIZE,
+        pageSize: COLLECTION_RUNS_DEFAULT_PAGE_SIZE,
       }),
     [session, projectPubId],
   );
@@ -33,12 +37,37 @@ export function RunsPanel({ session, projectPubId, readOnly = false }: Props) {
   const [summary, setSummary] = useState<RunSummary | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [answersOpenRunId, setAnswersOpenRunId] = useState<string | null>(null);
+  const summaryRequestSerial = useRef(0);
+  const currentProjectPubId = useRef(projectPubId);
+
+  useEffect(() => {
+    currentProjectPubId.current = projectPubId;
+    summaryRequestSerial.current += 1;
+    setSummary(null);
+    return () => {
+      summaryRequestSerial.current += 1;
+    };
+  }, [projectPubId]);
 
   const refreshSummary = useCallback(async () => {
+    const requestId = ++summaryRequestSerial.current;
+    const requestedProjectPubId = projectPubId;
     try {
-      setSummary(await executionApi.runSummary(session, projectPubId));
+      const next = await executionApi.runSummary(session, requestedProjectPubId);
+      if (
+        requestId === summaryRequestSerial.current &&
+        currentProjectPubId.current === requestedProjectPubId &&
+        next.project_pub_id === requestedProjectPubId
+      ) {
+        setSummary(next);
+      }
     } catch {
-      setSummary(null);
+      if (
+        requestId === summaryRequestSerial.current &&
+        currentProjectPubId.current === requestedProjectPubId
+      ) {
+        setSummary(null);
+      }
     }
   }, [session, projectPubId]);
 
@@ -121,6 +150,7 @@ export function RunsPanel({ session, projectPubId, readOnly = false }: Props) {
             page={runsPage.pageNumber}
             pageCount={runsPage.meta?.totalPages ?? 1}
             totalItems={runsPage.meta?.totalCount ?? summary?.run_count ?? 0}
+            windowSize={COLLECTION_RUNS_PAGE_NUMBER_WINDOW_SIZE}
             onPageChange={runsPage.goToPage}
             label="采样记录分页"
           />

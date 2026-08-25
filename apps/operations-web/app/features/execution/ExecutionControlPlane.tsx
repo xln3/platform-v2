@@ -1,7 +1,8 @@
 import { CursorPagination } from '@geo/design-system';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { PlatformBadge } from '../../platforms';
-import { PAGE_SIZE, useCursorCollection, type CursorPage } from '../../pagination';
+import { useCursorCollection, type CursorPage } from '../../pagination';
+import { EXECUTION_LIST_DEFAULT_PAGE_SIZE } from './pagination-policy';
 import {
   executionApi,
   type Account,
@@ -62,14 +63,17 @@ export function ExecutionControlPlane({ session }: Props) {
 
   const loadAccounts = useCallback(
     (cursor?: string) =>
-      executionApi.accounts(session, { ...(cursor ? { cursor } : {}), limit: PAGE_SIZE }),
+      executionApi.accounts(session, {
+        ...(cursor ? { cursor } : {}),
+        limit: EXECUTION_LIST_DEFAULT_PAGE_SIZE,
+      }),
     [session],
   );
   const loadProjects = useCallback(
     async (cursor?: string): Promise<CursorPage<Project>> => {
       const page = await executionApi.projects(session, {
         ...(cursor ? { cursor } : {}),
-        limit: PAGE_SIZE,
+        limit: EXECUTION_LIST_DEFAULT_PAGE_SIZE,
       });
       return {
         data: page.data,
@@ -81,30 +85,42 @@ export function ExecutionControlPlane({ session }: Props) {
   );
   const loadRuns = useCallback(
     (cursor?: string) =>
-      executionApi.runs(session, { ...(cursor ? { cursor } : {}), limit: PAGE_SIZE }),
+      executionApi.runs(session, {
+        ...(cursor ? { cursor } : {}),
+        limit: EXECUTION_LIST_DEFAULT_PAGE_SIZE,
+      }),
     [session],
   );
   const loadSchedules = useCallback(
     (cursor?: string) =>
-      executionApi.schedules(session, { ...(cursor ? { cursor } : {}), limit: PAGE_SIZE }),
+      executionApi.schedules(session, {
+        ...(cursor ? { cursor } : {}),
+        limit: EXECUTION_LIST_DEFAULT_PAGE_SIZE,
+      }),
     [session],
   );
   const loadInterventions = useCallback(
     (cursor?: string) =>
-      executionApi.interventions(session, { ...(cursor ? { cursor } : {}), limit: PAGE_SIZE }),
+      executionApi.interventions(session, {
+        ...(cursor ? { cursor } : {}),
+        limit: EXECUTION_LIST_DEFAULT_PAGE_SIZE,
+      }),
     [session],
   );
   const loadBreakGlass = useCallback(
     (cursor?: string) =>
       executionApi.breakGlassRequests(session, {
         ...(cursor ? { cursor } : {}),
-        limit: PAGE_SIZE,
+        limit: EXECUTION_LIST_DEFAULT_PAGE_SIZE,
       }),
     [session],
   );
   const loadEvents = useCallback(
     (cursor?: string) =>
-      executionApi.events(session, { ...(cursor ? { cursor } : {}), limit: PAGE_SIZE }),
+      executionApi.events(session, {
+        ...(cursor ? { cursor } : {}),
+        limit: EXECUTION_LIST_DEFAULT_PAGE_SIZE,
+      }),
     [session],
   );
 

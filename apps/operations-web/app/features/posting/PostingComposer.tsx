@@ -14,8 +14,12 @@ import {
   type PostingTargetStatus,
   type ProviderAccountStatus,
 } from '@geo/api-client';
-import { PAGE_SIZE, useCursorCollection, usePageWindow } from '../../pagination';
+import { useCursorCollection, usePageWindow } from '../../pagination';
 import type { PostingHandoffTarget } from './selection-handoff';
+
+const POSTING_BATCHES_PAGE_SIZE = 4;
+const POSTING_TARGETS_PAGE_SIZE = 4;
+const POSTING_TARGETS_PAGE_NUMBER_WINDOW_SIZE = 7;
 
 const PROVIDER_LABELS: Record<MediaPricesPlatform, string> = {
   prfabu: 'prfabu',
@@ -140,7 +144,7 @@ export function PostingComposer({
   const loadRecent = useCallback(
     async (cursor?: string) => {
       const result = await listPostingBatches(requestHeaders, {
-        limit: PAGE_SIZE,
+        limit: POSTING_BATCHES_PAGE_SIZE,
         ...(cursor ? { cursor } : {}),
       });
       if (result.kind === 'ready') {
@@ -156,6 +160,7 @@ export function PostingComposer({
   const targetWindow = usePageWindow(
     currentBatch?.targets ?? [],
     currentBatch?.pubId ?? 'no-current-batch',
+    POSTING_TARGETS_PAGE_SIZE,
   );
 
   useEffect(() => {
@@ -586,10 +591,11 @@ export function PostingComposer({
               </article>
             ))}
           </div>
-          {currentBatch.targets.length > PAGE_SIZE ? (
+          {currentBatch.targets.length > POSTING_TARGETS_PAGE_SIZE ? (
             <Pagination
               page={targetWindow.page}
               pageCount={targetWindow.pageCount}
+              windowSize={POSTING_TARGETS_PAGE_NUMBER_WINDOW_SIZE}
               onPageChange={targetWindow.setPage}
               label="当前发帖目标分页"
             />

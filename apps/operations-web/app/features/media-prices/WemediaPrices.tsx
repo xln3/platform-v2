@@ -44,6 +44,7 @@ const AUDIENCE_RANK: Record<string, number> = {
   '100万以上': 1001,
 };
 const PAGE_SIZE = 100;
+const PAGE_NUMBER_WINDOW_SIZE = 7;
 
 function audienceRank(value: string | undefined): number {
   if (!value) return -1;
@@ -561,6 +562,7 @@ export function WemediaPrices({
       <Pagination
         page={safePage}
         pageCount={pageCount}
+        windowSize={PAGE_NUMBER_WINDOW_SIZE}
         onPageChange={(nextPage) => setPage(nextPage)}
         label="自媒体比价分页"
       />

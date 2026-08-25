@@ -1,7 +1,8 @@
 import { CursorPagination, ModelSelect, type ModelSelectOption } from '@geo/design-system';
 import { EvidenceImageFrame } from '@geo/evidence-viewer';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { PAGE_SIZE, useCursorCollection } from '../../../pagination';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCursorCollection } from '../../../pagination';
+import { SERVICE2_RUN_SELECTOR_PAGE_SIZE } from '../pagination-policy';
 import { executionApi, type Run } from '../../execution/api';
 import {
   defaultWindow,
@@ -62,7 +63,10 @@ function shortHash(value: string | null): string {
 }
 
 const isTerminalRun = (run: Run): boolean =>
-  ['completed', 'completed_with_failures'].includes(run.state);
+  ['completed', 'completed_with_failures', 'failed', 'cancelled'].includes(run.state);
+
+const isSelectableRootRun = (run: Run): boolean =>
+  isTerminalRun(run) && run.retry_of_run_pub_id === null;
 
 function modelPriceLabel(model: Service2AnalysisModel): string {
   if (model.input_usd_per_million_tokens === null || model.output_usd_per_million_tokens === null) {
@@ -231,6 +235,10 @@ export function OutboundRiskWorkspace({
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  // A refreshed run page must not silently undo an operator's explicit choice.
+  // Keep this UI-only intent outside the server batch contract; changing project
+  // starts a new selection session and clears the tombstones.
+  const explicitlyDeselectedRuns = useRef<Set<string>>(new Set());
 
   const canControl = ['operator', 'analyst', 'admin'].includes(session.role);
   const canReview = ['reviewer', 'admin'].includes(session.role);
@@ -240,7 +248,7 @@ export function OutboundRiskWorkspace({
       executionApi.runs(session, {
         projectPubId: project.pub_id,
         ...(cursor ? { cursor } : {}),
-        limit: PAGE_SIZE,
+        limit: SERVICE2_RUN_SELECTOR_PAGE_SIZE,
       }),
     [project.pub_id, session],
   );
@@ -276,6 +284,7 @@ export function OutboundRiskWorkspace({
   }, [loadBatch]);
 
   useEffect(() => {
+    explicitlyDeselectedRuns.current.clear();
     setSelectedRuns([]);
     setModelCatalog(null);
     setSelectedAnalysisModel('');
@@ -312,10 +321,18 @@ export function OutboundRiskWorkspace({
 
   useEffect(() => {
     const completed = runsPage.data
-      .filter((run: Run) => isTerminalRun(run))
+      // Retry children are resolved automatically from their logical root.
+      // Selecting both would misstate the operator's denominator even though
+      // the backend deduplicates it correctly.
+      .filter((run: Run) => isSelectableRootRun(run))
       .map((run: Run) => run.pub_id);
     if (completed.length === 0) return;
-    setSelectedRuns((current) => [...new Set([...current, ...completed])]);
+    setSelectedRuns((current) => [
+      ...new Set([
+        ...current,
+        ...completed.filter((runPubId) => !explicitlyDeselectedRuns.current.has(runPubId)),
+      ]),
+    ]);
   }, [runsPage.data]);
 
   useEffect(() => {
@@ -419,7 +436,7 @@ export function OutboundRiskWorkspace({
         value: model.model,
         label: model.label === model.model ? model.model : `${model.label} · ${model.model}`,
         group: model.provider,
-        capability: `${model.capability}；联网方式：${model.web_search_mode}`,
+        capability: `${model.capability}；联网方式：${model.web_search_mode}；已验证供应商搜索与引用（${model.web_search_audited_at}）`,
         priceLabel: modelPriceLabel(model),
         isDefault: model.model === modelCatalog?.default_model,
         recommended: model.recommended,
@@ -598,7 +615,7 @@ export function OutboundRiskWorkspace({
           disabled={busy}
           onChange={setSelectedAnalysisModel}
           emptyLabel="正在从服务端加载可用模型…"
-          hint="模型与价格来自服务端允许清单；凭据只由服务端环境注入。"
+          hint="仅展示真实调用中同时观察到供应商搜索事件与引用的模型；价格为目录快照，凭据只由服务端环境注入。"
         />
         <fieldset className="s2-run-picker">
           <legend>纳入运行（{selectedRuns.length} 个）</legend>
@@ -616,20 +633,28 @@ export function OutboundRiskWorkspace({
               <label key={run.pub_id}>
                 <input
                   type="checkbox"
-                  disabled={!isTerminalRun(run)}
+                  disabled={!isSelectableRootRun(run)}
                   checked={selectedRuns.includes(run.pub_id)}
-                  onChange={(event) =>
+                  onChange={(event) => {
+                    if (event.target.checked) {
+                      explicitlyDeselectedRuns.current.delete(run.pub_id);
+                    } else {
+                      explicitlyDeselectedRuns.current.add(run.pub_id);
+                    }
                     setSelectedRuns((current) =>
                       event.target.checked
-                        ? [...current, run.pub_id]
+                        ? [...new Set([...current, run.pub_id])]
                         : current.filter((value) => value !== run.pub_id),
-                    )
-                  }
+                    );
+                  }}
                 />
                 <span>{run.pub_id}</span>
                 <small>
                   {run.state} · 成功 {run.completed_tasks} / 失败 {run.failed_tasks} / 总计{' '}
                   {run.total_tasks}
+                  {run.retry_of_run_pub_id
+                    ? ` · 重试子运行，随根运行 ${run.retry_of_run_pub_id} 自动归并`
+                    : ''}
                 </small>
               </label>
             ))
@@ -637,14 +662,19 @@ export function OutboundRiskWorkspace({
             <p>当前项目没有可选运行。</p>
           )}
           {runsPage.state === 'ready' && runsPage.data.length > 0 ? (
-            <CursorPagination
-              page={runsPage.pageNumber}
-              hasPrevious={runsPage.hasPrevious}
-              hasNext={runsPage.hasNext}
-              onPrevious={runsPage.previous}
-              onNext={runsPage.next}
-              label="服务 2 纳入运行分页"
-            />
+            <>
+              <CursorPagination
+                page={runsPage.pageNumber}
+                hasPrevious={runsPage.hasPrevious}
+                hasNext={runsPage.hasNext}
+                onPrevious={runsPage.previous}
+                onNext={runsPage.next}
+                label="服务 2 纳入运行分页"
+              />
+              <button type="button" className="secondary" onClick={() => void runsPage.refresh()}>
+                刷新可选运行
+              </button>
+            </>
           ) : null}
         </fieldset>
         {notice ? (
