@@ -36,6 +36,7 @@ from geo_platform.collection.resource_owner_gateway_v2 import (
     SubmissionOwnerAuthorizationWalRecord,
     authorize_submission_owner,
     build_submission_owner_authorization_wal_record,
+    prepare_submission_owner_turn,
 )
 from pydantic import ValidationError
 
@@ -1958,6 +1959,30 @@ class _AuthorizationWalReader:
         return self.record
 
 
+class _AuthorizationWalStore(_AuthorizationWalReader):
+    def __init__(
+        self,
+        record: SubmissionOwnerAuthorizationWalRecord | None = None,
+        *,
+        conflict: SubmissionOwnerAuthorizationWalRecord | None = None,
+    ) -> None:
+        super().__init__(record)
+        self.conflict = conflict
+        self.put_calls: list[SubmissionOwnerAuthorizationWalRecord] = []
+
+    def put(
+        self,
+        record: SubmissionOwnerAuthorizationWalRecord,
+    ) -> SubmissionOwnerAuthorizationWalRecord:
+        self.put_calls.append(record)
+        if self.conflict is not None:
+            return self.conflict
+        if self.record is not None and self.record != record:
+            return self.record
+        self.record = record
+        return record
+
+
 class _OwnerTransport:
     def __init__(self) -> None:
         self.calls: list[tuple[SubmitOnceCommand, object]] = []
@@ -2054,6 +2079,84 @@ def test_durable_owner_wal_loader_binds_pre_cas_authorization_to_fresh_claim(
     assert record.dispatch_key == command.fresh_claim.claim.dispatch_key
     assert record.evidence_sha256 == command.fresh_claim.claim.owner_wal_evidence_sha256
     assert record.owner_authorization == authorization
+
+
+@pytest.mark.parametrize("surface", tuple(CollectionSurface))
+def test_prepare_owner_turn_persists_exact_wal_before_post_cas_submit(
+    surface: CollectionSurface,
+) -> None:
+    snapshot = _authorization_snapshot(surface)
+    workflow, manifest = _submission_workflow(snapshot)
+    store = _AuthorizationWalStore()
+    transport = _OwnerTransport()
+    owner_dispatch_ref = f"owner-dispatch-{surface.value}"
+
+    turn = prepare_submission_owner_turn(
+        snapshot,
+        workflow,
+        claim_pub_id=f"claim-{surface.value}",
+        owner_dispatch_ref=owner_dispatch_ref,
+        wal_store=store,
+        transport=transport,
+        clock=lambda: snapshot.checked_at + timedelta(seconds=2),
+    )
+
+    assert store.put_calls == [turn.wal_record]
+    assert store.calls == []
+    assert turn.authority == turn.authorization.authority
+    replay = prepare_submission_owner_turn(
+        snapshot,
+        workflow,
+        claim_pub_id=f"claim-{surface.value}",
+        owner_dispatch_ref=owner_dispatch_ref,
+        wal_store=store,
+        transport=_OwnerTransport(),
+        clock=lambda: snapshot.checked_at + timedelta(seconds=2),
+    )
+    assert replay.wal_record == turn.wal_record
+    assert store.put_calls == [turn.wal_record, turn.wal_record]
+    command = _submit_command(
+        turn.authorization,
+        manifest,
+        owner_dispatch_ref=owner_dispatch_ref,
+        owner_wal_evidence_sha256=turn.owner_wal_evidence_sha256,
+    )
+
+    result = turn.submit_gateway.submit_once(command)
+
+    assert result.send_state is SendState.CONFIRMED_SENT
+    assert store.calls == [owner_dispatch_ref]
+    assert len(transport.calls) == 1
+
+
+def test_prepare_owner_turn_rejects_conflicting_wal_before_gateway_exists() -> None:
+    snapshot = _authorization_snapshot(CollectionSurface.CONSUMER_APP)
+    workflow, _manifest = _submission_workflow(snapshot)
+    authorization = authorize_submission_owner(snapshot, workflow)
+    conflict = build_submission_owner_authorization_wal_record(
+        authorization,
+        claim_pub_id="claim-consumer_app-other",
+        owner_dispatch_ref="owner-dispatch-consumer_app",
+        recorded_at=snapshot.checked_at,
+    )
+    store = _AuthorizationWalStore(conflict=conflict)
+    transport = _OwnerTransport()
+
+    with pytest.raises(ResourceOwnerGatewayError) as exc_info:
+        prepare_submission_owner_turn(
+            snapshot,
+            workflow,
+            claim_pub_id="claim-consumer_app",
+            owner_dispatch_ref="owner-dispatch-consumer_app",
+            wal_store=store,
+            transport=transport,
+            clock=lambda: snapshot.checked_at,
+        )
+
+    assert exc_info.value.code == "resource_owner_authorization_wal_write_conflict"
+    assert len(store.put_calls) == 1
+    assert store.calls == []
+    assert transport.calls == []
 
 
 def test_durable_owner_wal_loader_does_not_cache_a_removed_record() -> None:

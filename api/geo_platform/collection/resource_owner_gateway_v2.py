@@ -13,6 +13,7 @@ transport is invoked once; exceptions are deliberately not retried here.
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
 from typing import Literal, NoReturn, Protocol, Self
@@ -283,6 +284,18 @@ class SubmissionOwnerAuthorizationWalReader(Protocol):
     ) -> SubmissionOwnerAuthorizationWalRecord | None: ...
 
 
+class SubmissionOwnerAuthorizationWalStore(
+    SubmissionOwnerAuthorizationWalReader,
+    Protocol,
+):
+    """Durably write exact WAL evidence before returning to the claim caller."""
+
+    def put(
+        self,
+        record: SubmissionOwnerAuthorizationWalRecord,
+    ) -> SubmissionOwnerAuthorizationWalRecord: ...
+
+
 class DurableSubmissionOwnerAuthorizationLoader:
     """Resolve a post-CAS command from the exact durable pre-CAS WAL evidence."""
 
@@ -420,16 +433,82 @@ class AuthorizedSubmitOnceGateway:
             _fail("resource_owner_fresh_claim_not_authorized")
 
 
+@dataclass(frozen=True)
+class PreparedSubmissionOwnerTurn:
+    """In-process owner turn prepared before CAS and consumed only after it."""
+
+    authorization: SubmissionOwnerAuthorization
+    wal_record: SubmissionOwnerAuthorizationWalRecord
+    submit_gateway: AuthorizedSubmitOnceGateway
+
+    @property
+    def authority(self) -> OwnerAuthorityRef:
+        return self.authorization.authority
+
+    @property
+    def owner_wal_evidence_sha256(self) -> str:
+        return self.wal_record.evidence_sha256
+
+
+def prepare_submission_owner_turn(
+    snapshot: GatewayAuthorizationSnapshot,
+    workflow: WorkflowOperationInput,
+    *,
+    claim_pub_id: str,
+    owner_dispatch_ref: str,
+    wal_store: SubmissionOwnerAuthorizationWalStore,
+    transport: ResourceOwnerSubmitTransport,
+    recorded_at: datetime | None = None,
+    clock: Callable[[], datetime] | None = None,
+) -> PreparedSubmissionOwnerTurn:
+    """Authorize, durably bind one claim, and build its post-CAS gateway.
+
+    ``wal_store.put`` must return only after the record is durable.  Exact replay
+    may return the existing equal record; any conflicting value fails before a
+    caller can use the evidence hash in the claim CAS.
+    """
+
+    authorization = authorize_submission_owner(snapshot, workflow)
+    record = build_submission_owner_authorization_wal_record(
+        authorization,
+        claim_pub_id=claim_pub_id,
+        owner_dispatch_ref=owner_dispatch_ref,
+        recorded_at=recorded_at or snapshot.checked_at,
+    )
+    persisted = wal_store.put(record)
+    if not isinstance(persisted, SubmissionOwnerAuthorizationWalRecord):
+        _fail("resource_owner_authorization_wal_write_invalid")
+    if persisted != record:
+        _fail("resource_owner_authorization_wal_write_conflict")
+    gateway = AuthorizedSubmitOnceGateway(
+        collection_surface=authorization.collection_surface,
+        gateway_kind=authorization.gateway_kind,
+        owner_gateway_pub_id=authorization.authority.owner_handle,
+        owner_protocol_revision=authorization.owner_protocol_revision,
+        authorization_loader=DurableSubmissionOwnerAuthorizationLoader(wal_store),
+        transport=transport,
+        clock=clock,
+    )
+    return PreparedSubmissionOwnerTurn(
+        authorization=authorization,
+        wal_record=persisted,
+        submit_gateway=gateway,
+    )
+
+
 __all__ = [
     "AuthorizedSubmitOnceGateway",
     "DurableSubmissionOwnerAuthorizationLoader",
+    "PreparedSubmissionOwnerTurn",
     "ResourceOwnerGatewayError",
     "ResourceOwnerSubmitTransport",
     "SubmissionOwnerAuthorization",
     "SubmissionOwnerAuthorizationLoader",
     "SubmissionOwnerAuthorizationWalReader",
     "SubmissionOwnerAuthorizationWalRecord",
+    "SubmissionOwnerAuthorizationWalStore",
     "authorize_submission_owner",
     "build_submission_owner_authorization_wal_record",
+    "prepare_submission_owner_turn",
     "submission_owner_authorization_wal_digest",
 ]
