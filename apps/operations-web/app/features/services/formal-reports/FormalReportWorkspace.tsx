@@ -1,4 +1,6 @@
+import { CursorPagination } from '@geo/design-system';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { PAGE_SIZE, useCursorCollection } from '../../../pagination';
 import {
   defaultWindow,
   servicesApi,
@@ -27,7 +29,7 @@ const SERVICE_OPTIONS: ReadonlyArray<{
   {
     value: 2,
     title: '找拉踩帖',
-    description: '核验己方内容中涉及竞品的拉踩表达与归属证据',
+    description: '核验冻结范围内全部 U 信源帖的实体方向、逐字证据与独立归属',
   },
   {
     value: 3,
@@ -86,8 +88,6 @@ const TERMINAL_STATUSES = new Set<FormalReportProduction['status']>([
   'awaiting_review',
   'signed',
 ]);
-
-type LoadState = 'loading' | 'ready' | 'failed';
 
 function isoDateOffset(value: string, days: number): string {
   const date = new Date(`${value}T00:00:00Z`);
@@ -169,16 +169,28 @@ export function FormalReportWorkspace({
   const [preparedDate, setPreparedDate] = useState(currentCstDate);
   const [reviewedBy, setReviewedBy] = useState('');
   const [reviewedDate, setReviewedDate] = useState('');
-  const [productions, setProductions] = useState<FormalReportProduction[]>([]);
-  const [state, setState] = useState<LoadState>('loading');
+  const [productionVersion, setProductionVersion] = useState(0);
   const [busy, setBusy] = useState(false);
   const [reviewing, setReviewing] = useState<string | null>(null);
   const [reviewRationales, setReviewRationales] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState<string | null>(null);
 
   const includesService5 = services.includes(5);
-  const includesService2 = services.includes(2);
-  const includesSopBoundService = includesService2 || includesService5;
+  const includesSopBoundService = includesService5;
+  const loadProductions = useCallback(
+    (cursor?: string) =>
+      servicesApi.formalReportProductions(session, {
+        projectPubId: project.pub_id,
+        ...(cursor ? { cursor } : {}),
+        limit: PAGE_SIZE,
+      }),
+    [project.pub_id, session],
+  );
+  const productionsPage = useCursorCollection(
+    loadProductions,
+    `${project.pub_id}:${productionVersion}`,
+  );
+  const productions = productionsPage.data;
   const hasActiveProduction = productions.some((item) => !TERMINAL_STATUSES.has(item.status));
   const canProduce =
     session.role === 'operator' || session.role === 'analyst' || session.role === 'admin';
@@ -189,7 +201,7 @@ export function FormalReportWorkspace({
     if (!/^V[1-9]\d*\.\d+$/.test(version)) return '版本号须使用 V1.0 形式。';
     if (!preparedBy.trim() || !preparedDate) return '请填写编制人和编制日期。';
     if (includesSopBoundService && !sopProjectPubId.trim())
-      return '服务 2 或 5 需要填写用于内容归属与发布证据核验的 SOP 项目 ID。';
+      return '服务 5 需要填写用于审批与发布证据核验的 SOP 项目 ID。';
     if (documentStatus === 'delivery_candidate' && (!reviewedBy.trim() || !reviewedDate))
       return '客户交付候选稿必须先填写复核人和复核日期。';
     if (!window_.start || !window_.end || window_.start > window_.end)
@@ -204,7 +216,6 @@ export function FormalReportWorkspace({
   }, [
     documentStatus,
     includesService5,
-    includesService2,
     includesSopBoundService,
     pilotWindows,
     preparedBy,
@@ -217,32 +228,11 @@ export function FormalReportWorkspace({
     window_,
   ]);
 
-  const refresh = useCallback(async () => {
-    try {
-      const items = await servicesApi.formalReportProductions(session, {
-        projectPubId: project.pub_id,
-        limit: 50,
-      });
-      setProductions(items);
-      setState('ready');
-    } catch (error) {
-      setState('failed');
-      setNotice(error instanceof Error ? error.message : 'formal_report_list_failed');
-    }
-  }, [project.pub_id, session]);
-
-  useEffect(() => {
-    setState('loading');
-    setProductions([]);
-    setNotice(null);
-    void refresh();
-  }, [refresh]);
-
   useEffect(() => {
     if (!hasActiveProduction) return;
-    const timer = window.setInterval(() => void refresh(), 15_000);
+    const timer = window.setInterval(() => void productionsPage.refresh(true), 15_000);
     return () => window.clearInterval(timer);
-  }, [hasActiveProduction, refresh]);
+  }, [hasActiveProduction, productionsPage.refresh]);
 
   function toggleService(service: FormalReportService, checked: boolean) {
     setServices((current) =>
@@ -274,12 +264,8 @@ export function FormalReportWorkspace({
           : {}),
         idempotencyKey: idempotencyKey(),
       });
-      setProductions((current) => [
-        created,
-        ...current.filter((item) => item.pub_id !== created.pub_id),
-      ]);
       setNotice(`生产请求 ${created.pub_id} 已进入${STATUS_LABELS[created.status]}状态。`);
-      await refresh();
+      setProductionVersion((current) => current + 1);
     } catch (error) {
       setNotice(`启动失败：${error instanceof Error ? error.message : 'unknown_error'}`);
     } finally {
@@ -307,7 +293,7 @@ export function FormalReportWorkspace({
           ? '审阅批准已提交，Temporal 正在执行签发。'
           : '修改意见已提交，Temporal 正在关闭本次生产。',
       );
-      window.setTimeout(() => void refresh(), 1_000);
+      window.setTimeout(() => void productionsPage.refresh(true), 1_000);
     } catch (error) {
       setNotice(`审阅提交失败：${error instanceof Error ? error.message : 'unknown_error'}`);
     } finally {
@@ -348,15 +334,16 @@ export function FormalReportWorkspace({
 
         {includesSopBoundService ? (
           <label className="formal-sop-project">
-            服务 2/5 内容 SOP 项目 ID
+            服务 5 内容 SOP 项目 ID
             <input
-              aria-label="服务 2/5 内容 SOP 项目 ID"
+              aria-label="服务 5 内容 SOP 项目 ID"
               value={sopProjectPubId}
               placeholder="spr_…"
               onChange={(event) => setSopProjectPubId(event.target.value)}
             />
             <small>
-              服务 2 用它核验己方内容归属，服务 5 用它核验审批与公开发布记录；不按项目名称猜测。
+              仅服务 5 用它核验稿件审批与公开发布记录；服务 2 从冻结的全 U corpus manifest
+              读取事实。
             </small>
           </label>
         ) : null}
@@ -515,153 +502,170 @@ export function FormalReportWorkspace({
         <div className="section-title">
           <h2>生产记录与下载</h2>
           <span>
-            {hasActiveProduction ? '存在进行中任务，每 15 秒自动刷新' : '已显示最近 50 条'}
+            {hasActiveProduction
+              ? '当前页存在进行中任务，每 15 秒自动刷新'
+              : `每页最多 ${PAGE_SIZE} 条`}
           </span>
         </div>
-        {state === 'loading' ? (
+        {productionsPage.state === 'loading' ? (
           <p className="empty">正在加载生产记录…</p>
-        ) : state === 'failed' ? (
+        ) : productionsPage.state === 'failed' ? (
           <p className="empty">
-            生产记录加载失败。<button onClick={() => void refresh()}>重试</button>
+            生产记录加载失败。
+            <button onClick={() => void productionsPage.refresh()}>重试</button>
           </p>
         ) : productions.length === 0 ? (
           <p className="empty">当前项目还没有正式报告生产记录。</p>
         ) : (
-          <div className="table-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th>创建时间</th>
-                  <th>服务</th>
-                  <th>窗口</th>
-                  <th>状态</th>
-                  <th>产物</th>
-                  <th>事实哈希</th>
-                </tr>
-              </thead>
-              <tbody>
-                {productions.map((production) => (
-                  <tr key={production.pub_id}>
-                    <td data-label="创建时间">
-                      {new Date(production.created_at).toLocaleString('zh-CN', { hour12: false })}
-                      <small>{production.pub_id}</small>
-                    </td>
-                    <td data-label="服务">
-                      {production.services
-                        .map((service) => serviceLabel(production.service_catalog_version, service))
-                        .join('、')}
-                    </td>
-                    <td data-label="窗口">
-                      {production.window_start} ~ {production.window_end}
-                      {production.before_window && production.after_window ? (
-                        <small>
-                          before {production.before_window.start} ~ {production.before_window.end}
-                          <br />
-                          after {production.after_window.start} ~ {production.after_window.end}
-                        </small>
-                      ) : null}
-                    </td>
-                    <td data-label="状态">
-                      <span
-                        className={`status ${
-                          production.status === 'failed'
-                            ? 'bad'
-                            : production.status === 'signed'
-                              ? 'ok'
-                              : 'warn'
-                        }`}
-                      >
-                        {STATUS_LABELS[production.status]}
-                      </span>
-                      <small>{DOCUMENT_STATUS_LABELS[production.document_status]}</small>
-                      {production.error_code ? <small>错误：{production.error_code}</small> : null}
-                      {canReview && production.status === 'awaiting_review' ? (
-                        <div className="formal-review-actions">
-                          <label>
-                            审阅意见
-                            <input
-                              aria-label={`审阅意见 ${production.pub_id}`}
-                              value={reviewRationales[production.pub_id] ?? ''}
-                              maxLength={1000}
-                              onChange={(event) =>
-                                setReviewRationales((current) => ({
-                                  ...current,
-                                  [production.pub_id]: event.target.value,
-                                }))
-                              }
-                            />
-                          </label>
-                          {production.document_status === 'delivery_candidate' ? (
+          <>
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>创建时间</th>
+                    <th>服务</th>
+                    <th>窗口</th>
+                    <th>状态</th>
+                    <th>产物</th>
+                    <th>事实哈希</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {productions.map((production) => (
+                    <tr key={production.pub_id}>
+                      <td data-label="创建时间">
+                        {new Date(production.created_at).toLocaleString('zh-CN', { hour12: false })}
+                        <small>{production.pub_id}</small>
+                      </td>
+                      <td data-label="服务">
+                        {production.services
+                          .map((service) =>
+                            serviceLabel(production.service_catalog_version, service),
+                          )
+                          .join('、')}
+                      </td>
+                      <td data-label="窗口">
+                        {production.window_start} ~ {production.window_end}
+                        {production.before_window && production.after_window ? (
+                          <small>
+                            before {production.before_window.start} ~ {production.before_window.end}
+                            <br />
+                            after {production.after_window.start} ~ {production.after_window.end}
+                          </small>
+                        ) : null}
+                      </td>
+                      <td data-label="状态">
+                        <span
+                          className={`status ${
+                            production.status === 'failed'
+                              ? 'bad'
+                              : production.status === 'signed'
+                                ? 'ok'
+                                : 'warn'
+                          }`}
+                        >
+                          {STATUS_LABELS[production.status]}
+                        </span>
+                        <small>{DOCUMENT_STATUS_LABELS[production.document_status]}</small>
+                        {production.error_code ? (
+                          <small>错误：{production.error_code}</small>
+                        ) : null}
+                        {canReview && production.status === 'awaiting_review' ? (
+                          <div className="formal-review-actions">
+                            <label>
+                              审阅意见
+                              <input
+                                aria-label={`审阅意见 ${production.pub_id}`}
+                                value={reviewRationales[production.pub_id] ?? ''}
+                                maxLength={1000}
+                                onChange={(event) =>
+                                  setReviewRationales((current) => ({
+                                    ...current,
+                                    [production.pub_id]: event.target.value,
+                                  }))
+                                }
+                              />
+                            </label>
+                            {production.document_status === 'delivery_candidate' ? (
+                              <button
+                                type="button"
+                                disabled={
+                                  reviewing !== null ||
+                                  !(reviewRationales[production.pub_id] ?? '').trim()
+                                }
+                                onClick={() => void reviewProduction(production, 'approved')}
+                              >
+                                批准签发
+                              </button>
+                            ) : (
+                              <small>只有客户交付候选稿可提交人工批准；内部审核稿不可签发。</small>
+                            )}
                             <button
                               type="button"
+                              className="secondary"
                               disabled={
                                 reviewing !== null ||
                                 !(reviewRationales[production.pub_id] ?? '').trim()
                               }
-                              onClick={() => void reviewProduction(production, 'approved')}
+                              onClick={() => void reviewProduction(production, 'changes_requested')}
                             >
-                              批准签发
+                              退回修改
                             </button>
-                          ) : (
-                            <small>只有客户交付候选稿可提交人工批准；内部审核稿不可签发。</small>
-                          )}
-                          <button
-                            type="button"
-                            className="secondary"
-                            disabled={
-                              reviewing !== null ||
-                              !(reviewRationales[production.pub_id] ?? '').trim()
-                            }
-                            onClick={() => void reviewProduction(production, 'changes_requested')}
-                          >
-                            退回修改
-                          </button>
-                        </div>
-                      ) : null}
-                    </td>
-                    <td data-label="产物">
-                      {outputArtifacts(production).length === 0 ? (
-                        '—'
-                      ) : (
-                        <div className="formal-artifacts">
-                          {outputArtifacts(production).map(({ output, artifact }) => {
-                            const href = artifactHref(artifact.download_url);
-                            return href ? (
-                              <a key={`${output.service_number}-${artifact.format}`} href={href}>
-                                {serviceLabel(
-                                  production.service_catalog_version,
-                                  output.service_number,
-                                )}{' '}
-                                {artifactLabel(artifact)}
-                                <small>
-                                  {readableBytes(artifact.byte_size)} ·{' '}
-                                  {artifact.sha256.slice(0, 12)}…
-                                </small>
-                              </a>
-                            ) : (
-                              <span key={`${output.service_number}-${artifact.format}`}>
-                                {serviceLabel(
-                                  production.service_catalog_version,
-                                  output.service_number,
-                                )}{' '}
-                                {artifactLabel(artifact)}
-                                （下载地址无效）
-                              </span>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </td>
-                    <td data-label="事实哈希">
-                      {production.fact_snapshot_hash
-                        ? `${production.fact_snapshot_hash.slice(0, 16)}…`
-                        : '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                          </div>
+                        ) : null}
+                      </td>
+                      <td data-label="产物">
+                        {outputArtifacts(production).length === 0 ? (
+                          '—'
+                        ) : (
+                          <div className="formal-artifacts">
+                            {outputArtifacts(production).map(({ output, artifact }) => {
+                              const href = artifactHref(artifact.download_url);
+                              return href ? (
+                                <a key={`${output.service_number}-${artifact.format}`} href={href}>
+                                  {serviceLabel(
+                                    production.service_catalog_version,
+                                    output.service_number,
+                                  )}{' '}
+                                  {artifactLabel(artifact)}
+                                  <small>
+                                    {readableBytes(artifact.byte_size)} ·{' '}
+                                    {artifact.sha256.slice(0, 12)}…
+                                  </small>
+                                </a>
+                              ) : (
+                                <span key={`${output.service_number}-${artifact.format}`}>
+                                  {serviceLabel(
+                                    production.service_catalog_version,
+                                    output.service_number,
+                                  )}{' '}
+                                  {artifactLabel(artifact)}
+                                  （下载地址无效）
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </td>
+                      <td data-label="事实哈希">
+                        {production.fact_snapshot_hash
+                          ? `${production.fact_snapshot_hash.slice(0, 16)}…`
+                          : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <CursorPagination
+              page={productionsPage.pageNumber}
+              hasPrevious={productionsPage.hasPrevious}
+              hasNext={productionsPage.hasNext}
+              onPrevious={productionsPage.previous}
+              onNext={productionsPage.next}
+              label="正式报告生产记录分页"
+            />
+          </>
         )}
       </section>
     </>

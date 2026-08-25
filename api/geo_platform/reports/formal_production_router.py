@@ -22,6 +22,7 @@ from geo_platform.collection.workflow_outbox import (
 from geo_platform.evidence.object_store import ContentAddressedObjectStore
 from geo_platform.evidence.service import EvidenceService
 from geo_platform.identity.policy import Principal, Role, get_principal
+from geo_platform.pagination import decode_keyset_cursor, encode_keyset_cursor
 from geo_platform.projects.models import Project
 from geo_platform.tenancy.database import get_db
 from geo_platform.tenancy.models import Tenant
@@ -302,25 +303,47 @@ def create_formal_production(
 @router.get("", response_model=FormalProductionPage)
 def list_formal_productions(
     project_pub_id: str | None = None,
-    cursor: str | None = None,
+    cursor: str | None = Query(default=None, min_length=16, max_length=2_048),
     limit: int = Query(default=50, ge=1, le=100),
     principal: Principal = Depends(get_principal),
 ) -> FormalProductionPage:
     principal.require("formal_report:read")
+    filters = {"project_pub_id": project_pub_id}
+    anchor = (
+        decode_keyset_cursor(
+            cursor,
+            kind="formal-report-productions",
+            tenant_pub_id=principal.tenant_pub_id,
+            filters=filters,
+        )
+        if cursor is not None
+        else None
+    )
     try:
         rows = _service().list_productions(
             tenant_pub_id=principal.tenant_pub_id,
             project_pub_id=project_pub_id,
-            cursor=cursor,
+            cursor_created_at=anchor.created_at if anchor else None,
+            cursor_pub_id=anchor.pub_id if anchor else None,
             limit=limit,
         )
     except FormalProductionInvalid as exc:
         raise HTTPException(status_code=422, detail={"code": str(exc)}) from exc
     has_more = len(rows) > limit
     visible = rows[:limit]
+    next_cursor = None
+    if has_more and visible:
+        last = visible[-1]
+        next_cursor = encode_keyset_cursor(
+            kind="formal-report-productions",
+            tenant_pub_id=principal.tenant_pub_id,
+            filters=filters,
+            created_at=last["created_at"],
+            pub_id=last["pub_id"],
+        )
     return FormalProductionPage(
         items=[FormalProductionView.model_validate(row) for row in visible],
-        next_cursor=visible[-1]["pub_id"] if has_more and visible else None,
+        next_cursor=next_cursor,
         has_more=has_more,
     )
 

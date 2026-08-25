@@ -26,6 +26,18 @@ def object_store() -> ContentAddressedObjectStore:
     return store
 
 
+def _delete_test_outbox_events(*event_ids: str) -> None:
+    with psycopg.connect(POSTGRES_DSN) as connection:
+        connection.execute(
+            "DELETE FROM integration.consumer_receipt WHERE event_id=ANY(%s)",
+            (list(event_ids),),
+        )
+        connection.execute(
+            "DELETE FROM integration.outbox_event WHERE event_id=ANY(%s)",
+            (list(event_ids),),
+        )
+
+
 def test_minio_content_addressing_dlp_hash_and_tamper_detection(
     object_store: ContentAddressedObjectStore,
 ) -> None:
@@ -75,72 +87,79 @@ def test_clickhouse_rejects_account_secrets_and_accepts_opaque_dimension() -> No
 
 def test_postgres_outbox_duplicate_delivery_is_idempotent() -> None:
     event_id = f"evt_{uuid4().hex}"
-    with psycopg.connect(POSTGRES_DSN) as connection:
-        connection.execute(
-            """
-            INSERT INTO integration.outbox_event
-              (event_id,tenant_pub_id,event_type,aggregate_pub_id,trace_id,payload,occurred_at)
-            VALUES (%s,'tnt_test','analytics.answer.analyzed','ans_test','trace_test',
-                    '{"safe":true}',now())
-            """,
-            (event_id,),
+    try:
+        with psycopg.connect(POSTGRES_DSN) as connection:
+            connection.execute(
+                """
+                INSERT INTO integration.outbox_event
+                  (event_id,tenant_pub_id,event_type,aggregate_pub_id,trace_id,payload,occurred_at)
+                VALUES (%s,'tnt_test','analytics.answer.analyzed','ans_test','trace_test',
+                        '{"safe":true}',now())
+                """,
+                (event_id,),
+            )
+        deliveries: list[str] = []
+        consumer = OutboxConsumer(
+            dsn=POSTGRES_DSN,
+            consumer_name=f"test-{uuid4().hex}",
+            publish=lambda event: deliveries.append(str(event["event_id"])),
         )
-    deliveries: list[str] = []
-    consumer = OutboxConsumer(
-        dsn=POSTGRES_DSN,
-        consumer_name=f"test-{uuid4().hex}",
-        publish=lambda event: deliveries.append(str(event["event_id"])),
-    )
-    assert consumer.drain() >= 1
-    with psycopg.connect(POSTGRES_DSN) as connection:
-        connection.execute(
-            "UPDATE integration.outbox_event SET published_at=NULL WHERE event_id=%s", (event_id,)
-        )
-    # Other tests or a migration may legitimately leave unrelated outbox rows.
-    # The receipt contract is per consumer/event, not "the global outbox is empty".
-    consumer.drain()
-    assert deliveries.count(event_id) == 1
+        assert consumer.drain() >= 1
+        with psycopg.connect(POSTGRES_DSN) as connection:
+            connection.execute(
+                "UPDATE integration.outbox_event SET published_at=NULL WHERE event_id=%s",
+                (event_id,),
+            )
+        # Other tests or a migration may legitimately leave unrelated outbox rows.
+        # The receipt contract is per consumer/event, not "the global outbox is empty".
+        consumer.drain()
+        assert deliveries.count(event_id) == 1
+    finally:
+        _delete_test_outbox_events(event_id)
 
 
 def test_analytics_consumer_does_not_claim_other_domain_events() -> None:
     suffix = uuid4().hex
     analytics_event = f"evt_analytics_{suffix}"
     collection_event = f"evt_collection_{suffix}"
-    with psycopg.connect(POSTGRES_DSN) as connection:
-        connection.execute(
-            """
-            INSERT INTO integration.outbox_event
-              (event_id,tenant_pub_id,event_type,aggregate_pub_id,trace_id,payload,occurred_at)
-            VALUES
-              (%s,%s,'analytics.answer.analyzed',%s,'trace','{}',now()),
-              (%s,%s,'collection.run.completed',%s,'trace','{}',now())
-            """,
-            (
-                analytics_event,
-                f"tnt_{suffix}",
-                f"ans_{suffix}",
-                collection_event,
-                f"tnt_{suffix}",
-                f"run_{suffix}",
-            ),
+    try:
+        with psycopg.connect(POSTGRES_DSN) as connection:
+            connection.execute(
+                """
+                INSERT INTO integration.outbox_event
+                  (event_id,tenant_pub_id,event_type,aggregate_pub_id,trace_id,payload,occurred_at)
+                VALUES
+                  (%s,%s,'analytics.answer.analyzed',%s,'trace','{}',now()),
+                  (%s,%s,'collection.run.completed',%s,'trace','{}',now())
+                """,
+                (
+                    analytics_event,
+                    f"tnt_{suffix}",
+                    f"ans_{suffix}",
+                    collection_event,
+                    f"tnt_{suffix}",
+                    f"run_{suffix}",
+                ),
+            )
+        deliveries: list[str] = []
+        consumer = OutboxConsumer(
+            dsn=POSTGRES_DSN,
+            consumer_name=f"filtered-{suffix}",
+            publish=lambda event: deliveries.append(str(event["event_id"])),
+            event_types=("analytics.answer.analyzed", "intelligence.feature.recorded"),
         )
-    deliveries: list[str] = []
-    consumer = OutboxConsumer(
-        dsn=POSTGRES_DSN,
-        consumer_name=f"filtered-{suffix}",
-        publish=lambda event: deliveries.append(str(event["event_id"])),
-        event_types=("analytics.answer.analyzed", "intelligence.feature.recorded"),
-    )
-    consumer.drain()
-    assert analytics_event in deliveries
-    assert collection_event not in deliveries
-    with psycopg.connect(POSTGRES_DSN) as connection:
-        states = connection.execute(
-            """
-            SELECT event_id,published_at IS NOT NULL
-            FROM integration.outbox_event WHERE event_id=ANY(%s)
-            ORDER BY event_id
-            """,
-            ([analytics_event, collection_event],),
-        ).fetchall()
-    assert dict(states) == {analytics_event: True, collection_event: False}
+        consumer.drain()
+        assert analytics_event in deliveries
+        assert collection_event not in deliveries
+        with psycopg.connect(POSTGRES_DSN) as connection:
+            states = connection.execute(
+                """
+                SELECT event_id,published_at IS NOT NULL
+                FROM integration.outbox_event WHERE event_id=ANY(%s)
+                ORDER BY event_id
+                """,
+                ([analytics_event, collection_event],),
+            ).fetchall()
+        assert dict(states) == {analytics_event: True, collection_event: False}
+    finally:
+        _delete_test_outbox_events(analytics_event, collection_event)

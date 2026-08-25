@@ -23,6 +23,8 @@ def test_application_llm_defaults_use_only_approved_gateway() -> None:
     settings = Settings(_env_file=None)
     assert settings.research_llm_base_url == APPROVED_LLM_GATEWAY
     assert settings.research_llm_base_url_fallback == ""
+    assert settings.service2_analysis_llm_base_url == APPROVED_LLM_GATEWAY
+    assert settings.service2_analysis_llm_base_url_fallback == ""
 
 
 def test_systemd_network_policy_clears_proxy_and_pins_llm_gateway() -> None:
@@ -32,6 +34,12 @@ def test_systemd_network_policy_clears_proxy_and_pins_llm_gateway() -> None:
     for key in NO_PROXY_KEYS:
         assert f'Environment="{key}=*"' in policy
     assert "aihubmix" not in policy.lower()
-    for family in ("RESEARCH", "AUDIT", "POST_ANALYSIS", "BRANDRANK"):
+    for family in (
+        "RESEARCH",
+        "AUDIT",
+        "POST_ANALYSIS",
+        "SERVICE2_ANALYSIS",
+        "BRANDRANK",
+    ):
         assert f"GEO_{family}_LLM_BASE_URL={APPROVED_LLM_GATEWAY}" in policy
         assert f"GEO_{family}_LLM_BASE_URL_FALLBACK={APPROVED_LLM_GATEWAY}" in policy

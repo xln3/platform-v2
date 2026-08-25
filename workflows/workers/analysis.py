@@ -26,6 +26,13 @@ from workflows.activities.post_analysis import (
     finalize_post_analysis_task,
 )
 from workflows.activities.s02 import analyze_answer_activity, extract_brands_activity
+from workflows.activities.service2_source_corpus import (
+    fail_service2_corpus_batch,
+    finish_service2_corpus_batch,
+    prepare_service2_corpus_batch,
+    process_service2_corpus_page,
+    refresh_service2_corpus_bindings,
+)
 from workflows.activities.site_suggestions import generate_site_audit_suggestions
 from workflows.activities.source_audit import audit_run_sources
 from workflows.definitions.own_content import OwnContentDisparagementWorkflow
@@ -33,6 +40,7 @@ from workflows.definitions.page_inspection import PageInspectionWorkflow
 from workflows.definitions.post_analysis import PostAnalysisWorkflow
 from workflows.definitions.post_collection_analysis import PostCollectionAnalysisWorkflow
 from workflows.definitions.s02 import AnswerAnalysisWorkflow
+from workflows.definitions.service2_source_corpus import Service2SourceCorpusWorkflow
 
 ANALYSIS_WORKFLOWS = (
     AnswerAnalysisWorkflow,
@@ -40,6 +48,7 @@ ANALYSIS_WORKFLOWS = (
     PostCollectionAnalysisWorkflow,
     PostAnalysisWorkflow,
     OwnContentDisparagementWorkflow,
+    Service2SourceCorpusWorkflow,
 )
 ANALYSIS_ACTIVITIES = (
     mark_analysis_job,
@@ -57,6 +66,11 @@ ANALYSIS_ACTIVITIES = (
     begin_post_analysis_task,
     finalize_post_analysis_task,
     judge_own_content_disparagement,
+    fail_service2_corpus_batch,
+    prepare_service2_corpus_batch,
+    refresh_service2_corpus_bindings,
+    process_service2_corpus_page,
+    finish_service2_corpus_batch,
 )
 
 

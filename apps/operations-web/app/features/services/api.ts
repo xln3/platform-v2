@@ -1,14 +1,23 @@
 import { allowsFixtureIdentityHeaders, type BrowserBuildIdentityEnv } from '@geo/api-client';
+import type { CursorPage } from '../../pagination';
 import {
   executionApi,
+  type CurrentConfig,
   type FrozenConfig,
   type Project,
   type SessionContext,
 } from '../execution/api';
 
-const API_BASE =
-  (import.meta as ImportMeta & { env?: { VITE_GEO_API_BASE?: string } }).env?.VITE_GEO_API_BASE ??
-  (typeof window === 'undefined' ? '' : window.location.origin);
+const CONFIGURED_API_BASE =
+  (
+    import.meta as ImportMeta & { env?: { VITE_GEO_API_BASE?: string } }
+  ).env?.VITE_GEO_API_BASE?.trim().replace(/\/+$/u, '') ?? '';
+
+function servicesUrl(path: string): URL {
+  if (CONFIGURED_API_BASE) return new URL(`${CONFIGURED_API_BASE}${path}`);
+  if (typeof window === 'undefined') throw new Error('browser_origin_unavailable');
+  return new URL(path, window.location.origin);
+}
 
 /**
  * 生产包不发送浏览器身份三头（与 @geo/api-client 的 secureGeoApiFetch 同一不变量）：
@@ -58,7 +67,7 @@ async function servicesGet<T>(
   path: string,
   query: Record<string, string | number>,
 ): Promise<T> {
-  const url = new URL(`${API_BASE}${path}`);
+  const url = servicesUrl(path);
   for (const [key, value] of Object.entries(query)) url.searchParams.set(key, String(value));
   const response = await fetch(url, {
     headers: { Accept: 'application/json', ...fixtureIdentityHeaders(session) },
@@ -75,7 +84,7 @@ async function servicesPost<T>(
   path: string,
   body: Record<string, unknown>,
 ): Promise<T> {
-  const response = await fetch(new URL(`${API_BASE}${path}`), {
+  const response = await fetch(servicesUrl(path), {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -97,12 +106,37 @@ async function servicesPostIdempotent<T>(
   body: Record<string, unknown>,
   idempotencyKey: string,
 ): Promise<T> {
-  const response = await fetch(new URL(`${API_BASE}${path}`), {
+  const response = await fetch(servicesUrl(path), {
     method: 'POST',
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
       'Idempotency-Key': idempotencyKey,
+      ...fixtureIdentityHeaders(session),
+    },
+    body: JSON.stringify(body),
+    cache: 'no-store',
+    redirect: 'error',
+    referrerPolicy: 'no-referrer',
+  });
+  if (!response.ok) throw await readApiError(response);
+  return (await response.json()) as T;
+}
+
+async function servicesPostIdempotentVersioned<T>(
+  session: SessionContext,
+  path: string,
+  body: Record<string, unknown>,
+  idempotencyKey: string,
+  version: number,
+): Promise<T> {
+  const response = await fetch(servicesUrl(path), {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      'Idempotency-Key': idempotencyKey,
+      'If-Match': `"${version}"`,
       ...fixtureIdentityHeaders(session),
     },
     body: JSON.stringify(body),
@@ -232,6 +266,12 @@ export type SamplingProgress = {
   config_revision_end: number | null;
   columns: SamplingProgressColumn[];
   rows: SamplingProgressRow[];
+  page: {
+    page: number;
+    page_size: number;
+    total_count: number;
+    total_pages: number;
+  };
   observed_cells: number;
   total_cells: number;
   answer_count: number;
@@ -429,6 +469,200 @@ export type FormalReportProductionCreate = {
 };
 
 export type FormalReportReviewDecision = 'approved' | 'changes_requested';
+
+// ── 服务 2：冻结范围内全部 U occurrence 的语料与关系审核 ──
+export type Service2Coverage = {
+  selected_queries: number;
+  successful_queries: number;
+  failed_queries: number;
+  successful_queries_with_u: number;
+  successful_queries_without_u: number;
+  query_failure_codes: Record<string, number>;
+  query_outcomes_complete: boolean;
+  query_coverage_complete: boolean;
+  expected_occurrences: number;
+  materialized_items: number;
+  distinct_urls: number;
+  processing_states: Record<string, number>;
+  fetch_states: Record<string, number>;
+  entered_judgment: number;
+  findings: number;
+  reviewed_findings: number;
+  eligible_cases: number;
+  coverage_complete: boolean;
+};
+
+export type Service2Batch = {
+  schema_version: 'formal-service2-source-corpus-v2';
+  batch_pub_id: string;
+  project_pub_id: string;
+  service_entitlement_pub_id: string;
+  service_entitlement_revision: string;
+  run_pub_ids: string[];
+  analysis_model: string;
+  window_start: string;
+  window_end: string;
+  source_snapshot_boundary: string;
+  corpus_policy_version: string;
+  judgment_policy_version: string;
+  status:
+    | 'draft'
+    | 'queued'
+    | 'running'
+    | 'paused'
+    | 'cancel_requested'
+    | 'cancelled'
+    | 'review'
+    | 'frozen'
+    | 'failed';
+  version: number;
+  workflow_id: string | null;
+  frozen_at: string | null;
+  manifest_hash: string | null;
+  error_code: string | null;
+  created_at: string;
+  updated_at: string;
+  coverage: Service2Coverage;
+};
+
+export type Service2AnalysisModel = {
+  model: string;
+  label: string;
+  provider: string;
+  tier: string;
+  capability: string;
+  web_search_mode: string;
+  input_usd_per_million_tokens: number | null;
+  output_usd_per_million_tokens: number | null;
+  context_window_tokens: number | null;
+  recommended: boolean;
+  pricing_observed_at: string;
+  pricing_source_url: string;
+  pricing_notice: 'catalog_snapshot_provider_invoice_authoritative';
+};
+
+export type Service2AnalysisModelCatalog = {
+  default_model: string;
+  models: Service2AnalysisModel[];
+  credential_source: 'server_environment_only';
+};
+
+export type Service2CorpusItem = {
+  item_pub_id: string;
+  occurrence_pub_id: string;
+  run_pub_id: string;
+  answer_pub_id: string;
+  source_url_pub_id: string;
+  snapshot_pub_id: string | null;
+  source_document_pub_id: string | null;
+  fetch_attempt_pub_id: string | null;
+  raw_url: string;
+  canonical_url: string;
+  site_host: string;
+  occurrence_ordinal: number;
+  u_rank: number | null;
+  captured_at: string;
+  platform: string;
+  model: string;
+  region: string;
+  collection_surface: string | null;
+  question: string;
+  retrieval_query: string | null;
+  u_state: string;
+  fetch_state: string;
+  processing_state: string;
+  entity_state: string;
+  judgment_state: string;
+  review_state: string;
+  entered_judgment: boolean;
+  finding_count: number;
+  retry_count: number;
+  failure_code: string | null;
+  manual_evidence_state: string;
+  version: number;
+};
+
+export type Service2CorpusPage = {
+  batch_pub_id: string;
+  data: Service2CorpusItem[];
+  filtered_count: number;
+  all_u_total: number;
+  next_cursor: string | null;
+  has_more: boolean;
+};
+
+export type Service2Attribution = {
+  party: string | null;
+  confidence: 'verified' | 'probable' | 'weak' | 'unknown';
+  evidence: Array<Record<string, unknown>>;
+};
+
+export type Service2Finding = {
+  finding_pub_id: string;
+  batch_pub_id: string;
+  corpus_item_pub_id: string;
+  occurrence_pub_id: string;
+  snapshot_pub_id: string;
+  canonical_url: string;
+  ledger: 'statement' | 'exposure';
+  level: 'L0' | 'L1' | 'L2a' | 'L2b' | 'L3a' | 'L3b' | 'L4';
+  relation_direction: string;
+  textual_speaker: string;
+  target_entity: string;
+  beneficiary_entity: string | null;
+  is_disparagement: boolean;
+  fact_anchor_state: string;
+  evidence_quote: string;
+  quote_start: number;
+  quote_end: number;
+  context_text: string;
+  context_start: number;
+  context_end: number;
+  snapshot_text_sha256: string;
+  visual_anchor_pub_id: string | null;
+  visual_evidence_pub_id: string | null;
+  visual_bbox: [number, number, number, number] | null;
+  visual_page_number: number | null;
+  visual_validation_status: string;
+  flags: Record<string, boolean>;
+  comparison_dimensions: string[];
+  omitted_facts: string[];
+  method: string;
+  policy_version: string;
+  confidence: number;
+  validation_status: string;
+  validation_failures: string[];
+  publisher: Service2Attribution;
+  commissioner: Service2Attribution;
+  factcheck_claim: string | null;
+  factcheck_verdict: string | null;
+  factcheck_evidence: Array<Record<string, unknown>>;
+  factcheck_boundary: string | null;
+  current_review_state: string;
+  version: number;
+  created_at: string;
+};
+
+export type Service2FindingPage = {
+  batch_pub_id: string;
+  data: Service2Finding[];
+  filtered_count: number;
+  all_findings_total: number;
+  next_cursor: string | null;
+  has_more: boolean;
+};
+
+export type Service2Manifest = {
+  schema_version: 'formal-service2-source-corpus-v2';
+  batch_pub_id: string;
+  manifest_pub_id: string;
+  revision: number;
+  manifest_hash: string;
+  case_count: number;
+  evidence_reference_count: number;
+  facts: Record<string, unknown>;
+  created_at: string;
+};
 
 // ── 前后对比（逐题；报价单服务④，brandrank 层口径，端点 /api/v2/analytics/comparisons）──
 export type RunComparison = {
@@ -641,9 +875,18 @@ export const servicesApi = {
   projects: (session: SessionContext) => executionApi.projects(session),
   configVersions: (session: SessionContext, projectPubId: string): Promise<FrozenConfig[]> =>
     executionApi.configVersions(session, projectPubId),
-  samplingProgress: (session: SessionContext, projectPubId: string): Promise<SamplingProgress> =>
+  currentConfig: (session: SessionContext, projectPubId: string): Promise<CurrentConfig> =>
+    executionApi.currentConfig(session, projectPubId),
+  samplingProgress: (
+    session: SessionContext,
+    projectPubId: string,
+    page = 1,
+    pageSize = 4,
+  ): Promise<SamplingProgress> =>
     servicesGet(session, '/api/v2/analytics/sampling-progress', {
       project_pub_id: projectPubId,
+      page,
+      page_size: pageSize,
     }),
   disparagementRate: (
     session: SessionContext,
@@ -728,14 +971,22 @@ export const servicesApi = {
   },
   listComparisons: async (
     session: SessionContext,
-    input: { projectPubId: string; limit?: number },
-  ): Promise<RunComparison[]> => {
-    const page = await servicesGet<{ items: RunComparison[] }>(
-      session,
-      '/api/v2/analytics/comparisons',
-      { project_pub_id: input.projectPubId, limit: input.limit ?? 100 },
-    );
-    return Array.isArray(page.items) ? page.items : [];
+    input: { projectPubId: string; cursor?: string; limit?: number },
+  ): Promise<CursorPage<RunComparison>> => {
+    const page = await servicesGet<{
+      items: RunComparison[];
+      next_cursor?: string | null;
+      has_more?: boolean;
+    }>(session, '/api/v2/analytics/comparisons', {
+      project_pub_id: input.projectPubId,
+      ...(input.cursor ? { cursor: input.cursor } : {}),
+      limit: input.limit ?? 100,
+    });
+    return {
+      data: Array.isArray(page.items) ? page.items : [],
+      nextCursor: typeof page.next_cursor === 'string' ? page.next_cursor : null,
+      hasMore: page.has_more === true,
+    };
   },
   // 创建失败抛 ServicesApiError：unknown_run_pub_id 时 details.unknown_run_pub_ids 带具体 id。
   createComparison: async (
@@ -804,18 +1055,26 @@ export const servicesApi = {
   },
   formalReportProductions: async (
     session: SessionContext,
-    input: { projectPubId: string; limit?: number },
-  ): Promise<FormalReportProduction[]> => {
-    const raw = await servicesGet<FormalReportProduction[] | { items?: FormalReportProduction[] }>(
-      session,
-      '/api/v2/reports/formal-productions',
-      {
-        project_pub_id: input.projectPubId,
-        limit: input.limit ?? 50,
-      },
-    );
-    if (Array.isArray(raw)) return raw;
-    return Array.isArray(raw.items) ? raw.items : [];
+    input: { projectPubId: string; cursor?: string; limit?: number },
+  ): Promise<CursorPage<FormalReportProduction>> => {
+    const raw = await servicesGet<
+      | FormalReportProduction[]
+      | {
+          items?: FormalReportProduction[];
+          next_cursor?: string | null;
+          has_more?: boolean;
+        }
+    >(session, '/api/v2/reports/formal-productions', {
+      project_pub_id: input.projectPubId,
+      ...(input.cursor ? { cursor: input.cursor } : {}),
+      limit: input.limit ?? 50,
+    });
+    if (Array.isArray(raw)) return { data: raw, nextCursor: null, hasMore: false };
+    return {
+      data: Array.isArray(raw.items) ? raw.items : [],
+      nextCursor: typeof raw.next_cursor === 'string' ? raw.next_cursor : null,
+      hasMore: raw.has_more === true,
+    };
   },
   formalReportProduction: (
     session: SessionContext,
@@ -867,6 +1126,158 @@ export const servicesApi = {
       { decision: input.decision, rationale: input.rationale },
       input.idempotencyKey,
     ),
+  service2CurrentBatch: (session: SessionContext, projectPubId: string): Promise<Service2Batch> =>
+    servicesGet(
+      session,
+      `/api/v2/internal/service2-source-corpus/projects/${encodeURIComponent(projectPubId)}/batches/current`,
+      {},
+    ),
+  service2AnalysisModels: (
+    session: SessionContext,
+    projectPubId: string,
+  ): Promise<Service2AnalysisModelCatalog> =>
+    servicesGet(
+      session,
+      `/api/v2/internal/service2-source-corpus/projects/${encodeURIComponent(projectPubId)}/analysis-models`,
+      {},
+    ),
+  createService2Batch: (
+    session: SessionContext,
+    input: {
+      projectPubId: string;
+      runPubIds: string[];
+      windowStart: string;
+      windowEnd: string;
+      sourceSnapshotBoundary: string;
+      analysisModel: string;
+      idempotencyKey: string;
+    },
+  ): Promise<Service2Batch> =>
+    servicesPostIdempotent(
+      session,
+      `/api/v2/internal/service2-source-corpus/projects/${encodeURIComponent(input.projectPubId)}/batches`,
+      {
+        run_pub_ids: input.runPubIds,
+        window_start: input.windowStart,
+        window_end: input.windowEnd,
+        source_snapshot_boundary: input.sourceSnapshotBoundary,
+        analysis_model: input.analysisModel,
+        corpus_policy_version: 'service2-all-u-occurrence-v1',
+        judgment_policy_version: 'service2-entity-relation-v1',
+      },
+      input.idempotencyKey,
+    ),
+  service2CorpusItems: (
+    session: SessionContext,
+    input: {
+      projectPubId: string;
+      batchPubId: string;
+      cursor?: string;
+      processingState?: string;
+      attributionConfidence?: string;
+    },
+  ): Promise<Service2CorpusPage> =>
+    servicesGet(
+      session,
+      `/api/v2/internal/service2-source-corpus/projects/${encodeURIComponent(input.projectPubId)}/batches/${encodeURIComponent(input.batchPubId)}/items`,
+      {
+        page_size: 4,
+        ...(input.cursor ? { cursor: input.cursor } : {}),
+        ...(input.processingState ? { processing_state: input.processingState } : {}),
+        ...(input.attributionConfidence
+          ? { attribution_confidence: input.attributionConfidence }
+          : {}),
+      },
+    ),
+  service2Findings: (
+    session: SessionContext,
+    input: {
+      projectPubId: string;
+      batchPubId: string;
+      cursor?: string;
+      reviewState?: string;
+    },
+  ): Promise<Service2FindingPage> =>
+    servicesGet(
+      session,
+      `/api/v2/internal/service2-source-corpus/projects/${encodeURIComponent(input.projectPubId)}/batches/${encodeURIComponent(input.batchPubId)}/findings`,
+      {
+        page_size: 4,
+        ...(input.cursor ? { cursor: input.cursor } : {}),
+        ...(input.reviewState ? { review_state: input.reviewState } : {}),
+      },
+    ),
+  service2Lifecycle: (
+    session: SessionContext,
+    input: {
+      projectPubId: string;
+      batchPubId: string;
+      action: 'start' | 'pause' | 'resume' | 'retry' | 'cancel';
+      idempotencyKey: string;
+    },
+  ): Promise<{ batch_pub_id: string; status: Service2Batch['status']; version: number }> =>
+    servicesPostIdempotent(
+      session,
+      `/api/v2/internal/service2-source-corpus/projects/${encodeURIComponent(input.projectPubId)}/batches/${encodeURIComponent(input.batchPubId)}/actions/${input.action}`,
+      {},
+      input.idempotencyKey,
+    ),
+  reviewService2Finding: (
+    session: SessionContext,
+    input: {
+      projectPubId: string;
+      batchPubId: string;
+      findingPubId: string;
+      version: number;
+      decision: 'accepted' | 'rejected' | 'needs_changes';
+      reasonCode: string;
+      rationale: string;
+      idempotencyKey: string;
+    },
+  ): Promise<Service2Finding> =>
+    servicesPostIdempotentVersioned(
+      session,
+      `/api/v2/internal/service2-source-corpus/projects/${encodeURIComponent(input.projectPubId)}/batches/${encodeURIComponent(input.batchPubId)}/findings/${encodeURIComponent(input.findingPubId)}/reviews`,
+      {
+        decision: input.decision,
+        reason_code: input.reasonCode,
+        rationale: input.rationale,
+      },
+      input.idempotencyKey,
+      input.version,
+    ),
+  freezeService2Batch: (
+    session: SessionContext,
+    input: { projectPubId: string; batchPubId: string; idempotencyKey: string },
+  ): Promise<Service2Manifest> =>
+    servicesPostIdempotent(
+      session,
+      `/api/v2/internal/service2-source-corpus/projects/${encodeURIComponent(input.projectPubId)}/batches/${encodeURIComponent(input.batchPubId)}/freeze`,
+      {},
+      input.idempotencyKey,
+    ),
+  service2Manifest: (
+    session: SessionContext,
+    input: { projectPubId: string; batchPubId: string },
+  ): Promise<Service2Manifest> =>
+    servicesGet(
+      session,
+      `/api/v2/internal/service2-source-corpus/projects/${encodeURIComponent(input.projectPubId)}/batches/${encodeURIComponent(input.batchPubId)}/manifest`,
+      {},
+    ),
+  service2EvidenceBlob: async (session: SessionContext, evidencePubId: string): Promise<Blob> => {
+    const response = await fetch(
+      servicesUrl(`/api/v2/evidence/assets/${encodeURIComponent(evidencePubId)}/content`),
+      {
+        headers: fixtureIdentityHeaders(session),
+        cache: 'no-store',
+        redirect: 'error',
+        referrerPolicy: 'no-referrer',
+      },
+    );
+    if (!response.ok) throw await readApiError(response);
+    return response.blob();
+  },
 };
 
 export type { Project, SessionContext };

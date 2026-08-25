@@ -1,0 +1,343 @@
+.s2-workspace {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.s2-workspace .execution-card,
+.s2-setup {
+  min-width: 0;
+}
+
+.s2-window-grid,
+.s2-filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.s2-model-select {
+  margin: 1rem 0;
+  width: min(48rem, 100%);
+}
+
+.s2-coverage-gap {
+  border-left: 0.25rem solid var(--warning, #a86600);
+  background: #fff8e8;
+  padding: 0.7rem 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.s2-window-grid label,
+.s2-filters label,
+.s2-inline-filter,
+.s2-review-actions label {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--text-muted, #596273);
+  font-size: 0.86rem;
+}
+
+.s2-window-grid input,
+.s2-filters select,
+.s2-inline-filter select,
+.s2-review-actions textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 2.65rem;
+  border: 1px solid var(--border, #d7dce5);
+  border-radius: 0.55rem;
+  background: var(--surface, #fff);
+  color: inherit;
+  padding: 0.55rem 0.7rem;
+}
+
+.s2-run-picker {
+  display: grid;
+  gap: 0.5rem;
+  margin: 1rem 0;
+  border: 1px solid var(--border, #d7dce5);
+  border-radius: 0.75rem;
+  padding: 0.9rem;
+}
+
+.s2-run-picker label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+}
+
+.s2-run-picker span,
+.s2-run-picker small {
+  overflow-wrap: anywhere;
+}
+
+.s2-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.s2-kpis > div {
+  display: grid;
+  gap: 0.25rem;
+  border: 1px solid var(--border, #d7dce5);
+  border-radius: 0.7rem;
+  padding: 0.8rem;
+}
+
+.s2-kpis strong {
+  font-size: clamp(1.35rem, 2vw, 2rem);
+}
+
+.s2-kpis span,
+.s2-manifest span {
+  color: var(--text-muted, #596273);
+  font-size: 0.82rem;
+}
+
+.s2-scope-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin: 0 0 1rem;
+}
+
+.s2-scope-meta > div {
+  min-width: 0;
+  border: 1px solid var(--border, #d7dce5);
+  border-radius: 0.65rem;
+  padding: 0.65rem;
+}
+
+.s2-scope-meta dt {
+  color: var(--text-muted, #596273);
+  font-size: 0.76rem;
+}
+
+.s2-scope-meta dd {
+  margin: 0.25rem 0 0;
+  overflow-wrap: anywhere;
+  font-size: 0.82rem;
+}
+
+.s2-state-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.s2-state-list span {
+  border-radius: 999px;
+  background: var(--surface-subtle, #f2f4f8);
+  padding: 0.35rem 0.65rem;
+  font-size: 0.8rem;
+}
+
+.s2-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--border, #d7dce5);
+  border-radius: 0.75rem;
+  outline-offset: 0.2rem;
+}
+
+.s2-table-scroll table {
+  width: 100%;
+  min-width: 54rem;
+  border-collapse: collapse;
+}
+
+.s2-table-scroll th,
+.s2-table-scroll td {
+  border-bottom: 1px solid var(--border, #e1e5ec);
+  padding: 0.7rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.s2-table-scroll tr:last-child td {
+  border-bottom: 0;
+}
+
+.s2-table-scroll td a,
+.s2-table-scroll td strong,
+.s2-table-scroll td small {
+  display: block;
+  max-width: 22rem;
+  overflow-wrap: anywhere;
+}
+
+.s2-table-scroll td small {
+  margin-top: 0.25rem;
+  color: var(--text-muted, #596273);
+}
+
+.s2-table-scroll tr.is-selected {
+  background: var(--surface-subtle, #f2f4f8);
+}
+
+.s2-row-button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 650;
+  padding: 0;
+  text-align: left;
+}
+
+.s2-row-button:hover,
+.s2-row-button:focus-visible {
+  text-decoration: underline;
+}
+
+.s2-inline-filter {
+  width: min(20rem, 100%);
+  margin: 0 0 0.75rem;
+}
+
+.s2-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.65rem;
+  margin-top: 0.75rem;
+}
+
+.s2-review-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.s2-review-grid > div {
+  min-width: 0;
+  border: 1px solid var(--border, #d7dce5);
+  border-radius: 0.75rem;
+  padding: 0.85rem;
+}
+
+.s2-review-grid blockquote,
+.s2-review-grid p,
+.s2-review-grid a,
+.s2-review-grid small,
+.s2-review-grid dd {
+  overflow-wrap: anywhere;
+}
+
+.s2-review-grid blockquote {
+  margin: 0.5rem 0;
+  border-left: 0.22rem solid var(--accent, #3767d6);
+  padding-left: 0.75rem;
+}
+
+.s2-evidence-image {
+  display: block;
+  width: 100%;
+  min-width: 1.5rem;
+  min-height: 1.5rem;
+  height: auto;
+  object-fit: contain;
+}
+
+.s2-external-link {
+  display: inline-flex;
+  min-height: 1.5rem;
+  align-items: center;
+}
+
+.s2-review-grid dl {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.4rem 0.65rem;
+}
+
+.s2-review-grid dd {
+  margin: 0;
+}
+
+.s2-review-grid dd > small,
+.s2-reference-list {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.s2-reference-list code {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.s2-review-actions {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.s2-review-actions textarea {
+  min-height: 6rem;
+  resize: vertical;
+}
+
+.s2-manifest {
+  display: grid;
+  gap: 0.4rem;
+  margin-bottom: 0.8rem;
+}
+
+.s2-manifest code {
+  overflow-wrap: anywhere;
+}
+
+.s2-case-list {
+  display: grid;
+  gap: 0.65rem;
+  padding-left: 1.25rem;
+}
+
+.s2-case-list li,
+.s2-case-list span {
+  min-width: 0;
+}
+
+.s2-case-list span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 900px) {
+  .s2-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .s2-review-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+  .s2-window-grid,
+  .s2-filters,
+  .s2-kpis,
+  .s2-scope-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .s2-run-picker label {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .s2-run-picker small {
+    grid-column: 2;
+  }
+
+  .s2-pagination {
+    justify-content: space-between;
+  }
+}

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from contextlib import contextmanager
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -229,13 +229,12 @@ def test_quotation_contract_applies_sop_and_service5_window_invariants() -> None
         "candidate_group_strategy": "evidence_completeness_v1",
         "service_catalog_version": QUOTATION_SERVICE_CATALOG,
     }
-    with pytest.raises(FormalProductionInvalid, match="sop_project_required"):
-        request_contract(
-            **common,
-            services=[2],
-            before_window=None,
-            after_window=None,
-        )
+    service2 = request_contract(
+        **common,
+        services=[2],
+        before_window=None,
+        after_window=None,
+    )
     with pytest.raises(FormalProductionInvalid, match="service5_windows_required"):
         request_contract(
             **common,
@@ -274,8 +273,74 @@ def test_quotation_contract_applies_sop_and_service5_window_invariants() -> None
         sop_project_pub_id="spr_unit",
     )
     assert service4["services"] == [4]
+    assert service2["services"] == [2]
+    assert "sop_project_pub_id" not in service2
     assert complete["service_catalog_version"] == QUOTATION_SERVICE_CATALOG
     assert complete["sop_project_pub_id"] == "spr_unit"
+
+
+def test_service2_cutover_rehydrates_old_own_content_and_new_all_u_requests() -> None:
+    window = FormalWindow(date(2026, 8, 1), date(2026, 8, 20))
+    common = {
+        "project_pub_id": "prj_unit",
+        "services": [2],
+        "window": window,
+        "document_status": "pre_formal",
+        "candidate_group_strategy": "evidence_completeness_v1",
+        "before_window": None,
+        "after_window": None,
+        "service_catalog_version": QUOTATION_SERVICE_CATALOG,
+    }
+    old_contract = request_contract(
+        **common,
+        sop_project_pub_id="spr_legacy",
+        legacy_service2_sop_compat=True,
+    )
+    new_contract = request_contract(**common)
+    base_row = {
+        "pub_id": "frp_unit",
+        "tenant_pub_id": "tnt_unit",
+        "project_pub_id": "prj_unit",
+        "services": [2],
+        "window_start": window.start,
+        "window_end": window.end,
+        "document_status": "pre_formal",
+        "candidate_group_strategy": "evidence_completeness_v1",
+        "before_start": None,
+        "before_end": None,
+        "after_start": None,
+        "after_end": None,
+        "document_governance": {},
+        "service_catalog_version": QUOTATION_SERVICE_CATALOG,
+        "frozen_at": datetime(2026, 8, 24, tzinfo=UTC),
+        "created_by_pub_id": "usr_unit",
+    }
+    service = FormalReportProductionService(
+        dsn="postgresql://unused",
+        evidence=SimpleNamespace(),  # type: ignore[arg-type]
+    )
+
+    legacy = service._request_from_row(
+        {
+            **base_row,
+            "sop_project_pub_id": "spr_legacy",
+            "request_hash": production._canonical_hash(old_contract),
+            "created_at": production.SERVICE2_ALL_U_EFFECTIVE_AT - timedelta(seconds=1),
+        }
+    )
+    current = service._request_from_row(
+        {
+            **base_row,
+            "sop_project_pub_id": None,
+            "request_hash": production._canonical_hash(new_contract),
+            "created_at": production.SERVICE2_ALL_U_EFFECTIVE_AT + timedelta(seconds=1),
+        }
+    )
+
+    assert legacy.service2_semantics == "own_content_v1"
+    assert type(production._adapter_for(legacy, 2)) is production._LegacyOutboundService2Adapter
+    assert current.service2_semantics == "all_u_v2"
+    assert production._adapter_for(current, 2) is production.QUOTATION_FORMAL_REPORT_REGISTRY[2]
 
 
 def test_sop_binding_accepts_any_project_brand_or_alias(

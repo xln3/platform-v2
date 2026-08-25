@@ -54,6 +54,9 @@ FORMAL_SCORER_VERSION = "formal-review-evidence-v2"
 LEGACY_SERVICE_CATALOG = "legacy_report_services_v1"
 QUOTATION_SERVICE_CATALOG = "quotation_services_v2"
 SERVICE_CATALOGS = frozenset({LEGACY_SERVICE_CATALOG, QUOTATION_SERVICE_CATALOG})
+SERVICE2_ALL_U_EFFECTIVE_AT = datetime(2026, 8, 24, tzinfo=ZoneInfo("Asia/Shanghai")).astimezone(
+    UTC
+)
 
 LEGACY_SERVICE_TITLES: dict[int, str] = {
     1: "品牌 GEO 推荐结果评测报告",
@@ -169,6 +172,7 @@ class FormalProductionRequest:
     document_governance: Mapping[str, Any] | None = None
     service_catalog_version: str = LEGACY_SERVICE_CATALOG
     sop_project_pub_id: str | None = None
+    service2_semantics: str = "all_u_v2"
 
 
 @dataclass(frozen=True, slots=True)
@@ -252,6 +256,7 @@ def request_contract(
     document_governance: Mapping[str, Any] | None = None,
     service_catalog_version: str | None = None,
     sop_project_pub_id: str | None = None,
+    legacy_service2_sop_compat: bool = False,
 ) -> dict[str, Any]:
     resolved_catalog = service_catalog_version or LEGACY_SERVICE_CATALOG
     normalized_services = normalize_services(services, service_catalog_version=resolved_catalog)
@@ -310,8 +315,9 @@ def request_contract(
     elif before_window is not None or after_window is not None:
         raise FormalProductionInvalid(f"comparison_windows_require_service{comparison_service}")
     normalized_sop_project = str(sop_project_pub_id or "").strip() or None
+    sop_services = {2, 5} if legacy_service2_sop_compat else {5}
     requires_sop_project = resolved_catalog == QUOTATION_SERVICE_CATALOG and bool(
-        {2, 5}.intersection(normalized_services)
+        sop_services.intersection(normalized_services)
     )
     if requires_sop_project and normalized_sop_project is None:
         raise FormalProductionInvalid("sop_project_required_for_selected_services")
@@ -917,6 +923,37 @@ class _OutboundService2Adapter:
     title = QUOTATION_SERVICE_TITLES[2]
 
     def build(self, context: FormalBuildContext) -> dict[str, Any]:
+        builder = import_module(
+            "geo_platform.reports.formal_review_service2_source_corpus"
+        ).build_service2_source_corpus_facts
+        return cast(
+            dict[str, Any],
+            builder(
+                dsn=context.dsn,
+                tenant_pub_id=context.request.tenant_pub_id,
+                project_pub_id=context.request.project_pub_id,
+                start=context.request.window.start,
+                end=context.request.window.end,
+                generated_at=context.request.frozen_at,
+            ),
+        )
+
+    def render(self, facts: dict[str, Any], *, blob_loader: Callable[[str, str], bytes]) -> bytes:
+        del blob_loader
+        renderer = import_module(
+            "domain.reporting.formal_review_service2_source_corpus_docx"
+        ).render_service2_source_corpus_docx
+        return cast(bytes, renderer(facts))
+
+
+class _LegacyOutboundService2Adapter:
+    """Read compatibility for pre-2026-08-24 own-content report requests."""
+
+    service_number = 2
+    service_code = QUOTATION_SERVICE_CODES[2]
+    title = QUOTATION_SERVICE_TITLES[2]
+
+    def build(self, context: FormalBuildContext) -> dict[str, Any]:
         if not context.request.sop_project_pub_id:
             raise FormalProductionInvalid("service2_sop_project_required")
         builder = import_module(
@@ -1151,6 +1188,12 @@ def _registry_for_request(request: FormalProductionRequest) -> dict[int, FormalR
 
 
 def _adapter_for(request: FormalProductionRequest, service: int) -> FormalReportAdapter:
+    if (
+        service == 2
+        and request.service_catalog_version == QUOTATION_SERVICE_CATALOG
+        and request.service2_semantics == "own_content_v1"
+    ):
+        return _LegacyOutboundService2Adapter()
     try:
         return _registry_for_request(request)[service]
     except KeyError as exc:
@@ -1533,25 +1576,13 @@ class FormalReportProductionService:
         *,
         tenant_pub_id: str,
         project_pub_id: str | None,
-        cursor: str | None,
+        cursor_created_at: datetime | None,
+        cursor_pub_id: str | None,
         limit: int,
     ) -> list[dict[str, Any]]:
         if limit < 1 or limit > 100:
             raise FormalProductionInvalid("invalid_limit")
         with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
-            cursor_created_at: datetime | None = None
-            if cursor is not None:
-                cursor_row = connection.execute(
-                    """
-                    SELECT created_at FROM reporting.formal_report_production
-                    WHERE tenant_pub_id=%s AND pub_id=%s
-                      AND (%s::text IS NULL OR project_pub_id=%s)
-                    """,
-                    (tenant_pub_id, cursor, project_pub_id, project_pub_id),
-                ).fetchone()
-                if cursor_row is None:
-                    raise FormalProductionInvalid("invalid_cursor")
-                cursor_created_at = cursor_row["created_at"]
             rows = connection.execute(
                 """
                 SELECT * FROM reporting.formal_report_production
@@ -1569,7 +1600,7 @@ class FormalReportProductionService:
                     project_pub_id,
                     cursor_created_at,
                     cursor_created_at,
-                    cursor,
+                    cursor_pub_id,
                     limit + 1,
                 ),
             ).fetchall()
@@ -2281,8 +2312,10 @@ class FormalReportProductionService:
         )
         service_catalog_version = str(row.get("service_catalog_version") or LEGACY_SERVICE_CATALOG)
         sop_project_pub_id = str(row.get("sop_project_pub_id") or "").strip() or None
+        request_hash = str(row["request_hash"])
+        contract: dict[str, Any] | None = None
         try:
-            contract = request_contract(
+            candidate = request_contract(
                 project_pub_id=str(row["project_pub_id"]),
                 services=raw_services,
                 window=window,
@@ -2298,10 +2331,38 @@ class FormalReportProductionService:
                 ),
                 sop_project_pub_id=sop_project_pub_id,
             )
-        except FormalProductionInvalid as exc:
-            raise FormalProductionIncomplete("formal_request_invalid") from exc
-        request_hash = str(row["request_hash"])
-        if _canonical_hash(contract) != request_hash:
+            if _canonical_hash(candidate) == request_hash:
+                contract = candidate
+        except FormalProductionInvalid:
+            pass
+        created_at = row.get("created_at")
+        legacy_service2_request = bool(
+            service_catalog_version == QUOTATION_SERVICE_CATALOG
+            and 2 in raw_services
+            and sop_project_pub_id
+            and isinstance(created_at, datetime)
+            and created_at < SERVICE2_ALL_U_EFFECTIVE_AT
+        )
+        if contract is None and legacy_service2_request:
+            try:
+                candidate = request_contract(
+                    project_pub_id=str(row["project_pub_id"]),
+                    services=raw_services,
+                    window=window,
+                    document_status=document_status,
+                    candidate_group_strategy=candidate_group_strategy,
+                    before_window=before,
+                    after_window=after,
+                    document_governance=governance,
+                    service_catalog_version=service_catalog_version,
+                    sop_project_pub_id=sop_project_pub_id,
+                    legacy_service2_sop_compat=True,
+                )
+                if _canonical_hash(candidate) == request_hash:
+                    contract = candidate
+            except FormalProductionInvalid:
+                pass
+        if contract is None:
             raise FormalProductionIncomplete("formal_request_integrity_failed")
         return FormalProductionRequest(
             pub_id=str(row["pub_id"]),
@@ -2319,6 +2380,7 @@ class FormalReportProductionService:
             document_governance=governance,
             service_catalog_version=service_catalog_version,
             sop_project_pub_id=sop_project_pub_id,
+            service2_semantics=("own_content_v1" if legacy_service2_request else "all_u_v2"),
         )
 
     def _build_fact_bundle(

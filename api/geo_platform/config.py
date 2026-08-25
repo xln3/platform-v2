@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     worker_postgres_dsn: str = ""
     clickhouse_url: str = "http://127.0.0.1:18123"
     clickhouse_user: str = "geo"
-    clickhouse_password: str = "geo_dev_only_password"
+    clickhouse_password: str = "geo_dev_only"
     outbox_consumer_name: str = "clickhouse-analytics-v1"
     outbox_poll_interval_seconds: float = 1.0
     outbox_batch_size: int = 100
@@ -69,9 +69,11 @@ class Settings(BaseSettings):
     research_llm_base_url: str = "https://api.inferera.com"
     research_llm_base_url_fallback: str = ""
     research_llm_max_rounds: int = 3
-    # AI 调研可选模型清单（GEO_RESEARCH_LLM_MODELS，逗号分隔）：暴露给前端下拉选择；
-    # 空 = 仅缺省模型可选。缺省模型（research_llm_model）恒在清单首位。
-    research_llm_models: str = ""
+    # 联网模型下拉的共享允许清单：品牌调研与 Service 2 分别读取一份目录投影，
+    # 但各自维护选择状态。缺省模型（research_llm_model）恒在清单首位。
+    research_llm_models: str = (
+        "gpt-5.6-luna,qwen3.7-plus,gemini-3.1-pro-preview-search,claude-opus-5"
+    )
     # AI 报告起草（reports/narrative）可选模型清单（GEO_REPORT_LLM_MODELS，逗号分隔，
     # 首项=缺省）。七项为既定选型（developlog/implementation/fix-20260807-174349.md §8），
     # 模型传输形状经 /chat/completions 逐台实测；生产网关由 research_llm_base_url 统一控制。
@@ -119,6 +121,13 @@ class Settings(BaseSettings):
     post_analysis_max_urls_per_task: int = 50
     post_analysis_max_claims_verified: int = 5
     post_analysis_text_char_limit: int = 30000
+    # Service 2 全 U 关系分析：密钥/端点留空时逐项复用 research_llm_*；模型在建批时
+    # 从服务端 allow-list 选择并冻结到 scope_selector。密钥只允许由部署环境注入，
+    # 不接受请求体传入，也不进入数据库、事件、日志或模型目录响应。
+    service2_analysis_llm_api_key: str = ""
+    service2_analysis_llm_base_url: str = "https://api.inferera.com"
+    service2_analysis_llm_base_url_fallback: str = ""
+    service2_analysis_text_char_limit: int = 50000
     version: str = "0.1.0"
 
     def cors_origin_list(self) -> list[str]:
