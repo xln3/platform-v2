@@ -30,6 +30,14 @@ page_coverage = {
             "members",
             "accounts",
         },
+        "compatibility_sections": {
+            "answers",
+            "monitoring",
+            "competition",
+            "sources",
+            "reputation",
+            "opportunities",
+        },
         "spec": "customer-visual.spec.ts",
     },
     # S01 owns execution and its visual evidence. S03 owns every other Operations workspace.
@@ -4067,6 +4075,23 @@ for product, coverage in page_coverage.items():
             f"{coverage['app']} navigation drifted; missing={missing}, unexpected={unexpected}"
         )
     if coverage["app"] == "customer-web":
+        compatibility_match = re.search(
+            r"\bconst\s+customerLegacyAnalyticsSectionIds\s*=\s*\[(.*?)\]\s*as const;",
+            shell,
+            flags=re.DOTALL,
+        )
+        compatibility_sections = (
+            set(re.findall(r"['\"]([^'\"]+)['\"]", compatibility_match.group(1)))
+            if compatibility_match
+            else set()
+        )
+        expected_compatibility_sections = coverage.get("compatibility_sections", set())
+        if compatibility_sections != expected_compatibility_sections:
+            errors.append(
+                "customer-web legacy analytics compatibility sections drifted; "
+                f"missing={sorted(expected_compatibility_sections - compatibility_sections)}, "
+                f"unexpected={sorted(compatibility_sections - expected_compatibility_sections)}"
+            )
         entry_match = re.search(
             r"installClientBrowserSecurity\(\s*\[(.*?)\]\s*\)",
             client_entries["customer-web"],
@@ -4075,11 +4100,13 @@ for product, coverage in page_coverage.items():
         entry_sections = (
             set(re.findall(r"['\"]([^'\"]+)['\"]", entry_match.group(1))) if entry_match else set()
         )
-        if entry_sections != navigation_sections:
+        expected_entry_sections = navigation_sections | compatibility_sections
+        if entry_sections != expected_entry_sections:
             errors.append(
-                "customer-web URL security allowlist drifted from product navigation; "
-                f"missing={sorted(navigation_sections - entry_sections)}, "
-                f"unexpected={sorted(entry_sections - navigation_sections)}"
+                "customer-web URL security allowlist drifted from product navigation and "
+                "declared compatibility sections; "
+                f"missing={sorted(expected_entry_sections - entry_sections)}, "
+                f"unexpected={sorted(entry_sections - expected_entry_sections)}"
             )
 
     spec_path = root / "tests" / "e2e" / str(coverage["spec"])
