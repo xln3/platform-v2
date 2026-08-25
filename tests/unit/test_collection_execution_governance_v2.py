@@ -28,6 +28,12 @@ from geo_platform.collection.identity_v2 import (
     freeze_campaign,
     freeze_config,
 )
+from geo_platform.collection.resource_owner_gateway_v2 import (
+    AuthorizedSubmitOnceGateway,
+    ResourceOwnerGatewayError,
+    SubmissionOwnerAuthorization,
+    authorize_submission_owner,
+)
 from pydantic import ValidationError
 
 from domain.collection.execution_governance import (
@@ -63,12 +69,25 @@ from domain.collection.execution_governance import (
     ResourceOwnerSnapshot,
     ResourceOwnerState,
     SecretReferenceMetadata,
+    SideEffectAuthorization,
     SubmissionOperationSnapshot,
     WebExecutionGrant,
     assert_governance_payload_safe,
     quota_reservation_effect_set_hash,
     revoke_execution_grant,
     transition_binding_lifecycle,
+)
+from domain.collection.submission import (
+    FreshSubmissionClaim,
+    OperationRef,
+    OwnerClaimTruth,
+    RequestManifest,
+    SubmitDisposition,
+    SubmitOnceCommand,
+    TerminalReason,
+    WorkflowOperationInput,
+    authority_digest,
+    request_manifest_digest,
 )
 from domain.collection.surface import (
     QUOTA_SCOPE_KIND_LOCK_ORDER,
@@ -1848,3 +1867,225 @@ def test_resource_capacity_is_per_resource_not_region_global_mutex() -> None:
             ),
         )
     assert shared_exhausted.value.code == "resource_capacity_exhausted"
+
+
+def _submission_workflow(
+    snapshot: GatewayAuthorizationSnapshot,
+) -> tuple[WorkflowOperationInput, RequestManifest]:
+    manifest = RequestManifest(
+        request_protocol_version="owner-gateway-test-v1",
+        request_schema_revision="request-schema-v1",
+        request_payload_ref=f"payload-{snapshot.owner.collection_surface.value}",
+        request_payload_sha256="1" * 64,
+    )
+    operation = OperationRef(
+        operation_pub_id=snapshot.operation.operation_pub_id,
+        operation_key=f"operation-key-{snapshot.owner.collection_surface.value}",
+        generation=snapshot.operation.generation,
+        request_manifest_sha256=request_manifest_digest(manifest),
+        provider_idempotency_key=(f"provider-key-{snapshot.owner.collection_surface.value}"),
+    )
+    return (
+        WorkflowOperationInput(
+            operation=operation,
+            expected_state_version=snapshot.operation.send_state_version,
+        ),
+        manifest,
+    )
+
+
+def _submit_command(
+    authorization: SubmissionOwnerAuthorization,
+    manifest: RequestManifest,
+) -> SubmitOnceCommand:
+    authority = authorization.authority
+    operation = authorization.workflow.operation
+    claim = OwnerClaimTruth(
+        claim_pub_id=f"claim-{authorization.collection_surface.value}",
+        owner_handle=authority.owner_handle,
+        grant_pub_id=authority.grant_pub_id,
+        grant_revision=authority.grant_revision,
+        authority_sha256=authority_digest(authority),
+        fence_set_sha256=authority.fence_set_sha256,
+        dispatch_key=f"dispatch-{authorization.collection_surface.value}",
+        owner_dispatch_ref=f"owner-dispatch-{authorization.collection_surface.value}",
+        owner_wal_evidence_sha256="2" * 64,
+        claimed_at=authority.checked_at + timedelta(seconds=1),
+    )
+    return SubmitOnceCommand(
+        fresh_claim=FreshSubmissionClaim(
+            operation=operation,
+            claim=claim,
+            claimed_state_version=authorization.workflow.expected_state_version + 1,
+        ),
+        request_manifest=manifest,
+        request_manifest_sha256=operation.request_manifest_sha256,
+        provider_idempotency_key=operation.provider_idempotency_key,
+    )
+
+
+class _AuthorizationLoader:
+    def __init__(self, authorization: SubmissionOwnerAuthorization) -> None:
+        self.authorization = authorization
+        self.calls = 0
+
+    def load(self, command: SubmitOnceCommand) -> SubmissionOwnerAuthorization:
+        assert command.fresh_claim.operation == self.authorization.workflow.operation
+        self.calls += 1
+        return self.authorization
+
+
+class _OwnerTransport:
+    def __init__(self) -> None:
+        self.calls: list[tuple[SubmitOnceCommand, object]] = []
+
+    def submit_once(
+        self,
+        command: SubmitOnceCommand,
+        *,
+        authorization: SideEffectAuthorization,
+    ) -> SubmitDisposition:
+        self.calls.append((command, authorization))
+        return SubmitDisposition(
+            send_state=SendState.CONFIRMED_SENT,
+            reason=TerminalReason.SUBMITTED,
+            boundary_entered=True,
+            evidence_ref=f"submit-evidence-{len(self.calls)}",
+            evidence_sha256="3" * 64,
+            resolved_at=command.fresh_claim.claim.claimed_at + timedelta(seconds=1),
+            provider_submission_ref=f"provider-submission-{len(self.calls)}",
+        )
+
+
+@pytest.mark.parametrize("surface", tuple(CollectionSurface))
+def test_three_surface_owner_gateway_bridges_governance_to_one_submit(
+    surface: CollectionSurface,
+) -> None:
+    snapshot = _authorization_snapshot(surface)
+    workflow, manifest = _submission_workflow(snapshot)
+    authorization = authorize_submission_owner(snapshot, workflow)
+    command = _submit_command(authorization, manifest)
+    loader = _AuthorizationLoader(authorization)
+    transport = _OwnerTransport()
+    gateway = AuthorizedSubmitOnceGateway(
+        collection_surface=surface,
+        gateway_kind=snapshot.owner.gateway_kind,
+        owner_gateway_pub_id=snapshot.owner.owner_gateway_pub_id,
+        owner_protocol_revision=snapshot.owner.protocol_revision,
+        authorization_loader=loader,
+        transport=transport,
+        clock=lambda: command.fresh_claim.claim.claimed_at + timedelta(milliseconds=1),
+    )
+
+    result = gateway.submit_once(command)
+
+    assert result.send_state is SendState.CONFIRMED_SENT
+    assert_governance_payload_safe(authorization)
+    assert loader.calls == 1
+    assert len(transport.calls) == 1
+    assert transport.calls[0][1] == authorization.assertion
+    assert authorization.assertion.expected_send_state_version + 1 == (
+        command.fresh_claim.claimed_state_version
+    )
+    assert authorization.authority.fence_set_sha256 == (command.fresh_claim.claim.fence_set_sha256)
+
+
+def test_owner_gateway_rejects_cross_surface_authorization_before_transport() -> None:
+    snapshot = _authorization_snapshot(CollectionSurface.CONSUMER_WEB)
+    workflow, manifest = _submission_workflow(snapshot)
+    authorization = authorize_submission_owner(snapshot, workflow)
+    command = _submit_command(authorization, manifest)
+    loader = _AuthorizationLoader(authorization)
+    transport = _OwnerTransport()
+    gateway = AuthorizedSubmitOnceGateway(
+        collection_surface=CollectionSurface.CONSUMER_APP,
+        gateway_kind=GatewayKind.MANAGED_APP_SESSION,
+        owner_gateway_pub_id=snapshot.owner.owner_gateway_pub_id,
+        owner_protocol_revision=snapshot.owner.protocol_revision,
+        authorization_loader=loader,
+        transport=transport,
+        clock=lambda: command.fresh_claim.claim.claimed_at,
+    )
+
+    with pytest.raises(ResourceOwnerGatewayError) as exc_info:
+        gateway.submit_once(command)
+
+    assert exc_info.value.code == "resource_owner_surface_mismatch"
+    assert transport.calls == []
+
+
+def test_owner_gateway_rejects_stale_workflow_version_before_authority_projection() -> None:
+    snapshot = _authorization_snapshot(CollectionSurface.PROVIDER_API)
+    workflow, _manifest = _submission_workflow(snapshot)
+    stale = WorkflowOperationInput(
+        operation=workflow.operation,
+        expected_state_version=workflow.expected_state_version + 1,
+    )
+
+    with pytest.raises(ResourceOwnerGatewayError) as exc_info:
+        authorize_submission_owner(snapshot, stale)
+
+    assert exc_info.value.code == "submission_workflow_state_version_mismatch"
+
+
+def test_owner_gateway_expiry_fails_closed_without_transport() -> None:
+    snapshot = _authorization_snapshot(CollectionSurface.CONSUMER_APP)
+    workflow, manifest = _submission_workflow(snapshot)
+    authorization = authorize_submission_owner(snapshot, workflow)
+    command = _submit_command(authorization, manifest)
+    loader = _AuthorizationLoader(authorization)
+    transport = _OwnerTransport()
+    gateway = AuthorizedSubmitOnceGateway(
+        collection_surface=CollectionSurface.CONSUMER_APP,
+        gateway_kind=GatewayKind.MANAGED_APP_SESSION,
+        owner_gateway_pub_id=snapshot.owner.owner_gateway_pub_id,
+        owner_protocol_revision=snapshot.owner.protocol_revision,
+        authorization_loader=loader,
+        transport=transport,
+        clock=lambda: authorization.authority.valid_until,
+    )
+
+    with pytest.raises(ResourceOwnerGatewayError) as exc_info:
+        gateway.submit_once(command)
+
+    assert exc_info.value.code == "resource_owner_authorization_expired"
+    assert transport.calls == []
+
+
+def test_owner_gateway_never_retries_a_transport_exception() -> None:
+    snapshot = _authorization_snapshot(CollectionSurface.PROVIDER_API)
+    workflow, manifest = _submission_workflow(snapshot)
+    authorization = authorize_submission_owner(snapshot, workflow)
+    command = _submit_command(authorization, manifest)
+    loader = _AuthorizationLoader(authorization)
+
+    class FailingTransport:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def submit_once(
+            self,
+            command: SubmitOnceCommand,
+            *,
+            authorization: SideEffectAuthorization,
+        ) -> SubmitDisposition:
+            del command, authorization
+            self.calls += 1
+            raise RuntimeError("injected-owner-boundary-failure")
+
+    transport = FailingTransport()
+    gateway = AuthorizedSubmitOnceGateway(
+        collection_surface=CollectionSurface.PROVIDER_API,
+        gateway_kind=GatewayKind.PROVIDER_REQUEST,
+        owner_gateway_pub_id=snapshot.owner.owner_gateway_pub_id,
+        owner_protocol_revision=snapshot.owner.protocol_revision,
+        authorization_loader=loader,
+        transport=transport,
+        clock=lambda: command.fresh_claim.claim.claimed_at,
+    )
+
+    with pytest.raises(RuntimeError, match="injected-owner-boundary-failure"):
+        gateway.submit_once(command)
+
+    assert loader.calls == 1
+    assert transport.calls == 1

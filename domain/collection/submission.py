@@ -308,9 +308,9 @@ class OwnerAuthorityRef(FrozenProtocolModel):
         if self.valid_until <= self.checked_at:
             raise ValueError("authority_interval_invalid")
         identities: set[tuple[str, str]] = set()
+        owner_has_fence = False
         for fence in self.lease_fences:
-            if fence.owner_handle != self.owner_handle:
-                raise ValueError("lease_owner_mismatch")
+            owner_has_fence = owner_has_fence or fence.owner_handle == self.owner_handle
             if fence.acquired_at > self.checked_at or fence.expires_at <= self.checked_at:
                 raise ValueError("lease_not_usable_at_check")
             if self.valid_until > fence.expires_at:
@@ -319,6 +319,8 @@ class OwnerAuthorityRef(FrozenProtocolModel):
             if identity in identities:
                 raise ValueError("duplicate_binding_resource_fence")
             identities.add(identity)
+        if not owner_has_fence:
+            raise ValueError("authority_owner_fence_missing")
         if self.fence_set_sha256 != lease_fence_set_digest(self.lease_fences):
             raise ValueError("fence_set_digest_mismatch")
         return self

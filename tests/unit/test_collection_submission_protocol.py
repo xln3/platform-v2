@@ -419,14 +419,14 @@ def test_prepare_exact_replay_never_resets_existing_truth() -> None:
         )
 
 
-def test_authority_requires_exact_fence_digest_owner_and_live_interval() -> None:
+def test_authority_requires_exact_fence_digest_primary_owner_and_live_interval() -> None:
     authority = _authority()
     assert authority.fence_set_sha256 == lease_fence_set_digest(authority.lease_fences)
     payload = authority.model_dump(mode="python")
     with pytest.raises(ValidationError, match="fence_set_digest_mismatch"):
         OwnerAuthorityRef.model_validate({**payload, "fence_set_sha256": HASH_B})
     bad_fence = authority.lease_fences[0].model_copy(update={"owner_handle": "other-owner"})
-    with pytest.raises(ValidationError, match="lease_owner_mismatch"):
+    with pytest.raises(ValidationError, match="authority_owner_fence_missing"):
         OwnerAuthorityRef.model_validate(
             {
                 **payload,
@@ -434,6 +434,29 @@ def test_authority_requires_exact_fence_digest_owner_and_live_interval() -> None
                 "fence_set_sha256": lease_fence_set_digest((bad_fence,)),
             }
         )
+
+    relay_fence = LeaseFenceRef(
+        lease_pub_id="lease-relay-1",
+        binding_resource_pub_id="binding-resource-relay-1",
+        resource_role="relay",
+        owner_handle="relay-owner-1",
+        generation=4,
+        acquired_at=NOW - timedelta(minutes=2),
+        expires_at=NOW + timedelta(minutes=10),
+    )
+    multi_owner_fences = (*authority.lease_fences, relay_fence)
+    multi_owner = OwnerAuthorityRef.model_validate(
+        {
+            **payload,
+            "lease_fences": multi_owner_fences,
+            "fence_set_sha256": lease_fence_set_digest(multi_owner_fences),
+        }
+    )
+    assert multi_owner.owner_handle == authority.owner_handle
+    assert {fence.owner_handle for fence in multi_owner.lease_fences} == {
+        "web-owner-1",
+        "relay-owner-1",
+    }
 
 
 def test_preflight_exact_binding_and_preflight_not_sent_terminal() -> None:
