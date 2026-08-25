@@ -12,6 +12,10 @@ from typing import Literal, cast
 from uuid import UUID
 
 import pytest
+from geo_platform.collection.resource_owner_gateway_v2 import (
+    AuthorizedSubmitOnceGateway,
+    SubmissionOwnerAuthorization,
+)
 from geo_platform.collection.submission_v2 import (
     AnalysisCoordinator,
     AtomicPreparationResult,
@@ -41,6 +45,13 @@ from geo_platform.collection.submission_v2 import (
 )
 from pydantic import ValidationError
 
+from domain.collection.execution_governance import (
+    ExecutionAction,
+    GatewayKind,
+    ResourceFenceRef,
+    ResourceKind,
+    SideEffectAuthorization,
+)
 from domain.collection.submission import (
     AnalysisCommand,
     AnalysisDisposition,
@@ -269,6 +280,62 @@ def _authority(surface: CollectionSurface) -> OwnerAuthorityRef:
         valid_until=NOW + timedelta(hours=1),
         lease_fences=fences,
         fence_set_sha256=lease_fence_set_digest(fences),
+    )
+
+
+def _submission_owner_authorization(
+    surface: CollectionSurface,
+    workflow: WorkflowOperationInput,
+    authority: OwnerAuthorityRef,
+) -> SubmissionOwnerAuthorization:
+    """Build fresh fake governance truth for the coordinator vertical slice."""
+
+    gateway_kind = {
+        CollectionSurface.PROVIDER_API: GatewayKind.PROVIDER_REQUEST,
+        CollectionSurface.CONSUMER_WEB: GatewayKind.RESIDENT_BROWSER,
+        CollectionSurface.CONSUMER_APP: GatewayKind.MANAGED_APP_SESSION,
+    }[surface]
+    resource_kind = {
+        CollectionSurface.PROVIDER_API: ResourceKind.CREDENTIAL_SLOT,
+        CollectionSurface.CONSUMER_WEB: ResourceKind.BROWSER_OWNER,
+        CollectionSurface.CONSUMER_APP: ResourceKind.DEVICE_OWNER,
+    }[surface]
+    fence_assertions = tuple(
+        ResourceFenceRef(
+            resource_registration_id=UUID(int=8_000 + ordinal),
+            capacity_unit_id=UUID(int=9_000 + ordinal),
+            resource_kind=resource_kind,
+            resource_pub_id=fence.binding_resource_pub_id,
+            resource_role=fence.resource_role,
+            resource_ordinal=ordinal - 1,
+            binding_resource_mapping_revision="resource-mapping-v1",
+            lease_pub_id=fence.lease_pub_id,
+            owner_gateway_pub_id=fence.owner_handle,
+            fence_generation=fence.generation,
+            acquired_at=fence.acquired_at,
+            expires_at=fence.expires_at,
+        )
+        for ordinal, fence in enumerate(authority.lease_fences, start=1)
+    )
+    assertion = SideEffectAuthorization(
+        grant_pub_id=authority.grant_pub_id,
+        operation_pub_id=workflow.operation.operation_pub_id,
+        operation_generation=workflow.operation.generation,
+        owner_gateway_pub_id=authority.owner_handle,
+        action=ExecutionAction.SUBMIT_QUERY,
+        checked_at=authority.checked_at,
+        expected_send_state_version=workflow.expected_state_version,
+        quota_reservation_id=UUID(int=10_000),
+        quota_effect_ids=(UUID(int=10_001),),
+        fence_assertions=fence_assertions,
+    )
+    return SubmissionOwnerAuthorization(
+        workflow=workflow,
+        collection_surface=surface,
+        gateway_kind=gateway_kind,
+        owner_protocol_revision="owner-gateway-v1",
+        assertion=assertion,
+        authority=authority,
     )
 
 
@@ -1233,6 +1300,56 @@ class FakeAppSubmitGateway(_SubmitGatewayBase):
         )
 
 
+class FakeFreshOwnerAuthorizationLoader:
+    """Rebuild fake owner authorization at the post-CAS gateway boundary."""
+
+    def __init__(
+        self,
+        *,
+        surface: CollectionSurface,
+        workflow: WorkflowOperationInput,
+        authority: OwnerAuthorityRef,
+    ) -> None:
+        self.surface = surface
+        self.workflow = workflow
+        self.authority = authority
+        self.calls = 0
+
+    def load(self, command: SubmitOnceCommand) -> SubmissionOwnerAuthorization:
+        if command.fresh_claim.operation != self.workflow.operation:
+            raise SubmissionCoordinatorError("fake_owner_authorization_operation_mismatch")
+        self.calls += 1
+        return _submission_owner_authorization(
+            self.surface,
+            self.workflow,
+            self.authority,
+        )
+
+
+class FakeGovernedOwnerTransport:
+    """Require the exact governance assertion before calling one fake surface."""
+
+    def __init__(
+        self,
+        delegate: SubmitOnceGateway,
+        expected: SubmissionOwnerAuthorization,
+    ) -> None:
+        self.delegate = delegate
+        self.expected = expected
+        self.calls: list[tuple[SubmitOnceCommand, SideEffectAuthorization]] = []
+
+    def submit_once(
+        self,
+        command: SubmitOnceCommand,
+        *,
+        authorization: SideEffectAuthorization,
+    ) -> SubmitDisposition:
+        if authorization != self.expected.assertion:
+            raise SubmissionCoordinatorError("fake_owner_authorization_assertion_mismatch")
+        self.calls.append((command, authorization))
+        return self.delegate.submit_once(command)
+
+
 class FakeReconciliationGateway:
     """Reads only durable WAL/lease truth and never owns a submit capability."""
 
@@ -1492,6 +1609,8 @@ class CoordinatorHarness:
         self.analysis_store = AnalysisGatewayStore()
         self.preflight_instances: list[FakePreflightGateway] = []
         self.submit_instances: list[object] = []
+        self.authorization_loaders: list[FakeFreshOwnerAuthorizationLoader] = []
+        self.owner_transports: list[FakeGovernedOwnerTransport] = []
         self.reconciliation_instances: list[FakeReconciliationGateway] = []
         self.capture_instances: list[FakeCaptureGateway] = []
 
@@ -1534,29 +1653,58 @@ class CoordinatorHarness:
             raise AssertionError("prepared reference drift")
         return result
 
-    def coordinator(self, crash_hook: CrashHook | None = None) -> SubmissionCoordinator:
+    def coordinator(
+        self,
+        crash_hook: CrashHook | None = None,
+        *,
+        governed_owner: bool = False,
+    ) -> SubmissionCoordinator:
         preflight = FakePreflightGateway(
             clock=self.clock,
             decision=self.preflight_decision,
         )
         if self.surface is CollectionSurface.PROVIDER_API:
-            submit: SubmitOnceGateway = FakeApiSubmitGateway(
+            raw_submit: SubmitOnceGateway = FakeApiSubmitGateway(
                 self.owner_store,
                 self.clock,
                 timeout_after_boundary=self.api_timeout,
             )
         elif self.surface is CollectionSurface.CONSUMER_WEB:
-            submit = FakeWebSubmitGateway(
+            raw_submit = FakeWebSubmitGateway(
                 self.owner_store,
                 self.clock,
                 submit_selector_count=self.web_selector_count,
             )
         else:
-            submit = FakeAppSubmitGateway(
+            raw_submit = FakeAppSubmitGateway(
                 self.owner_store,
                 self.clock,
                 crash_after_boundary=self.app_crash,
             )
+        submit: SubmitOnceGateway = raw_submit
+        if governed_owner:
+            authorization = _submission_owner_authorization(
+                self.surface,
+                self.prepare_work.workflow,
+                self.context.authority,
+            )
+            loader = FakeFreshOwnerAuthorizationLoader(
+                surface=self.surface,
+                workflow=self.prepare_work.workflow,
+                authority=self.context.authority,
+            )
+            transport = FakeGovernedOwnerTransport(raw_submit, authorization)
+            submit = AuthorizedSubmitOnceGateway(
+                collection_surface=self.surface,
+                gateway_kind=authorization.gateway_kind,
+                owner_gateway_pub_id=authorization.authority.owner_handle,
+                owner_protocol_revision=authorization.owner_protocol_revision,
+                authorization_loader=loader,
+                transport=transport,
+                clock=self.clock.now,
+            )
+            self.authorization_loaders.append(loader)
+            self.owner_transports.append(transport)
         reconciliation = FakeReconciliationGateway(self.owner_store, self.clock)
         capture = FakeCaptureGateway(self.capture_store, self.clock)
         publisher = FakeOutboxPublisher(self.consumer_store)
@@ -1627,6 +1775,45 @@ SEVEN_SUBMISSION_CRASH_POINTS = (
     CrashPoint.AFTER_STAGING_BEFORE_LINK,
     CrashPoint.AFTER_FACT_BEFORE_OUTBOX_PUBLISH,
 )
+
+
+@pytest.mark.parametrize("surface", tuple(CollectionSurface))
+def test_three_surface_governed_fake_owner_reaches_capture_fact_without_resubmit(
+    surface: CollectionSurface,
+) -> None:
+    harness = CoordinatorHarness(surface)
+    preparation = harness.prepare()
+
+    result = harness.coordinator(governed_owner=True).run(harness.work)
+
+    assert preparation.quota.reserved_units == 1
+    assert result.operation.send_state is SendState.CONFIRMED_SENT
+    assert result.capture is not None
+    assert result.capture.capture_state is CaptureState.COMPLETED
+    assert result.capture.observed_surface_product is not None
+    assert result.capture.observed_surface_product.collection_surface is surface
+    assert result.capture_link is not None
+    assert result.fact.outcome is SlotOutcome.CONFIRMED_SENT_CAPTURE_COMPLETE
+    assert result.fact.is_final_primary
+    assert result.quota.consumed_units == 1
+    assert harness.owner_store.wal.submit_invocations == 1
+    assert len(harness.authorization_loaders) == 1
+    assert harness.authorization_loaders[0].calls == 1
+    assert len(harness.owner_transports) == 1
+    assert len(harness.owner_transports[0].calls) == 1
+    assert harness.owner_transports[0].calls[0][1].operation_pub_id == (
+        result.operation.identity.operation_pub_id
+    )
+    assert harness.repository.pending_outbox(harness.work.workflow.operation) == ()
+
+    replay = harness.coordinator(governed_owner=True).run(harness.work)
+
+    assert replay == result
+    assert harness.owner_store.wal.submit_invocations == 1
+    assert len(harness.authorization_loaders) == 2
+    assert harness.authorization_loaders[1].calls == 0
+    assert len(harness.owner_transports) == 2
+    assert harness.owner_transports[1].calls == []
 
 
 @pytest.mark.parametrize("point", SEVEN_SUBMISSION_CRASH_POINTS)
