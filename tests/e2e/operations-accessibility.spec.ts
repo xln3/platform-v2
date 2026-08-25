@@ -16,22 +16,22 @@ test('operations shell and account lifecycle view are WCAG AA clean', async ({ p
   await expectAccessible(page);
   await expect(page.getByRole('link', { name: '执行与账号' })).toHaveAttribute(
     'href',
-    '/platform/operations/execution?project=prj_01K0CONTRACTFIXTURE0000000',
+    '/platform/operations/execution',
   );
   await expect(page.getByRole('link', { name: '媒体比价台' })).toHaveAttribute(
     'href',
-    '/platform/operations/media-prices?project=prj_01K0CONTRACTFIXTURE0000000',
+    '/platform/operations/media-prices',
   );
   await expect(page.getByRole('link', { name: /会话健康/ })).toHaveAttribute(
     'href',
-    '/platform/operations/execution?project=prj_01K0CONTRACTFIXTURE0000000#platform-accounts',
+    '/platform/operations/execution#platform-accounts',
   );
   await expect(page.getByRole('link', { name: /人工接管/ })).toHaveAttribute(
     'href',
-    '/platform/operations/execution?project=prj_01K0CONTRACTFIXTURE0000000#interventions',
+    '/platform/operations/execution#interventions',
   );
   await expect(page.getByRole('link', { name: /事件审计/ })).toHaveAttribute(
     'href',
-    '/platform/operations/execution?project=prj_01K0CONTRACTFIXTURE0000000#events',
+    '/platform/operations/execution#events',
   );
 });

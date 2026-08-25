@@ -31,6 +31,20 @@ describe('operations UVW information architecture', () => {
     expect(byId.get('service-inbound-risk')?.group).toBe('五项服务生产');
     expect(byId.has('service-risk')).toBe(false);
     expect(operationsNav.some((item) => item.group === '系统运营')).toBe(false);
+
+    for (const id of [
+      'service-visibility',
+      'service-outbound-risk',
+      'service-inbound-risk',
+      'service-site-audit',
+      'service-pilot',
+      'formal-reports',
+    ]) {
+      expect(byId.get(id)?.projectAware).toBe(true);
+    }
+    for (const id of ['execution', 'media-prices', 'sessions', 'interventions', 'events']) {
+      expect(byId.get(id)?.projectAware).not.toBe(true);
+    }
   });
 
   it('defines service 2 from the frozen all-U scope independently of attribution', async () => {

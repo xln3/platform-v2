@@ -10,6 +10,7 @@ verifySharedShellActions({
   internalLink: {
     label: '执行与账号',
     href: '/platform/operations/execution',
+    projectAware: false,
   },
 });
 

@@ -8,15 +8,15 @@ test('operations shell routes lifecycle entries to the cursor-paged execution pl
 
   await expect(page.getByRole('link', { name: /会话健康/ })).toHaveAttribute(
     'href',
-    /\/platform\/operations\/execution\?project=[^#]+#platform-accounts/u,
+    /\/platform\/operations\/execution#platform-accounts/u,
   );
   await expect(page.getByRole('link', { name: /人工接管/ })).toHaveAttribute(
     'href',
-    /\/platform\/operations\/execution\?project=[^#]+#interventions/u,
+    /\/platform\/operations\/execution#interventions/u,
   );
   await expect(page.getByRole('link', { name: /事件审计/ })).toHaveAttribute(
     'href',
-    /\/platform\/operations\/execution\?project=[^#]+#events/u,
+    /\/platform\/operations\/execution#events/u,
   );
 
   const browserSurfaces = await page.evaluate(() => ({

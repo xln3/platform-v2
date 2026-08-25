@@ -12,7 +12,7 @@ export function verifySharedShellActions({
   path: string;
   role: 'customer' | 'operator' | 'analyst' | 'reviewer';
   liveNavLabelsWithoutBadges?: readonly string[];
-  internalLink?: { label: string; href: string };
+  internalLink?: { label: string; href: string; projectAware?: boolean };
 }) {
   test(`${product} shared shell actions are functional and secret-free`, async ({ page }) => {
     await page.addInitScript(
@@ -79,10 +79,14 @@ export function verifySharedShellActions({
     if (internalLink) {
       const link = page.getByRole('link', { name: internalLink.label, exact: true });
       const expected = new URL(internalLink.href, page.url());
-      expected.searchParams.set('project', 'prj_shared_shell');
+      if (internalLink.projectAware !== false) {
+        expected.searchParams.set('project', 'prj_shared_shell');
+      }
       await expect(link).toHaveAttribute('href', `${expected.pathname}${expected.search}`);
       const projected = new URL(await link.getAttribute('href')!, page.url());
-      expect([...projected.searchParams]).toEqual([['project', 'prj_shared_shell']]);
+      expect([...projected.searchParams]).toEqual(
+        internalLink.projectAware === false ? [] : [['project', 'prj_shared_shell']],
+      );
       expect(projected.hash).toBe('');
     }
     for (const label of liveNavLabelsWithoutBadges) {
