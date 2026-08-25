@@ -44,14 +44,23 @@ _ARTIFACT_LABELS: dict[QuotationArtifactKind, str] = {
 }
 _NON_FINAL_NOTICE = "非最终模板合规产物（仅供内部回归，禁止作为正式客户报价）"
 _CANONICAL_SOURCE = (ROOT.parent / "client-sbaq" / "报价单-盛邦-final(2).docx").resolve()
+_CANONICAL_SOURCE_SIGNATURE = ("client-sbaq", "报价单-盛邦-final(2).docx")
 _TEMPLATE_ASSETS = (ROOT / "api" / "geo_platform" / "quotations" / "assets").resolve()
 
 
 def _is_protected_template_output(path: Path) -> bool:
-    """Canonical source and versioned template assets are never CLI output targets."""
+    """Canonical source and versioned template assets are never CLI output targets.
+
+    The canonical source may be addressed with the production workspace path,
+    a developer checkout path, or a CI fixture path.  Protect its stable
+    directory/name identity as well as this checkout's resolved absolute path.
+    """
     resolved = path.resolve()
-    return resolved == _CANONICAL_SOURCE or (
-        resolved.suffix.lower() == ".docx" and resolved.is_relative_to(_TEMPLATE_ASSETS)
+    canonical_signature = tuple(resolved.parts[-2:]) == _CANONICAL_SOURCE_SIGNATURE
+    return (
+        resolved == _CANONICAL_SOURCE
+        or canonical_signature
+        or (resolved.suffix.lower() == ".docx" and resolved.is_relative_to(_TEMPLATE_ASSETS))
     )
 
 
