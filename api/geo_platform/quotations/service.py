@@ -77,7 +77,7 @@ def safe_filename(
     brand = _INVALID_FILENAME_RE.sub("_", brand_name).strip(" ._") or "客户"
     # PurePath.name 防御未来规则调整后意外引入路径分隔符。
     filename = (
-        f"报价单-{brand}-{_PACKAGE_FILE_LABEL[package_code]}"
+        f"非最终模板合规产物-报价单-{brand}-{_PACKAGE_FILE_LABEL[package_code]}"
         f"{_ARTIFACT_FILE_LABEL[artifact_kind]}-{quote_date:%Y%m%d}.docx"
     )
     return PurePath(filename).name[:180]

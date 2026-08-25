@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import sys
+from pathlib import Path
 
 import pytest
 
-from tools.generate_quotation import _arguments, _configuration
+from tools.generate_quotation import _arguments, _configuration, _is_protected_template_output, main
 
 
 def _priced_arguments(*extra: str) -> argparse.Namespace:
@@ -55,3 +57,35 @@ def test_cli_help_explains_all_artifacts(capsys: pytest.CaptureFixture[str]) -> 
     assert "quote_table=仅报价单表格" in compact_output
     assert "query_appendix=仅查询附件" in compact_output
     assert "上传后生成查询附件" in compact_output
+    assert "非最终模板合规产物" in compact_output
+
+
+def test_cli_refuses_canonical_source_and_versioned_template_asset_outputs() -> None:
+    assert _is_protected_template_output(
+        Path("/home/xln/geo-system/client-sbaq/报价单-盛邦-final(2).docx")
+    )
+    assert _is_protected_template_output(
+        Path(
+            "/home/xln/geo-system/platform-v2/api/geo_platform/quotations/assets/"
+            "quotation-template-v1.docx"
+        )
+    )
+    assert not _is_protected_template_output(Path("/tmp/internal-quotation.docx"))
+
+
+def test_cli_rejects_canonical_output_before_generation(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "generate_quotation.py",
+            "--brand",
+            "盛邦安全",
+            "--output",
+            "/home/xln/geo-system/client-sbaq/报价单-盛邦-final(2).docx",
+        ],
+    )
+    assert main() == 2
+    assert "拒绝写入最终模板真源" in capsys.readouterr().err

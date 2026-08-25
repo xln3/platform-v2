@@ -13,6 +13,7 @@ import './quotation-generator.css';
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const MAX_XLSX_BYTES = 10 * 1024 * 1024;
+const NON_FINAL_TEMPLATE_NOTICE = '非最终模板合规产物（仅供内部回归，禁止作为正式客户报价）';
 
 type ServiceView = {
   code: QuotationServiceCode;
@@ -42,9 +43,17 @@ const serviceCatalog: ServiceView[] = [
     shortName: '找拉踩帖',
     name: '主动拉踩内容核查',
     unit: '项',
-    summary: '只检查有作者、委托或审批归属证据的己方内容，是否以贬低或不实比较拉踩竞品。',
-    inputs: ['己方帖子/稿件 URL 及归属证据', '品牌与竞品别名', '客户确认的事实材料与核查范围'],
-    outputs: ['疑似拉踩帖子清单', '原文、URL、截图与事实证据', '风险分级和整改建议'],
+    summary: '核查冻结范围内全部 U 信源帖子，逐帖识别实体方向、无锚降位、操纵比较与误导遗漏。',
+    inputs: [
+      '运行、问答、时间窗与 U snapshot boundary',
+      '实体别名（不用于预筛）',
+      '客户确认事实与可选归属证据',
+    ],
+    outputs: [
+      '全 U 覆盖漏斗与关系分级',
+      '逐字原文、页面 hash、URL 与视觉证据',
+      '事实核查和独立归属置信度',
+    ],
   },
   {
     code: 'inbound_disparagement_audit',
@@ -197,7 +206,7 @@ export function quotationDownloadName(
     quote_table: '-报价单表格',
     query_appendix: '-查询附件',
   }[artifactKind];
-  return `报价单-${brand || '客户'}-${packageLabel}${artifactLabel}-${quoteDate.replaceAll('-', '')}.docx`;
+  return `非最终模板合规产物-报价单-${brand || '客户'}-${packageLabel}${artifactLabel}-${quoteDate.replaceAll('-', '')}.docx`;
 }
 
 export function yuanInputToCents(value: string): number | null {
@@ -539,7 +548,10 @@ export function QuotationGenerator({ session }: { session: QuotationSession | un
       };
     }
     setReceipt(result.data);
-    setNotice({ tone: 'success', text: `报价单已生成并下载：${result.data.fileName}` });
+    setNotice({
+      tone: 'success',
+      text: `非最终模板合规产物已生成并下载：${result.data.fileName}；字节与 SHA-256 校验不代表模板合规。`,
+    });
     return { kind: 'ready' as const, blob: result.data.blob };
   };
 
@@ -555,6 +567,14 @@ export function QuotationGenerator({ session }: { session: QuotationSession | un
           <strong>单项价格是唯一金额输入</strong>
           <span>套餐不覆盖单价 · 后端重新计算总价 · DOCX 带输入与交付说明</span>
         </div>
+      </section>
+
+      <section className="quotation-stoploss" role="alert" aria-label="模板合规警示">
+        <strong>{NON_FINAL_TEMPLATE_NOTICE}</strong>
+        <span>
+          当前 legacy 生成器尚未使用用户批准模板。下载文件即使通过字节与 SHA-256
+          完整性校验，也不得发送客户。
+        </span>
       </section>
 
       <section className="quotation-card" aria-labelledby="quotation-package-title">
@@ -1005,14 +1025,14 @@ export function QuotationGenerator({ session }: { session: QuotationSession | un
               load={load}
               fileName={downloadName}
               resourceKey={resourceKey}
-              label="生成并下载 DOCX"
+              label="生成并下载内部回归 DOCX"
               loadingLabel="生成中，请稍候…"
               failureLabel="本次未生成可下载文档，请查看上方提示。"
-              successLabel="报价单已通过完整性校验并下载"
+              successLabel="字节与 SHA-256 完整性校验通过并已下载；不代表模板合规"
             />
           ) : (
             <button type="button" className="button button-primary" disabled>
-              生成并下载 DOCX
+              生成并下载内部回归 DOCX
             </button>
           )}
           <button
@@ -1107,6 +1127,14 @@ export function QuotationGenerator({ session }: { session: QuotationSession | un
             <div>
               <dt>文档校验</dt>
               <dd title={receipt.sha256}>SHA-256 {receipt.sha256.slice(0, 12)}…</dd>
+            </div>
+            <div>
+              <dt>模板合规</dt>
+              <dd>
+                {receipt.templateCompliance === 'non-final-template'
+                  ? '非最终模板合规产物·禁止发送客户'
+                  : '未知'}
+              </dd>
             </div>
           </dl>
         ) : null}

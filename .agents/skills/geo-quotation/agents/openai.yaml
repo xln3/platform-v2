@@ -1,0 +1,4 @@
+interface:
+  display_name: 'GEO 报价模板'
+  short_description: '按唯一批准模板生成并严格验收 GEO 商务报价 DOCX'
+  default_prompt: 'Use $geo-quotation to preflight the approved template and prepare a compliant GEO quotation task.'

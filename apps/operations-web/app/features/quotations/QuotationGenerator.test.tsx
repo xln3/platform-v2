@@ -65,14 +65,14 @@ describe('quotation generator', () => {
   it('derives date, filename, integer cents and validates a priced package', () => {
     expect(chinaDate(new Date('2026-08-11T16:30:00Z'))).toBe('2026-08-12');
     expect(quotationDownloadName(' 盛邦/安全 ', '2026-08-12', 'geo_effect_assessment')).toBe(
-      '报价单-盛邦_安全-GEO效果评测-20260812.docx',
+      '非最终模板合规产物-报价单-盛邦_安全-GEO效果评测-20260812.docx',
     );
     expect(
       quotationDownloadName('盛邦安全', '2026-08-12', 'minimum_validation', 'query_appendix'),
-    ).toBe('报价单-盛邦安全-GEO最小验证-查询附件-20260812.docx');
+    ).toBe('非最终模板合规产物-报价单-盛邦安全-GEO最小验证-查询附件-20260812.docx');
     expect(
       quotationDownloadName('盛邦安全', '2026-08-12', 'geo_effect_assessment', 'quote_table'),
-    ).toBe('报价单-盛邦安全-GEO效果评测-报价单表格-20260812.docx');
+    ).toBe('非最终模板合规产物-报价单-盛邦安全-GEO效果评测-报价单表格-20260812.docx');
     expect(yuanInputToCents('20000.50')).toBe(2_000_050);
     expect(yuanInputToCents('20.999')).toBeNull();
     expect(
@@ -130,7 +130,7 @@ describe('quotation generator', () => {
       kind: 'ready',
       data: {
         blob,
-        fileName: '报价单-盛邦安全-GEO效果评测-20260812.docx',
+        fileName: '非最终模板合规产物-报价单-盛邦安全-GEO效果评测-20260812.docx',
         sha256: 'a'.repeat(64),
         targetQueryCount: 0,
         selectedQueryCount: 0,
@@ -142,6 +142,7 @@ describe('quotation generator', () => {
         totalPriceCents: 5_000_000,
         maximumTotalPriceCents: 5_000_000,
         queryAppendixIncluded: false,
+        templateCompliance: 'non-final-template',
       },
     });
     render(<QuotationGenerator session={session} />);
@@ -165,7 +166,10 @@ describe('quotation generator', () => {
     });
 
     expect(screen.getAllByText('¥50,000.00').length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole('button', { name: '生成并下载 DOCX' }));
+    expect(screen.getByRole('alert', { name: '模板合规警示' }).textContent).toContain(
+      '非最终模板合规产物（仅供内部回归，禁止作为正式客户报价）',
+    );
+    fireEvent.click(screen.getByRole('button', { name: '生成并下载内部回归 DOCX' }));
 
     await waitFor(() => expect(generateQuotation).toHaveBeenCalledTimes(1));
     expect(generateQuotation).toHaveBeenCalledWith(
@@ -191,7 +195,8 @@ describe('quotation generator', () => {
       session.headers,
     );
     expect(vi.mocked(generateQuotation).mock.calls[0]?.[0]).not.toHaveProperty('targetWords');
-    await screen.findByText('报价单已生成并下载：报价单-盛邦安全-GEO效果评测-20260812.docx');
+    await screen.findByText(/非最终模板合规产物已生成并下载/u);
+    expect(screen.getByText('非最终模板合规产物·禁止发送客户')).toBeTruthy();
     expect(HTMLAnchorElement.prototype.click).toHaveBeenCalledTimes(1);
   });
 
@@ -268,7 +273,7 @@ describe('quotation generator', () => {
       kind: 'ready',
       data: {
         blob,
-        fileName: '报价单-盛邦安全-GEO效果评测-查询附件-20260812.docx',
+        fileName: '非最终模板合规产物-报价单-盛邦安全-GEO效果评测-查询附件-20260812.docx',
         sha256: 'c'.repeat(64),
         targetQueryCount: 1,
         selectedQueryCount: 1,
@@ -280,6 +285,7 @@ describe('quotation generator', () => {
         totalPriceCents: null,
         maximumTotalPriceCents: null,
         queryAppendixIncluded: true,
+        templateCompliance: 'non-final-template',
       },
     });
     render(<QuotationGenerator session={session} />);
@@ -301,9 +307,9 @@ describe('quotation generator', () => {
     expect(
       screen.getByText('查询附件必须上传包含有效目标词的 XLSX；未上传时不会生成空附件。'),
     ).toBeTruthy();
-    expect(screen.getByRole('button', { name: '生成并下载 DOCX' }).hasAttribute('disabled')).toBe(
-      true,
-    );
+    expect(
+      screen.getByRole('button', { name: '生成并下载内部回归 DOCX' }).hasAttribute('disabled'),
+    ).toBe(true);
 
     fireEvent.change(screen.getByLabelText('目标词 XLSX（查询附件必填）'), {
       target: { files: [xlsx()] },
@@ -311,7 +317,7 @@ describe('quotation generator', () => {
     expect(
       screen.queryByText('查询附件必须上传包含有效目标词的 XLSX；未上传时不会生成空附件。'),
     ).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '生成并下载 DOCX' }));
+    fireEvent.click(screen.getByRole('button', { name: '生成并下载内部回归 DOCX' }));
     await waitFor(() => expect(generateQuotation).toHaveBeenCalledTimes(1));
     expect(generateQuotation).toHaveBeenCalledWith(
       expect.objectContaining({ artifactKind: 'query_appendix', targetWords: expect.any(File) }),
@@ -327,7 +333,7 @@ describe('quotation generator', () => {
       kind: 'ready',
       data: {
         blob,
-        fileName: '报价单-盛邦安全-GEO效果评测-20260812.docx',
+        fileName: '非最终模板合规产物-报价单-盛邦安全-GEO效果评测-20260812.docx',
         sha256: 'b'.repeat(64),
         targetQueryCount: 0,
         selectedQueryCount: 0,
@@ -338,6 +344,7 @@ describe('quotation generator', () => {
         totalPriceCents: null,
         maximumTotalPriceCents: null,
         queryAppendixIncluded: false,
+        templateCompliance: 'non-final-template',
       },
     });
     render(<QuotationGenerator session={session} />);
@@ -346,7 +353,7 @@ describe('quotation generator', () => {
       target: { value: 'https://www.webray.com.cn' },
     });
     fireEvent.click(screen.getByLabelText('价格待确认样稿（不构成正式价格承诺）'));
-    fireEvent.click(screen.getByRole('button', { name: '生成并下载 DOCX' }));
+    fireEvent.click(screen.getByRole('button', { name: '生成并下载内部回归 DOCX' }));
     await waitFor(() => expect(generateQuotation).toHaveBeenCalledTimes(1));
     expect(generateQuotation).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -363,8 +370,8 @@ describe('quotation generator', () => {
     render(<QuotationGenerator session={{ ...session, role: 'reviewer' }} />);
     expect(screen.getByText('客户/品牌名称需为 2—80 个字符。')).toBeTruthy();
     expect(screen.getByText('当前账号没有生成报价单的权限，请使用运营或管理员账号。')).toBeTruthy();
-    expect(screen.getByRole('button', { name: '生成并下载 DOCX' }).hasAttribute('disabled')).toBe(
-      true,
-    );
+    expect(
+      screen.getByRole('button', { name: '生成并下载内部回归 DOCX' }).hasAttribute('disabled'),
+    ).toBe(true);
   });
 });

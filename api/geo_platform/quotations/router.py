@@ -17,7 +17,7 @@ from ..identity.policy import Principal, get_principal
 from ..intake import research
 from .generator import QuotationGenerationFailed, QuotationLlmDisabled
 from .models import QuotationConfiguration
-from .renderer import DOCX_MIME
+from .renderer import DOCX_MIME, TEMPLATE_COMPLIANCE
 from .service import QuotationInputInvalid, generate_quotation
 from .xlsx import MAX_UPLOAD_BYTES, TargetWorkbookInvalid
 
@@ -48,6 +48,7 @@ _XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     "X-Quotation-Total-Cents",
                     "X-Quotation-Maximum-Total-Cents",
                     "X-Quotation-Query-Appendix",
+                    "X-Quotation-Template-Compliance",
                     "X-Quotation-SHA256",
                     "Cache-Control",
                 )
@@ -132,6 +133,7 @@ def generate_quotation_document(
         total_price_cents=result.metadata.total_price_cents,
         maximum_total_price_cents=result.metadata.maximum_total_price_cents,
         query_appendix_included=result.metadata.query_appendix_included,
+        template_compliance=TEMPLATE_COMPLIANCE,
         model=result.metadata.model,
         sha256=result.metadata.sha256,
     )
@@ -157,6 +159,7 @@ def generate_quotation_document(
         "X-Quotation-Query-Appendix": "included"
         if result.metadata.query_appendix_included
         else "not-included",
+        "X-Quotation-Template-Compliance": TEMPLATE_COMPLIANCE,
         "X-Quotation-SHA256": result.metadata.sha256,
         "Cache-Control": "no-store",
     }

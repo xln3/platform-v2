@@ -35,6 +35,21 @@
   line-height: 1.7;
 }
 
+.quotation-stoploss {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0 0 1rem;
+  padding: 0.9rem 1rem;
+  border: 2px solid #b42318;
+  border-radius: 0.75rem;
+  color: #7a271a;
+  background: #fef3f2;
+}
+
+.quotation-stoploss strong {
+  font-size: 1rem;
+}
+
 .quotation-scope {
   display: grid;
   flex: 0 0 320px;

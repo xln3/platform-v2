@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""从客户、套餐和逐项价格生成完整报价单、报价单表格或查询附件。"""
+"""生成仅供内部回归的 legacy 报价 DOCX；当前不得作为正式客户报价。"""
 
 from __future__ import annotations
 
@@ -42,10 +42,23 @@ _ARTIFACT_LABELS: dict[QuotationArtifactKind, str] = {
     "quote_table": "报价单表格",
     "query_appendix": "查询附件",
 }
+_NON_FINAL_NOTICE = "非最终模板合规产物（仅供内部回归，禁止作为正式客户报价）"
+_CANONICAL_SOURCE = (ROOT.parent / "client-sbaq" / "报价单-盛邦-final(2).docx").resolve()
+_TEMPLATE_ASSETS = (ROOT / "api" / "geo_platform" / "quotations" / "assets").resolve()
+
+
+def _is_protected_template_output(path: Path) -> bool:
+    """Canonical source and versioned template assets are never CLI output targets."""
+    resolved = path.resolve()
+    return resolved == _CANONICAL_SOURCE or (
+        resolved.suffix.lower() == ".docx" and resolved.is_relative_to(_TEMPLATE_ASSETS)
+    )
 
 
 def _arguments(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="生成完整报价单、报价单表格或查询附件 DOCX")
+    parser = argparse.ArgumentParser(
+        description="生成仅供内部回归的 legacy DOCX；非最终模板合规产物，禁止发送客户"
+    )
     parser.add_argument("--brand", required=True, help="客户/品牌名称")
     parser.add_argument(
         "--package",
@@ -157,6 +170,10 @@ def _configuration(args: argparse.Namespace) -> QuotationConfiguration:
 
 def main() -> int:
     args = _arguments()
+    if args.output is not None and _is_protected_template_output(args.output):
+        print("拒绝写入最终模板真源或 quotations/assets 模板资产。", file=sys.stderr)
+        return 2
+    print(f"警告：{_NON_FINAL_NOTICE}", file=sys.stderr)
     try:
         configuration = _configuration(args)
         workbook_payload = args.target_words.read_bytes() if args.target_words else None
@@ -185,6 +202,9 @@ def main() -> int:
         return 4
 
     output = (args.output or Path.cwd() / result.metadata.filename).resolve()
+    if _is_protected_template_output(output):
+        print("拒绝写入最终模板真源或 quotations/assets 模板资产。", file=sys.stderr)
+        return 2
     if output.exists() and not args.force:
         print(f"输出文件已存在；如需覆盖请加 --force：{output}", file=sys.stderr)
         return 2
@@ -200,7 +220,8 @@ def main() -> int:
         if result.metadata.maximum_total_price_cents is not None
         else "待商务确认"
     )
-    print(f"已生成{_ARTIFACT_LABELS[result.metadata.artifact_kind]}：{output}")
+    print(f"已生成内部回归{_ARTIFACT_LABELS[result.metadata.artifact_kind]}：{output}")
+    print(_NON_FINAL_NOTICE)
     totals = (
         f"基础总价（不含条件项） {total}"
         if args.package == "minimum_validation" and args.official_site_in_citations is None

@@ -1,0 +1,87 @@
+schema_version: 'quotation-template-redline-v1'
+proposal_id: 'geo-quotation-v2-redline-2026-08-21'
+approval_status: 'pending'
+status: 'review_only_not_a_template'
+derived_from:
+  template_id: 'geo-quotation-v1'
+  template_sha256: '90ae5beb10ab3bacea3b706a2068945f828e275784e99da6b72dc44f8b0d9913'
+  canonical_path: '../../api/geo_platform/quotations/assets/quotation-template-v1.docx'
+frozen_regions:
+  - 'title'
+  - 'metadata_structure_and_30_workday_validity'
+  - 'five_commercial_terms_verbatim'
+  - 'signature_block'
+  - 'confidential_header'
+  - 'anchored_footer_page_field_and_visual_position'
+  - 'a4_page_geometry'
+  - 'four_column_commercial_table_style'
+  - 'appendix_narrative_and_relative_order'
+  - 'typography_and_styles'
+approved_business_requirements:
+  atomic_services: ['1', '2', '3', '4', '5']
+  effect_assessment: ['1', '2', '3', '4']
+  minimum_validation: ['1:baseline', '3', '4:conditional', '5', '1:retest']
+  unselected_services_hidden: true
+  service_1_two_round_pricing: true
+  service_4_conditional_pricing: true
+  unknown_price: 'pending'
+  artifact_kinds: ['quote_table', 'query_appendix', 'complete']
+approval_items:
+  - id: 'R01'
+    decision: 'pending'
+    summary: 'Approve five customer-visible service names and narratives.'
+  - id: 'R02'
+    decision: 'pending'
+    summary: 'Keep four columns; put unit × quantity and subtotal in the service-content cell.'
+  - id: 'R03'
+    decision: 'pending'
+    summary: 'Keep package names and execution order out of the customer document.'
+  - id: 'R04'
+    decision: 'pending'
+    summary: 'Represent service 1 baseline/retest as one row with quantity two rounds.'
+  - id: 'R05'
+    decision: 'pending'
+    summary: 'Use conditional service-4 wording and base/maximum totals for minimum validation.'
+  - id: 'R06'
+    decision: 'pending'
+    summary: 'Use literal pending for unapproved prices and 待实测 for unsupported evidence.'
+  - id: 'R07'
+    decision: 'pending'
+    summary: 'Derive three artifact kinds and hide appendix 3 when service 5 is unselected.'
+  - id: 'R08'
+    decision: 'pending'
+    summary: 'Freeze appendix narrative but make customer Query and measurement evidence controlled variables.'
+  - id: 'R09'
+    decision: 'pending'
+    summary: 'Allow page count to vary with selected appendices while geometry and typography stay frozen.'
+  - id: 'R10'
+    decision: 'pending'
+    summary: 'Remove hidden WPS device/user identifiers from V2 package metadata.'
+preview_artifacts:
+  - scenario: 'all_five_services'
+    docx: 'quotation-template-v2-proposed-all-five-services-redline.docx'
+    docx_sha256: '0a57d865a18c0552847e33cac15d208e553b644555191da954552080a0b51792'
+    pdf: 'quotation-template-v2-proposed-all-five-services-redline.pdf'
+    pdf_sha256: '30e830359a69432efd85a8dc23bc56dfd15672c7e45e320250e2010a6a2e0fe1'
+    pdf_pages: 6
+  - scenario: 'effect_assessment'
+    docx: 'quotation-template-v2-proposed-effect-assessment-redline.docx'
+    docx_sha256: '4537d95ff904813bf324382de2c016142eb6a492c5bc7b6a4169c1c59d3571e7'
+    pdf: 'quotation-template-v2-proposed-effect-assessment-redline.pdf'
+    pdf_sha256: '319fb65b0b0c0c37c02a96a52a1a5d335d2368e20d7bfcb9ab7c138fe968c820'
+    pdf_pages: 4
+  - scenario: 'minimum_validation'
+    docx: 'quotation-template-v2-proposed-minimum-validation-redline.docx'
+    docx_sha256: 'cd020f42ed9a05da663be695de9a7d9b3e8b1603fb5bfe485fa78519adb659a6'
+    pdf: 'quotation-template-v2-proposed-minimum-validation-redline.pdf'
+    pdf_sha256: '464066a1c783e9f913553d19d0845a86dec822fa943a59303301270b02d88ca0'
+    pdf_pages: 6
+visual_review:
+  status: 'passed_for_redline_review_only'
+  a4: true
+  no_table_overflow: true
+  no_clipping: true
+  no_overlap: true
+  no_orphan_heading: true
+  no_blank_page: true
+  production_acceptance: false

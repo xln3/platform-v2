@@ -1,0 +1,116 @@
+{
+  "schema_version": "quotation-template-structure-v1",
+  "template_id": "geo-quotation-v1",
+  "template_sha256": "90ae5beb10ab3bacea3b706a2068945f828e275784e99da6b72dc44f8b0d9913",
+  "package_part_sha256": {
+    "[Content_Types].xml": "ebf22547eb8292e095529e10cb7a9297f63d886b24eddc8222e99c64a1c9eef7",
+    "word/document.xml": "62fa6a5d0524e6714a6a7a0f29b7914cad3dcc9a277707180d1aa3ed56237a2f",
+    "word/footer1.xml": "78008fa24c7545075d9c9641530b9156be265510d9e18f0bdcc238c23dc01d7f",
+    "word/header1.xml": "028f1a29fcd0e908bbbf166a7158cbee28025d0a2d7d903086ee5f00a7089654",
+    "word/numbering.xml": "00450255d1febc5b7eff268c0c46ff52534108a22978bbef58b1930e65e1cce7",
+    "word/settings.xml": "a155a2987845550743ac61012e96efdb6094aab29248101066ecf1b9cf621536",
+    "word/styles.xml": "49b273664cda9988319a0dd9eeec113079b9d4413a75ba40bcbde09a009b6360"
+  },
+  "document": {
+    "section_count": 1,
+    "paragraph_count": 200,
+    "table_count": 2,
+    "page_count_reference": 6,
+    "page_size_twips": {
+      "width": 11906,
+      "height": 16838
+    },
+    "margins_twips": {
+      "top": 1020,
+      "right": 850,
+      "bottom": 1020,
+      "left": 850,
+      "header": 720,
+      "footer": 720
+    },
+    "column_count": 1,
+    "normal_style_east_asia_font": "宋体"
+  },
+  "anchors": {
+    "title": "GEO验证服务报价单",
+    "metadata_pattern": "{customer_name}      报价日期：{quotation_date}     报价有效期：30个工作日",
+    "header": "本报价为保密商业资料，未经出具方书面同意，禁止对外泄露、转发。报价仅供本次合作评估使用。",
+    "footer": {
+      "kind": "anchored_textbox_page_field",
+      "field_instruction": "PAGE  \\* MERGEFORMAT",
+      "visual_position_contract": "preserve the original anchored textbox and field position; do not normalize it to geometric page center"
+    },
+    "signature": "报价人：__________________　　　　　　　　公司：北京硅基守望科技有限公司"
+  },
+  "main_table": {
+    "rows": 6,
+    "columns": 4,
+    "headers": ["序号", "服务项目", "服务内容", "价格"],
+    "service_names": [
+      "品牌GEO推荐结果评测",
+      "品牌GEO内容生态风险核查",
+      "官网内容AI引用能效评估",
+      "GEO试点与效果验证"
+    ],
+    "total_label": "合计",
+    "style": "Table Grid",
+    "header_fill": "F0F0F0"
+  },
+  "commercial_terms": [
+    "1. 本报价有效期为30个工作日，生效日期以报价日期为准。贵单位确认后，我司将以报价产品或服务的相关价格签订合同。",
+    "2. 因AI平台算法更迭频繁，如项目在服务过程中因平台算法等调整无法按照既定方案执行，双方需签订补充协议对内容进行调整，并通过电话或邮件等方式进行确认。",
+    "3. 因涉及行业及品类的专业性与合规性，相关产品或服务的内容基础材料均来源于品牌方，我方基于品牌方提供内容进行评测。",
+    "4. 特定情况：（1）合作期间品牌方出现重大舆情事件，需重新评估合作及相关费用；（2）品牌方因自身原因需中途更新评测问题集的，需重新评估费用。",
+    "5. 本报价单及附件内价格、方案、技术参数、商务条件均为我方保密商业信息。收件方仅可用于本次项目内部评审，不得向外部第三方、竞品、其他合作方进行披露、转发、摘抄。如因贵方泄密造成我方损失，我方有权取消本次报价效力并追究相关责任。本保密义务在报价失效后仍然持续有效。"
+  ],
+  "appendices": [
+    {
+      "order": 1,
+      "title": "附录一 Query优化方案说明",
+      "required_sections": ["一、优化目标", "二、优化方法论", "三、优化示例", "四、优化效果展示"]
+    },
+    {
+      "order": 2,
+      "title": "附录二 原推广Query与变体构建说明",
+      "subtitle": "核心检索问题库与语义变体",
+      "query_group_count": 18,
+      "required_variants": ["A", "B", "C"]
+    },
+    {
+      "order": 3,
+      "title": "附录三 新增Query优化与语义变体全表",
+      "query_group_count": 16,
+      "required_variants": ["A", "B", "C"]
+    }
+  ],
+  "body_order": [
+    "title",
+    "metadata",
+    "main_table",
+    "commercial_terms",
+    "signature",
+    "page_break",
+    "appendix_1",
+    "page_break",
+    "appendix_2",
+    "page_break",
+    "appendix_3",
+    "section_properties"
+  ],
+  "unauthorized_sections": [
+    "套餐副标题",
+    "执行顺序",
+    "商务口径",
+    "服务输入、执行与交付说明",
+    "单独的查询附件封面"
+  ],
+  "package_metadata": {
+    "core_properties_present": true,
+    "wps_custom_properties_present": true,
+    "privacy_note": "V1 exact-copy retains source package metadata. Removing embedded WPS device/user identifiers in V2 is a package-level redline requiring approval."
+  },
+  "visual_risks": [
+    "The main table grid is 10196 twips wide inside a 10206-twip text area, leaving no physical room for extra columns without reflow.",
+    "V1 reference page 5 leaves about 7.1 points between the lowest body text and the rendered page-number textbox; pagination is sensitive to text growth."
+  ]
+}

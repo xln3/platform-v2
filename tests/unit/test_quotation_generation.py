@@ -405,7 +405,7 @@ def test_llm_payload_rejects_unverified_effect_numbers() -> None:
         plan_from_payload(payload, queries=queries, model="fixture-model")
 
 
-def test_renderer_keeps_reference_layout_and_honest_measurement_wording() -> None:
+def test_legacy_renderer_marks_noncompliance_and_avoids_unsupported_measurements() -> None:
     queries = _queries()
     plan = plan_from_payload(_llm_payload(queries), queries=queries, model="fixture-model")
     payload = render_quotation_docx(
@@ -458,6 +458,7 @@ def test_renderer_keeps_reference_layout_and_honest_measurement_wording() -> Non
         footer = archive.read("word/footer1.xml").decode()
         document_xml = archive.read("word/document.xml").decode()
     assert "本报价为保密商业资料" in header
+    assert "非最终模板合规产物·仅供内部回归" in header
     assert " PAGE " in footer
     assert document_xml.count('w:type="page"') >= 2
 
@@ -483,7 +484,9 @@ def test_service_runs_one_pipeline_and_returns_integrity_metadata() -> None:
         runner=runner,
     )
     assert len(calls) == 1
-    assert result.metadata.filename == "报价单-盛邦安全-GEO效果评测-20260810.docx"
+    assert (
+        result.metadata.filename == "非最终模板合规产物-报价单-盛邦安全-GEO效果评测-20260810.docx"
+    )
     assert result.metadata.artifact_kind == "complete"
     assert result.metadata.total_price_cents == 5_000_000
     assert result.metadata.maximum_total_price_cents == 5_000_000
@@ -511,7 +514,10 @@ def test_quote_table_artifact_skips_llm_and_excludes_all_appendices() -> None:
     )
     assert result.plan is None
     assert result.metadata.artifact_kind == "quote_table"
-    assert result.metadata.filename == "报价单-盛邦安全-GEO效果评测-报价单表格-20260820.docx"
+    assert (
+        result.metadata.filename
+        == "非最终模板合规产物-报价单-盛邦安全-GEO效果评测-报价单表格-20260820.docx"
+    )
     assert result.metadata.target_query_count == 20
     assert result.metadata.query_appendix_included is False
     document = Document(BytesIO(result.payload))
@@ -520,6 +526,7 @@ def test_quote_table_artifact_skips_llm_and_excludes_all_appendices() -> None:
     text = "\n".join(paragraph.text for paragraph in document.paragraphs)
     assert len(document.tables) == 1
     assert "GEO 服务报价单" in text
+    assert "非最终模板合规产物（仅供内部回归，禁止作为正式客户报价）" in text
     assert "附录一 服务输入、执行与交付说明" not in text
     assert "原推广 Query 与变体构建说明" not in text
 
@@ -543,7 +550,10 @@ def test_query_appendix_artifact_contains_only_query_sections() -> None:
     )
     assert result.plan is not None
     assert result.metadata.artifact_kind == "query_appendix"
-    assert result.metadata.filename == "报价单-盛邦安全-GEO效果评测-查询附件-20260820.docx"
+    assert (
+        result.metadata.filename
+        == "非最终模板合规产物-报价单-盛邦安全-GEO效果评测-查询附件-20260820.docx"
+    )
     assert result.metadata.query_appendix_included is True
     document = Document(BytesIO(result.payload))
     assert document.core_properties.title == "盛邦安全 已开展 GEO · 效果评测查询附件"
@@ -554,6 +564,7 @@ def test_query_appendix_artifact_contains_only_query_sections() -> None:
     assert "报价日期：2026-08-20" in text
     assert "附录一 原推广 Query 与变体构建说明" in text
     assert "GEO 服务报价单" not in text
+    assert "非最终模板合规产物（仅供内部回归，禁止作为正式客户报价）" in text
     assert "服务输入、执行与交付说明" not in text
     with ZipFile(BytesIO(result.payload)) as archive:
         document_xml = archive.read("word/document.xml").decode()
@@ -694,6 +705,7 @@ def test_generate_api_returns_named_no_store_docx(
     assert response.headers["x-quotation-total-cents"] == "5000000"
     assert response.headers["x-quotation-maximum-total-cents"] == "5000000"
     assert response.headers["x-quotation-query-appendix"] == "included"
+    assert response.headers["x-quotation-template-compliance"] == "non-final-template"
     assert "UTF-8''" in response.headers["content-disposition"]
     exposed = {
         value.strip().lower()
@@ -705,4 +717,5 @@ def test_generate_api_returns_named_no_store_docx(
         "x-quotation-total-cents",
         "x-quotation-maximum-total-cents",
         "x-quotation-sha256",
+        "x-quotation-template-compliance",
     } <= exposed

@@ -1,7 +1,7 @@
-"""确定性 GEO 报价单 DOCX renderer。
+"""Legacy GEO 报价 DOCX renderer（仅供内部回归）。
 
-版心、字号、表格、页眉页脚和商务措辞均由代码固定；动态内容只能来自已校验的
-QuotationPlan。布局参数按 ``client-sbaq/报价单-盛邦-final(2).docx`` 逐项复刻。
+该 renderer 仍从空白 ``Document()`` 构造文档，并不符合用户最终批准模板。Phase A
+保留它只为回归现有五服务业务逻辑；所有产物必须带醒目的非合规标识，禁止作为正式客户报价。
 """
 
 from __future__ import annotations
@@ -35,6 +35,8 @@ from .models import (
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 ISSUER_COMPANY = "北京硅基守望科技有限公司"
 VALID_WORKING_DAYS = 30
+TEMPLATE_COMPLIANCE = "non-final-template"
+NON_FINAL_TEMPLATE_NOTICE = "非最终模板合规产物（仅供内部回归，禁止作为正式客户报价）"
 
 _FONT = "宋体"
 _BLACK = RGBColor(0x00, 0x00, 0x00)
@@ -445,6 +447,12 @@ def _configure_page(document: DocumentObject) -> None:
     paragraph = header.paragraphs[0]
     paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
     _paragraph_spacing(paragraph, line=1.0)
+    _style_run(
+        paragraph.add_run("【非最终模板合规产物·仅供内部回归】\n"),
+        size=8.0,
+        bold=True,
+        color=RGBColor(0xC0, 0x00, 0x00),
+    )
     _style_run(
         paragraph.add_run(
             "本报价为保密商业资料，未经出具方书面同意，禁止对外泄露、转发。"
@@ -1097,7 +1105,7 @@ def render_quotation_docx(
     configuration: QuotationConfiguration,
     plan: QuotationPlan | None,
 ) -> bytes:
-    """按固定模板渲染可直接下载的 DOCX bytes。"""
+    """用 legacy 空白文档版式渲染仅供内部回归的 DOCX bytes。"""
     document = Document()
     _configure_styles(document)
     _configure_page(document)
@@ -1114,13 +1122,26 @@ def render_quotation_docx(
         "query_appendix": "GEO 查询附件",
     }[configuration.artifact_kind]
     document.core_properties.author = ISSUER_COMPANY
-    document.core_properties.comments = "由 GEO 报价单生成服务生成；报价阶段未包含平台实测结果。"
+    document.core_properties.comments = (
+        f"{NON_FINAL_TEMPLATE_NOTICE}；由 legacy GEO 报价单生成服务生成；"
+        "报价阶段未包含平台实测结果。"
+    )
     # Core properties describe the quotation's effective document date, not the
     # wall-clock render time. Midnight keeps the date deterministic and avoids a
     # future local timestamp when OOXML serializes the naive value as UTC.
     document_timestamp = datetime.combine(quote_date, time())
     document.core_properties.created = document_timestamp
     document.core_properties.modified = document_timestamp
+
+    _add_text_paragraph(
+        document,
+        NON_FINAL_TEMPLATE_NOTICE,
+        size=10.5,
+        bold=True,
+        align=WD_ALIGN_PARAGRAPH.CENTER,
+        after=4,
+        color=RGBColor(0xC0, 0x00, 0x00),
+    )
 
     if configuration.artifact_kind == "quote_table":
         _add_cover(document, brand_name, quote_date, configuration)
