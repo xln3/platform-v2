@@ -14,7 +14,7 @@ from io import BytesIO
 from pathlib import PurePosixPath
 from zipfile import BadZipFile, ZipFile
 
-from lxml import etree  # type: ignore[import-untyped]
+from lxml import etree
 
 from .models import TargetQuery, normalize_text
 
