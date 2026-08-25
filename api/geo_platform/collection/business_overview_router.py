@@ -254,6 +254,16 @@ def _escape_like(value: str) -> str:
 BUSINESS_OVERVIEW_SQL = """
 WITH request_clock AS (
   SELECT CAST(:as_of AS timestamptz) AS as_of
+), customer_association_guard AS MATERIALIZED (
+  SELECT EXISTS (
+    SELECT 1
+    FROM platform.project project
+    LEFT JOIN platform.customer customer
+      ON customer.id=project.customer_id
+     AND customer.tenant_id=project.tenant_id
+    WHERE project.tenant_id=:tenant_id
+      AND customer.id IS NULL
+  ) AS invalid_customer_association
 ), project_base AS (
   SELECT project.id AS project_id, project.pub_id AS project_pub_id,
          project.name AS project_name, project.state AS project_state,
@@ -492,6 +502,7 @@ WITH request_clock AS (
   LIMIT :fetch_limit
 )
 SELECT clock.as_of,
+       guard.invalid_customer_association,
        (SELECT count(*)::integer FROM project_base) AS tenant_project_count,
        jsonb_build_object(
          'project_count',summary.project_count,
@@ -546,7 +557,7 @@ SELECT clock.as_of,
            ) ORDER BY page.last_business_fact_at DESC,page.project_pub_id DESC
          ) FROM page_candidates page
        ),'[]'::jsonb) AS items
-FROM request_clock clock CROSS JOIN summary
+FROM request_clock clock CROSS JOIN summary CROSS JOIN customer_association_guard guard
 """
 
 
@@ -618,6 +629,12 @@ def get_operations_business_overview(
         )
     )
     row = session.execute(statement, parameters).mappings().one()
+    if bool(row["invalid_customer_association"]):
+        raise HTTPException(
+            status_code=503,
+            detail={"code": "business_overview_data_integrity_failed"},
+            headers={"Cache-Control": "private, no-store", "Vary": "Cookie, Authorization"},
+        )
     raw_items = list(row["items"] or [])
     has_more = len(raw_items) > limit
     visible_items: list[BusinessOverviewItem] = []

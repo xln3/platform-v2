@@ -5,15 +5,34 @@ import os
 import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
+from urllib.parse import urlsplit
 
 import psycopg
+import pytest
 from fastapi.testclient import TestClient
 from geo_platform.main import app
 from geo_platform.tenancy.ids import new_pub_id
 
-POSTGRES_DSN = os.getenv(
-    "S02_POSTGRES_DSN", "postgresql://geo:geo_dev_only@127.0.0.1:55433/geo_platform"
+TEST_DATABASE_URL = os.getenv("S01_BUSINESS_OVERVIEW_POSTGRES_DSN")
+if TEST_DATABASE_URL is None:
+    pytest.skip(
+        "set S01_BUSINESS_OVERVIEW_POSTGRES_DSN to an isolated database",
+        allow_module_level=True,
+    )
+POSTGRES_DSN = TEST_DATABASE_URL.replace("postgresql+psycopg://", "postgresql://", 1)
+effective_application_dsn = os.getenv("GEO_POSTGRES_DSN", "").replace(
+    "postgresql+psycopg://", "postgresql://", 1
 )
+parsed_test_dsn = urlsplit(POSTGRES_DSN)
+if (
+    parsed_test_dsn.hostname not in {"127.0.0.1", "localhost"}
+    or parsed_test_dsn.path.removeprefix("/").startswith("geo_platform_s01_") is False
+    or effective_application_dsn != POSTGRES_DSN
+):
+    raise RuntimeError(
+        "business overview integration tests require matching GEO_POSTGRES_DSN and an "
+        "isolated geo_platform_s01_* database"
+    )
 OVERVIEW_PATH = "/api/v2/operations/business-overview"
 
 
@@ -475,6 +494,63 @@ def test_business_overview_paginates_filters_and_isolates_tenants() -> None:
     )
     assert client.get(OVERVIEW_PATH, headers=headers, params={"q": "x" * 121}).status_code == 422
     assert tenant_pub_id not in first.text
+
+
+def test_business_overview_fails_closed_for_cross_tenant_customer_association() -> None:
+    client = TestClient(app)
+    marker = secrets.token_hex(7)
+    tenant_pub_id, _actor, headers = _bootstrap(client, marker)
+    project_pub_id = _create_project(
+        client,
+        headers,
+        name="关联完整性项目",
+        customer_name="关联完整性客户",
+    )
+    _foreign_tenant, _foreign_actor, foreign_headers = _bootstrap(client, "foreign-" + marker)
+    foreign_project_pub_id = _create_project(
+        client,
+        foreign_headers,
+        name="隔离客户项目",
+        customer_name="不得泄露的隔离客户",
+    )
+
+    with psycopg.connect(POSTGRES_DSN) as connection:
+        own_row = connection.execute(
+            "SELECT id,customer_id FROM platform.project WHERE pub_id=%s",
+            (project_pub_id,),
+        ).fetchone()
+        foreign_row = connection.execute(
+            "SELECT customer_id FROM platform.project WHERE pub_id=%s",
+            (foreign_project_pub_id,),
+        ).fetchone()
+    assert own_row is not None and foreign_row is not None
+    project_id, original_customer_id = own_row
+    foreign_customer_id = foreign_row[0]
+
+    try:
+        with psycopg.connect(POSTGRES_DSN) as connection:
+            connection.execute(
+                "UPDATE platform.project SET customer_id=%s WHERE id=%s",
+                (foreign_customer_id, project_id),
+            )
+        response = client.get(OVERVIEW_PATH, headers=headers)
+        assert response.status_code == 503
+        assert response.json()["error"] == {
+            "code": "business_overview_data_integrity_failed",
+            "message": "business overview data integrity failed",
+            "request_id": response.json()["error"]["request_id"],
+            "details": {},
+        }
+        assert response.headers["cache-control"] == "private, no-store"
+        assert response.headers["vary"] == "Cookie, Authorization"
+        assert tenant_pub_id not in response.text
+        assert "不得泄露的隔离客户" not in response.text
+    finally:
+        with psycopg.connect(POSTGRES_DSN) as connection:
+            connection.execute(
+                "UPDATE platform.project SET customer_id=%s WHERE id=%s",
+                (original_customer_id, project_id),
+            )
 
 
 def test_business_overview_uses_a_dedicated_internal_role_permission() -> None:
