@@ -600,20 +600,9 @@ function ProjectIdentity({ item }: { item: OperationsBusinessOverviewItem }) {
   const projectHref = safeProjectId(item.project.id)
     ? `/platform/operations/sop/projects/${encodeURIComponent(item.project.id)}`
     : null;
-  const customerWorkspaceHref = safeProjectId(item.project.id)
-    ? `/platform/operations/onboarding?project=${encodeURIComponent(item.project.id)}`
-    : null;
   return (
     <div className="business-project-identity">
-      <span className="business-customer-name">
-        {customerWorkspaceHref ? (
-          <a className="business-customer-link" href={customerWorkspaceHref}>
-            {item.customer.name}
-          </a>
-        ) : (
-          item.customer.name
-        )}
-      </span>
+      <span className="business-customer-name">{item.customer.name}</span>
       {projectHref ? (
         <a href={projectHref}>{item.project.name}</a>
       ) : (
@@ -744,12 +733,11 @@ function AttentionFact({ item }: { item: OperationsBusinessOverviewItem }) {
 function attentionHref(code: BusinessOverviewAttentionCode, projectId: string): string | null {
   if (!safeProjectId(projectId) || code === 'no_current_attention') return null;
   const encoded = encodeURIComponent(projectId);
-  if (code === 'collection_failed_or_delayed')
-    return `/platform/operations/execution?project=${encoded}`;
+  if (code === 'collection_failed_or_delayed') return '/platform/operations/execution';
   if (code.startsWith('formal_') || code === 'delivery_confirmation_required') {
     return `/platform/operations/formal-reports?project=${encoded}`;
   }
-  return `/platform/operations/onboarding?project=${encoded}`;
+  return null;
 }
 
 const allowsBusinessOverviewFixtures =

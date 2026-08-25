@@ -34,6 +34,16 @@ describe('Operations business overview', () => {
 
     expect(await screen.findByRole('heading', { name: '项目组合' })).toBeTruthy();
     expect(screen.getAllByText('华东品牌增长').length).toBeGreaterThan(0);
+    expect(screen.queryByRole('link', { name: '星河科技' })).toBeNull();
+    expect(
+      screen
+        .getAllByRole('link', { name: '华东品牌增长' })
+        .every(
+          (link) =>
+            link.getAttribute('href') ===
+            '/platform/operations/sop/projects/prj_fixture_business_05',
+        ),
+    ).toBe(true);
     expect(screen.queryByText('历史项目归档')).toBeNull();
     expect(screen.getAllByText('报告已签发').length).toBeGreaterThan(0);
     expect(screen.queryByText('合同已签')).toBeNull();
