@@ -19,115 +19,167 @@
 - 青色粗实线：持久化事实、证据、命令和交付物。
 - 灰白色长虚线：分阶段能力或目标能力。
 
-主图负责展示完整部署结构。主图通过固定列对齐和关系索引表达跨层协作，不绘制连接线。完整的逐节点依赖集中放在后面的跨层审计图和四张局部放大图中。各图使用一致的颜色。主图使用中文能力名；局部图保留实现名，便于开发者定位代码。
+主图负责展示完整部署结构。标题带说明系统定位。规模带展示六项代码与生产审计数据。五组层级色带区分人员与入口、平台核心、耐久执行、外部测量、数据与运行保障。主图通过固定列对齐和关系索引表达跨层协作，不绘制连接线。完整的逐节点依赖集中放在后面的跨层审计图和四张局部放大图中。主图使用中文能力名；局部图保留实现名，便于开发者定位代码。
 
-版面采用紧凑密度：主图网格间距为 1px，文字行高为 1.05，状态与组件名合并为单行；关系图节点内边距为 4px，同层间距为 10–12px，跨层间距为 20–24px。
+版面采用展示型紧凑密度：主图网格间距为 3px，文字行高为 1.15，正文字号为 15px，状态与组件名合并为单行；每个部署层使用统一的两行组件网格；关系图节点内边距为 4px，同层间距为 10–12px，跨层间距为 20–24px。
 
 ## 主图：八层部署结构
 
 ~~~mermaid
 %%{init: {
   "theme": "base",
-  "block": {"padding": 1},
-  "themeCSS": ".nodeLabel p { line-height: 1.05 !important; margin: 0 !important; } .label foreignObject div { line-height: 1.05 !important; }",
+  "block": {"padding": 3},
+  "themeCSS": ".nodeLabel p { line-height: 1.15 !important; margin: 0 !important; } .label foreignObject div { line-height: 1.15 !important; }",
   "themeVariables": {
     "fontFamily": "Inter, Noto Sans SC, Microsoft YaHei, sans-serif",
-    "fontSize": "13px",
+    "fontSize": "15px",
     "lineColor": "#475569"
   }
 }}%%
 block-beta
-    columns 18
+    columns 12
+
+    TITLE["GEO 企业级生成式 AI 测量、分析与交付平台"]:12
+
+    SCALE_1["5 个角色化工作台"]:2
+    SCALE_2["24 个业务功能模块"]:2
+    SCALE_3["262 条接口路径"]:2
+    SCALE_4["173 张生产业务表"]:2
+    SCALE_5["8 个工作流 · 33 个执行活动"]:2
+    SCALE_6["6 个后台执行入口"]:2
 
     H1["01 使用人员与 AI 工具"]:2
-    CUSTOMER["客户"]:3
-    INVITEE["受邀填报人"]:3
-    OPERATOR["运营人员"]:2
-    QUOTATION_SKILL["AI 报价工具"]:2
-    DIAGRAM_SKILL["AI 流程图工具"]:2
-    ANALYST["分析人员"]:2
-    REVIEWER["报告审核人员"]:2
+    block:L1:10
+        columns 4
+        CUSTOMER["客户"]
+        INVITEE["受邀填报人"]
+        OPERATOR["运营人员"]
+        ADMIN["系统管理员"]
+        ANALYST["分析人员"]
+        REVIEWER["报告审核人员"]
+        QUOTATION_SKILL["AI 报价工具"]
+        DIAGRAM_SKILL["AI 流程图工具"]
+    end
 
     H2["02 使用入口与交付"]:2
-    CUSTOMER_WEB["客户工作台"]:2
-    TERMINAL_EXTENSION["浏览器扩展【部分完成】"]:2
-    INTAKE_FORM["客户资料填报"]:2
-    OPERATIONS_WEB["运营管理台"]:2
-    COMMERCIAL_DOCS["报价单与报价说明书"]:2
-    FLOW_DOC["流程图"]:2
-    INTELLIGENCE_WEB["分析工作台"]:2
-    REPORT_STUDIO["报告制作台"]:2
+    block:L2:10
+        columns 4
+        CUSTOMER_WEB["客户工作台"]
+        INTAKE_FORM["客户资料填报"]
+        OPERATIONS_WEB["运营管理台"]
+        INTELLIGENCE_WEB["分析工作台"]
+        REPORT_STUDIO["报告制作台"]
+        TERMINAL_EXTENSION["浏览器扩展【部分完成】"]
+        COMMERCIAL_DOCS["报价单与报价说明书"]
+        FLOW_DOC["流程图"]
+    end
 
     H3A["03A 访问路由"]:2
-    CUSTOMER_EDGE["客户路由策略"]:4
-    AUXILIARY_EDGE["扩展程序路由"]:4
-    INTAKE_EDGE["填报邀请路由"]:4
-    MANAGEMENT_EDGE["内部管理路由"]:4
+    block:L3A:10
+        columns 2
+        CUSTOMER_EDGE["客户路由策略"]
+        INTAKE_EDGE["填报邀请路由"]
+        MANAGEMENT_EDGE["内部管理路由"]
+        AUXILIARY_EDGE["扩展程序路由"]
+    end
 
     H3B["03B 网络与权限"]:2
-    TLS["加密访问入口"]:3
-    ROUTING["域名与页面路由"]:3
-    RATE_LIMIT["请求限流"]:3
-    HEADER_CLEAN["身份信息清洗"]:3
-    APPLICATION_AUTH["登录与权限校验"]:4
+    block:L3B:10
+        columns 3
+        TLS["加密访问入口"]
+        ROUTING["域名与页面路由"]
+        RATE_LIMIT["请求限流"]
+        HEADER_CLEAN["身份信息清洗"]
+        APPLICATION_AUTH["登录与权限校验"]
+        SCOPE_CHECK_MAIN["客户与项目范围校验"]
+    end
 
     H4["04 后端业务服务"]:2
-    PROJECT_PLANE["项目、合同与报价"]:3
-    COLLECTION_PLANE["问答采集与证据"]:3
-    ANALYSIS_PLANE["分析与五项服务"]:3
-    DELIVERY_PLANE["报告与客户数据"]:3
-    API_APP["后端统一入口"]:4
+    block:L4:10
+        columns 3
+        API_APP["后端统一入口"]
+        IDENTITY_PLANE["身份、租户与审计"]
+        PROJECT_PLANE["项目、合同与报价"]
+        COLLECTION_PLANE["问答采集与证据"]
+        ANALYSIS_PLANE["分析与五项服务"]
+        DELIVERY_PLANE["报告与客户数据"]
+    end
 
     H5A["05A 任务指令与调度"]:2
-    SCHEDULER["定时任务【已实现】"]:2
-    SIGNAL_COMMAND["暂停、继续与取消指令"]:3
-    DOMAIN_EVENT["业务事件"]:3
-    TEMPORAL["工作流调度中心"]:3
-    OUTBOX_WORKER["可靠任务派发"]:2
-    START_COMMAND["启动任务指令"]:3
+    block:L5A:10
+        columns 3
+        SCHEDULER["定时任务【已实现】"]
+        START_COMMAND["启动任务指令"]
+        SIGNAL_COMMAND["暂停、继续与取消指令"]
+        DOMAIN_EVENT["业务事件"]
+        OUTBOX_WORKER["可靠任务派发"]
+        TEMPORAL["工作流调度中心"]
+    end
 
     H5B["05B 后台执行程序"]:2
-    SOURCE_WORKER["引用网页抓取"]:4
-    ANALYSIS_WORKER["分析计算"]:4
-    COLLECTION_WORKER["网页问答采集【已实现并实跑】"]:4
-    S02_WORKER["专业服务与报告生成"]:4
+    block:L5B:10
+        columns 2
+        SOURCE_WORKER["引用网页抓取"]
+        ANALYSIS_WORKER["分析计算"]
+        COLLECTION_WORKER["网页问答采集【已实现并实跑】"]
+        S02_WORKER["专业服务与报告生成"]
+    end
 
     H6A["06A 采集资源与程序"]:2
-    PROVIDER_ADAPTER["模型接口采集器【待接入】"]:3
-    APP_ADAPTER["手机应用采集器【待实现】"]:3
-    TYPED_GRANT["新版授权【分阶段建设】"]:2
-    V1_GOVERNANCE["现行账号与浏览器管理"]:2
-    EXECUTION_CONTEXT["受控浏览器会话"]:3
-    WEB_ADAPTER["真实网页采集器【五平台已实跑】"]:3
+    block:L6A:10
+        columns 3
+        PROVIDER_ADAPTER["模型接口采集器【待接入】"]
+        APP_ADAPTER["手机应用采集器【待实现】"]
+        TYPED_GRANT["新版授权【分阶段建设】"]
+        V1_GOVERNANCE["现行账号与浏览器管理"]
+        EXECUTION_CONTEXT["受控浏览器会话"]
+        WEB_ADAPTER["五平台网页采集【已实跑】"]
+    end
 
     H6B["06B 外部问答渠道"]:2
-    MODEL_API["模型服务接口"]:2
-    CONSUMER_APP["消费级 AI 手机应用"]:2
-    PUBLIC_WEB["引用页面与客户官网"]:2
-    RUNTIME_AI["产品内 AI 处理"]:2
-    MODEL_GATEWAY["模型调用控制"]:2
-    RUNTIME_MODEL["外部 AI 模型服务"]:3
-    CONSUMER_WEB["消费级 AI 网页"]:3
+    block:L6B:10
+        columns 4
+        MODEL_API["模型服务接口"]
+        CONSUMER_APP["消费级 AI 手机应用"]
+        PUBLIC_WEB["引用页面与客户官网"]
+        CONSUMER_WEB["豆包 · DeepSeek · 文心 · 通义 · 元宝"]
+        RUNTIME_AI["产品内 AI 处理"]
+        MODEL_GATEWAY["模型调用控制"]
+        RUNTIME_MODEL["外部 AI 模型服务"]
+        HUMAN_TAKEOVER["人工同会话接管"]
+    end
 
     H7["07 数据与证据"]:2
-    OBJECT_STORE["不可变证据库"]:2
-    CLICKHOUSE["统计分析库"]:2
-    REDIS["缓存与短期协调"]:2
-    TEMPORAL_PG["工作流历史库"]:2
-    VAULT["密钥与敏感数据加密"]:2
-    RLS["业务数据按客户隔离"]:2
-    POSTGRES["业务事实库"]:2
-    SAFE_PROJECTION["客户可见数据"]:2
+    block:L7:10
+        columns 4
+        POSTGRES["业务事实库"]
+        OBJECT_STORE["不可变证据库"]
+        CLICKHOUSE["统计分析库"]
+        SAFE_PROJECTION["客户可见数据"]
+        REDIS["缓存与短期协调"]
+        TEMPORAL_PG["工作流历史库"]
+        VAULT["密钥与敏感数据加密"]
+        RLS["业务数据按客户隔离"]
+    end
 
     H8["08 运行保障"]:2
-    TRACE_PIPELINE["请求过程监测"]:2
-    METRIC_LOG_PIPELINE["指标与日志"]:2
-    ALERT_PIPELINE["告警与飞书通知"]:3
-    BACKUP_PIPELINE["备份与恢复演练"]:3
-    RELEASE_PIPELINE["测试、发布与回滚"]:3
-    MEDIA_REFRESH["媒体价格更新"]:3
+    block:L8:10
+        columns 3
+        TRACE_PIPELINE["请求过程监测"]
+        METRIC_LOG_PIPELINE["指标与日志"]
+        ALERT_PIPELINE["告警与飞书通知"]
+        BACKUP_PIPELINE["备份与恢复演练"]
+        RELEASE_PIPELINE["测试、发布与回滚"]
+        MEDIA_REFRESH["媒体价格更新"]
+    end
 
-    classDef header fill:#dbeafe,stroke:#1e3a8a,color:#0f172a,stroke-width:2.4px;
+    classDef headerInteraction fill:#ecfdf5,stroke:#047857,color:#064e3b,stroke-width:2.4px,font-weight:700;
+    classDef headerPlatform fill:#dbeafe,stroke:#1e40af,color:#172554,stroke-width:2.4px,font-weight:700;
+    classDef headerExecution fill:#ede9fe,stroke:#6d28d9,color:#4c1d95,stroke-width:2.4px,font-weight:700;
+    classDef headerMeasurement fill:#ffedd5,stroke:#c2410c,color:#7c2d12,stroke-width:2.4px,font-weight:700;
+    classDef headerFoundation fill:#cffafe,stroke:#0e7490,color:#164e63,stroke-width:2.4px,font-weight:700;
+    classDef title fill:#0f3d5e,stroke:#082f49,color:#ffffff,stroke-width:3px,font-size:18px,font-weight:700;
+    classDef scale fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e,stroke-width:1.8px,font-weight:600;
     classDef customer fill:#ecfdf3,stroke:#16a34a,color:#14532d,stroke-width:2px;
     classDef human fill:#fff7e6,stroke:#d97706,color:#78350f,stroke-width:2px;
     classDef skill fill:#f3e8ff,stroke:#7e22ce,color:#581c87,stroke-width:2.2px,stroke-dasharray:6 3;
@@ -137,15 +189,21 @@ block-beta
     classDef fact fill:#ecfeff,stroke:#0891b2,color:#164e63,stroke-width:2.6px;
     classDef target fill:#ffffff,stroke:#64748b,color:#334155,stroke-width:1.8px,stroke-dasharray:8 4;
 
-    class H1,H2,H3A,H3B,H4,H5A,H5B,H6A,H6B,H7,H8 header
+    class TITLE title
+    class SCALE_1,SCALE_2,SCALE_3,SCALE_4,SCALE_5,SCALE_6 scale
+    class H1,H2 headerInteraction
+    class H3A,H3B,H4 headerPlatform
+    class H5A,H5B headerExecution
+    class H6A,H6B headerMeasurement
+    class H7,H8 headerFoundation
     class CUSTOMER,INVITEE customer
-    class OPERATOR,ANALYST,REVIEWER human
+    class OPERATOR,ADMIN,ANALYST,REVIEWER,HUMAN_TAKEOVER human
     class QUOTATION_SKILL,DIAGRAM_SKILL skill
     class RUNTIME_AI runtime
     class MODEL_API,CONSUMER_WEB,PUBLIC_WEB,CONSUMER_APP,RUNTIME_MODEL external
     class TYPED_GRANT,PROVIDER_ADAPTER,APP_ADAPTER,TERMINAL_EXTENSION target
     class COMMERCIAL_DOCS,FLOW_DOC,START_COMMAND,SIGNAL_COMMAND,DOMAIN_EVENT,POSTGRES,OBJECT_STORE,CLICKHOUSE,REDIS,TEMPORAL_PG,SAFE_PROJECTION fact
-    class CUSTOMER_WEB,INTAKE_FORM,OPERATIONS_WEB,INTELLIGENCE_WEB,REPORT_STUDIO,CUSTOMER_EDGE,INTAKE_EDGE,MANAGEMENT_EDGE,AUXILIARY_EDGE,TLS,ROUTING,RATE_LIMIT,HEADER_CLEAN,APPLICATION_AUTH,API_APP,PROJECT_PLANE,COLLECTION_PLANE,ANALYSIS_PLANE,DELIVERY_PLANE,SCHEDULER,OUTBOX_WORKER,TEMPORAL,COLLECTION_WORKER,SOURCE_WORKER,ANALYSIS_WORKER,S02_WORKER,V1_GOVERNANCE,EXECUTION_CONTEXT,WEB_ADAPTER,MODEL_GATEWAY,RLS,VAULT,TRACE_PIPELINE,METRIC_LOG_PIPELINE,ALERT_PIPELINE,BACKUP_PIPELINE,RELEASE_PIPELINE,MEDIA_REFRESH software
+    class CUSTOMER_WEB,INTAKE_FORM,OPERATIONS_WEB,INTELLIGENCE_WEB,REPORT_STUDIO,CUSTOMER_EDGE,INTAKE_EDGE,MANAGEMENT_EDGE,AUXILIARY_EDGE,TLS,ROUTING,RATE_LIMIT,HEADER_CLEAN,APPLICATION_AUTH,SCOPE_CHECK_MAIN,API_APP,IDENTITY_PLANE,PROJECT_PLANE,COLLECTION_PLANE,ANALYSIS_PLANE,DELIVERY_PLANE,SCHEDULER,OUTBOX_WORKER,TEMPORAL,COLLECTION_WORKER,SOURCE_WORKER,ANALYSIS_WORKER,S02_WORKER,V1_GOVERNANCE,EXECUTION_CONTEXT,WEB_ADAPTER,MODEL_GATEWAY,RLS,VAULT,TRACE_PIPELINE,METRIC_LOG_PIPELINE,ALERT_PIPELINE,BACKUP_PIPELINE,RELEASE_PIPELINE,MEDIA_REFRESH software
 
 ~~~
 
@@ -155,10 +213,10 @@ block-beta
 
 | 关系 | 使用者与入口 | 网络与业务服务 | 调度与执行 | 外部资源或 AI | 事实与交付 |
 | --- | --- | --- | --- | --- | --- |
-| 客户访问与数据发布 | 客户；客户工作台 | 客户路由；加密入口；登录与权限；后端统一入口 | 客户数据发布 | — | 业务事实库；客户可见数据 |
+| 客户访问与数据发布 | 客户；客户工作台 | 客户路由；加密入口；登录与权限；客户与项目范围校验；后端统一入口 | 客户数据发布 | — | 业务事实库；客户可见数据 |
 | 受邀资料填报 | 受邀填报人；客户资料填报 | 填报邀请路由；登录与权限；项目、合同与报价 | 业务事件 | — | 业务事实库 |
 | 商业制品生产 | 运营人员；AI 报价工具；AI 流程图工具 | 项目、合同与报价 | 人工批准与确定性渲染 | 独立 AI 技能 | 报价单；报价说明书；流程图 |
-| 真实网页问答采集 | 运营管理台；问答采集与证据 | 启动任务指令；可靠任务派发；工作流调度中心 | 网页问答采集；账号与浏览器管理；受控浏览器会话 | 真实网页采集器；消费级 AI 网页 | 回答事实；不可变证据 |
+| 真实网页问答采集 | 运营管理台；问答采集与证据 | 启动任务指令；可靠任务派发；工作流调度中心 | 网页问答采集；账号与浏览器管理；受控浏览器会话 | 五平台网页采集；人工同会话接管 | 回答事实；不可变证据 |
 | 引用网页与智能分析 | 分析工作台；分析与五项服务 | 工作流调度中心 | 引用网页抓取；分析计算 | 引用页面；产品内 AI；模型调用控制；外部 AI 模型 | 统计分析库；不可变证据 |
 | 报告与专业服务 | 报告制作台；报告与客户数据 | 工作流调度中心 | 专业服务与报告生成 | 产品内 AI | 冻结服务事实；正式报告；客户可见数据 |
 | 运行保障 | 全部入口和后台组件 | 请求过程监测 | 指标、日志、告警、备份、发布与回滚 | 飞书通知 | 运行记录；恢复材料；发布版本 |
