@@ -322,6 +322,9 @@ class SourceTypeFixturePack:
             "entries": entries,
         }
 
+    def materialization_view(self, document: Mapping[str, Any]) -> Any:
+        return dict(document)
+
     def validate_release(
         self,
         objects: Iterable[Mapping[str, Any]],
@@ -353,12 +356,15 @@ class SourceTypeFixturePack:
             "object_count": len(object_rows),
         }
 
-    def validate_release_impact(
+    def evaluate_release_impact(
         self,
+        *,
         changes: Iterable[Mapping[str, Any]],
-        quality_report: Mapping[str, Any],
+        candidate_document: Mapping[str, Any],
+        parent_release_id: str | None,
+        candidate_release_id: str,
     ) -> Mapping[str, Any]:
-        del quality_report
+        del candidate_document, parent_release_id, candidate_release_id
         return {
             "passed": True,
             "replay_required": False,

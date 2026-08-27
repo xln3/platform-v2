@@ -812,7 +812,6 @@ def _import_database_successor(
             actor=import_actor,
         )
         repository.approve_change_set(change_set.pub_id, actor=reviewer)
-        repository.materialize_changes(namespace=namespace, domain=domain, changes=changes)
         change_set.state = "local_published"
         for candidate in candidates:
             candidate.state = "local_published"
@@ -830,6 +829,13 @@ def _import_database_successor(
                 "change_set_pub_ids": [change_set.pub_id],
             },
             actor=publisher,
+        )
+        repository.materialize_changes(
+            namespace=namespace,
+            domain=domain,
+            changes=changes,
+            release=release,
+            base_release_id=activation.release_id,
         )
         repository.activate_release(
             namespace=namespace,

@@ -514,6 +514,99 @@ def test_http_sdk_is_business_module_independent() -> None:
     assert result["request_id"] == "request-1"
 
 
+def test_http_sdk_installs_verified_replica_and_resolves_new_request_offline(
+    tmp_path: Path,
+) -> None:
+    import httpx
+
+    documents = {
+        "source/type-fixture": {
+            "schema_version": "source-type-v2",
+            "domain": "source/type-fixture",
+            "entries": [
+                {
+                    "key": "forum",
+                    "source_type": "social_source",
+                    "knowledge_status": "reviewed_local",
+                }
+            ],
+        }
+    }
+    server_store = KnowledgeReleaseStore(tmp_path / "server")
+    manifest = server_store.publish(
+        release_id="knowledge-2026-08-27.99",
+        schema_version="knowledge-release-v1",
+        documents=documents,
+        parent_release_id=None,
+        quality_report={"quality_gate": "passed"},
+        activate=True,
+    )
+
+    def online(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/runtime/resolve"):
+            return httpx.Response(
+                200,
+                json={
+                    "request_id": "online",
+                    "release": {
+                        "release_id": manifest["release_id"],
+                        "content_hash": manifest["content_hash"],
+                        "schema_version": manifest["schema_version"],
+                        "source": "knowledge_service",
+                        "degraded": False,
+                    },
+                    "decisions": [],
+                    "degradation": [],
+                },
+            )
+        if request.url.path.endswith("/replica"):
+            return httpx.Response(200, json={"manifest": manifest, "documents": documents})
+        return httpx.Response(404)
+
+    replica_dir = tmp_path / "client-replica"
+    initial_request = RuntimeRequest(
+        request_id="install-replica",
+        tenant="tenant-a",
+        namespace="shared",
+        domain="source/type-fixture",
+        task="classify",
+        items=({"id": "unknown", "value": "unknown"},),
+        context={},
+        policy=ReasoningPolicy.DETERMINISTIC_ONLY,
+        policy_id="replica-test",
+        policy_version="1",
+    )
+    KnowledgeHttpClient(
+        "https://knowledge.example",
+        transport=httpx.MockTransport(online),
+        replica_dir=replica_dir,
+    ).resolve(initial_request)
+    assert KnowledgeReleaseStore(replica_dir).current_release_id() == manifest["release_id"]
+
+    registry = DomainRegistry()
+    registry.register(SourceTypeFixturePack(knowledge_release_dir=str(replica_dir)))
+
+    def offline(_request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("offline")
+
+    result = KnowledgeHttpClient(
+        "https://knowledge.example",
+        transport=httpx.MockTransport(offline),
+        replica_dir=replica_dir,
+        local_registry=registry,
+    ).resolve(
+        replace(
+            initial_request,
+            request_id="new-offline-request",
+            items=({"id": "forum", "value": "forum"},),
+        )
+    )
+    assert result["cache_status"] == "client_local_replica"
+    assert result["release"]["degraded"] is True
+    assert result["decisions"][0]["value"] == {"source_type": "social_source"}
+    assert "local_replica_deterministic_only" in result["degradation"]
+
+
 def test_structured_gateway_executes_allowlisted_tool_and_returns_safe_summary() -> None:
     import json
 

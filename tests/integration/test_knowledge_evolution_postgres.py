@@ -19,6 +19,9 @@ from geo_platform.knowledge.repository import KnowledgeRepository
 from geo_platform.main import app
 from geo_platform.tenancy.database import SessionLocal
 from geo_platform.tenancy.ids import new_pub_id
+from geo_platform.tenancy.repository import TenantRepository
+
+from domain.knowledge_evolution.release import KnowledgeReleaseStore
 
 TEST_DATABASE_URL = os.getenv("KNOWLEDGE_POSTGRES_DSN")
 POSTGRES_DSN = (TEST_DATABASE_URL or "").replace("postgresql+psycopg://", "postgresql://", 1)
@@ -78,6 +81,114 @@ def _member(
     )
     assert response.status_code == 201, response.text
     return _headers(admin_headers["X-Tenant-Id"], subject, role)
+
+
+def test_release_membership_rollback_switches_database_read_state(
+    tmp_path: Path,
+) -> None:
+    marker = secrets.token_hex(6)
+    with TestClient(app) as client:
+        tenant, _admin = _bootstrap(client, marker)
+    with SessionLocal() as session:
+        TenantRepository(session, tenant)
+        repository = KnowledgeRepository(session, tenant)
+        first = repository.add_release(
+            namespace="shared",
+            domain="source/type-fixture",
+            release_id=f"membership-first-{marker}",
+            parent_release_id=None,
+            schema_version="1",
+            content_hash="sha256:" + "1" * 64,
+            artifact_uri=str(tmp_path / "first"),
+            quality_report={},
+            actor="publisher-a",
+        )
+        repository.materialize_changes(
+            namespace="shared",
+            domain="source/type-fixture",
+            changes=(
+                {
+                    "kind": "knowledge_object",
+                    "operation": "upsert",
+                    "stable_id": "source-type:forum",
+                    "object_type": "source_type",
+                    "attributes": {"key": "forum", "source_type": "social_source-v1"},
+                },
+            ),
+            release=first,
+            base_release_id=None,
+        )
+        repository.activate_release(
+            namespace="shared",
+            domain="source/type-fixture",
+            release_id=first.release_id,
+            previous_release_id=None,
+            action="activate",
+            actor="publisher-a",
+        )
+        session.commit()
+
+        second = repository.add_release(
+            namespace="shared",
+            domain="source/type-fixture",
+            release_id=f"membership-second-{marker}",
+            parent_release_id=first.release_id,
+            schema_version="1",
+            content_hash="sha256:" + "2" * 64,
+            artifact_uri=str(tmp_path / "second"),
+            quality_report={},
+            actor="publisher-b",
+        )
+        repository.materialize_changes(
+            namespace="shared",
+            domain="source/type-fixture",
+            changes=(
+                {
+                    "kind": "knowledge_object",
+                    "operation": "upsert",
+                    "stable_id": "source-type:forum",
+                    "object_type": "source_type",
+                    "attributes": {"key": "forum", "source_type": "social_source-v2"},
+                },
+            ),
+            release=second,
+            base_release_id=first.release_id,
+        )
+        repository.activate_release(
+            namespace="shared",
+            domain="source/type-fixture",
+            release_id=second.release_id,
+            previous_release_id=first.release_id,
+            action="activate",
+            actor="publisher-b",
+        )
+        session.commit()
+        assert (
+            repository.current_objects(namespace="shared", domain="source/type-fixture")[
+                0
+            ].attributes["source_type"]
+            == "social_source-v2"
+        )
+
+        repository.activate_release(
+            namespace="shared",
+            domain="source/type-fixture",
+            release_id=first.release_id,
+            previous_release_id=second.release_id,
+            action="rollback",
+            actor="publisher-c",
+        )
+        session.commit()
+        rolled_back = repository.current_objects(namespace="shared", domain="source/type-fixture")
+        assert rolled_back[0].attributes["source_type"] == "social_source-v1"
+        assert (
+            repository.current_objects(
+                namespace="shared",
+                domain="source/type-fixture",
+                release_id=second.release_id,
+            )[0].attributes["source_type"]
+            == "social_source-v2"
+        )
 
 
 def test_observation_to_release_closure_rbac_rls_and_append_only(
@@ -292,6 +403,69 @@ def test_observation_to_release_closure_rbac_rls_and_append_only(
         assert reread.json()["release"]["release_id"] == release_id
         assert reread.json()["decisions"][0]["value"] == {"source_type": "social_source"}
         assert reread.json()["decisions"][0]["knowledge_status"] == "reviewed_local"
+
+        # A database membership that does not project to the immutable artifact
+        # must be rejected before either activation pointer moves.
+        malformed_release_id = f"fixture-malformed-{marker}"
+        store = KnowledgeReleaseStore(tmp_path / "releases")
+        current_documents, _current_manifest = store.load_documents(release_id)
+        malformed_manifest = store.publish(
+            release_id=malformed_release_id,
+            schema_version="source-type-v1",
+            documents=current_documents,
+            parent_release_id=release_id,
+            quality_report={"fixture_contract": "deliberate_materialization_mismatch"},
+            activate=False,
+        )
+        with SessionLocal() as direct_session:
+            TenantRepository(direct_session, tenant)
+            direct_repository = KnowledgeRepository(direct_session, tenant)
+            malformed_release = direct_repository.add_release(
+                namespace="integration",
+                domain="source/type-fixture",
+                release_id=malformed_release_id,
+                parent_release_id=release_id,
+                schema_version="source-type-v1",
+                content_hash=str(malformed_manifest["content_hash"]),
+                artifact_uri=str(tmp_path / "releases" / malformed_release_id),
+                quality_report={"fixture_contract": "deliberate_materialization_mismatch"},
+                actor="integration:malformed-publisher",
+            )
+            direct_repository.materialize_changes(
+                namespace="integration",
+                domain="source/type-fixture",
+                changes=(
+                    {
+                        "kind": "knowledge_object",
+                        "operation": "upsert",
+                        "stable_id": "source-type:forum",
+                        "object_type": "source_type",
+                        "attributes": {"key": "forum", "source_type": "editorial_source"},
+                        "review_status": "reviewed",
+                        "visibility": "public",
+                    },
+                ),
+                release=malformed_release,
+                base_release_id=release_id,
+            )
+            direct_session.commit()
+        malformed_activation = client.post(
+            f"/api/v2/knowledge/v1/releases/{malformed_release_id}/activate",
+            headers=admin,
+            json={"namespace": "integration", "domain": "source/type-fixture"},
+        )
+        assert malformed_activation.status_code == 409, malformed_activation.text
+        assert malformed_activation.json()["error"]["code"] == ("release_materialization_mismatch")
+        assert store.current_release_id() == release_id
+        with SessionLocal() as direct_session:
+            TenantRepository(direct_session, tenant)
+            assert (
+                KnowledgeRepository(direct_session, tenant).active_release_id(
+                    namespace="integration",
+                    domain="source/type-fixture",
+                )
+                == release_id
+            )
 
         upstream_reopen = client.post(
             f"/api/v2/knowledge/v1/candidates/{candidate_pub_id}/reopen",
