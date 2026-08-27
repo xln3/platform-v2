@@ -35,6 +35,10 @@
 
 最终 release 链生成后再次演练。`/tmp/geo-knowledge-recovery-20260827-final-Y37Tlv` 中的备份恢复了 7 个文件，archive hash 为 `sha256:9f5cbfff2068e1981dc6b1136a923a8004c4d9f03f09ac300d889a5db6088836`。空目录恢复后 `CURRENT=knowledge-2026-08-27.2`、`PREVIOUS=knowledge-2026-08-27.1`，active content hash 重新验证为 `sha256:05eee1d75251efdc151e65afe9856d62f0c5ba21486a1ee23d3f09f1dac4c9d0`。
 
+生产切换到最终血缘版本后第三次演练。备份 manifest 为 `.production-backups/knowledge/20260827T055637Z/manifest.json`，共 9 个文件，archive hash 为 `sha256:2bb3dca98844cf61ffbc87f7331e246b0df5a49bd2183c3ffb0e12480bdbd653`。该备份恢复到空目录 `/tmp/geo-knowledge-production-restore-20260827.l36TVs` 后逐文件验证通过；`CURRENT=knowledge-2026-08-27.3`、`PREVIOUS=knowledge-2026-08-27.2`，对应内容 hash 分别为 `sha256:93a04f23f5585efa6e569a973953f65acd8ee4897108982cb73f412b3ec21261` 和 `sha256:05eee1d75251efdc151e65afe9856d62f0c5ba21486a1ee23d3f09f1dac4c9d0`。
+
+本次生产发布前还完成了全量服务备份 `.production-backups/20260827T051856Z`，以及 PostgreSQL custom dump `.deploy-backups/knowledge-evolution-predeploy-20260827T1320CST/geo_platform.pre-s17.dump`。数据库 dump 为 53,946,120 bytes，SHA-256 为 `d6935b140cdecd9a2e2aea55df6ab27fe1fb119857e79605ea637bc143f1e4d3`。
+
 ## Release 回滚
 
 回滚不修改旧 release。调用 `/releases/{release_id}/rollback` 只把 active pointer 原子切换到已验证 release，并追加 activation/audit 历史。
