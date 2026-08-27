@@ -1,208 +1,227 @@
-# 证据驱动知识演进中间件生产交付与验证报告
+# 共享知识持续改进与品牌实体归并生产交付报告
 
 - 验证日期：2026-08-27（Asia/Shanghai）
-- 平台最终提交：`014bf22`
-- 生产迁移版本：`s17_0002_knowledge_trace_details`
-- 本机 active release：`knowledge-2026-08-27.3`
-- SiliconIndex 公网 release：`2026-08-27.2`
-- 总体状态：已编码、已测试、已提交、已推送、已部署并完成 live 验证
+- 平台生产代码提交：`720e47f9c61e3152cb170c21c1d601e3ea24710c`
+- 生产数据库版本：`s17_0003_knowledge_immutable`
+- 本机当前知识版本：`knowledge-2026-08-27.6`
+- SiliconIndex 公网版本：`2026-08-27.6`
+- SiliconIndex 内容哈希：`sha256:d5e15f1dc9f6b3b2d1addf6c41500e3eb3a5514b295a3a1134d4c636c07dabd2`
+- 总体状态：代码、迁移、数据、测试、提交、推送、部署、线上回读、断网恢复、备份恢复和回滚均已执行；论文级七方法实验尚未完成
 
-## 1. 背景、两次纠正与根因
+## 1. 系统解决什么问题
 
-原问题表面上是品牌别名、公司/产品混淆和竞品榜重复计权，实际问题是业务运行持续产生不确定知识，却没有统一的观察、推理、证据、审核、版本和分发闭环。
+业务请求先读取本机已经发布的知识，再按项目政策使用规则、模型或工具完成当前判断。当前结果返回后，系统还会把本次任务暴露的未知名称、冲突、过时关系和证据缺口保存成观察。观察经过聚合、证据补充、审核、历史任务回放和发布门禁后，才能进入所有后续项目可复用的不可变知识版本。
 
-第一次纠正否决了“项目请求不调用 LLM”。请求时 LLM 可以完成上下文消歧、关系判断和未知实体发现，也可以在调用方明确政策下影响本次结果。禁止的是把临时模型推理未经证据、审核和 release 发布就伪装成永久全局事实。
+它像 RAG，因为请求时会取回外部知识辅助判断；它又不等于传统 RAG，因为它还管理知识怎样从真实业务反馈中更新、谁可以批准、更新适用于什么场景、是否伤害历史任务、如何追溯和回滚。SiliconIndex 是第一个公共来源和发布目标，不是生产请求的在线数据库。
 
-第二次纠正否决了“只做品牌/SiliconIndex 字典桥”。稳定模式是 `observation → candidate → proposal → evidence → adjudication → change set → release → connector`。品牌实体归并只是首个生产领域包，SiliconIndex 只是首个 source/sink adapter。
+本次实现明确拆开三个问题：
 
-根因是旧设计把三组正交问题绑定在一起：运行时是否调用模型、推理是否影响当前请求、推理是否升级为全局知识；同时又把通用治理状态机写成品牌专用同步逻辑。最终实现把运行时决策、认识状态和知识发布权限拆开，并把领域逻辑放入 domain pack。
+1. 文本当前指向哪个对象；
+2. 当前榜单是否把它汇总到另一个展示对象；
+3. 在给定行业、任务、地域、受众和时间下，它是否具备竞品资格。
 
-## 2. 现有代码和数据审计
+请求时模型可以参与并按显式政策影响本次结果，但一次模型判断只能标记为 `model_inferred`，不能直接成为跨项目永久事实。
+
+## 2. 已有研究、工程组合和研究结论边界
+
+[RAG](https://proceedings.neurips.cc/paper/2020/hash/6b493230-Abstract.html)、[Self-RAG](https://openreview.net/forum?id=hSyW5go0v8)、[DynamicER](https://aclanthology.org/2024.emnlp-main.762/)、[STACKFEED](https://aclanthology.org/2025.emnlp-industry.176/)、[WriteBack-RAG](https://arxiv.org/abs/2603.25737) 和 [2026 年持续知识变化评测](https://aclanthology.org/2026.findings-acl.546/) 已分别覆盖检索增强、自检索与支持性判断、动态实体解析、专家反馈编辑、证据提炼写回和时间一致性评测。动态知识库、知识写回、专家审核和双向反馈本身都不是本项目的新发现。
+
+本次已经完成的是工程组合：请求时受控使用模型、观察与证据留痕、四眼审核、不可变版本、发布前回放、三方同步、隐私边界和故障恢复。研究对照、开源实现和专利初筛见 `RESEARCH_COMPARISON.md`。
+
+当前实验只支持以下谨慎结论：
+
+- 带行业和任务适用条件的 `.6` 规则在 22 条时间冻结品牌样例上消除了 `.3` 的 15 个错误，说明研究一值得继续验证，但样本规模不足以形成一般性结论。
+- 真实历史回放拒绝了退化明显的 `.5` 候选，并允许修正后的 `.6` 发布，说明研究二的发布门禁在本实例中发挥了作用，但尚未完成随机或统计因果验证。
+- 研究三“有限人工审核下控制错误扩散”和研究四“不同隐私压缩方式保留多少反馈价值”尚无实验结果。
+- 尚未完成传统 RAG、只追加文档、模型直接修改、专家编辑、WriteBack-RAG 类方法、DynamicER 类方法和当前方法的同数据时间切分七方法实验，也没有完成全部消融和统计检验。因此本报告不声称论文创新。
+
+## 3. 现有代码和数据怎样处理
 
 ### 保留
 
-- 保留并通用化静态快照的 manifest/hash/引用/重复 ID 校验、不可变目录、原子 `CURRENT/PREVIOUS` 和 last-known-good 回退。
-- 保留 SiliconIndex 的确定性生成流水线、Schema、search index、graph、quality report、bundle 和 release 历史。
-- 保留平台已有 FastAPI、PostgreSQL、租户 ID、RBAC、audit 和 OpenAPI 生成基础设施。
-- 保留用户工作树中所有与本任务无关的修改；所有提交均只选择性暂存本任务文件。
+- 保留平台现有 FastAPI、PostgreSQL、租户、RBAC、审计和 OpenAPI 基础设施。
+- 保留 SiliconIndex 的 Schema、分类、graph、search index、quality report、bundle、静态发布和稳定 ID。
+- 保留已能证明正确的品牌 ID、提及 ID、来源和历史版本。
+- 保留独立 SiliconIndex 仓库原有的遮蔽名称、谐音推断和同品类竞品共现代码；没有用单体仓库版本覆盖它。
+- 保留两个工作树中所有无关用户修改；没有 reset、stash、覆盖或夹带提交。
 
-### 重构或替换
+### 重构
 
-- 将品牌专用闭环重构为 `domain/knowledge_evolution` 通用核心、注册表和策略接口。
-- 将 SiliconIndex 降为 adapter；运行时优先读取本机已验证 knowledge release，远端站点不在请求关键路径。
-- 将人工可漂移的网安投影改为由指定 SiliconIndex snapshot 确定性生成。
-- 将“上游全局 hash 必须不变”的 lineage-only 判断替换为“完整 reviewed 对象集合及属性必须逐字段不变”。全局 hash 可以因其他行业数据变化而前进，旧/新上游 release/hash 会写入 connector audit。
-- 删除了架构上的在线 LLM 禁令，改为四种显式 reasoning policy。
+- 把观察、候选、证据、裁决、变更集、版本、模型调用记录和外部同步放入通用 `knowledge` Schema 与 `domain/knowledge_evolution` 核心。
+- 把品牌对象类型、关系、提示词、证据规则、汇总政策和评测样例留在品牌领域包。
+- 把运行时读取改为本机不可变知识版本；SiliconIndex 远端只由异步同步器访问。
+- 把手工维护的网安投影改为从指定 SiliconIndex 版本确定性生成。
+- 把简单覆盖同步改为“最后共同版本、远端变化、本地变化”的三方对账；同字段冲突进入审核队列。
 
-### SiliconIndex 拆分仓库审计
+### 废弃或拒绝
 
-Render 实际跟踪独立仓库 `suzakuzhang/siliconindex-consumer`，而不是 monorepo 子目录。独立仓库的 TypeScript/source 代码比 monorepo 新，因此合并时保留 split 仓库代码和已有同 ID 记录，只补入 monorepo 新 ID 与网安域。两条重复 mention 被分配新稳定 ID；213 条旧格式关系显式迁移到 schema 1.1；9 条 `context_required` mention 补齐行业上下文。没有用覆盖目录的方式丢弃 split-only 证据。
+- 不再把 `reviewed` 标签本身当作证据。68 个网安汇总实体中只有 40 个达到公开发布门槛，28 个降为待核查；186 条网安名称中 145 条发布，41 条待核查。
+- `.3`、`.4`、`.5` 都是未公开候选；`.5` 因真实回放退化被拒绝。最终公共 `.6` 的父版本直接指向最后公共版本 `.2`。
+- 不再把模型高置信输出、字符串相似或后写入数据直接当成永久合并依据。
 
-## 3. 通用模式、ADR 和物理部署
+## 4. 请求怎样读取知识、使用模型并保存发现
 
-ADR-0017 决定第一阶段在 `platform-v2` 内以模块化中间件落地，理由是可以复用现有鉴权、租户、数据库、审计和生产部署，同时用独立边界保持以后可提取性：
+统一入口是 `/api/v2/knowledge/v1/runtime/resolve`。同一契约支持：
 
-- 独立 PostgreSQL `knowledge` schema；
-- 独立 `/api/v2/knowledge/v1` versioned API；
-- 独立 `domain/knowledge_evolution` 核心包；
-- 独立 `/var/lib/geo-platform-v2/knowledge` 不可变 artifact；
-- 独立治理、备份和 SiliconIndex 同步 systemd service/timer。
+- `deterministic_only`：只用已发布知识，强调速度和复现；
+- `llm_assisted`：先查知识，只把未决项交给模型；
+- `llm_required`：每次必须调用模型，失败按请求选择返回错误或明确降级；
+- `exploratory`：允许发现目录外实体、关系和竞品候选。
 
-生产 API 仍随现有 FastAPI 进程运行，但公共契约、存储命名和 domain registry 不依赖 GEO 项目对象。第二领域 `source/type-fixture` 通过同一核心 contract，证明核心没有品牌、网安或 SiliconIndex 前提。
+返回结果包含知识版本和哈希、政策版本、模型与模型版本、提示词版本、工具摘要、置信度、认识状态、是否采用、缓存状态、token、成本字段、时延和降级原因。模型采用需要模型策略、`allow_external_model=true` 和 `adopt_model_inferred=true` 同时成立。
 
-## 4. 四个平面、数据模型、状态机、插件与 API
+缓存键包含租户、领域、任务、输入、安全上下文、知识版本和哈希、使用政策、提示词、模型和工具版本。规则或知识升级后不会复用旧结果。模型超时、非法 JSON、未知已有 ID、虚构证据引用、维度矛盾、工具越权、费用不可核验和隐私禁止均有独立拒绝或降级路径。
 
-### 四个平面
+未知和模型推断会异步形成观察。观察使用调用方来源的不可逆哈希和幂等键，不保存客户项目名、完整问题、完整回答或未经控制的所谓安全摘要。不同项目的相同名称聚合到共享候选，相同请求重试不重复计数。
 
-1. Runtime Reasoning Plane 组合确定性 read model、domain resolver、模型网关、缓存和降级契约。
-2. Observation & Governance Plane 处理幂等观察、候选聚合、证据、提案、裁决、变更集和审计。
-3. Release & Synchronization Plane 发布内容寻址的不可变 release，并通过 adapter import/export/reconcile。
-4. Domain Pack & Policy Plane 注册 ontology、resolver、prompt、evidence/review policy、quality gate 和 projector。
+生产实测：
 
-### 通用数据与状态
+- “腾讯云”在 `deterministic_only` 下使用 `knowledge-2026-08-27.6`，识别为 `CYB-OBJ-TENCENT-CLOUD`、`business_unit`，关系为 `business_unit_of`，汇总到 `CYB-BR-TENCENT`，状态 `published`，耗时 3 ms，没有调用模型。
+- 目录外“云盾X”在公开、企业云安全采购上下文中使用 `llm_assisted`。真实调用 `gpt-5.6-luna` 和提示词 `brand-entity-resolution-v5`，模型没有虚构 ID，而是返回“身份不明、竞品资格待证、需要官网/法人/产品归属证据”。状态为仅限本次请求的 `model_inferred`，置信度 0.05，首次耗时 7.791 秒，输入/输出 token 为 8759/566。
+- 第二次同内容请求命中缓存，耗时 6 ms，新增 token、模型时延和费用均为 0；观察返回 0，证明幂等键没有重复写入。
+- Provider 没有返回可核验价格，所以真实请求成本记为 `null`，不能把监控中的 0 美元解释为免费。
 
-迁移创建 15 张强制 RLS 表：observation、candidate、candidate_observation、knowledge_object、assertion、proposal、evidence、adjudication、change_set、knowledge_release、release_activation、connector_run、inference_trace、semantic_cache 和 audit_event。
+## 5. 新发现怎样成为新版本
 
-状态覆盖 `observed → aggregated → proposed → evidence_pending/review_ready → approved/rejected/deferred → local_published → exported/externally_published → reconciled/superseded`。拒绝项只有在新证据、政策升级或显式 reopen 后才能重新进入审核。
+流程为：
 
-### 契约
+```text
+观察 → 跨请求聚合候选 → 提案和其他解释 → 支持/反对证据
+    → 批准、拒绝、暂缓或重开 → 变更集 → 历史请求回放
+    → 不可变版本 → 原子激活 → 外部导出与回读对账
+```
 
-- 生产 OpenAPI 共 298 个 path，其中 knowledge API 为 19 个 path、23 个 operation。
-- API 覆盖 runtime resolve、observation ingest、candidate/proposal/evidence/adjudication、change set、release activate/rollback、connector run、audit/events、health/readiness/metrics。
-- 生成的 TypeScript client 独立于 GEO 业务 service。
-- 插件契约覆盖 validator、normalizer/resolver、inference strategy、evidence collector、review policy、quality gate、projector 和 connector。
+数据库保存来源类型、发现时间、安全摘要收据、模型和提示词版本、适用任务/行业/地域/受众/时间、反例、证据方向和质量、错误影响、审核人、政策、前后值和发布血缘。拒绝或暂缓的候选只有出现新证据、新政策版本或显式人工重开时才重新进入审核。
 
-## 5. 请求时 LLM、认识状态、缓存、降级和评测
+重要品牌身份、跨层级归并、重要关系和竞品资格不能由单模型直接发布。品牌发布必须提交 `historical-replay-v1`，绑定时间截点、评测集哈希、基线/候选错误数、新错误预算和结果。
 
-同一 runtime contract 支持：
+本机 `.6`：
 
-- `deterministic_only`：只使用固定 release 和确定性规则；
-- `llm_assisted`：只对歧义/未知项调用模型；
-- `llm_required`：模型必须参与，失败行为由契约决定；
-- `exploratory`：允许扩展候选和关系，事实与假设分开返回。
+- 父版本：`knowledge-2026-08-27.3`；
+- 内容哈希：`sha256:a7acba68675a2e430c256cb282c7d6fad08403b8156cb766b9daeb15c9785c58`；
+- 40 个汇总对象作为独立数据库知识对象；
+- 39 个经过证据核验的具体身份保存在这些对象的版本化属性中，包括 29 个法人、4 个集团、3 个业务单元、2 个产品和 1 个机构；它们不是另外 39 行数据库对象；
+- 每个已发布身份都有对象级来源；
+- 数据库重试同一 `.6` 返回 `already_recorded`，没有增加版本、变更集或激活记录。
 
-结果披露 `knowledge_status`、`decision_scope`、confidence/reason、adoption、knowledge/policy/prompt/model 版本、token/cost/cache、latency 和 degradation。`model_inferred` 可以按显式 policy 被本次请求采用，但只能异步进入 observation/candidate，不能变成 `reviewed_local/published`。
+## 6. 本机自治与 SiliconIndex 双向同步
 
-模型网关使用 OpenAI-compatible 协议但不绑定供应商。缓存隔离键包含 tenant/domain/task、规范化输入与安全上下文摘要、knowledge release、policy、prompt、model 和工具版本。实现和测试覆盖超时、重试、非法结构、provider 不可用、隐私拒绝、预算、缓存命中以及 fail-closed/fail-open 契约。
+本机保存治理过程和不可变业务版本。API、观察写入、审核、发布、回滚和请求时模型调用都不依赖 Render。客户端在本机服务短暂不可用时可使用最后验证过的本地副本，并必须披露降级。
 
-生产真实 smoke 使用已配置 provider 和 `gpt-5.6-luna`：已知“腾讯云”保持确定性 reviewed 结果且没有模型元数据；未知“云盾X”在 `llm_assisted` 下被标为 `model_inferred` 并按本次策略采用。首次调用耗时 5.354 秒、input/output token 为 4125/389；第二次 26 ms 命中缓存，增量 token、成本和模型 latency 均为 0。
+SiliconIndex 同步器下载 manifest 和七个核心集合，验证 Schema、内容哈希、重复 ID、品牌/名称/关系/分类引用、身份父关系、发布态投影和版本倒退。任何失败都只更新同步状态，不移动 last-known-good `CURRENT`。
 
-最终 `.3` 金标集共 12 个 case、4 种 policy。identity、relation、eligibility 和 dedupe accuracy 均为 1.0，error 为 0。未授权外发时，assisted 有 3 次、required/exploratory 各 12 次 `model_denied_by_data_policy`，说明数据政策实际生效而非静默调用。
+最终公网 `.6`：
 
-## 6. 品牌治理、SiliconIndex adapter 和数据审核
+- 父版本 `.2`、Schema `1.2.0`；
+- 185 个品牌、575 条名称、20 个品类、605 条竞品关系和 711 条 GEO 信源记录；
+- 网安域 68 个品牌，其中 40 个发布、28 个待核查；186 条名称中 145 条发布、41 条待核查；
+- 七个核心集合从公网重新下载后计算出的哈希与 manifest 完全相等；
+- 质量报告哈希 `sha256:1b6fced8a22766da2d804450360dbecaf5abeae192baf09f12c1e926448a1d1e` 与审批记录相等。
 
-品牌包独立建模 identity、relation、roll-up、comparison eligibility 和 epistemic status。对象类型区分法人、集团、company、brand family、business unit、product、tool 和 institution；关系区分同一法人、简称、英文名、曾用名、商号、产品、业务线、子公司和家族成员。WIPO/GS1 分类只作证据，不被当作竞争关系真值。
+平台 connector 已记录独立仓库提交 `bf43403`、公网版本和内容哈希。恢复后的三方对账以 `.6` 为共同版本，远端变化 0、本地待导出变化 0、冲突 0，没有使用最后写入者覆盖。
 
-网安域数据结论：
+## 7. 品牌规则和真实回放
 
-- 68 个实体、186 条 mention；
-- 40 个实体具备公开证据并发布为 reviewed；
-- 28 个实体保留为 pending candidate；
-- 40 个已发布实体 `reviewed_without_evidence=0`；
-- 腾讯云/腾讯、华为云/华为、绿盟/NSFOCUS、BJCA/数字认证、ZoomEye/知道创宇等按明确 relation 归并；
-- 新大陆在通用网安 scope 中 fail-closed，只在 CTID/数字身份等有证据 scope 下具备资格。
+品牌规范区分法人、集团、公司、品牌、品牌家族、子品牌、业务线、产品、工具和机构；关系覆盖同一法人、官方简称、英文名、曾用名、商号、产品、业务线、子公司和品牌家族成员。完整定义、步骤、正反例、证据等级和冲突规则见 `BRAND_GOVERNANCE.md`。
 
-SiliconIndex `2026-08-27.2` 公网数据为 185 个品牌、575 条 mention、20 个品类、605 条关系、711 条 GEO 信源记录，孤儿引用为 0。schema 为 1.1.0，content hash 为 `sha256:118980eaff29451ff8f280de44a206acc17c0d1906df6c272ab26b1836d715a7`。
+关键行为已经自动化验证：
 
-平台最终 `knowledge-2026-08-27.3` 的父版本是 `.2`，content hash 为 `sha256:93a04f23f5585efa6e569a973953f65acd8ee4897108982cb73f412b3ec21261`。它记录 SiliconIndex `.1 → .2` 及 `a36b… → 1189…` 的上游血缘转换；40 个 reviewed 对象逐字段相等。
+- 腾讯云和华为云保留业务单元身份，再按品牌家族榜政策分别汇总到腾讯和华为；父品牌与业务品牌同答只计一次。
+- “绿盟”“NSFOCUS”和公司全称保留不同身份解释，统一汇总到绿盟科技。
+- 数字认证有电子认证、密码和网络安全一手证据，可进入通用网安比较。
+- 新大陆默认不进入通用网安比较，只在 CTID、数字身份和网络身份等有证据范围内进入。
+- 同名异企、产品似公司、集团/子公司、曾用名、错误别名和跨语言名称均有正反样例。
+- 待核查“360集团”不会借内部包含的已发布短名称“360”泄漏为正式命中；已核验“360数字安全集团”可以命中。
 
-## 7. 本机自治、周期治理、同步、冲突和隐私
+22 条时间冻结金标回放结果：
 
-GEO 请求只读取本机 knowledge release；同步器异步获取 SiliconIndex 并在完整验证后原子切换。远端失败不改变 `CURRENT`。运行时还包含 bundled generated projection 作为最后一级只读后备，并明确返回 degraded 来源。
+| 版本      | identity/type | relation | roll-up/eligibility | 错误数 |
+| --------- | ------------: | -------: | ------------------: | -----: |
+| 候选 `.3` |       0.54054 |  0.81081 |             0.97297 |     15 |
+| 最终 `.6` |           1.0 |      1.0 |                 1.0 |      0 |
 
-生产曾把同步 URL 指向 `127.0.0.1:9` 模拟远端中断。同步任务按预期失败，API readiness 连续 10 次均为 HTTP 200，耗时 4.6–5.9 ms，本机 release 未变化。恢复公网后同步成功，`/var/lib/geo-platform-v2/siliconindex/CURRENT=2026-08-27.2`，本地重新计算的 hash 与 Render 一致。
+一个只保存不可逆项目引用的真实生产项目完成了 1309 条历史答案回放：原始名称 11336、治理后名称 11328；`.3 → .6` 的 eligible 数为 6677 → 6672，unresolved 为 4252 → 4257，目标品牌 741 → 741。五条变化都是把证据不足的“360集团”从正式命中改为待核查；数据库 mutation 为 0。
 
-base/upstream/local 三方合并覆盖 local-ahead、upstream-ahead 和同字段冲突；同字段冲突进入 conflict queue，不使用 last-write-wins。只有 approved、public、已脱敏且有 evidence 的 change 可导出。
+曾生成的 `.5` 在真实回放中使 eligible 减少 104、unresolved 增加 121、目标品牌减少 1，因此没有发布。修正后的 `.6` 没有这种退化。
 
-观察只持久化允许的数据字段、安全摘要和不可逆引用；公共 adapter 拒绝 tenant、项目名、prompt、完整回答和 safe context 等键。tenant/namespace/domain/visibility/data classification 从表、API、缓存到审计全链路隔离。普通请求无 release 发布权限。
+## 8. 非品牌复用证明
 
-## 8. 数据迁移、生产影子回放与通用性 fixture
+`source/type-fixture` 用“信源类型字典”走完观察、候选、提案、证据、两人审核、变更集、发布和再次读取。它使用相同数据库表、API、事件、客户端、版本存储和回滚逻辑。
 
-生产数据库在发布前备份后从 `s14` 顺序迁移到 `s15 → s16 → s17_0001 → s17_0002_knowledge_trace_details`。初始 `.1` 导入 40 个 reviewed 对象，`.2` 和 `.3` 均使用 lineage-only 验证对象不变，没有复制 proposal/object。
+公共代码和核心表没有品牌、腾讯、网安、GEO 榜单或 SiliconIndex 专有字段。GEO 以外的示例客户端位于 `domain.knowledge_evolution.client.KnowledgeHttpClient`，只依赖通用 HTTP 契约。该 fixture 证明第二个领域可以注册自己的 normalizer、resolver、prompt、证据政策和 projector，而不复制治理核心；本轮没有声称第二个生产领域已经上线。
 
-最终生产计数：71 observation、69 candidate、40 proposal、51 evidence、40 knowledge object、3 release、3 activation、4 connector run。最新治理批次 backlog 为 29、conflict 为 0；多出的候选来自运行时发现，不会自动进入正式对象。
+## 9. 测试、性能、故障和恢复证据
 
-生产只读影子回放使用 1309 个真实历史答案：
+### 自动化和构建
 
-- raw/legacy mention：11336；
-- governed canonical mention：11328；
-- governed eligible mention：6677；
-- reviewed local：7076；unresolved：4252；
-- alias collapse：8；受新资格投影影响的答案：1158；
-- 目标品牌 mention：legacy 741、governed 741；
-- 数据库 mutation：0。
-
-回放没有重写历史 extraction。正式计算统一消费中间件 read model。非品牌 `source/type-fixture` 使用相同状态机、release、client 和 API contract，完成通用性验收。
-
-## 9. 测试、故障注入、性能、安全和恢复证据
-
-### 自动化和静态检查
-
-- 平台任务隔离树：2643 passed、18 skipped；Ruff check/format、strict mypy、migration head 和生成物校验通过。
-- `.3` 跟进：64 个聚焦单元/契约测试通过；新增测试证明“上游全局 hash 改变但 governed object 不变”可建立 lineage，并证明对象内容改变会被拒绝。
-- PostgreSQL 实库集成：1 passed；开发库 `.3` 导入及幂等重跑通过，proposal/object 均保持 40。
-- 平台 Turbo test/build/lint/typecheck 通过；OpenAPI client TypeScript 编译通过。
-- SiliconIndex split 和 monorepo：各 3 个 test file、31 tests 通过；validate:data、build、lint、`git diff --check` 通过。lint 仅有 3 条既有 unused-variable warning。
-- 组合 `pnpm check:api` 的唯一失败来自未提交用户文件 `tests/e2e/customer-product-live.spec.ts` 删除了截图 guard literal；本任务 OpenAPI 生成、client 生成和编译均独立通过，未篡改该无关修改。
+- 平台完整干净快照：2658 passed、21 skipped；随后最终幂等修复的 6 条单测和 4 条隔离 PostgreSQL 集成测试再次通过。
+- Ruff：824 个 Python 文件格式检查和全部 lint 通过；strict mypy 对 335 个源文件通过。
+- 全新数据库从零迁移到 `s17_0003_knowledge_immutable` 通过；`.6` 初次导入和幂等重跑通过。
+- 前端无缓存 Turbo lint/typecheck/test 为 45/45，通过；生产构建 13/13，通过；runtime guard 13 条通过。
+- OpenAPI 重新生成后无 diff：总计 298 paths，其中知识 API 19 paths、23 operations。
+- SiliconIndex 单体仓库和 Render 独立仓库的数据校验、5 个测试文件共 40 条测试、TypeScript/Vite 构建和 `git diff --check` 通过。生产依赖审计为 0 个漏洞；开发依赖仍报告 1 个中危和 2 个高危。
+- SiliconIndex lint 通过但保留 3 条既有 unused-variable warning。
+- 全仓 Prettier 的本任务文件通过；剩余警告来自 4 个与本任务无关的既有脏文件，未擅自修改。
 
 ### 性能
 
-500 次/策略的 synthetic-provider benchmark：
+500 次/策略的 synthetic-provider 编排基准：
 
-| policy | p50 ms | p95 ms | p99 ms | model calls | cache hit | synthetic cost | errors |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| deterministic | 0.243 | 0.430 | 0.465 | 0 | 0% | 0 | 0% |
-| assisted | 0.810 | 1.301 | 1.505 | 25/500 | 95% | $0.05 | 0% |
-| required | 0.829 | 1.326 | 1.566 | 25/500 | 95% | $0.05 | 0% |
-| exploratory | 0.850 | 1.215 | 1.431 | 25/500 | 95% | $0.05 | 0% |
+| policy        | p50 ms | p95 ms | p99 ms | model calls | cache hit | synthetic cost | errors |
+| ------------- | -----: | -----: | -----: | ----------: | --------: | -------------: | -----: |
+| deterministic |  0.272 |  0.379 |  0.429 |       0/500 |        0% |             $0 |     0% |
+| assisted      |  1.120 |  1.538 |  1.646 |      25/500 |       95% |          $0.05 |     0% |
+| required      |  1.164 |  1.534 |  1.768 |      25/500 |       95% |          $0.05 |     0% |
+| exploratory   |  1.149 |  1.442 |  1.601 |      25/500 |       95% |          $0.05 |     0% |
 
-该 benchmark 测量编排、校验、缓存和观察开销，不代表公网模型网络延迟；真实 provider latency 由前述生产 smoke 单列。
+该表只测编排、校验、缓存和观察开销，不代表公网模型容量或价格。真实 provider 时延和 token 已在第 4 节单列。
 
-### 安全与可恢复性
+### 断网、恢复、备份和回滚
 
-- `knowledge` 15/15 张表全部启用并强制 RLS；PUBLIC table grant 为 0。
-- observation、evidence、adjudication、release、activation、inference trace 和 audit event 有 UPDATE/DELETE append-only trigger。
-- 未认证 runtime resolve 和 releases 查询均返回 401；health/readiness 公开，治理 metrics API 需要 session。
-- Prometheus `/metrics` live 返回 200，已记录 knowledge health/readiness 和鉴权结果。
-- 发布前全量备份为 `.production-backups/20260827T051856Z`；独立 PostgreSQL custom dump 为 53,946,120 bytes，SHA-256 `d6935b140cdecd9a2e2aea55df6ab27fe1fb119857e79605ea637bc143f1e4d3`。
-- 最终 artifact 备份 manifest 为 `.production-backups/knowledge/20260827T055637Z/manifest.json`，9 个文件，archive hash `sha256:2bb3dca98844cf61ffbc87f7331e246b0df5a49bd2183c3ffb0e12480bdbd653`。
-- 空目录恢复 `/tmp/geo-knowledge-production-restore-20260827.l36TVs` 通过；恢复后 `.3/.2` content hash 均重新验证成功。
+- 单元故障测试连续模拟 7 个失败同步日，每次都保持 last-known-good；恢复后拒绝版本倒退并接受正确后继。
+- 生产把同步目标临时改为 `127.0.0.1:9`，连接拒绝在约 3 ms 内显式失败，`CURRENT` 仍为 `.6`。readiness 连续 10 次为 200，时延 5.739–8.526 ms。
+- 断网期间模型缓存请求、观察写入和幂等重复检查均成功。恢复网络后同步和 connector 对账成功，0 冲突，断网期间新增观察仍在候选中。
+- 发布前完整生产备份为 `.production-backups/20260827T112041Z`。PostgreSQL dump 为 54,100,303 bytes，SHA-256 `3e5b4316ec7b6bab6f7bb99921e0d1c2cdaec2d4797e2bf56ae403dbd92f7d42`。
+- 发布后知识备份为 `.production-backups/knowledge/20260827T113700Z/manifest.json`，12 个文件，archive hash `sha256:92a8f885afbd5f6ae5303efa7249bb9e72f53a4fefab06f113578d1def92c7a1`。
+- 知识备份恢复到空目录后，`CURRENT=.6`、`PREVIOUS=.3`，`.6` 内容哈希重新验证一致。
+- PostgreSQL dump 恢复到隔离库后保留 3 个发布记录和 71 条发布前观察，再从 `s17_0002` 升到 `s17_0003`。15/15 个知识表启用并强制 RLS，两个版本唯一约束存在，更新知识对象被 `append_only_table:knowledge_object` 拒绝。验证后的临时数据库已删除。
+- 生产实际执行 `.6 → .3 → .6`，两次 API 均返回 204；每一步 release hash 都通过，readiness 始终为 `ok`。
 
-## 10. 提交、推送、部署与 live 状态
+## 10. 提交、推送、部署和线上状态
 
-### Git 与静态发布
+### Git
 
-| 仓库 | 提交/PR | 状态 |
-| --- | --- | --- |
-| `xln3/platform-v2` | `322029a` 通用中间件；`014bf22` 最终上游血缘 | 已推送 `master` |
-| `Fuyujia799/GEO-auto-analysis` | `22e2724` 初始网安发布；`3064b64` 镜像 split `.2` | 已推送 `master` |
-| `suzakuzhang/siliconindex-consumer` | `ad7a615`，PR #1，merge `17cc88c` | 已合并 `main`，Render 已发布 |
+| 仓库                                | 提交                                                                             | 推送状态                     |
+| ----------------------------------- | -------------------------------------------------------------------------------- | ---------------------------- |
+| `xln3/platform-v2`                  | `c3b467a` 通用治理与同步；`40aadd1` 品牌规则、投影和回放；`720e47f` 幂等迁移修复 | 已推送 `master`              |
+| `Fuyujia799/GEO-auto-analysis`      | `653fda7` SiliconIndex `.6` 数据、发布门禁和静态投影                             | 已推送 `master`              |
+| `suzakuzhang/siliconindex-consumer` | `bf43403` 保留 split-only 解析器并发布 `.6`                                      | 已推送 `main`，Render 已部署 |
 
-Render 公网 manifest 已回读为 release `2026-08-27.2`、schema `1.1.0` 和 hash `sha256:118980…715a7`，与本地 release 完全一致。
+本文档最终提交会在报告完成后另列，不改变已经部署的代码提交 `720e47f`。
 
-### 平台部署
+### 本机生产
 
-- 生产代码来自不可变快照 `/home/xln/geo-system/.deploy-backups/platform-v2-master-014bf22-20260827T1353CST`，不是脏工作树。
-- API systemd `WorkingDirectory` 和所有知识任务 drop-in 均指向该快照；`systemd-analyze verify` 通过。本机显示的 warning 均来自无关 vendor/host unit。
-- API 于 13:54:03 CST 重启并保持 active；OpenAPI 为 298 paths。
-- `/api/v2/knowledge/v1/health` 和 readiness 均返回 `status=ok`、active `.3`、previous `.2`、database reachable、model gateway configured、release verified。
-- 已知“腾讯云”live 解析为 `CYB-BR-TENCENT/腾讯`、`business_unit_of`、`reviewed_local`。
-- SiliconIndex sync 和治理批次实际手工运行成功；治理 report hash 为 `sha256:05b67e898aaf7cb1499bf33eacd506c0e8687919888a4ff89a947ef322f1d00c`。
+- 生产代码来自不可变快照 `/home/xln/geo-system/.deploy-backups/platform-v2-master-720e47f-20260827T1927CST`，快照包含 2496 个文件，组合 SHA-256 为 `6b8c3ea7bec21ae30b6c7730a54b57ea8b68f17dfdd6d75ce99f76cb66b2f053`。
+- API 于 19:30:29 CST 从该快照重启，服务 active；知识 health/readiness 返回数据库 reachable、模型 gateway configured、release verified、active `.6`、previous `.3`。
+- SiliconIndex sync、connector、weekly governance 和 knowledge backup timer 都是 enabled/active。connector 每 5 分钟、静态同步每 6 小时、知识备份每天、治理批次每周一运行。
+- 最新治理报告哈希为 `sha256:846d76ec31f613a6131b1be8b07199ade5641cc1e8d1659379d2a59151e509e7`：active `.6` 已验证，candidate backlog 29、review ready 0、conflict 0、远端变化 0、本地待导出变化 0。
+- 线上 metrics：113 条观察、29 个待处理候选、7 次推理记录、5 次模型调用、3 次缓存命中、0 次模型错误、0 秒导出滞后。成本指标为 0，但真实 provider 没有返回价格，因此不能解释为已核验成本。
 
-### 调度
+### SiliconIndex 公网
 
-三个 timer 均为 enabled/active：
+- [manifest](https://siliconindex-consumer.onrender.com/data/v1/manifest.json)、[brands](https://siliconindex-consumer.onrender.com/data/v1/brands.json) 和 [mentions](https://siliconindex-consumer.onrender.com/data/v1/mentions.json) 均已从生产域名回读。
+- manifest 为 `.6`、父版本 `.2`、Schema `1.2.0`；七个核心文件重新计算的哈希等于 `d5e15f…dabd2`。
+- connector 的 publish 记录绑定 Git 提交 `bf43403`、公网版本和完整内容哈希，状态 `success`。
 
-- SiliconIndex sync：下一次 2026-08-27 19:22:39 CST；
-- knowledge backup：下一次 2026-08-28 03:54:06 CST；
-- weekly governance：下一次 2026-08-31 04:02:48 CST。
+## 11. 尚存风险、负结果和外部阻塞
 
-## 11. 风险、技术债与外部阻塞
-
-- 没有阻塞本次上线的外部权限或生产故障。
-- 第一阶段仍是仓库内模块化部署，而非独立进程/仓库。ADR 已固定可提取边界；真正出现第二个生产调用方或独立扩缩容需求时再拆服务。
-- 当前 governance backlog 为 29，需要按审核 SOP 持续补证和裁决；它们不会自动进入榜单。
-- “远端连续故障 7 天”由时间推进/故障注入测试验证状态机，并做过一次真实 live 阻断；本次交付没有等待七个自然日。
-- 模型生产 smoke 证明真实调用、采用、审计和缓存，但不是公网 provider 容量测试。生产 SLO 需继续用真实流量监控校准。
-- SiliconIndex 仍有 3 条既有 lint warning；平台组合 `check:api` 仍受无关脏文件 guard 影响。两项均已隔离记录，不影响本任务生成物或生产发布。
-- 用户原有未提交工作树修改均保留，未被 reset、stash、覆盖或夹带进本任务提交。
+- 没有阻塞本次上线的 push、Render、生产主机或数据库权限。
+- 当前 29 个候选仍需按审核 SOP 补证；它们不会自动进入发布知识。`云盾X` 的生产模型结果明确是未决观察，不是新品牌事实。
+- `.6` 将 28 个实体和 41 条名称保留为待核查，覆盖率低于把所有 `reviewed` 标签照单全收，但降低了错误公开的风险。
+- `.5` 的负结果证明“补更多归并”可能伤害真实榜单；它被保留为评测证据而没有进入公共发布历史。
+- 7 天断网是时间推进故障测试加一次真实生产阻断，不是等待七个自然日的长期演练。
+- 性能基准使用 synthetic provider；只做了一次真实模型 smoke，不构成容量、稳定性或费用 SLO。
+- 研究问题一和二只有本实例的初步支持，研究问题三和四没有结果；七方法、时间切分、消融和统计分析仍是后续科研工作。
+- Render 独立仓库的开发依赖有 3 个审计告警，SiliconIndex 有 3 条既有 lint warning；生产依赖审计为 0，当前静态站发布不受影响，但应单独升级依赖并回归。
+- 第一阶段仍在平台仓库内模块化部署，不是独立扩缩容服务；稳定 API、事件、Schema、domain registry 和本机 artifact 边界已经为以后拆分保留。
+- 所有无关用户工作树修改仍原样保留，未进入本任务提交。

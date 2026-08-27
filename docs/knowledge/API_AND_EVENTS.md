@@ -4,20 +4,20 @@
 
 ## 端点
 
-| 能力 | 端点 | 权限 |
-| --- | --- | --- |
-| 运行时解析 | `POST /runtime/resolve` | `knowledge:resolve` |
-| 批量观察 | `POST /observations:ingest` | `knowledge:observe` |
-| 候选列表/重开 | `GET /candidates`、`POST /candidates/{id}/reopen` | read/review |
-| 提案 | `GET/POST /proposals` | read/propose |
-| 证据 | `GET/POST /evidence` | read/evidence |
-| 裁决 | `POST /proposals/{id}/adjudications` | review |
-| 变更集 | `POST /change-sets`、`POST /change-sets/{id}/approve` | review |
-| 发布 | `GET/POST /releases` | read/publish |
-| 激活/回滚 | `POST /releases/{id}/activate`、`POST /releases/{id}/rollback` | publish |
-| connector | `GET/POST /connector-runs` | read/connector |
-| 审计/事件 | `GET /audit-events`、`GET /events` | audit |
-| 运维 | `GET /health`、`GET /readiness`、`GET /metrics`、`GET /domains` | health/read |
+| 能力          | 端点                                                            | 权限                |
+| ------------- | --------------------------------------------------------------- | ------------------- |
+| 运行时解析    | `POST /runtime/resolve`                                         | `knowledge:resolve` |
+| 批量观察      | `POST /observations:ingest`                                     | `knowledge:observe` |
+| 候选列表/重开 | `GET /candidates`、`POST /candidates/{id}/reopen`               | read/review         |
+| 提案          | `GET/POST /proposals`                                           | read/propose        |
+| 证据          | `GET/POST /evidence`                                            | read/evidence       |
+| 裁决          | `POST /proposals/{id}/adjudications`                            | review              |
+| 变更集        | `POST /change-sets`、`POST /change-sets/{id}/approve`           | review              |
+| 发布          | `GET/POST /releases`                                            | read/publish        |
+| 激活/回滚     | `POST /releases/{id}/activate`、`POST /releases/{id}/rollback`  | publish             |
+| connector     | `GET/POST /connector-runs`                                      | read/connector      |
+| 审计/事件     | `GET /audit-events`、`GET /events`                              | audit               |
+| 运维          | `GET /health`、`GET /readiness`、`GET /metrics`、`GET /domains` | health/read         |
 
 客户可解析和提交观察。operator/analyst 可读、提案和补证。reviewer 可裁决和读取审计。只有 admin 具有 connector、publish 和全局权限。四眼约束在 repository 层再次执行，不能靠伪造角色绕过。
 

@@ -26,18 +26,18 @@ WIPO Nice class 是商标商品/服务分类，不是竞争关系真值。GS1 �
 
 ## 对象类型
 
-| 类型 | 定义 | 默认汇总 |
-| --- | --- | --- |
-| `legal_entity` | 法定登记主体 | 不自动与集团或品牌等同 |
-| `group` | 控股或管理集团 | 只在集团视图汇总成员 |
-| `company` | 对外经营公司 | 可拥有品牌、产品或业务线 |
-| `brand` | 稳定市场标识 | 按品牌视图计数 |
-| `brand_family` | 多个子品牌/产品共享的展示家族 | 仅按已审 relation 汇总 |
-| `sub_brand` | 有独立识别但受父品牌管理 | 保留原 mention，按策略 roll-up |
-| `business_unit` | 公司内部或对外业务线 | 不等于独立法人 |
-| `product` | 可购买或使用的产品/服务 | 不应仅因产品名像公司就建公司 |
-| `tool` | 工具或平台 | 默认不进入公司榜 |
-| `institution` | 政府、研究、标准或公共机构 | 默认非商业竞品 |
+| 类型            | 定义                          | 默认汇总                       |
+| --------------- | ----------------------------- | ------------------------------ |
+| `legal_entity`  | 法定登记主体                  | 不自动与集团或品牌等同         |
+| `group`         | 控股或管理集团                | 只在集团视图汇总成员           |
+| `company`       | 对外经营公司                  | 可拥有品牌、产品或业务线       |
+| `brand`         | 稳定市场标识                  | 按品牌视图计数                 |
+| `brand_family`  | 多个子品牌/产品共享的展示家族 | 仅按已审 relation 汇总         |
+| `sub_brand`     | 有独立识别但受父品牌管理      | 保留原 mention，按策略 roll-up |
+| `business_unit` | 公司内部或对外业务线          | 不等于独立法人                 |
+| `product`       | 可购买或使用的产品/服务       | 不应仅因产品名像公司就建公司   |
+| `tool`          | 工具或平台                    | 默认不进入公司榜               |
+| `institution`   | 政府、研究、标准或公共机构    | 默认非商业竞品                 |
 
 ## 关系类型
 
@@ -56,31 +56,31 @@ WIPO Nice class 是商标商品/服务分类，不是竞争关系真值。GS1 �
 
 ## 证据等级
 
-| 等级 | 例子 | 可支持的结论 |
-| --- | --- | --- |
-| authoritative | 监管披露、交易所公告、法定登记、官方标准 | 法人、曾用名、受监管资质 |
-| primary | 公司官网、产品官网、官方公告 | 官方简称、品牌/产品/业务线关系 |
-| secondary | 高质量媒体、研究机构 | 候选与交叉核验 |
-| unverified | 聚合页、论坛、模型常识 | 只能生成候选，不能批准公开事实 |
+| 等级          | 例子                                     | 可支持的结论                   |
+| ------------- | ---------------------------------------- | ------------------------------ |
+| authoritative | 监管披露、交易所公告、法定登记、官方标准 | 法人、曾用名、受监管资质       |
+| primary       | 公司官网、产品官网、官方公告             | 官方简称、品牌/产品/业务线关系 |
+| secondary     | 高质量媒体、研究机构                     | 候选与交叉核验                 |
+| unverified    | 聚合页、论坛、模型常识                   | 只能生成候选，不能批准公开事实 |
 
 批准公开品牌对象至少需要一条 authoritative 或 primary 支持证据。反对证据必须和支持证据一起进入裁决，不得删除。
 
 ## 必测案例
 
-| mention | 文本实际指向的对象 | 与汇总对象的关系 | 当前品牌家族榜 roll-up | 竞品资格 |
-| --- | --- | --- | --- | --- |
-| 腾讯云 | `CYB-OBJ-TENCENT-CLOUD`，business unit | `business_unit_of` 腾讯 | `CYB-BR-TENCENT`，显示腾讯；同回答再出现“腾讯”不重复计权 | 云安全/网安 scope 可进入；身份不是腾讯法人 |
-| 华为云 | `CYB-OBJ-HUAWEI-CLOUD`，business unit | `business_unit_of` 华为 | `CYB-BR-HUAWEI`，显示华为；父/业务品牌同答一次 | 云安全/网安 scope 可进入；身份不是独立法人结论 |
-| 绿盟、NSFOCUS | `CYB-BR-NSFOCUS`，绿盟科技 brand view | `official_abbreviation` / `english_name` | 显示绿盟科技，同回答只计一次 | 通用网安可进入 |
-| 绿盟科技集团股份有限公司 | `CYB-OBJ-NSFOCUS-LEGAL`，legal entity | `same_legal_entity` 到绿盟科技展示对象 | 显示绿盟科技 | 通用网安可进入 |
-| BJCA、北京数字认证 | `CYB-BR-BJCA`，数字认证 brand view | `trade_name` / `official_abbreviation` | 显示数字认证，同回答只计一次 | 电子认证、密码和网络安全公开业务足以进入通用网安比较 |
-| 北京数字认证股份有限公司 | `CYB-OBJ-BJCA-LEGAL`，legal entity | `same_legal_entity` 到数字认证展示对象 | 显示数字认证 | 同上；法人证据来自公司披露 |
-| 新大陆集团 | `CYB-OBJ-NEWLAND-GROUP`，group | `brand_family_member` 到新大陆展示家族 | 显示新大陆，但保留集团身份 | 通用网安不进入；CTID/数字身份可进入 |
-| 新大陆数字技术股份有限公司 | `CYB-OBJ-NEWLAND-DIGITAL`，legal entity | `brand_family_member` | 显示新大陆 | 通用网安不进入；合适的数字身份 scope 才进入 |
-| 新大陆（福建）公共服务有限公司 | `CYB-OBJ-NEWLAND-PUBLIC-SERVICE`，legal entity | `subsidiary_of` | 显示新大陆 | CTID/网络身份 scope 可进入，不能外推到所有网安采购 |
-| ZoomEye | `CYB-OBJ-KNOWNSEC-ZOOMEYE`，product | `product_of` | 在允许产品 roll-up 的榜显示知道创宇 | 只按明确网安 scope；产品不能伪装成公司 |
-| RayTAG | `CYB-OBJ-WEBRAY-RAYTAG`，product | `product_of` | 在允许产品 roll-up 的榜显示盛邦安全 | 只按明确 scope |
-| 卫士通 | 当前视图映射到电科网安 | `historical_name` | 显示当前品牌电科网安 | 通用网安可进入；曾用名不产生第二份权重 |
+| mention                        | 文本实际指向的对象                             | 与汇总对象的关系                         | 当前品牌家族榜 roll-up                                   | 竞品资格                                             |
+| ------------------------------ | ---------------------------------------------- | ---------------------------------------- | -------------------------------------------------------- | ---------------------------------------------------- |
+| 腾讯云                         | `CYB-OBJ-TENCENT-CLOUD`，business unit         | `business_unit_of` 腾讯                  | `CYB-BR-TENCENT`，显示腾讯；同回答再出现“腾讯”不重复计权 | 云安全/网安 scope 可进入；身份不是腾讯法人           |
+| 华为云                         | `CYB-OBJ-HUAWEI-CLOUD`，business unit          | `business_unit_of` 华为                  | `CYB-BR-HUAWEI`，显示华为；父/业务品牌同答一次           | 云安全/网安 scope 可进入；身份不是独立法人结论       |
+| 绿盟、NSFOCUS                  | `CYB-BR-NSFOCUS`，绿盟科技 brand view          | `official_abbreviation` / `english_name` | 显示绿盟科技，同回答只计一次                             | 通用网安可进入                                       |
+| 绿盟科技集团股份有限公司       | `CYB-OBJ-NSFOCUS-LEGAL`，legal entity          | `same_legal_entity` 到绿盟科技展示对象   | 显示绿盟科技                                             | 通用网安可进入                                       |
+| BJCA、北京数字认证             | `CYB-BR-BJCA`，数字认证 brand view             | `trade_name` / `official_abbreviation`   | 显示数字认证，同回答只计一次                             | 电子认证、密码和网络安全公开业务足以进入通用网安比较 |
+| 北京数字认证股份有限公司       | `CYB-OBJ-BJCA-LEGAL`，legal entity             | `same_legal_entity` 到数字认证展示对象   | 显示数字认证                                             | 同上；法人证据来自公司披露                           |
+| 新大陆集团                     | `CYB-OBJ-NEWLAND-GROUP`，group                 | `brand_family_member` 到新大陆展示家族   | 显示新大陆，但保留集团身份                               | 通用网安不进入；CTID/数字身份可进入                  |
+| 新大陆数字技术股份有限公司     | `CYB-OBJ-NEWLAND-DIGITAL`，legal entity        | `brand_family_member`                    | 显示新大陆                                               | 通用网安不进入；合适的数字身份 scope 才进入          |
+| 新大陆（福建）公共服务有限公司 | `CYB-OBJ-NEWLAND-PUBLIC-SERVICE`，legal entity | `subsidiary_of`                          | 显示新大陆                                               | CTID/网络身份 scope 可进入，不能外推到所有网安采购   |
+| ZoomEye                        | `CYB-OBJ-KNOWNSEC-ZOOMEYE`，product            | `product_of`                             | 在允许产品 roll-up 的榜显示知道创宇                      | 只按明确网安 scope；产品不能伪装成公司               |
+| RayTAG                         | `CYB-OBJ-WEBRAY-RAYTAG`，product               | `product_of`                             | 在允许产品 roll-up 的榜显示盛邦安全                      | 只按明确 scope                                       |
+| 卫士通                         | 当前视图映射到电科网安                         | `historical_name`                        | 显示当前品牌电科网安                                     | 通用网安可进入；曾用名不产生第二份权重               |
 
 官方核查入口包括[腾讯云](https://cloud.tencent.com/about)、[腾讯产品页](https://www.tencent.com/zh-cn/products/tencent-cloud/)、[华为云品牌说明](https://consumer.huawei.com/cn/support/content/zh-cn15955449/)、[绿盟科技](https://www.nsfocus.com.cn/html/7/)、[BJCA](https://www.bjca.cn/about/index.html)、[数字认证年度报告](https://disc.static.szse.cn/download/disc/disk03/finalpage/2026-03-31/3179d1d6-b086-4d6c-8278-46846186df37.PDF)、[新大陆官网](https://www.newland.com.cn/)和[新大陆公开披露](https://static.cninfo.com.cn/finalpage/2025-08-26/1224570931.PDF)。官网能证明品牌/业务关系，交易所披露更适合证明法人和子公司；二者不能混用。
 

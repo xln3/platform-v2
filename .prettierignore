@@ -13,3 +13,8 @@ tests/s04-evidence/playwright-*
 tests/e2e-results
 tests/e2e-results-*
 test-results
+# Immutable/versioned or deterministically generated knowledge artifacts.
+data/knowledge-releases
+docs/knowledge/evidence
+domain/brandrank/rules_data/siliconindex_projection_*.json
+domain/knowledge_evolution/domains/*_eval_v1.json

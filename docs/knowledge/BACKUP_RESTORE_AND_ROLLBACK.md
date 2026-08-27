@@ -39,6 +39,28 @@
 
 本次生产发布前还完成了全量服务备份 `.production-backups/20260827T051856Z`，以及 PostgreSQL custom dump `.deploy-backups/knowledge-evolution-predeploy-20260827T1320CST/geo_platform.pre-s17.dump`。数据库 dump 为 53,946,120 bytes，SHA-256 为 `d6935b140cdecd9a2e2aea55df6ab27fe1fb119857e79605ea637bc143f1e4d3`。
 
+### 2026-08-27 `.6` 最终生产演练
+
+发布前再次运行完整生产备份，恢复点为 `.production-backups/20260827T112041Z`。其中 PostgreSQL custom dump 为 54,100,303 bytes，SHA-256 为 `3e5b4316ec7b6bab6f7bb99921e0d1c2cdaec2d4797e2bf56ae403dbd92f7d42`，与备份 manifest 完全一致。
+
+该 dump 恢复到单独创建的 `geo_platform_knowledge_restore_20260827`，没有覆盖生产数据库。恢复版本为 `s17_0002_knowledge_trace_details`，包含 3 个知识发布记录和 71 条发布前观察。随后在隔离库执行正式迁移到 `s17_0003_knowledge_immutable`，验证结果为：
+
+- `knowledge` 15/15 张表启用并强制 RLS；
+- `uq_knowledge_object_identity_version` 和 `uq_assertion_identity_version` 存在；
+- 尝试更新知识对象返回 `append_only_table:knowledge_object`；
+- Alembic 当前版本为 `s17_0003_knowledge_immutable`。
+
+验证成功后只删除了本次演练创建的隔离数据库，生产库未被恢复操作修改。
+
+`.6` 激活和 connector 对账后又生成知识目录备份 `.production-backups/knowledge/20260827T113700Z/manifest.json`。该备份包含 12 个文件，archive hash 为 `sha256:92a8f885afbd5f6ae5303efa7249bb9e72f53a4fefab06f113578d1def92c7a1`。它恢复到空目录 `/tmp/geo-knowledge-production-restore-20260827.S11OPI` 后逐文件验证通过：
+
+- `CURRENT=knowledge-2026-08-27.6`；
+- `PREVIOUS=knowledge-2026-08-27.3`；
+- `.6` 内容哈希为 `sha256:a7acba68675a2e430c256cb282c7d6fad08403b8156cb766b9daeb15c9785c58`；
+- `.6` manifest 的父版本为 `.3`。
+
+生产还实际执行了 `.6 → .3 → .6` 指针演练。rollback 和重新 activate 均返回 HTTP 204，每一步 readiness 都为 `ok`，数据库可达、release hash 已验证。演练只追加 activation/audit 记录，没有修改旧 release 内容。
+
 ## Release 回滚
 
 回滚不修改旧 release。调用 `/releases/{release_id}/rollback` 只把 active pointer 原子切换到已验证 release，并追加 activation/audit 历史。
