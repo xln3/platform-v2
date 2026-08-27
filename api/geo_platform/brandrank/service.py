@@ -25,6 +25,7 @@ failed 条不进品牌分析但进信源分析，失败计数在 extraction 账�
 from __future__ import annotations
 
 import hashlib
+import re
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import asdict
@@ -57,6 +58,27 @@ log = structlog.getLogger()
 _MAX_ANSWERS = 2000  # 单窗防御性上限（超出截断并披露 truncated）
 _MAX_COMPETITORS = 20  # 照旧库 api.py 口径
 MAX_TOP_NS = 8  # 照旧库 api.py 口径；top_n 取值 1..50
+
+_MODEL_CONTEXT_RADIUS = 160
+_EMAIL = re.compile(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b")
+_PHONE_OR_ACCOUNT = re.compile(r"(?<!\d)\+?\d[\d -]{7,}\d(?!\d)")
+_URL = re.compile(r"https?://\S+", re.IGNORECASE)
+
+
+def _bounded_model_context(text: str, mention: str) -> str:
+    """Return only the redacted sentence window needed to disambiguate a mention."""
+
+    rendered = " ".join(str(text).replace("\x00", " ").split())
+    index = rendered.casefold().find(mention.casefold())
+    if index < 0:
+        return ""
+    start = max(0, index - _MODEL_CONTEXT_RADIUS)
+    end = min(len(rendered), index + len(mention) + _MODEL_CONTEXT_RADIUS)
+    window = rendered[start:end]
+    window = _URL.sub("[url]", window)
+    window = _EMAIL.sub("[email]", window)
+    window = _PHONE_OR_ACCOUNT.sub("[number]", window)
+    return window[: 2 * _MODEL_CONTEXT_RADIUS + len(mention)]
 
 
 class ProjectNotFound(LookupError):
@@ -121,7 +143,7 @@ def _reasoned_entity_master(
         return base_master, {
             "policy": policy.value,
             "policy_id": "brandrank-runtime",
-            "policy_version": "1",
+            "policy_version": "2",
             "release": _master_release(base_master),
             "model_called": False,
             "model_inferred_adopted": 0,
@@ -129,6 +151,7 @@ def _reasoned_entity_master(
             "cache_status": "bypass",
             "degradation": [],
             "observation_count": 0,
+            "external_context_policy": "not_sent",
         }
 
     answer_by_id = {str(answer["pub_id"]): answer for answer in answers}
@@ -142,7 +165,7 @@ def _reasoned_entity_master(
         return base_master, {
             "policy": policy.value,
             "policy_id": "brandrank-runtime",
-            "policy_version": "1",
+            "policy_version": "2",
             "release": _master_release(base_master),
             "model_called": False,
             "model_inferred_adopted": 0,
@@ -150,6 +173,7 @@ def _reasoned_entity_master(
             "cache_status": "bypass",
             "degradation": ["no_brand_mentions"],
             "observation_count": 0,
+            "external_context_policy": "not_sent",
         }
     safe_project_ref = hashlib.sha256(project_pub_id.encode()).hexdigest()
     items: list[dict[str, Any]] = []
@@ -157,9 +181,16 @@ def _reasoned_entity_master(
         contexts = []
         if allow_external_model:
             contexts = [
-                str(answer_by_id[answer_id].get("response_text") or "")[:800]
+                context
                 for answer_id in answer_ids[:4]
                 if answer_id in answer_by_id
+                for context in [
+                    _bounded_model_context(
+                        str(answer_by_id[answer_id].get("response_text") or ""),
+                        name,
+                    )
+                ]
+                if context
             ]
         source_ref = "answers:" + hashlib.sha256("|".join(sorted(answer_ids)).encode()).hexdigest()
         items.append(
@@ -184,13 +215,13 @@ def _reasoned_entity_master(
             repository = KnowledgeRepository(
                 session,
                 tenant_pub_id,
-                namespace="geo-brandrank",
+                namespace="shared",
                 domain="brand/entity-resolution",
             )
             runtime = RuntimeRequest(
                 request_id=request_id,
                 tenant=tenant_pub_id,
-                namespace="geo-brandrank",
+                namespace="shared",
                 domain="brand/entity-resolution",
                 task="resolve_mentions_for_visibility",
                 items=tuple(items),
@@ -204,7 +235,7 @@ def _reasoned_entity_master(
                 },
                 policy=policy,
                 policy_id="brandrank-runtime",
-                policy_version="1",
+                policy_version="2",
                 adopt_model_inferred=adopt_model_inferred,
                 on_model_failure=on_model_failure,
                 data_classification="internal",
@@ -236,7 +267,7 @@ def _reasoned_entity_master(
         return base_master, {
             "policy": policy.value,
             "policy_id": "brandrank-runtime",
-            "policy_version": "1",
+            "policy_version": "2",
             "release": _master_release(base_master),
             "model_called": False,
             "model_inferred_adopted": 0,
@@ -244,6 +275,9 @@ def _reasoned_entity_master(
             "cache_status": "bypass",
             "degradation": [f"knowledge_runtime_unavailable:{type(exc).__name__}"],
             "observation_count": 0,
+            "external_context_policy": (
+                "mention_window_redacted_v1" if allow_external_model else "not_sent"
+            ),
         }
     overlay = apply_adopted_model_decisions(base_master, response.decisions)
     return overlay, {
@@ -267,6 +301,9 @@ def _reasoned_entity_master(
         "observation_count": response.observation_count,
         "latency_ms": response.latency_ms,
         "usage": response.usage,
+        "external_context_policy": (
+            "mention_window_redacted_v1" if allow_external_model else "not_sent"
+        ),
     }
 
 

@@ -1,0 +1,50 @@
+{
+  "baseline_failed_cases": {
+    "huawei-cloud-rollup": [
+      "identity:华为云",
+      "identity_type:华为云"
+    ],
+    "newland-ctid-positive": [
+      "identity:新大陆数字技术股份有限公司",
+      "identity_type:新大陆数字技术股份有限公司"
+    ],
+    "product-rollup-raytag": [
+      "identity:RayTAG",
+      "identity_type:RayTAG"
+    ],
+    "product-rollup-zoomeye": [
+      "identity:ZoomEye",
+      "identity_type:ZoomEye"
+    ],
+    "tencent-cloud-rollup": [
+      "identity:腾讯云",
+      "identity_type:腾讯云"
+    ]
+  },
+  "candidate_failed_cases": {},
+  "historical_replay": {
+    "allowed_new_error_count": 0,
+    "baseline_content_hash": "sha256:93a04f23f5585efa6e569a973953f65acd8ee4897108982cb73f412b3ec21261",
+    "baseline_error_count": 5,
+    "baseline_release_id": "knowledge-2026-08-27.3",
+    "candidate_content_hash": "sha256:7b537e291e00f9286c564fc90eb19c14dd7b26aa41822cfdb8cc3277a40df28a",
+    "candidate_error_count": 0,
+    "candidate_release_id": "2026-08-27.5",
+    "corrected_case_ids": [
+      "huawei-cloud-rollup",
+      "newland-ctid-positive",
+      "product-rollup-raytag",
+      "product-rollup-zoomeye",
+      "tencent-cloud-rollup"
+    ],
+    "corrected_error_count": 5,
+    "evaluated_request_count": 12,
+    "evaluation_set_hash": "sha256:cc240f8dc9494a0a19b5601ce9915b269f3a5b9e6ea30471c84dcbe33146344b",
+    "new_error_case_ids": [],
+    "new_error_count": 0,
+    "passed": true,
+    "schema_version": "historical-replay-v1",
+    "time_cutoff": "2026-08-26T23:59:59+08:00"
+  },
+  "schema_version": "brand-release-replay-report-v1"
+}

@@ -1,0 +1,113 @@
+{
+  "baseline_failed_cases": {
+    "360-digital-security-group": [
+      "identity:360数字安全集团",
+      "identity_type:360数字安全集团"
+    ],
+    "360-group-ambiguous-negative": [
+      "eligibility:360集团",
+      "identity:360集团",
+      "identity_type:360集团",
+      "relation:360集团",
+      "roll_up:360集团"
+    ],
+    "huawei-cloud-rollup": [
+      "identity:华为云",
+      "identity_type:华为云"
+    ],
+    "huawei-legal-name": [
+      "identity:华为技术有限公司",
+      "identity_type:华为技术有限公司",
+      "relation:华为技术有限公司"
+    ],
+    "knownsec-legal-and-product": [
+      "identity:ZoomEye",
+      "identity:北京知道创宇信息技术股份有限公司",
+      "identity_type:ZoomEye",
+      "identity_type:北京知道创宇信息技术股份有限公司",
+      "relation:北京知道创宇信息技术股份有限公司"
+    ],
+    "linewell-group-and-legal-entity": [
+      "identity:南威软件股份有限公司",
+      "identity:南威软件集团",
+      "identity_type:南威软件股份有限公司",
+      "identity_type:南威软件集团",
+      "relation:南威软件股份有限公司"
+    ],
+    "newland-ctid-positive": [
+      "identity:新大陆数字技术股份有限公司",
+      "identity_type:新大陆数字技术股份有限公司"
+    ],
+    "product-rollup-raytag": [
+      "identity:RayTAG",
+      "identity_type:RayTAG"
+    ],
+    "product-rollup-zoomeye": [
+      "identity:ZoomEye",
+      "identity_type:ZoomEye"
+    ],
+    "sheca-legal-name": [
+      "identity:上海市数字证书认证中心有限公司",
+      "identity_type:上海市数字证书认证中心有限公司",
+      "relation:上海市数字证书认证中心有限公司"
+    ],
+    "shensi-legal-name-general-negative": [
+      "identity:神思电子技术股份有限公司",
+      "identity_type:神思电子技术股份有限公司",
+      "relation:神思电子技术股份有限公司"
+    ],
+    "tencent-cloud-rollup": [
+      "identity:腾讯云",
+      "identity_type:腾讯云"
+    ],
+    "tencent-security-business-unit": [
+      "identity:腾讯安全",
+      "identity_type:腾讯安全"
+    ],
+    "webray-legal-name": [
+      "identity:远江盛邦安全科技集团",
+      "identity_type:远江盛邦安全科技集团"
+    ],
+    "whitehat-institute-brand-family": [
+      "identity:白帽汇",
+      "identity_type:白帽汇",
+      "relation:白帽汇"
+    ]
+  },
+  "candidate_failed_cases": {},
+  "historical_replay": {
+    "allowed_new_error_count": 0,
+    "baseline_content_hash": "sha256:93a04f23f5585efa6e569a973953f65acd8ee4897108982cb73f412b3ec21261",
+    "baseline_error_count": 15,
+    "baseline_release_id": "knowledge-2026-08-27.3",
+    "candidate_content_hash": "sha256:d5e15f1dc9f6b3b2d1addf6c41500e3eb3a5514b295a3a1134d4c636c07dabd2",
+    "candidate_error_count": 0,
+    "candidate_release_id": "2026-08-27.6",
+    "corrected_case_ids": [
+      "360-digital-security-group",
+      "360-group-ambiguous-negative",
+      "huawei-cloud-rollup",
+      "huawei-legal-name",
+      "knownsec-legal-and-product",
+      "linewell-group-and-legal-entity",
+      "newland-ctid-positive",
+      "product-rollup-raytag",
+      "product-rollup-zoomeye",
+      "sheca-legal-name",
+      "shensi-legal-name-general-negative",
+      "tencent-cloud-rollup",
+      "tencent-security-business-unit",
+      "webray-legal-name",
+      "whitehat-institute-brand-family"
+    ],
+    "corrected_error_count": 15,
+    "evaluated_request_count": 22,
+    "evaluation_set_hash": "sha256:db638c611fda0d7424bb8792001ff8b97b5d8f7fd20f6a0335e8f36354a95a1a",
+    "new_error_case_ids": [],
+    "new_error_count": 0,
+    "passed": true,
+    "schema_version": "historical-replay-v1",
+    "time_cutoff": "2026-08-26T23:59:59+08:00"
+  },
+  "schema_version": "brand-release-replay-report-v1"
+}

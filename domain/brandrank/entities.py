@@ -49,6 +49,18 @@ class EntityRecord:
     evidence_urls: tuple[str, ...] = ()
     review_status: str = "reviewed"
     knowledge_status: str = "published"
+    origin: str = "unknown"
+    sync_status: str = "unknown"
+
+
+@dataclass(frozen=True, slots=True)
+class EntityIdentity:
+    """Concrete object named by a surface form before any ranking roll-up."""
+
+    entity_id: str
+    canonical_name: str
+    entity_type: str
+    evidence_urls: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +72,7 @@ class EntityMaster:
     entities: tuple[EntityRecord, ...]
     alias_index: dict[str, EntityRecord]
     relationship_index: dict[str, str]
+    identity_index: dict[str, EntityIdentity]
     resolution_policy: str = ""
     source_system: str = ""
     source_release_id: str = ""
@@ -71,6 +84,11 @@ class EntityMaster:
         """Return the reviewed relationship for one surface name, if known."""
 
         return self.relationship_index.get(_key(value))
+
+    def identity_for(self, value: str) -> EntityIdentity | None:
+        """Return the concrete reviewed object denoted by a surface name."""
+
+        return self.identity_index.get(_key(value))
 
 
 def _key(value: str) -> str:
@@ -93,6 +111,7 @@ def _empty_master(domain: str) -> EntityMaster:
         entities=(),
         alias_index={},
         relationship_index={},
+        identity_index={},
     )
 
 
@@ -167,6 +186,12 @@ def _siliconindex_document(domain: str, snapshot_dir: str | Path) -> dict[str, A
         review_status = str(brand.get("review_status") or "pending")
         aliases: list[str] = []
         relationships: dict[str, str] = {}
+        alias_identities: dict[str, dict[str, Any]] = {}
+        identity_objects = {
+            str(value.get("object_id") or ""): value
+            for value in brand.get("identity_objects", [])
+            if isinstance(value, dict) and value.get("review_status") == "reviewed"
+        }
         for mention in sorted(
             by_brand.get(brand_id, []), key=lambda row: str(row.get("mention_id") or "")
         ):
@@ -189,13 +214,37 @@ def _siliconindex_document(domain: str, snapshot_dir: str | Path) -> dict[str, A
                     str(mention.get("mention_type") or ""), "official_abbreviation"
                 )
             )
+            identity_object_id = str(mention.get("identity_object_id") or "")
+            if identity_object_id:
+                identity_object = identity_objects.get(identity_object_id)
+                if identity_object is None:
+                    raise ValueError(
+                        f"invalid_siliconindex_identity_ref:{mention.get('mention_id')}"
+                    )
+                alias_identities[text] = {
+                    "entity_id": identity_object_id,
+                    "canonical_name": str(identity_object.get("canonical_name") or ""),
+                    "entity_type": str(identity_object.get("object_type") or ""),
+                    "relationship_to_brand": str(
+                        identity_object.get("relationship_to_brand") or ""
+                    ),
+                    "parent_object_id": identity_object.get("parent_object_id"),
+                    "evidence_urls": list(identity_object.get("evidence_urls") or []),
+                }
         reviewed = review_status == "reviewed"
+        # The request read model is deliberately a projection of published
+        # knowledge. Pending and draft objects remain available in the source
+        # snapshot/governance database, but must not leak into deterministic
+        # matching, model catalogs, ranking, or reports.
+        if not reviewed:
+            continue
         entities.append(
             {
                 "entity_id": brand_id,
                 "canonical_name": canonical,
                 "aliases": aliases,
                 "alias_relationships": relationships,
+                "alias_identities": alias_identities,
                 "entity_type": str(brand.get("entity_type") or "company"),
                 "competitor_eligible": bool(profile.get("competitor_eligible")) and reviewed,
                 "eligibility_mode": str(profile.get("eligibility_mode") or "always"),
@@ -207,6 +256,9 @@ def _siliconindex_document(domain: str, snapshot_dir: str | Path) -> dict[str, A
                 or ("SiliconIndex 实体仍在待审状态，不进入正式竞品榜。" if not reviewed else None),
                 "evidence_urls": profile.get("evidence_urls") or [],
                 "review_status": review_status,
+                "knowledge_status": "published",
+                "origin": "siliconindex_snapshot",
+                "sync_status": "reconciled",
             }
         )
     if not entities:
@@ -227,9 +279,17 @@ def _siliconindex_document(domain: str, snapshot_dir: str | Path) -> dict[str, A
     }
 
 
-def _local_knowledge_document(domain: str, release_dir: str | Path) -> dict[str, Any]:
+def _local_knowledge_document(
+    domain: str,
+    release_dir: str | Path,
+    release_id: str | None = None,
+) -> dict[str, Any]:
     store = KnowledgeReleaseStore(release_dir)
-    document, manifest, degraded = store.load_domain_resilient("brand/entity-resolution")
+    if release_id is None:
+        document, manifest, degraded = store.load_domain_resilient("brand/entity-resolution")
+    else:
+        document, manifest = store.load_domain("brand/entity-resolution", release_id)
+        degraded = False
     analysis_domains = document.get("analysis_domains")
     if not isinstance(analysis_domains, dict) or not isinstance(analysis_domains.get(domain), dict):
         raise ValueError(f"local_knowledge_domain_unavailable:{domain}")
@@ -261,6 +321,7 @@ def _parse_master(
     entities: list[EntityRecord] = []
     alias_index: dict[str, EntityRecord] = {}
     relationship_index: dict[str, str] = {}
+    identity_index: dict[str, EntityIdentity] = {}
     entity_ids: set[str] = set()
     for raw in document["entities"]:
         if not isinstance(raw, dict):
@@ -276,6 +337,9 @@ def _parse_master(
         raw_relationships = raw.get("alias_relationships") or {}
         if not isinstance(raw_relationships, dict):
             raise ValueError(f"invalid alias_relationships: {source_label}")
+        raw_identities = raw.get("alias_identities") or {}
+        if not isinstance(raw_identities, dict):
+            raise ValueError(f"invalid alias_identities: {source_label}")
         allowed_relationships = {
             "self",
             "same_legal_entity",
@@ -292,7 +356,21 @@ def _parse_master(
         for alias, relationship in raw_relationships.items():
             if _key(str(alias)) not in alias_keys or relationship not in allowed_relationships:
                 raise ValueError(f"invalid alias relationship {alias!r}: {source_label}")
-        if not canonical or entity_type not in {"company", "product", "tool", "institution"}:
+        for alias, identity in raw_identities.items():
+            if _key(str(alias)) not in alias_keys or not isinstance(identity, dict):
+                raise ValueError(f"invalid alias identity {alias!r}: {source_label}")
+        if not canonical or entity_type not in {
+            "legal_entity",
+            "group",
+            "company",
+            "brand",
+            "brand_family",
+            "sub_brand",
+            "business_unit",
+            "product",
+            "tool",
+            "institution",
+        }:
             raise ValueError(f"invalid entity record: {source_label}")
         entity_id = str(raw.get("entity_id") or f"{domain}:{_key(canonical)}").strip()
         if not entity_id or entity_id in entity_ids:
@@ -304,6 +382,27 @@ def _parse_master(
         eligibility_mode = str(raw.get("eligibility_mode") or "always").strip()
         if eligibility_mode not in {"always", "scope_required", "never"}:
             raise ValueError(f"invalid eligibility_mode {eligibility_mode!r}: {source_label}")
+        explicit_knowledge_status = str(raw.get("knowledge_status") or "").strip()
+        if explicit_knowledge_status:
+            if explicit_knowledge_status not in {
+                "published",
+                "reviewed_local",
+                "model_inferred",
+                "unresolved",
+            }:
+                raise ValueError(
+                    f"invalid knowledge_status {explicit_knowledge_status!r}: {source_label}"
+                )
+            knowledge_status = explicit_knowledge_status
+        elif review_status != "reviewed":
+            knowledge_status = "unresolved"
+        elif source_mode in {
+            "synced_siliconindex_snapshot",
+            "bundled_siliconindex_projection",
+        }:
+            knowledge_status = "published"
+        else:
+            knowledge_status = "reviewed_local"
         record = EntityRecord(
             entity_id=entity_id,
             canonical_name=canonical,
@@ -327,12 +426,12 @@ def _parse_master(
                 str(value).strip() for value in raw.get("evidence_urls", []) if str(value).strip()
             ),
             review_status=review_status,
-            knowledge_status=(
-                "published"
-                if source_mode == "synced_siliconindex_snapshot"
-                else ("reviewed_local" if review_status == "reviewed" else "unresolved")
-            ),
+            knowledge_status=knowledge_status,
+            origin=str(raw.get("origin") or document.get("source_system") or "unknown"),
+            sync_status=str(raw.get("sync_status") or "unknown"),
         )
+        if review_status != "reviewed" or knowledge_status == "unresolved":
+            continue
         entities.append(record)
         for alias in aliases:
             lookup = _key(alias)
@@ -346,6 +445,54 @@ def _parse_master(
                     "self" if lookup == _key(canonical) else "official_abbreviation",
                 )
             )
+            raw_identity = raw_identities.get(alias)
+            if raw_identity is None:
+                identity = EntityIdentity(
+                    entity_id=record.entity_id,
+                    canonical_name=record.canonical_name,
+                    entity_type=(
+                        record.brand_level
+                        if record.brand_level
+                        in {"brand", "brand_family", "product", "tool", "institution"}
+                        else record.entity_type
+                    ),
+                )
+            else:
+                raw_identity_evidence = raw_identity.get("evidence_urls", [])
+                if not isinstance(raw_identity_evidence, list) or not all(
+                    isinstance(value, str) and value.strip() for value in raw_identity_evidence
+                ):
+                    raise ValueError(f"invalid alias identity evidence {alias!r}: {source_label}")
+                identity = EntityIdentity(
+                    entity_id=str(raw_identity.get("entity_id") or "").strip(),
+                    canonical_name=str(raw_identity.get("canonical_name") or "").strip(),
+                    entity_type=str(raw_identity.get("entity_type") or "").strip(),
+                    evidence_urls=tuple(
+                        str(value).strip() for value in raw_identity_evidence if str(value).strip()
+                    ),
+                )
+                if (
+                    not identity.entity_id
+                    or not identity.canonical_name
+                    or identity.entity_type
+                    not in {
+                        "legal_entity",
+                        "group",
+                        "company",
+                        "brand",
+                        "brand_family",
+                        "sub_brand",
+                        "business_unit",
+                        "product",
+                        "tool",
+                        "institution",
+                    }
+                ):
+                    raise ValueError(f"invalid alias identity {alias!r}: {source_label}")
+            existing_identity = identity_index.get(lookup)
+            if existing_identity is not None and existing_identity != identity:
+                raise ValueError(f"entity identity conflict: {alias!r}")
+            identity_index[lookup] = identity
     return EntityMaster(
         domain=domain,
         schema_version=schema_version,
@@ -354,6 +501,7 @@ def _parse_master(
         entities=tuple(entities),
         alias_index=alias_index,
         relationship_index=relationship_index,
+        identity_index=identity_index,
         resolution_policy=str(document.get("resolution_policy") or "").strip(),
         source_system=str(document.get("source_system") or "").strip(),
         source_release_id=str(document.get("source_release_id") or "").strip(),
@@ -390,12 +538,12 @@ def _snapshot_revision_key(snapshot_dir: str) -> str:
         return f"unavailable:{exc}"
 
 
-def _knowledge_revision_key(release_dir: str) -> str:
+def _knowledge_revision_key(release_dir: str, release_id: str | None = None) -> str:
     if not release_dir:
         return "not-configured"
     try:
         store = KnowledgeReleaseStore(release_dir)
-        manifest = store.manifest()
+        manifest = store.manifest(release_id)
         return f"{manifest.get('release_id', 'unknown')}:{manifest.get('content_hash', 'no-hash')}"
     except (KnowledgeReleaseError, OSError, UnicodeError, json.JSONDecodeError) as exc:
         return f"unavailable:{exc}"
@@ -405,6 +553,7 @@ def _knowledge_revision_key(release_dir: str) -> str:
 def _load_entity_master_cached(
     domain: str,
     configured_knowledge_release: str,
+    requested_release_id: str,
     knowledge_revision_key: str,
     configured_snapshot: str,
     snapshot_revision_key: str,
@@ -413,7 +562,11 @@ def _load_entity_master_cached(
     knowledge_error = ""
     if configured_knowledge_release:
         try:
-            document = _local_knowledge_document(domain, configured_knowledge_release)
+            document = _local_knowledge_document(
+                domain,
+                configured_knowledge_release,
+                requested_release_id or None,
+            )
             return _parse_master(
                 document,
                 domain=domain,
@@ -428,6 +581,10 @@ def _load_entity_master_cached(
             ValueError,
             KnowledgeReleaseError,
         ) as exc:
+            if requested_release_id:
+                raise ValueError(
+                    f"requested_knowledge_release_unavailable:{requested_release_id}"
+                ) from exc
             knowledge_error = str(exc)
     snapshot_error = ""
     if configured_snapshot:
@@ -461,6 +618,7 @@ def load_entity_master(
     domain: str,
     snapshot_dir: str | None = None,
     knowledge_release_dir: str | None = None,
+    release_id: str | None = None,
 ) -> EntityMaster:
     """Load one global entity projection, preferring the active local knowledge release.
 
@@ -478,7 +636,8 @@ def load_entity_master(
     return _load_entity_master_cached(
         domain,
         configured_knowledge_release,
-        _knowledge_revision_key(configured_knowledge_release),
+        release_id or "",
+        _knowledge_revision_key(configured_knowledge_release, release_id),
         configured_snapshot,
         _snapshot_revision_key(configured_snapshot),
     )
@@ -497,6 +656,7 @@ def _eligible_for_scopes(record: EntityRecord, comparison_scopes: Iterable[str])
 def _record_projection(
     record: EntityRecord,
     *,
+    identity: EntityIdentity,
     relationship: str,
     comparison_scopes: Iterable[str],
 ) -> dict[str, Any]:
@@ -506,6 +666,9 @@ def _record_projection(
         "entity_id": record.entity_id,
         "canonical_name": record.canonical_name,
         "entity_type": record.entity_type,
+        "identity_entity_id": identity.entity_id,
+        "identity_canonical_name": identity.canonical_name,
+        "identity_entity_type": identity.entity_type,
         "competitor_eligible": _eligible_for_scopes(record, comparison_scopes),
         "competitor_eligible_base": record.competitor_eligible,
         "eligibility_mode": record.eligibility_mode,
@@ -516,6 +679,9 @@ def _record_projection(
         "eligibility_note": record.eligibility_note,
         "review_status": record.review_status,
         "knowledge_status": record.knowledge_status,
+        "origin": record.origin,
+        "sync_status": record.sync_status,
+        "evidence_urls": list(dict.fromkeys((*identity.evidence_urls, *record.evidence_urls))),
         "relationship_to_canonical": relationship,
     }
 
@@ -545,10 +711,15 @@ def classify_entity(
     }
     project_canonical = project_lookup.get(raw_key)
     if record is not None:
+        identity = master.identity_index.get(
+            raw_key,
+            EntityIdentity(record.entity_id, record.canonical_name, record.entity_type),
+        )
         return {
             "raw_name": raw,
             **_record_projection(
                 record,
+                identity=identity,
                 relationship=master.relationship_index.get(
                     raw_key,
                     "self" if raw_key == _key(record.canonical_name) else "official_abbreviation",
@@ -571,6 +742,9 @@ def classify_entity(
             "entity_id": f"unresolved-project:{_key(project_canonical)}",
             "canonical_name": project_canonical,
             "entity_type": "unknown",
+            "identity_entity_id": f"unresolved-project:{_key(project_canonical)}",
+            "identity_canonical_name": project_canonical,
+            "identity_entity_type": "unknown",
             "competitor_eligible": False,
             "competitor_eligible_base": False,
             "eligibility_mode": "never",
@@ -590,6 +764,9 @@ def classify_entity(
             "entity_id": f"excluded:{raw_key}",
             "canonical_name": raw,
             "entity_type": "institution",
+            "identity_entity_id": f"excluded:{raw_key}",
+            "identity_canonical_name": raw,
+            "identity_entity_type": "institution",
             "competitor_eligible": False,
             "competitor_eligible_base": False,
             "eligibility_mode": "never",
@@ -608,6 +785,9 @@ def classify_entity(
         "entity_id": f"unclassified:{raw_key}",
         "canonical_name": raw,
         "entity_type": "unknown",
+        "identity_entity_id": f"unclassified:{raw_key}",
+        "identity_canonical_name": raw,
+        "identity_entity_type": "unknown",
         "competitor_eligible": False,
         "competitor_eligible_base": False,
         "eligibility_mode": "never",

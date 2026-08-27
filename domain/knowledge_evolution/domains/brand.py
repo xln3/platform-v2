@@ -4,13 +4,17 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import unicodedata
 from collections.abc import Iterable, Mapping
 from dataclasses import asdict
+from datetime import UTC, datetime
+from math import isfinite
 from typing import Any
 from urllib.parse import urlsplit
 
 from domain.brandrank.entities import (
+    EntityIdentity,
     EntityMaster,
     EntityRecord,
     classify_entity,
@@ -55,9 +59,11 @@ def apply_adopted_model_decisions(
     """Build a request-scoped overlay; never mutate or publish the base master."""
 
     entities = list(master.entities)
+    entity_positions = {record.entity_id: index for index, record in enumerate(entities)}
     records_by_id = {record.entity_id: record for record in master.entities}
     alias_index = dict(master.alias_index)
     relationship_index = dict(master.relationship_index)
+    identity_index = dict(master.identity_index)
     for decision in decisions:
         if decision.knowledge_status != KnowledgeStatus.MODEL_INFERRED or not decision.adopted:
             continue
@@ -73,7 +79,8 @@ def apply_adopted_model_decisions(
         if identity_decision == "ambiguous":
             continue
         entity_id = str(identity.get("entity_id") or "")
-        base = records_by_id.get(entity_id)
+        roll_up_id = str(roll_up.get("entity_id") or "")
+        base = records_by_id.get(roll_up_id) or records_by_id.get(entity_id)
         canonical = str(
             roll_up.get("display_name")
             or identity.get("canonical_name")
@@ -111,8 +118,11 @@ def apply_adopted_model_decisions(
                 evidence_urls=decision.evidence_refs,
                 review_status="model_inferred",
                 knowledge_status="model_inferred",
+                origin="request_model_inference",
+                sync_status="request_only",
             )
             entities.append(record)
+            entity_positions[record.entity_id] = len(entities) - 1
         else:
             record = EntityRecord(
                 entity_id=base.entity_id,
@@ -131,10 +141,24 @@ def apply_adopted_model_decisions(
                 evidence_urls=tuple(dict.fromkeys((*base.evidence_urls, *decision.evidence_refs))),
                 review_status="model_inferred",
                 knowledge_status="model_inferred",
+                origin="request_model_inference",
+                sync_status="request_only",
             )
-            entities.append(record)
+            entities[entity_positions[base.entity_id]] = record
+        records_by_id[record.entity_id] = record
         alias_index[_key(decision.input_value)] = record
         relationship_index[_key(decision.input_value)] = str(relation.get("type") or "uncertain")
+        identity_index[_key(decision.input_value)] = EntityIdentity(
+            entity_id=(
+                entity_id
+                or "request-inferred-object:"
+                + hashlib.sha256(
+                    f"{master.source_release_id}|{decision.input_id}|identity".encode()
+                ).hexdigest()[:24]
+            ),
+            canonical_name=str(identity.get("canonical_name") or decision.input_value),
+            entity_type=str(identity.get("entity_type") or "unknown"),
+        )
     return EntityMaster(
         domain=master.domain,
         schema_version=master.schema_version,
@@ -143,6 +167,7 @@ def apply_adopted_model_decisions(
         entities=tuple(entities),
         alias_index=alias_index,
         relationship_index=relationship_index,
+        identity_index=identity_index,
         resolution_policy=master.resolution_policy,
         source_system=master.source_system,
         source_release_id=master.source_release_id,
@@ -154,10 +179,10 @@ def apply_adopted_model_decisions(
 
 class BrandEntityResolutionPack:
     domain_id = "brand/entity-resolution"
-    policy_version = "brand-governance-v1"
+    policy_version = "brand-governance-v2"
     prompt_id = "brand-entity-resolution"
-    prompt_version = "brand-entity-resolution-v3"
-    tool_version = "brand-tools-v1"
+    prompt_version = "brand-entity-resolution-v5"
+    tool_version = "brand-tools-v2"
     _OBJECT_TYPES = {
         "legal_entity",
         "company",
@@ -183,6 +208,23 @@ class BrandEntityResolutionPack:
         "rolls_up_to",
         "comparison_eligible",
     }
+    _IDENTITY_DECISIONS = {"existing", "propose_new", "ambiguous", "non_entity"}
+    _RELATION_TYPES = {
+        "self",
+        "same_legal_entity",
+        "official_abbreviation",
+        "english_name",
+        "historical_name",
+        "trade_name",
+        "product_of",
+        "business_unit_of",
+        "subsidiary_of",
+        "brand_family_member",
+        "independent",
+        "non_vendor",
+        "uncertain",
+    }
+    _IMPACT_LEVELS = {"low", "medium", "high", "critical"}
 
     def __init__(
         self,
@@ -198,6 +240,7 @@ class BrandEntityResolutionPack:
             _analysis_domain(request),
             self.snapshot_dir,
             self.knowledge_release_dir,
+            request.expected_release_id,
         )
 
     def release_ref(self, request: RuntimeRequest) -> ReleaseRef:
@@ -239,14 +282,12 @@ class BrandEntityResolutionPack:
             reviewed = (
                 row.get("review_status") == "reviewed" and row.get("entity_type") != "unknown"
             )
-            if reviewed:
-                status = (
-                    KnowledgeStatus.REVIEWED_LOCAL
-                    if master.source_mode == "local_knowledge_release"
-                    else KnowledgeStatus.PUBLISHED
-                )
-            else:
-                status = KnowledgeStatus.UNRESOLVED
+            raw_status = str(row.get("knowledge_status") or "unresolved")
+            status = (
+                KnowledgeStatus(raw_status)
+                if reviewed and raw_status in {"published", "reviewed_local"}
+                else KnowledgeStatus.UNRESOLVED
+            )
             reason = str(row.get("eligibility_note") or row.get("classification_source") or "")
             decisions.append(
                 Decision(
@@ -254,10 +295,12 @@ class BrandEntityResolutionPack:
                     input_value=value,
                     value={
                         "identity": {
-                            "entity_id": row.get("entity_id"),
-                            "canonical_name": row.get("canonical_name"),
-                            "entity_type": row.get("entity_type"),
+                            "entity_id": row.get("identity_entity_id"),
+                            "canonical_name": row.get("identity_canonical_name"),
+                            "entity_type": row.get("identity_entity_type"),
                             "review_status": row.get("review_status"),
+                            "origin": row.get("origin"),
+                            "sync_status": row.get("sync_status"),
                         },
                         "relation": {
                             "type": row.get("relationship_to_canonical"),
@@ -289,6 +332,9 @@ class BrandEntityResolutionPack:
                     confidence=0.99 if reviewed else 0.0,
                     reasons=(reason,) if reason else (),
                     uncertainty=() if reviewed else ("identity_or_scope_requires_governance",),
+                    evidence_refs=tuple(
+                        str(value) for value in row.get("evidence_urls", []) if str(value)
+                    ),
                     adopted=reviewed,
                 )
             )
@@ -307,8 +353,9 @@ class BrandEntityResolutionPack:
             if request.policy == ReasoningPolicy.LLM_ASSISTED
             else {decision.input_id for decision in deterministic}
         )
-        catalog = [
-            {
+        catalog_by_id: dict[str, dict[str, Any]] = {}
+        for entity in master.entities:
+            catalog_by_id[entity.entity_id] = {
                 "entity_id": entity.entity_id,
                 "canonical_name": entity.canonical_name,
                 "aliases": list(entity.aliases),
@@ -316,14 +363,37 @@ class BrandEntityResolutionPack:
                 "brand_level": entity.brand_level,
                 "parent_brand": entity.parent_brand,
                 "review_status": entity.review_status,
+                "roll_up_entity_id": entity.entity_id,
                 "comparison": {
                     "eligible": entity.competitor_eligible,
                     "mode": entity.eligibility_mode,
                     "scopes": list(entity.competitor_scopes),
                 },
             }
-            for entity in master.entities
-        ]
+        for alias_key, identity in master.identity_index.items():
+            if identity.entity_id in catalog_by_id:
+                continue
+            owner = master.alias_index[alias_key]
+            catalog_by_id[identity.entity_id] = {
+                "entity_id": identity.entity_id,
+                "canonical_name": identity.canonical_name,
+                "aliases": sorted(
+                    alias
+                    for alias in owner.aliases
+                    if master.identity_index.get(_key(alias)) == identity
+                ),
+                "entity_type": identity.entity_type,
+                "brand_level": identity.entity_type,
+                "parent_brand": owner.canonical_name,
+                "review_status": owner.review_status,
+                "roll_up_entity_id": owner.entity_id,
+                "comparison": {
+                    "eligible": owner.competitor_eligible,
+                    "mode": owner.eligibility_mode,
+                    "scopes": list(owner.competitor_scopes),
+                },
+            }
+        catalog = list(catalog_by_id.values())
         safe_items = []
         for index, item in enumerate(request.items):
             input_id, value = _item(item, index)
@@ -364,10 +434,13 @@ class BrandEntityResolutionPack:
                             "relation",
                             "roll_up",
                             "comparison",
+                            "applicability",
                             "confidence",
                             "reasons",
                             "alternative_hypotheses",
                             "uncertainty",
+                            "missing_evidence",
+                            "impact_if_wrong",
                             "evidence_refs",
                         ],
                         "properties": {
@@ -454,6 +527,37 @@ class BrandEntityResolutionPack:
                                     "scopes": {"type": "array", "items": {"type": "string"}},
                                 },
                             },
+                            "applicability": {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "required": [
+                                    "tasks",
+                                    "industries",
+                                    "regions",
+                                    "audiences",
+                                    "valid_from",
+                                    "valid_until",
+                                    "counterexamples",
+                                ],
+                                "properties": {
+                                    "tasks": {"type": "array", "items": {"type": "string"}},
+                                    "industries": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                    },
+                                    "regions": {"type": "array", "items": {"type": "string"}},
+                                    "audiences": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                    },
+                                    "valid_from": {"type": ["string", "null"]},
+                                    "valid_until": {"type": ["string", "null"]},
+                                    "counterexamples": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                    },
+                                },
+                            },
                             "confidence": {
                                 "type": "object",
                                 "additionalProperties": False,
@@ -471,6 +575,14 @@ class BrandEntityResolutionPack:
                                 "items": {"type": "string"},
                             },
                             "uncertainty": {"type": "array", "items": {"type": "string"}},
+                            "missing_evidence": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                            },
+                            "impact_if_wrong": {
+                                "type": "string",
+                                "enum": ["low", "medium", "high", "critical"],
+                            },
                             "evidence_refs": {"type": "array", "items": {"type": "string"}},
                         },
                     },
@@ -492,6 +604,10 @@ class BrandEntityResolutionPack:
                     "For a new object, use propose_new and entity_id=null; "
                     "never invent a stable ID.",
                     "Evidence refs must come from allowed_evidence_refs in the request context.",
+                    "State task, industry, region, audience and time applicability; use empty "
+                    "lists or null only when no narrower condition is supported.",
+                    "List counterexamples, missing evidence and the impact if the judgment "
+                    "is wrong.",
                     "Abstain with ambiguous/uncertain when evidence is insufficient.",
                 ],
                 "allowed_evidence_refs": request.context.get("allowed_evidence_refs", []),
@@ -521,7 +637,8 @@ class BrandEntityResolutionPack:
         request: RuntimeRequest,
         deterministic: tuple[Decision, ...],
     ) -> tuple[Decision, ...]:
-        del deterministic
+        if set(payload) != {"decisions"}:
+            raise ValueError("brand_model_top_level_fields_invalid")
         raw_rows = payload.get("decisions")
         if not isinstance(raw_rows, list):
             raise ValueError("brand_model_decisions_required")
@@ -530,53 +647,314 @@ class BrandEntityResolutionPack:
             for index, item in enumerate(request.items)
             for input_id, value in [_item(item, index)]
         }
-        known = {entity.entity_id for entity in self._master(request).entities}
+        expected = (
+            {
+                decision.input_id
+                for decision in deterministic
+                if decision.knowledge_status == KnowledgeStatus.UNRESOLVED
+            }
+            if request.policy == ReasoningPolicy.LLM_ASSISTED
+            else set(requested)
+        )
+        master = self._master(request)
+        known_rollups = {entity.entity_id: entity for entity in master.entities}
+        known_identities: dict[str, EntityIdentity | EntityRecord] = dict(known_rollups)
+        identity_rollups = {entity_id: entity_id for entity_id in known_rollups}
+        known_identities.update(
+            {identity.entity_id: identity for identity in master.identity_index.values()}
+        )
+        for alias_key, governed_identity in master.identity_index.items():
+            owner_id = master.alias_index[alias_key].entity_id
+            previous_owner = identity_rollups.setdefault(governed_identity.entity_id, owner_id)
+            if previous_owner != owner_id:
+                raise ValueError("brand_identity_has_multiple_rollups")
         allowed_refs = {
             str(value) for value in request.context.get("allowed_evidence_refs", []) if str(value)
         }
+
+        def exact_fields(value: Mapping[str, Any], expected_fields: set[str], code: str) -> None:
+            if set(value) != expected_fields:
+                raise ValueError(code)
+
+        def string_or_none(value: Any, code: str, *, maximum: int = 500) -> str | None:
+            if value is None:
+                return None
+            if not isinstance(value, str):
+                raise ValueError(code)
+            rendered = value.strip()
+            if not rendered or len(rendered) > maximum:
+                raise ValueError(code)
+            return rendered
+
+        def string_list(
+            value: Any,
+            code: str,
+            *,
+            maximum_items: int = 20,
+            maximum_length: int = 500,
+        ) -> tuple[str, ...]:
+            if not isinstance(value, list) or len(value) > maximum_items:
+                raise ValueError(code)
+            output_values: list[str] = []
+            for item in value:
+                if not isinstance(item, str):
+                    raise ValueError(code)
+                rendered = item.strip()
+                if not rendered or len(rendered) > maximum_length:
+                    raise ValueError(code)
+                output_values.append(rendered)
+            if len(set(output_values)) != len(output_values):
+                raise ValueError(code)
+            return tuple(output_values)
+
+        def iso_date(value: Any, code: str) -> str | None:
+            rendered = string_or_none(value, code, maximum=64)
+            if rendered is None:
+                return None
+            try:
+                datetime.fromisoformat(rendered.replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise ValueError(code) from exc
+            return rendered
+
         seen: set[str] = set()
         output: list[Decision] = []
         for raw in raw_rows:
             if not isinstance(raw, dict):
                 raise ValueError("brand_model_decision_invalid")
-            input_id = str(raw.get("input_id") or "")
-            if input_id not in requested or input_id in seen:
+            exact_fields(
+                raw,
+                {
+                    "input_id",
+                    "identity",
+                    "relation",
+                    "roll_up",
+                    "comparison",
+                    "applicability",
+                    "confidence",
+                    "reasons",
+                    "alternative_hypotheses",
+                    "uncertainty",
+                    "missing_evidence",
+                    "impact_if_wrong",
+                    "evidence_refs",
+                },
+                "brand_model_decision_fields_invalid",
+            )
+            input_id = raw.get("input_id")
+            if not isinstance(input_id, str) or input_id not in expected or input_id in seen:
                 raise ValueError("brand_model_input_set_invalid")
             seen.add(input_id)
             identity = raw.get("identity")
             relation = raw.get("relation")
             roll_up = raw.get("roll_up")
             comparison = raw.get("comparison")
+            applicability = raw.get("applicability")
             confidence = raw.get("confidence")
             if not isinstance(identity, dict) or not isinstance(relation, dict):
                 raise ValueError("brand_model_dimensions_required")
             if not isinstance(roll_up, dict) or not isinstance(comparison, dict):
                 raise ValueError("brand_model_dimensions_required")
-            if not isinstance(confidence, dict):
+            if not isinstance(applicability, dict) or not isinstance(confidence, dict):
                 raise ValueError("brand_model_dimensions_required")
-            identity_decision = str(identity.get("decision") or "")
+            exact_fields(
+                identity,
+                {"decision", "entity_id", "canonical_name", "entity_type"},
+                "brand_model_identity_fields_invalid",
+            )
+            exact_fields(relation, {"type"}, "brand_model_relation_fields_invalid")
+            exact_fields(
+                roll_up,
+                {"entity_id", "display_name"},
+                "brand_model_roll_up_fields_invalid",
+            )
+            exact_fields(
+                comparison,
+                {"eligible", "scopes"},
+                "brand_model_comparison_fields_invalid",
+            )
+            exact_fields(
+                applicability,
+                {
+                    "tasks",
+                    "industries",
+                    "regions",
+                    "audiences",
+                    "valid_from",
+                    "valid_until",
+                    "counterexamples",
+                },
+                "brand_model_applicability_fields_invalid",
+            )
+            exact_fields(
+                confidence,
+                {"identity", "relation", "roll_up", "eligibility"},
+                "brand_model_confidence_fields_invalid",
+            )
+
+            identity_decision = identity.get("decision")
+            if identity_decision not in self._IDENTITY_DECISIONS:
+                raise ValueError("brand_model_identity_decision_invalid")
             entity_id = identity.get("entity_id")
-            if identity_decision == "existing" and entity_id not in known:
-                raise ValueError("brand_model_unknown_entity_id")
-            if identity_decision != "existing" and entity_id is not None:
+            canonical_name = string_or_none(
+                identity.get("canonical_name"), "brand_model_canonical_name_invalid"
+            )
+            entity_type = identity.get("entity_type")
+            if not isinstance(entity_type, str) or entity_type not in {
+                *self._OBJECT_TYPES,
+                "unknown",
+            }:
+                raise ValueError("brand_model_entity_type_invalid")
+            if identity_decision == "existing":
+                if not isinstance(entity_id, str) or entity_id not in known_identities:
+                    raise ValueError("brand_model_unknown_entity_id")
+                governed = known_identities[entity_id]
+                if canonical_name != governed.canonical_name or entity_type != governed.entity_type:
+                    raise ValueError("brand_model_existing_identity_contradiction")
+            elif entity_id is not None:
                 raise ValueError("brand_model_new_entity_id_forbidden")
+            elif identity_decision == "propose_new" and (
+                canonical_name is None or entity_type == "unknown"
+            ):
+                raise ValueError("brand_model_new_identity_incomplete")
+
+            relation_type = relation.get("type")
+            if not isinstance(relation_type, str) or relation_type not in self._RELATION_TYPES:
+                raise ValueError("brand_model_relation_invalid")
+            roll_up_id = roll_up.get("entity_id")
+            if roll_up_id is not None and (
+                not isinstance(roll_up_id, str) or roll_up_id not in known_rollups
+            ):
+                raise ValueError("brand_model_unknown_roll_up_id")
+            display_name = string_or_none(
+                roll_up.get("display_name"), "brand_model_roll_up_display_invalid"
+            )
+            if roll_up_id is not None and display_name != known_rollups[roll_up_id].canonical_name:
+                raise ValueError("brand_model_roll_up_contradiction")
+            if identity_decision == "existing" and roll_up_id is None:
+                raise ValueError("brand_model_existing_roll_up_required")
+            if (
+                identity_decision == "existing"
+                and isinstance(entity_id, str)
+                and roll_up_id != identity_rollups[entity_id]
+            ):
+                raise ValueError("brand_model_identity_roll_up_contradiction")
+            if identity_decision == "existing" and isinstance(entity_id, str):
+                governed_type = known_identities[entity_id].entity_type
+                relation_type_requirements = {
+                    "product_of": {"product", "tool"},
+                    "business_unit_of": {"business_unit"},
+                    "subsidiary_of": {"legal_entity", "company"},
+                    "same_legal_entity": {"legal_entity", "company"},
+                }
+                allowed_types = relation_type_requirements.get(str(relation_type))
+                if allowed_types is not None and governed_type not in allowed_types:
+                    raise ValueError("brand_model_identity_relation_contradiction")
+
+            eligible = comparison.get("eligible")
+            if eligible is not None and not isinstance(eligible, bool):
+                raise ValueError("brand_model_eligibility_invalid")
+            scopes = string_list(
+                comparison.get("scopes"),
+                "brand_model_comparison_scopes_invalid",
+                maximum_length=120,
+            )
+            applicability_value = {
+                "tasks": list(
+                    string_list(
+                        applicability.get("tasks"),
+                        "brand_model_applicability_invalid",
+                        maximum_length=120,
+                    )
+                ),
+                "industries": list(
+                    string_list(
+                        applicability.get("industries"),
+                        "brand_model_applicability_invalid",
+                        maximum_length=120,
+                    )
+                ),
+                "regions": list(
+                    string_list(
+                        applicability.get("regions"),
+                        "brand_model_applicability_invalid",
+                        maximum_length=120,
+                    )
+                ),
+                "audiences": list(
+                    string_list(
+                        applicability.get("audiences"),
+                        "brand_model_applicability_invalid",
+                        maximum_length=120,
+                    )
+                ),
+                "valid_from": iso_date(
+                    applicability.get("valid_from"), "brand_model_valid_time_invalid"
+                ),
+                "valid_until": iso_date(
+                    applicability.get("valid_until"), "brand_model_valid_time_invalid"
+                ),
+                "counterexamples": list(
+                    string_list(
+                        applicability.get("counterexamples"),
+                        "brand_model_applicability_invalid",
+                    )
+                ),
+            }
+            if (
+                applicability_value["valid_from"] is not None
+                and applicability_value["valid_until"] is not None
+            ):
+                valid_from = datetime.fromisoformat(
+                    str(applicability_value["valid_from"]).replace("Z", "+00:00")
+                )
+                valid_until = datetime.fromisoformat(
+                    str(applicability_value["valid_until"]).replace("Z", "+00:00")
+                )
+                if valid_from.tzinfo is None:
+                    valid_from = valid_from.replace(tzinfo=UTC)
+                if valid_until.tzinfo is None:
+                    valid_until = valid_until.replace(tzinfo=UTC)
+                if valid_from > valid_until:
+                    raise ValueError("brand_model_valid_time_order_invalid")
+            if identity_decision == "ambiguous" and (
+                relation_type != "uncertain" or roll_up_id is not None or eligible is not None
+            ):
+                raise ValueError("brand_model_ambiguous_contradiction")
+            if identity_decision == "non_entity" and (
+                relation_type not in {"non_vendor", "uncertain"}
+                or roll_up_id is not None
+                or eligible not in {False, None}
+            ):
+                raise ValueError("brand_model_non_entity_contradiction")
+
             refs = raw.get("evidence_refs")
-            if not isinstance(refs, list) or any(str(value) not in allowed_refs for value in refs):
+            evidence_refs = string_list(
+                refs,
+                "brand_model_evidence_ref_invalid",
+                maximum_items=50,
+                maximum_length=500,
+            )
+            if any(value not in allowed_refs for value in evidence_refs):
                 raise ValueError("brand_model_evidence_ref_invalid")
-            reasons = raw.get("reasons")
-            alternatives = raw.get("alternative_hypotheses")
-            uncertainty = raw.get("uncertainty")
-            if not isinstance(reasons, list) or not isinstance(alternatives, list):
-                raise ValueError("brand_model_explanation_invalid")
-            if not isinstance(uncertainty, list):
-                raise ValueError("brand_model_explanation_invalid")
+            reasons = string_list(raw.get("reasons"), "brand_model_explanation_invalid")
+            alternatives = string_list(
+                raw.get("alternative_hypotheses"), "brand_model_explanation_invalid"
+            )
+            uncertainty = string_list(raw.get("uncertainty"), "brand_model_explanation_invalid")
+            missing_evidence = string_list(
+                raw.get("missing_evidence"), "brand_model_missing_evidence_invalid"
+            )
+            impact_if_wrong = raw.get("impact_if_wrong")
+            if impact_if_wrong not in self._IMPACT_LEVELS:
+                raise ValueError("brand_model_impact_invalid")
             scores = []
             for key in ("identity", "relation", "roll_up", "eligibility"):
                 raw_score = confidence.get(key)
-                if not isinstance(raw_score, int | float):
+                if isinstance(raw_score, bool) or not isinstance(raw_score, int | float):
                     raise ValueError("brand_model_confidence_invalid")
                 score = float(raw_score)
-                if not 0 <= score <= 1:
+                if not isfinite(score) or not 0 <= score <= 1:
                     raise ValueError("brand_model_confidence_invalid")
                 scores.append(score)
             output.append(
@@ -586,23 +964,24 @@ class BrandEntityResolutionPack:
                     value={
                         "identity": identity,
                         "relation": relation,
-                        "roll_up": roll_up,
-                        "comparison": comparison,
+                        "roll_up": {"entity_id": roll_up_id, "display_name": display_name},
+                        "comparison": {"eligible": eligible, "scopes": list(scopes)},
+                        "applicability": applicability_value,
+                        "missing_evidence": list(missing_evidence),
+                        "impact_if_wrong": impact_if_wrong,
                         "requires_governance": True,
                     },
                     knowledge_status=KnowledgeStatus.MODEL_INFERRED,
                     decision_scope=DecisionScope.REQUEST,
                     confidence=min(scores),
-                    reasons=tuple(str(value) for value in reasons if str(value).strip()),
-                    alternative_hypotheses=tuple(
-                        str(value) for value in alternatives if str(value).strip()
-                    ),
-                    uncertainty=tuple(str(value) for value in uncertainty if str(value).strip()),
-                    evidence_refs=tuple(str(value) for value in refs),
+                    reasons=reasons,
+                    alternative_hypotheses=alternatives,
+                    uncertainty=uncertainty,
+                    evidence_refs=evidence_refs,
                 )
             )
-        if request.policy == ReasoningPolicy.LLM_REQUIRED and seen != set(requested):
-            raise ValueError("brand_model_all_items_required")
+        if seen != expected:
+            raise ValueError("brand_model_all_prompted_items_required")
         if not output:
             raise ValueError("brand_model_empty_decisions")
         return tuple(output)
@@ -636,9 +1015,31 @@ class BrandEntityResolutionPack:
                     f"{request.tenant}|{request.namespace}|{request.domain}|{input_id}|{source_hash}".encode()
                 ).hexdigest()
             )
-            safe_context = str(
+            # Never persist caller prose merely because it was labelled "safe".
+            # Keep only controlled routing fields plus an irreversible receipt for
+            # any caller-supplied summary. This preserves cross-project signal
+            # without retaining customer questions or answers.
+            caller_summary = str(
                 item.get("safe_context") or request.context.get("safe_context") or ""
             ).strip()
+            safe_context = json.dumps(
+                {
+                    "analysis_domain": _analysis_domain(request),
+                    "comparison_scopes": sorted(
+                        {
+                            str(value).strip()
+                            for value in request.context.get("comparison_scopes", [])
+                            if str(value).strip()
+                        }
+                    ),
+                    "task": request.task,
+                    "region": str(request.context.get("region") or "").strip() or None,
+                    "audience": str(request.context.get("audience") or "").strip() or None,
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
             observations.append(
                 ObservationDraft(
                     namespace=request.namespace,
@@ -649,7 +1050,7 @@ class BrandEntityResolutionPack:
                     source_type=str(item.get("source_type") or "runtime_inference"),
                     source_ref_hash=source_hash,
                     idempotency_key=idempotency,
-                    safe_context=safe_context[:500] or None,
+                    safe_context=safe_context[:500],
                     data_classification=request.data_classification,
                     visibility="private" if request.data_classification != "public" else "public",
                     payload={
@@ -658,6 +1059,11 @@ class BrandEntityResolutionPack:
                         "model_provider": decision.model_provider,
                         "model": decision.model_name,
                         "prompt_version": decision.prompt_version,
+                        "caller_safe_context_hash": (
+                            "sha256:" + hashlib.sha256(caller_summary.encode()).hexdigest()
+                            if caller_summary
+                            else None
+                        ),
                     },
                 )
             )
@@ -696,6 +1102,41 @@ class BrandEntityResolutionPack:
                     for source in evidence
                 ):
                     issues.append(f"public_evidence_uri_invalid:{stable_id}")
+                identities = attributes.get("alias_identities") or {}
+                if not isinstance(identities, dict):
+                    issues.append(f"alias_identities_invalid:{stable_id}")
+                else:
+                    identity_definitions: dict[str, tuple[str, str]] = {}
+                    for alias, identity in identities.items():
+                        if not isinstance(alias, str) or not isinstance(identity, dict):
+                            issues.append(f"alias_identity_invalid:{stable_id}")
+                            continue
+                        identity_id = str(identity.get("entity_id") or "").strip()
+                        identity_name = str(identity.get("canonical_name") or "").strip()
+                        identity_type = str(identity.get("entity_type") or "").strip()
+                        identity_evidence = identity.get("evidence_urls")
+                        if (
+                            not identity_id
+                            or not identity_name
+                            or identity_type not in self._OBJECT_TYPES
+                        ):
+                            issues.append(f"alias_identity_invalid:{stable_id}:{alias}")
+                        previous = identity_definitions.setdefault(
+                            identity_id, (identity_name, identity_type)
+                        )
+                        if previous != (identity_name, identity_type):
+                            issues.append(f"alias_identity_conflict:{identity_id}")
+                        if not isinstance(identity_evidence, list) or not identity_evidence:
+                            issues.append(f"alias_identity_evidence_required:{identity_id}")
+                        elif any(
+                            not isinstance(source, str)
+                            or (parsed := urlsplit(source)).scheme != "https"
+                            or not parsed.hostname
+                            or parsed.username is not None
+                            or parsed.password is not None
+                            for source in identity_evidence
+                        ):
+                            issues.append(f"alias_identity_evidence_invalid:{identity_id}")
         for row in assertion_rows:
             subject = str(row.get("subject_stable_id") or "")
             predicate = str(row.get("predicate") or "")
@@ -711,6 +1152,66 @@ class BrandEntityResolutionPack:
             "issues": sorted(set(issues)),
             "object_count": len(object_rows),
             "assertion_count": len(assertion_rows),
+        }
+
+    def validate_release_impact(
+        self,
+        changes: Iterable[Mapping[str, Any]],
+        quality_report: Mapping[str, Any],
+    ) -> Mapping[str, Any]:
+        """Require reproducible historical replay before brand knowledge publication."""
+
+        change_rows = list(changes)
+        replay = quality_report.get("historical_replay")
+        issues: list[str] = []
+        if not isinstance(replay, Mapping):
+            issues.append("historical_replay_required")
+            replay = {}
+
+        if replay.get("schema_version") != "historical-replay-v1":
+            issues.append("historical_replay_schema_invalid")
+        dataset_hash = str(replay.get("evaluation_set_hash") or "")
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", dataset_hash):
+            issues.append("historical_replay_dataset_hash_invalid")
+        cutoff = str(replay.get("time_cutoff") or "")
+        try:
+            parsed_cutoff = datetime.fromisoformat(cutoff.replace("Z", "+00:00"))
+            if parsed_cutoff.tzinfo is None:
+                raise ValueError
+        except ValueError:
+            issues.append("historical_replay_time_cutoff_invalid")
+
+        integer_fields = (
+            "evaluated_request_count",
+            "baseline_error_count",
+            "candidate_error_count",
+            "corrected_error_count",
+            "new_error_count",
+            "allowed_new_error_count",
+        )
+        counts: dict[str, int] = {}
+        for field in integer_fields:
+            value = replay.get(field)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                issues.append(f"historical_replay_{field}_invalid")
+            else:
+                counts[field] = value
+        if counts.get("evaluated_request_count", 0) < 1:
+            issues.append("historical_replay_empty")
+        if counts.get("new_error_count", 0) > counts.get("allowed_new_error_count", -1):
+            issues.append("historical_replay_regression_budget_exceeded")
+        if replay.get("passed") is not True:
+            issues.append("historical_replay_not_passed")
+
+        return {
+            "passed": not issues,
+            "replay_required": True,
+            "issues": sorted(set(issues)),
+            "change_count": len(change_rows),
+            "evaluation_set_hash": dataset_hash or None,
+            "evaluated_request_count": counts.get("evaluated_request_count", 0),
+            "new_error_count": counts.get("new_error_count"),
+            "allowed_new_error_count": counts.get("allowed_new_error_count"),
         }
 
     def project_release(
@@ -730,6 +1231,13 @@ class BrandEntityResolutionPack:
             if not analysis_domain:
                 raise ValueError("brand_object_analysis_domain_required")
             entity = {key: value for key, value in attributes.items() if key != "analysis_domain"}
+            entity["origin"] = str(item.get("origin") or "governed_change_set")
+            entity["sync_status"] = str(item.get("sync_status") or "local_ahead")
+            entity["knowledge_status"] = (
+                "published"
+                if item.get("visibility") == "public" and entity["sync_status"] == "reconciled"
+                else "reviewed_local"
+            )
             by_analysis_domain.setdefault(analysis_domain, []).append(entity)
         projected_domains: dict[str, Any] = {}
         for analysis_domain, entities in sorted(by_analysis_domain.items()):

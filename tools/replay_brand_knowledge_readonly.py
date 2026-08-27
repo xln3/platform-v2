@@ -47,6 +47,7 @@ def _load_rows(
     SELECT set_config('app.tenant_pub_id', '{tenant_pub_id}', true);
     SELECT COALESCE(jsonb_agg(jsonb_build_object(
       'answer_pub_id', a.pub_id,
+      'capture_time', a.capture_time,
       'brands', e.brands
     ) ORDER BY a.capture_time, a.pub_id), '[]'::jsonb)
     FROM analytics.answer a
@@ -128,10 +129,23 @@ def replay(
         changed_answers += int(legacy != eligible)
         target_legacy += int("盛邦安全" in legacy)
         target_governed += int("盛邦安全" in eligible)
+    capture_times = sorted(
+        str(row["capture_time"])
+        for row in rows
+        if isinstance(row.get("capture_time"), str) and row["capture_time"]
+    )
+    replay_dataset_hash = "sha256:" + hashlib.sha256(
+        json.dumps(rows, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
     return {
         "schema_version": "brand-knowledge-shadow-replay-v1",
         "mode": "read_only_stored_extractions",
         "project_ref": _project_ref(project_pub_id),
+        "replay_dataset_hash": replay_dataset_hash,
+        "capture_time_range": {
+            "start": capture_times[0] if capture_times else None,
+            "end": capture_times[-1] if capture_times else None,
+        },
         "analysis_domain": domain,
         "comparison_scopes": list(comparison_scopes),
         "knowledge_release_id": master.source_release_id,
@@ -163,6 +177,7 @@ def main() -> None:
     parser.add_argument("--domain", default="cybersecurity")
     parser.add_argument("--comparison-scopes", default="cybersecurity")
     parser.add_argument("--knowledge-release-dir", default="data/knowledge-releases")
+    parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     rows = _load_rows(
         container=args.container,
@@ -180,7 +195,11 @@ def main() -> None:
         knowledge_release_dir=args.knowledge_release_dir,
         project_pub_id=args.project_pub_id,
     )
-    print(json.dumps(report, ensure_ascii=False, indent=2))
+    rendered = json.dumps(report, ensure_ascii=False, indent=2) + "\n"
+    if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(rendered, encoding="utf-8")
+    print(rendered, end="")
 
 
 if __name__ == "__main__":

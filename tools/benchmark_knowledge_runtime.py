@@ -79,6 +79,7 @@ class SyntheticBrandGateway:
             prior = deterministic[input_id]
             prior_identity = prior["identity"]
             known = prior_identity.get("review_status") == "reviewed"
+            prior_roll_up = prior["roll_up"]
             decisions.append(
                 {
                     "input_id": input_id,
@@ -86,16 +87,27 @@ class SyntheticBrandGateway:
                         "decision": "existing" if known else "propose_new",
                         "entity_id": prior_identity.get("entity_id") if known else None,
                         "canonical_name": prior_identity.get("canonical_name") or item["value"],
-                        "entity_type": prior_identity.get("entity_type") or "unknown",
+                        "entity_type": prior_identity.get("entity_type") if known else "brand",
                     },
                     "relation": {"type": prior["relation"].get("type") if known else "uncertain"},
                     "roll_up": {
-                        "entity_id": prior_identity.get("entity_id") if known else None,
-                        "display_name": prior_identity.get("canonical_name") or item["value"],
+                        "entity_id": prior_roll_up.get("entity_id") if known else None,
+                        "display_name": prior_roll_up.get("display_name")
+                        if known
+                        else item["value"],
                     },
                     "comparison": {
                         "eligible": prior["comparison"].get("eligible") if known else False,
                         "scopes": prior["comparison"].get("scopes") if known else [],
+                    },
+                    "applicability": {
+                        "tasks": [body["task"]],
+                        "industries": [body["analysis_domain"]],
+                        "regions": [],
+                        "audiences": [],
+                        "valid_from": None,
+                        "valid_until": None,
+                        "counterexamples": [],
                     },
                     "confidence": {
                         "identity": 0.99 if known else 0.55,
@@ -106,6 +118,8 @@ class SyntheticBrandGateway:
                     "reasons": ["synthetic benchmark fixture"],
                     "alternative_hypotheses": [],
                     "uncertainty": [] if known else ["requires evidence"],
+                    "missing_evidence": [] if known else ["independent public source"],
+                    "impact_if_wrong": "medium",
                     "evidence_refs": [],
                 }
             )

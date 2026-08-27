@@ -262,7 +262,8 @@ def test_cybersecurity_metrics_use_governed_entities_for_formal_merged_ranking()
     raw = {row["brand"] for row in result["overall"]["raw"]}
 
     assert set(merged) == {"腾讯", "华为", "绿盟科技", "数字认证", "新大陆"}
-    assert merged["腾讯"]["occurrences"] == 2  # 同一答案的“腾讯云+腾讯”只计一次
+    # 同一答案的“腾讯云+腾讯”只计一次；另一答案中经证据审核的“腾讯安全”再计一次。
+    assert merged["腾讯"]["occurrences"] == 2
     assert merged["绿盟科技"]["occurrences"] == 2
     assert merged["数字认证"]["occurrences"] == 2
     assert merged["数字认证"]["industry_fit"] == "core_cybersecurity"
@@ -272,7 +273,7 @@ def test_cybersecurity_metrics_use_governed_entities_for_formal_merged_ranking()
     assert result["target_brand"]["brand"] == "腾讯"
     assert result["target_brand"]["mentions"] == 2
     assert result["entity_resolution"]["counts"]["alias_collapses_within_answers"] == 1
-    assert result["entity_resolution"]["counts"]["unclassified_distinct_names"] == 1
+    assert result["entity_resolution"]["counts"]["unclassified_distinct_names"] == 2
 
     general = metrics.analyze(records, [], rules=load_domain("cybersecurity"))
     assert "新大陆" not in {row["brand"] for row in general["overall"]["merged"]}

@@ -31,13 +31,15 @@ def test_aliases_merge_once_with_first_answer_rank() -> None:
     assert [row["answer_rank"] for row in rows] == [1, 2, 3, 4]
 
 
-def test_tools_and_institutions_are_not_competitors() -> None:
+def test_pending_source_objects_do_not_leak_into_the_published_read_model() -> None:
     rows = _normalized(["Nmap", "OWASP Amass", "河北中鑫会计师事务所有限公司", "绿盟"])
     by_name = {row["canonical_name"]: row for row in rows}
 
-    assert by_name["Nmap"]["entity_type"] == "tool"
+    assert by_name["Nmap"]["entity_type"] == "unknown"
+    assert by_name["Nmap"]["knowledge_status"] == "unresolved"
     assert by_name["Nmap"]["competitor_eligible"] is False
-    assert by_name["Amass"]["competitor_eligible"] is False
+    assert by_name["OWASP Amass"]["entity_type"] == "unknown"
+    assert by_name["OWASP Amass"]["competitor_eligible"] is False
     assert by_name["河北中鑫会计师事务所有限公司"]["entity_type"] == "unknown"
     assert by_name["河北中鑫会计师事务所有限公司"]["competitor_eligible"] is False
     assert by_name["绿盟科技"]["competitor_eligible"] is True
@@ -53,13 +55,13 @@ def test_unclassified_entity_is_retained_but_fail_closed() -> None:
 
 
 def test_governed_resolution_does_not_fuzzy_merge_unreviewed_similar_names() -> None:
-    rows = _normalized(["腾讯云安全实验室", "绿盟科技生态伙伴", "上海市数字证书认证中心有限公司"])
+    rows = _normalized(["腾讯云安全实验室", "绿盟科技生态伙伴", "上海数字证书认证服务公司"])
 
-    assert [row["entity_type"] for row in rows] == ["unknown", "unknown", "company"]
+    assert [row["entity_type"] for row in rows] == ["unknown", "unknown", "unknown"]
     assert [row["canonical_name"] for row in rows] == [
         "腾讯云安全实验室",
         "绿盟科技生态伙伴",
-        "上海CA",
+        "上海数字证书认证服务公司",
     ]
 
 
@@ -68,7 +70,6 @@ def test_brand_family_aliases_merge_once_across_company_cloud_and_abbreviation()
         [
             "腾讯云",
             "腾讯",
-            "腾讯安全",
             "华为云",
             "华为",
             "绿盟",
@@ -88,7 +89,7 @@ def test_brand_family_aliases_merge_once_across_company_cloud_and_abbreviation()
         "数字认证",
         "新大陆",
     ]
-    assert rows[0]["raw_aliases"] == ["腾讯云", "腾讯", "腾讯安全"]
+    assert rows[0]["raw_aliases"] == ["腾讯云", "腾讯"]
     assert rows[1]["raw_aliases"] == ["华为云", "华为"]
     assert rows[2]["raw_aliases"] == ["绿盟", "绿盟科技"]
     assert rows[3]["raw_aliases"] == ["北京数字认证股份有限公司", "数字认证", "BJCA"]
@@ -130,15 +131,15 @@ def test_resolution_summary_exposes_aliases_and_unknown_review_queue() -> None:
     assert summary["counts"]["raw_mentions"] == 6
     assert summary["counts"]["canonical_answer_mentions"] == 5
     assert summary["counts"]["alias_collapses_within_answers"] == 1
-    assert summary["counts"]["unclassified_distinct_names"] == 1
-    assert summary["excluded_by_type"] == {"tool": 1, "unknown": 1}
+    assert summary["counts"]["unclassified_distinct_names"] == 2
+    assert summary["excluded_by_type"] == {"unknown": 2}
     assert summary["counts"]["pending_review_distinct_names"] == 2
     assert summary["pending_review"] == [
         {
             "observed_name": "Nmap",
             "answer_mentions": 1,
             "raw_aliases": ["Nmap"],
-            "status": "pending_governance_review",
+            "status": "pending_semantic_review",
         },
         {
             "observed_name": "尚未治理的新实体",
@@ -155,7 +156,7 @@ def test_resolution_summary_exposes_aliases_and_unknown_review_queue() -> None:
 def test_high_frequency_candidates_are_governed_with_non_binary_industry_fit() -> None:
     rows = _normalized(
         [
-            "神思电子技术股份有限公司",
+            "神思电子",
             "吉大正元",
             "FOFA",
             "天威诚信",
@@ -164,7 +165,7 @@ def test_high_frequency_candidates_are_governed_with_non_binary_industry_fit() -
             "格尔",
             "Authing身份云",
             "ZKTeco",
-            "River Security",
+            "瑞数信息",
         ]
     )
     by_name = {row["canonical_name"]: row for row in rows}

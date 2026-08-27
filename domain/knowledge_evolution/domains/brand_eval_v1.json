@@ -1,6 +1,7 @@
 {
-  "schema_version": "brand-eval-v1",
+  "schema_version": "brand-eval-v2",
   "analysis_domain": "cybersecurity",
+  "time_cutoff": "2026-08-26T23:59:59+08:00",
   "cases": [
     {
       "id": "tencent-cloud-rollup",
@@ -9,6 +10,12 @@
       "contexts": ["腾讯云提供云安全与身份安全服务。"],
       "expected": {
         "entity_id": "CYB-BR-TENCENT",
+        "roll_up_entity_id": "CYB-BR-TENCENT",
+        "identity_by_mention": {
+          "腾讯云": "CYB-OBJ-TENCENT-CLOUD",
+          "腾讯": "CYB-BR-TENCENT"
+        },
+        "identity_types": {"腾讯云": "business_unit", "腾讯": "brand_family"},
         "canonical_name": "腾讯",
         "deduped_entity_count": 1,
         "eligible": true,
@@ -22,6 +29,12 @@
       "contexts": ["华为云是华为的云服务品牌。"],
       "expected": {
         "entity_id": "CYB-BR-HUAWEI",
+        "roll_up_entity_id": "CYB-BR-HUAWEI",
+        "identity_by_mention": {
+          "华为云": "CYB-OBJ-HUAWEI-CLOUD",
+          "华为": "CYB-BR-HUAWEI"
+        },
+        "identity_types": {"华为云": "business_unit", "华为": "brand_family"},
         "canonical_name": "华为",
         "deduped_entity_count": 1,
         "eligible": true,
@@ -35,6 +48,17 @@
       "contexts": ["NSFOCUS（绿盟科技）提供网络安全服务。"],
       "expected": {
         "entity_id": "CYB-BR-NSFOCUS",
+        "roll_up_entity_id": "CYB-BR-NSFOCUS",
+        "identity_by_mention": {
+          "绿盟": "CYB-BR-NSFOCUS",
+          "NSFOCUS": "CYB-BR-NSFOCUS",
+          "绿盟科技": "CYB-BR-NSFOCUS"
+        },
+        "identity_types": {
+          "绿盟": "brand",
+          "NSFOCUS": "brand",
+          "绿盟科技": "brand"
+        },
         "canonical_name": "绿盟科技",
         "deduped_entity_count": 1,
         "eligible": true,
@@ -52,6 +76,9 @@
       "contexts": ["BJCA 指北京数字认证股份有限公司的品牌。"],
       "expected": {
         "entity_id": "CYB-BR-BJCA",
+        "roll_up_entity_id": "CYB-BR-BJCA",
+        "identity_by_mention": {"BJCA": "CYB-BR-BJCA", "数字认证": "CYB-BR-BJCA"},
+        "identity_types": {"BJCA": "brand", "数字认证": "brand"},
         "canonical_name": "数字认证",
         "deduped_entity_count": 1,
         "eligible": true,
@@ -65,6 +92,9 @@
       "contexts": ["本轮评估讨论通用网络安全厂商。"],
       "expected": {
         "entity_id": "CYB-BR-NEWLAND",
+        "roll_up_entity_id": "CYB-BR-NEWLAND",
+        "identity_by_mention": {"新大陆": "CYB-BR-NEWLAND"},
+        "identity_types": {"新大陆": "brand_family"},
         "canonical_name": "新大陆",
         "deduped_entity_count": 1,
         "eligible": false,
@@ -78,6 +108,15 @@
       "contexts": ["本轮评估限定于 CTID 网证与可信数字身份方案。"],
       "expected": {
         "entity_id": "CYB-BR-NEWLAND",
+        "roll_up_entity_id": "CYB-BR-NEWLAND",
+        "identity_by_mention": {
+          "新大陆": "CYB-BR-NEWLAND",
+          "新大陆数字技术股份有限公司": "CYB-OBJ-NEWLAND-DIGITAL"
+        },
+        "identity_types": {
+          "新大陆": "brand_family",
+          "新大陆数字技术股份有限公司": "legal_entity"
+        },
         "canonical_name": "新大陆",
         "deduped_entity_count": 1,
         "eligible": true,
@@ -94,6 +133,12 @@
       "contexts": ["ZoomEye 是知道创宇的网络空间测绘产品。"],
       "expected": {
         "entity_id": "CYB-BR-KNOWNSEC",
+        "roll_up_entity_id": "CYB-BR-KNOWNSEC",
+        "identity_by_mention": {
+          "ZoomEye": "CYB-OBJ-KNOWNSEC-ZOOMEYE",
+          "知道创宇": "CYB-BR-KNOWNSEC"
+        },
+        "identity_types": {"ZoomEye": "product", "知道创宇": "brand_family"},
         "canonical_name": "知道创宇",
         "deduped_entity_count": 1,
         "eligible": true,
@@ -107,6 +152,12 @@
       "contexts": ["卫士通现使用电科网安品牌名称。"],
       "expected": {
         "entity_id": "CYB-BR-WESTONE",
+        "roll_up_entity_id": "CYB-BR-WESTONE",
+        "identity_by_mention": {
+          "卫士通": "CYB-BR-WESTONE",
+          "电科网安": "CYB-BR-WESTONE"
+        },
+        "identity_types": {"卫士通": "brand", "电科网安": "brand"},
         "canonical_name": "电科网安",
         "deduped_entity_count": 1,
         "eligible": true,
@@ -120,6 +171,12 @@
       "contexts": ["RayTAG 网证是盛邦安全的产品。"],
       "expected": {
         "entity_id": "CYB-BR-WEBRAY",
+        "roll_up_entity_id": "CYB-BR-WEBRAY",
+        "identity_by_mention": {
+          "RayTAG": "CYB-OBJ-WEBRAY-RAYTAG",
+          "盛邦安全": "CYB-BR-WEBRAY"
+        },
+        "identity_types": {"RayTAG": "product", "盛邦安全": "brand_family"},
         "canonical_name": "盛邦安全",
         "deduped_entity_count": 1,
         "eligible": true,
@@ -133,6 +190,9 @@
       "contexts": ["腾讯会议是一款会议产品，不应仅因腾讯字样并入厂商榜。"],
       "expected": {
         "entity_id": null,
+        "roll_up_entity_id": null,
+        "identity_by_mention": {"腾讯会议": null},
+        "identity_types": {"腾讯会议": "unknown"},
         "canonical_name": "腾讯会议",
         "deduped_entity_count": 1,
         "eligible": false,
@@ -146,10 +206,173 @@
       "contexts": ["名称相似但没有证据证明它是绿盟科技品牌别名。"],
       "expected": {
         "entity_id": null,
+        "roll_up_entity_id": null,
+        "identity_by_mention": {"绿盟大学": null},
+        "identity_types": {"绿盟大学": "unknown"},
         "canonical_name": "绿盟大学",
         "deduped_entity_count": 1,
         "eligible": false,
         "relationships": {"绿盟大学": "unresolved"}
+      }
+    },
+    {
+      "id": "tencent-security-business-unit",
+      "mentions": ["腾讯安全", "腾讯"],
+      "comparison_scopes": ["cybersecurity"],
+      "contexts": ["腾讯安全是腾讯面向产业安全的业务品牌。"],
+      "expected": {
+        "entity_id": "CYB-BR-TENCENT",
+        "roll_up_entity_id": "CYB-BR-TENCENT",
+        "identity_by_mention": {"腾讯安全": "CYB-OBJ-TENCENT-SECURITY", "腾讯": "CYB-BR-TENCENT"},
+        "identity_types": {"腾讯安全": "business_unit", "腾讯": "brand_family"},
+        "canonical_name": "腾讯",
+        "deduped_entity_count": 1,
+        "eligible": true,
+        "relationships": {"腾讯安全": "business_unit_of", "腾讯": "self"}
+      }
+    },
+    {
+      "id": "whitehat-institute-brand-family",
+      "mentions": ["白帽汇", "华顺信安"],
+      "comparison_scopes": ["cybersecurity"],
+      "contexts": ["白帽汇安全研究院是华顺信安的专有品牌。"],
+      "expected": {
+        "entity_id": "CYB-BR-HUASHUNXINAN",
+        "roll_up_entity_id": "CYB-BR-HUASHUNXINAN",
+        "identity_by_mention": {"白帽汇": "CYB-OBJ-HUASHUNXINAN-WHITEHAT", "华顺信安": "CYB-BR-HUASHUNXINAN"},
+        "identity_types": {"白帽汇": "institution", "华顺信安": "brand_family"},
+        "canonical_name": "华顺信安",
+        "deduped_entity_count": 1,
+        "eligible": true,
+        "relationships": {"白帽汇": "official_abbreviation", "华顺信安": "self"}
+      }
+    },
+    {
+      "id": "360-digital-security-group",
+      "mentions": ["360数字安全集团"],
+      "comparison_scopes": ["cybersecurity"],
+      "contexts": ["这里明确指三六零数字安全科技集团有限公司。"],
+      "expected": {
+        "entity_id": "CYB-BR-360SECURITY",
+        "roll_up_entity_id": "CYB-BR-360SECURITY",
+        "identity_by_mention": {"360数字安全集团": "CYB-OBJ-360SECURITY-LEGAL"},
+        "identity_types": {"360数字安全集团": "legal_entity"},
+        "canonical_name": "360数字安全",
+        "deduped_entity_count": 1,
+        "eligible": true,
+        "relationships": {"360数字安全集团": "official_abbreviation"}
+      }
+    },
+    {
+      "id": "360-group-ambiguous-negative",
+      "mentions": ["360集团"],
+      "comparison_scopes": ["cybersecurity"],
+      "contexts": ["上下文没有说明是消费互联网集团还是数字安全主体。"],
+      "expected": {
+        "entity_id": null,
+        "roll_up_entity_id": null,
+        "identity_by_mention": {"360集团": null},
+        "identity_types": {"360集团": "unknown"},
+        "canonical_name": "360集团",
+        "deduped_entity_count": 1,
+        "eligible": false,
+        "relationships": {"360集团": "unresolved"}
+      }
+    },
+    {
+      "id": "webray-legal-name",
+      "mentions": ["远江盛邦安全科技集团", "盛邦安全"],
+      "comparison_scopes": ["cybersecurity"],
+      "contexts": ["公司披露使用远江盛邦安全科技集团股份有限公司全称。"],
+      "expected": {
+        "entity_id": "CYB-BR-WEBRAY",
+        "roll_up_entity_id": "CYB-BR-WEBRAY",
+        "identity_by_mention": {"远江盛邦安全科技集团": "CYB-OBJ-WEBRAY-LEGAL", "盛邦安全": "CYB-BR-WEBRAY"},
+        "identity_types": {"远江盛邦安全科技集团": "legal_entity", "盛邦安全": "brand_family"},
+        "canonical_name": "盛邦安全",
+        "deduped_entity_count": 1,
+        "eligible": true,
+        "relationships": {"远江盛邦安全科技集团": "official_abbreviation", "盛邦安全": "self"}
+      }
+    },
+    {
+      "id": "huawei-legal-name",
+      "mentions": ["华为技术有限公司", "华为"],
+      "comparison_scopes": ["cybersecurity"],
+      "contexts": ["这里同时出现华为法人全称和品牌简称。"],
+      "expected": {
+        "entity_id": "CYB-BR-HUAWEI",
+        "roll_up_entity_id": "CYB-BR-HUAWEI",
+        "identity_by_mention": {"华为技术有限公司": "CYB-OBJ-HUAWEI-LEGAL", "华为": "CYB-BR-HUAWEI"},
+        "identity_types": {"华为技术有限公司": "legal_entity", "华为": "brand_family"},
+        "canonical_name": "华为",
+        "deduped_entity_count": 1,
+        "eligible": true,
+        "relationships": {"华为技术有限公司": "same_legal_entity", "华为": "self"}
+      }
+    },
+    {
+      "id": "knownsec-legal-and-product",
+      "mentions": ["北京知道创宇信息技术股份有限公司", "ZoomEye"],
+      "comparison_scopes": ["cybersecurity"],
+      "contexts": ["同一回答同时出现知道创宇法人全称与其 ZoomEye 产品。"],
+      "expected": {
+        "entity_id": "CYB-BR-KNOWNSEC",
+        "roll_up_entity_id": "CYB-BR-KNOWNSEC",
+        "identity_by_mention": {"北京知道创宇信息技术股份有限公司": "CYB-OBJ-KNOWNSEC-LEGAL", "ZoomEye": "CYB-OBJ-KNOWNSEC-ZOOMEYE"},
+        "identity_types": {"北京知道创宇信息技术股份有限公司": "legal_entity", "ZoomEye": "product"},
+        "canonical_name": "知道创宇",
+        "deduped_entity_count": 1,
+        "eligible": true,
+        "relationships": {"北京知道创宇信息技术股份有限公司": "same_legal_entity", "ZoomEye": "product_of"}
+      }
+    },
+    {
+      "id": "sheca-legal-name",
+      "mentions": ["上海市数字证书认证中心有限公司"],
+      "comparison_scopes": ["digital_identity"],
+      "contexts": ["数字证书认证机构采购比较。"],
+      "expected": {
+        "entity_id": "CYB-BR-SHECA",
+        "roll_up_entity_id": "CYB-BR-SHECA",
+        "identity_by_mention": {"上海市数字证书认证中心有限公司": "CYB-OBJ-SHECA-LEGAL"},
+        "identity_types": {"上海市数字证书认证中心有限公司": "legal_entity"},
+        "canonical_name": "上海CA",
+        "deduped_entity_count": 1,
+        "eligible": true,
+        "relationships": {"上海市数字证书认证中心有限公司": "same_legal_entity"}
+      }
+    },
+    {
+      "id": "shensi-legal-name-general-negative",
+      "mentions": ["神思电子技术股份有限公司"],
+      "comparison_scopes": ["cybersecurity"],
+      "contexts": ["通用网安厂商比较，不是身份证阅读设备场景。"],
+      "expected": {
+        "entity_id": "CYB-BR-SHENSI",
+        "roll_up_entity_id": "CYB-BR-SHENSI",
+        "identity_by_mention": {"神思电子技术股份有限公司": "CYB-OBJ-SHENSI-LEGAL"},
+        "identity_types": {"神思电子技术股份有限公司": "legal_entity"},
+        "canonical_name": "神思电子",
+        "deduped_entity_count": 1,
+        "eligible": false,
+        "relationships": {"神思电子技术股份有限公司": "same_legal_entity"}
+      }
+    },
+    {
+      "id": "linewell-group-and-legal-entity",
+      "mentions": ["南威软件集团", "南威软件股份有限公司"],
+      "comparison_scopes": ["cybersecurity"],
+      "contexts": ["集团称呼与上市公司法人同时出现，但不是同一层级对象。"],
+      "expected": {
+        "entity_id": "CYB-BR-LINEWELL",
+        "roll_up_entity_id": "CYB-BR-LINEWELL",
+        "identity_by_mention": {"南威软件集团": "CYB-OBJ-LINEWELL-GROUP", "南威软件股份有限公司": "CYB-OBJ-LINEWELL-LEGAL"},
+        "identity_types": {"南威软件集团": "group", "南威软件股份有限公司": "legal_entity"},
+        "canonical_name": "南威软件",
+        "deduped_entity_count": 1,
+        "eligible": false,
+        "relationships": {"南威软件集团": "brand_family_member", "南威软件股份有限公司": "same_legal_entity"}
       }
     },
     {
@@ -159,6 +382,9 @@
       "contexts": ["这里的 Apple 指消费电子公司，并非网安竞品。"],
       "expected": {
         "entity_id": null,
+        "roll_up_entity_id": null,
+        "identity_by_mention": {"Apple": null},
+        "identity_types": {"Apple": "unknown"},
         "canonical_name": "Apple",
         "deduped_entity_count": 1,
         "eligible": false,

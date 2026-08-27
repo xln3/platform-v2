@@ -1,0 +1,71 @@
+{
+  "schema_version": "knowledge-runtime-benchmark-v1",
+  "benchmark_kind": "synthetic_provider_no_network",
+  "limitations": "Measures middleware orchestration, validation, cache, and observation overhead; it does not measure a live provider or network.",
+  "results": [
+    {
+      "policy": "deterministic_only",
+      "iterations": 500,
+      "input_variants": 25,
+      "p50_ms": 0.271795,
+      "p95_ms": 0.379047,
+      "p99_ms": 0.429178,
+      "mean_ms": 0.290798942,
+      "model_calls": 0,
+      "model_call_rate": 0.0,
+      "cache_hits": 0,
+      "cache_hit_rate": 0.0,
+      "cost_usd": 0.0,
+      "error_rate": 0.0,
+      "observations_emitted": 500
+    },
+    {
+      "policy": "llm_assisted",
+      "iterations": 500,
+      "input_variants": 25,
+      "p50_ms": 1.120452,
+      "p95_ms": 1.537849,
+      "p99_ms": 1.646342,
+      "mean_ms": 1.18092138,
+      "model_calls": 25,
+      "model_call_rate": 0.05,
+      "cache_hits": 475,
+      "cache_hit_rate": 0.95,
+      "cost_usd": 0.05000000000000003,
+      "error_rate": 0.0,
+      "observations_emitted": 500
+    },
+    {
+      "policy": "llm_required",
+      "iterations": 500,
+      "input_variants": 25,
+      "p50_ms": 1.164302,
+      "p95_ms": 1.533899,
+      "p99_ms": 1.767734,
+      "mean_ms": 1.216765438,
+      "model_calls": 25,
+      "model_call_rate": 0.05,
+      "cache_hits": 475,
+      "cache_hit_rate": 0.95,
+      "cost_usd": 0.05000000000000003,
+      "error_rate": 0.0,
+      "observations_emitted": 1000
+    },
+    {
+      "policy": "exploratory",
+      "iterations": 500,
+      "input_variants": 25,
+      "p50_ms": 1.149351,
+      "p95_ms": 1.441907,
+      "p99_ms": 1.600891,
+      "mean_ms": 1.1955854320000001,
+      "model_calls": 25,
+      "model_call_rate": 0.05,
+      "cache_hits": 475,
+      "cache_hit_rate": 0.95,
+      "cost_usd": 0.05000000000000003,
+      "error_rate": 0.0,
+      "observations_emitted": 1000
+    }
+  ]
+}

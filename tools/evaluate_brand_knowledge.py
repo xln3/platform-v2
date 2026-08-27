@@ -83,6 +83,8 @@ def _evaluate_policy(
     engine = ReasoningEngine(registry, persistence, model_gateway)
     errors: list[dict[str, Any]] = []
     identity_total = identity_correct = 0
+    identity_type_total = identity_type_correct = 0
+    roll_up_total = roll_up_correct = 0
     relation_total = relation_correct = 0
     eligibility_total = eligibility_correct = 0
     dedupe_total = dedupe_correct = 0
@@ -130,21 +132,39 @@ def _evaluate_policy(
             degradations[code] = degradations.get(code, 0) + 1
         expected = case["expected"]
         expected_id = expected["entity_id"]
+        expected_roll_up_id = expected.get("roll_up_entity_id", expected_id)
+        expected_identities = expected.get("identity_by_mention") or {}
+        expected_identity_types = expected.get("identity_types") or {}
         seen_ids: set[str] = set()
         case_failed = False
         for mention, decision in zip(mentions, response.decisions, strict=True):
             identity = decision.value.get("identity") or {}
             relation = decision.value.get("relation") or {}
+            roll_up = decision.value.get("roll_up") or {}
             comparison = decision.value.get("comparison") or {}
             actual_id = identity.get("entity_id")
+            actual_roll_up_id = roll_up.get("entity_id")
             if decision.knowledge_status.value == "unresolved":
                 actual_id = None
+                actual_roll_up_id = None
+            expected_identity_id = expected_identities.get(mention, expected_id)
             identity_total += 1
-            identity_match = actual_id == expected_id
+            identity_match = actual_id == expected_identity_id
             identity_correct += int(identity_match)
+            expected_identity_type = expected_identity_types.get(mention)
+            identity_type_match = (
+                expected_identity_type is None
+                or identity.get("entity_type") == expected_identity_type
+            )
+            if expected_identity_type is not None:
+                identity_type_total += 1
+                identity_type_correct += int(identity_type_match)
+            roll_up_total += 1
+            roll_up_match = actual_roll_up_id == expected_roll_up_id
+            roll_up_correct += int(roll_up_match)
             # Confidence is confidence in an affirmative identity, not in a
             # correct abstention.  Gold negatives therefore have target 0.
-            affirmative_identity = expected_id is not None and identity_match
+            affirmative_identity = expected_identity_id is not None and identity_match
             brier_terms.append((decision.confidence - float(affirmative_identity)) ** 2)
             relation_total += 1
             expected_relation = expected["relationships"][mention]
@@ -153,12 +173,14 @@ def _evaluate_policy(
             eligibility_total += 1
             actual_eligible = bool(comparison.get("eligible"))
             eligibility_correct += int(actual_eligible == expected["eligible"])
-            if actual_id is not None:
-                seen_ids.add(str(actual_id))
+            if actual_roll_up_id is not None:
+                seen_ids.add(str(actual_roll_up_id))
             else:
                 seen_ids.add(f"unresolved:{mention}")
             if (
                 not identity_match
+                or not identity_type_match
+                or not roll_up_match
                 or actual_relation != expected_relation
                 or actual_eligible != expected["eligible"]
             ):
@@ -190,6 +212,10 @@ def _evaluate_policy(
         "cache_hits": sum(trace.get("cache_status") == "hit" for trace in traces),
         "observation_count": len(persistence.observations),
         "identity_accuracy": identity_correct / identity_total,
+        "identity_type_accuracy": (
+            identity_type_correct / identity_type_total if identity_type_total else None
+        ),
+        "roll_up_accuracy": roll_up_correct / roll_up_total,
         "relation_accuracy": relation_correct / relation_total,
         "eligibility_accuracy": eligibility_correct / eligibility_total,
         "dedupe_accuracy": dedupe_correct / dedupe_total,

@@ -1,0 +1,37 @@
+{
+  "schema_version": "brand-knowledge-shadow-replay-v1",
+  "mode": "read_only_stored_extractions",
+  "project_ref": "sha256:d0f34ecd32d86130a9e4e645cac4e5a3158e45cb01aeac24be0a6b1764f3146d",
+  "replay_dataset_hash": "sha256:7e9de2f688bb57994e2aaacf79f9b0d749166d8a98eb794e92f4d551be914c5c",
+  "capture_time_range": {
+    "start": "2026-08-10T02:34:10.954788+00:00",
+    "end": "2026-08-20T12:18:09.347228+00:00"
+  },
+  "analysis_domain": "cybersecurity",
+  "comparison_scopes": [
+    "cybersecurity"
+  ],
+  "knowledge_release_id": "knowledge-candidate-2026-08-27.6",
+  "knowledge_content_hash": "sha256:a7acba68675a2e430c256cb282c7d6fad08403b8156cb766b9daeb15c9785c58",
+  "answers_replayed": 1309,
+  "raw_mentions": 11336,
+  "legacy_normalized_mentions": 11336,
+  "governed_canonical_mentions": 11328,
+  "governed_eligible_mentions": 6672,
+  "unresolved_mentions": 4257,
+  "knowledge_status_counts": {
+    "published": 7071,
+    "unresolved": 4257
+  },
+  "ineligible_by_entity_type": {
+    "company": 399,
+    "unknown": 4257
+  },
+  "alias_collapses": 8,
+  "answers_with_changed_eligible_projection": 1158,
+  "target_answer_mentions": {
+    "legacy": 741,
+    "governed": 741
+  },
+  "mutations": 0
+}

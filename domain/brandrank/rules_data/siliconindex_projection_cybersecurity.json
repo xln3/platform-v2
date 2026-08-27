@@ -1,11 +1,11 @@
 {
   "schema_version": "entity-master-v3",
   "domain": "cybersecurity",
-  "revision": "siliconindex:2026-08-27.2:cybersecurity",
+  "revision": "siliconindex:2026-08-27.6:cybersecurity",
   "aggregation_level": "brand_family",
   "source_system": "siliconindex",
-  "source_release_id": "2026-08-27.2",
-  "source_content_hash": "sha256:118980eaff29451ff8f280de44a206acc17c0d1906df6c272ab26b1836d715a7",
+  "source_release_id": "2026-08-27.6",
+  "source_content_hash": "sha256:d5e15f1dc9f6b3b2d1addf6c41500e3eb3a5514b295a3a1134d4c636c07dabd2",
   "source_url": "https://siliconindex-consumer.onrender.com/data/v1",
   "resolution_policy": "实体 ID、别名关系、证据和审核状态来自同一 SiliconIndex 发布快照；正式榜单仅消费 reviewed 实体。项目观测只能产生待审候选，不能在项目内创建实体真相；品牌家族归并不等于同一法人。此文件是生成的离线投影，不是第二事实源。",
   "entities": [
@@ -16,15 +16,25 @@
         "360",
         "三六零",
         "360安全",
-        "360集团",
         "360数字安全集团"
       ],
       "alias_relationships": {
         "360": "official_abbreviation",
         "三六零": "official_abbreviation",
         "360安全": "official_abbreviation",
-        "360集团": "official_abbreviation",
         "360数字安全集团": "official_abbreviation"
+      },
+      "alias_identities": {
+        "360数字安全集团": {
+          "entity_id": "CYB-OBJ-360SECURITY-LEGAL",
+          "canonical_name": "三六零数字安全科技集团有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "same_legal_entity",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://360.net/about/safe"
+          ]
+        }
       },
       "entity_type": "company",
       "competitor_eligible": true,
@@ -44,6 +54,7 @@
       "canonical_name": "阿里云",
       "aliases": [],
       "alias_relationships": {},
+      "alias_identities": {},
       "entity_type": "company",
       "competitor_eligible": true,
       "eligibility_mode": "always",
@@ -66,6 +77,7 @@
       "alias_relationships": {
         "OWASP Amass": "official_abbreviation"
       },
+      "alias_identities": {},
       "entity_type": "tool",
       "competitor_eligible": false,
       "eligibility_mode": "always",
@@ -90,6 +102,7 @@
         "北京中盾安信科技发展有限公司": "self",
         "ANI Cert": "english_name"
       },
+      "alias_identities": {},
       "entity_type": "company",
       "competitor_eligible": true,
       "eligibility_mode": "always",
@@ -113,6 +126,7 @@
       "canonical_name": "ARL",
       "aliases": [],
       "alias_relationships": {},
+      "alias_identities": {},
       "entity_type": "tool",
       "competitor_eligible": false,
       "eligibility_mode": "always",
@@ -129,6 +143,7 @@
       "canonical_name": "亚信安全",
       "aliases": [],
       "alias_relationships": {},
+      "alias_identities": {},
       "entity_type": "company",
       "competitor_eligible": true,
       "eligibility_mode": "always",
@@ -153,6 +168,7 @@
         "Authing 身份云": "self",
         "Authing身份云": "self"
       },
+      "alias_identities": {},
       "entity_type": "product",
       "competitor_eligible": true,
       "eligibility_mode": "always",
@@ -181,6 +197,7 @@
       "alias_relationships": {
         "Bitsight": "official_abbreviation"
       },
+      "alias_identities": {},
       "entity_type": "company",
       "competitor_eligible": false,
       "eligibility_mode": "always",
@@ -203,9 +220,22 @@
       ],
       "alias_relationships": {
         "北京数字认证": "official_abbreviation",
-        "北京数字认证股份有限公司": "self",
+        "北京数字认证股份有限公司": "same_legal_entity",
         "BJCA": "trade_name",
         "Beijing Certificate Authority": "english_name"
+      },
+      "alias_identities": {
+        "北京数字认证股份有限公司": {
+          "entity_id": "CYB-OBJ-BJCA-LEGAL",
+          "canonical_name": "北京数字认证股份有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "same_legal_entity",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://www.bjca.cn/about/index.html",
+            "https://disc.static.szse.cn/download/disc/disk03/finalpage/2026-03-31/3179d1d6-b086-4d6c-8278-46846186df37.PDF"
+          ]
+        }
       },
       "entity_type": "company",
       "competitor_eligible": true,
@@ -231,6 +261,7 @@
       "canonical_name": "Censys",
       "aliases": [],
       "alias_relationships": {},
+      "alias_identities": {},
       "entity_type": "product",
       "competitor_eligible": false,
       "eligibility_mode": "always",
@@ -251,6 +282,7 @@
       "alias_relationships": {
         "长亭": "official_abbreviation"
       },
+      "alias_identities": {},
       "entity_type": "company",
       "competitor_eligible": true,
       "eligibility_mode": "always",
@@ -269,6 +301,7 @@
       "canonical_name": "Check Point",
       "aliases": [],
       "alias_relationships": {},
+      "alias_identities": {},
       "entity_type": "company",
       "competitor_eligible": false,
       "eligibility_mode": "always",
@@ -285,6 +318,7 @@
       "canonical_name": "四叶草安全",
       "aliases": [],
       "alias_relationships": {},
+      "alias_identities": {},
       "entity_type": "company",
       "competitor_eligible": false,
       "eligibility_mode": "always",
@@ -301,6 +335,7 @@
       "canonical_name": "CrowdStrike",
       "aliases": [],
       "alias_relationships": {},
+      "alias_identities": {},
       "entity_type": "company",
       "competitor_eligible": false,
       "eligibility_mode": "always",
@@ -320,8 +355,20 @@
         "CubeSec"
       ],
       "alias_relationships": {
-        "深圳市魔方安全科技有限公司": "self",
+        "深圳市魔方安全科技有限公司": "same_legal_entity",
         "CubeSec": "trade_name"
+      },
+      "alias_identities": {
+        "深圳市魔方安全科技有限公司": {
+          "entity_id": "CYB-OBJ-CUBESEC-LEGAL",
+          "canonical_name": "深圳市魔方安全科技有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "same_legal_entity",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://www.cubesec.cn/gywm"
+          ]
+        }
       },
       "entity_type": "company",
       "competitor_eligible": true,
@@ -350,7 +397,19 @@
       ],
       "alias_relationships": {
         "安恒": "official_abbreviation",
-        "杭州安恒信息技术股份有限公司": "official_abbreviation"
+        "杭州安恒信息技术股份有限公司": "same_legal_entity"
+      },
+      "alias_identities": {
+        "杭州安恒信息技术股份有限公司": {
+          "entity_id": "CYB-OBJ-DBAPPSECURITY-LEGAL",
+          "canonical_name": "杭州安恒信息技术股份有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "same_legal_entity",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://www.dbappsecurity.com.cn/about/"
+          ]
+        }
       },
       "entity_type": "company",
       "competitor_eligible": true,
@@ -370,6 +429,7 @@
       "canonical_name": "斗象科技",
       "aliases": [],
       "alias_relationships": {},
+      "alias_identities": {},
       "entity_type": "company",
       "competitor_eligible": false,
       "eligibility_mode": "always",
@@ -386,6 +446,7 @@
       "canonical_name": "EASM Scanner",
       "aliases": [],
       "alias_relationships": {},
+      "alias_identities": {},
       "entity_type": "tool",
       "competitor_eligible": false,
       "eligibility_mode": "always",
@@ -402,6 +463,7 @@
       "canonical_name": "教育信息安全等级保护测评中心",
       "aliases": [],
       "alias_relationships": {},
+      "alias_identities": {},
       "entity_type": "institution",
       "competitor_eligible": false,
       "eligibility_mode": "always",
@@ -418,6 +480,7 @@
       "canonical_name": "Faraday",
       "aliases": [],
       "alias_relationships": {},
+      "alias_identities": {},
       "entity_type": "tool",
       "competitor_eligible": false,
       "eligibility_mode": "always",
@@ -438,9 +501,21 @@
         "广东CA"
       ],
       "alias_relationships": {
-        "数安时代科技股份有限公司": "self",
+        "数安时代科技股份有限公司": "same_legal_entity",
         "GDCA": "trade_name",
         "广东CA": "trade_name"
+      },
+      "alias_identities": {
+        "数安时代科技股份有限公司": {
+          "entity_id": "CYB-OBJ-GDCA-LEGAL",
+          "canonical_name": "数安时代科技股份有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "same_legal_entity",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://www.gdca.com.cn/about_gdca/CIntroduction/Company_Profile/"
+          ]
+        }
       },
       "entity_type": "company",
       "competitor_eligible": true,
@@ -469,6 +544,7 @@
       "alias_relationships": {
         "观安": "official_abbreviation"
       },
+      "alias_identities": {},
       "entity_type": "company",
       "competitor_eligible": false,
       "eligibility_mode": "always",
@@ -491,6 +567,7 @@
         "山东国子软件": "official_abbreviation",
         "山东国子软件股份有限公司": "official_abbreviation"
       },
+      "alias_identities": {},
       "entity_type": "company",
       "competitor_eligible": false,
       "eligibility_mode": "always",
@@ -513,6 +590,7 @@
         "新华三（H3C）": "official_abbreviation",
         "H3C": "official_abbreviation"
       },
+      "alias_identities": {},
       "entity_type": "company",
       "competitor_eligible": true,
       "eligibility_mode": "always",
@@ -533,7 +611,19 @@
         "北京海泰方圆科技股份有限公司"
       ],
       "alias_relationships": {
-        "北京海泰方圆科技股份有限公司": "self"
+        "北京海泰方圆科技股份有限公司": "same_legal_entity"
+      },
+      "alias_identities": {
+        "北京海泰方圆科技股份有限公司": {
+          "entity_id": "CYB-OBJ-HAITAI-LEGAL",
+          "canonical_name": "北京海泰方圆科技股份有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "same_legal_entity",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://www.haitaichina.com/qyjs/index.htm"
+          ]
+        }
       },
       "entity_type": "company",
       "competitor_eligible": true,
@@ -558,6 +648,7 @@
       "canonical_name": "山石网科",
       "aliases": [],
       "alias_relationships": {},
+      "alias_identities": {},
       "entity_type": "company",
       "competitor_eligible": false,
       "eligibility_mode": "always",
@@ -581,12 +672,64 @@
         "FOFA"
       ],
       "alias_relationships": {
-        "北京华顺信安": "brand_family_member",
+        "北京华顺信安": "official_abbreviation",
         "北京华顺信安科技有限公司": "brand_family_member",
-        "湖南华顺信安": "brand_family_member",
+        "湖南华顺信安": "official_abbreviation",
         "湖南华顺信安科技有限公司": "brand_family_member",
-        "白帽汇": "brand_family_member",
+        "白帽汇": "official_abbreviation",
         "FOFA": "product_of"
+      },
+      "alias_identities": {
+        "北京华顺信安": {
+          "entity_id": "CYB-OBJ-HUASHUNXINAN-BEIJING",
+          "canonical_name": "北京华顺信安科技有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "brand_family_member",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://www.huashunxinan.net/about"
+          ]
+        },
+        "北京华顺信安科技有限公司": {
+          "entity_id": "CYB-OBJ-HUASHUNXINAN-BEIJING",
+          "canonical_name": "北京华顺信安科技有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "brand_family_member",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://www.huashunxinan.net/about"
+          ]
+        },
+        "湖南华顺信安": {
+          "entity_id": "CYB-OBJ-HUASHUNXINAN-HUNAN",
+          "canonical_name": "湖南华顺信安科技有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "brand_family_member",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://www.huashunxinan.net/about"
+          ]
+        },
+        "湖南华顺信安科技有限公司": {
+          "entity_id": "CYB-OBJ-HUASHUNXINAN-HUNAN",
+          "canonical_name": "湖南华顺信安科技有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "brand_family_member",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://www.huashunxinan.net/about"
+          ]
+        },
+        "白帽汇": {
+          "entity_id": "CYB-OBJ-HUASHUNXINAN-WHITEHAT",
+          "canonical_name": "白帽汇安全研究院",
+          "entity_type": "institution",
+          "relationship_to_brand": "brand_family_member",
+          "parent_object_id": "CYB-OBJ-HUASHUNXINAN-BEIJING",
+          "evidence_urls": [
+            "https://www.huashunxinan.net/about"
+          ]
+        }
       },
       "entity_type": "company",
       "competitor_eligible": true,
@@ -611,6 +754,7 @@
       "canonical_name": "华云安",
       "aliases": [],
       "alias_relationships": {},
+      "alias_identities": {},
       "entity_type": "company",
       "competitor_eligible": false,
       "eligibility_mode": "always",
@@ -627,13 +771,33 @@
       "canonical_name": "华为",
       "aliases": [
         "华为云",
-        "华为技术",
         "华为技术有限公司"
       ],
       "alias_relationships": {
         "华为云": "business_unit_of",
-        "华为技术": "official_abbreviation",
-        "华为技术有限公司": "self"
+        "华为技术有限公司": "same_legal_entity"
+      },
+      "alias_identities": {
+        "华为云": {
+          "entity_id": "CYB-OBJ-HUAWEI-CLOUD",
+          "canonical_name": "华为云",
+          "entity_type": "business_unit",
+          "relationship_to_brand": "business_unit_of",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://consumer.huawei.com/cn/support/content/zh-cn15955449/"
+          ]
+        },
+        "华为技术有限公司": {
+          "entity_id": "CYB-OBJ-HUAWEI-LEGAL",
+          "canonical_name": "华为技术有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "same_legal_entity",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://www.huawei.com/cn/privacy-policy"
+          ]
+        }
       },
       "entity_type": "company",
       "competitor_eligible": true,
@@ -659,7 +823,19 @@
         "北京信安世纪科技股份有限公司"
       ],
       "alias_relationships": {
-        "北京信安世纪科技股份有限公司": "self"
+        "北京信安世纪科技股份有限公司": "same_legal_entity"
+      },
+      "alias_identities": {
+        "北京信安世纪科技股份有限公司": {
+          "entity_id": "CYB-OBJ-INFOSEC-LEGAL",
+          "canonical_name": "北京信安世纪科技股份有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "same_legal_entity",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://www.infosec.com.cn/default/index/aboutus"
+          ]
+        }
       },
       "entity_type": "company",
       "competitor_eligible": true,
@@ -688,9 +864,21 @@
         "iTrus"
       ],
       "alias_relationships": {
-        "北京天威诚信电子商务服务有限公司": "self",
+        "北京天威诚信电子商务服务有限公司": "same_legal_entity",
         "iTrusChina": "english_name",
         "iTrus": "trade_name"
+      },
+      "alias_identities": {
+        "北京天威诚信电子商务服务有限公司": {
+          "entity_id": "CYB-OBJ-ITRUS-LEGAL",
+          "canonical_name": "北京天威诚信电子商务服务有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "same_legal_entity",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://www.itrus.com.cn/about.html"
+          ]
+        }
       },
       "entity_type": "company",
       "competitor_eligible": true,
@@ -717,7 +905,19 @@
         "长春吉大正元信息技术股份有限公司"
       ],
       "alias_relationships": {
-        "长春吉大正元信息技术股份有限公司": "self"
+        "长春吉大正元信息技术股份有限公司": "same_legal_entity"
+      },
+      "alias_identities": {
+        "长春吉大正元信息技术股份有限公司": {
+          "entity_id": "CYB-OBJ-JIT-LEGAL",
+          "canonical_name": "长春吉大正元信息技术股份有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "same_legal_entity",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://www.jit.com.cn/Content/5.html"
+          ]
+        }
       },
       "entity_type": "company",
       "competitor_eligible": true,
@@ -745,8 +945,30 @@
         "ZoomEye"
       ],
       "alias_relationships": {
-        "北京知道创宇信息技术股份有限公司": "self",
+        "北京知道创宇信息技术股份有限公司": "same_legal_entity",
         "ZoomEye": "product_of"
+      },
+      "alias_identities": {
+        "北京知道创宇信息技术股份有限公司": {
+          "entity_id": "CYB-OBJ-KNOWNSEC-LEGAL",
+          "canonical_name": "北京知道创宇信息技术股份有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "same_legal_entity",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://www.knownsec.com/"
+          ]
+        },
+        "ZoomEye": {
+          "entity_id": "CYB-OBJ-KNOWNSEC-ZOOMEYE",
+          "canonical_name": "ZoomEye",
+          "entity_type": "product",
+          "relationship_to_brand": "product_of",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://www.knownsec.com/media/upload/201905.pdf"
+          ]
+        }
       },
       "entity_type": "company",
       "competitor_eligible": true,
@@ -773,9 +995,21 @@
       ],
       "alias_relationships": {
         "格尔": "official_abbreviation",
-        "格尔软件股份有限公司": "self",
+        "格尔软件股份有限公司": "same_legal_entity",
         "KOAL": "english_name",
         "Koal": "english_name"
+      },
+      "alias_identities": {
+        "格尔软件股份有限公司": {
+          "entity_id": "CYB-OBJ-KOAL-LEGAL",
+          "canonical_name": "格尔软件股份有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "same_legal_entity",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://www.koal.com/about"
+          ]
+        }
       },
       "entity_type": "company",
       "competitor_eligible": true,
@@ -804,7 +1038,29 @@
       ],
       "alias_relationships": {
         "南威软件集团": "brand_family_member",
-        "南威软件股份有限公司": "self"
+        "南威软件股份有限公司": "same_legal_entity"
+      },
+      "alias_identities": {
+        "南威软件集团": {
+          "entity_id": "CYB-OBJ-LINEWELL-GROUP",
+          "canonical_name": "南威软件集团",
+          "entity_type": "group",
+          "relationship_to_brand": "brand_family_member",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://www.linewell.com/"
+          ]
+        },
+        "南威软件股份有限公司": {
+          "entity_id": "CYB-OBJ-LINEWELL-LEGAL",
+          "canonical_name": "南威软件股份有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "same_legal_entity",
+          "parent_object_id": "CYB-OBJ-LINEWELL-GROUP",
+          "evidence_urls": [
+            "https://www.linewell.com/"
+          ]
+        }
       },
       "entity_type": "company",
       "competitor_eligible": true,
@@ -828,6 +1084,7 @@
       "canonical_name": "Maltego",
       "aliases": [],
       "alias_relationships": {},
+      "alias_identities": {},
       "entity_type": "tool",
       "competitor_eligible": false,
       "eligibility_mode": "always",
@@ -846,7 +1103,19 @@
         "广州铭冠信息科技有限公司"
       ],
       "alias_relationships": {
-        "广州铭冠信息科技有限公司": "self"
+        "广州铭冠信息科技有限公司": "same_legal_entity"
+      },
+      "alias_identities": {
+        "广州铭冠信息科技有限公司": {
+          "entity_id": "CYB-OBJ-MCROWN-LEGAL",
+          "canonical_name": "广州铭冠信息科技有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "same_legal_entity",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://www.gzmcrown.com/index.html"
+          ]
+        }
       },
       "entity_type": "company",
       "competitor_eligible": true,
@@ -876,6 +1145,7 @@
         "Microsoft": "official_abbreviation",
         "Microsoft Security": "official_abbreviation"
       },
+      "alias_identities": {},
       "entity_type": "company",
       "competitor_eligible": true,
       "eligibility_mode": "always",
@@ -900,6 +1170,7 @@
         "北京铭火信息科技": "official_abbreviation",
         "北京铭火信息科技有限公司": "official_abbreviation"
       },
+      "alias_identities": {},
       "entity_type": "company",
       "competitor_eligible": false,
       "eligibility_mode": "always",
@@ -920,6 +1191,7 @@
       "alias_relationships": {
         "默安": "official_abbreviation"
       },
+      "alias_identities": {},
       "entity_type": "company",
       "competitor_eligible": false,
       "eligibility_mode": "always",
@@ -953,12 +1225,122 @@
         "新大陆科技集团": "brand_family_member",
         "新大陆数字技术": "brand_family_member",
         "新大陆数字技术股份有限公司": "brand_family_member",
-        "新大陆公共服务": "brand_family_member",
-        "新大陆公共服务公司": "brand_family_member",
-        "新大陆公服": "brand_family_member",
-        "新大陆公服公司": "brand_family_member",
-        "新大陆（福建）公共服务有限公司": "brand_family_member",
-        "新大陆(福建)公共服务有限公司": "brand_family_member"
+        "新大陆公共服务": "subsidiary_of",
+        "新大陆公共服务公司": "subsidiary_of",
+        "新大陆公服": "subsidiary_of",
+        "新大陆公服公司": "subsidiary_of",
+        "新大陆（福建）公共服务有限公司": "subsidiary_of",
+        "新大陆(福建)公共服务有限公司": "subsidiary_of"
+      },
+      "alias_identities": {
+        "新大陆集团": {
+          "entity_id": "CYB-OBJ-NEWLAND-GROUP",
+          "canonical_name": "新大陆科技集团",
+          "entity_type": "group",
+          "relationship_to_brand": "brand_family_member",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://www.newland.com.cn/"
+          ]
+        },
+        "新大陆科技集团": {
+          "entity_id": "CYB-OBJ-NEWLAND-GROUP",
+          "canonical_name": "新大陆科技集团",
+          "entity_type": "group",
+          "relationship_to_brand": "brand_family_member",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://www.newland.com.cn/"
+          ]
+        },
+        "新大陆数字技术": {
+          "entity_id": "CYB-OBJ-NEWLAND-DIGITAL",
+          "canonical_name": "新大陆数字技术股份有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "brand_family_member",
+          "parent_object_id": "CYB-OBJ-NEWLAND-GROUP",
+          "evidence_urls": [
+            "https://www.newland.com.cn/",
+            "https://static.cninfo.com.cn/finalpage/2025-08-26/1224570931.PDF"
+          ]
+        },
+        "新大陆数字技术股份有限公司": {
+          "entity_id": "CYB-OBJ-NEWLAND-DIGITAL",
+          "canonical_name": "新大陆数字技术股份有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "brand_family_member",
+          "parent_object_id": "CYB-OBJ-NEWLAND-GROUP",
+          "evidence_urls": [
+            "https://www.newland.com.cn/",
+            "https://static.cninfo.com.cn/finalpage/2025-08-26/1224570931.PDF"
+          ]
+        },
+        "新大陆公共服务": {
+          "entity_id": "CYB-OBJ-NEWLAND-PUBLIC-SERVICE",
+          "canonical_name": "新大陆（福建）公共服务有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "subsidiary_of",
+          "parent_object_id": "CYB-OBJ-NEWLAND-GROUP",
+          "evidence_urls": [
+            "https://www.newland.com.cn/",
+            "https://static.cninfo.com.cn/finalpage/2025-06-24/1223972015.PDF"
+          ]
+        },
+        "新大陆公共服务公司": {
+          "entity_id": "CYB-OBJ-NEWLAND-PUBLIC-SERVICE",
+          "canonical_name": "新大陆（福建）公共服务有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "subsidiary_of",
+          "parent_object_id": "CYB-OBJ-NEWLAND-GROUP",
+          "evidence_urls": [
+            "https://www.newland.com.cn/",
+            "https://static.cninfo.com.cn/finalpage/2025-06-24/1223972015.PDF"
+          ]
+        },
+        "新大陆公服": {
+          "entity_id": "CYB-OBJ-NEWLAND-PUBLIC-SERVICE",
+          "canonical_name": "新大陆（福建）公共服务有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "subsidiary_of",
+          "parent_object_id": "CYB-OBJ-NEWLAND-GROUP",
+          "evidence_urls": [
+            "https://www.newland.com.cn/",
+            "https://static.cninfo.com.cn/finalpage/2025-06-24/1223972015.PDF"
+          ]
+        },
+        "新大陆公服公司": {
+          "entity_id": "CYB-OBJ-NEWLAND-PUBLIC-SERVICE",
+          "canonical_name": "新大陆（福建）公共服务有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "subsidiary_of",
+          "parent_object_id": "CYB-OBJ-NEWLAND-GROUP",
+          "evidence_urls": [
+            "https://www.newland.com.cn/",
+            "https://static.cninfo.com.cn/finalpage/2025-06-24/1223972015.PDF"
+          ]
+        },
+        "新大陆（福建）公共服务有限公司": {
+          "entity_id": "CYB-OBJ-NEWLAND-PUBLIC-SERVICE",
+          "canonical_name": "新大陆（福建）公共服务有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "subsidiary_of",
+          "parent_object_id": "CYB-OBJ-NEWLAND-GROUP",
+          "evidence_urls": [
+            "https://www.newland.com.cn/",
+            "https://static.cninfo.com.cn/finalpage/2025-06-24/1223972015.PDF"
+          ]
+        },
+        "新大陆(福建)公共服务有限公司": {
+          "entity_id": "CYB-OBJ-NEWLAND-PUBLIC-SERVICE",
+          "canonical_name": "新大陆（福建）公共服务有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "subsidiary_of",
+          "parent_object_id": "CYB-OBJ-NEWLAND-GROUP",
+          "evidence_urls": [
+            "https://www.newland.com.cn/",
+            "https://static.cninfo.com.cn/finalpage/2025-06-24/1223972015.PDF"
+          ]
+        }
       },
       "entity_type": "company",
       "competitor_eligible": true,
@@ -986,7 +1368,19 @@
         "上海宁盾信息科技有限公司"
       ],
       "alias_relationships": {
-        "上海宁盾信息科技有限公司": "self"
+        "上海宁盾信息科技有限公司": "same_legal_entity"
+      },
+      "alias_identities": {
+        "上海宁盾信息科技有限公司": {
+          "entity_id": "CYB-OBJ-NINGTON-LEGAL",
+          "canonical_name": "上海宁盾信息科技有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "same_legal_entity",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://www.nington.com/about.shtml"
+          ]
+        }
       },
       "entity_type": "company",
       "competitor_eligible": true,
@@ -1012,6 +1406,7 @@
       "canonical_name": "Nmap",
       "aliases": [],
       "alias_relationships": {},
+      "alias_identities": {},
       "entity_type": "tool",
       "competitor_eligible": false,
       "eligibility_mode": "always",
@@ -1036,7 +1431,29 @@
         "绿盟": "official_abbreviation",
         "NSFOCUS": "english_name",
         "绿盟科技集团": "official_abbreviation",
-        "绿盟科技集团股份有限公司": "self"
+        "绿盟科技集团股份有限公司": "same_legal_entity"
+      },
+      "alias_identities": {
+        "绿盟科技集团": {
+          "entity_id": "CYB-OBJ-NSFOCUS-LEGAL",
+          "canonical_name": "绿盟科技集团股份有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "same_legal_entity",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://www.nsfocus.com.cn/html/7/"
+          ]
+        },
+        "绿盟科技集团股份有限公司": {
+          "entity_id": "CYB-OBJ-NSFOCUS-LEGAL",
+          "canonical_name": "绿盟科技集团股份有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "same_legal_entity",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://www.nsfocus.com.cn/html/7/"
+          ]
+        }
       },
       "entity_type": "company",
       "competitor_eligible": true,
@@ -1064,6 +1481,7 @@
         "Palo Alto": "official_abbreviation",
         "PANW": "official_abbreviation"
       },
+      "alias_identities": {},
       "entity_type": "company",
       "competitor_eligible": true,
       "eligibility_mode": "always",
@@ -1084,7 +1502,19 @@
         "上海派拉软件股份有限公司"
       ],
       "alias_relationships": {
-        "上海派拉软件股份有限公司": "self"
+        "上海派拉软件股份有限公司": "same_legal_entity"
+      },
+      "alias_identities": {
+        "上海派拉软件股份有限公司": {
+          "entity_id": "CYB-OBJ-PARAVIEW-LEGAL",
+          "canonical_name": "上海派拉软件股份有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "same_legal_entity",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://www.paraview.cn/about/"
+          ]
+        }
       },
       "entity_type": "company",
       "competitor_eligible": true,
@@ -1114,6 +1544,18 @@
       "alias_relationships": {
         "奇安信集团": "official_abbreviation"
       },
+      "alias_identities": {
+        "奇安信集团": {
+          "entity_id": "CYB-OBJ-QIANXIN-LEGAL",
+          "canonical_name": "奇安信科技集团股份有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "same_legal_entity",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://passport.qianxin.com/privacy"
+          ]
+        }
+      },
       "entity_type": "company",
       "competitor_eligible": true,
       "eligibility_mode": "always",
@@ -1132,6 +1574,7 @@
       "canonical_name": "Qualys",
       "aliases": [],
       "alias_relationships": {},
+      "alias_identities": {},
       "entity_type": "company",
       "competitor_eligible": false,
       "eligibility_mode": "always",
@@ -1154,6 +1597,7 @@
         "武汉曲飞科技": "official_abbreviation",
         "武汉曲飞科技有限公司": "official_abbreviation"
       },
+      "alias_identities": {},
       "entity_type": "company",
       "competitor_eligible": false,
       "eligibility_mode": "always",
@@ -1170,6 +1614,7 @@
       "canonical_name": "Rapid7",
       "aliases": [],
       "alias_relationships": {},
+      "alias_identities": {},
       "entity_type": "company",
       "competitor_eligible": false,
       "eligibility_mode": "always",
@@ -1186,6 +1631,7 @@
       "canonical_name": "reNgine",
       "aliases": [],
       "alias_relationships": {},
+      "alias_identities": {},
       "entity_type": "tool",
       "competitor_eligible": false,
       "eligibility_mode": "always",
@@ -1209,8 +1655,30 @@
       "alias_relationships": {
         "瑞数": "official_abbreviation",
         "River Security": "english_name",
-        "瑞数信息技术（上海）有限公司": "self",
-        "瑞数信息技术(上海)有限公司": "self"
+        "瑞数信息技术（上海）有限公司": "same_legal_entity",
+        "瑞数信息技术(上海)有限公司": "same_legal_entity"
+      },
+      "alias_identities": {
+        "瑞数信息技术（上海）有限公司": {
+          "entity_id": "CYB-OBJ-RIVERSECURITY-LEGAL",
+          "canonical_name": "瑞数信息技术（上海）有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "same_legal_entity",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://www.riversecurity.com/resources-product/%E3%80%902021%E3%80%91%E7%91%9E%E6%95%B0APP%E5%8A%A8%E6%80%81%E5%AE%89%E5%85%A8%E7%99%BD%E7%9A%AE%E4%B9%A6.pdf"
+          ]
+        },
+        "瑞数信息技术(上海)有限公司": {
+          "entity_id": "CYB-OBJ-RIVERSECURITY-LEGAL",
+          "canonical_name": "瑞数信息技术（上海）有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "same_legal_entity",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://www.riversecurity.com/resources-product/%E3%80%902021%E3%80%91%E7%91%9E%E6%95%B0APP%E5%8A%A8%E6%80%81%E5%AE%89%E5%85%A8%E7%99%BD%E7%9A%AE%E4%B9%A6.pdf"
+          ]
+        }
       },
       "entity_type": "company",
       "competitor_eligible": true,
@@ -1239,6 +1707,7 @@
       "alias_relationships": {
         "深信服科技": "official_abbreviation"
       },
+      "alias_identities": {},
       "entity_type": "company",
       "competitor_eligible": true,
       "eligibility_mode": "always",
@@ -1259,7 +1728,19 @@
         "三未信安科技股份有限公司"
       ],
       "alias_relationships": {
-        "三未信安科技股份有限公司": "self"
+        "三未信安科技股份有限公司": "same_legal_entity"
+      },
+      "alias_identities": {
+        "三未信安科技股份有限公司": {
+          "entity_id": "CYB-OBJ-SANSEC-LEGAL",
+          "canonical_name": "三未信安科技股份有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "same_legal_entity",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://www.sansec.com.cn/About.html"
+          ]
+        }
       },
       "entity_type": "company",
       "competitor_eligible": true,
@@ -1289,8 +1770,20 @@
       ],
       "alias_relationships": {
         "上海市数字证书认证中心": "official_abbreviation",
-        "上海市数字证书认证中心有限公司": "self",
+        "上海市数字证书认证中心有限公司": "same_legal_entity",
         "SHECA": "trade_name"
+      },
+      "alias_identities": {
+        "上海市数字证书认证中心有限公司": {
+          "entity_id": "CYB-OBJ-SHECA-LEGAL",
+          "canonical_name": "上海市数字证书认证中心有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "same_legal_entity",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://www.sheca.com/company"
+          ]
+        }
       },
       "entity_type": "company",
       "competitor_eligible": true,
@@ -1317,7 +1810,19 @@
         "神思电子技术股份有限公司"
       ],
       "alias_relationships": {
-        "神思电子技术股份有限公司": "self"
+        "神思电子技术股份有限公司": "same_legal_entity"
+      },
+      "alias_identities": {
+        "神思电子技术股份有限公司": {
+          "entity_id": "CYB-OBJ-SHENSI-LEGAL",
+          "canonical_name": "神思电子技术股份有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "same_legal_entity",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://www.sdses.com/lists/47.html"
+          ]
+        }
       },
       "entity_type": "company",
       "competitor_eligible": true,
@@ -1342,6 +1847,7 @@
       "canonical_name": "Shodan",
       "aliases": [],
       "alias_relationships": {},
+      "alias_identities": {},
       "entity_type": "product",
       "competitor_eligible": false,
       "eligibility_mode": "always",
@@ -1362,6 +1868,7 @@
       "alias_relationships": {
         "Sn1per Community Edition": "official_abbreviation"
       },
+      "alias_identities": {},
       "entity_type": "tool",
       "competitor_eligible": false,
       "eligibility_mode": "always",
@@ -1378,6 +1885,7 @@
       "canonical_name": "Subfinder",
       "aliases": [],
       "alias_relationships": {},
+      "alias_identities": {},
       "entity_type": "tool",
       "competitor_eligible": false,
       "eligibility_mode": "always",
@@ -1394,6 +1902,7 @@
       "canonical_name": "Tenable",
       "aliases": [],
       "alias_relationships": {},
+      "alias_identities": {},
       "entity_type": "company",
       "competitor_eligible": true,
       "eligibility_mode": "always",
@@ -1416,9 +1925,41 @@
         "腾讯云"
       ],
       "alias_relationships": {
-        "腾讯集团": "official_abbreviation",
+        "腾讯集团": "brand_family_member",
         "腾讯安全": "business_unit_of",
         "腾讯云": "business_unit_of"
+      },
+      "alias_identities": {
+        "腾讯集团": {
+          "entity_id": "CYB-OBJ-TENCENT-GROUP",
+          "canonical_name": "腾讯集团",
+          "entity_type": "group",
+          "relationship_to_brand": "brand_family_member",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://www.tencent.com/zh-cn/about.html"
+          ]
+        },
+        "腾讯安全": {
+          "entity_id": "CYB-OBJ-TENCENT-SECURITY",
+          "canonical_name": "腾讯安全",
+          "entity_type": "business_unit",
+          "relationship_to_brand": "business_unit_of",
+          "parent_object_id": "CYB-OBJ-TENCENT-GROUP",
+          "evidence_urls": [
+            "https://static.www.tencent.com/uploads/2022/04/16/56e61654efa69f7503f997520a8f2766.pdf"
+          ]
+        },
+        "腾讯云": {
+          "entity_id": "CYB-OBJ-TENCENT-CLOUD",
+          "canonical_name": "腾讯云",
+          "entity_type": "business_unit",
+          "relationship_to_brand": "business_unit_of",
+          "parent_object_id": "CYB-OBJ-TENCENT-GROUP",
+          "evidence_urls": [
+            "https://cloud.tencent.com/about"
+          ]
+        }
       },
       "entity_type": "company",
       "competitor_eligible": true,
@@ -1443,6 +1984,7 @@
       "canonical_name": "微步在线",
       "aliases": [],
       "alias_relationships": {},
+      "alias_identities": {},
       "entity_type": "company",
       "competitor_eligible": false,
       "eligibility_mode": "always",
@@ -1459,6 +2001,7 @@
       "canonical_name": "天融信",
       "aliases": [],
       "alias_relationships": {},
+      "alias_identities": {},
       "entity_type": "company",
       "competitor_eligible": true,
       "eligibility_mode": "always",
@@ -1480,7 +2023,19 @@
         "启明星辰集团"
       ],
       "alias_relationships": {
-        "启明星辰集团": "official_abbreviation"
+        "启明星辰集团": "brand_family_member"
+      },
+      "alias_identities": {
+        "启明星辰集团": {
+          "entity_id": "CYB-OBJ-VENUSTECH-GROUP",
+          "canonical_name": "启明星辰集团",
+          "entity_type": "group",
+          "relationship_to_brand": "brand_family_member",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://www.venustech.com.cn/"
+          ]
+        }
       },
       "entity_type": "company",
       "competitor_eligible": true,
@@ -1520,7 +2075,7 @@
         "远江盛邦": "official_abbreviation",
         "远江盛邦安全": "official_abbreviation",
         "远江盛邦安全科技集团": "official_abbreviation",
-        "远江盛邦安全科技集团股份有限公司": "self",
+        "远江盛邦安全科技集团股份有限公司": "same_legal_entity",
         "远江盛邦（北京）网络安全科技股份有限公司": "historical_name",
         "远江盛邦(北京)网络安全科技股份有限公司": "historical_name",
         "远江盛邦（北京）信息技术有限公司": "historical_name",
@@ -1531,6 +2086,70 @@
         "RayTAG": "product_of",
         "raytag": "product_of",
         "RayTAG 网证": "product_of"
+      },
+      "alias_identities": {
+        "远江盛邦安全科技集团": {
+          "entity_id": "CYB-OBJ-WEBRAY-LEGAL",
+          "canonical_name": "远江盛邦安全科技集团股份有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "same_legal_entity",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://www.webray.com.cn/about/index.html",
+            "https://www.webray.com.cn/news-413.html"
+          ]
+        },
+        "远江盛邦安全科技集团股份有限公司": {
+          "entity_id": "CYB-OBJ-WEBRAY-LEGAL",
+          "canonical_name": "远江盛邦安全科技集团股份有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "same_legal_entity",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://www.webray.com.cn/about/index.html",
+            "https://www.webray.com.cn/news-413.html"
+          ]
+        },
+        "RAYTAG": {
+          "entity_id": "CYB-OBJ-WEBRAY-RAYTAG",
+          "canonical_name": "可信身份接入网关（RayTAG）",
+          "entity_type": "product",
+          "relationship_to_brand": "product_of",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://www.webray.com.cn/product.html"
+          ]
+        },
+        "RayTAG": {
+          "entity_id": "CYB-OBJ-WEBRAY-RAYTAG",
+          "canonical_name": "可信身份接入网关（RayTAG）",
+          "entity_type": "product",
+          "relationship_to_brand": "product_of",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://www.webray.com.cn/product.html"
+          ]
+        },
+        "raytag": {
+          "entity_id": "CYB-OBJ-WEBRAY-RAYTAG",
+          "canonical_name": "可信身份接入网关（RayTAG）",
+          "entity_type": "product",
+          "relationship_to_brand": "product_of",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://www.webray.com.cn/product.html"
+          ]
+        },
+        "RayTAG 网证": {
+          "entity_id": "CYB-OBJ-WEBRAY-RAYTAG",
+          "canonical_name": "可信身份接入网关（RayTAG）",
+          "entity_type": "product",
+          "relationship_to_brand": "product_of",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://www.webray.com.cn/product.html"
+          ]
+        }
       },
       "entity_type": "company",
       "competitor_eligible": true,
@@ -1559,10 +2178,22 @@
         "Westone"
       ],
       "alias_relationships": {
-        "中电科网络安全科技股份有限公司": "self",
+        "中电科网络安全科技股份有限公司": "same_legal_entity",
         "成都卫士通信息产业股份有限公司": "historical_name",
         "卫士通": "historical_name",
         "Westone": "trade_name"
+      },
+      "alias_identities": {
+        "中电科网络安全科技股份有限公司": {
+          "entity_id": "CYB-OBJ-WESTONE-LEGAL",
+          "canonical_name": "中电科网络安全科技股份有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "same_legal_entity",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://www.cetccst.com.cn/about/136.html"
+          ]
+        }
       },
       "entity_type": "company",
       "competitor_eligible": true,
@@ -1586,6 +2217,7 @@
       "canonical_name": "XSSCAN",
       "aliases": [],
       "alias_relationships": {},
+      "alias_identities": {},
       "entity_type": "tool",
       "competitor_eligible": false,
       "eligibility_mode": "always",
@@ -1608,9 +2240,21 @@
       ],
       "alias_relationships": {
         "熵基": "official_abbreviation",
-        "熵基科技股份有限公司": "self",
+        "熵基科技股份有限公司": "same_legal_entity",
         "ZKTeco": "english_name",
         "ZKTECO": "english_name"
+      },
+      "alias_identities": {
+        "熵基科技股份有限公司": {
+          "entity_id": "CYB-OBJ-ZKTECO-LEGAL",
+          "canonical_name": "熵基科技股份有限公司",
+          "entity_type": "legal_entity",
+          "relationship_to_brand": "same_legal_entity",
+          "parent_object_id": null,
+          "evidence_urls": [
+            "https://zkbiowhois.com/aboutUS.html"
+          ]
+        }
       },
       "entity_type": "company",
       "competitor_eligible": true,
