@@ -20,18 +20,18 @@
 
 ## 系统规模速览
 
-| 规模维度 | 审计快照 |
-| --- | ---: |
-| 角色化 Web 工作台 | 5 个 |
-| 业务模块 | 24 个 |
-| API 路径 / 操作 / Schema | 262 / 320 / 395 |
-| 生产业务表 / 数据域 | 173 / 9 |
-| Workflow / Activity / Worker 入口 | 8 / 33 / 6 |
-| 一方源文件 / 源代码 | 994 / 356,550 行 |
-| 测试文件 / 测试代码 | 318 / 109,113 行 |
-| 采集任务 / 回答与分析 | 3,104 / 1,492 |
-| 引用事实 / 证据资产 | 13,007 / 21,781 |
-| 规范 URL / Occurrence / 页面快照 | 4,853 / 11,010 / 3,141 |
+| 规模维度                          |               审计快照 |
+| --------------------------------- | ---------------------: |
+| 角色化 Web 工作台                 |                   5 个 |
+| 业务模块                          |                  24 个 |
+| API 路径 / 操作 / Schema          |        262 / 320 / 395 |
+| 生产业务表 / 数据域               |                173 / 9 |
+| Workflow / Activity / Worker 入口 |             8 / 33 / 6 |
+| 一方源文件 / 源代码               |       994 / 356,550 行 |
+| 测试文件 / 测试代码               |       318 / 109,113 行 |
+| 采集任务 / 回答与分析             |          3,104 / 1,492 |
+| 引用事实 / 证据资产               |        13,007 / 21,781 |
+| 规范 URL / Occurrence / 页面快照  | 4,853 / 11,010 / 3,141 |
 
 ---
 
@@ -41,7 +41,7 @@
 
 ### 分层总览
 
-~~~mermaid
+```mermaid
 block-beta
   columns 12
 
@@ -125,7 +125,7 @@ block-beta
   style surface fill:#ffffff,stroke:#cbd5e1,stroke-width:1px
   style data fill:#ffffff,stroke:#cbd5e1,stroke-width:1px
   style NOTE fill:#ffffff,stroke:#94a3b8,color:#334155,stroke-width:1px
-~~~
+```
 
 ### 关系展开版｜组件、调用、事件与数据流
 
@@ -133,7 +133,7 @@ block-beta
 
 #### 1A｜角色如何穿过安全域到达 FastAPI
 
-~~~mermaid
+```mermaid
 flowchart TB
     subgraph ACTORS["访问角色"]
         direction TB
@@ -214,13 +214,13 @@ flowchart TB
     class CUSTOMER,INVITEE customer;
     class OPERATOR,ANALYST,REVIEWER human;
     class CUSTOMER_WEB,INTAKE_FORM,OPERATIONS_WEB,INTELLIGENCE_WEB,REPORT_STUDIO,TERMINAL_EXT,CUSTOMER_EDGE,INTAKE_EDGE,MANAGEMENT_EDGE,AUXILIARY_EDGE,TLS,ROUTING,RATE_LIMIT,HEADER_CLEAN,SESSION_AUTH,OTP_TICKET,SIGNED_TASK,RBAC,CAPABILITY,TENANT_SCOPE,PROJECT_SCOPE,API_APP software;
-~~~
+```
 
 ##### 七个共享前端包的真实直接依赖
 
 箭头表示当前 <code>package.json</code> 中的直接 workspace 依赖。<code>domain-types</code> 目录存在，静态盘点未发现当前应用或其他共享包直接引用它。
 
-~~~mermaid
+```mermaid
 flowchart LR
     API_CLIENT["@geo/api-client"]
     AUTH["@geo/auth"]
@@ -267,13 +267,13 @@ flowchart LR
     classDef target fill:#f3f4f6,stroke:#6b7280,color:#1f2937,stroke-width:2px,stroke-dasharray:6 4;
     class API_CLIENT,AUTH,CHARTS,DESIGN,EVIDENCE_VIEWER,WORKFLOW_UI,CUSTOMER_WEB,INTAKE_FORM,OPERATIONS_WEB,INTELLIGENCE_WEB,REPORT_STUDIO software;
     class DOMAIN_TYPES target;
-~~~
+```
 
 #### 1B｜后端业务域如何传递事实
 
 图中的 25 个具名节点对应当前后端顶层模块目录，另有一个跨模块准入职责。路由模块由 FastAPI 挂载；<code>tenancy</code> 提供共享租户能力；<code>notifications</code> 同时包含独立部署的通知 Bot。它们通过同一后端代码库、数据库事实和事件协作。
 
-~~~mermaid
+```mermaid
 flowchart TB
     subgraph PROJECT_CONTROL["项目与商业控制"]
         direction TB
@@ -355,13 +355,13 @@ flowchart TB
 
     classDef software fill:#eaf2ff,stroke:#2563eb,color:#172554,stroke-width:2px;
     class IDENTITY,TENANCY,INTAKE_FORM_API,INTAKE,PROJECTS,QUOTATIONS,VARIANTS,ADMISSION,COLLECTION,DATASETS,EVIDENCE,SOURCE_INTEL,INTELLIGENCE,SOURCE_ANALYSIS,ANALYTICS,BRANDRANK,SERVICE2_CORPUS,POSTING,POST_ANALYSIS,REPORTS,EXPORTS,CUSTOMER_SERVICES,CUSTOMER_DASHBOARD,NOTIFICATIONS,OTP,SOP software;
-~~~
+```
 
 #### 1C｜业务命令如何变成三表面真实执行
 
 ##### 命令派发与表面调用
 
-~~~mermaid
+```mermaid
 sequenceDiagram
     autonumber
     actor OPERATOR as 运营入口
@@ -422,11 +422,11 @@ sequenceDiagram
 
     ADAPTER-->>COLLECTION: 返回捕获结果与证据清单
     COLLECTION->>COMMAND_DB: 同一事务保存捕获结果并提交派生事件
-~~~
+```
 
 ##### 捕获完成后的并行事实生产
 
-~~~mermaid
+```mermaid
 sequenceDiagram
     autonumber
     participant COLLECTION as Collection Worker
@@ -469,13 +469,13 @@ sequenceDiagram
     TEMPORAL->>REPORT: 路由证据与报告任务
     REPORT->>FACTS: 写冻结服务事实与报告版本
     REPORT->>OBJECTS: 写正式报告与证据包
-~~~
+```
 
 ##### consumer_web 五个平台适配器展开
 
 五个平台适配器拥有独立的 DOM、成功判定、模式识别和错误语义；资源治理先绑定账号、常驻浏览器、地域代理和 fencing 权限，再把同一个受控执行上下文交给选中的平台适配器。
 
-~~~mermaid
+```mermaid
 flowchart LR
     OPERATOR["运营人员"] -->|明确确认付费| PROXY_PURCHASE["Proxy Purchase Service"]
     PROXY_PURCHASE ==>|取得并记录| UPSTREAM_PROXY["付费地域代理"]
@@ -519,12 +519,12 @@ flowchart LR
     class UPSTREAM_PROXY,DOUBAO,DEEPSEEK,YIYAN,TONGYI,YUANBAO external;
     class ACCOUNT,LEASE,FENCE,STATUS fact;
     class PROXY_PURCHASE,PROXY_RELAY,COLLECTION_WORKER,BROWSER_ROUTER,BROWSER,CONTEXT,DOU_ADAPTER,DEEPSEEK_ADAPTER,YIYAN_ADAPTER,TONGYI_ADAPTER,YUANBAO_ADAPTER software;
-~~~
+```
 
 <details>
 <summary>展开组件拓扑图</summary>
 
-~~~mermaid
+```mermaid
 flowchart TB
     subgraph PRODUCERS["耐久任务生产者"]
         direction TB
@@ -655,13 +655,13 @@ flowchart TB
     class MODEL_API,CONSUMER_WEB,CONSUMER_APP,PUBLIC_PAGE external;
     class START_COMMAND,SIGNAL_COMMAND,EVENT_OUTBOX,BUSINESS_FACTS,NATIVE_EVIDENCE,ANALYTICS_PROJECTION fact;
     class COLLECTION_API,SOURCE_API,POST_API,REPORT_API,SOP_API,SCHEDULER,OUTBOX_WORKER,TEMPORAL,COLLECTION_WORKER,SOURCE_WORKER,ANALYSIS_WORKER,S02_WORKER,FINAL_ADMISSION,TYPED_GRANT,QUOTA,LEASE,FENCING,API_CREDENTIAL,PROVIDER_ADAPTER,PLATFORM_ACCOUNT,RESIDENT_BROWSER,REGION_PROXY,WEB_ADAPTER,APP_DEVICE,APP_SESSION,APP_ADAPTER software;
-~~~
+```
 
 </details>
 
 #### 1D｜运营侧 Agent Skill、产品内运行时 AI 与人工批准
 
-~~~mermaid
+```mermaid
 flowchart TB
     subgraph OPERATIONS_SKILLS["运营侧独立 Agent Skill"]
         direction TB
@@ -775,13 +775,13 @@ flowchart TB
     class RUNTIME_MODEL external;
     class QUOTATION_DOC,EXPLANATION_DOC,FLOW_DOC,PROJECT_CANDIDATES,PROJECT_FACTS,ANALYSIS_CANDIDATES,SERVICE_FACTS,NARRATIVE_DRAFT,APPROVED_NARRATIVE fact;
     class PRICING_RULES,TEMPLATE_VALIDATOR,DOCUMENT_RENDERER,TOPOLOGY_CHECKER,DIAGRAM_RENDERER,INTAKE_FORM_API,INTAKE_API,VARIANTS_API,ANALYSIS_WORKER,REPORTS_API,MODEL_GATEWAY,PROJECT_RULES,EVIDENCE_RULES,GROUNDING_RULES software;
-~~~
+```
 
 #### 1E｜运行组件如何读写数据并形成监控、备份与发布闭环
 
 ##### 数据职责
 
-~~~mermaid
+```mermaid
 flowchart LR
     API_APP["FastAPI"] -->|带租户上下文访问| RLS["PostgreSQL RLS"]
     RLS --> POSTGRES[("PostgreSQL<br/>权威业务事实")]
@@ -809,11 +809,11 @@ flowchart LR
     classDef fact fill:#ecfeff,stroke:#0891b2,color:#164e63,stroke-width:2.5px;
     class POSTGRES,OBJECTS,CLICKHOUSE,SAFE,AUDIT fact;
     class API_APP,RLS,REDIS,VAULT,COLLECTION,SOURCE,ANALYSIS,REPORT,OUTBOX,TEMPORAL,TEMPORAL_PG,FRONTENDS software;
-~~~
+```
 
 ##### 监控、备份与发布闭环
 
-~~~mermaid
+```mermaid
 flowchart TB
     FASTAPI["FastAPI"] -.->|OTLP 链路| OTEL["OpenTelemetry Collector"]
     COLLECTION_WORKER["Collection Worker"] -.->|OTLP 链路| OTEL
@@ -873,12 +873,12 @@ flowchart TB
     classDef external fill:#f3f4f6,stroke:#6b7280,color:#1f2937,stroke-width:2px;
     class FEISHU_API external;
     class FASTAPI,COLLECTION_WORKER,SOURCE_WORKER,ANALYSIS_WORKER,S02_WORKER,OUTBOX_WORKER,OTEL,BUSINESS_METRICS,NODE_EXPORTER,PROMETHEUS,JOURNAL,ALLOY,LOKI,ALERTMANAGER,ALERT_RECEIVER,FEISHU_BOT,GRAFANA,DATASETS_API,MEDIA_REFRESH,DATASET_CLIENT,POSTGRES,OBJECTS,CLICKHOUSE,BACKUP,RESTORE,TESTS,GATE,RELEASE,ROLLBACK,FRONTEND_RELEASE,WORKER_RELEASE software;
-~~~
+```
 
 <details>
 <summary>展开逐运行组件的完整连线图</summary>
 
-~~~mermaid
+```mermaid
 flowchart LR
     subgraph RUNTIMES["运行组件"]
         direction TB
@@ -979,7 +979,7 @@ flowchart LR
     classDef fact fill:#ecfeff,stroke:#0891b2,color:#164e63,stroke-width:2.5px;
     class POSTGRES,OBJECT_STORE,CLICKHOUSE,SAFE_PROJECTION,AUDIT_LOG fact;
     class FRONTENDS,API_APP,OUTBOX_WORKER,TEMPORAL,COLLECTION_WORKER,SOURCE_WORKER,ANALYSIS_WORKER,S02_WORKER,RLS,REDIS,TEMPORAL_PG,VAULT,OTEL,ALLOY,PROMETHEUS,LOKI,GRAFANA,ALERTMANAGER,BACKUP,RESTORE_DRILL,MIGRATION_CHECK,RELEASE,ROLLBACK software;
-~~~
+```
 
 </details>
 
@@ -990,7 +990,7 @@ flowchart LR
 
 这张索引图把五个分面的同名节点合并到一个画布，适合搜索遗漏关系和做架构审计；展示讲解优先使用 1A—1E。
 
-~~~mermaid
+```mermaid
 flowchart TB
     subgraph L1["A. 访问角色、产品入口与独立 Agent Skill"]
         direction LR
@@ -1400,7 +1400,7 @@ flowchart TB
     class SCHEDULER,OUTBOX_WORKER,TEMPORAL,COLLECTION_WORKER,SOURCE_WORKER,ANALYSIS_WORKER,S02_WORKER,FINAL_ADMISSION,V1_RESOURCE_GATE,TYPED_GRANT,QUOTA,LEASE,FENCING software;
     class API_CREDENTIAL,PLATFORM_ACCOUNT,RESIDENT_BROWSER,REGION_PROXY,APP_DEVICE,APP_SESSION,PROVIDER_ADAPTER,WEB_ADAPTER,APP_ADAPTER software;
     class RLS,REDIS,TEMPORAL_PG,VAULT,OTEL,BUSINESS_METRICS,SYSTEMD_JOURNAL,ALLOY,PROMETHEUS,LOKI,GRAFANA,ALERTMANAGER,NODE_EXPORTER,ALERT_RECEIVER,FEISHU_BOT,MEDIA_REFRESH_WORKER,BACKUP,RELEASE software;
-~~~
+```
 
 </details>
 
@@ -1420,7 +1420,7 @@ flowchart TB
 
 这张图展示系统的技术纵深。上层负责角色协作和业务控制，中层负责智能处理与真实世界执行，下层负责证据、专业服务和可信交付。
 
-~~~mermaid
+```mermaid
 flowchart TB
     subgraph EXPERIENCE["体验与业务控制"]
         direction LR
@@ -1462,7 +1462,7 @@ flowchart TB
     class L3S skill;
     class L3A runtime;
     class L5,L6 fact;
-~~~
+```
 
 讲解重点：
 
@@ -1477,7 +1477,7 @@ flowchart TB
 
 客户通过一个统一工作区查看五项服务结果、案例、证据和报告。下方系统完成采集、取证、分析、审核、版本管理和运行保障。
 
-~~~mermaid
+```mermaid
 flowchart LR
     subgraph RUN["真实世界执行与企业运行"]
         direction TB
@@ -1516,7 +1516,7 @@ flowchart LR
     class RPT,SVC,EVI fact;
     class INT runtime;
     class COL,ORC,SEC software;
-~~~
+```
 
 讲解重点：
 
@@ -1607,22 +1607,22 @@ OpenTelemetry 收集链路数据。Prometheus、Loki、Alloy 和 Grafana 提供�
 
 ## 实现成熟度摘要
 
-| 能力 | 实现成熟度 |
-| --- | --- |
-| 五个角色工作台 | 【已上线】 |
-| 身份、租户、安全、数据与运行保障 | 【已形成】 |
-| consumer_web 五平台真实网页采集 | 【已实现并实跑】 |
-| provider_api 模型 API 采集 | 【待接入】 |
-| consumer_app 真实 App 采集 | 【待实现】 |
-| Scheduler 与 Collection Worker | 【已实现；真实网页采集已实跑】 |
-| UVW 基础结构与视图 | 【部分完成】 |
-| Service 1 | 【基础可用】 |
-| Service 2 新定义 | 【重建中】 |
-| Service 3 新目标设计 | 【部分建设】 |
-| Service 4 | 【部分可用】 |
-| Service 5 | 【有限试点】 |
-| 正式报告生产链 | 【内部审核阶段】 |
-| 报价 Agent Skill | 【生产模板待批准】 |
+| 能力                             | 实现成熟度                     |
+| -------------------------------- | ------------------------------ |
+| 五个角色工作台                   | 【已上线】                     |
+| 身份、租户、安全、数据与运行保障 | 【已形成】                     |
+| consumer_web 五平台真实网页采集  | 【已实现并实跑】               |
+| provider_api 模型 API 采集       | 【待接入】                     |
+| consumer_app 真实 App 采集       | 【待实现】                     |
+| Scheduler 与 Collection Worker   | 【已实现；真实网页采集已实跑】 |
+| UVW 基础结构与视图               | 【部分完成】                   |
+| Service 1                        | 【基础可用】                   |
+| Service 2 新定义                 | 【重建中】                     |
+| Service 3 新目标设计             | 【部分建设】                   |
+| Service 4                        | 【部分可用】                   |
+| Service 5                        | 【有限试点】                   |
+| 正式报告生产链                   | 【内部审核阶段】               |
+| 报价 Agent Skill                 | 【生产模板待批准】             |
 
 ## 资料来源
 

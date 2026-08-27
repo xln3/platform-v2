@@ -25,7 +25,7 @@
 
 ## 主图：八层部署结构
 
-~~~mermaid
+```mermaid
 %%{init: {
   "theme": "base",
   "block": {"padding": 3},
@@ -205,28 +205,28 @@ block-beta
     class COMMERCIAL_DOCS,FLOW_DOC,START_COMMAND,SIGNAL_COMMAND,DOMAIN_EVENT,POSTGRES,OBJECT_STORE,CLICKHOUSE,REDIS,TEMPORAL_PG,SAFE_PROJECTION fact
     class CUSTOMER_WEB,INTAKE_FORM,OPERATIONS_WEB,INTELLIGENCE_WEB,REPORT_STUDIO,CUSTOMER_EDGE,INTAKE_EDGE,MANAGEMENT_EDGE,AUXILIARY_EDGE,TLS,ROUTING,RATE_LIMIT,HEADER_CLEAN,APPLICATION_AUTH,SCOPE_CHECK_MAIN,API_APP,IDENTITY_PLANE,PROJECT_PLANE,COLLECTION_PLANE,ANALYSIS_PLANE,DELIVERY_PLANE,SCHEDULER,OUTBOX_WORKER,TEMPORAL,COLLECTION_WORKER,SOURCE_WORKER,ANALYSIS_WORKER,S02_WORKER,V1_GOVERNANCE,EXECUTION_CONTEXT,WEB_ADAPTER,MODEL_GATEWAY,RLS,VAULT,TRACE_PIPELINE,METRIC_LOG_PIPELINE,ALERT_PIPELINE,BACKUP_PIPELINE,RELEASE_PIPELINE,MEDIA_REFRESH software
 
-~~~
+```
 
 主图不绘制箭头。每一行表示一个部署层，节点的固定列位置帮助识别上下游区域。下表用相同组件名展开关键关系；逐节点调用由后面的审计图和局部放大图表示。
 
 ### 主图关系索引
 
-| 关系 | 使用者与入口 | 网络与业务服务 | 调度与执行 | 外部资源或 AI | 事实与交付 |
-| --- | --- | --- | --- | --- | --- |
-| 客户访问与数据发布 | 客户；客户工作台 | 客户路由；加密入口；登录与权限；客户与项目范围校验；后端统一入口 | 客户数据发布 | — | 业务事实库；客户可见数据 |
-| 受邀资料填报 | 受邀填报人；客户资料填报 | 填报邀请路由；登录与权限；项目、合同与报价 | 业务事件 | — | 业务事实库 |
-| 商业制品生产 | 运营人员；AI 报价工具；AI 流程图工具 | 项目、合同与报价 | 人工批准与确定性渲染 | 独立 AI 技能 | 报价单；报价说明书；流程图 |
-| 真实网页问答采集 | 运营管理台；问答采集与证据 | 启动任务指令；可靠任务派发；工作流调度中心 | 网页问答采集；账号与浏览器管理；受控浏览器会话 | 五平台网页采集；人工同会话接管 | 回答事实；不可变证据 |
-| 引用网页与智能分析 | 分析工作台；分析与五项服务 | 工作流调度中心 | 引用网页抓取；分析计算 | 引用页面；产品内 AI；模型调用控制；外部 AI 模型 | 统计分析库；不可变证据 |
-| 报告与专业服务 | 报告制作台；报告与客户数据 | 工作流调度中心 | 专业服务与报告生成 | 产品内 AI | 冻结服务事实；正式报告；客户可见数据 |
-| 运行保障 | 全部入口和后台组件 | 请求过程监测 | 指标、日志、告警、备份、发布与回滚 | 飞书通知 | 运行记录；恢复材料；发布版本 |
+| 关系               | 使用者与入口                         | 网络与业务服务                                                   | 调度与执行                                     | 外部资源或 AI                                   | 事实与交付                           |
+| ------------------ | ------------------------------------ | ---------------------------------------------------------------- | ---------------------------------------------- | ----------------------------------------------- | ------------------------------------ |
+| 客户访问与数据发布 | 客户；客户工作台                     | 客户路由；加密入口；登录与权限；客户与项目范围校验；后端统一入口 | 客户数据发布                                   | —                                               | 业务事实库；客户可见数据             |
+| 受邀资料填报       | 受邀填报人；客户资料填报             | 填报邀请路由；登录与权限；项目、合同与报价                       | 业务事件                                       | —                                               | 业务事实库                           |
+| 商业制品生产       | 运营人员；AI 报价工具；AI 流程图工具 | 项目、合同与报价                                                 | 人工批准与确定性渲染                           | 独立 AI 技能                                    | 报价单；报价说明书；流程图           |
+| 真实网页问答采集   | 运营管理台；问答采集与证据           | 启动任务指令；可靠任务派发；工作流调度中心                       | 网页问答采集；账号与浏览器管理；受控浏览器会话 | 五平台网页采集；人工同会话接管                  | 回答事实；不可变证据                 |
+| 引用网页与智能分析 | 分析工作台；分析与五项服务           | 工作流调度中心                                                   | 引用网页抓取；分析计算                         | 引用页面；产品内 AI；模型调用控制；外部 AI 模型 | 统计分析库；不可变证据               |
+| 报告与专业服务     | 报告制作台；报告与客户数据           | 工作流调度中心                                                   | 专业服务与报告生成                             | 产品内 AI                                       | 冻结服务事实；正式报告；客户可见数据 |
+| 运行保障           | 全部入口和后台组件                   | 请求过程监测                                                     | 指标、日志、告警、备份、发布与回滚             | 飞书通知                                        | 运行记录；恢复材料；发布版本         |
 
 状态说明：图中状态只描述实现成熟度。`【已实现】`表示已有可运行代码与部署入口；`【已实现并实跑】`表示实现链路已有真实运行证据；`【五平台已实跑】`表示豆包、DeepSeek、文心、通义和元宝都留有真实网页问答运行证据，各平台成熟度不同；`【分阶段建设】`、`【待接入】`和`【待实现】`表示后续建设边界。
 
 <details>
 <summary>展开跨层全连接审计图</summary>
 
-~~~mermaid
+```mermaid
 %%{init: {
   "theme": "base",
   "flowchart": {
@@ -458,7 +458,7 @@ flowchart TB
     style L6 fill:#ffffff,stroke:#0f3d5e,stroke-width:2px,color:#0f3d5e
     style L7 fill:#ffffff,stroke:#0f3d5e,stroke-width:2px,color:#0f3d5e
     style L8 fill:#ffffff,stroke:#0f3d5e,stroke-width:2px,color:#0f3d5e
-~~~
+```
 
 </details>
 
@@ -475,7 +475,7 @@ flowchart TB
 
 ## 局部放大 A：入口、安全步骤与 FastAPI 边界
 
-~~~mermaid
+```mermaid
 %%{init: {
   "theme": "base",
   "flowchart": {"curve": "stepAfter", "htmlLabels": true, "diagramPadding": 4, "padding": 4, "nodeSpacing": 12, "rankSpacing": 24, "subGraphTitleMargin": {"top": 4, "bottom": 4}},
@@ -570,11 +570,11 @@ flowchart TB
     style ROUTE_POLICIES fill:#ffffff,stroke:#0f3d5e,stroke-width:2px,color:#0f3d5e
     style NGINX_STEPS fill:#ffffff,stroke:#0f3d5e,stroke-width:2px,color:#0f3d5e
     style AUTH_STEPS fill:#ffffff,stroke:#0f3d5e,stroke-width:2px,color:#0f3d5e
-~~~
+```
 
 ## 局部放大 B：25 个后端模块如何传递事实
 
-~~~mermaid
+```mermaid
 %%{init: {
   "theme": "base",
   "flowchart": {"curve": "stepAfter", "htmlLabels": true, "diagramPadding": 4, "padding": 4, "nodeSpacing": 10, "rankSpacing": 20, "subGraphTitleMargin": {"top": 4, "bottom": 4}},
@@ -688,11 +688,11 @@ flowchart TB
     style COLLECTION_EVIDENCE fill:#ffffff,stroke:#94a3b8,stroke-width:1.5px,color:#334155
     style ANALYSIS_SERVICES fill:#ffffff,stroke:#94a3b8,stroke-width:1.5px,color:#334155
     style DELIVERY_COLLAB fill:#ffffff,stroke:#94a3b8,stroke-width:1.5px,color:#334155
-~~~
+```
 
 ## 局部放大 C：命令、Worker、三类采集表面与数据归属
 
-~~~mermaid
+```mermaid
 %%{init: {
   "theme": "base",
   "flowchart": {"curve": "stepAfter", "htmlLabels": true, "diagramPadding": 4, "padding": 4, "nodeSpacing": 12, "rankSpacing": 24, "subGraphTitleMargin": {"top": 4, "bottom": 4}},
@@ -848,11 +848,11 @@ flowchart TB
     style WEB_SURFACE fill:#ffffff,stroke:#94a3b8,stroke-width:1.5px,color:#334155
     style APP_SURFACE fill:#ffffff,stroke:#94a3b8,stroke-width:1.5px,color:#334155
     style PUBLIC_SURFACE fill:#ffffff,stroke:#94a3b8,stroke-width:1.5px,color:#334155
-~~~
+```
 
 ## 局部放大 D：监控、通知、备份、刷新与发布
 
-~~~mermaid
+```mermaid
 %%{init: {
   "theme": "base",
   "flowchart": {"curve": "stepAfter", "htmlLabels": true, "diagramPadding": 4, "padding": 4, "nodeSpacing": 12, "rankSpacing": 24, "subGraphTitleMargin": {"top": 4, "bottom": 4}},
@@ -967,18 +967,18 @@ flowchart TB
     style ALERTING fill:#ffffff,stroke:#0f3d5e,stroke-width:2px,color:#0f3d5e
     style RECOVERY_RELEASE fill:#ffffff,stroke:#0f3d5e,stroke-width:2px,color:#0f3d5e
     style DATASET_REFRESH fill:#ffffff,stroke:#0f3d5e,stroke-width:2px,color:#0f3d5e
-~~~
+```
 
 ## 实现成熟度边界
 
-| 能力 | 实现成熟度 | 代码或部署依据 |
-| --- | --- | --- |
-| 消费级 AI 真实网页采集 | 已实现并实跑；五个平台均有真实网页问答运行证据，各平台成熟度不同 | 五个平台采集器、网页采集进程、浏览器路由、常驻浏览器和地域代理服务 |
-| 模型 API 采集 | 待接入；三表面契约已经定义该采集来源 | 三表面 V2 契约与目标节点 |
-| 消费级 AI 真实 App 采集 | 待实现；三表面契约已经定义该采集来源 | 三表面 V2 契约与目标节点 |
-| v1 资源治理 | 现行实现 | 账号、会话、浏览器、配额、Lease 与 Fencing 路径 |
-| Typed Grant | V2 分阶段接入 | V2 collection execution grant 设计与开发态实现 |
-| Source Worker | 独立运行 | 公开页面 Activity 与独立 systemd 服务 |
-| Outbox Worker | 独立运行 | Temporal 命令派发与 ClickHouse 幂等投影 |
-| Feishu Bot | 独立运行 | 通知发送 Outbox、卡片回调与独立 systemd 服务 |
-| Media Price Refresh Worker | 独立运行 | API 写耐久请求文件，systemd path 在 API cgroup 外触发 Worker |
+| 能力                       | 实现成熟度                                                       | 代码或部署依据                                                     |
+| -------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------ |
+| 消费级 AI 真实网页采集     | 已实现并实跑；五个平台均有真实网页问答运行证据，各平台成熟度不同 | 五个平台采集器、网页采集进程、浏览器路由、常驻浏览器和地域代理服务 |
+| 模型 API 采集              | 待接入；三表面契约已经定义该采集来源                             | 三表面 V2 契约与目标节点                                           |
+| 消费级 AI 真实 App 采集    | 待实现；三表面契约已经定义该采集来源                             | 三表面 V2 契约与目标节点                                           |
+| v1 资源治理                | 现行实现                                                         | 账号、会话、浏览器、配额、Lease 与 Fencing 路径                    |
+| Typed Grant                | V2 分阶段接入                                                    | V2 collection execution grant 设计与开发态实现                     |
+| Source Worker              | 独立运行                                                         | 公开页面 Activity 与独立 systemd 服务                              |
+| Outbox Worker              | 独立运行                                                         | Temporal 命令派发与 ClickHouse 幂等投影                            |
+| Feishu Bot                 | 独立运行                                                         | 通知发送 Outbox、卡片回调与独立 systemd 服务                       |
+| Media Price Refresh Worker | 独立运行                                                         | API 写耐久请求文件，systemd path 在 API cgroup 外触发 Worker       |
