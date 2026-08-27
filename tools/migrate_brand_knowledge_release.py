@@ -171,6 +171,21 @@ def _validated_historical_replay(
     return replay, impact_gate
 
 
+def _replay_baseline_release_id(
+    store: KnowledgeReleaseStore,
+    *,
+    release_id: str,
+) -> str | None:
+    """Keep an idempotent retry bound to the candidate's original parent."""
+
+    current_release_id = store.current_release_id()
+    if current_release_id != release_id:
+        return current_release_id
+    manifest = store.verify(release_id)
+    parent_release_id = manifest.get("parent_release_id")
+    return str(parent_release_id) if parent_release_id else None
+
+
 def _verify_lineage_only_successor(
     *,
     parent_quality_report: dict[str, Any],
@@ -459,8 +474,6 @@ def _record_database_lineage_only(
     domain = "brand/entity-resolution"
     source_release = str(projection["source_release_id"])
     parent_release_id = manifest.get("parent_release_id")
-    if not isinstance(parent_release_id, str) or not parent_release_id:
-        raise RuntimeError("lineage_only_parent_release_required")
 
     publisher = "migration:release-publisher"
     now = datetime.now(UTC)
@@ -478,6 +491,9 @@ def _record_database_lineage_only(
             if existing.content_hash != manifest["content_hash"]:
                 raise RuntimeError("existing_release_content_hash_mismatch")
             return {"database": "already_recorded", "release_pub_id": existing.pub_id}
+
+        if not isinstance(parent_release_id, str) or not parent_release_id:
+            raise RuntimeError("lineage_only_parent_release_required")
 
         parent = session.scalar(
             select(KnowledgeRelease).where(
@@ -898,7 +914,10 @@ def main() -> None:
         replay, impact_gate = _validated_historical_replay(
             args.historical_replay_report,
             projection=projection,
-            baseline_release_id=store.current_release_id(),
+            baseline_release_id=_replay_baseline_release_id(
+                store,
+                release_id=args.release_id,
+            ),
         )
         quality["historical_replay"] = replay
         quality["impact_gate"] = impact_gate

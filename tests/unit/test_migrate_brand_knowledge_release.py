@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
+from domain.knowledge_evolution.release import KnowledgeReleaseStore
 from tools.migrate_brand_knowledge_release import (
     _entity_evidence_claims,
+    _record_database_lineage_only,
+    _replay_baseline_release_id,
     _validated_historical_replay,
     _verify_lineage_only_successor,
 )
@@ -140,3 +144,61 @@ def test_database_import_replay_receipt_is_bound_to_candidate_and_baseline(
             projection=projection,
             baseline_release_id="knowledge-baseline",
         )
+
+
+def test_idempotent_retry_uses_the_immutable_candidates_original_parent(tmp_path: Path) -> None:
+    store = KnowledgeReleaseStore(tmp_path)
+    store.publish(
+        release_id="knowledge-baseline",
+        schema_version="knowledge-release-v1",
+        documents={"fixture": {"value": "baseline"}},
+        parent_release_id=None,
+        quality_report={"quality_gate": "passed"},
+        activate=True,
+    )
+    store.publish(
+        release_id="knowledge-candidate",
+        schema_version="knowledge-release-v1",
+        documents={"fixture": {"value": "candidate"}},
+        parent_release_id="knowledge-baseline",
+        quality_report={"quality_gate": "passed"},
+        activate=True,
+    )
+
+    assert (
+        _replay_baseline_release_id(store, release_id="knowledge-candidate") == "knowledge-baseline"
+    )
+    assert _replay_baseline_release_id(store, release_id="knowledge-next") == "knowledge-candidate"
+
+
+def test_idempotent_database_retry_returns_before_requiring_a_parent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class ExistingReleaseSession:
+        def __enter__(self) -> ExistingReleaseSession:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def scalar(self, _statement: object) -> SimpleNamespace:
+            return SimpleNamespace(content_hash="sha256:same", pub_id="krl_existing")
+
+    monkeypatch.setattr(
+        "tools.migrate_brand_knowledge_release.SessionLocal",
+        lambda: ExistingReleaseSession(),
+    )
+    monkeypatch.setattr(
+        "tools.migrate_brand_knowledge_release.TenantRepository",
+        lambda *_args, **_kwargs: None,
+    )
+
+    result = _record_database_lineage_only(
+        tenant_pub_id="tnt_fixture",
+        release_id="knowledge-candidate",
+        manifest={"content_hash": "sha256:same", "parent_release_id": None},
+        projection={"source_release_id": "2026-08-27.6"},
+        artifact_uri="/tmp/immutable-artifact",
+    )
+
+    assert result == {"database": "already_recorded", "release_pub_id": "krl_existing"}

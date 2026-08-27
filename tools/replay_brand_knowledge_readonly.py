@@ -134,9 +134,12 @@ def replay(
         for row in rows
         if isinstance(row.get("capture_time"), str) and row["capture_time"]
     )
-    replay_dataset_hash = "sha256:" + hashlib.sha256(
-        json.dumps(rows, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
+    replay_dataset_hash = (
+        "sha256:"
+        + hashlib.sha256(
+            json.dumps(rows, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+    )
     return {
         "schema_version": "brand-knowledge-shadow-replay-v1",
         "mode": "read_only_stored_extractions",
