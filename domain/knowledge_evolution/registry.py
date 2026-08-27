@@ -41,6 +41,12 @@ class DomainPack(Protocol):
         assertions: Iterable[Mapping[str, Any]],
     ) -> Mapping[str, Any]: ...
 
+    def validate_release_impact(
+        self,
+        changes: Iterable[Mapping[str, Any]],
+        quality_report: Mapping[str, Any],
+    ) -> Mapping[str, Any]: ...
+
     def project_release(
         self,
         objects: Iterable[Mapping[str, Any]],

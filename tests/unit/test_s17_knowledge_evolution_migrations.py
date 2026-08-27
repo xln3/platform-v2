@@ -40,9 +40,11 @@ def test_s17_revisions_form_the_current_additive_lineage() -> None:
     scripts = ScriptDirectory.from_config(config)
     first = scripts.get_revision("s17_0001_knowledge_evolution")
     second = scripts.get_revision("s17_0002_knowledge_trace_details")
+    third = scripts.get_revision("s17_0003_knowledge_immutable")
     assert first is not None and first.down_revision == "s16_0001_query_retry_lineage"
     assert second is not None and second.down_revision == first.revision
-    assert second.revision in {item.revision for item in scripts.iterate_revisions("heads", "base")}
+    assert third is not None and third.down_revision == second.revision
+    assert third.revision in {item.revision for item in scripts.iterate_revisions("heads", "base")}
 
 
 def test_s17_core_schema_is_tenant_isolated_and_history_preserving() -> None:
@@ -94,3 +96,15 @@ def test_s17_trace_extension_is_additive_and_history_safe() -> None:
     downgrade = _render("s17_0002_knowledge_trace_details", "downgrade")
     refusal = downgrade.index("knowledge_trace_history_present_downgrade_refused")
     assert refusal < downgrade.index("DROP COLUMN")
+
+
+def test_s17_materialized_versions_are_append_only_and_uniquely_numbered() -> None:
+    upgrade = _render("s17_0003_knowledge_version_immutability", "upgrade")
+    assert "uq_knowledge_object_identity_version" in upgrade
+    assert "uq_assertion_identity_version" in upgrade
+    assert "ADD COLUMN assertion_key" in upgrade
+    assert "CREATE TRIGGER trg_knowledge_object_append_only" in upgrade
+    assert "CREATE TRIGGER trg_assertion_append_only" in upgrade
+    downgrade = _render("s17_0003_knowledge_version_immutability", "downgrade")
+    refusal = downgrade.index("knowledge_version_history_present_downgrade_refused")
+    assert refusal < downgrade.index("DROP TRIGGER")

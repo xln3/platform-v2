@@ -99,6 +99,12 @@ def project_brand_domain(source: str | Path, *, analysis_domain: str) -> dict[st
         review_status = str(brand.get("review_status") or "pending")
         aliases: list[str] = []
         relationships: dict[str, str] = {}
+        alias_identities: dict[str, dict[str, Any]] = {}
+        identity_objects = {
+            str(value.get("object_id") or ""): value
+            for value in brand.get("identity_objects", [])
+            if isinstance(value, dict) and value.get("review_status") == "reviewed"
+        }
         for mention in sorted(
             by_brand.get(brand_id, []), key=lambda row: str(row.get("mention_id") or "")
         ):
@@ -120,6 +126,23 @@ def project_brand_domain(source: str | Path, *, analysis_domain: str) -> dict[st
                     "official_abbreviation",
                 )
             )
+            identity_object_id = str(mention.get("identity_object_id") or "")
+            if identity_object_id:
+                identity_object = identity_objects.get(identity_object_id)
+                if identity_object is None:
+                    raise SiliconIndexSyncError(
+                        f"invalid_identity_object_ref:{mention.get('mention_id')}"
+                    )
+                alias_identities[text] = {
+                    "entity_id": identity_object_id,
+                    "canonical_name": str(identity_object.get("canonical_name") or ""),
+                    "entity_type": str(identity_object.get("object_type") or ""),
+                    "relationship_to_brand": str(
+                        identity_object.get("relationship_to_brand") or ""
+                    ),
+                    "parent_object_id": identity_object.get("parent_object_id"),
+                    "evidence_urls": list(identity_object.get("evidence_urls") or []),
+                }
         for alias in (canonical, *aliases):
             owner = alias_owners.get(_key(alias))
             if owner is not None and owner != brand_id:
@@ -134,6 +157,7 @@ def project_brand_domain(source: str | Path, *, analysis_domain: str) -> dict[st
                 "canonical_name": canonical,
                 "aliases": list(dict.fromkeys(aliases)),
                 "alias_relationships": relationships,
+                "alias_identities": alias_identities,
                 "entity_type": str(brand.get("entity_type") or "company"),
                 "competitor_eligible": bool(profile.get("competitor_eligible")) and reviewed,
                 "eligibility_mode": str(profile.get("eligibility_mode") or "always"),
@@ -190,7 +214,7 @@ def _dataset_list(name: str, value: Any) -> Any:
 
 class SiliconIndexAdapter:
     adapter_id = "siliconindex-static"
-    adapter_version = "1"
+    adapter_version = "2"
 
     def import_release(self, source: str) -> ConnectorResult:
         data_dir = _data_dir(source)
@@ -258,6 +282,45 @@ class SiliconIndexAdapter:
             for conflict in result.conflicts
         )
         return MergeResult(merged=merged, conflicts=conflicts)
+
+    def reconcile_brand_projection(
+        self,
+        *,
+        base_source: str | Path,
+        upstream_source: str | Path,
+        analysis_domain: str,
+        local_objects: tuple[Mapping[str, Any], ...],
+    ) -> MergeResult:
+        """Three-way merge one governed brand projection.
+
+        SiliconIndex stores a public static schema while the local database
+        stores a governed read projection.  Comparing either representation to
+        the other would create false conflicts.  Compile both static releases
+        to the same projection first, then overlay reviewed local object
+        versions on the last common projection.
+        """
+
+        base_projection = project_brand_domain(base_source, analysis_domain=analysis_domain)
+        upstream_projection = project_brand_domain(
+            upstream_source,
+            analysis_domain=analysis_domain,
+        )
+        base = {str(row["entity_id"]): dict(row) for row in base_projection["entities"]}
+        upstream = {str(row["entity_id"]): dict(row) for row in upstream_projection["entities"]}
+        local = {key: dict(value) for key, value in base.items()}
+        for value in local_objects:
+            if value.get("review_status") != "reviewed":
+                continue
+            stable_id = str(value.get("stable_id") or "").strip()
+            attributes = value.get("attributes")
+            if not stable_id or not isinstance(attributes, Mapping):
+                raise SiliconIndexSyncError("invalid_local_projection_object")
+            entity = dict(attributes)
+            entity.pop("analysis_domain", None)
+            if entity.get("entity_id") != stable_id:
+                raise SiliconIndexSyncError(f"local_projection_identity_mismatch:{stable_id}")
+            local[stable_id] = entity
+        return three_way_merge(base, upstream, local)
 
 
 def load_datasets(source: str | Path) -> dict[str, Any]:

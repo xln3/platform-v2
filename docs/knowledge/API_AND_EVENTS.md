@@ -23,7 +23,7 @@
 
 ## Runtime 契约
 
-调用方必须给出 namespace、domain、task、items、policy id/version 和数据分级。默认策略是 `deterministic_only`，默认不允许外部模型，默认不采用模型推理。
+调用方必须给出 namespace、domain、task、items、policy id/version 和数据分级。跨系统共享品牌反馈使用 `namespace=shared`；旧 `geo-brandrank` 观察由脱敏迁移工具幂等复制，不再形成项目孤岛。默认策略是 `deterministic_only`，默认不允许外部模型，默认不采用模型推理。
 
 模型采用需要三个显式条件：模型策略允许调用、`allow_external_model=true`、`adopt_model_inferred=true`。返回值分别包含 effective `decisions` 和未必采用的 `model_hypotheses`。每个 decision 带 release、policy、prompt、model、tool、evidence、confidence、status、scope 和 adopted 标识。
 
@@ -35,11 +35,13 @@ cache read/write、observation 和 trace 失败分别披露 `semantic_cache_read
 
 ## Observation 契约
 
-观察批次最多 500 条。source reference 必须先做 SHA-256。idempotency key 只能包含安全字符。payload 上限为 64 KiB。服务返回 accepted、duplicate 和 receipt id。
+观察批次最多 500 条。source reference 必须先做 SHA-256。idempotency key 只能包含安全字符。payload 上限为 64 KiB。服务返回 accepted、duplicate 和 receipt id。相同请求重试只返回 duplicate；不同应用的同一规范名称会聚合到同一 `shared` candidate，但 observation 仍保留各自不可逆来源收据。
 
-调用方不得把完整回答作为 safe context。GEO 品牌接入只传短上下文到明确允许外发的模型请求；持久观察使用回答 ID 集合的不可逆摘要和项目 ID 摘要。
+调用方不得把完整回答作为 safe context。GEO 品牌接入给模型的上下文只保留命中名称前后各 160 字，并在发送前遮盖 URL、邮箱、电话和账号样式；名称未出现在回答中时不发送回答片段。持久 observation 只保存受控的领域、scope、任务、地域和受众字段，以及调用方摘要的不可逆 hash，不保存项目 ID、客户名、完整问题或完整回答。
 
 批准 change set 前，每个 change 必须提交与对应 proposal 精确匹配的全部 `evidence_pub_ids`。存在 authoritative/primary `opposes` evidence 时 approval 返回冲突。终态 proposal 不能再次 adjudicate；reopen 只能由新 evidence version、新 policy version 或 reviewer 显式 `manual_override=true` 触发。
+
+品牌 release 还必须提交 `historical_replay-v1`：`evaluation_set_hash`、带时区的 `time_cutoff`、评测请求数、基线/候选错误数、修复数、新错误数、允许的新错误数和 `passed=true`。缺字段或新错误超过预算时返回 `historical_replay_gate_failed`。该报告会进入不可变 release manifest。
 
 ## `knowledge-event-v1`
 

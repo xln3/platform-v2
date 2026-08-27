@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from domain.siliconindex import SiliconIndexAdapter, SiliconIndexSyncError, project_brand_domain
+from domain.siliconindex import adapter as adapter_module
 
 
 def _datasets(brand: Mapping[str, object]) -> dict[str, object]:
@@ -90,6 +91,76 @@ def test_public_export_filters_private_and_requires_evidence() -> None:
                 },
             )
         )
+
+
+def test_projection_reconcile_keeps_identity_and_reports_same_field_conflict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    projections = {
+        "base": {
+            "entities": [
+                {
+                    "entity_id": "BR-1",
+                    "canonical_name": "Base",
+                    "review_status": "reviewed",
+                }
+            ]
+        },
+        "upstream": {
+            "entities": [
+                {
+                    "entity_id": "BR-1",
+                    "canonical_name": "Upstream",
+                    "review_status": "reviewed",
+                }
+            ]
+        },
+    }
+    monkeypatch.setattr(
+        adapter_module,
+        "project_brand_domain",
+        lambda source, *, analysis_domain: projections[str(source)],
+    )
+    clean = SiliconIndexAdapter().reconcile_brand_projection(
+        base_source="base",
+        upstream_source="upstream",
+        analysis_domain="cybersecurity",
+        local_objects=(
+            {
+                "stable_id": "BR-1",
+                "review_status": "reviewed",
+                "attributes": {
+                    "analysis_domain": "cybersecurity",
+                    "entity_id": "BR-1",
+                    "canonical_name": "Base",
+                    "review_status": "reviewed",
+                    "industry_fit": "local-only-field",
+                },
+            },
+        ),
+    )
+    assert clean.conflicts == ()
+    assert clean.merged["BR-1"]["canonical_name"] == "Upstream"
+    assert clean.merged["BR-1"]["industry_fit"] == "local-only-field"
+
+    conflict = SiliconIndexAdapter().reconcile_brand_projection(
+        base_source="base",
+        upstream_source="upstream",
+        analysis_domain="cybersecurity",
+        local_objects=(
+            {
+                "stable_id": "BR-1",
+                "review_status": "reviewed",
+                "attributes": {
+                    "analysis_domain": "cybersecurity",
+                    "entity_id": "BR-1",
+                    "canonical_name": "Local",
+                    "review_status": "reviewed",
+                },
+            },
+        ),
+    )
+    assert [item.path for item in conflict.conflicts] == ["/BR-1/canonical_name"]
 
 
 def test_adapter_projector_matches_the_checked_in_generated_read_model() -> None:

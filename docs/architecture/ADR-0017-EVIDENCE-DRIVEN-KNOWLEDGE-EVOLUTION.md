@@ -1,4 +1,4 @@
-# ADR-0017：证据驱动知识演进中间件的第一阶段部署边界
+# ADR-0017：共享知识读取、审核写入和发布的第一阶段部署边界
 
 - 状态：Accepted
 - 日期：2026-08-27
@@ -12,9 +12,9 @@ GEO 请求、AI 回答抽取、人工纠错和外部知识源会持续产生新�
 
 ## 决策
 
-第一阶段在 `platform-v2` 仓库内实现模块化中间件，并随现有 FastAPI 进程部署。中间件使用隔离的 `knowledge` PostgreSQL schema、独立的 `/api/v2/knowledge/v1` 契约、独立的 `domain/knowledge_evolution` 核心包和独立的不可变 artifact 目录。
+第一阶段在 `platform-v2` 仓库内实现模块化知识服务，并随现有 FastAPI 进程部署。服务使用隔离的 `knowledge` PostgreSQL schema、独立的 `/api/v2/knowledge/v1` 契约、独立的 `domain/knowledge_evolution` 核心包和独立的不可变 artifact 目录。
 
-这个决定是物理上的同仓起步，不是逻辑上的 GEO 私有实现。通用核心不能导入 GEO API、品牌包或 SiliconIndex。GEO、品牌领域包和 SiliconIndex adapter 都是核心的消费者或插件。
+这个决定是物理上的同仓起步，不是逻辑上的 GEO 私有实现。通用核心不能导入 GEO API、品牌包或 SiliconIndex。GEO、品牌领域包和 SiliconIndex adapter 都是核心的消费者或插件。跨应用品牌观察统一进入 `shared` namespace；迁移工具只复制安全字段和不可逆来源摘要，不复制客户项目名、原问题或完整回答。
 
 系统分成四个平面：
 
@@ -23,7 +23,7 @@ GEO 请求、AI 回答抽取、人工纠错和外部知识源会持续产生新�
 3. 发布与同步平面生成内容寻址 release，并完成激活、回滚和 connector 对账。
 4. 领域策略平面定义本体、解析、提示词、证据政策、质量门和投影。
 
-请求热路径只读取本机激活的知识 release。SiliconIndex 只能由同步任务访问，不属于请求关键路径。中间件不可用时，品牌消费者继续读取经过校验的 last-known-good 投影，并披露 degraded 状态。
+请求热路径只读取本机激活的知识 release。SiliconIndex 只能由同步任务访问，不属于请求关键路径。知识服务不可用时，品牌消费者继续读取经过校验的 last-known-good 投影，并披露 degraded 状态。
 
 ## 请求时模型边界
 
@@ -45,9 +45,11 @@ cache、observation 和 inference trace 写入属于可降级的运行反馈边�
 - 变更集创建者不能批准自己的变更集。
 - 发布者不能是变更集创建者或批准者。
 - 公开且已审核的品牌对象必须通过领域质量门并带公开证据。
+- 品牌 release 必须附带可重复的历史回放报告：时间截点、评测集哈希、请求数、修复数、新错误数和允许的新错误预算都要通过领域影响门；紧急发布可不等周度批次，但不能绕过回放。
 - change set 必须精确列出与已批准 proposal 绑定的全部 evidence public ID；反对证据不能从发布血缘中省略。
 - authoritative/primary 反对证据未解决时不能批准；终态 proposal 不能被后续 evidence 静默重开或覆盖裁决。
 - 三方合并出现同字段双写时必须产生显式冲突，不能 last-write-wins。
+- `knowledge_object` 和 `assertion` 的变化必须追加新版本；数据库唯一约束和 append-only trigger 同时阻止原地改写。
 - 租户数据由 RLS 隔离；公共导出拒绝客户、项目、回答、上下文和凭证字段。
 
 ## 备选方案

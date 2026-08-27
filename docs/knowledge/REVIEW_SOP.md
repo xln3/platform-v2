@@ -21,8 +21,9 @@
 8. 将批准提案转换成相对 active release 的 change set。
 9. 处理所有三方合并冲突；conflicts 非空时不能批准。
 10. 由第二名 reviewer 批准 change set。
-11. 由独立 admin 发布，检查 domain quality gate、manifest hash 和 parent release。
-12. 激活后执行 deterministic smoke、报告读取和 connector 对账。
+11. 对品牌等高影响变更，在发布前回放截止时间以前的历史请求；记录评测集 hash、修复数、新错误数和允许预算。回放结果超过预算就退回提案，不能靠文字说明绕过。
+12. 由独立 admin 发布，检查 domain quality gate、impact gate、manifest hash 和 parent release。
+13. 激活后执行 deterministic smoke、报告读取和 connector 对账。
 
 ## 拒绝、延期和重开
 
@@ -32,7 +33,7 @@
 
 ## 质量抽样
 
-每次发布至少抽查：所有高影响 merge/split；所有公开新对象；所有 `scope_required` eligibility；所有模型首次提出的 existing-ID 绑定；所有反对证据；以及腾讯云、华为云、NSFOCUS、BJCA、新大陆/CTID 金标回归。
+每次发布至少抽查：所有高影响 merge/split；所有公开新对象；所有 `scope_required` eligibility；所有模型首次提出的 existing-ID 绑定；所有反对证据；以及腾讯云、华为云、NSFOCUS、BJCA、新大陆/CTID 金标回归。审核界面已有 `reviewed` 标签不能替代证据；缺 claim-specific primary/authoritative 证据时降为 pending。
 
 若 identity 正确但 eligibility 不确定，应批准身份关系、延期竞品 assertion。不得为了让榜单“看起来完整”同时批准两个维度。
 

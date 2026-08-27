@@ -35,6 +35,19 @@ FILES = (*CORE_FILES, *DERIVED_FILES)
 MAX_FILE_BYTES = 16 * 1024 * 1024
 _SAFE_RELEASE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _ORDERED_RELEASE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})\.(\d+)$")
+_SUPPORTED_SCHEMA_VERSIONS = {"1.1.0", "1.2.0"}
+_OBJECT_TYPES = {
+    "legal_entity",
+    "group",
+    "company",
+    "brand",
+    "brand_family",
+    "sub_brand",
+    "business_unit",
+    "product",
+    "tool",
+    "institution",
+}
 
 
 class SiliconIndexSyncError(RuntimeError):
@@ -100,6 +113,8 @@ def validate_snapshot(root: Path) -> dict[str, Any]:
     release_id = str(manifest.get("release_id") or "")
     if not _SAFE_RELEASE.fullmatch(release_id):
         raise SiliconIndexSyncError("invalid_release_id")
+    if manifest.get("schema_version") not in _SUPPORTED_SCHEMA_VERSIONS:
+        raise SiliconIndexSyncError("unsupported_schema_version")
     data = {name: _read_json(root / f"{name}.json") for name in FILES}
     if any(not isinstance(data[name], list | dict) for name in FILES):
         raise SiliconIndexSyncError("invalid_dataset_shape")
@@ -124,6 +139,26 @@ def validate_snapshot(root: Path) -> dict[str, Any]:
     if len(rule_ids) != len(rules):
         raise SiliconIndexSyncError("duplicate_or_missing_rule_id")
     mention_ids: set[Any] = set()
+    identity_objects: dict[str, tuple[str, dict[str, Any]]] = {}
+    for brand in brands:
+        for identity in brand.get("identity_objects", []):
+            if not isinstance(identity, dict):
+                raise SiliconIndexSyncError(f"invalid_identity_object:{brand.get('brand_id')}")
+            object_id = identity.get("object_id")
+            if (
+                not object_id
+                or object_id in identity_objects
+                or identity.get("object_type") not in _OBJECT_TYPES
+                or not identity.get("canonical_name")
+            ):
+                raise SiliconIndexSyncError(f"invalid_identity_object:{object_id}")
+            if identity.get("review_status") == "reviewed" and not identity.get("evidence_urls"):
+                raise SiliconIndexSyncError(f"reviewed_identity_without_evidence:{object_id}")
+            identity_objects[str(object_id)] = (str(brand.get("brand_id")), identity)
+    for object_id, (_brand_id, identity) in identity_objects.items():
+        parent_id = identity.get("parent_object_id")
+        if parent_id and parent_id not in identity_objects:
+            raise SiliconIndexSyncError(f"invalid_identity_parent_ref:{object_id}")
     for mention in mentions:
         if (
             not mention.get("mention_id")
@@ -141,6 +176,16 @@ def validate_snapshot(root: Path) -> dict[str, Any]:
             "manual_only",
         }:
             raise SiliconIndexSyncError(f"invalid_match_mode:{mention.get('mention_id')}")
+        identity_object_id = mention.get("identity_object_id")
+        if identity_object_id:
+            identity_entry = identity_objects.get(str(identity_object_id))
+            if identity_entry is None or identity_entry[0] != mention.get("brand_id"):
+                raise SiliconIndexSyncError(f"invalid_identity_ref:{mention.get('mention_id')}")
+            if (
+                mention.get("status") == "reviewed"
+                and identity_entry[1].get("review_status") != "reviewed"
+            ):
+                raise SiliconIndexSyncError(f"unreviewed_identity_ref:{mention.get('mention_id')}")
     relation_ids: set[Any] = set()
     for relation in relations:
         if (
@@ -157,6 +202,27 @@ def validate_snapshot(root: Path) -> dict[str, Any]:
             raise SiliconIndexSyncError(f"invalid_category_ref:{brand.get('brand_id')}")
         if any(value not in rule_ids for value in brand.get("compliance_rule_ids", [])):
             raise SiliconIndexSyncError(f"invalid_rule_ref:{brand.get('brand_id')}")
+    published_brand_ids = {
+        row["brand_id"]
+        for row in brands
+        if row.get("status") == "active" and row.get("review_status") == "reviewed"
+    }
+    search_index = data["search-index"]
+    if not isinstance(search_index, list) or any(
+        not isinstance(row, dict) or row.get("brand_id") not in published_brand_ids
+        for row in search_index
+    ):
+        raise SiliconIndexSyncError("unpublished_search_projection")
+    graph = data["graph"]
+    if not isinstance(graph, dict) or not isinstance(graph.get("nodes", []), list):
+        raise SiliconIndexSyncError("invalid_graph_projection")
+    if any(
+        isinstance(node, dict)
+        and node.get("type") == "brand"
+        and node.get("id") not in published_brand_ids
+        for node in graph.get("nodes", [])
+    ):
+        raise SiliconIndexSyncError("unpublished_graph_projection")
     actual_hash = _content_hash(root)
     expected_hash = str(manifest.get("content_hash") or "")
     if not expected_hash or actual_hash != expected_hash:

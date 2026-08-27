@@ -38,8 +38,9 @@ from domain.siliconindex import (  # noqa: E402
     SiliconIndexSyncError,
     SiliconIndexSynchronizer,
 )
+from tools.run_knowledge_connector_queue import reconcile_snapshot  # noqa: E402
 
-NAMESPACE = "geo-brandrank"
+NAMESPACE = "shared"
 DOMAIN = "brand/entity-resolution"
 ADAPTER = "siliconindex-static"
 
@@ -73,7 +74,7 @@ def _start_run(tenant_pub_id: str, *, local_release_id: str | None) -> str:
                 "namespace": NAMESPACE,
                 "domain": DOMAIN,
                 "adapter": ADAPTER,
-                "operation": "import",
+                "operation": "reconcile",
                 "status": "running",
                 "local_release_id": local_release_id,
                 "cursor": {"mode": "weekly_governance"},
@@ -86,7 +87,7 @@ def _start_run(tenant_pub_id: str, *, local_release_id: str | None) -> str:
             action="connector_run.started",
             resource_type="connector_run",
             resource_pub_id=row.pub_id,
-            receipt={"adapter": ADAPTER, "operation": "import"},
+            receipt={"adapter": ADAPTER, "operation": "reconcile"},
         )
         session.commit()
         return row.pub_id
@@ -130,7 +131,7 @@ def _finish_run(
             resource_pub_id=row.pub_id,
             receipt={
                 "adapter": ADAPTER,
-                "operation": "import",
+                "operation": "reconcile",
                 "upstream_release_id": upstream_release_id,
                 "local_release_id": local_release_id,
                 "error_code": error_code,
@@ -159,8 +160,18 @@ def run(*, tenant_pub_id: str, refresh: bool, snapshot_source: Path) -> dict[str
             upstream_error = type(exc).__name__
 
     adapter_result = None
+    reconciliation: dict[str, Any] | None = None
     try:
         adapter_result = SiliconIndexAdapter().import_release(str(snapshot_source))
+        with SessionLocal() as session:
+            reconciliation = reconcile_snapshot(
+                session,
+                tenant_pub_id=tenant_pub_id,
+                snapshot_source=snapshot_source,
+                knowledge_release_dir=Path(settings.knowledge_release_dir),
+            )
+            metrics = KnowledgeRepository(session, tenant_pub_id).metrics()
+            session.commit()
     except SiliconIndexSyncError as exc:
         error_code = type(exc).__name__
         _finish_run(
@@ -173,13 +184,29 @@ def run(*, tenant_pub_id: str, refresh: bool, snapshot_source: Path) -> dict[str
             error_code=error_code,
         )
         raise RuntimeError("no_valid_siliconindex_snapshot") from exc
-
-    with SessionLocal() as session:
-        TenantRepository(session, tenant_pub_id)
-        metrics = KnowledgeRepository(session, tenant_pub_id).metrics()
+    except Exception as exc:
+        error_code = str(exc).split(":", 1)[0] or type(exc).__name__
+        _finish_run(
+            tenant_pub_id,
+            run_pub_id,
+            status="failed",
+            upstream_release_id=(
+                adapter_result.upstream_release_id if adapter_result is not None else None
+            ),
+            local_release_id=local_release_id,
+            result={"local_release_verified": local_release_id is not None},
+            error_code=error_code,
+        )
+        raise
 
     upstream_release_id = adapter_result.upstream_release_id
-    status = "degraded" if upstream_error else "success"
+    status = (
+        "degraded"
+        if upstream_error
+        else "conflict"
+        if reconciliation and reconciliation["conflicts"]
+        else "success"
+    )
     report = {
         "schema_version": "knowledge-governance-report-v1",
         "generated_at": datetime.now(UTC).isoformat(),
@@ -194,6 +221,7 @@ def run(*, tenant_pub_id: str, refresh: bool, snapshot_source: Path) -> dict[str
             "refresh_attempted": refresh,
             "refresh_error_code": upstream_error,
             "sync": sync_result,
+            "reconciliation": reconciliation,
         },
         "local": {
             "active_release_id": local_release_id,
@@ -209,7 +237,14 @@ def run(*, tenant_pub_id: str, refresh: bool, snapshot_source: Path) -> dict[str
             action
             for condition, action in (
                 (upstream_error is not None, "restore_upstream_and_reconcile"),
-                (metrics["conflicts"] > 0, "adjudicate_merge_conflicts"),
+                (
+                    bool(reconciliation and reconciliation["conflicts"]),
+                    "adjudicate_merge_conflicts",
+                ),
+                (
+                    bool(reconciliation and reconciliation["review_required"]),
+                    "review_upstream_and_local_changes",
+                ),
                 (metrics["candidate_backlog"] > 0, "review_candidate_backlog"),
             )
             if condition
@@ -223,6 +258,9 @@ def run(*, tenant_pub_id: str, refresh: bool, snapshot_source: Path) -> dict[str
         "candidate_backlog": metrics["candidate_backlog"],
         "conflicts": metrics["conflicts"],
         "local_release_verified": local_release_id is not None,
+        "upstream_changed": len(reconciliation["upstream_changed_ids"]),
+        "local_changed": len(reconciliation["local_changed_ids"]),
+        "export_artifact": reconciliation["local_export"]["artifact"],
     }
     _finish_run(
         tenant_pub_id,
@@ -268,6 +306,8 @@ def main() -> None:
     print(json.dumps(result, ensure_ascii=False, indent=2))
     if result["status"] == "degraded":
         raise SystemExit(2)
+    if result["status"] == "conflict":
+        raise SystemExit(3)
 
 
 if __name__ == "__main__":

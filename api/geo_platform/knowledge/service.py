@@ -29,7 +29,7 @@ def registry(settings: Settings) -> DomainRegistry:
             knowledge_release_dir=settings.knowledge_release_dir,
         )
     )
-    value.register(SourceTypeFixturePack())
+    value.register(SourceTypeFixturePack(knowledge_release_dir=settings.knowledge_release_dir))
     return value
 
 
@@ -98,6 +98,7 @@ def _object_mapping(row: KnowledgeObject) -> dict[str, Any]:
         "origin": row.origin,
         "review_status": row.review_status,
         "visibility": row.visibility,
+        "sync_status": row.sync_status,
         "version": row.version,
     }
 
@@ -149,6 +150,7 @@ def _preview_state(
                     "origin": str(change.get("origin") or "governed_change_set"),
                     "review_status": str(change.get("review_status") or "reviewed"),
                     "visibility": str(change.get("visibility") or "tenant"),
+                    "sync_status": str(change.get("sync_status") or "local_ahead"),
                 }
             else:
                 raise KnowledgeConflict("unsupported_object_change")
@@ -193,6 +195,9 @@ def publish_release(
     domain_gate = dict(pack.validate_release(objects, assertions))
     if domain_gate.get("passed") is not True:
         raise KnowledgeConflict("domain_quality_gate_failed")
+    impact_gate = dict(pack.validate_release_impact(changes, body.quality_report))
+    if impact_gate.get("passed") is not True:
+        raise KnowledgeConflict("historical_replay_gate_failed")
     domain_document = pack.project_release(objects, assertions)
     documents: dict[str, Any] = {}
     if parent is not None:
@@ -202,6 +207,7 @@ def publish_release(
         **body.quality_report,
         "quality_gate": "passed",
         "domain_gate": domain_gate,
+        "impact_gate": impact_gate,
         "object_count": len(objects),
         "assertion_count": len(assertions),
         "change_set_count": len(change_sets),
@@ -232,8 +238,11 @@ def publish_release(
         quality_report=quality_report,
         actor=actor,
     )
-    for row in change_sets:
-        row.state = "local_published"
+    repository.mark_change_sets_published(
+        change_sets,
+        release_id=body.release_id,
+        actor=actor,
+    )
     session.commit()
 
     if body.activate:

@@ -1,7 +1,6 @@
 [Unit]
-Description=Run the weekly shared-knowledge review and synchronization batch
-Wants=network-online.target
-After=network-online.target postgresql.service
+Description=Process queued shared-knowledge connector requests
+After=geo-platform-v2-api.service
 
 [Service]
 Type=oneshot
@@ -11,7 +10,7 @@ WorkingDirectory=/home/xln/geo-system/platform-v2
 EnvironmentFile=/etc/geo-platform-v2/platform.env
 Environment=GEO_SILICONINDEX_SNAPSHOT_DIR=/var/lib/geo-platform-v2/siliconindex
 Environment=GEO_KNOWLEDGE_RELEASE_DIR=/var/lib/geo-platform-v2/knowledge
-ExecStart=/home/xln/geo-system/platform-v2/.venv/bin/python tools/run_knowledge_governance_batch.py
+ExecStart=/home/xln/geo-system/platform-v2/.venv/bin/python tools/run_knowledge_connector_queue.py
 StateDirectory=geo-platform-v2/knowledge geo-platform-v2/siliconindex
 StateDirectoryMode=0750
 NoNewPrivileges=true

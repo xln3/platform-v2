@@ -1,0 +1,12 @@
+[Unit]
+Description=Process shared-knowledge connector requests every five minutes
+
+[Timer]
+OnCalendar=*:0/5
+RandomizedDelaySec=30
+FixedRandomDelay=true
+Persistent=true
+Unit=geo-platform-v2-knowledge-connector.service
+
+[Install]
+WantedBy=timers.target

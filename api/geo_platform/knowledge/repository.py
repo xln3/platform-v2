@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from functools import wraps
@@ -382,13 +383,14 @@ class KnowledgeRepository:
             proposal = self.proposal(str(values["proposal_pub_id"]), lock=True)
             if proposal.namespace != namespace or proposal.domain != domain:
                 raise KnowledgeConflict("proposal_scope_mismatch")
+            if proposal.state in {"approved", "rejected", "deferred"}:
+                raise KnowledgeConflict("terminal_proposal_evidence_requires_candidate_reopen")
             proposal_id = proposal.id
-            if proposal.state not in {"approved", "rejected", "deferred"}:
-                proposal.state = "review_ready"
-                if proposal.candidate_id is not None:
-                    linked_candidate = self.session.get(Candidate, proposal.candidate_id)
-                    if linked_candidate is not None:
-                        linked_candidate.state = "review_ready"
+            proposal.state = "review_ready"
+            if proposal.candidate_id is not None:
+                linked_candidate = self.session.get(Candidate, proposal.candidate_id)
+                if linked_candidate is not None:
+                    linked_candidate.state = "review_ready"
         if candidate_id is None and proposal_id is None:
             raise KnowledgeConflict("evidence_target_required")
         evidence = Evidence(
@@ -511,7 +513,15 @@ class KnowledgeRepository:
         actor: str,
     ) -> Candidate:
         candidate = self.candidate(pub_id, lock=True)
-        if candidate.state not in {"rejected", "deferred"}:
+        if candidate.state not in {
+            "rejected",
+            "deferred",
+            "local_published",
+            "exported",
+            "externally_published",
+            "reconciled",
+            "superseded",
+        }:
             raise KnowledgeConflict("candidate_not_reopenable")
         policy_changed = bool(policy_version and policy_version != candidate.policy_version)
         evidence_changed = bool(evidence_version and evidence_version != candidate.evidence_version)
@@ -548,33 +558,11 @@ class KnowledgeRepository:
         domain = str(values["domain"])
         changes = list(values["changes"])
         for change in changes:
-            proposal_pub_id = str(change.get("proposal_pub_id") or "")
-            if not proposal_pub_id:
-                raise KnowledgeConflict("change_proposal_required")
-            proposal = self.proposal(proposal_pub_id)
-            if (
-                proposal.namespace != namespace
-                or proposal.domain != domain
-                or proposal.state != "approved"
-            ):
-                raise KnowledgeConflict("change_requires_approved_proposal")
-            evidence_pub_ids = change.get("evidence_pub_ids")
-            if (
-                not isinstance(evidence_pub_ids, list)
-                or not evidence_pub_ids
-                or not all(isinstance(value, str) and value for value in evidence_pub_ids)
-            ):
-                raise KnowledgeConflict("change_evidence_lineage_required")
-            linked_evidence = set(
-                self.session.scalars(
-                    select(Evidence.pub_id).where(
-                        Evidence.tenant_pub_id == self.tenant_pub_id,
-                        Evidence.proposal_id == proposal.id,
-                    )
-                ).all()
+            self._validate_change_lineage(
+                namespace=namespace,
+                domain=domain,
+                change=change,
             )
-            if set(evidence_pub_ids) != linked_evidence:
-                raise KnowledgeConflict("change_evidence_lineage_mismatch")
         change_set = ChangeSet(
             pub_id=new_pub_id("kcs"),
             tenant_pub_id=self.tenant_pub_id,
@@ -599,6 +587,135 @@ class KnowledgeRepository:
         )
         return change_set
 
+    def _validate_change_lineage(
+        self,
+        *,
+        namespace: str,
+        domain: str,
+        change: Mapping[str, Any],
+    ) -> None:
+        """Bind the materialized change to the exact approved proposal and evidence set."""
+
+        proposal_pub_id = str(change.get("proposal_pub_id") or "")
+        if not proposal_pub_id:
+            raise KnowledgeConflict("change_proposal_required")
+        proposal = self.proposal(proposal_pub_id)
+        if (
+            proposal.namespace != namespace
+            or proposal.domain != domain
+            or proposal.state != "approved"
+        ):
+            raise KnowledgeConflict("change_requires_approved_proposal")
+
+        evidence_pub_ids = change.get("evidence_pub_ids")
+        if (
+            not isinstance(evidence_pub_ids, list)
+            or not evidence_pub_ids
+            or not all(isinstance(value, str) and value for value in evidence_pub_ids)
+            or len(set(evidence_pub_ids)) != len(evidence_pub_ids)
+        ):
+            raise KnowledgeConflict("change_evidence_lineage_required")
+        linked_evidence = list(
+            self.session.scalars(
+                select(Evidence).where(
+                    Evidence.tenant_pub_id == self.tenant_pub_id,
+                    Evidence.proposal_id == proposal.id,
+                )
+            ).all()
+        )
+        if set(evidence_pub_ids) != {row.pub_id for row in linked_evidence}:
+            raise KnowledgeConflict("change_evidence_lineage_mismatch")
+        qualifying_support = any(
+            row.stance == "supports" and row.trust_tier in {"authoritative", "primary"}
+            for row in linked_evidence
+        )
+        qualifying_opposition = any(
+            row.stance == "opposes" and row.trust_tier in {"authoritative", "primary"}
+            for row in linked_evidence
+        )
+        if not qualifying_support:
+            raise KnowledgeConflict("authoritative_supporting_evidence_required")
+        if qualifying_opposition:
+            raise KnowledgeConflict("contradictory_authoritative_evidence_requires_resolution")
+
+        adjudication = self.session.scalar(
+            select(Adjudication)
+            .where(
+                Adjudication.tenant_pub_id == self.tenant_pub_id,
+                Adjudication.proposal_id == proposal.id,
+                Adjudication.decision == "approved",
+            )
+            .order_by(Adjudication.decided_at.desc(), Adjudication.pub_id.desc())
+        )
+        if adjudication is None:
+            raise KnowledgeConflict("approved_adjudication_required")
+
+        kind = str(change.get("kind") or "")
+        operation = str(change.get("operation") or "")
+        proposal_payload = dict(proposal.payload)
+        if kind in {"object", "knowledge_object"}:
+            expected_operation = "retire" if proposal.operation == "retire" else "upsert"
+            if operation != expected_operation:
+                raise KnowledgeConflict("change_operation_proposal_mismatch")
+            stable_id = str(change.get("stable_id") or "")
+            if not stable_id or stable_id != str(proposal.target_stable_id or ""):
+                raise KnowledgeConflict("change_target_proposal_mismatch")
+            proposed_attributes = proposal_payload.get("attributes", proposal_payload)
+            if not isinstance(proposed_attributes, dict):
+                raise KnowledgeConflict("proposal_payload_invalid")
+            if operation != "retire" and dict(change.get("attributes") or {}) != dict(
+                proposed_attributes
+            ):
+                raise KnowledgeConflict("change_content_proposal_mismatch")
+            proposed_type = proposal_payload.get("object_type")
+            if proposed_type is None and isinstance(proposed_attributes, dict):
+                proposed_type = proposed_attributes.get("entity_type")
+            if proposed_type is not None and str(change.get("object_type") or "") != str(
+                proposed_type
+            ):
+                raise KnowledgeConflict("change_object_type_proposal_mismatch")
+            after_value = dict(adjudication.after_value)
+            if after_value and any(
+                proposed_attributes.get(key) != value for key, value in after_value.items()
+            ):
+                raise KnowledgeConflict("change_adjudication_mismatch")
+            return
+
+        if kind in {"relation", "assertion"}:
+            if operation not in {"append", "assert"}:
+                raise KnowledgeConflict("change_operation_proposal_mismatch")
+            proposed_assertion = proposal_payload.get("assertion", proposal_payload)
+            if not isinstance(proposed_assertion, dict):
+                raise KnowledgeConflict("proposal_payload_invalid")
+            semantic_fields = {
+                "assertion_key",
+                "subject_stable_id",
+                "predicate",
+                "object_stable_id",
+                "object_value",
+                "scope",
+                "epistemic_status",
+                "review_status",
+                "confidence_ppm",
+                "valid_from",
+                "valid_until",
+            }
+            if not {"subject_stable_id", "predicate"} <= set(proposed_assertion):
+                raise KnowledgeConflict("proposal_assertion_incomplete")
+            for field in semantic_fields.intersection(proposed_assertion):
+                if change.get(field) != proposed_assertion.get(field):
+                    raise KnowledgeConflict("change_content_proposal_mismatch")
+            return
+        raise KnowledgeConflict("unsupported_change_kind")
+
+    def _validate_change_set_lineage(self, change_set: ChangeSet) -> None:
+        for change in change_set.changes:
+            self._validate_change_lineage(
+                namespace=change_set.namespace,
+                domain=change_set.domain,
+                change=change,
+            )
+
     def change_set(self, pub_id: str, *, lock: bool = False) -> ChangeSet:
         statement = select(ChangeSet).where(
             ChangeSet.tenant_pub_id == self.tenant_pub_id,
@@ -619,6 +736,7 @@ class KnowledgeRepository:
             raise KnowledgeConflict("change_set_not_draft")
         if change_set.conflicts:
             raise KnowledgeConflict("change_set_has_conflicts")
+        self._validate_change_set_lineage(change_set)
         change_set.state = "approved"
         change_set.approved_by = actor
         change_set.approved_at = datetime.now(UTC)
@@ -647,7 +765,49 @@ class KnowledgeRepository:
         ordered = [by_id[pub_id] for pub_id in pub_ids]
         if any(row.state != "approved" for row in ordered):
             raise KnowledgeConflict("change_set_not_approved")
+        for row in ordered:
+            if row.conflicts:
+                raise KnowledgeConflict("change_set_has_conflicts")
+            self._validate_change_set_lineage(row)
         return ordered
+
+    def mark_change_sets_published(
+        self,
+        change_sets: Sequence[ChangeSet],
+        *,
+        release_id: str,
+        actor: str,
+    ) -> None:
+        """Close every proposal/candidate lineage represented by a published release."""
+
+        proposal_ids = {
+            str(change.get("proposal_pub_id") or "")
+            for row in change_sets
+            for change in row.changes
+            if str(change.get("proposal_pub_id") or "")
+        }
+        for row in change_sets:
+            row.state = "local_published"
+        for proposal_pub_id in sorted(proposal_ids):
+            proposal = self.proposal(proposal_pub_id, lock=True)
+            if proposal.state != "approved":
+                raise KnowledgeConflict("published_proposal_state_invalid")
+            proposal.state = "local_published"
+            if proposal.candidate_id is None:
+                continue
+            candidate = self.session.get(Candidate, proposal.candidate_id)
+            if candidate is None:
+                raise KnowledgeConflict("published_candidate_missing")
+            candidate.state = "local_published"
+            self.audit(
+                namespace=candidate.namespace,
+                domain=candidate.domain,
+                actor=actor,
+                action="candidate.local_published",
+                resource_type="candidate",
+                resource_pub_id=candidate.pub_id,
+                receipt={"release_id": release_id, "proposal_pub_id": proposal.pub_id},
+            )
 
     def current_objects(self, *, namespace: str, domain: str) -> list[KnowledgeObject]:
         rows = self.session.scalars(
@@ -665,11 +825,14 @@ class KnowledgeRepository:
     def assertions(self, *, namespace: str, domain: str) -> list[Assertion]:
         return list(
             self.session.scalars(
-                select(Assertion).where(
+                select(Assertion)
+                .where(
                     Assertion.tenant_pub_id == self.tenant_pub_id,
                     Assertion.namespace == namespace,
                     Assertion.domain == domain,
                 )
+                .order_by(Assertion.assertion_key, Assertion.version.desc())
+                .distinct(Assertion.assertion_key)
             ).all()
         )
 
@@ -727,12 +890,40 @@ class KnowledgeRepository:
                 predicate = str(change.get("predicate") or "").strip()
                 if not subject or not predicate:
                     raise KnowledgeConflict("assertion_identity_required")
+                assertion_key = str(change.get("assertion_key") or "").strip()
+                if not assertion_key:
+                    identity = "|".join(
+                        (
+                            subject,
+                            predicate,
+                            str(change.get("object_stable_id") or ""),
+                            json.dumps(
+                                change.get("scope") or {},
+                                ensure_ascii=False,
+                                sort_keys=True,
+                                separators=(",", ":"),
+                            ),
+                        )
+                    )
+                    assertion_key = "assertion:" + hashlib.sha256(identity.encode()).hexdigest()
+                previous_assertion = self.session.scalar(
+                    select(Assertion)
+                    .where(
+                        Assertion.tenant_pub_id == self.tenant_pub_id,
+                        Assertion.namespace == namespace,
+                        Assertion.domain == domain,
+                        Assertion.assertion_key == assertion_key,
+                    )
+                    .order_by(Assertion.version.desc())
+                    .limit(1)
+                )
                 self.session.add(
                     Assertion(
                         pub_id=new_pub_id("kas"),
                         tenant_pub_id=self.tenant_pub_id,
                         namespace=namespace,
                         domain=domain,
+                        assertion_key=assertion_key,
                         subject_stable_id=subject,
                         predicate=predicate,
                         object_stable_id=change.get("object_stable_id"),
@@ -744,7 +935,7 @@ class KnowledgeRepository:
                         confidence_ppm=int(change.get("confidence_ppm") or 1_000_000),
                         valid_from=change.get("valid_from"),
                         valid_until=change.get("valid_until"),
-                        version=int(change.get("version") or 1),
+                        version=(previous_assertion.version + 1 if previous_assertion else 1),
                     )
                 )
                 continue
@@ -932,6 +1123,7 @@ class KnowledgeRepository:
             .select_from(ChangeSet)
             .where(
                 ChangeSet.tenant_pub_id == tenant,
+                ChangeSet.state.in_(("draft", "conflict")),
                 func.jsonb_array_length(ChangeSet.conflicts) > 0,
             )
         )

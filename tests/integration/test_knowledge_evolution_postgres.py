@@ -14,7 +14,11 @@ import pytest
 from fastapi.testclient import TestClient
 from geo_platform.config import get_settings
 from geo_platform.knowledge import router as knowledge_router_module
+from geo_platform.knowledge.models import ChangeSet
+from geo_platform.knowledge.repository import KnowledgeRepository
 from geo_platform.main import app
+from geo_platform.tenancy.database import SessionLocal
+from geo_platform.tenancy.ids import new_pub_id
 
 TEST_DATABASE_URL = os.getenv("KNOWLEDGE_POSTGRES_DSN")
 POSTGRES_DSN = (TEST_DATABASE_URL or "").replace("postgresql+psycopg://", "postgresql://", 1)
@@ -189,6 +193,31 @@ def test_observation_to_release_closure_rbac_rls_and_append_only(
         )
         assert adjudication.status_code == 201, adjudication.text
 
+        substituted_change = client.post(
+            "/api/v2/knowledge/v1/change-sets",
+            headers=reviewer_one,
+            json={
+                "namespace": "integration",
+                "domain": "source/type-fixture",
+                "changes": [
+                    {
+                        "kind": "knowledge_object",
+                        "operation": "upsert",
+                        "proposal_pub_id": proposal_pub_id,
+                        "stable_id": "source-type:forum",
+                        "object_type": "source_type",
+                        "attributes": {"key": "forum", "source_type": "official_source"},
+                        "review_status": "reviewed",
+                        "visibility": "public",
+                        "evidence_pub_ids": [evidence.json()["pub_id"]],
+                    }
+                ],
+                "visibility": "public",
+            },
+        )
+        assert substituted_change.status_code == 409
+        assert substituted_change.json()["error"]["code"] == "change_content_proposal_mismatch"
+
         change_set_response = client.post(
             "/api/v2/knowledge/v1/change-sets",
             headers=reviewer_one,
@@ -242,6 +271,48 @@ def test_observation_to_release_closure_rbac_rls_and_append_only(
         assert release.status_code == 201, release.text
         assert release.json()["release_id"] == release_id
         assert (tmp_path / "releases" / "CURRENT").read_text(encoding="utf-8") == release_id
+
+        reread = client.post(
+            "/api/v2/knowledge/v1/runtime/resolve",
+            headers=operator,
+            json={
+                "request_id": f"source-type-reread-{marker}",
+                "namespace": "integration",
+                "domain": "source/type-fixture",
+                "task": "classify",
+                "items": [{"id": "forum", "value": "forum"}],
+                "context": {},
+                "policy": "deterministic_only",
+                "policy_id": "fixture-contract",
+                "policy_version": "2",
+                "expected_release_id": release_id,
+            },
+        )
+        assert reread.status_code == 200, reread.text
+        assert reread.json()["release"]["release_id"] == release_id
+        assert reread.json()["decisions"][0]["value"] == {"source_type": "social_source"}
+        assert reread.json()["decisions"][0]["knowledge_status"] == "reviewed_local"
+
+        upstream_reopen = client.post(
+            f"/api/v2/knowledge/v1/candidates/{candidate_pub_id}/reopen",
+            headers=reviewer_one,
+            json={
+                "reason": "A new external release changed the evidence for this object.",
+                "evidence_version": "fixture-upstream-v2",
+            },
+        )
+        assert upstream_reopen.status_code == 200, upstream_reopen.text
+        assert upstream_reopen.json()["state"] == "aggregated"
+        duplicate_upstream_reopen = client.post(
+            f"/api/v2/knowledge/v1/candidates/{candidate_pub_id}/reopen",
+            headers=reviewer_one,
+            json={
+                "reason": "The same weekly evidence must not reopen it again.",
+                "evidence_version": "fixture-upstream-v2",
+            },
+        )
+        assert duplicate_upstream_reopen.status_code == 409
+        assert duplicate_upstream_reopen.json()["error"]["code"] == "candidate_not_reopenable"
 
         metrics = client.get("/api/v2/knowledge/v1/metrics", headers=reviewer_one)
         audits = client.get(
@@ -379,7 +450,11 @@ def test_observation_to_release_closure_rbac_rls_and_append_only(
                 "stance": "neutral",
             },
         )
-        assert terminal_evidence.status_code == 201, terminal_evidence.text
+        assert terminal_evidence.status_code == 409, terminal_evidence.text
+        assert (
+            terminal_evidence.json()["error"]["code"]
+            == "terminal_proposal_evidence_requires_candidate_reopen"
+        )
         terminal_readjudication = client.post(
             f"/api/v2/knowledge/v1/proposals/{disputed_proposal_pub_id}/adjudications",
             headers=reviewer_two,
@@ -481,5 +556,44 @@ def test_observation_to_release_closure_rbac_rls_and_append_only(
                 (pub_id[0],),
             )
 
+    with psycopg.connect(POSTGRES_DSN) as connection:
+        connection.execute("SELECT set_config('app.tenant_pub_id',%s,true)", (tenant,))
+        object_pub_id = connection.execute(
+            "SELECT pub_id FROM knowledge.knowledge_object WHERE tenant_pub_id=%s LIMIT 1",
+            (tenant,),
+        ).fetchone()
+        assert object_pub_id is not None
+        with pytest.raises(psycopg.errors.RaiseException, match="append_only_table"):
+            connection.execute(
+                "UPDATE knowledge.knowledge_object SET sync_status='changed' WHERE pub_id=%s",
+                (object_pub_id[0],),
+            )
+
     artifact = tmp_path / "releases" / release_id / "manifest.json"
     assert hashlib.sha256(artifact.read_bytes()).hexdigest()
+
+
+def test_metrics_only_count_unresolved_connector_conflicts() -> None:
+    tenant = f"tnt_metrics_{secrets.token_hex(5)}"
+    common = {
+        "tenant_pub_id": tenant,
+        "namespace": "shared",
+        "domain": "brand/entity-resolution",
+        "base_release_id": "2026-08-26.3",
+        "changes": [],
+        "dependency_ids": [],
+        "conflicts": [{"path": "/brands/brand:test", "base": {}, "upstream": {}, "local": {}}],
+        "visibility": "public",
+        "created_by": "system:siliconindex-connector",
+    }
+    with SessionLocal() as session:
+        resolved = ChangeSet(pub_id=new_pub_id("kcs"), state="superseded", **common)
+        open_conflict = ChangeSet(pub_id=new_pub_id("kcs"), state="conflict", **common)
+        session.add_all((resolved, open_conflict))
+        session.flush()
+        repository = KnowledgeRepository(session, tenant)
+        assert repository.metrics()["conflicts"] == 1
+        open_conflict.state = "superseded"
+        session.flush()
+        assert repository.metrics()["conflicts"] == 0
+        session.rollback()

@@ -12,7 +12,8 @@
 4. `validate_model_output`：拒绝非法结构、虚构 ID、非法 evidence ref 和越权输出。
 5. `observations`：把未决或模型推理安全地投影为幂等观察。
 6. `validate_release`：执行领域本体、证据和质量门。
-7. `project_release`：把通用对象与 assertion 编译成领域 read model。
+7. `validate_release_impact`：按领域风险检查发布前回放、退化预算或明确的低风险豁免。
+8. `project_release`：把通用对象与 assertion 编译成领域 read model。
 
 normalizer/resolver 位于 `deterministic_resolve`。inference strategy 位于 prompt 与 output validator。evidence collector 通过 prompt-declared、deployment-registered tool 提供。review policy 由领域证据规则和通用四眼状态机共同构成。quality gate 在发布前强制调用。projector 只能生成确定性 artifact。
 
@@ -28,10 +29,11 @@ normalizer/resolver 位于 `deterministic_resolve`。inference strategy 位于 p
 - evidence ref 必须来自请求允许集合。
 - observation 不包含原始敏感上下文。
 - release gate 能拒绝重复 ID、断裂引用和缺证据公开对象。
+- 高影响领域的 impact gate 能拒绝没有评测集哈希、时间截点或超出新错误预算的发布。
 - projector 的相同输入产生逐字节相同输出。
 - 至少提供 deterministic、model failure、cache invalidation 和 release contract 测试。
 
-`SourceTypeFixturePack` 是最小非品牌示例。它通过与品牌包相同的 observation、proposal、adjudication、change set 和 release 流程，证明核心没有品牌或 SiliconIndex 假设。
+`SourceTypeFixturePack` 是最小非品牌示例。它通过与品牌包相同的 observation、proposal、adjudication、change set 和 release 流程，发布后再从指定 release 读取结果，证明核心没有品牌或 SiliconIndex 假设。它的 impact gate 明确记录“不改变排名或实体归并，因此不要求品牌历史回放”，而不是在公共服务中写死品牌例外。
 
 ## 工具接口
 
@@ -41,7 +43,7 @@ normalizer/resolver 位于 `deterministic_resolve`。inference strategy 位于 p
 
 ## Connector 接口
 
-`KnowledgeConnector` 定义 `import_release`、`export_changes` 和 `reconcile`。connector 必须返回 adapter/version、operation、release lineage、cursor、结果和稳定错误码。
+`KnowledgeConnector` 定义 `import_release`、`export_changes` 和 `reconcile`。connector 必须返回 adapter/version、operation、release lineage、cursor、结果和稳定错误码。HTTP 只负责把请求写入 `connector_run`；`run_knowledge_connector_queue.py` 在独立 systemd worker 中用行锁和 `skip_locked` 认领，避免请求进程执行长时间同步。
 
 导入必须先验证 manifest、hash、重复 ID、引用和版本单调性。导出只能包含 approved、允许公开、已脱敏且有证据的对象。reconcile 必须使用 base/upstream/local 三方合并；冲突要进入 change set，不得任选一边。
 

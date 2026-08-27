@@ -96,6 +96,7 @@ class Assertion(TenantScoped, KnowledgeBase):
     __tablename__ = "assertion"
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     pub_id: Mapped[str] = mapped_column(String(40), unique=True)
+    assertion_key: Mapped[str] = mapped_column(String(200))
     subject_stable_id: Mapped[str] = mapped_column(String(200))
     predicate: Mapped[str] = mapped_column(String(120))
     object_stable_id: Mapped[str | None] = mapped_column(String(200))

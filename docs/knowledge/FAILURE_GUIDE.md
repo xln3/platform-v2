@@ -18,12 +18,13 @@
 | `knowledge_release_mismatch` | 调用方要求的 release 不是 active | 重试指定 release 或明确升级，不静默换版本 |
 | `immutable_release_content_mismatch` | 同 release id 字节发生变化 | 立即停止激活；从备份恢复；创建新 release id |
 | `domain_quality_gate_failed` | 本体、证据或引用未通过 | 修正 change set；不得在 API 外绕过 gate |
+| `historical_replay_gate_failed` | 品牌变更缺少可重复回放报告，或新错误超过预算 | 用截止时间以前的数据重跑；保存评测集 hash；修复退化或由审核人降低变更范围，不能伪造 `passed` |
 | `change_set_has_conflicts` | 三方合并同字段双写 | reviewer 逐字段裁决并生成新 change set |
 | `contradictory_authoritative_evidence_requires_resolution` | proposal 同时存在高等级支持和反对证据 | 延期/拒绝并核查冲突；不得删除反对证据后强行批准 |
 | `proposal_already_adjudicated` | 尝试覆盖终态裁决 | 按新证据/政策/人工 override 重开 candidate，并创建新 proposal |
 | `change_evidence_lineage_*` | change 没有完整匹配 proposal evidence | 补齐全部 evidence public ID，重新创建 change set |
 | `append_only_table:*` | 尝试更新历史表 | 改为追加新事件/裁决，不关闭 trigger |
-| connector `degraded` | 远端失败但 LKG 可用 | 本地继续运行；修复远端后 reconcile |
+| connector `degraded`/`failed` | 远端失败、坏 hash 或发布回读不一致，但 LKG 可用 | 本地继续运行；保留 run receipt；修复远端后从共同 base reconcile |
 
 ## Readiness 故障
 
