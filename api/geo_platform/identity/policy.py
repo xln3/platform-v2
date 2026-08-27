@@ -35,7 +35,15 @@ class Role(StrEnum):
 
 ROLE_PERMISSIONS: dict[Role, frozenset[str]] = {
     Role.CUSTOMER: frozenset(
-        {"project:read", "change:write", "account:authorize", "intake:read", "intake:write"}
+        {
+            "project:read",
+            "change:write",
+            "account:authorize",
+            "intake:read",
+            "intake:write",
+            "knowledge:resolve",
+            "knowledge:observe",
+        }
     ),
     Role.OPERATOR: frozenset(
         {
@@ -58,6 +66,11 @@ ROLE_PERMISSIONS: dict[Role, frozenset[str]] = {
             "operations:business:read",
             "sop:read",
             "sop:write",
+            "knowledge:resolve",
+            "knowledge:observe",
+            "knowledge:read",
+            "knowledge:propose",
+            "knowledge:evidence",
         }
     ),
     Role.ANALYST: frozenset(
@@ -75,6 +88,11 @@ ROLE_PERMISSIONS: dict[Role, frozenset[str]] = {
             "operations:business:read",
             "sop:read",
             "sop:write",
+            "knowledge:resolve",
+            "knowledge:observe",
+            "knowledge:read",
+            "knowledge:propose",
+            "knowledge:evidence",
         }
     ),
     Role.REVIEWER: frozenset(
@@ -95,10 +113,24 @@ ROLE_PERMISSIONS: dict[Role, frozenset[str]] = {
             "intake:read",
             "operations:business:read",
             "sop:read",
+            "knowledge:resolve",
+            "knowledge:observe",
+            "knowledge:read",
+            "knowledge:evidence",
+            "knowledge:review",
+            "knowledge:audit",
         }
     ),
     Role.ADMIN: frozenset({"*"}),
-    Role.WORKER: frozenset({"collection:execute", "lease:acquire", "profile:use"}),
+    Role.WORKER: frozenset(
+        {
+            "collection:execute",
+            "lease:acquire",
+            "profile:use",
+            "knowledge:resolve",
+            "knowledge:observe",
+        }
+    ),
 }
 
 

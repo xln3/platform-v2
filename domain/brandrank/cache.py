@@ -4,14 +4,13 @@ s06_0014 起抽取的权威落账在 ``analytics.answer_brand_extract`` 表（fa
 本文件缓存退居**只读兜底 + 端点现抽的工作缓存**：brand-visibility 端点读取顺序
 表 → 本缓存 → LLM 现抽；端点现抽成功仍写本缓存（不回写表，表只由 fanout 写）。
 
-键 = sha256(domain + "\\n" + 答案全文)——**domain 必在键内**：抽取 prompt 随 domain 变，
-异 domain 缓存绝不当命中（旧库律所事故同型隐患；旧库靠 brandrank_extract.domain 列
-隔离，V2 用哈希键达到同一语义）。同 domain 同文本 → 命中，重跑零 LLM 成本。
+键 = sha256(domain + prompt_version + 答案全文)——domain 与 prompt 版本都必须在键内：
+异 domain 或新提示词的旧缓存绝不当命中。同 domain、同 prompt 版本、同文本才命中。
 
 条目形状::
 
     {"status": "ok"|"failed", "brands": [...], "model": str,
-     "error": str|None, "domain": str, "extracted_at": iso8601}
+     "error": str|None, "domain": str, "prompt_version": str, "extracted_at": iso8601}
 
 命中口径（照旧库 store/api 语义）：仅 status="ok" 的条目算命中；failed 条目视为未命中
 （下次请求重试并覆盖）——failed 条目留存仅为审计线索。
@@ -41,9 +40,10 @@ def cache_dir() -> Path:
     return Path(raw) if raw else _DEFAULT_DIR
 
 
-def cache_key(domain: str, response_text: str) -> str:
-    """sha256(domain + '\\n' + 答案全文)——domain 与答案哈希双因子。"""
-    return hashlib.sha256(f"{domain}\n{response_text or ''}".encode()).hexdigest()
+def cache_key(domain: str, response_text: str, *, prompt_version: str = "legacy") -> str:
+    """Hash the domain, prompt contract and answer text into one cache identity."""
+
+    return hashlib.sha256(f"{domain}\n{prompt_version}\n{response_text or ''}".encode()).hexdigest()
 
 
 def _path(base: Path, key: str) -> Path:
@@ -73,6 +73,7 @@ def store(
     status: str,
     error: str | None = None,
     domain: str,
+    prompt_version: str = "legacy",
     base: Path | None = None,
 ) -> None:
     """写缓存（ok/failed 都落；failed 供审计，load 不命中它）。原子换名防半截文件。"""
@@ -84,6 +85,7 @@ def store(
         "model": model,
         "error": error,
         "domain": domain,
+        "prompt_version": prompt_version,
         "extracted_at": datetime.now(UTC).isoformat(),
     }
     fd, tmp = tempfile.mkstemp(dir=root, prefix=".tmp-", suffix=".json")

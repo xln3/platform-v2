@@ -29,3 +29,7 @@ test-results/
 
 # 运行时证据/冒烟产物（doubao 适配器）
 runtime/
+
+# Knowledge middleware runtime state; immutable seed releases are versioned explicitly.
+data/knowledge-releases/governance-reports/
+data/siliconindex-snapshots/

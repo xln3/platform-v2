@@ -1,0 +1,1634 @@
+{
+  "schema_version": "entity-master-v3",
+  "domain": "cybersecurity",
+  "revision": "siliconindex:2026-08-27.1:cybersecurity",
+  "aggregation_level": "brand_family",
+  "source_system": "siliconindex",
+  "source_release_id": "2026-08-27.1",
+  "source_content_hash": "sha256:a36b4523d10ce7c09b073604b5f4bea63badf67be25a441b05ac61646ea92b00",
+  "source_url": "https://siliconindex-consumer.onrender.com/data/v1",
+  "resolution_policy": "实体 ID、别名关系、证据和审核状态来自同一 SiliconIndex 发布快照；正式榜单仅消费 reviewed 实体。项目观测只能产生待审候选，不能在项目内创建实体真相；品牌家族归并不等于同一法人。此文件是生成的离线投影，不是第二事实源。",
+  "entities": [
+    {
+      "entity_id": "CYB-BR-360SECURITY",
+      "canonical_name": "360数字安全",
+      "aliases": [
+        "360",
+        "三六零",
+        "360安全",
+        "360集团",
+        "360数字安全集团"
+      ],
+      "alias_relationships": {
+        "360": "official_abbreviation",
+        "三六零": "official_abbreviation",
+        "360安全": "official_abbreviation",
+        "360集团": "official_abbreviation",
+        "360数字安全集团": "official_abbreviation"
+      },
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": null,
+      "evidence_urls": [
+        "https://360.net/mobile/about/safe"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-ALIYUN",
+      "canonical_name": "阿里云",
+      "aliases": [],
+      "alias_relationships": {},
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": null,
+      "evidence_urls": [
+        "https://help.aliyun.com/zh/document_detail/2858975.html"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-AMASS",
+      "canonical_name": "Amass",
+      "aliases": [
+        "OWASP Amass"
+      ],
+      "alias_relationships": {
+        "OWASP Amass": "official_abbreviation"
+      },
+      "entity_type": "tool",
+      "competitor_eligible": false,
+      "eligibility_mode": "always",
+      "brand_level": "tool",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": "SiliconIndex 实体仍在待审状态，不进入正式竞品榜。",
+      "evidence_urls": [],
+      "review_status": "pending"
+    },
+    {
+      "entity_id": "CYB-BR-ANICERT",
+      "canonical_name": "中盾安信",
+      "aliases": [
+        "北京中盾安信",
+        "北京中盾安信科技发展有限公司",
+        "ANI Cert"
+      ],
+      "alias_relationships": {
+        "北京中盾安信": "official_abbreviation",
+        "北京中盾安信科技发展有限公司": "self",
+        "ANI Cert": "english_name"
+      },
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": "identity_security_specialist",
+      "competitor_scopes": [
+        "digital_identity",
+        "ctid",
+        "network_identity"
+      ],
+      "eligibility_note": "可信数字身份专业服务商，在 CTID/网证场景属于直接竞品；不泛化为所有网络安全赛道的综合网安厂商。",
+      "evidence_urls": [
+        "https://www.anicert.cn/",
+        "https://www.anicert.cn/about.html?mt=1"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-ARL",
+      "canonical_name": "ARL",
+      "aliases": [],
+      "alias_relationships": {},
+      "entity_type": "tool",
+      "competitor_eligible": false,
+      "eligibility_mode": "always",
+      "brand_level": "tool",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": "SiliconIndex 实体仍在待审状态，不进入正式竞品榜。",
+      "evidence_urls": [],
+      "review_status": "pending"
+    },
+    {
+      "entity_id": "CYB-BR-ASIAINFOSEC",
+      "canonical_name": "亚信安全",
+      "aliases": [],
+      "alias_relationships": {},
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": null,
+      "evidence_urls": [
+        "https://www.asiainfo-sec.com/about/index.html"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-AUTHING",
+      "canonical_name": "Authing",
+      "aliases": [
+        "Authing 身份云",
+        "Authing身份云"
+      ],
+      "alias_relationships": {
+        "Authing 身份云": "self",
+        "Authing身份云": "self"
+      },
+      "entity_type": "product",
+      "competitor_eligible": true,
+      "eligibility_mode": "always",
+      "brand_level": "product",
+      "parent_brand": "北京蒸汽记忆科技有限公司",
+      "industry_fit": "identity_security_specialist",
+      "competitor_scopes": [
+        "identity_security",
+        "idaas",
+        "ciam",
+        "iam"
+      ],
+      "eligibility_note": "北京蒸汽记忆科技有限公司运营的身份云/IDaaS 产品品牌；仅在身份安全与身份治理场景作为竞品。",
+      "evidence_urls": [
+        "https://www.authing.cn/",
+        "https://www.authing.cn/service-agreement.html"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-BITSIGHT",
+      "canonical_name": "BitSight",
+      "aliases": [
+        "Bitsight"
+      ],
+      "alias_relationships": {
+        "Bitsight": "official_abbreviation"
+      },
+      "entity_type": "company",
+      "competitor_eligible": false,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": "SiliconIndex 实体仍在待审状态，不进入正式竞品榜。",
+      "evidence_urls": [],
+      "review_status": "pending"
+    },
+    {
+      "entity_id": "CYB-BR-BJCA",
+      "canonical_name": "数字认证",
+      "aliases": [
+        "北京数字认证",
+        "北京数字认证股份有限公司",
+        "BJCA",
+        "Beijing Certificate Authority"
+      ],
+      "alias_relationships": {
+        "北京数字认证": "official_abbreviation",
+        "北京数字认证股份有限公司": "self",
+        "BJCA": "trade_name",
+        "Beijing Certificate Authority": "english_name"
+      },
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": "core_cybersecurity",
+      "competitor_scopes": [
+        "digital_identity",
+        "electronic_authentication",
+        "cryptography",
+        "cybersecurity"
+      ],
+      "eligibility_note": "以密码技术、电子认证、网络信任和数据安全为主业，是核心网安厂商。",
+      "evidence_urls": [
+        "https://www.bjca.cn/about/index.html",
+        "https://disc.static.szse.cn/download/disc/disk03/finalpage/2026-03-31/3179d1d6-b086-4d6c-8278-46846186df37.PDF"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-CENSYS",
+      "canonical_name": "Censys",
+      "aliases": [],
+      "alias_relationships": {},
+      "entity_type": "product",
+      "competitor_eligible": false,
+      "eligibility_mode": "always",
+      "brand_level": "product",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": "SiliconIndex 实体仍在待审状态，不进入正式竞品榜。",
+      "evidence_urls": [],
+      "review_status": "pending"
+    },
+    {
+      "entity_id": "CYB-BR-CHAITIN",
+      "canonical_name": "长亭科技",
+      "aliases": [
+        "长亭"
+      ],
+      "alias_relationships": {
+        "长亭": "official_abbreviation"
+      },
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": null,
+      "evidence_urls": [
+        "https://www.chaitin.cn/zh/intro"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-CHECKPOINT",
+      "canonical_name": "Check Point",
+      "aliases": [],
+      "alias_relationships": {},
+      "entity_type": "company",
+      "competitor_eligible": false,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": "SiliconIndex 实体仍在待审状态，不进入正式竞品榜。",
+      "evidence_urls": [],
+      "review_status": "pending"
+    },
+    {
+      "entity_id": "CYB-BR-CLOVERSEC",
+      "canonical_name": "四叶草安全",
+      "aliases": [],
+      "alias_relationships": {},
+      "entity_type": "company",
+      "competitor_eligible": false,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": "SiliconIndex 实体仍在待审状态，不进入正式竞品榜。",
+      "evidence_urls": [],
+      "review_status": "pending"
+    },
+    {
+      "entity_id": "CYB-BR-CROWDSTRIKE",
+      "canonical_name": "CrowdStrike",
+      "aliases": [],
+      "alias_relationships": {},
+      "entity_type": "company",
+      "competitor_eligible": false,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": "SiliconIndex 实体仍在待审状态，不进入正式竞品榜。",
+      "evidence_urls": [],
+      "review_status": "pending"
+    },
+    {
+      "entity_id": "CYB-BR-CUBESEC",
+      "canonical_name": "魔方安全",
+      "aliases": [
+        "深圳市魔方安全科技有限公司",
+        "CubeSec"
+      ],
+      "alias_relationships": {
+        "深圳市魔方安全科技有限公司": "self",
+        "CubeSec": "trade_name"
+      },
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": "core_cybersecurity",
+      "competitor_scopes": [
+        "attack_surface_management",
+        "easm",
+        "caasm",
+        "cybersecurity"
+      ],
+      "eligibility_note": "攻击面管理、网络资产安全、漏洞管理与攻防服务厂商。",
+      "evidence_urls": [
+        "https://www.cubesec.cn/gywm"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-DBAPPSECURITY",
+      "canonical_name": "安恒信息",
+      "aliases": [
+        "安恒",
+        "杭州安恒信息技术股份有限公司"
+      ],
+      "alias_relationships": {
+        "安恒": "official_abbreviation",
+        "杭州安恒信息技术股份有限公司": "official_abbreviation"
+      },
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": null,
+      "evidence_urls": [
+        "https://www.dbappsecurity.com.cn/about/"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-DOUXIANG",
+      "canonical_name": "斗象科技",
+      "aliases": [],
+      "alias_relationships": {},
+      "entity_type": "company",
+      "competitor_eligible": false,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": "SiliconIndex 实体仍在待审状态，不进入正式竞品榜。",
+      "evidence_urls": [],
+      "review_status": "pending"
+    },
+    {
+      "entity_id": "CYB-BR-EASM_SCANNER",
+      "canonical_name": "EASM Scanner",
+      "aliases": [],
+      "alias_relationships": {},
+      "entity_type": "tool",
+      "competitor_eligible": false,
+      "eligibility_mode": "always",
+      "brand_level": "tool",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": "SiliconIndex 实体仍在待审状态，不进入正式竞品榜。",
+      "evidence_urls": [],
+      "review_status": "pending"
+    },
+    {
+      "entity_id": "CYB-BR-EDU_MLPS_CENTER",
+      "canonical_name": "教育信息安全等级保护测评中心",
+      "aliases": [],
+      "alias_relationships": {},
+      "entity_type": "institution",
+      "competitor_eligible": false,
+      "eligibility_mode": "always",
+      "brand_level": "institution",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": "SiliconIndex 实体仍在待审状态，不进入正式竞品榜。",
+      "evidence_urls": [],
+      "review_status": "pending"
+    },
+    {
+      "entity_id": "CYB-BR-FARADAY",
+      "canonical_name": "Faraday",
+      "aliases": [],
+      "alias_relationships": {},
+      "entity_type": "tool",
+      "competitor_eligible": false,
+      "eligibility_mode": "always",
+      "brand_level": "tool",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": "SiliconIndex 实体仍在待审状态，不进入正式竞品榜。",
+      "evidence_urls": [],
+      "review_status": "pending"
+    },
+    {
+      "entity_id": "CYB-BR-GDCA",
+      "canonical_name": "数安时代",
+      "aliases": [
+        "数安时代科技股份有限公司",
+        "GDCA",
+        "广东CA"
+      ],
+      "alias_relationships": {
+        "数安时代科技股份有限公司": "self",
+        "GDCA": "trade_name",
+        "广东CA": "trade_name"
+      },
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": "core_cybersecurity",
+      "competitor_scopes": [
+        "digital_identity",
+        "electronic_authentication",
+        "cryptography",
+        "data_security"
+      ],
+      "eligibility_note": "以密码技术为核心的数字安全与网络信任安全服务商。",
+      "evidence_urls": [
+        "https://www.gdca.com.cn/about_gdca/CIntroduction/Company_Profile/"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-GUANAN",
+      "canonical_name": "观安信息",
+      "aliases": [
+        "观安"
+      ],
+      "alias_relationships": {
+        "观安": "official_abbreviation"
+      },
+      "entity_type": "company",
+      "competitor_eligible": false,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": "SiliconIndex 实体仍在待审状态，不进入正式竞品榜。",
+      "evidence_urls": [],
+      "review_status": "pending"
+    },
+    {
+      "entity_id": "CYB-BR-GUOZI",
+      "canonical_name": "国子软件",
+      "aliases": [
+        "山东国子软件",
+        "山东国子软件股份有限公司"
+      ],
+      "alias_relationships": {
+        "山东国子软件": "official_abbreviation",
+        "山东国子软件股份有限公司": "official_abbreviation"
+      },
+      "entity_type": "company",
+      "competitor_eligible": false,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": "SiliconIndex 实体仍在待审状态，不进入正式竞品榜。",
+      "evidence_urls": [],
+      "review_status": "pending"
+    },
+    {
+      "entity_id": "CYB-BR-H3C",
+      "canonical_name": "新华三",
+      "aliases": [
+        "新华三（H3C）",
+        "H3C"
+      ],
+      "alias_relationships": {
+        "新华三（H3C）": "official_abbreviation",
+        "H3C": "official_abbreviation"
+      },
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": null,
+      "evidence_urls": [
+        "https://www.h3c.com/cn/About_H3C/Company_Information/Company_Introduce/Default.htm"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-HAITAI",
+      "canonical_name": "海泰方圆",
+      "aliases": [
+        "北京海泰方圆科技股份有限公司"
+      ],
+      "alias_relationships": {
+        "北京海泰方圆科技股份有限公司": "self"
+      },
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": "core_cybersecurity",
+      "competitor_scopes": [
+        "cryptography",
+        "data_security",
+        "trusted_data",
+        "cybersecurity"
+      ],
+      "eligibility_note": "以密码全能力、可信数据治理和数据安全为核心的网安厂商。",
+      "evidence_urls": [
+        "https://www.haitaichina.com/qyjs/index.htm"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-HILLSTONE",
+      "canonical_name": "山石网科",
+      "aliases": [],
+      "alias_relationships": {},
+      "entity_type": "company",
+      "competitor_eligible": false,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": "SiliconIndex 实体仍在待审状态，不进入正式竞品榜。",
+      "evidence_urls": [],
+      "review_status": "pending"
+    },
+    {
+      "entity_id": "CYB-BR-HUASHUNXINAN",
+      "canonical_name": "华顺信安",
+      "aliases": [
+        "北京华顺信安",
+        "北京华顺信安科技有限公司",
+        "湖南华顺信安",
+        "湖南华顺信安科技有限公司",
+        "白帽汇",
+        "FOFA"
+      ],
+      "alias_relationships": {
+        "北京华顺信安": "brand_family_member",
+        "北京华顺信安科技有限公司": "brand_family_member",
+        "湖南华顺信安": "brand_family_member",
+        "湖南华顺信安科技有限公司": "brand_family_member",
+        "白帽汇": "brand_family_member",
+        "FOFA": "product_of"
+      },
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "always",
+      "brand_level": "brand_family",
+      "parent_brand": null,
+      "industry_fit": "core_cybersecurity",
+      "competitor_scopes": [
+        "attack_surface_management",
+        "cyberspace_mapping",
+        "cybersecurity"
+      ],
+      "eligibility_note": "网络空间测绘、攻击面管理与安全服务厂商；品牌家族榜将 FOFA/白帽汇归到华顺信安，保留产品与成员关系。",
+      "evidence_urls": [
+        "https://www.huashunxinan.net/about",
+        "https://fofa.info/about"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-HUAUN",
+      "canonical_name": "华云安",
+      "aliases": [],
+      "alias_relationships": {},
+      "entity_type": "company",
+      "competitor_eligible": false,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": "SiliconIndex 实体仍在待审状态，不进入正式竞品榜。",
+      "evidence_urls": [],
+      "review_status": "pending"
+    },
+    {
+      "entity_id": "CYB-BR-HUAWEI",
+      "canonical_name": "华为",
+      "aliases": [
+        "华为云",
+        "华为技术",
+        "华为技术有限公司"
+      ],
+      "alias_relationships": {
+        "华为云": "business_unit_of",
+        "华为技术": "official_abbreviation",
+        "华为技术有限公司": "self"
+      },
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "always",
+      "brand_level": "brand_family",
+      "parent_brand": null,
+      "industry_fit": "adjacent_platform_security",
+      "competitor_scopes": [
+        "cloud_security",
+        "identity_security",
+        "cybersecurity"
+      ],
+      "eligibility_note": "华为云是华为的云服务品牌；品牌家族榜合并，原始业务线名称保留审计。",
+      "evidence_urls": [
+        "https://consumer.huawei.com/cn/support/content/zh-cn15955449/"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-INFOSEC",
+      "canonical_name": "信安世纪",
+      "aliases": [
+        "北京信安世纪科技股份有限公司"
+      ],
+      "alias_relationships": {
+        "北京信安世纪科技股份有限公司": "self"
+      },
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": "core_cybersecurity",
+      "competitor_scopes": [
+        "cryptography",
+        "network_security",
+        "data_security",
+        "cybersecurity"
+      ],
+      "eligibility_note": "以密码技术为核心，覆盖网络安全、数据治理和保密安全的网安厂商。",
+      "evidence_urls": [
+        "https://www.infosec.com.cn/default/index/aboutus"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-ITRUS",
+      "canonical_name": "天威诚信",
+      "aliases": [
+        "北京天威诚信电子商务服务有限公司",
+        "iTrusChina",
+        "iTrus"
+      ],
+      "alias_relationships": {
+        "北京天威诚信电子商务服务有限公司": "self",
+        "iTrusChina": "english_name",
+        "iTrus": "trade_name"
+      },
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": "core_cybersecurity",
+      "competitor_scopes": [
+        "digital_identity",
+        "electronic_authentication",
+        "cryptography",
+        "cybersecurity"
+      ],
+      "eligibility_note": "电子认证、密码应用与数字信任安全服务商。",
+      "evidence_urls": [
+        "https://www.itrus.com.cn/about.html"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-JIT",
+      "canonical_name": "吉大正元",
+      "aliases": [
+        "长春吉大正元信息技术股份有限公司"
+      ],
+      "alias_relationships": {
+        "长春吉大正元信息技术股份有限公司": "self"
+      },
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": "core_cybersecurity",
+      "competitor_scopes": [
+        "cryptography",
+        "digital_identity",
+        "data_security",
+        "cybersecurity"
+      ],
+      "eligibility_note": "以密码为核心，覆盖可信身份与数据安全的网安厂商。",
+      "evidence_urls": [
+        "https://www.jit.com.cn/Content/5.html"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-KNOWNSEC",
+      "canonical_name": "知道创宇",
+      "aliases": [
+        "北京知道创宇信息技术股份有限公司",
+        "ZoomEye"
+      ],
+      "alias_relationships": {
+        "北京知道创宇信息技术股份有限公司": "self",
+        "ZoomEye": "product_of"
+      },
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "always",
+      "brand_level": "brand_family",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": null,
+      "evidence_urls": [
+        "https://www.knownsec.com/",
+        "https://www.knownsec.com/media/upload/201906.pdf"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-KOAL",
+      "canonical_name": "格尔软件",
+      "aliases": [
+        "格尔",
+        "格尔软件股份有限公司",
+        "KOAL",
+        "Koal"
+      ],
+      "alias_relationships": {
+        "格尔": "official_abbreviation",
+        "格尔软件股份有限公司": "self",
+        "KOAL": "english_name",
+        "Koal": "english_name"
+      },
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": "core_cybersecurity",
+      "competitor_scopes": [
+        "cryptography",
+        "digital_identity",
+        "data_security",
+        "cybersecurity"
+      ],
+      "eligibility_note": "以 PKI、密码技术、可信身份和数据安全为核心的网安厂商。",
+      "evidence_urls": [
+        "https://www.koal.com/about"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-LINEWELL",
+      "canonical_name": "南威软件",
+      "aliases": [
+        "南威软件集团",
+        "南威软件股份有限公司"
+      ],
+      "alias_relationships": {
+        "南威软件集团": "brand_family_member",
+        "南威软件股份有限公司": "self"
+      },
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "scope_required",
+      "brand_level": "brand_family",
+      "parent_brand": null,
+      "industry_fit": "scenario_specific_adjacent",
+      "competitor_scopes": [
+        "digital_government",
+        "electronic_license",
+        "digital_identity"
+      ],
+      "eligibility_note": "数字政府、政务服务和电子证照厂商；不是传统综合网安厂商，仅在数字身份/电子证照等场景构成相关竞品。",
+      "evidence_urls": [
+        "https://www.linewell.com/"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-MALTEGO",
+      "canonical_name": "Maltego",
+      "aliases": [],
+      "alias_relationships": {},
+      "entity_type": "tool",
+      "competitor_eligible": false,
+      "eligibility_mode": "always",
+      "brand_level": "tool",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": "SiliconIndex 实体仍在待审状态，不进入正式竞品榜。",
+      "evidence_urls": [],
+      "review_status": "pending"
+    },
+    {
+      "entity_id": "CYB-BR-MCROWN",
+      "canonical_name": "铭冠网安",
+      "aliases": [
+        "广州铭冠信息科技有限公司"
+      ],
+      "alias_relationships": {
+        "广州铭冠信息科技有限公司": "self"
+      },
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": "cybersecurity_integrator",
+      "competitor_scopes": [
+        "security_integration",
+        "security_services",
+        "cybersecurity"
+      ],
+      "eligibility_note": "网络安全服务与集成商；主数据确认主体及行业角色，不据此认可回答中未经核验的具体产品能力。",
+      "evidence_urls": [
+        "https://www.gzmcrown.com/index.html"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-MICROSOFT",
+      "canonical_name": "微软",
+      "aliases": [
+        "Microsoft",
+        "Microsoft Security"
+      ],
+      "alias_relationships": {
+        "Microsoft": "official_abbreviation",
+        "Microsoft Security": "official_abbreviation"
+      },
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": null,
+      "evidence_urls": [
+        "https://www.microsoft.com/en-us/security/why-microsoft-security"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-MINGHUO",
+      "canonical_name": "铭火信息",
+      "aliases": [
+        "北京铭火信息科技",
+        "北京铭火信息科技有限公司"
+      ],
+      "alias_relationships": {
+        "北京铭火信息科技": "official_abbreviation",
+        "北京铭火信息科技有限公司": "official_abbreviation"
+      },
+      "entity_type": "company",
+      "competitor_eligible": false,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": "SiliconIndex 实体仍在待审状态，不进入正式竞品榜。",
+      "evidence_urls": [],
+      "review_status": "pending"
+    },
+    {
+      "entity_id": "CYB-BR-MORESEC",
+      "canonical_name": "默安科技",
+      "aliases": [
+        "默安"
+      ],
+      "alias_relationships": {
+        "默安": "official_abbreviation"
+      },
+      "entity_type": "company",
+      "competitor_eligible": false,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": "SiliconIndex 实体仍在待审状态，不进入正式竞品榜。",
+      "evidence_urls": [],
+      "review_status": "pending"
+    },
+    {
+      "entity_id": "CYB-BR-NEWLAND",
+      "canonical_name": "新大陆",
+      "aliases": [
+        "Newland",
+        "新大陆集团",
+        "新大陆科技集团",
+        "新大陆数字技术",
+        "新大陆数字技术股份有限公司",
+        "新大陆公共服务",
+        "新大陆公共服务公司",
+        "新大陆公服",
+        "新大陆公服公司",
+        "新大陆（福建）公共服务有限公司",
+        "新大陆(福建)公共服务有限公司"
+      ],
+      "alias_relationships": {
+        "Newland": "english_name",
+        "新大陆集团": "brand_family_member",
+        "新大陆科技集团": "brand_family_member",
+        "新大陆数字技术": "brand_family_member",
+        "新大陆数字技术股份有限公司": "brand_family_member",
+        "新大陆公共服务": "brand_family_member",
+        "新大陆公共服务公司": "brand_family_member",
+        "新大陆公服": "brand_family_member",
+        "新大陆公服公司": "brand_family_member",
+        "新大陆（福建）公共服务有限公司": "brand_family_member",
+        "新大陆(福建)公共服务有限公司": "brand_family_member"
+      },
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "scope_required",
+      "brand_level": "brand_family",
+      "parent_brand": null,
+      "industry_fit": "scenario_specific_adjacent",
+      "competitor_scopes": [
+        "digital_identity",
+        "ctid",
+        "network_identity"
+      ],
+      "eligibility_note": "集团主业不是传统综合网安；其同品牌公服主体在网证/可信数字身份场景提供直接方案，因此仅在该场景具备竞品资格。品牌家族归并不等于认定各主体为同一法人。",
+      "evidence_urls": [
+        "https://www.newland.com.cn/",
+        "https://www.newland.com.cn/news/list/0ea4ed39f3bc4824a4aef013b21b81ea.htm",
+        "https://dt.newland.com.cn/news/information/2024/10923.htm"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-NINGTON",
+      "canonical_name": "宁盾",
+      "aliases": [
+        "上海宁盾信息科技有限公司"
+      ],
+      "alias_relationships": {
+        "上海宁盾信息科技有限公司": "self"
+      },
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": "identity_security_specialist",
+      "competitor_scopes": [
+        "identity_security",
+        "iam",
+        "mfa",
+        "zero_trust",
+        "network_access_control"
+      ],
+      "eligibility_note": "数字身份基础设施与身份安全厂商；是否具备某个具体网证接入产品仍需按回答事实另行核验。",
+      "evidence_urls": [
+        "https://www.nington.com/about.shtml"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-NMAP",
+      "canonical_name": "Nmap",
+      "aliases": [],
+      "alias_relationships": {},
+      "entity_type": "tool",
+      "competitor_eligible": false,
+      "eligibility_mode": "always",
+      "brand_level": "tool",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": "SiliconIndex 实体仍在待审状态，不进入正式竞品榜。",
+      "evidence_urls": [],
+      "review_status": "pending"
+    },
+    {
+      "entity_id": "CYB-BR-NSFOCUS",
+      "canonical_name": "绿盟科技",
+      "aliases": [
+        "绿盟",
+        "NSFOCUS",
+        "绿盟科技集团",
+        "绿盟科技集团股份有限公司"
+      ],
+      "alias_relationships": {
+        "绿盟": "official_abbreviation",
+        "NSFOCUS": "english_name",
+        "绿盟科技集团": "official_abbreviation",
+        "绿盟科技集团股份有限公司": "self"
+      },
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": "core_cybersecurity",
+      "competitor_scopes": [
+        "cybersecurity"
+      ],
+      "eligibility_note": "综合网安厂商；简称、英文品牌与公司品牌按同一品牌实体归并。",
+      "evidence_urls": [
+        "https://www.nsfocus.com.cn/html/7/"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-PALOALTO",
+      "canonical_name": "Palo Alto Networks",
+      "aliases": [
+        "Palo Alto",
+        "PANW"
+      ],
+      "alias_relationships": {
+        "Palo Alto": "official_abbreviation",
+        "PANW": "official_abbreviation"
+      },
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": null,
+      "evidence_urls": [
+        "https://www.paloaltonetworks.com/about-us"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-PARAVIEW",
+      "canonical_name": "派拉软件",
+      "aliases": [
+        "上海派拉软件股份有限公司"
+      ],
+      "alias_relationships": {
+        "上海派拉软件股份有限公司": "self"
+      },
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": "identity_security_specialist",
+      "competitor_scopes": [
+        "identity_security",
+        "iam",
+        "zero_trust",
+        "api_security",
+        "data_security"
+      ],
+      "eligibility_note": "数字身份安全、身份治理、访问控制和零信任厂商。",
+      "evidence_urls": [
+        "https://www.paraview.cn/about/"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-QIANXIN",
+      "canonical_name": "奇安信",
+      "aliases": [
+        "奇安信集团"
+      ],
+      "alias_relationships": {
+        "奇安信集团": "official_abbreviation"
+      },
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": null,
+      "evidence_urls": [
+        "https://www.qianxin.com/about/index"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-QUALYS",
+      "canonical_name": "Qualys",
+      "aliases": [],
+      "alias_relationships": {},
+      "entity_type": "company",
+      "competitor_eligible": false,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": "SiliconIndex 实体仍在待审状态，不进入正式竞品榜。",
+      "evidence_urls": [],
+      "review_status": "pending"
+    },
+    {
+      "entity_id": "CYB-BR-QUFEI",
+      "canonical_name": "曲飞科技",
+      "aliases": [
+        "武汉曲飞科技",
+        "武汉曲飞科技有限公司"
+      ],
+      "alias_relationships": {
+        "武汉曲飞科技": "official_abbreviation",
+        "武汉曲飞科技有限公司": "official_abbreviation"
+      },
+      "entity_type": "company",
+      "competitor_eligible": false,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": "SiliconIndex 实体仍在待审状态，不进入正式竞品榜。",
+      "evidence_urls": [],
+      "review_status": "pending"
+    },
+    {
+      "entity_id": "CYB-BR-RAPID7",
+      "canonical_name": "Rapid7",
+      "aliases": [],
+      "alias_relationships": {},
+      "entity_type": "company",
+      "competitor_eligible": false,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": "SiliconIndex 实体仍在待审状态，不进入正式竞品榜。",
+      "evidence_urls": [],
+      "review_status": "pending"
+    },
+    {
+      "entity_id": "CYB-BR-RENGINE",
+      "canonical_name": "reNgine",
+      "aliases": [],
+      "alias_relationships": {},
+      "entity_type": "tool",
+      "competitor_eligible": false,
+      "eligibility_mode": "always",
+      "brand_level": "tool",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": "SiliconIndex 实体仍在待审状态，不进入正式竞品榜。",
+      "evidence_urls": [],
+      "review_status": "pending"
+    },
+    {
+      "entity_id": "CYB-BR-RIVERSECURITY",
+      "canonical_name": "瑞数信息",
+      "aliases": [
+        "瑞数",
+        "River Security",
+        "瑞数信息技术（上海）有限公司",
+        "瑞数信息技术(上海)有限公司"
+      ],
+      "alias_relationships": {
+        "瑞数": "official_abbreviation",
+        "River Security": "english_name",
+        "瑞数信息技术（上海）有限公司": "self",
+        "瑞数信息技术(上海)有限公司": "self"
+      },
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": "core_cybersecurity",
+      "competitor_scopes": [
+        "application_security",
+        "bot_management",
+        "data_security",
+        "cybersecurity"
+      ],
+      "eligibility_note": "动态安全、应用安全、业务安全与数据安全厂商。",
+      "evidence_urls": [
+        "https://www.riversecurity.com/resources-product/%E3%80%902021%E3%80%91%E7%91%9E%E6%95%B0APP%E5%8A%A8%E6%80%81%E5%AE%89%E5%85%A8%E7%99%BD%E7%9A%AE%E4%B9%A6.pdf"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-SANGFOR",
+      "canonical_name": "深信服",
+      "aliases": [
+        "深信服科技"
+      ],
+      "alias_relationships": {
+        "深信服科技": "official_abbreviation"
+      },
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": null,
+      "evidence_urls": [
+        "https://www.sangfor.com.cn/about-us/company-profile"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-SANSEC",
+      "canonical_name": "三未信安",
+      "aliases": [
+        "三未信安科技股份有限公司"
+      ],
+      "alias_relationships": {
+        "三未信安科技股份有限公司": "self"
+      },
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": "core_cybersecurity",
+      "competitor_scopes": [
+        "cryptography",
+        "digital_identity",
+        "data_security",
+        "cybersecurity"
+      ],
+      "eligibility_note": "商用密码基础设施、密码产品和解决方案厂商。",
+      "evidence_urls": [
+        "https://www.sansec.com.cn/About.html"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-SHECA",
+      "canonical_name": "上海CA",
+      "aliases": [
+        "上海市数字证书认证中心",
+        "上海市数字证书认证中心有限公司",
+        "SHECA"
+      ],
+      "alias_relationships": {
+        "上海市数字证书认证中心": "official_abbreviation",
+        "上海市数字证书认证中心有限公司": "self",
+        "SHECA": "trade_name"
+      },
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": "identity_security_specialist",
+      "competitor_scopes": [
+        "digital_identity",
+        "electronic_authentication",
+        "cryptography",
+        "data_security"
+      ],
+      "eligibility_note": "第三方电子认证与数字信任安全服务机构。",
+      "evidence_urls": [
+        "https://www.sheca.com/company"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-SHENSI",
+      "canonical_name": "神思电子",
+      "aliases": [
+        "神思电子技术股份有限公司"
+      ],
+      "alias_relationships": {
+        "神思电子技术股份有限公司": "self"
+      },
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "scope_required",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": "scenario_specific_adjacent",
+      "competitor_scopes": [
+        "digital_identity",
+        "identity_verification",
+        "ctid"
+      ],
+      "eligibility_note": "身份识别与身份核验方案商；不是传统综合网安厂商，仅在数字身份/网证相关评测中作为场景型竞品。",
+      "evidence_urls": [
+        "https://www.sdses.com/lists/47.html",
+        "https://www.sdses.com/Uploads/file/2024102218080035675.pdf"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-SHODAN",
+      "canonical_name": "Shodan",
+      "aliases": [],
+      "alias_relationships": {},
+      "entity_type": "product",
+      "competitor_eligible": false,
+      "eligibility_mode": "always",
+      "brand_level": "product",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": "SiliconIndex 实体仍在待审状态，不进入正式竞品榜。",
+      "evidence_urls": [],
+      "review_status": "pending"
+    },
+    {
+      "entity_id": "CYB-BR-SN1PER",
+      "canonical_name": "Sn1per",
+      "aliases": [
+        "Sn1per Community Edition"
+      ],
+      "alias_relationships": {
+        "Sn1per Community Edition": "official_abbreviation"
+      },
+      "entity_type": "tool",
+      "competitor_eligible": false,
+      "eligibility_mode": "always",
+      "brand_level": "tool",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": "SiliconIndex 实体仍在待审状态，不进入正式竞品榜。",
+      "evidence_urls": [],
+      "review_status": "pending"
+    },
+    {
+      "entity_id": "CYB-BR-SUBFINDER",
+      "canonical_name": "Subfinder",
+      "aliases": [],
+      "alias_relationships": {},
+      "entity_type": "tool",
+      "competitor_eligible": false,
+      "eligibility_mode": "always",
+      "brand_level": "tool",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": "SiliconIndex 实体仍在待审状态，不进入正式竞品榜。",
+      "evidence_urls": [],
+      "review_status": "pending"
+    },
+    {
+      "entity_id": "CYB-BR-TENABLE",
+      "canonical_name": "Tenable",
+      "aliases": [],
+      "alias_relationships": {},
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": null,
+      "evidence_urls": [
+        "https://www.tenable.com/about-tenable/about-us"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-TENCENT",
+      "canonical_name": "腾讯",
+      "aliases": [
+        "腾讯集团",
+        "腾讯安全",
+        "腾讯云"
+      ],
+      "alias_relationships": {
+        "腾讯集团": "official_abbreviation",
+        "腾讯安全": "business_unit_of",
+        "腾讯云": "business_unit_of"
+      },
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "always",
+      "brand_level": "brand_family",
+      "parent_brand": null,
+      "industry_fit": "adjacent_platform_security",
+      "competitor_scopes": [
+        "cloud_security",
+        "identity_security",
+        "cybersecurity"
+      ],
+      "eligibility_note": "腾讯云是腾讯集团云计算品牌；品牌家族榜合并，原始业务线名称保留审计。",
+      "evidence_urls": [
+        "https://www.tencent.com/index.php/zh-cn/about.html",
+        "https://cloud.tencent.com/about"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-THREATBOOK",
+      "canonical_name": "微步在线",
+      "aliases": [],
+      "alias_relationships": {},
+      "entity_type": "company",
+      "competitor_eligible": false,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": "SiliconIndex 实体仍在待审状态，不进入正式竞品榜。",
+      "evidence_urls": [],
+      "review_status": "pending"
+    },
+    {
+      "entity_id": "CYB-BR-TOPSEC",
+      "canonical_name": "天融信",
+      "aliases": [],
+      "alias_relationships": {},
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": null,
+      "evidence_urls": [
+        "https://www.topsec.com.cn/",
+        "https://disc.static.szse.cn/disc/disk02/finalpage/2021-08-20/56658854-eb23-4198-a0ce-0ff4d0c788ad.PDF"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-VENUSTECH",
+      "canonical_name": "启明星辰",
+      "aliases": [
+        "启明星辰集团"
+      ],
+      "alias_relationships": {
+        "启明星辰集团": "official_abbreviation"
+      },
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": null,
+      "evidence_urls": [
+        "https://www.venustech.com.cn/new_type/gsjs/"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-WEBRAY",
+      "canonical_name": "盛邦安全",
+      "aliases": [
+        "盛邦",
+        "远江盛邦",
+        "远江盛邦安全",
+        "远江盛邦安全科技集团",
+        "远江盛邦安全科技集团股份有限公司",
+        "远江盛邦（北京）网络安全科技股份有限公司",
+        "远江盛邦(北京)网络安全科技股份有限公司",
+        "远江盛邦（北京）信息技术有限公司",
+        "WebRAY",
+        "Webray",
+        "webray",
+        "RAYTAG",
+        "RayTAG",
+        "raytag",
+        "RayTAG 网证"
+      ],
+      "alias_relationships": {
+        "盛邦": "official_abbreviation",
+        "远江盛邦": "official_abbreviation",
+        "远江盛邦安全": "official_abbreviation",
+        "远江盛邦安全科技集团": "official_abbreviation",
+        "远江盛邦安全科技集团股份有限公司": "self",
+        "远江盛邦（北京）网络安全科技股份有限公司": "historical_name",
+        "远江盛邦(北京)网络安全科技股份有限公司": "historical_name",
+        "远江盛邦（北京）信息技术有限公司": "historical_name",
+        "WebRAY": "trade_name",
+        "Webray": "trade_name",
+        "webray": "trade_name",
+        "RAYTAG": "product_of",
+        "RayTAG": "product_of",
+        "raytag": "product_of",
+        "RayTAG 网证": "product_of"
+      },
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "always",
+      "brand_level": "brand_family",
+      "parent_brand": null,
+      "industry_fit": "core_cybersecurity",
+      "competitor_scopes": [
+        "attack_surface_management",
+        "cyberspace_mapping",
+        "cybersecurity"
+      ],
+      "eligibility_note": "盛邦安全、历史公司名、英文品牌及 RayTAG 产品按品牌家族归并；关系类型保留审计。",
+      "evidence_urls": [
+        "https://www.webray.com.cn/about/index.html"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-WESTONE",
+      "canonical_name": "电科网安",
+      "aliases": [
+        "中电科网络安全科技股份有限公司",
+        "成都卫士通信息产业股份有限公司",
+        "卫士通",
+        "Westone"
+      ],
+      "alias_relationships": {
+        "中电科网络安全科技股份有限公司": "self",
+        "成都卫士通信息产业股份有限公司": "historical_name",
+        "卫士通": "historical_name",
+        "Westone": "trade_name"
+      },
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "always",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": "core_cybersecurity",
+      "competitor_scopes": [
+        "cryptography",
+        "data_security",
+        "cybersecurity"
+      ],
+      "eligibility_note": "原成都卫士通，现名电科网安；以密码、数据安全和网络安全为主业。",
+      "evidence_urls": [
+        "https://www.cetccst.com.cn/about/136.html"
+      ],
+      "review_status": "reviewed"
+    },
+    {
+      "entity_id": "CYB-BR-XSSCAN",
+      "canonical_name": "XSSCAN",
+      "aliases": [],
+      "alias_relationships": {},
+      "entity_type": "tool",
+      "competitor_eligible": false,
+      "eligibility_mode": "always",
+      "brand_level": "tool",
+      "parent_brand": null,
+      "industry_fit": null,
+      "competitor_scopes": [],
+      "eligibility_note": "SiliconIndex 实体仍在待审状态，不进入正式竞品榜。",
+      "evidence_urls": [],
+      "review_status": "pending"
+    },
+    {
+      "entity_id": "CYB-BR-ZKTECO",
+      "canonical_name": "熵基科技",
+      "aliases": [
+        "熵基",
+        "熵基科技股份有限公司",
+        "ZKTeco",
+        "ZKTECO"
+      ],
+      "alias_relationships": {
+        "熵基": "official_abbreviation",
+        "熵基科技股份有限公司": "self",
+        "ZKTeco": "english_name",
+        "ZKTECO": "english_name"
+      },
+      "entity_type": "company",
+      "competitor_eligible": true,
+      "eligibility_mode": "scope_required",
+      "brand_level": "brand",
+      "parent_brand": null,
+      "industry_fit": "scenario_specific_adjacent",
+      "competitor_scopes": [
+        "biometrics",
+        "identity_verification",
+        "physical_access"
+      ],
+      "eligibility_note": "生物识别、身份核验与智慧出入口厂商；不是传统综合网安厂商，仅在身份核验等具体场景具备竞品关系。",
+      "evidence_urls": [
+        "https://zkbiowhois.com/aboutUS.html",
+        "https://www.zkteco.com/en/about"
+      ],
+      "review_status": "reviewed"
+    }
+  ]
+}

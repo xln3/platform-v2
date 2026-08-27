@@ -24,19 +24,33 @@ failed 条不进品牌分析但进信源分析，失败计数在 extraction 账�
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import psycopg
 import structlog
 from psycopg.rows import dict_row
+from sqlalchemy.exc import SQLAlchemyError
 
 from domain.brandrank import adapter, cache, extract, metrics
+from domain.brandrank.entities import EntityMaster, load_entity_master
 from domain.brandrank.rules import DEFAULT_DOMAIN, DomainRules, domain_for_industry, load_domain
+from domain.knowledge_evolution.contracts import ReasoningPolicy, RuntimeRequest
+from domain.knowledge_evolution.domains.brand import apply_adopted_model_decisions
+from domain.knowledge_evolution.release import KnowledgeReleaseError
+from domain.knowledge_evolution.runtime import ReasoningEngine, ReasoningError
 
+from ..config import get_settings
+from ..knowledge.repository import KnowledgeRepository
+from ..knowledge.service import gateway as knowledge_gateway
+from ..knowledge.service import registry as knowledge_registry
+from ..tenancy.database import SessionLocal
 from ..tenancy.psycopg import tenant_connection
+from ..tenancy.repository import TenantRepository
 
 log = structlog.getLogger()
 
@@ -68,6 +82,192 @@ class LlmDisabled(RuntimeError):
     def __init__(self, status: dict[str, Any]) -> None:
         super().__init__("llm_disabled")
         self.status = status
+
+
+class KnowledgeReasoningUnavailable(RuntimeError):
+    """The caller required governed reasoning and prohibited deterministic fallback."""
+
+
+def _master_release(master: EntityMaster) -> dict[str, Any]:
+    return {
+        "release_id": master.source_release_id or master.revision or "unversioned",
+        "content_hash": master.source_content_hash or "sha256:unknown",
+        "schema_version": master.schema_version,
+        "source": master.source_mode or master.source_system or "unavailable",
+        "degraded": bool(master.source_error),
+    }
+
+
+def _reasoned_entity_master(
+    *,
+    tenant_pub_id: str,
+    project_pub_id: str,
+    request_id: str,
+    rules: DomainRules,
+    base_master: EntityMaster,
+    answers: list[dict[str, Any]],
+    entries: dict[str, list[str]],
+    target_brand: str | None,
+    competitors: list[str],
+    comparison_scopes: tuple[str, ...],
+    policy: ReasoningPolicy,
+    adopt_model_inferred: bool,
+    on_model_failure: str,
+    allow_external_model: bool,
+    max_latency_ms: int | None,
+    max_cost_usd: float | None,
+) -> tuple[EntityMaster, dict[str, Any]]:
+    if policy == ReasoningPolicy.DETERMINISTIC_ONLY:
+        return base_master, {
+            "policy": policy.value,
+            "policy_id": "brandrank-runtime",
+            "policy_version": "1",
+            "release": _master_release(base_master),
+            "model_called": False,
+            "model_inferred_adopted": 0,
+            "model_hypotheses": 0,
+            "cache_status": "bypass",
+            "degradation": [],
+            "observation_count": 0,
+        }
+
+    answer_by_id = {str(answer["pub_id"]): answer for answer in answers}
+    occurrences: dict[str, list[str]] = {}
+    for answer_pub_id, brands in entries.items():
+        for name in brands:
+            cleaned = str(name).strip()
+            if cleaned:
+                occurrences.setdefault(cleaned, []).append(answer_pub_id)
+    if not occurrences:
+        return base_master, {
+            "policy": policy.value,
+            "policy_id": "brandrank-runtime",
+            "policy_version": "1",
+            "release": _master_release(base_master),
+            "model_called": False,
+            "model_inferred_adopted": 0,
+            "model_hypotheses": 0,
+            "cache_status": "bypass",
+            "degradation": ["no_brand_mentions"],
+            "observation_count": 0,
+        }
+    safe_project_ref = hashlib.sha256(project_pub_id.encode()).hexdigest()
+    items: list[dict[str, Any]] = []
+    for index, (name, answer_ids) in enumerate(occurrences.items(), start=1):
+        contexts = []
+        if allow_external_model:
+            contexts = [
+                str(answer_by_id[answer_id].get("response_text") or "")[:800]
+                for answer_id in answer_ids[:4]
+                if answer_id in answer_by_id
+            ]
+        source_ref = "answers:" + hashlib.sha256("|".join(sorted(answer_ids)).encode()).hexdigest()
+        items.append(
+            {
+                "id": f"mention-{index}",
+                "value": name,
+                "contexts": contexts,
+                "source_ref": source_ref,
+                "source_type": "geo_brand_visibility",
+                "safe_context": f"project-ref:{safe_project_ref}",
+                "idempotency_key": hashlib.sha256(
+                    (
+                        f"{tenant_pub_id}|{rules.domain}|{name}|{'|'.join(sorted(answer_ids))}"
+                    ).encode()
+                ).hexdigest(),
+            }
+        )
+    settings = get_settings()
+    try:
+        with SessionLocal() as session:
+            TenantRepository(session, tenant_pub_id)
+            repository = KnowledgeRepository(
+                session,
+                tenant_pub_id,
+                namespace="geo-brandrank",
+                domain="brand/entity-resolution",
+            )
+            runtime = RuntimeRequest(
+                request_id=request_id,
+                tenant=tenant_pub_id,
+                namespace="geo-brandrank",
+                domain="brand/entity-resolution",
+                task="resolve_mentions_for_visibility",
+                items=tuple(items),
+                context={
+                    "analysis_domain": rules.domain,
+                    "comparison_scopes": list(comparison_scopes),
+                    "named_competitors": competitors,
+                    "target_brand": target_brand,
+                    "safe_context": f"project-ref:{safe_project_ref}",
+                    "allowed_evidence_refs": [],
+                },
+                policy=policy,
+                policy_id="brandrank-runtime",
+                policy_version="1",
+                adopt_model_inferred=adopt_model_inferred,
+                on_model_failure=on_model_failure,
+                data_classification="internal",
+                allow_external_model=allow_external_model,
+                max_latency_ms=max_latency_ms,
+                max_cost_usd=max_cost_usd,
+            )
+            response = ReasoningEngine(
+                knowledge_registry(settings),
+                repository,
+                knowledge_gateway(settings),
+            ).decide(runtime)
+            session.commit()
+    except (
+        KeyError,
+        ValueError,
+        ReasoningError,
+        KnowledgeReleaseError,
+        OSError,
+        SQLAlchemyError,
+    ) as exc:
+        if on_model_failure == "fail":
+            raise KnowledgeReasoningUnavailable(str(exc)) from exc
+        log.warning(
+            "brandrank_knowledge_reasoning_degraded",
+            exception_type=type(exc).__name__,
+            policy=policy.value,
+        )
+        return base_master, {
+            "policy": policy.value,
+            "policy_id": "brandrank-runtime",
+            "policy_version": "1",
+            "release": _master_release(base_master),
+            "model_called": False,
+            "model_inferred_adopted": 0,
+            "model_hypotheses": 0,
+            "cache_status": "bypass",
+            "degradation": [f"knowledge_runtime_unavailable:{type(exc).__name__}"],
+            "observation_count": 0,
+        }
+    overlay = apply_adopted_model_decisions(base_master, response.decisions)
+    return overlay, {
+        "policy": response.policy.value,
+        "policy_id": response.policy_id,
+        "policy_version": response.policy_version,
+        "release": asdict(response.release),
+        "model_called": response.prompt_id is not None,
+        "model_provider": response.model_provider,
+        "model": response.model_name,
+        "model_version": response.model_version,
+        "prompt_id": response.prompt_id,
+        "prompt_version": response.prompt_version,
+        "model_inferred_adopted": sum(
+            decision.knowledge_status.value == "model_inferred" and decision.adopted
+            for decision in response.decisions
+        ),
+        "model_hypotheses": len(response.model_hypotheses),
+        "cache_status": response.cache_status,
+        "degradation": list(response.degradation),
+        "observation_count": response.observation_count,
+        "latency_ms": response.latency_ms,
+        "usage": response.usage,
+    }
 
 
 # ── DB 读取接缝（单测 monkeypatch 点；生产走真 PG）──────────────────────────
@@ -294,7 +494,15 @@ def compute_brand_visibility(
     category: str | None = None,
     target_brand: str | None = None,
     competitors: list[str] | None = None,
+    comparison_scopes: list[str] | None = None,
     top_ns: tuple[int, ...] | None = None,
+    reasoning_policy: ReasoningPolicy | str = ReasoningPolicy.DETERMINISTIC_ONLY,
+    adopt_model_inferred: bool = False,
+    on_reasoning_failure: str = "degrade",
+    allow_external_reasoning_model: bool = False,
+    max_reasoning_latency_ms: int | None = None,
+    max_reasoning_cost_usd: float | None = None,
+    reasoning_request_id: str | None = None,
     client_factory: Callable[[], Any] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
@@ -320,6 +528,8 @@ def compute_brand_visibility(
         if competitors is not None
         else project["competitor_names"][:_MAX_COMPETITORS]
     )
+    resolved_comparison_scopes = tuple(comparison_scopes or ())
+    resolved_reasoning_policy = ReasoningPolicy(reasoning_policy)
 
     now = now or datetime.now(UTC)
     since = now - timedelta(days=window_days)
@@ -333,6 +543,7 @@ def compute_brand_visibility(
     entries: dict[str, list[str]] = {}
     pending: list[tuple[dict[str, Any], str]] = []
     n_table_ok = n_cache_ok = 0
+    extraction_prompt_version = str(rules.llm_defaults.get("prompt_version") or "legacy")
     for answer in answers:
         table_row = table_rows.get(answer["pub_id"])
         if table_row is not None and table_row.get("status") == "ok":
@@ -342,7 +553,11 @@ def compute_brand_visibility(
                 n_table_ok += 1
                 continue
             # ok 行但 brands 形状不符 → 与坏缓存同口径：不当命中，落兜底重抽
-        key = cache.cache_key(rules.domain, answer.get("response_text") or "")
+        key = cache.cache_key(
+            rules.domain,
+            answer.get("response_text") or "",
+            prompt_version=extraction_prompt_version,
+        )
         hit = cache.load(key)
         if hit is not None:
             entries[answer["pub_id"]] = list(hit["brands"])
@@ -368,7 +583,12 @@ def compute_brand_visibility(
             answer, key = pending[idx]
             if error is None:
                 cache.store(
-                    key, brands=brands or [], model=model or "", status="ok", domain=rules.domain
+                    key,
+                    brands=brands or [],
+                    model=model or "",
+                    status="ok",
+                    domain=rules.domain,
+                    prompt_version=extraction_prompt_version,
                 )
                 entries[answer["pub_id"]] = list(brands or [])
                 n_ok_new += 1
@@ -380,6 +600,7 @@ def compute_brand_visibility(
                     status="failed",
                     error=error,
                     domain=rules.domain,
+                    prompt_version=extraction_prompt_version,
                 )
                 n_failed_new += 1
                 log.warning(
@@ -406,6 +627,34 @@ def compute_brand_visibility(
             continue
         records.append(adapter.answer_to_brand_record(answer, brands))
 
+    settings = get_settings()
+    entity_master = load_entity_master(
+        rules.domain,
+        snapshot_dir=settings.siliconindex_snapshot_dir,
+        knowledge_release_dir=settings.knowledge_release_dir,
+    )
+    entity_master, reasoning = _reasoned_entity_master(
+        tenant_pub_id=tenant_pub_id,
+        project_pub_id=project_pub_id,
+        request_id=reasoning_request_id
+        or "brandrank:"
+        + hashlib.sha256(
+            f"{tenant_pub_id}|{project_pub_id}|{since.isoformat()}".encode()
+        ).hexdigest(),
+        rules=rules,
+        base_master=entity_master,
+        answers=answers,
+        entries=entries,
+        target_brand=resolved_target,
+        competitors=resolved_competitors,
+        comparison_scopes=resolved_comparison_scopes,
+        policy=resolved_reasoning_policy,
+        adopt_model_inferred=adopt_model_inferred,
+        on_model_failure=on_reasoning_failure,
+        allow_external_model=allow_external_reasoning_model,
+        max_latency_ms=max_reasoning_latency_ms,
+        max_cost_usd=max_reasoning_cost_usd,
+    )
     result = metrics.analyze(
         records,
         source_records,
@@ -413,6 +662,8 @@ def compute_brand_visibility(
         target_brand=resolved_target,
         competitors=resolved_competitors,
         top_ns=resolved_top_ns,
+        entity_master=entity_master,
+        comparison_scopes=resolved_comparison_scopes,
     )
     result["insufficient"] = len(answers) == 0  # 0 条 eligible=数据不足（照报告 T1 语义）
     result["extraction"] = {  # 抽取账目披露（诚实边界）
@@ -423,6 +674,7 @@ def compute_brand_visibility(
         "failed_new": n_failed_new,
         "failed_total": n_failed_total,
         "llm_model": model,
+        "prompt_version": extraction_prompt_version,
     }
 
     return {
@@ -436,7 +688,9 @@ def compute_brand_visibility(
         "category": resolved_category,
         "target_brand": resolved_target,
         "competitors": resolved_competitors,
+        "comparison_scopes": list(resolved_comparison_scopes),
         "truncated": truncated,
         "llm": {"enabled": cfg is not None, "model": model},
+        "knowledge_reasoning": reasoning,
         "result": result,
     }

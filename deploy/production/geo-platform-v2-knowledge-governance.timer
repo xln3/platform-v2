@@ -1,0 +1,12 @@
+[Unit]
+Description=Run knowledge governance every Monday
+
+[Timer]
+OnCalendar=Mon *-*-* 03:37:00
+RandomizedDelaySec=1800
+FixedRandomDelay=true
+Persistent=true
+Unit=geo-platform-v2-knowledge-governance.service
+
+[Install]
+WantedBy=timers.target

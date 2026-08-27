@@ -35,6 +35,7 @@ from domain.reporting.service1_metrics import (
     source_cooccurrence,
 )
 from geo_platform.brandrank import service as brandrank_service
+from geo_platform.config import get_settings
 from geo_platform.evidence.object_store import ContentAddressedObjectStore
 from geo_platform.tenancy.psycopg import tenant_connection
 
@@ -664,7 +665,11 @@ def enrich_service1_v2_facts(
     sampling_provenance = _load_sampling_provenance(dsn, tenant_pub_id, balanced_ids)
     citation_snapshots = _load_citation_snapshots(dsn, tenant_pub_id, balanced_ids)
     rules = load_domain(str(facts["domain"]))
-    entity_master = load_entity_master(str(facts["domain"]))
+    entity_master = load_entity_master(
+        str(facts["domain"]),
+        snapshot_dir=get_settings().siliconindex_snapshot_dir,
+        knowledge_release_dir=get_settings().knowledge_release_dir,
+    )
     target_brand = str(facts["target_brand"])
     native_answer_anchors = _load_native_answer_anchors(dsn, tenant_pub_id, answers, target_brand)
     governed_target = normalize_answer_entities(

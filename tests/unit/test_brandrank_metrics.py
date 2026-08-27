@@ -223,3 +223,57 @@ def test_by_engine_additive_grouping(rules):
     # 零漂移：既有分组与 overall 与无 engine 时逐键一致
     for key in ("overall", "by_mode", "by_ip", "by_type"):
         assert res[key] == without_engine[key]
+
+
+def test_cybersecurity_metrics_use_governed_entities_for_formal_merged_ranking() -> None:
+    records = [
+        {
+            "brands": [
+                "腾讯云",
+                "腾讯",
+                "绿盟",
+                "新大陆",
+                "数字认证",
+                "Nmap",
+                "尚未治理的新实体",
+            ],
+            "query": "网安厂商推荐",
+            "thinking_mode": "快速",
+            "ip": "北京",
+            "rec_type": "公司",
+        },
+        {
+            "brands": ["腾讯安全", "华为云", "绿盟科技", "BJCA", "新大陆公共服务公司"],
+            "query": "网证厂商推荐",
+            "thinking_mode": "思考",
+            "ip": "上海",
+            "rec_type": "公司",
+        },
+    ]
+
+    result = metrics.analyze(
+        records,
+        [],
+        rules=load_domain("cybersecurity"),
+        target_brand="腾讯云",
+        comparison_scopes=("ctid",),
+    )
+    merged = {row["brand"]: row for row in result["overall"]["merged"]}
+    raw = {row["brand"] for row in result["overall"]["raw"]}
+
+    assert set(merged) == {"腾讯", "华为", "绿盟科技", "数字认证", "新大陆"}
+    assert merged["腾讯"]["occurrences"] == 2  # 同一答案的“腾讯云+腾讯”只计一次
+    assert merged["绿盟科技"]["occurrences"] == 2
+    assert merged["数字认证"]["occurrences"] == 2
+    assert merged["数字认证"]["industry_fit"] == "core_cybersecurity"
+    assert merged["新大陆"]["industry_fit"] == "scenario_specific_adjacent"
+    assert "腾讯云" in raw and "腾讯" in raw and "Nmap" in raw
+    assert "Nmap" not in merged and "尚未治理的新实体" not in merged
+    assert result["target_brand"]["brand"] == "腾讯"
+    assert result["target_brand"]["mentions"] == 2
+    assert result["entity_resolution"]["counts"]["alias_collapses_within_answers"] == 1
+    assert result["entity_resolution"]["counts"]["unclassified_distinct_names"] == 1
+
+    general = metrics.analyze(records, [], rules=load_domain("cybersecurity"))
+    assert "新大陆" not in {row["brand"] for row in general["overall"]["merged"]}
+    assert general["entity_resolution"]["master"]["comparison_scopes"] == []

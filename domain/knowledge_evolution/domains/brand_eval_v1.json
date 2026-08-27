@@ -1,0 +1,169 @@
+{
+  "schema_version": "brand-eval-v1",
+  "analysis_domain": "cybersecurity",
+  "cases": [
+    {
+      "id": "tencent-cloud-rollup",
+      "mentions": ["腾讯云", "腾讯"],
+      "comparison_scopes": ["cloud_security"],
+      "contexts": ["腾讯云提供云安全与身份安全服务。"],
+      "expected": {
+        "entity_id": "CYB-BR-TENCENT",
+        "canonical_name": "腾讯",
+        "deduped_entity_count": 1,
+        "eligible": true,
+        "relationships": {"腾讯云": "business_unit_of", "腾讯": "self"}
+      }
+    },
+    {
+      "id": "huawei-cloud-rollup",
+      "mentions": ["华为云", "华为"],
+      "comparison_scopes": ["cloud_security"],
+      "contexts": ["华为云是华为的云服务品牌。"],
+      "expected": {
+        "entity_id": "CYB-BR-HUAWEI",
+        "canonical_name": "华为",
+        "deduped_entity_count": 1,
+        "eligible": true,
+        "relationships": {"华为云": "business_unit_of", "华为": "self"}
+      }
+    },
+    {
+      "id": "nsfocus-cross-language-aliases",
+      "mentions": ["绿盟", "NSFOCUS", "绿盟科技"],
+      "comparison_scopes": ["cybersecurity"],
+      "contexts": ["NSFOCUS（绿盟科技）提供网络安全服务。"],
+      "expected": {
+        "entity_id": "CYB-BR-NSFOCUS",
+        "canonical_name": "绿盟科技",
+        "deduped_entity_count": 1,
+        "eligible": true,
+        "relationships": {
+          "绿盟": "official_abbreviation",
+          "NSFOCUS": "english_name",
+          "绿盟科技": "self"
+        }
+      }
+    },
+    {
+      "id": "bjca-trade-name",
+      "mentions": ["BJCA", "数字认证"],
+      "comparison_scopes": ["cybersecurity"],
+      "contexts": ["BJCA 指北京数字认证股份有限公司的品牌。"],
+      "expected": {
+        "entity_id": "CYB-BR-BJCA",
+        "canonical_name": "数字认证",
+        "deduped_entity_count": 1,
+        "eligible": true,
+        "relationships": {"BJCA": "trade_name", "数字认证": "self"}
+      }
+    },
+    {
+      "id": "newland-general-negative",
+      "mentions": ["新大陆"],
+      "comparison_scopes": ["cybersecurity"],
+      "contexts": ["本轮评估讨论通用网络安全厂商。"],
+      "expected": {
+        "entity_id": "CYB-BR-NEWLAND",
+        "canonical_name": "新大陆",
+        "deduped_entity_count": 1,
+        "eligible": false,
+        "relationships": {"新大陆": "self"}
+      }
+    },
+    {
+      "id": "newland-ctid-positive",
+      "mentions": ["新大陆", "新大陆数字技术股份有限公司"],
+      "comparison_scopes": ["ctid", "digital_identity"],
+      "contexts": ["本轮评估限定于 CTID 网证与可信数字身份方案。"],
+      "expected": {
+        "entity_id": "CYB-BR-NEWLAND",
+        "canonical_name": "新大陆",
+        "deduped_entity_count": 1,
+        "eligible": true,
+        "relationships": {
+          "新大陆": "self",
+          "新大陆数字技术股份有限公司": "brand_family_member"
+        }
+      }
+    },
+    {
+      "id": "product-rollup-zoomeye",
+      "mentions": ["ZoomEye", "知道创宇"],
+      "comparison_scopes": ["cybersecurity"],
+      "contexts": ["ZoomEye 是知道创宇的网络空间测绘产品。"],
+      "expected": {
+        "entity_id": "CYB-BR-KNOWNSEC",
+        "canonical_name": "知道创宇",
+        "deduped_entity_count": 1,
+        "eligible": true,
+        "relationships": {"ZoomEye": "product_of", "知道创宇": "self"}
+      }
+    },
+    {
+      "id": "historical-name-westone",
+      "mentions": ["卫士通", "电科网安"],
+      "comparison_scopes": ["cybersecurity"],
+      "contexts": ["卫士通现使用电科网安品牌名称。"],
+      "expected": {
+        "entity_id": "CYB-BR-WESTONE",
+        "canonical_name": "电科网安",
+        "deduped_entity_count": 1,
+        "eligible": true,
+        "relationships": {"卫士通": "historical_name", "电科网安": "self"}
+      }
+    },
+    {
+      "id": "product-rollup-raytag",
+      "mentions": ["RayTAG", "盛邦安全"],
+      "comparison_scopes": ["ctid"],
+      "contexts": ["RayTAG 网证是盛邦安全的产品。"],
+      "expected": {
+        "entity_id": "CYB-BR-WEBRAY",
+        "canonical_name": "盛邦安全",
+        "deduped_entity_count": 1,
+        "eligible": true,
+        "relationships": {"RayTAG": "product_of", "盛邦安全": "self"}
+      }
+    },
+    {
+      "id": "product-name-not-company-negative",
+      "mentions": ["腾讯会议"],
+      "comparison_scopes": ["cybersecurity"],
+      "contexts": ["腾讯会议是一款会议产品，不应仅因腾讯字样并入厂商榜。"],
+      "expected": {
+        "entity_id": null,
+        "canonical_name": "腾讯会议",
+        "deduped_entity_count": 1,
+        "eligible": false,
+        "relationships": {"腾讯会议": "unresolved"}
+      }
+    },
+    {
+      "id": "similar-string-negative",
+      "mentions": ["绿盟大学"],
+      "comparison_scopes": ["cybersecurity"],
+      "contexts": ["名称相似但没有证据证明它是绿盟科技品牌别名。"],
+      "expected": {
+        "entity_id": null,
+        "canonical_name": "绿盟大学",
+        "deduped_entity_count": 1,
+        "eligible": false,
+        "relationships": {"绿盟大学": "unresolved"}
+      }
+    },
+    {
+      "id": "cross-industry-negative",
+      "mentions": ["Apple"],
+      "comparison_scopes": ["cybersecurity"],
+      "contexts": ["这里的 Apple 指消费电子公司，并非网安竞品。"],
+      "expected": {
+        "entity_id": null,
+        "canonical_name": "Apple",
+        "deduped_entity_count": 1,
+        "eligible": false,
+        "relationships": {"Apple": "unresolved"}
+      }
+    }
+  ]
+}

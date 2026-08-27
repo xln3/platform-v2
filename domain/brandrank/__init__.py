@@ -14,7 +14,14 @@ REST 层在 api/geo_platform/brandrank/（service+router），挂载于 api/geo_
 
 from __future__ import annotations
 
-from .entities import EntityMaster, EntityRecord, load_entity_master, normalize_answer_entities
+from .entities import (
+    EntityMaster,
+    EntityRecord,
+    load_entity_master,
+    normalize_answer_entities,
+    summarize_entity_resolution,
+)
+from .resolution import build_resolution_prompt, resolve_candidates_with_llm
 from .rules import DEFAULT_DOMAIN, DomainRules, available_domains, domain_for_industry, load_domain
 
 __all__ = [
@@ -23,8 +30,11 @@ __all__ = [
     "EntityMaster",
     "EntityRecord",
     "available_domains",
+    "build_resolution_prompt",
     "domain_for_industry",
     "load_entity_master",
     "load_domain",
     "normalize_answer_entities",
+    "resolve_candidates_with_llm",
+    "summarize_entity_resolution",
 ]

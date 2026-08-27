@@ -1,0 +1,531 @@
+#!/usr/bin/env python3
+"""Create the initial local brand release and optionally import its lineage."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import sys
+import unicodedata
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+from sqlalchemy import select
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from api.geo_platform.config import get_settings  # noqa: E402
+from api.geo_platform.knowledge.models import (  # noqa: E402
+    Adjudication,
+    Candidate,
+    ChangeSet,
+    Evidence,
+    KnowledgeObject,
+    KnowledgeRelease,
+    Proposal,
+    ReleaseActivation,
+)
+from api.geo_platform.knowledge.repository import KnowledgeRepository  # noqa: E402
+from api.geo_platform.tenancy.database import SessionLocal  # noqa: E402
+from api.geo_platform.tenancy.ids import new_pub_id  # noqa: E402
+from api.geo_platform.tenancy.repository import TenantRepository  # noqa: E402
+from domain.knowledge_evolution.contracts import ObservationDraft  # noqa: E402
+from domain.knowledge_evolution.release import KnowledgeReleaseStore  # noqa: E402
+
+
+def _hash(value: str) -> str:
+    return "sha256:" + hashlib.sha256(value.encode()).hexdigest()
+
+
+def _key(value: str) -> str:
+    return "".join(unicodedata.normalize("NFKC", value).split()).casefold()
+
+
+def _load_projection(path: Path) -> dict[str, Any]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict) or not isinstance(value.get("entities"), list):
+        raise SystemExit("invalid_projection")
+    if value.get("source_system") != "siliconindex":
+        raise SystemExit("projection_must_come_from_siliconindex")
+    if not value.get("source_release_id") or not value.get("source_content_hash"):
+        raise SystemExit("projection_source_release_required")
+    entity_ids: set[str] = set()
+    for row in value["entities"]:
+        if not isinstance(row, dict):
+            raise SystemExit("projection_entity_invalid")
+        entity_id = str(row.get("entity_id") or "")
+        if not entity_id or entity_id in entity_ids:
+            raise SystemExit("projection_entity_id_invalid")
+        entity_ids.add(entity_id)
+        if row.get("review_status") == "reviewed" and not row.get("evidence_urls"):
+            raise SystemExit(f"reviewed_entity_without_evidence:{entity_id}")
+    return value
+
+
+def _document(projection: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    analysis_domain = str(projection["domain"])
+    reviewed = [
+        dict(row) for row in projection["entities"] if row.get("review_status") == "reviewed"
+    ]
+    pending = [row for row in projection["entities"] if row.get("review_status") != "reviewed"]
+    domain_projection = {
+        key: value for key, value in projection.items() if key not in {"entities", "source_url"}
+    }
+    domain_projection["entities"] = reviewed
+    document = {
+        "schema_version": "brand-knowledge-v1",
+        "domain": "brand/entity-resolution",
+        "source_system": "siliconindex",
+        "source_release_id": projection["source_release_id"],
+        "source_content_hash": projection["source_content_hash"],
+        "analysis_domains": {analysis_domain: domain_projection},
+    }
+    quality = {
+        "quality_gate": "passed",
+        "source_system": "siliconindex",
+        "source_release_id": projection["source_release_id"],
+        "source_content_hash": projection["source_content_hash"],
+        "analysis_domain": analysis_domain,
+        "entity_total": len(projection["entities"]),
+        "reviewed_published": len(reviewed),
+        "pending_candidates": len(pending),
+        "reviewed_without_evidence": 0,
+    }
+    return document, quality
+
+
+def _import_database(
+    *,
+    tenant_pub_id: str,
+    release_id: str,
+    manifest: dict[str, Any],
+    projection: dict[str, Any],
+    artifact_uri: str,
+) -> dict[str, Any]:
+    namespace = "shared"
+    domain = "brand/entity-resolution"
+    source_release = str(projection["source_release_id"])
+    import_actor = f"siliconindex:{source_release}"
+    reviewer = "migration:reviewed-source"
+    publisher = "migration:release-publisher"
+    with SessionLocal() as session:
+        TenantRepository(session, tenant_pub_id)
+        existing = session.scalar(
+            select(KnowledgeRelease).where(
+                KnowledgeRelease.tenant_pub_id == tenant_pub_id,
+                KnowledgeRelease.namespace == namespace,
+                KnowledgeRelease.domain == domain,
+                KnowledgeRelease.release_id == release_id,
+            )
+        )
+        if existing is not None:
+            return {"database": "already_imported", "release_pub_id": existing.pub_id}
+        repository = KnowledgeRepository(session, tenant_pub_id)
+        source_ref_hash = _hash(f"siliconindex:{source_release}")
+        now = datetime.now(UTC)
+        reviewed_changes: list[dict[str, Any]] = []
+        reviewed_count = 0
+        pending_count = 0
+        for entity in projection["entities"]:
+            entity_id = str(entity["entity_id"])
+            canonical = str(entity["canonical_name"])
+            status = str(entity.get("review_status") or "pending")
+            observation = ObservationDraft(
+                namespace=namespace,
+                domain=domain,
+                task="siliconindex_import",
+                surface_form=canonical,
+                normalized_key=_key(canonical),
+                source_type="siliconindex_release",
+                source_ref_hash=source_ref_hash,
+                idempotency_key=hashlib.sha256(
+                    f"{source_release}|{entity_id}".encode()
+                ).hexdigest(),
+                safe_context=None,
+                data_classification="public",
+                visibility="public",
+                payload={
+                    "source_release_id": source_release,
+                    "source_content_hash": projection["source_content_hash"],
+                    "review_status": status,
+                    "policy_version": "siliconindex-schema-1.1.0",
+                },
+            )
+            repository.record_observations(tenant_pub_id, (observation,))
+            candidate = session.scalar(
+                select(Candidate).where(
+                    Candidate.tenant_pub_id == tenant_pub_id,
+                    Candidate.namespace == namespace,
+                    Candidate.domain == domain,
+                    Candidate.aggregation_key == _hash(_key(canonical)),
+                )
+            )
+            if candidate is None:
+                raise RuntimeError("candidate_import_failed")
+            if status != "reviewed":
+                pending_count += 1
+                continue
+            reviewed_count += 1
+            attributes = {"analysis_domain": projection["domain"], **dict(entity)}
+            proposal = Proposal(
+                pub_id=new_pub_id("kpr"),
+                tenant_pub_id=tenant_pub_id,
+                namespace=namespace,
+                domain=domain,
+                candidate_id=candidate.id,
+                operation="create",
+                target_stable_id=entity_id,
+                payload=attributes,
+                alternatives=[],
+                confidence={"source_review_status": "reviewed"},
+                policy_version="siliconindex-schema-1.1.0",
+                state="approved",
+                created_by=import_actor,
+            )
+            session.add(proposal)
+            session.flush()
+            evidence_pub_ids: list[str] = []
+            for uri in entity.get("evidence_urls", []):
+                evidence = Evidence(
+                    pub_id=new_pub_id("kev"),
+                    tenant_pub_id=tenant_pub_id,
+                    namespace=namespace,
+                    domain=domain,
+                    candidate_id=candidate.id,
+                    proposal_id=proposal.id,
+                    source_uri=str(uri),
+                    content_hash=_hash(f"evidence-reference:{uri}"),
+                    publisher=str(uri).split("/", 3)[2],
+                    claim=f"Supports the governed identity and comparison profile for {canonical}.",
+                    stance="supports",
+                    summary="Reviewed public source reference imported from SiliconIndex.",
+                    trust_tier="primary",
+                    visibility="public",
+                    data_classification="public",
+                    acquired_at=now,
+                    created_by=import_actor,
+                )
+                session.add(evidence)
+                session.flush()
+                evidence_pub_ids.append(evidence.pub_id)
+            session.add(
+                Adjudication(
+                    pub_id=new_pub_id("kad"),
+                    tenant_pub_id=tenant_pub_id,
+                    namespace=namespace,
+                    domain=domain,
+                    proposal_id=proposal.id,
+                    decision="approved",
+                    reason=(
+                        "Imported from a reviewed SiliconIndex object with at least one "
+                        "public evidence reference."
+                    ),
+                    policy_version="migration-policy-v1",
+                    before_value={},
+                    after_value=attributes,
+                    decided_by=reviewer,
+                )
+            )
+            session.add(
+                KnowledgeObject(
+                    pub_id=new_pub_id("kno"),
+                    tenant_pub_id=tenant_pub_id,
+                    namespace=namespace,
+                    domain=domain,
+                    stable_id=entity_id,
+                    object_type=str(entity.get("entity_type") or "company"),
+                    attributes=attributes,
+                    origin="siliconindex_import",
+                    review_status="reviewed",
+                    visibility="public",
+                    sync_status="reconciled",
+                    version=1,
+                )
+            )
+            candidate.state = "local_published"
+            candidate.evidence_version = source_release
+            reviewed_changes.append(
+                {
+                    "kind": "knowledge_object",
+                    "operation": "upsert",
+                    "proposal_pub_id": proposal.pub_id,
+                    "stable_id": entity_id,
+                    "object_type": str(entity.get("entity_type") or "company"),
+                    "attributes": attributes,
+                    "review_status": "reviewed",
+                    "visibility": "public",
+                    "evidence_pub_ids": evidence_pub_ids,
+                }
+            )
+        change_set = ChangeSet(
+            pub_id=new_pub_id("kcs"),
+            tenant_pub_id=tenant_pub_id,
+            namespace=namespace,
+            domain=domain,
+            base_release_id=None,
+            changes=reviewed_changes,
+            dependency_ids=[],
+            conflicts=[],
+            visibility="public",
+            state="local_published",
+            created_by=import_actor,
+            approved_by=reviewer,
+            approved_at=now,
+        )
+        session.add(change_set)
+        release = repository.add_release(
+            namespace=namespace,
+            domain=domain,
+            release_id=release_id,
+            parent_release_id=None,
+            schema_version=str(manifest["schema_version"]),
+            content_hash=str(manifest["content_hash"]),
+            artifact_uri=artifact_uri,
+            quality_report=dict(manifest["quality_report"]),
+            actor=publisher,
+        )
+        repository.activate_release(
+            namespace=namespace,
+            domain=domain,
+            release_id=release_id,
+            previous_release_id=None,
+            action="activate",
+            actor=publisher,
+        )
+        connector = repository.create_connector_run(
+            {
+                "namespace": namespace,
+                "domain": domain,
+                "adapter": "siliconindex-static-v1",
+                "operation": "import",
+                "status": "success",
+                "upstream_release_id": source_release,
+                "local_release_id": release_id,
+                "result": {
+                    "reviewed_imported": reviewed_count,
+                    "pending_candidates": pending_count,
+                },
+                "finished_at": now,
+            }
+        )
+        repository.audit(
+            namespace=namespace,
+            domain=domain,
+            actor=publisher,
+            action="connector_run.completed",
+            resource_type="connector_run",
+            resource_pub_id=connector.pub_id,
+            receipt=dict(connector.result),
+        )
+        session.commit()
+        return {
+            "database": "imported",
+            "release_pub_id": release.pub_id,
+            "reviewed_imported": reviewed_count,
+            "pending_candidates": pending_count,
+        }
+
+
+def _record_database_lineage_only(
+    *,
+    tenant_pub_id: str,
+    release_id: str,
+    manifest: dict[str, Any],
+    projection: dict[str, Any],
+    artifact_uri: str,
+) -> dict[str, Any]:
+    """Record a metadata-only successor when the governed objects did not change."""
+
+    namespace = "shared"
+    domain = "brand/entity-resolution"
+    source_release = str(projection["source_release_id"])
+    source_content_hash = str(projection["source_content_hash"])
+    parent_release_id = manifest.get("parent_release_id")
+    if not isinstance(parent_release_id, str) or not parent_release_id:
+        raise RuntimeError("lineage_only_parent_release_required")
+
+    publisher = "migration:release-publisher"
+    now = datetime.now(UTC)
+    with SessionLocal() as session:
+        TenantRepository(session, tenant_pub_id)
+        existing = session.scalar(
+            select(KnowledgeRelease).where(
+                KnowledgeRelease.tenant_pub_id == tenant_pub_id,
+                KnowledgeRelease.namespace == namespace,
+                KnowledgeRelease.domain == domain,
+                KnowledgeRelease.release_id == release_id,
+            )
+        )
+        if existing is not None:
+            if existing.content_hash != manifest["content_hash"]:
+                raise RuntimeError("existing_release_content_hash_mismatch")
+            return {"database": "already_recorded", "release_pub_id": existing.pub_id}
+
+        parent = session.scalar(
+            select(KnowledgeRelease).where(
+                KnowledgeRelease.tenant_pub_id == tenant_pub_id,
+                KnowledgeRelease.namespace == namespace,
+                KnowledgeRelease.domain == domain,
+                KnowledgeRelease.release_id == parent_release_id,
+            )
+        )
+        if parent is None:
+            raise RuntimeError("lineage_only_parent_release_not_found")
+        parent_source_hash = str(parent.quality_report.get("source_content_hash") or "")
+        if parent_source_hash != source_content_hash:
+            raise RuntimeError("lineage_only_requires_unchanged_source_content")
+
+        latest_activation = session.scalar(
+            select(ReleaseActivation)
+            .where(
+                ReleaseActivation.tenant_pub_id == tenant_pub_id,
+                ReleaseActivation.namespace == namespace,
+                ReleaseActivation.domain == domain,
+            )
+            .order_by(ReleaseActivation.occurred_at.desc(), ReleaseActivation.pub_id.desc())
+            .limit(1)
+        )
+        if latest_activation is None or latest_activation.release_id != parent_release_id:
+            raise RuntimeError("lineage_only_parent_is_not_active")
+
+        repository = KnowledgeRepository(session, tenant_pub_id)
+        current_objects = repository.current_objects(namespace=namespace, domain=domain)
+        reviewed_entities = {
+            str(entity["entity_id"]): {
+                "analysis_domain": projection["domain"],
+                **dict(entity),
+            }
+            for entity in projection["entities"]
+            if entity.get("review_status") == "reviewed"
+        }
+        current_by_id = {
+            row.stable_id: row for row in current_objects if row.review_status == "reviewed"
+        }
+        if set(current_by_id) != set(reviewed_entities):
+            raise RuntimeError("lineage_only_governed_object_set_changed")
+        if any(
+            dict(current_by_id[stable_id].attributes) != attributes
+            for stable_id, attributes in reviewed_entities.items()
+        ):
+            raise RuntimeError("lineage_only_governed_object_content_changed")
+
+        release = repository.add_release(
+            namespace=namespace,
+            domain=domain,
+            release_id=release_id,
+            parent_release_id=parent_release_id,
+            schema_version=str(manifest["schema_version"]),
+            content_hash=str(manifest["content_hash"]),
+            artifact_uri=artifact_uri,
+            quality_report=dict(manifest["quality_report"]),
+            actor=publisher,
+        )
+        repository.activate_release(
+            namespace=namespace,
+            domain=domain,
+            release_id=release_id,
+            previous_release_id=parent_release_id,
+            action="activate",
+            actor=publisher,
+        )
+        connector = repository.create_connector_run(
+            {
+                "namespace": namespace,
+                "domain": domain,
+                "adapter": "siliconindex-static-v1",
+                "operation": "reconcile",
+                "status": "success",
+                "base_release_id": parent_release_id,
+                "upstream_release_id": source_release,
+                "local_release_id": release_id,
+                "result": {
+                    "mode": "lineage_only",
+                    "outcome": "zero_data_change",
+                    "reviewed_objects_verified": len(reviewed_entities),
+                    "source_content_hash": source_content_hash,
+                },
+                "finished_at": now,
+            }
+        )
+        repository.audit(
+            namespace=namespace,
+            domain=domain,
+            actor=publisher,
+            action="connector_run.completed",
+            resource_type="connector_run",
+            resource_pub_id=connector.pub_id,
+            receipt=dict(connector.result),
+        )
+        session.commit()
+        return {
+            "database": "lineage_recorded",
+            "release_pub_id": release.pub_id,
+            "parent_release_id": parent_release_id,
+            "reviewed_objects_verified": len(reviewed_entities),
+            "outcome": "zero_data_change",
+        }
+
+
+def main() -> None:
+    settings = get_settings()
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--projection",
+        type=Path,
+        default=PROJECT_ROOT
+        / "domain/brandrank/rules_data/siliconindex_projection_cybersecurity.json",
+    )
+    parser.add_argument("--release-id", required=True)
+    parser.add_argument("--release-dir", default=settings.knowledge_release_dir)
+    parser.add_argument("--database", action="store_true")
+    parser.add_argument(
+        "--lineage-only",
+        action="store_true",
+        help="Record a zero-data-change successor without duplicating governed objects.",
+    )
+    parser.add_argument(
+        "--tenant-pub-id",
+        default=settings.knowledge_governance_tenant_pub_id,
+    )
+    args = parser.parse_args()
+
+    if args.lineage_only and not args.database:
+        raise SystemExit("lineage_only_requires_database")
+
+    projection = _load_projection(args.projection)
+    document, quality = _document(projection)
+    store = KnowledgeReleaseStore(args.release_dir)
+    manifest = store.publish(
+        release_id=args.release_id,
+        schema_version="knowledge-release-v1",
+        documents={"brand/entity-resolution": document},
+        parent_release_id=store.current_release_id(),
+        quality_report=quality,
+        activate=True,
+    )
+    result: dict[str, Any] = {
+        "release_id": manifest["release_id"],
+        "content_hash": manifest["content_hash"],
+        "artifact": str(Path(args.release_dir) / args.release_id),
+        "quality_report": quality,
+    }
+    if args.database:
+        if not args.tenant_pub_id:
+            raise SystemExit("tenant_pub_id_required_for_database_import")
+        importer = _record_database_lineage_only if args.lineage_only else _import_database
+        result["lineage"] = importer(
+            tenant_pub_id=args.tenant_pub_id,
+            release_id=args.release_id,
+            manifest=manifest,
+            projection=projection,
+            artifact_uri=str(Path(args.release_dir) / args.release_id),
+        )
+    print(json.dumps(result, ensure_ascii=False, indent=2))
+
+
+if __name__ == "__main__":
+    main()

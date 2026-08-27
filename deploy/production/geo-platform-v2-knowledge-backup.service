@@ -1,0 +1,18 @@
+[Unit]
+Description=Back up immutable GEO knowledge release artifacts
+After=geo-platform-v2-backup.service
+
+[Service]
+Type=oneshot
+User=xln
+Group=xln
+WorkingDirectory=/home/xln/geo-system/platform-v2
+EnvironmentFile=/etc/geo-platform-v2/platform.env
+ExecStart=/home/xln/geo-system/platform-v2/.venv/bin/python tools/knowledge_release_backup.py backup --source /var/lib/geo-platform-v2/knowledge --backup-root /home/xln/geo-system/platform-v2/.production-backups/knowledge
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadOnlyPaths=/var/lib/geo-platform-v2/knowledge
+ReadWritePaths=/home/xln/geo-system/platform-v2/.production-backups/knowledge
+UMask=0077

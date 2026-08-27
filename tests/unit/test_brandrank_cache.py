@@ -1,4 +1,4 @@
-"""domain.brandrank.cache：抽取结果文件缓存——键含 domain+答案哈希、ok 命中/failed 重试、原子写。"""
+"""品牌抽取文件缓存：键含 domain、prompt 版本和答案哈希。"""
 
 import json
 from pathlib import Path
@@ -12,6 +12,12 @@ def test_key_contains_domain_and_text():
     k3 = cache.cache_key("insurance", "正文B")
     assert k1 != k2 and k1 != k3 and k2 != k3
     assert len(k1) == 64  # sha256 hex
+
+
+def test_key_contains_prompt_version():
+    assert cache.cache_key("cybersecurity", "正文", prompt_version="mention-v1") != cache.cache_key(
+        "cybersecurity", "正文", prompt_version="mention-v2"
+    )
 
 
 def test_store_load_roundtrip(tmp_path: Path):
@@ -29,6 +35,7 @@ def test_store_load_roundtrip(tmp_path: Path):
     assert hit is not None
     assert hit["brands"] == ["中意人寿", "中国平安"]
     assert hit["model"] == "m1" and hit["domain"] == "insurance"
+    assert hit["prompt_version"] == "legacy"
     assert hit["status"] == "ok" and hit["extracted_at"]
 
 

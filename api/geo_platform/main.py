@@ -33,6 +33,7 @@ from .intake.router import public_router as intake_public_router
 from .intake.router import router as intake_router
 from .intake_form.router import router as intake_form_router
 from .intake_form.router import token_router as intake_form_token_router
+from .knowledge.router import router as knowledge_router
 from .logging import configure_logging
 from .observability import instrument_app
 from .otp.router import router as otp_router
@@ -226,6 +227,7 @@ app.include_router(intake_form_token_router)
 app.include_router(variants_router)
 app.include_router(post_analysis_router)
 app.include_router(brandrank_router)
+app.include_router(knowledge_router)
 app.include_router(source_analysis_router)
 app.include_router(source_intelligence_router)
 

@@ -1,0 +1,12 @@
+[Unit]
+Description=Refresh the shared SiliconIndex snapshot every six hours
+
+[Timer]
+OnCalendar=*-*-* 01,07,13,19:17:00
+RandomizedDelaySec=900
+FixedRandomDelay=true
+Persistent=true
+Unit=geo-platform-v2-siliconindex-sync.service
+
+[Install]
+WantedBy=timers.target

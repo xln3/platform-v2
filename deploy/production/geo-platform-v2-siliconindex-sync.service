@@ -1,0 +1,26 @@
+[Unit]
+Description=Refresh the shared SiliconIndex release snapshot
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=xln
+Group=xln
+WorkingDirectory=/home/xln/geo-system/platform-v2
+EnvironmentFile=-/etc/geo-platform-v2/platform.env
+Environment=GEO_SILICONINDEX_SNAPSHOT_DIR=/var/lib/geo-platform-v2/siliconindex
+Environment=GEO_SILICONINDEX_BASE_URL=https://siliconindex-consumer.onrender.com/data/v1
+ExecStart=/home/xln/geo-system/platform-v2/.venv/bin/python tools/sync_siliconindex_snapshot.py
+StateDirectory=geo-platform-v2/siliconindex
+StateDirectoryMode=0750
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+UMask=0027

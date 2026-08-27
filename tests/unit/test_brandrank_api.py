@@ -484,6 +484,58 @@ def test_table_hit_short_circuits_cache_and_llm(monkeypatch: pytest.MonkeyPatch)
     }
 
 
+def test_cybersecurity_table_hits_are_resolved_by_governed_entity_master(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """存量 raw 抽取无需重跑 LLM：读榜时统一归并、去重、分类并披露待审实体。"""
+
+    _override_principal()
+    project = _project("cybersecurity")
+    project["brand_names"] = ["盛邦安全"]
+    project["competitor_names"] = []
+    _patch_fetch(
+        monkeypatch,
+        answers=[
+            _answer("ans_1", "答案甲", query="网安厂商推荐"),
+            _answer("ans_2", "答案乙", query="网证厂商推荐"),
+        ],
+        citations={},
+        project=project,
+        table_rows={
+            "ans_1": _table_row(["腾讯云", "腾讯", "绿盟", "Nmap", "待审公司"]),
+            "ans_2": _table_row(
+                ["腾讯安全", "华为云", "绿盟科技", "北京数字认证股份有限公司", "新大陆"]
+            ),
+        },
+    )
+    monkeypatch.setattr(extract, "default_client", lambda: pytest.fail("表命中不应再调 LLM"))
+
+    response = _get()
+    assert response.status_code == 200
+    body = response.json()
+    merged = {row["brand"]: row for row in body["result"]["overall"]["merged"]}
+    assert set(merged) == {"腾讯", "华为", "绿盟科技", "数字认证"}
+    assert merged["腾讯"]["occurrences"] == 2
+    resolution = body["result"]["entity_resolution"]
+    assert resolution["master"]["aggregation_level"] == "brand_family"
+    assert resolution["master"]["source_system"] == "knowledge_evolution"
+    assert resolution["master"]["source_mode"] == "local_knowledge_release"
+    assert resolution["master"]["source_release_id"].startswith("knowledge-")
+    assert resolution["master"]["source_content_hash"].startswith("sha256:")
+    assert resolution["counts"]["alias_collapses_within_answers"] == 1
+    assert resolution["counts"]["unclassified_distinct_names"] == 2
+    assert {row["observed_name"] for row in resolution["pending_review"]} == {
+        "Nmap",
+        "待审公司",
+    }
+
+    scoped = _get("?comparison_scope=ctid")
+    assert scoped.status_code == 200
+    scoped_merged = {row["brand"] for row in scoped.json()["result"]["overall"]["merged"]}
+    assert "新大陆" in scoped_merged
+    assert scoped.json()["comparison_scopes"] == ["ctid"]
+
+
 def test_table_failed_row_falls_through_to_file_cache(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

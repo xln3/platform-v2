@@ -20,6 +20,14 @@
    "超级玛丽15号" 这类产品名，目标匹配会漏计；合并口径与本模块主排名表一致）。
    目标/竞品名本身也先过 normalize_brand（"中意人寿保险"→"中意人寿"）。
 4. 她的"未上榜"哨兵 ranking=999（compare L252 等）→ 本模块用 None（JSON 诚实空值）。
+
+实体治理（优先消费同步的 SiliconIndex 快照；生成投影只作离线兜底）：
+- ``raw`` 继续保留 LLM 抽取原名，作为审计事实；
+- ``merged`` 先按经审核实体主数据做品牌家族归并、答案内去重和竞品资格过滤；
+- 未分类名称不静默混入正式竞品榜，也不丢弃，而是在 ``entity_resolution.pending_review``
+  披露。默认线上计分应用版本化主数据；调用方显式采用时，请求级
+  ``model_inferred`` 覆盖也可影响当次计分，但不会修改或发布主数据。
+- 未配置实体主数据的旧领域继续逐行保持 legacy merge_rules 口径。
 """
 
 from __future__ import annotations
@@ -29,6 +37,12 @@ from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable, Sequence
 from typing import Any
 
+from .entities import (
+    EntityMaster,
+    load_entity_master,
+    normalize_answer_entities,
+    summarize_entity_resolution,
+)
 from .rules import DomainRules, normalize_brand, normalize_brand_list
 
 DEFAULT_TOP_NS = (3, 5, 10)
@@ -121,7 +135,11 @@ def _top_rates(
 
 
 def ranking_table(
-    brand_lists: list[list[str]], *, total_count: int, top_ns: Iterable[int] = DEFAULT_TOP_NS
+    brand_lists: list[list[str]],
+    *,
+    total_count: int,
+    top_ns: Iterable[int] = DEFAULT_TOP_NS,
+    entity_master: EntityMaster | None = None,
 ) -> list[dict[str, Any]]:
     """calculate_brand_ranking 的扩展表：每行追加 appearance_rate（分母=真实总条数）与 top_rates。
 
@@ -133,6 +151,25 @@ def ranking_table(
         ranks = rank_map[row["brand"]]
         row["appearance_rate"] = round(calculate_appearance_rate(ranks, total_count), 2)
         row["top_rates"] = _top_rates(ranks, top_ns, total_count)
+    if entity_master is not None:
+        by_canonical = {record.canonical_name: record for record in entity_master.entities}
+        for row in rows:
+            record = by_canonical.get(str(row["brand"]))
+            if record is None:
+                continue
+            row.update(
+                {
+                    "entity_id": record.entity_id,
+                    "entity_type": record.entity_type,
+                    "brand_level": record.brand_level,
+                    "industry_fit": record.industry_fit,
+                    "eligibility_mode": record.eligibility_mode,
+                    "competitor_scopes": list(record.competitor_scopes),
+                    "eligibility_note": record.eligibility_note,
+                    "knowledge_status": record.knowledge_status,
+                    "review_status": record.review_status,
+                }
+            )
     return rows
 
 
@@ -142,11 +179,17 @@ def _scope_stats(
     *,
     total_count: int,
     top_ns: Iterable[int],
+    entity_master: EntityMaster | None = None,
 ) -> dict[str, Any]:
     """一个范围（overall/某 mode/某 ip/某 type）的双口径排名表 + 分母披露。"""
     return {
         "raw": ranking_table(brand_lists_raw, total_count=total_count, top_ns=top_ns),
-        "merged": ranking_table(brand_lists_merged, total_count=total_count, top_ns=top_ns),
+        "merged": ranking_table(
+            brand_lists_merged,
+            total_count=total_count,
+            top_ns=top_ns,
+            entity_master=entity_master,
+        ),
         "denominators": {
             "n_answers": total_count,  # 本范围真实 eligible answer 条数（修正点①）
             "n_with_brands": len(brand_lists_raw),  # 非空品牌列表条数（她的 if brands: 过滤）
@@ -162,20 +205,48 @@ def brand_special(
     total_count: int,
     top_ns: Iterable[int] = DEFAULT_TOP_NS,
     overall_merged_table: list[dict[str, Any]] | None = None,
+    entity_master: EntityMaster | None = None,
+    named_competitors: Iterable[str] = (),
+    comparison_scopes: Iterable[str] = (),
 ) -> dict[str, Any]:
-    """目标品牌/竞品专项（同口径；修正点③：作用于合并后列表，品牌名先 normalize）。
+    """目标品牌/竞品专项（同口径；作用于领域对应的正式归并列表）。
 
+    有实体主数据时使用审核实体归并；否则沿用 legacy normalize_brand。
     records: 她的 brand_list 记录（raw brands 在记录内，本函数自行 normalize）。
     返回 mentions / appearance_rate / avg/best rank / top_rates / 每 query 排名明细。
     """
-    std = normalize_brand(brand, rules)
+    master = entity_master if entity_master is not None else load_entity_master(rules.domain)
+    use_governed_entities = bool(master.entities)
+    if use_governed_entities:
+        target_rows = normalize_answer_entities(
+            [brand],
+            rules=rules,
+            master=master,
+            target_brand=brand,
+            named_competitors=named_competitors,
+            comparison_scopes=comparison_scopes,
+        )
+        std = str(target_rows[0]["canonical_name"]) if target_rows else ""
+    else:
+        std = normalize_brand(brand, rules)
     mentions = 0
     ranks: list[int] = []
     query_analysis: list[dict[str, Any]] = []  # compare L177-183 同形（每出现一行）
     by_query: dict[str, dict[str, Any]] = {}
 
     for rec in records:
-        merged = normalize_brand_list(rec.get("brands") or [], rules)
+        if use_governed_entities:
+            entities = normalize_answer_entities(
+                rec.get("brands") or [],
+                rules=rules,
+                master=master,
+                target_brand=brand,
+                named_competitors=named_competitors,
+                comparison_scopes=comparison_scopes,
+            )
+            merged = [str(row["canonical_name"]) for row in entities if row["competitor_eligible"]]
+        else:
+            merged = normalize_brand_list(rec.get("brands") or [], rules)
         if std not in merged:
             continue
         rank = merged.index(std) + 1  # 排名从1开始（compare L174）
@@ -277,6 +348,8 @@ def analyze(
     target_brand: str | None = None,
     competitors: Iterable[str] = (),
     top_ns: Iterable[int] = DEFAULT_TOP_NS,
+    entity_master: EntityMaster | None = None,
+    comparison_scopes: Iterable[str] = (),
 ) -> dict[str, Any]:
     """一次运行的完整指标快照：overall/by_mode/by_ip/by_type/by_engine 双口径排名表
     + 目标品牌/竞品专项 + 信源分析 + 全量分母披露。
@@ -292,10 +365,38 @@ def analyze(
     但仍计入 n_answers 分母（分母=真实条数，修正点①）。
     """
     top_ns = tuple(top_ns)
+    competitors = tuple(competitors)
+    comparison_scopes = tuple(
+        dict.fromkeys(str(value).strip() for value in comparison_scopes if str(value).strip())
+    )
+    entity_master = entity_master if entity_master is not None else load_entity_master(rules.domain)
+    use_governed_entities = bool(entity_master.entities)
+    governed_by_record: dict[int, list[dict[str, Any]]] = {}
+    if use_governed_entities:
+        for record in records:
+            governed_by_record[id(record)] = normalize_answer_entities(
+                record.get("brands") or [],
+                rules=rules,
+                master=entity_master,
+                target_brand=target_brand,
+                named_competitors=competitors,
+                comparison_scopes=comparison_scopes,
+            )
 
     def lists_of(scope_records: list[dict[str, Any]]) -> tuple[list[list[str]], list[list[str]]]:
         raw = [r["brands"] for r in scope_records if r.get("brands")]
-        merged = [normalize_brand_list(b, rules) for b in raw]
+        if use_governed_entities:
+            merged = [
+                [
+                    str(row["canonical_name"])
+                    for row in governed_by_record[id(record)]
+                    if row["competitor_eligible"]
+                ]
+                for record in scope_records
+                if record.get("brands")
+            ]
+        else:
+            merged = [normalize_brand_list(b, rules) for b in raw]
         merged = [m for m in merged if m]  # 空列表对 ranks 无贡献（与她数值一致）
         return raw, merged
 
@@ -306,11 +407,23 @@ def analyze(
         out = {}
         for name in sorted(buckets):
             raw, merged = lists_of(buckets[name])
-            out[name] = _scope_stats(raw, merged, total_count=len(buckets[name]), top_ns=top_ns)
+            out[name] = _scope_stats(
+                raw,
+                merged,
+                total_count=len(buckets[name]),
+                top_ns=top_ns,
+                entity_master=entity_master if use_governed_entities else None,
+            )
         return out
 
     raw_all, merged_all = lists_of(records)
-    overall = _scope_stats(raw_all, merged_all, total_count=len(records), top_ns=top_ns)
+    overall = _scope_stats(
+        raw_all,
+        merged_all,
+        total_count=len(records),
+        top_ns=top_ns,
+        entity_master=entity_master if use_governed_entities else None,
+    )
     overall_merged_table = overall["merged"]
 
     result: dict[str, Any] = {
@@ -336,6 +449,21 @@ def analyze(
             "修正同事版硬编码 12/query（compare L695-699）与总数 140 的两处不一致",
         },
     }
+    if use_governed_entities:
+        result["entity_resolution"] = summarize_entity_resolution(
+            (record.get("brands") or [] for record in records),
+            rules=rules,
+            master=entity_master,
+            target_brand=target_brand,
+            named_competitors=competitors,
+            comparison_scopes=comparison_scopes,
+        )
+    else:
+        result["entity_resolution"] = {
+            "mode": "legacy_merge_rules",
+            "master": None,
+            "resolution_policy": "该 domain 尚未配置实体主数据，沿用旧 merge_rules 口径。",
+        }
 
     if target_brand:
         result["target_brand"] = brand_special(
@@ -345,6 +473,9 @@ def analyze(
             total_count=len(records),
             top_ns=top_ns,
             overall_merged_table=overall_merged_table,
+            entity_master=entity_master,
+            named_competitors=competitors,
+            comparison_scopes=comparison_scopes,
         )
     for comp in competitors:
         result["competitors"].append(
@@ -355,6 +486,9 @@ def analyze(
                 total_count=len(records),
                 top_ns=top_ns,
                 overall_merged_table=overall_merged_table,
+                entity_master=entity_master,
+                named_competitors=competitors,
+                comparison_scopes=comparison_scopes,
             )
         )
     return result

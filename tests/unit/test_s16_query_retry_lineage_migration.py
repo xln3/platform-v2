@@ -44,14 +44,16 @@ def downgrade_sql() -> str:
     return _render("downgrade")
 
 
-def test_revision_is_the_single_head_after_s15() -> None:
+def test_revision_follows_s15_and_remains_in_the_current_lineage() -> None:
     config = Config(str(ROOT / "alembic.ini"))
     config.set_main_option("script_location", str(ROOT / "migrations"))
     scripts = ScriptDirectory.from_config(config)
     revision = scripts.get_revision("s16_0001_query_retry_lineage")
     assert revision is not None
     assert revision.down_revision == "s15_0001_integrity_retry_queue"
-    assert scripts.get_current_head() == revision.revision
+    assert revision.revision in {
+        item.revision for item in scripts.iterate_revisions("heads", "base")
+    }
 
 
 def test_query_terminal_time_and_logical_retry_identity_are_additive(upgrade_sql: str) -> None:

@@ -44845,7 +44845,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/EvidenceCreate"
+                "$ref": "#/components/schemas/geo_platform__sop__router__EvidenceCreate"
               }
             }
           }
@@ -44856,7 +44856,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/EvidenceView"
+                  "$ref": "#/components/schemas/geo_platform__sop__router__EvidenceView"
                 }
               }
             }
@@ -45309,7 +45309,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/EvidenceView"
+                  "$ref": "#/components/schemas/geo_platform__sop__router__EvidenceView"
                 }
               }
             }
@@ -64274,6 +64274,25 @@
             }
           },
           {
+            "name": "comparison_scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Comparison Scope"
+            }
+          },
+          {
             "name": "top_ns",
             "in": "query",
             "required": false,
@@ -64290,6 +64309,85 @@
                 }
               ],
               "title": "Top Ns"
+            }
+          },
+          {
+            "name": "reasoning_policy",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ReasoningPolicy",
+              "default": "deterministic_only"
+            }
+          },
+          {
+            "name": "adopt_model_inferred",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Adopt Model Inferred"
+            }
+          },
+          {
+            "name": "on_reasoning_failure",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "fail",
+                "degrade"
+              ],
+              "type": "string",
+              "default": "degrade",
+              "title": "On Reasoning Failure"
+            }
+          },
+          {
+            "name": "allow_external_reasoning_model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Allow External Reasoning Model"
+            }
+          },
+          {
+            "name": "max_reasoning_latency_ms",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 600000,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Max Reasoning Latency Ms"
+            }
+          },
+          {
+            "name": "max_reasoning_cost_usd",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 100,
+                  "minimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Max Reasoning Cost Usd"
             }
           },
           {
@@ -64427,6 +64525,4553 @@
             "content": {
               "application/json": {
                 "schema": {}
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/knowledge/v1/runtime/resolve": {
+      "post": {
+        "tags": [
+          "knowledge-evolution-v1"
+        ],
+        "summary": "Resolve Runtime",
+        "operationId": "resolve_runtime_api_v2_knowledge_v1_runtime_resolve_post",
+        "parameters": [
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RuntimeResolveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuntimeResolveResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/knowledge/v1/observations:ingest": {
+      "post": {
+        "tags": [
+          "knowledge-evolution-v1"
+        ],
+        "summary": "Ingest Observations",
+        "operationId": "ingest_observations_api_v2_knowledge_v1_observations_ingest_post",
+        "parameters": [
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ObservationBatchRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/knowledge/v1/candidates": {
+      "get": {
+        "tags": [
+          "knowledge-evolution-v1"
+        ],
+        "summary": "List Candidates",
+        "operationId": "list_candidates_api_v2_knowledge_v1_candidates_get",
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Namespace"
+            }
+          },
+          {
+            "name": "domain",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 160
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Domain"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100000,
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CandidatePage"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/knowledge/v1/candidates/{candidate_pub_id}/reopen": {
+      "post": {
+        "tags": [
+          "knowledge-evolution-v1"
+        ],
+        "summary": "Reopen Candidate",
+        "operationId": "reopen_candidate_api_v2_knowledge_v1_candidates__candidate_pub_id__reopen_post",
+        "parameters": [
+          {
+            "name": "candidate_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Candidate Pub Id"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CandidateReopen"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CandidateView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/knowledge/v1/proposals": {
+      "post": {
+        "tags": [
+          "knowledge-evolution-v1"
+        ],
+        "summary": "Create Proposal",
+        "operationId": "create_proposal_api_v2_knowledge_v1_proposals_post",
+        "parameters": [
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProposalCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProposalView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "knowledge-evolution-v1"
+        ],
+        "summary": "List Proposals",
+        "operationId": "list_proposals_api_v2_knowledge_v1_proposals_get",
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 120,
+              "title": "Namespace"
+            }
+          },
+          {
+            "name": "domain",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 160,
+              "title": "Domain"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProposalView"
+                  },
+                  "title": "Response List Proposals Api V2 Knowledge V1 Proposals Get"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/knowledge/v1/evidence": {
+      "post": {
+        "tags": [
+          "knowledge-evolution-v1"
+        ],
+        "summary": "Create Evidence",
+        "operationId": "create_evidence_api_v2_knowledge_v1_evidence_post",
+        "parameters": [
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/geo_platform__knowledge__schemas__EvidenceCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/geo_platform__knowledge__schemas__EvidenceView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "knowledge-evolution-v1"
+        ],
+        "summary": "List Evidence",
+        "operationId": "list_evidence_api_v2_knowledge_v1_evidence_get",
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 120,
+              "title": "Namespace"
+            }
+          },
+          {
+            "name": "domain",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 160,
+              "title": "Domain"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/geo_platform__knowledge__schemas__EvidenceView"
+                  },
+                  "title": "Response List Evidence Api V2 Knowledge V1 Evidence Get"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/knowledge/v1/proposals/{proposal_pub_id}/adjudications": {
+      "post": {
+        "tags": [
+          "knowledge-evolution-v1"
+        ],
+        "summary": "Adjudicate Proposal",
+        "operationId": "adjudicate_proposal_api_v2_knowledge_v1_proposals__proposal_pub_id__adjudications_post",
+        "parameters": [
+          {
+            "name": "proposal_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Proposal Pub Id"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdjudicationCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdjudicationView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/knowledge/v1/change-sets": {
+      "post": {
+        "tags": [
+          "knowledge-evolution-v1"
+        ],
+        "summary": "Create Change Set",
+        "operationId": "create_change_set_api_v2_knowledge_v1_change_sets_post",
+        "parameters": [
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeSetCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSetView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/knowledge/v1/change-sets/{change_set_pub_id}/approve": {
+      "post": {
+        "tags": [
+          "knowledge-evolution-v1"
+        ],
+        "summary": "Approve Change Set",
+        "operationId": "approve_change_set_api_v2_knowledge_v1_change_sets__change_set_pub_id__approve_post",
+        "parameters": [
+          {
+            "name": "change_set_pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Change Set Pub Id"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeSetView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/knowledge/v1/releases": {
+      "post": {
+        "tags": [
+          "knowledge-evolution-v1"
+        ],
+        "summary": "Publish Release",
+        "operationId": "publish_release_api_v2_knowledge_v1_releases_post",
+        "parameters": [
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReleaseCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleaseView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "knowledge-evolution-v1"
+        ],
+        "summary": "List Releases",
+        "operationId": "list_releases_api_v2_knowledge_v1_releases_get",
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 120,
+              "title": "Namespace"
+            }
+          },
+          {
+            "name": "domain",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 160,
+              "title": "Domain"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ReleaseView"
+                  },
+                  "title": "Response List Releases Api V2 Knowledge V1 Releases Get"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/knowledge/v1/releases/{release_id}/activate": {
+      "post": {
+        "tags": [
+          "knowledge-evolution-v1"
+        ],
+        "summary": "Activate Release",
+        "operationId": "activate_release_api_v2_knowledge_v1_releases__release_id__activate_post",
+        "parameters": [
+          {
+            "name": "release_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Release Id"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActivationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/knowledge/v1/releases/{release_id}/rollback": {
+      "post": {
+        "tags": [
+          "knowledge-evolution-v1"
+        ],
+        "summary": "Rollback Release",
+        "operationId": "rollback_release_api_v2_knowledge_v1_releases__release_id__rollback_post",
+        "parameters": [
+          {
+            "name": "release_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Release Id"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActivationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/knowledge/v1/connector-runs": {
+      "post": {
+        "tags": [
+          "knowledge-evolution-v1"
+        ],
+        "summary": "Enqueue Connector Run",
+        "operationId": "enqueue_connector_run_api_v2_knowledge_v1_connector_runs_post",
+        "parameters": [
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectorRunCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorRunView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "knowledge-evolution-v1"
+        ],
+        "summary": "List Connector Runs",
+        "operationId": "list_connector_runs_api_v2_knowledge_v1_connector_runs_get",
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 120,
+              "title": "Namespace"
+            }
+          },
+          {
+            "name": "domain",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 160,
+              "title": "Domain"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ConnectorRunView"
+                  },
+                  "title": "Response List Connector Runs Api V2 Knowledge V1 Connector Runs Get"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/knowledge/v1/audit-events": {
+      "get": {
+        "tags": [
+          "knowledge-evolution-v1"
+        ],
+        "summary": "List Audit Events",
+        "operationId": "list_audit_events_api_v2_knowledge_v1_audit_events_get",
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 120,
+              "title": "Namespace"
+            }
+          },
+          {
+            "name": "domain",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 160,
+              "title": "Domain"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AuditEventView"
+                  },
+                  "title": "Response List Audit Events Api V2 Knowledge V1 Audit Events Get"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/knowledge/v1/events": {
+      "get": {
+        "tags": [
+          "knowledge-evolution-v1"
+        ],
+        "summary": "List Events",
+        "description": "Return ordered, tenant-isolated event envelopes for pull-based consumers.",
+        "operationId": "list_events_api_v2_knowledge_v1_events_get",
+        "parameters": [
+          {
+            "name": "namespace",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 120,
+              "title": "Namespace"
+            }
+          },
+          {
+            "name": "domain",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "maxLength": 160,
+              "title": "Domain"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/KnowledgeEventView"
+                  },
+                  "title": "Response List Events Api V2 Knowledge V1 Events Get"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/knowledge/v1/metrics": {
+      "get": {
+        "tags": [
+          "knowledge-evolution-v1"
+        ],
+        "summary": "Metrics",
+        "operationId": "metrics_api_v2_knowledge_v1_metrics_get",
+        "parameters": [
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetricsView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/knowledge/v1/health": {
+      "get": {
+        "tags": [
+          "knowledge-evolution-v1"
+        ],
+        "summary": "Health",
+        "operationId": "health_api_v2_knowledge_v1_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/knowledge/v1/readiness": {
+      "get": {
+        "tags": [
+          "knowledge-evolution-v1"
+        ],
+        "summary": "Readiness",
+        "operationId": "readiness_api_v2_knowledge_v1_readiness_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/knowledge/v1/domains": {
+      "get": {
+        "tags": [
+          "knowledge-evolution-v1"
+        ],
+        "summary": "Domains",
+        "operationId": "domains_api_v2_knowledge_v1_domains_get",
+        "parameters": [
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "Response Domains Api V2 Knowledge V1 Domains Get"
+                }
               }
             }
           },
@@ -68506,6 +73151,29 @@
         ],
         "title": "ActionUpdate"
       },
+      "ActivationRequest": {
+        "properties": {
+          "namespace": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Namespace"
+          },
+          "domain": {
+            "type": "string",
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Domain"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "namespace",
+          "domain"
+        ],
+        "title": "ActivationRequest"
+      },
       "AdapterView": {
         "properties": {
           "pub_id": {
@@ -68560,6 +73228,106 @@
           "last_passed_at"
         ],
         "title": "AdapterView"
+      },
+      "AdjudicationCreate": {
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "approved",
+              "rejected",
+              "deferred"
+            ],
+            "title": "Decision"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 10,
+            "title": "Reason"
+          },
+          "policy_version": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Policy Version"
+          },
+          "before_value": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Before Value"
+          },
+          "after_value": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "After Value"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "decision",
+          "reason",
+          "policy_version"
+        ],
+        "title": "AdjudicationCreate"
+      },
+      "AdjudicationView": {
+        "properties": {
+          "pub_id": {
+            "type": "string",
+            "title": "Pub Id"
+          },
+          "proposal_pub_id": {
+            "type": "string",
+            "title": "Proposal Pub Id"
+          },
+          "decision": {
+            "type": "string",
+            "title": "Decision"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          },
+          "policy_version": {
+            "type": "string",
+            "title": "Policy Version"
+          },
+          "before_value": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Before Value"
+          },
+          "after_value": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "After Value"
+          },
+          "decided_by": {
+            "type": "string",
+            "title": "Decided By"
+          },
+          "decided_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Decided At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "pub_id",
+          "proposal_pub_id",
+          "decision",
+          "reason",
+          "policy_version",
+          "before_value",
+          "after_value",
+          "decided_by",
+          "decided_at"
+        ],
+        "title": "AdjudicationView"
       },
       "AiDraftRequest": {
         "properties": {
@@ -70546,6 +75314,62 @@
         ],
         "title": "AttributionView"
       },
+      "AuditEventView": {
+        "properties": {
+          "pub_id": {
+            "type": "string",
+            "title": "Pub Id"
+          },
+          "namespace": {
+            "type": "string",
+            "title": "Namespace"
+          },
+          "domain": {
+            "type": "string",
+            "title": "Domain"
+          },
+          "actor": {
+            "type": "string",
+            "title": "Actor"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "resource_type": {
+            "type": "string",
+            "title": "Resource Type"
+          },
+          "resource_pub_id": {
+            "type": "string",
+            "title": "Resource Pub Id"
+          },
+          "receipt": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Receipt"
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Occurred At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "pub_id",
+          "namespace",
+          "domain",
+          "actor",
+          "action",
+          "resource_type",
+          "resource_pub_id",
+          "receipt",
+          "occurred_at"
+        ],
+        "title": "AuditEventView"
+      },
       "AuthorizationCreate": {
         "properties": {
           "scopes": {
@@ -71914,6 +76738,164 @@
         ],
         "title": "BusinessOverviewView"
       },
+      "CandidatePage": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/CandidateView"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "data",
+          "total"
+        ],
+        "title": "CandidatePage"
+      },
+      "CandidateReopen": {
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 10,
+            "title": "Reason"
+          },
+          "policy_version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Policy Version"
+          },
+          "evidence_version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Version"
+          },
+          "manual_override": {
+            "type": "boolean",
+            "title": "Manual Override",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "reason"
+        ],
+        "title": "CandidateReopen"
+      },
+      "CandidateView": {
+        "properties": {
+          "pub_id": {
+            "type": "string",
+            "title": "Pub Id"
+          },
+          "namespace": {
+            "type": "string",
+            "title": "Namespace"
+          },
+          "domain": {
+            "type": "string",
+            "title": "Domain"
+          },
+          "aggregation_key": {
+            "type": "string",
+            "title": "Aggregation Key"
+          },
+          "surface_forms": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Surface Forms"
+          },
+          "observation_count": {
+            "type": "integer",
+            "title": "Observation Count"
+          },
+          "source_count": {
+            "type": "integer",
+            "title": "Source Count"
+          },
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "priority": {
+            "type": "integer",
+            "title": "Priority"
+          },
+          "policy_version": {
+            "type": "string",
+            "title": "Policy Version"
+          },
+          "evidence_version": {
+            "type": "string",
+            "title": "Evidence Version"
+          },
+          "reopen_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reopen Reason"
+          },
+          "first_seen_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "First Seen At"
+          },
+          "last_seen_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Last Seen At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "pub_id",
+          "namespace",
+          "domain",
+          "aggregation_key",
+          "surface_forms",
+          "observation_count",
+          "source_count",
+          "state",
+          "priority",
+          "policy_version",
+          "evidence_version",
+          "reopen_reason",
+          "first_seen_at",
+          "last_seen_at"
+        ],
+        "title": "CandidateView"
+      },
       "CapabilityLeaseCreate": {
         "properties": {
           "platform_account_pub_id": {
@@ -72121,6 +77103,187 @@
           "use_count"
         ],
         "title": "CapabilityLeaseView"
+      },
+      "ChangeSetCreate": {
+        "properties": {
+          "namespace": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Namespace"
+          },
+          "domain": {
+            "type": "string",
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Domain"
+          },
+          "base_release_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Release Id"
+          },
+          "changes": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Changes"
+          },
+          "dependency_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Dependency Ids"
+          },
+          "conflicts": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Conflicts"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "private",
+              "tenant",
+              "public"
+            ],
+            "title": "Visibility",
+            "default": "tenant"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "namespace",
+          "domain",
+          "changes"
+        ],
+        "title": "ChangeSetCreate"
+      },
+      "ChangeSetView": {
+        "properties": {
+          "pub_id": {
+            "type": "string",
+            "title": "Pub Id"
+          },
+          "namespace": {
+            "type": "string",
+            "title": "Namespace"
+          },
+          "domain": {
+            "type": "string",
+            "title": "Domain"
+          },
+          "base_release_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Release Id"
+          },
+          "changes": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Changes"
+          },
+          "dependency_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Dependency Ids"
+          },
+          "conflicts": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Conflicts"
+          },
+          "visibility": {
+            "type": "string",
+            "title": "Visibility"
+          },
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "created_by": {
+            "type": "string",
+            "title": "Created By"
+          },
+          "approved_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved By"
+          },
+          "approved_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "pub_id",
+          "namespace",
+          "domain",
+          "base_release_id",
+          "changes",
+          "dependency_ids",
+          "conflicts",
+          "visibility",
+          "state",
+          "created_by",
+          "approved_by",
+          "approved_at",
+          "created_at"
+        ],
+        "title": "ChangeSetView"
       },
       "CheckCreate": {
         "properties": {
@@ -73632,6 +78795,206 @@
           "variants"
         ],
         "title": "ConfirmResponse"
+      },
+      "ConnectorRunCreate": {
+        "properties": {
+          "namespace": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Namespace"
+          },
+          "domain": {
+            "type": "string",
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Domain"
+          },
+          "adapter": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Adapter"
+          },
+          "operation": {
+            "type": "string",
+            "enum": [
+              "import",
+              "export",
+              "publish",
+              "reconcile"
+            ],
+            "title": "Operation"
+          },
+          "base_release_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Release Id"
+          },
+          "upstream_release_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Upstream Release Id"
+          },
+          "local_release_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Local Release Id"
+          },
+          "cursor": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Cursor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "namespace",
+          "domain",
+          "adapter",
+          "operation"
+        ],
+        "title": "ConnectorRunCreate"
+      },
+      "ConnectorRunView": {
+        "properties": {
+          "pub_id": {
+            "type": "string",
+            "title": "Pub Id"
+          },
+          "namespace": {
+            "type": "string",
+            "title": "Namespace"
+          },
+          "domain": {
+            "type": "string",
+            "title": "Domain"
+          },
+          "adapter": {
+            "type": "string",
+            "title": "Adapter"
+          },
+          "operation": {
+            "type": "string",
+            "title": "Operation"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "base_release_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Release Id"
+          },
+          "upstream_release_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Upstream Release Id"
+          },
+          "local_release_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Local Release Id"
+          },
+          "cursor": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Cursor"
+          },
+          "result": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Result"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "pub_id",
+          "namespace",
+          "domain",
+          "adapter",
+          "operation",
+          "status",
+          "base_release_id",
+          "upstream_release_id",
+          "local_release_id",
+          "cursor",
+          "result",
+          "error_code",
+          "started_at",
+          "finished_at"
+        ],
+        "title": "ConnectorRunView"
       },
       "ContentIngest": {
         "properties": {
@@ -76753,6 +82116,208 @@
         ],
         "title": "DashboardView"
       },
+      "DecisionScope": {
+        "type": "string",
+        "enum": [
+          "request",
+          "project_staging",
+          "domain_candidate",
+          "global_release"
+        ],
+        "title": "DecisionScope"
+      },
+      "DecisionView": {
+        "properties": {
+          "input_id": {
+            "type": "string",
+            "title": "Input Id"
+          },
+          "input_value": {
+            "type": "string",
+            "title": "Input Value"
+          },
+          "value": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Value"
+          },
+          "knowledge_status": {
+            "$ref": "#/components/schemas/KnowledgeStatus"
+          },
+          "decision_scope": {
+            "$ref": "#/components/schemas/DecisionScope"
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reasons"
+          },
+          "alternative_hypotheses": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Alternative Hypotheses"
+          },
+          "uncertainty": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Uncertainty"
+          },
+          "evidence_refs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Evidence Refs"
+          },
+          "adopted": {
+            "type": "boolean",
+            "title": "Adopted"
+          },
+          "model_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Provider"
+          },
+          "model_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Name"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "prompt_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Id"
+          },
+          "prompt_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Version"
+          },
+          "knowledge_release_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Knowledge Release Id"
+          },
+          "knowledge_content_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Knowledge Content Hash"
+          },
+          "policy_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Policy Id"
+          },
+          "policy_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Policy Version"
+          },
+          "tool_summary": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Tool Summary"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "input_id",
+          "input_value",
+          "value",
+          "knowledge_status",
+          "decision_scope",
+          "confidence",
+          "reasons",
+          "alternative_hypotheses",
+          "uncertainty",
+          "evidence_refs",
+          "adopted",
+          "model_provider",
+          "model_name",
+          "model_version",
+          "prompt_id",
+          "prompt_version",
+          "knowledge_release_id",
+          "knowledge_content_hash",
+          "policy_id",
+          "policy_version",
+          "tool_summary"
+        ],
+        "title": "DecisionView"
+      },
       "DeliveryConfirm": {
         "properties": {
           "confirmation_comment": {
@@ -78066,73 +83631,6 @@
         ],
         "title": "EvidenceChainLinkView"
       },
-      "EvidenceCreate": {
-        "properties": {
-          "claim_text": {
-            "type": "string",
-            "minLength": 1,
-            "title": "Claim Text"
-          },
-          "source_name": {
-            "type": "string",
-            "title": "Source Name",
-            "default": ""
-          },
-          "source_url": {
-            "type": "string",
-            "title": "Source Url",
-            "default": ""
-          },
-          "source_level": {
-            "type": "string",
-            "enum": [
-              "official",
-              "third_party",
-              "experience"
-            ],
-            "title": "Source Level"
-          },
-          "verified_at": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date-time"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Verified At"
-          },
-          "can_prove": {
-            "type": "string",
-            "title": "Can Prove",
-            "default": ""
-          },
-          "cannot_prove": {
-            "type": "string",
-            "title": "Cannot Prove",
-            "default": ""
-          },
-          "allowed_public": {
-            "type": "boolean",
-            "title": "Allowed Public",
-            "default": false
-          },
-          "evidence_ref": {
-            "type": "string",
-            "title": "Evidence Ref",
-            "default": ""
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "claim_text",
-          "source_level"
-        ],
-        "title": "EvidenceCreate"
-      },
       "EvidenceHistoryView": {
         "properties": {
           "pub_id": {
@@ -78346,100 +83844,6 @@
         "additionalProperties": false,
         "type": "object",
         "title": "EvidenceUpdate"
-      },
-      "EvidenceView": {
-        "properties": {
-          "claim_text": {
-            "type": "string",
-            "minLength": 1,
-            "title": "Claim Text"
-          },
-          "source_name": {
-            "type": "string",
-            "title": "Source Name",
-            "default": ""
-          },
-          "source_url": {
-            "type": "string",
-            "title": "Source Url",
-            "default": ""
-          },
-          "source_level": {
-            "type": "string",
-            "enum": [
-              "official",
-              "third_party",
-              "experience"
-            ],
-            "title": "Source Level"
-          },
-          "verified_at": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date-time"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Verified At"
-          },
-          "can_prove": {
-            "type": "string",
-            "title": "Can Prove",
-            "default": ""
-          },
-          "cannot_prove": {
-            "type": "string",
-            "title": "Cannot Prove",
-            "default": ""
-          },
-          "allowed_public": {
-            "type": "boolean",
-            "title": "Allowed Public",
-            "default": false
-          },
-          "evidence_ref": {
-            "type": "string",
-            "title": "Evidence Ref",
-            "default": ""
-          },
-          "pub_id": {
-            "type": "string",
-            "title": "Pub Id"
-          },
-          "tenant_pub_id": {
-            "type": "string",
-            "title": "Tenant Pub Id"
-          },
-          "project_pub_id": {
-            "type": "string",
-            "title": "Project Pub Id"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Created At"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Updated At"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "claim_text",
-          "source_level",
-          "pub_id",
-          "tenant_pub_id",
-          "project_pub_id",
-          "created_at",
-          "updated_at"
-        ],
-        "title": "EvidenceView"
       },
       "ExperimentCreate": {
         "properties": {
@@ -79758,6 +85162,30 @@
           "fencing_token"
         ],
         "title": "HeartbeatRequest"
+      },
+      "IngestReceipt": {
+        "properties": {
+          "accepted": {
+            "type": "integer",
+            "title": "Accepted"
+          },
+          "duplicate": {
+            "type": "integer",
+            "title": "Duplicate"
+          },
+          "receipt_id": {
+            "type": "string",
+            "title": "Receipt Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "accepted",
+          "duplicate",
+          "receipt_id"
+        ],
+        "title": "IngestReceipt"
       },
       "InsightCreate": {
         "properties": {
@@ -81093,6 +86521,83 @@
         ],
         "title": "ItemListRow"
       },
+      "KnowledgeEventView": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "knowledge-event-v1",
+            "title": "Schema Version"
+          },
+          "event_id": {
+            "type": "string",
+            "title": "Event Id"
+          },
+          "event_type": {
+            "type": "string",
+            "title": "Event Type"
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Occurred At"
+          },
+          "tenant": {
+            "type": "string",
+            "title": "Tenant"
+          },
+          "namespace": {
+            "type": "string",
+            "title": "Namespace"
+          },
+          "domain": {
+            "type": "string",
+            "title": "Domain"
+          },
+          "resource_type": {
+            "type": "string",
+            "title": "Resource Type"
+          },
+          "resource_id": {
+            "type": "string",
+            "title": "Resource Id"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Payload"
+          },
+          "payload_hash": {
+            "type": "string",
+            "title": "Payload Hash"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "schema_version",
+          "event_id",
+          "event_type",
+          "occurred_at",
+          "tenant",
+          "namespace",
+          "domain",
+          "resource_type",
+          "resource_id",
+          "payload",
+          "payload_hash"
+        ],
+        "title": "KnowledgeEventView"
+      },
+      "KnowledgeStatus": {
+        "type": "string",
+        "enum": [
+          "published",
+          "reviewed_local",
+          "model_inferred",
+          "unresolved"
+        ],
+        "title": "KnowledgeStatus"
+      },
       "LeaseCreate": {
         "properties": {
           "profile_pub_id": {
@@ -81690,6 +87195,146 @@
         ],
         "title": "MetricView"
       },
+      "MetricsView": {
+        "properties": {
+          "observations": {
+            "type": "integer",
+            "title": "Observations"
+          },
+          "candidate_backlog": {
+            "type": "integer",
+            "title": "Candidate Backlog"
+          },
+          "review_ready": {
+            "type": "integer",
+            "title": "Review Ready"
+          },
+          "conflicts": {
+            "type": "integer",
+            "title": "Conflicts"
+          },
+          "inference_count": {
+            "type": "integer",
+            "title": "Inference Count"
+          },
+          "model_error_count": {
+            "type": "integer",
+            "title": "Model Error Count"
+          },
+          "model_call_count": {
+            "type": "integer",
+            "title": "Model Call Count"
+          },
+          "model_latency_avg_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Latency Avg Ms"
+          },
+          "model_cost_usd": {
+            "type": "number",
+            "title": "Model Cost Usd"
+          },
+          "cache_hits": {
+            "type": "integer",
+            "title": "Cache Hits"
+          },
+          "active_release_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Release Id"
+          },
+          "release_age_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Release Age Seconds"
+          },
+          "oldest_candidate_age_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Candidate Age Seconds"
+          },
+          "connector_last_attempt_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connector Last Attempt At"
+          },
+          "connector_last_success_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connector Last Success At"
+          },
+          "export_lag_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Export Lag Seconds"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "observations",
+          "candidate_backlog",
+          "review_ready",
+          "conflicts",
+          "inference_count",
+          "model_error_count",
+          "model_call_count",
+          "model_latency_avg_ms",
+          "model_cost_usd",
+          "cache_hits",
+          "active_release_id",
+          "release_age_seconds",
+          "oldest_candidate_age_seconds",
+          "connector_last_attempt_at",
+          "connector_last_success_at",
+          "export_lag_seconds"
+        ],
+        "title": "MetricsView"
+      },
       "ModelAdmissionCreate": {
         "properties": {
           "rationale": {
@@ -81860,6 +87505,25 @@
         ],
         "title": "NumberedPageView"
       },
+      "ObservationBatchRequest": {
+        "properties": {
+          "observations": {
+            "items": {
+              "$ref": "#/components/schemas/ObservationInput"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Observations"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "observations"
+        ],
+        "title": "ObservationBatchRequest"
+      },
       "ObservationCreate": {
         "properties": {
           "checkpoint": {
@@ -81952,6 +87616,113 @@
           "observed_at"
         ],
         "title": "ObservationCreate"
+      },
+      "ObservationInput": {
+        "properties": {
+          "namespace": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._:/-]+$",
+            "title": "Namespace"
+          },
+          "domain": {
+            "type": "string",
+            "maxLength": 160,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._:/-]+$",
+            "title": "Domain"
+          },
+          "task": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._:/-]+$",
+            "title": "Task"
+          },
+          "surface_form": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Surface Form"
+          },
+          "normalized_key": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Normalized Key"
+          },
+          "source_type": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._:/-]+$",
+            "title": "Source Type"
+          },
+          "source_ref_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "title": "Source Ref Hash"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 16,
+            "pattern": "^[A-Za-z0-9._:-]+$",
+            "title": "Idempotency Key"
+          },
+          "safe_context": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Safe Context"
+          },
+          "data_classification": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "confidential",
+              "restricted"
+            ],
+            "title": "Data Classification",
+            "default": "internal"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "private",
+              "tenant",
+              "public"
+            ],
+            "title": "Visibility",
+            "default": "private"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Payload"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "namespace",
+          "domain",
+          "task",
+          "surface_form",
+          "normalized_key",
+          "source_type",
+          "source_ref_hash",
+          "idempotency_key"
+        ],
+        "title": "ObservationInput"
       },
       "ObservationView": {
         "properties": {
@@ -85215,6 +90986,307 @@
         ],
         "title": "PromoView"
       },
+      "ProposalCreate": {
+        "properties": {
+          "namespace": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Namespace"
+          },
+          "domain": {
+            "type": "string",
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Domain"
+          },
+          "candidate_pub_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Pub Id"
+          },
+          "operation": {
+            "type": "string",
+            "enum": [
+              "create",
+              "update",
+              "merge",
+              "split",
+              "retire"
+            ],
+            "title": "Operation"
+          },
+          "target_stable_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Stable Id"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Payload"
+          },
+          "alternatives": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Alternatives"
+          },
+          "confidence": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Confidence"
+          },
+          "model_provider": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Provider"
+          },
+          "model_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Name"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "prompt_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Id"
+          },
+          "prompt_version": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Version"
+          },
+          "policy_version": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Policy Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "namespace",
+          "domain",
+          "operation",
+          "payload",
+          "policy_version"
+        ],
+        "title": "ProposalCreate"
+      },
+      "ProposalView": {
+        "properties": {
+          "pub_id": {
+            "type": "string",
+            "title": "Pub Id"
+          },
+          "namespace": {
+            "type": "string",
+            "title": "Namespace"
+          },
+          "domain": {
+            "type": "string",
+            "title": "Domain"
+          },
+          "candidate_pub_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Pub Id"
+          },
+          "operation": {
+            "type": "string",
+            "title": "Operation"
+          },
+          "target_stable_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Stable Id"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Payload"
+          },
+          "alternatives": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Alternatives"
+          },
+          "confidence": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Confidence"
+          },
+          "model_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Provider"
+          },
+          "model_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Name"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "prompt_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Id"
+          },
+          "prompt_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Version"
+          },
+          "policy_version": {
+            "type": "string",
+            "title": "Policy Version"
+          },
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "created_by": {
+            "type": "string",
+            "title": "Created By"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "pub_id",
+          "namespace",
+          "domain",
+          "candidate_pub_id",
+          "operation",
+          "target_stable_id",
+          "payload",
+          "alternatives",
+          "confidence",
+          "model_provider",
+          "model_name",
+          "model_version",
+          "prompt_id",
+          "prompt_version",
+          "policy_version",
+          "state",
+          "created_by",
+          "created_at"
+        ],
+        "title": "ProposalView"
+      },
       "ProviderAccountView": {
         "properties": {
           "provider": {
@@ -86346,6 +92418,16 @@
         ],
         "title": "Readiness"
       },
+      "ReasoningPolicy": {
+        "type": "string",
+        "enum": [
+          "deterministic_only",
+          "llm_assisted",
+          "llm_required",
+          "exploratory"
+        ],
+        "title": "ReasoningPolicy"
+      },
       "RefreshSourceView": {
         "properties": {
           "status": {
@@ -86525,6 +92607,64 @@
         ],
         "title": "RelationDirection"
       },
+      "ReleaseCreate": {
+        "properties": {
+          "namespace": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Namespace"
+          },
+          "domain": {
+            "type": "string",
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Domain"
+          },
+          "release_id": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]+$",
+            "title": "Release Id"
+          },
+          "schema_version": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Schema Version"
+          },
+          "change_set_pub_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Change Set Pub Ids"
+          },
+          "quality_report": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Quality Report"
+          },
+          "activate": {
+            "type": "boolean",
+            "title": "Activate",
+            "default": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "namespace",
+          "domain",
+          "release_id",
+          "schema_version",
+          "change_set_pub_ids"
+        ],
+        "title": "ReleaseCreate"
+      },
       "ReleaseLockResult": {
         "properties": {
           "ok": {
@@ -86553,6 +92693,118 @@
           "detail"
         ],
         "title": "ReleaseLockResult"
+      },
+      "ReleaseRefView": {
+        "properties": {
+          "release_id": {
+            "type": "string",
+            "title": "Release Id"
+          },
+          "content_hash": {
+            "type": "string",
+            "title": "Content Hash"
+          },
+          "schema_version": {
+            "type": "string",
+            "title": "Schema Version"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "degraded": {
+            "type": "boolean",
+            "title": "Degraded"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "release_id",
+          "content_hash",
+          "schema_version",
+          "source",
+          "degraded"
+        ],
+        "title": "ReleaseRefView"
+      },
+      "ReleaseView": {
+        "properties": {
+          "pub_id": {
+            "type": "string",
+            "title": "Pub Id"
+          },
+          "namespace": {
+            "type": "string",
+            "title": "Namespace"
+          },
+          "domain": {
+            "type": "string",
+            "title": "Domain"
+          },
+          "release_id": {
+            "type": "string",
+            "title": "Release Id"
+          },
+          "parent_release_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Release Id"
+          },
+          "schema_version": {
+            "type": "string",
+            "title": "Schema Version"
+          },
+          "content_hash": {
+            "type": "string",
+            "title": "Content Hash"
+          },
+          "artifact_uri": {
+            "type": "string",
+            "title": "Artifact Uri"
+          },
+          "quality_report": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Quality Report"
+          },
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "created_by": {
+            "type": "string",
+            "title": "Created By"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "pub_id",
+          "namespace",
+          "domain",
+          "release_id",
+          "parent_release_id",
+          "schema_version",
+          "content_hash",
+          "artifact_uri",
+          "quality_report",
+          "state",
+          "created_by",
+          "created_at"
+        ],
+        "title": "ReleaseView"
       },
       "ReportArtifactView": {
         "properties": {
@@ -88150,6 +94402,302 @@
         ],
         "title": "RunView"
       },
+      "RuntimeResolveRequest": {
+        "properties": {
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id"
+          },
+          "namespace": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._:/-]+$",
+            "title": "Namespace"
+          },
+          "domain": {
+            "type": "string",
+            "maxLength": 160,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._:/-]+$",
+            "title": "Domain"
+          },
+          "task": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9._:/-]+$",
+            "title": "Task"
+          },
+          "items": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Items"
+          },
+          "context": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Context"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/ReasoningPolicy",
+            "default": "deterministic_only"
+          },
+          "policy_id": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Policy Id",
+            "default": "caller-policy"
+          },
+          "policy_version": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Policy Version",
+            "default": "1"
+          },
+          "adopt_model_inferred": {
+            "type": "boolean",
+            "title": "Adopt Model Inferred",
+            "default": false
+          },
+          "on_model_failure": {
+            "type": "string",
+            "enum": [
+              "fail",
+              "degrade"
+            ],
+            "title": "On Model Failure",
+            "default": "degrade"
+          },
+          "expected_release_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Release Id"
+          },
+          "data_classification": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "confidential",
+              "restricted"
+            ],
+            "title": "Data Classification",
+            "default": "internal"
+          },
+          "allow_external_model": {
+            "type": "boolean",
+            "title": "Allow External Model",
+            "default": false
+          },
+          "max_latency_ms": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 600000.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Latency Ms"
+          },
+          "max_cost_usd": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Cost Usd"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "namespace",
+          "domain",
+          "task",
+          "items"
+        ],
+        "title": "RuntimeResolveRequest"
+      },
+      "RuntimeResolveResponse": {
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "title": "Request Id"
+          },
+          "domain": {
+            "type": "string",
+            "title": "Domain"
+          },
+          "task": {
+            "type": "string",
+            "title": "Task"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/ReasoningPolicy"
+          },
+          "policy_id": {
+            "type": "string",
+            "title": "Policy Id"
+          },
+          "policy_version": {
+            "type": "string",
+            "title": "Policy Version"
+          },
+          "release": {
+            "$ref": "#/components/schemas/ReleaseRefView"
+          },
+          "decisions": {
+            "items": {
+              "$ref": "#/components/schemas/DecisionView"
+            },
+            "type": "array",
+            "title": "Decisions"
+          },
+          "model_hypotheses": {
+            "items": {
+              "$ref": "#/components/schemas/DecisionView"
+            },
+            "type": "array",
+            "title": "Model Hypotheses"
+          },
+          "prompt_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Id"
+          },
+          "prompt_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Version"
+          },
+          "model_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Provider"
+          },
+          "model_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Name"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "latency_ms": {
+            "type": "integer",
+            "title": "Latency Ms"
+          },
+          "cache_status": {
+            "type": "string",
+            "title": "Cache Status"
+          },
+          "degradation": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Degradation"
+          },
+          "observation_count": {
+            "type": "integer",
+            "title": "Observation Count"
+          },
+          "usage": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Usage"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "request_id",
+          "domain",
+          "task",
+          "policy",
+          "policy_id",
+          "policy_version",
+          "release",
+          "decisions",
+          "model_hypotheses",
+          "prompt_id",
+          "prompt_version",
+          "model_provider",
+          "model_name",
+          "model_version",
+          "latency_ms",
+          "cache_status",
+          "degradation",
+          "observation_count",
+          "usage"
+        ],
+        "title": "RuntimeResolveResponse"
+      },
       "SamplingProgressCellView": {
         "properties": {
           "column_key": {
@@ -88824,6 +95372,70 @@
           "effective_now"
         ],
         "title": "ServiceEntitlementView"
+      },
+      "ServiceStatus": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "degraded",
+              "not_ready"
+            ],
+            "title": "Status"
+          },
+          "domains": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Domains"
+          },
+          "active_release": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Release"
+          },
+          "previous_release": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Release"
+          },
+          "release_verified": {
+            "type": "boolean",
+            "title": "Release Verified"
+          },
+          "checks": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Checks"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status",
+          "domains",
+          "active_release",
+          "previous_release",
+          "release_verified",
+          "checks"
+        ],
+        "title": "ServiceStatus"
       },
       "SessionView": {
         "properties": {
@@ -89521,7 +96133,7 @@
         "properties": {
           "data": {
             "items": {
-              "$ref": "#/components/schemas/EvidenceView"
+              "$ref": "#/components/schemas/geo_platform__sop__router__EvidenceView"
             },
             "type": "array",
             "title": "Data"
@@ -93244,6 +99856,257 @@
         ],
         "title": "ProfileView"
       },
+      "geo_platform__knowledge__schemas__EvidenceCreate": {
+        "properties": {
+          "namespace": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Namespace"
+          },
+          "domain": {
+            "type": "string",
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Domain"
+          },
+          "candidate_pub_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Pub Id"
+          },
+          "proposal_pub_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proposal Pub Id"
+          },
+          "source_uri": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Uri"
+          },
+          "content_hash": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "title": "Content Hash"
+          },
+          "publisher": {
+            "type": "string",
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Publisher"
+          },
+          "claim": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Claim"
+          },
+          "stance": {
+            "type": "string",
+            "enum": [
+              "supports",
+              "opposes",
+              "neutral"
+            ],
+            "title": "Stance"
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Summary"
+          },
+          "trust_tier": {
+            "type": "string",
+            "enum": [
+              "authoritative",
+              "primary",
+              "secondary",
+              "unverified"
+            ],
+            "title": "Trust Tier"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "private",
+              "tenant",
+              "public"
+            ],
+            "title": "Visibility"
+          },
+          "data_classification": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "confidential",
+              "restricted"
+            ],
+            "title": "Data Classification"
+          },
+          "acquired_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Acquired At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "namespace",
+          "domain",
+          "content_hash",
+          "publisher",
+          "claim",
+          "stance",
+          "summary",
+          "trust_tier",
+          "visibility",
+          "data_classification",
+          "acquired_at"
+        ],
+        "title": "EvidenceCreate"
+      },
+      "geo_platform__knowledge__schemas__EvidenceView": {
+        "properties": {
+          "pub_id": {
+            "type": "string",
+            "title": "Pub Id"
+          },
+          "namespace": {
+            "type": "string",
+            "title": "Namespace"
+          },
+          "domain": {
+            "type": "string",
+            "title": "Domain"
+          },
+          "candidate_pub_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Pub Id"
+          },
+          "proposal_pub_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proposal Pub Id"
+          },
+          "source_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Uri"
+          },
+          "content_hash": {
+            "type": "string",
+            "title": "Content Hash"
+          },
+          "publisher": {
+            "type": "string",
+            "title": "Publisher"
+          },
+          "claim": {
+            "type": "string",
+            "title": "Claim"
+          },
+          "stance": {
+            "type": "string",
+            "title": "Stance"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "trust_tier": {
+            "type": "string",
+            "title": "Trust Tier"
+          },
+          "visibility": {
+            "type": "string",
+            "title": "Visibility"
+          },
+          "data_classification": {
+            "type": "string",
+            "title": "Data Classification"
+          },
+          "acquired_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Acquired At"
+          },
+          "created_by": {
+            "type": "string",
+            "title": "Created By"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "pub_id",
+          "namespace",
+          "domain",
+          "candidate_pub_id",
+          "proposal_pub_id",
+          "source_uri",
+          "content_hash",
+          "publisher",
+          "claim",
+          "stance",
+          "summary",
+          "trust_tier",
+          "visibility",
+          "data_classification",
+          "acquired_at",
+          "created_by",
+          "created_at"
+        ],
+        "title": "EvidenceView"
+      },
       "geo_platform__post_analysis__router__PageMeta": {
         "properties": {
           "next_cursor": {
@@ -94216,6 +101079,167 @@
           "query_item_pub_id"
         ],
         "title": "ComparisonCreate"
+      },
+      "geo_platform__sop__router__EvidenceCreate": {
+        "properties": {
+          "claim_text": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Claim Text"
+          },
+          "source_name": {
+            "type": "string",
+            "title": "Source Name",
+            "default": ""
+          },
+          "source_url": {
+            "type": "string",
+            "title": "Source Url",
+            "default": ""
+          },
+          "source_level": {
+            "type": "string",
+            "enum": [
+              "official",
+              "third_party",
+              "experience"
+            ],
+            "title": "Source Level"
+          },
+          "verified_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified At"
+          },
+          "can_prove": {
+            "type": "string",
+            "title": "Can Prove",
+            "default": ""
+          },
+          "cannot_prove": {
+            "type": "string",
+            "title": "Cannot Prove",
+            "default": ""
+          },
+          "allowed_public": {
+            "type": "boolean",
+            "title": "Allowed Public",
+            "default": false
+          },
+          "evidence_ref": {
+            "type": "string",
+            "title": "Evidence Ref",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "claim_text",
+          "source_level"
+        ],
+        "title": "EvidenceCreate"
+      },
+      "geo_platform__sop__router__EvidenceView": {
+        "properties": {
+          "claim_text": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Claim Text"
+          },
+          "source_name": {
+            "type": "string",
+            "title": "Source Name",
+            "default": ""
+          },
+          "source_url": {
+            "type": "string",
+            "title": "Source Url",
+            "default": ""
+          },
+          "source_level": {
+            "type": "string",
+            "enum": [
+              "official",
+              "third_party",
+              "experience"
+            ],
+            "title": "Source Level"
+          },
+          "verified_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified At"
+          },
+          "can_prove": {
+            "type": "string",
+            "title": "Can Prove",
+            "default": ""
+          },
+          "cannot_prove": {
+            "type": "string",
+            "title": "Cannot Prove",
+            "default": ""
+          },
+          "allowed_public": {
+            "type": "boolean",
+            "title": "Allowed Public",
+            "default": false
+          },
+          "evidence_ref": {
+            "type": "string",
+            "title": "Evidence Ref",
+            "default": ""
+          },
+          "pub_id": {
+            "type": "string",
+            "title": "Pub Id"
+          },
+          "tenant_pub_id": {
+            "type": "string",
+            "title": "Tenant Pub Id"
+          },
+          "project_pub_id": {
+            "type": "string",
+            "title": "Project Pub Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "claim_text",
+          "source_level",
+          "pub_id",
+          "tenant_pub_id",
+          "project_pub_id",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "EvidenceView"
       },
       "geo_platform__sop__router__PageMeta": {
         "properties": {

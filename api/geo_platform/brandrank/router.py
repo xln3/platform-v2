@@ -9,6 +9,7 @@
         &category=保险公司       LLM 抽取 prompt 的类别词（可选，缺省取规则包）
         &target_brand=中意人寿   目标品牌专项（可选，缺省=项目首个 brand 名）
         &competitors=中国平安    竞品专项（可重复参数；可选，缺省=项目 competitor 名单）
+        &comparison_scope=ctid   场景资格 ID（可重复；场景型竞品缺省 fail-closed）
         &top_ns=3&top_ns=5       Top-N 口径（可重复，1..50，≤8 个，缺省 3/5/10）
 
 domain 解析：显式 domain > 显式 industry > 项目真源 project.brandrank_domain；
@@ -29,12 +30,14 @@ domain 解析：显式 domain > 显式 industry > 项目真源 project.brandrank
 from __future__ import annotations
 
 # ruff: noqa: B008
-from typing import Any
+import re
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
 from domain.brandrank.rules import available_domains
+from domain.knowledge_evolution.contracts import ReasoningPolicy
 
 from ..config import get_settings
 from ..identity.policy import Principal, get_principal
@@ -45,6 +48,8 @@ router = APIRouter(prefix="/api/v2/projects", tags=["brandrank"])
 _MAX_COMPETITORS = 20
 _MAX_TOP_NS = 8
 _MAX_TOP_N = 50
+_MAX_COMPARISON_SCOPES = 8
+_SCOPE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_.:-]{0,79}$")
 
 
 def _dsn() -> str:
@@ -99,6 +104,17 @@ def _parse_competitors(values: list[str] | None) -> list[str] | None:
     return cleaned
 
 
+def _parse_comparison_scopes(values: list[str] | None) -> list[str]:
+    cleaned = list(
+        dict.fromkeys(value.strip().casefold() for value in values or [] if value.strip())
+    )
+    if len(cleaned) > _MAX_COMPARISON_SCOPES or any(
+        _SCOPE_ID_RE.fullmatch(value) is None for value in cleaned
+    ):
+        raise HTTPException(status_code=422, detail={"code": "invalid_comparison_scope"})
+    return cleaned
+
+
 # response_model=None 是**有意**而非兜底：错误路径（400/503 带 details）直接返回
 # JSONResponse，返回注解是 dict | JSONResponse 联合——FastAPI 不能从联合注解推导
 # Pydantic 响应模型（JSONResponse 不是可序列化字段），必须显式关闭推导。
@@ -113,7 +129,14 @@ def brand_visibility(
     category: str | None = Query(default=None, max_length=50),
     target_brand: str | None = Query(default=None, max_length=200),
     competitors: list[str] | None = Query(default=None),
+    comparison_scope: list[str] | None = Query(default=None),
     top_ns: list[str] | None = Query(default=None),
+    reasoning_policy: ReasoningPolicy = Query(default=ReasoningPolicy.DETERMINISTIC_ONLY),
+    adopt_model_inferred: bool = Query(default=False),
+    on_reasoning_failure: Literal["fail", "degrade"] = Query(default="degrade"),
+    allow_external_reasoning_model: bool = Query(default=False),
+    max_reasoning_latency_ms: int | None = Query(default=None, ge=1, le=600_000),
+    max_reasoning_cost_usd: float | None = Query(default=None, ge=0, le=100),
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any] | JSONResponse:
     """品牌可见度快照（按需计算；旧报告核心口径的 V2 只读端点）。"""
@@ -130,7 +153,15 @@ def brand_visibility(
             category=category,
             target_brand=target_brand,
             competitors=_parse_competitors(competitors),
+            comparison_scopes=_parse_comparison_scopes(comparison_scope),
             top_ns=_parse_top_ns(top_ns),
+            reasoning_policy=reasoning_policy,
+            adopt_model_inferred=adopt_model_inferred,
+            on_reasoning_failure=on_reasoning_failure,
+            allow_external_reasoning_model=allow_external_reasoning_model,
+            max_reasoning_latency_ms=max_reasoning_latency_ms,
+            max_reasoning_cost_usd=max_reasoning_cost_usd,
+            reasoning_request_id=str(request.state.request_id),
         )
     except service.ProjectNotFound as exc:
         raise HTTPException(status_code=404, detail={"code": "project_not_found"}) from exc
@@ -149,3 +180,10 @@ def brand_visibility(
         )
     except service.LlmDisabled as exc:
         return _error(request, 503, "llm_disabled", {"llm": exc.status})
+    except service.KnowledgeReasoningUnavailable as exc:
+        return _error(
+            request,
+            503,
+            "knowledge_reasoning_unavailable",
+            {"why": str(exc), "reasoning_policy": reasoning_policy.value},
+        )

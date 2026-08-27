@@ -95,6 +95,21 @@ class Settings(BaseSettings):
     )
     # SiliconIndex 快照目录（只读适配；缺失→{available:false} 优雅降级）。
     siliconindex_snapshot_dir: str = "data/siliconindex-snapshots"
+    # 仅独立同步任务访问此发布端点；API/榜单请求不会逐项目联网查询。
+    siliconindex_base_url: str = "https://siliconindex-consumer.onrender.com/data/v1"
+    # 内容寻址的本机知识 release。请求热路径只读该目录，不访问 SiliconIndex。
+    knowledge_release_dir: str = "data/knowledge-releases"
+    knowledge_governance_tenant_pub_id: str = ""
+    # 知识推理网关为独立策略面；key 为空时可显式复用 research 网关，但不会把
+    # confidential/restricted 数据外发（运行时请求还需 allow_external_model=true）。
+    knowledge_llm_api_key: str = ""
+    knowledge_llm_base_url: str = ""
+    knowledge_llm_base_url_fallback: str = ""
+    knowledge_llm_provider: str = "openai-compatible"
+    knowledge_llm_model: str = ""
+    knowledge_llm_model_version: str = "deployment"
+    knowledge_llm_timeout_seconds: float = 60.0
+    knowledge_llm_max_retries: int = 1
     # 免登录填表邀请：TTL（小时）与每邀请 AI 调用配额（ai-research/query-suggestions 共用）。
     intake_invite_ttl_hours: int = 168
     intake_invite_ai_quota: int = 3
