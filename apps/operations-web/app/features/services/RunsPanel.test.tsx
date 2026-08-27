@@ -103,6 +103,29 @@ describe('RunsPanel', () => {
     expect(requested).toEqual(['1', '2', '3', '2']);
   });
 
+  it('uses a caller-provided page size without changing the shared default', async () => {
+    const requestedPageSizes: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string | URL | Request) => {
+        const url = new URL(input instanceof Request ? input.url : String(input));
+        if (url.pathname.endsWith('/summary')) return summary(3);
+        requestedPageSizes.push(url.searchParams.get('limit') ?? '');
+        const page = Number(url.searchParams.get('page') ?? '1');
+        return json(page === 1 ? [run(1), run(2)] : [run(3)], pageHeaders(page, 3, 2));
+      }),
+    );
+
+    render(<RunsPanel session={session} projectPubId="prj_alpha" readOnly pageSize={2} />);
+    const table = await screen.findByRole('table');
+    expect(within(table).getAllByRole('row')).toHaveLength(3);
+    expect(screen.queryByText('run_3')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '下一页' }));
+    expect(await screen.findByText('run_3')).toBeTruthy();
+    expect(requestedPageSizes).toEqual(['2', '2']);
+  });
+
   it('resets the cursor for a project change and opens answers in a dialog', async () => {
     const runRequests: URL[] = [];
     vi.stubGlobal(

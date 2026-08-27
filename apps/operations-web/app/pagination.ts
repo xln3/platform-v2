@@ -193,16 +193,19 @@ export function useCursorCollection<T>(
   };
 }
 
-export function usePageWindow<T>(items: readonly T[], resetKey: string) {
+export function usePageWindow<T>(items: readonly T[], resetKey: string, pageSize = PAGE_SIZE) {
+  if (!Number.isSafeInteger(pageSize) || pageSize < 1) {
+    throw new Error('invalid_page_window_size');
+  }
   const [page, setPage] = useState(1);
-  const pageCount = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
 
   useEffect(() => setPage(1), [resetKey]);
   useEffect(() => setPage((current) => Math.min(current, pageCount)), [pageCount]);
 
   const visibleItems = useMemo(
-    () => items.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
-    [items, page],
+    () => items.slice((page - 1) * pageSize, page * pageSize),
+    [items, page, pageSize],
   );
   return { page, pageCount, setPage, visibleItems };
 }

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Pagination } from '@geo/design-system';
 import {
   getAnalyticsBreakdown,
   getAnalyticsCompetitors,
@@ -7,6 +8,7 @@ import {
   type AnalyticsCompetitorProjection,
   type AnalyticsOverviewProjection,
 } from '@geo/api-client';
+import { usePageWindow } from '../../../pagination';
 import { PlatformBadge } from '../../../platforms';
 import { ReadonlyConfigSummary } from '../ReadonlyConfigSummary';
 import { RunsPanel } from '../RunsPanel';
@@ -19,6 +21,10 @@ import {
   type Project,
   type SessionContext,
 } from '../api';
+
+const AI_RANKING_RUNS_PAGE_SIZE = 2;
+const BRAND_VISIBILITY_DEFAULT_PAGE_SIZE = 10;
+const BRAND_VISIBILITY_PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
 
 const METRIC_LABELS: Record<string, string> = {
   mention_rate: '品牌提及率',
@@ -58,6 +64,7 @@ export function VisibilityWorkspace({
   const [brands, setBrands] = useState<BrandVisibilityResult | { kind: 'loading' }>({
     kind: 'loading',
   });
+  const [brandPageSize, setBrandPageSize] = useState(BRAND_VISIBILITY_DEFAULT_PAGE_SIZE);
 
   useEffect(() => {
     let cancelled = false;
@@ -105,12 +112,23 @@ export function VisibilityWorkspace({
   // 规则包域以项目真源 project.brandrank_domain 为准，响应 domain 佐证；都未到位时显示中性占位。
   const rulepackDomain =
     project.brandrank_domain ?? (brands.kind === 'ready' ? brands.data.domain : undefined);
+  const brandRows = brands.kind === 'ready' ? (brands.data.result?.overall?.merged ?? []) : [];
+  const brandPage = usePageWindow(
+    brandRows,
+    `${project.pub_id}:${window_.start}:${window_.end}`,
+    brandPageSize,
+  );
 
   return (
     <>
       <ReadonlyConfigSummary session={session} projectPubId={project.pub_id} />
       <SamplingProgressPanel session={session} projectPubId={project.pub_id} />
-      <RunsPanel session={session} projectPubId={project.pub_id} readOnly />
+      <RunsPanel
+        session={session}
+        projectPubId={project.pub_id}
+        readOnly
+        pageSize={AI_RANKING_RUNS_PAGE_SIZE}
+      />
       <section className="execution-card">
         <div className="section-title">
           <h2>评测结果</h2>
@@ -230,37 +248,73 @@ export function VisibilityWorkspace({
           }）`}
         </h3>
         {brands.kind === 'ready' ? (
-          (brands.data.result?.overall?.merged ?? []).length > 0 ? (
-            <div className="table-scroll">
-              <table>
-                <thead>
-                  <tr>
-                    <th>排名</th>
-                    <th>品牌</th>
-                    <th>综合得分</th>
-                    <th>出现次数</th>
-                    <th>平均排名</th>
-                    <th>出现率</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(brands.data.result?.overall?.merged ?? []).map((row) => (
-                    <tr key={row.brand}>
-                      <td>{row.rank}</td>
-                      <td>{row.brand}</td>
-                      <td>{row.score}</td>
-                      <td>{row.occurrences}</td>
-                      <td>{row.avg_rank}</td>
-                      <td>
-                        {typeof row.appearance_rate === 'number'
-                          ? `${row.appearance_rate.toFixed(1)}%`
-                          : '—'}
-                      </td>
+          brandRows.length > 0 ? (
+            <>
+              <div className="brand-visibility-page-size">
+                <label>
+                  每页显示
+                  <select
+                    aria-label="品牌可见度榜单每页显示数量"
+                    value={brandPageSize}
+                    onChange={(event) => {
+                      const nextPageSize = Number(event.currentTarget.value);
+                      if (
+                        !BRAND_VISIBILITY_PAGE_SIZE_OPTIONS.some(
+                          (option) => option === nextPageSize,
+                        )
+                      ) {
+                        return;
+                      }
+                      brandPage.setPage(1);
+                      setBrandPageSize(nextPageSize);
+                    }}
+                  >
+                    {BRAND_VISIBILITY_PAGE_SIZE_OPTIONS.map((pageSize) => (
+                      <option key={pageSize} value={pageSize}>
+                        {pageSize} 条
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <div className="table-scroll">
+                <table aria-label="品牌可见度榜单">
+                  <thead>
+                    <tr>
+                      <th>排名</th>
+                      <th>品牌</th>
+                      <th>综合得分</th>
+                      <th>出现次数</th>
+                      <th>平均排名</th>
+                      <th>出现率</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {brandPage.visibleItems.map((row) => (
+                      <tr key={row.brand}>
+                        <td>{row.rank}</td>
+                        <td>{row.brand}</td>
+                        <td>{row.score}</td>
+                        <td>{row.occurrences}</td>
+                        <td>{row.avg_rank}</td>
+                        <td>
+                          {typeof row.appearance_rate === 'number'
+                            ? `${row.appearance_rate.toFixed(1)}%`
+                            : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <Pagination
+                page={brandPage.page}
+                pageCount={brandPage.pageCount}
+                totalItems={brandRows.length}
+                onPageChange={brandPage.setPage}
+                label="品牌可见度榜单分页"
+              />
+            </>
           ) : (
             <p className="empty">该时间窗内可用于榜单的真实答案不足。</p>
           )
