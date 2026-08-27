@@ -97,6 +97,13 @@ class Settings(BaseSettings):
     siliconindex_snapshot_dir: str = "data/siliconindex-snapshots"
     # 仅独立同步任务访问此发布端点；API/榜单请求不会逐项目联网查询。
     siliconindex_base_url: str = "https://siliconindex-consumer.onrender.com/data/v1"
+    # Outbound publication is an explicit, reviewed connector action. The
+    # request path never clones or pushes Git repositories.
+    siliconindex_publisher_enabled: bool = False
+    siliconindex_publisher_repository_url: str = ""
+    siliconindex_publisher_branch: str = "main"
+    siliconindex_publisher_deploy_timeout_seconds: float = 600.0
+    siliconindex_publisher_poll_seconds: float = 10.0
     # 内容寻址的本机知识 release。请求热路径只读该目录，不访问 SiliconIndex。
     knowledge_release_dir: str = "data/knowledge-releases"
     knowledge_governance_tenant_pub_id: str = ""

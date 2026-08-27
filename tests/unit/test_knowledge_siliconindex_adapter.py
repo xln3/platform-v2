@@ -93,6 +93,24 @@ def test_public_export_filters_private_and_requires_evidence() -> None:
         )
 
 
+def test_public_retirement_requires_https_evidence_and_is_exported() -> None:
+    adapter = SiliconIndexAdapter()
+    retirement = {
+        "operation": "retire",
+        "stable_id": "BR-RETIRED",
+        "object_type": "brand",
+        "visibility": "public",
+        "review_status": "reviewed",
+        "evidence_refs": ["https://example.test/retirement"],
+    }
+
+    result = adapter.export_changes((retirement,))
+
+    assert result.result["changes"] == [retirement]
+    with pytest.raises(SiliconIndexSyncError, match="retirement_evidence_required"):
+        adapter.export_changes(({**retirement, "evidence_refs": ["http://example.test"]},))
+
+
 def test_projection_reconcile_keeps_identity_and_reports_same_field_conflict(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

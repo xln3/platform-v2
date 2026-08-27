@@ -11,13 +11,14 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import pytest
-from geo_platform.knowledge.models import ChangeSet, ConnectorRun, KnowledgeObject
+from geo_platform.knowledge.models import ChangeSet, ConnectorRun
 from geo_platform.knowledge.repository import KnowledgeRepository
 from geo_platform.tenancy.database import SessionLocal
 from geo_platform.tenancy.ids import new_pub_id
 from geo_platform.tenancy.models import Tenant
 from geo_platform.tenancy.repository import TenantRepository
 
+from domain.knowledge_evolution.release import KnowledgeReleaseStore
 from domain.siliconindex import project_brand_domain
 from domain.siliconindex.snapshot import CORE_FILES, FILES
 from tools.run_knowledge_connector_queue import reconcile_snapshot, run_queue
@@ -47,17 +48,33 @@ def _copy_snapshot(source: Path, target: Path) -> None:
     shutil.copy2(source / "manifest.json", target / "manifest.json")
     for name in FILES:
         shutil.copy2(source / f"{name}.json", target / f"{name}.json")
+    schema_source = source.parent.parent / "schemas" / "v1"
+    if schema_source.is_dir():
+        shutil.copytree(schema_source, target / "schemas" / "v1")
 
 
-def _rewrite_release(root: Path, *, release_id: str, canonical_name: str | None) -> None:
+def _rewrite_release(
+    root: Path,
+    *,
+    release_id: str,
+    canonical_name: str | None,
+    eligibility_note: str | None = None,
+) -> None:
     brands_path = root / "brands.json"
     brands = json.loads(brands_path.read_text(encoding="utf-8"))
+    brand = next(value for value in brands if value.get("brand_id") == "CYB-BR-TENCENT")
     if canonical_name is not None:
-        brand = next(value for value in brands if value.get("canonical_name") == "腾讯")
         brand["canonical_name"] = canonical_name
+    if eligibility_note is not None:
+        profile = next(
+            value
+            for value in brand["comparison_profiles"]
+            if value.get("domain") == "cybersecurity"
+        )
+        profile["eligibility_note"] = eligibility_note
+    if canonical_name is not None or eligibility_note is not None:
         brands_path.write_text(
-            json.dumps(brands, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
+            json.dumps(brands, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
         )
     digest = hashlib.sha256()
     for name in CORE_FILES:
@@ -100,31 +117,81 @@ def test_reconcile_records_conflict_idempotently_then_supersedes_it(tmp_path: Pa
         session.add(Tenant(pub_id=tenant_pub_id, name="Connector integration test"))
         session.flush()
         TenantRepository(session, tenant_pub_id)
-        local_attributes = {**base_entity, "canonical_name": "腾讯（本地测试变更）"}
-        local_attributes["analysis_domain"] = "cybersecurity"
-        session.add(
-            KnowledgeObject(
-                pub_id=new_pub_id("kno"),
-                tenant_pub_id=tenant_pub_id,
-                namespace="shared",
-                domain="brand/entity-resolution",
-                stable_id=str(base_entity["entity_id"]),
-                object_type=str(base_entity["entity_type"]),
-                attributes=local_attributes,
-                origin="local_review",
-                review_status="reviewed",
-                visibility="public",
-                sync_status="local_ahead",
-                version=1,
-            )
+        repository = KnowledgeRepository(session, tenant_pub_id)
+        knowledge_root = tmp_path / "knowledge"
+        store = KnowledgeReleaseStore(knowledge_root)
+        manifest = store.publish(
+            release_id="knowledge-connector-test",
+            schema_version="knowledge-release-v1",
+            documents={
+                "brand/entity-resolution": {
+                    "source_release_id": "2026-08-27.4",
+                    "analysis_domains": {"cybersecurity": {"entities": []}},
+                }
+            },
+            parent_release_id=None,
+            quality_report={"quality_gate": "test_fixture"},
+            activate=True,
         )
-        session.flush()
+        release = repository.add_release(
+            namespace="shared",
+            domain="brand/entity-resolution",
+            release_id="knowledge-connector-test",
+            parent_release_id=None,
+            schema_version="knowledge-release-v1",
+            content_hash=str(manifest["content_hash"]),
+            artifact_uri=str(knowledge_root / "knowledge-connector-test"),
+            quality_report={"quality_gate": "test_fixture"},
+            actor="test:publisher",
+        )
+        base_projection = project_brand_domain(base, analysis_domain="cybersecurity")
+        changes = []
+        for entity in base_projection["entities"]:
+            if entity.get("review_status") != "reviewed":
+                continue
+            attributes = dict(entity)
+            if entity["entity_id"] == base_entity["entity_id"]:
+                attributes["canonical_name"] = "腾讯（本地测试变更）"
+            attributes["analysis_domain"] = "cybersecurity"
+            changes.append(
+                {
+                    "kind": "knowledge_object",
+                    "operation": "upsert",
+                    "stable_id": entity["entity_id"],
+                    "object_type": entity["entity_type"],
+                    "attributes": attributes,
+                    "origin": "local_review",
+                    "review_status": "reviewed",
+                    "visibility": "public",
+                    "sync_status": (
+                        "local_ahead"
+                        if entity["entity_id"] == base_entity["entity_id"]
+                        else "reconciled"
+                    ),
+                }
+            )
+        repository.materialize_changes(
+            namespace="shared",
+            domain="brand/entity-resolution",
+            changes=changes,
+            release=release,
+            base_release_id=None,
+        )
+        repository.activate_release(
+            namespace="shared",
+            domain="brand/entity-resolution",
+            release_id=release.release_id,
+            previous_release_id=None,
+            action="activate",
+            actor="test:publisher",
+        )
+        session.commit()
 
         first = reconcile_snapshot(
             session,
             tenant_pub_id=tenant_pub_id,
             snapshot_source=upstream,
-            knowledge_release_dir=tmp_path / "knowledge",
+            knowledge_release_dir=knowledge_root,
             base_upstream_release_id="2026-08-27.4",
         )
         assert first["can_prepare_merge"] is False
@@ -144,7 +211,7 @@ def test_reconcile_records_conflict_idempotently_then_supersedes_it(tmp_path: Pa
             session,
             tenant_pub_id=tenant_pub_id,
             snapshot_source=upstream,
-            knowledge_release_dir=tmp_path / "knowledge",
+            knowledge_release_dir=knowledge_root,
             base_upstream_release_id="2026-08-27.4",
         )
         assert duplicate["conflict_change_set_pub_id"] == conflict_id
@@ -155,13 +222,36 @@ def test_reconcile_records_conflict_idempotently_then_supersedes_it(tmp_path: Pa
             session,
             tenant_pub_id=tenant_pub_id,
             snapshot_source=base,
-            knowledge_release_dir=tmp_path / "knowledge",
+            knowledge_release_dir=knowledge_root,
             base_upstream_release_id="2026-08-27.4",
         )
         assert resolved["conflicts"] == []
         conflict = session.query(ChangeSet).filter_by(pub_id=conflict_id).one()
         assert conflict.state == "superseded"
         assert KnowledgeRepository(session, tenant_pub_id).metrics()["conflicts"] == 0
+
+        _rewrite_release(
+            upstream,
+            release_id="2026-08-27.5",
+            canonical_name="腾讯",
+            eligibility_note="上游新增但不与本地名称修改冲突的说明。",
+        )
+        disjoint = reconcile_snapshot(
+            session,
+            tenant_pub_id=tenant_pub_id,
+            snapshot_source=upstream,
+            knowledge_release_dir=knowledge_root,
+            base_upstream_release_id="2026-08-27.4",
+        )
+        assert disjoint["conflicts"] == []
+        assert disjoint["can_prepare_merge"] is True
+        assert disjoint["local_changed_ids"] == [base_entity["entity_id"]]
+        export = json.loads(Path(disjoint["local_export"]["artifact"]).read_text(encoding="utf-8"))
+        assert export["base_upstream_release_id"] == "2026-08-27.5"
+        assert export["changes"][0]["attributes"]["canonical_name"] == ("腾讯（本地测试变更）")
+        assert export["changes"][0]["attributes"]["eligibility_note"] == (
+            "上游新增但不与本地名称修改冲突的说明。"
+        )
         session.rollback()
 
 

@@ -18,8 +18,13 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+from jsonschema import Draft7Validator
+from jsonschema.exceptions import SchemaError
 
 CORE_FILES = (
     "brands",
@@ -47,6 +52,15 @@ _OBJECT_TYPES = {
     "product",
     "tool",
     "institution",
+}
+_SCHEMA_FILES = {
+    "brands": "brand.schema.json",
+    "mentions": "mention.schema.json",
+    "categories": "category.schema.json",
+    "cognition-profiles": "cognition-profile.schema.json",
+    "compliance-rules": "compliance-rule.schema.json",
+    "competitor-relations": "competitor-relation.schema.json",
+    "query-templates": "query-template.schema.json",
 }
 
 
@@ -103,7 +117,93 @@ def _release_order(value: str) -> tuple[int, int, int, int] | None:
     if match is None:
         return None
     year, month, day, sequence = (int(part) for part in match.groups())
+    try:
+        datetime(year, month, day)
+    except ValueError:
+        return None
     return year, month, day, sequence
+
+
+def _schema_root(root: Path) -> Path | None:
+    shared_pointer = root.parent / "schema-bundles" / "1.2.0" / "CURRENT"
+    shared_root: Path | None = None
+    try:
+        shared_digest = shared_pointer.read_text(encoding="utf-8").strip()
+        if re.fullmatch(r"[0-9a-f]{64}", shared_digest):
+            shared_root = shared_pointer.parent / shared_digest / "v1"
+    except OSError:
+        pass
+    candidates = (
+        root / "schemas" / "v1",
+        root.parent.parent / "schemas" / "v1",
+        shared_root,
+    )
+    return next(
+        (
+            candidate
+            for candidate in candidates
+            if candidate is not None
+            and all((candidate / filename).is_file() for filename in _SCHEMA_FILES.values())
+        ),
+        None,
+    )
+
+
+def _install_shared_schema_bundle(sync_root: Path, source: Path) -> str:
+    """Install validated schemas content-addressably without mutating a release."""
+
+    digest = hashlib.sha256()
+    for filename in sorted(_SCHEMA_FILES.values()):
+        digest.update(filename.encode())
+        digest.update((source / filename).read_bytes())
+    value = digest.hexdigest()
+    base = sync_root / "schema-bundles" / "1.2.0"
+    target = base / value / "v1"
+    base.mkdir(parents=True, exist_ok=True)
+    if not target.is_dir():
+        temporary = Path(tempfile.mkdtemp(prefix=f".{value}-", dir=str(base)))
+        try:
+            temporary_target = temporary / "v1"
+            shutil.copytree(source, temporary_target)
+            try:
+                os.replace(temporary, target.parent)
+            except OSError:
+                if not target.is_dir():
+                    raise
+        finally:
+            shutil.rmtree(temporary, ignore_errors=True)
+    if not all((target / filename).is_file() for filename in _SCHEMA_FILES.values()):
+        raise SiliconIndexSyncError("shared_schema_bundle_incomplete")
+    pointer = base / ".CURRENT.tmp"
+    pointer.write_text(value, encoding="utf-8")
+    os.replace(pointer, base / "CURRENT")
+    return value
+
+
+def _validate_official_schemas(root: Path, data: dict[str, Any]) -> None:
+    schema_root = _schema_root(root)
+    if schema_root is None:
+        raise SiliconIndexSyncError("official_schema_bundle_missing")
+    for dataset_name, schema_filename in _SCHEMA_FILES.items():
+        schema = _read_json(schema_root / schema_filename, 1024 * 1024)
+        if not isinstance(schema, dict):
+            raise SiliconIndexSyncError(f"invalid_official_schema:{schema_filename}")
+        try:
+            Draft7Validator.check_schema(schema)
+            validator = Draft7Validator(schema)
+        except SchemaError as exc:
+            raise SiliconIndexSyncError(f"invalid_official_schema:{schema_filename}") from exc
+        rows = data.get(dataset_name)
+        if not isinstance(rows, list):
+            raise SiliconIndexSyncError(f"schema_dataset_not_array:{dataset_name}")
+        for index, row in enumerate(rows):
+            error = next(validator.iter_errors(row), None)
+            if error is not None:
+                path = ".".join(str(value) for value in error.absolute_path)
+                suffix = f":{path}" if path else ""
+                raise SiliconIndexSyncError(
+                    f"official_schema_validation_failed:{dataset_name}:{index}{suffix}"
+                )
 
 
 def validate_snapshot(root: Path) -> dict[str, Any]:
@@ -113,11 +213,15 @@ def validate_snapshot(root: Path) -> dict[str, Any]:
     release_id = str(manifest.get("release_id") or "")
     if not _SAFE_RELEASE.fullmatch(release_id):
         raise SiliconIndexSyncError("invalid_release_id")
+    if _release_order(release_id) is None:
+        raise SiliconIndexSyncError("unorderable_release_id")
     if manifest.get("schema_version") not in _SUPPORTED_SCHEMA_VERSIONS:
         raise SiliconIndexSyncError("unsupported_schema_version")
     data = {name: _read_json(root / f"{name}.json") for name in FILES}
     if any(not isinstance(data[name], list | dict) for name in FILES):
         raise SiliconIndexSyncError("invalid_dataset_shape")
+    if manifest.get("schema_version") == "1.2.0":
+        _validate_official_schemas(root, data)
     brands = data["brands"]
     mentions = data["mentions"]
     categories = data["categories"]
@@ -238,18 +342,20 @@ class SiliconIndexSynchronizer:
         *,
         timeout: float = 20,
         max_file_bytes: int = MAX_FILE_BYTES,
+        clock: Callable[[], float] | None = None,
     ) -> None:
         self.root = Path(root)
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.max_file_bytes = max_file_bytes
+        self.clock = clock or time.time
 
     def current_release(self) -> str | None:
         pointer = self.root / "CURRENT"
         if not pointer.is_file():
             return None
         value = pointer.read_text(encoding="utf-8").strip()
-        if not _SAFE_RELEASE.fullmatch(value):
+        if not _SAFE_RELEASE.fullmatch(value) or _release_order(value) is None:
             raise SiliconIndexSyncError("invalid_current_pointer")
         return value
 
@@ -269,14 +375,55 @@ class SiliconIndexSynchronizer:
 
     def _write_status(self, value: dict[str, Any]) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
+        history_value = dict(value)
+        history_path = self.root / "sync-history.jsonl"
+        previous_record_hash: str | None = None
+        if history_path.is_file():
+            try:
+                prior_lines = [
+                    line
+                    for line in history_path.read_text(encoding="utf-8").splitlines()
+                    if line.strip()
+                ]
+                if prior_lines:
+                    prior = json.loads(prior_lines[-1])
+                    candidate = prior.get("record_hash") if isinstance(prior, dict) else None
+                    if not isinstance(candidate, str) or not re.fullmatch(
+                        r"sha256:[0-9a-f]{64}", candidate
+                    ):
+                        raise ValueError("invalid_previous_record_hash")
+                    previous_record_hash = candidate
+            except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as exc:
+                raise SiliconIndexSyncError("sync_history_invalid") from exc
+        history_value["previous_record_hash"] = previous_record_hash
+        history_value["record_hash"] = (
+            "sha256:"
+            + hashlib.sha256(
+                (
+                    json.dumps(
+                        history_value,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    )
+                    + "\n"
+                ).encode()
+            ).hexdigest()
+        )
+        with history_path.open("a", encoding="utf-8") as history:
+            history.write(json.dumps(history_value, ensure_ascii=False, sort_keys=True) + "\n")
+            history.flush()
+            os.fsync(history.fileno())
         temporary = self.root / ".sync-status.tmp"
-        temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
+        temporary.write_text(
+            json.dumps(history_value, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
         os.replace(temporary, self.root / "sync-status.json")
 
     def sync(self) -> dict[str, Any]:
         self.root.mkdir(parents=True, exist_ok=True)
         previous = self.current_release()
-        started = time.time()
+        started = self.clock()
         work = Path(tempfile.mkdtemp(prefix="siliconindex-", dir=str(self.root)))
         try:
             hashes = {
@@ -291,6 +438,27 @@ class SiliconIndexSynchronizer:
             endpoints = manifest.get("endpoints", {}) if isinstance(manifest, dict) else {}
             configured_origin = urllib.parse.urlsplit(self.base_url)
             allowed_origin = (configured_origin.scheme, configured_origin.netloc)
+            if manifest.get("schema_version") == "1.2.0":
+                schema_endpoint = endpoints.get("schemas", "/schemas/v1")
+                schema_base_url = urllib.parse.urljoin(
+                    self.base_url + "/",
+                    str(schema_endpoint).rstrip("/") + "/",
+                )
+                parsed_schema_base = urllib.parse.urlsplit(schema_base_url)
+                if (
+                    parsed_schema_base.scheme not in {"http", "https"}
+                    or (parsed_schema_base.scheme, parsed_schema_base.netloc) != allowed_origin
+                ):
+                    raise SiliconIndexSyncError("untrusted_schema_endpoint")
+                schema_dir = work / "schemas" / "v1"
+                schema_dir.mkdir(parents=True, exist_ok=True)
+                for schema_filename in sorted(_SCHEMA_FILES.values()):
+                    hashes[f"schema:{schema_filename}"] = _download(
+                        urllib.parse.urljoin(schema_base_url, schema_filename),
+                        schema_dir / schema_filename,
+                        timeout=self.timeout,
+                        limit=min(self.max_file_bytes, 1024 * 1024),
+                    )
             for name in FILES:
                 endpoint_key = name.replace("-", "_")
                 endpoint = endpoints.get(endpoint_key, f"/data/v1/{name}.json")
@@ -315,19 +483,27 @@ class SiliconIndexSynchronizer:
             release = str(manifest["release_id"])
             previous_order = _release_order(previous) if previous else None
             incoming_order = _release_order(release)
-            if previous_order is not None and incoming_order is not None:
-                if incoming_order < previous_order:
-                    raise SiliconIndexSyncError(f"release_rollback_rejected:{release}<{previous}")
+            if incoming_order is None or (previous is not None and previous_order is None):
+                raise SiliconIndexSyncError("release_order_unavailable")
+            if previous_order is not None and incoming_order < previous_order:
+                raise SiliconIndexSyncError(f"release_rollback_rejected:{release}<{previous}")
+            schema_bundle_hash = None
+            if manifest.get("schema_version") == "1.2.0":
+                schema_bundle_hash = _install_shared_schema_bundle(
+                    self.root,
+                    work / "schemas" / "v1",
+                )
             metadata = {
                 "release_id": release,
                 "schema_version": manifest.get("schema_version"),
                 "data_version": manifest.get("data_version"),
                 "generated_at": manifest.get("generated_at"),
-                "synced_at": time.time(),
+                "synced_at": self.clock(),
                 "content_hash": manifest.get("content_hash"),
                 "download_hashes": hashes,
                 "previous_local_release_id": previous,
                 "source_url": self.base_url,
+                "schema_bundle_hash": schema_bundle_hash,
             }
             (work / "snapshot-meta.json").write_text(
                 json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -348,7 +524,7 @@ class SiliconIndexSynchronizer:
                 "current": release,
                 "previous": previous,
                 "started_at": started,
-                "finished_at": time.time(),
+                "finished_at": self.clock(),
                 "content_hash": manifest.get("content_hash"),
             }
             self._write_status(result)
@@ -359,7 +535,7 @@ class SiliconIndexSynchronizer:
                 "status": "failed",
                 "current": previous,
                 "started_at": started,
-                "finished_at": time.time(),
+                "finished_at": self.clock(),
                 "error": str(exc),
             }
             self._write_status(result)

@@ -241,6 +241,19 @@ class SiliconIndexAdapter:
             rendered = json.dumps(change, ensure_ascii=False).casefold()
             if any(f'"{key}"' in rendered for key in _FORBIDDEN_PUBLIC_KEYS):
                 raise SiliconIndexSyncError("public_export_contains_private_field")
+            if change.get("operation") == "retire":
+                evidence_refs = change.get("evidence_refs")
+                if (
+                    not isinstance(evidence_refs, list)
+                    or not evidence_refs
+                    or not all(
+                        isinstance(value, str) and value.startswith("https://")
+                        for value in evidence_refs
+                    )
+                ):
+                    raise SiliconIndexSyncError("public_retirement_evidence_required")
+                exported.append(dict(change))
+                continue
             attributes = change.get("attributes")
             if not isinstance(attributes, dict) or not attributes.get("evidence_urls"):
                 raise SiliconIndexSyncError("public_export_evidence_required")
@@ -290,6 +303,7 @@ class SiliconIndexAdapter:
         upstream_source: str | Path,
         analysis_domain: str,
         local_objects: tuple[Mapping[str, Any], ...],
+        retired_ids: set[str] | None = None,
     ) -> MergeResult:
         """Three-way merge one governed brand projection.
 
@@ -308,6 +322,8 @@ class SiliconIndexAdapter:
         base = {str(row["entity_id"]): dict(row) for row in base_projection["entities"]}
         upstream = {str(row["entity_id"]): dict(row) for row in upstream_projection["entities"]}
         local = {key: dict(value) for key, value in base.items()}
+        for stable_id in retired_ids or set():
+            local.pop(stable_id, None)
         for value in local_objects:
             if value.get("review_status") != "reviewed":
                 continue
