@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Project } from '../api';
+import type { BrandVisibilityRow, Project } from '../api';
 import { VisibilityWorkspace } from './VisibilityWorkspace';
 
 vi.mock('@geo/api-client', async (importOriginal) => {
@@ -38,9 +38,13 @@ function projectWith(domain: string | null): Project {
 
 describe('VisibilityWorkspace', () => {
   const brandVisibilityUrls: string[] = [];
+  const collectionRunUrls: string[] = [];
+  let brandRows: BrandVisibilityRow[];
 
   beforeEach(() => {
     brandVisibilityUrls.length = 0;
+    collectionRunUrls.length = 0;
+    brandRows = [];
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: string | URL | Request) => {
@@ -52,10 +56,37 @@ describe('VisibilityWorkspace', () => {
               project_pub_id: 'prj_test',
               window_days: 30,
               domain: 'cybersecurity',
-              result: { overall: { merged: [] } },
+              result: { overall: { merged: brandRows } },
             }),
             { status: 200, headers: { 'Content-Type': 'application/json' } },
           );
+        }
+        if (url.includes('/collection/runs/summary')) {
+          return new Response(
+            JSON.stringify({
+              project_pub_id: 'prj_test',
+              run_count: 0,
+              active_run_count: 0,
+              total_tasks: 0,
+              completed_tasks: 0,
+              failed_tasks: 0,
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+          );
+        }
+        if (url.includes('/collection/runs?')) {
+          collectionRunUrls.push(url);
+          return new Response(JSON.stringify([]), {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Page': '1',
+              'X-Page-Size': '2',
+              'X-Total-Count': '0',
+              'X-Page-Count': '0',
+              'X-Has-More': 'false',
+            },
+          });
         }
         if (url.includes('/analytics/sampling-progress')) {
           return new Response(
@@ -95,11 +126,47 @@ describe('VisibilityWorkspace', () => {
     await screen.findByText(/该时间窗内可用于榜单的真实答案不足。/);
     expect(screen.getByRole('heading', { name: '采样进度' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: '采样记录' })).toBeTruthy();
+    await waitFor(() => expect(collectionRunUrls).toHaveLength(1));
+    expect(new URL(collectionRunUrls[0]!).searchParams.get('page_size')).toBe('2');
 
     expect(brandVisibilityUrls).toHaveLength(1);
     const url = new URL(brandVisibilityUrls[0]!);
     expect(url.searchParams.has('industry')).toBe(false);
     expect(url.searchParams.get('window_days')).toBe('30');
+  });
+
+  it('shows ten brands by default and lets the operator change the page size', async () => {
+    brandRows = Array.from({ length: 21 }, (_, index) => ({
+      rank: index + 1,
+      brand: `品牌${index + 1}`,
+      score: 100 - index,
+      avg_rank: index + 1,
+      occurrences: 21 - index,
+      appearance_rate: 50 - index,
+    }));
+
+    render(<VisibilityWorkspace session={session} project={projectWith('cybersecurity')} />);
+    const pageSizeSelect = (await screen.findByRole('combobox', {
+      name: '品牌可见度榜单每页显示数量',
+    })) as HTMLSelectElement;
+    expect(pageSizeSelect.value).toBe('10');
+
+    const table = screen.getByRole('table', { name: '品牌可见度榜单' });
+    expect(within(table).getAllByRole('row')).toHaveLength(11);
+    expect(within(table).getByText('品牌10', { exact: true })).toBeTruthy();
+    expect(within(table).queryByText('品牌11', { exact: true })).toBeNull();
+
+    const pagination = screen.getByRole('navigation', { name: '品牌可见度榜单分页' });
+    expect(within(pagination).getByText('第 1 / 3 页')).toBeTruthy();
+    fireEvent.click(within(pagination).getByRole('button', { name: '下一页' }));
+    expect(await within(table).findByText('品牌11', { exact: true })).toBeTruthy();
+    expect(within(table).queryByText('品牌1', { exact: true })).toBeNull();
+
+    fireEvent.change(pageSizeSelect, { target: { value: '20' } });
+    await waitFor(() => expect(within(pagination).getByText('第 1 / 2 页')).toBeTruthy());
+    expect(within(table).getAllByRole('row')).toHaveLength(21);
+    expect(within(table).getByText('品牌1', { exact: true })).toBeTruthy();
+    expect(within(table).queryByText('品牌21', { exact: true })).toBeNull();
   });
 
   it('shows the brandrank_domain_unresolved guidance when the project has no rule pack domain', async () => {

@@ -88,6 +88,26 @@
 .services-page .section-title span {
   color: #637168;
 }
+.brand-visibility-page-size {
+  display: flex;
+  justify-content: flex-end;
+  margin: 12px 0 8px;
+}
+.brand-visibility-page-size label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #415047;
+  font-size: 13px;
+}
+.brand-visibility-page-size select {
+  padding: 8px 10px;
+  border: 1px solid #cbd9cf;
+  border-radius: 8px;
+  background: #fff;
+  color: #17211b;
+  font: inherit;
+}
 .services-page .actions {
   display: flex;
   gap: 8px;

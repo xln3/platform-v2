@@ -135,18 +135,25 @@ test('AI ranking uses real 盛邦 data with read-only config and full numbered p
   await page.route(/\/api\/v2\/collection\/runs(?:\?.*)?$/u, (route) => {
     const url = new URL(route.request().url());
     const requestedPage = url.searchParams.get('page') ?? '1';
+    const pageSize = Number(url.searchParams.get('page_size'));
+    expect(pageSize).toBe(2);
     runRequestedPages.push(requestedPage);
-    const rows = fixture.runs.pages[requestedPage]?.map((run) => ({
-      ...run,
-      created_at: isoTimestamp(String(run.created_at)),
-      updated_at: isoTimestamp(String(run.updated_at)),
-    }));
+    const offset = (Number(requestedPage) - 1) * pageSize;
+    const fixturePage = String(Math.floor(offset / 4) + 1);
+    const fixtureOffset = offset % 4;
+    const rows = fixture.runs.pages[fixturePage]
+      ?.slice(fixtureOffset, fixtureOffset + pageSize)
+      .map((run) => ({
+        ...run,
+        created_at: isoTimestamp(String(run.created_at)),
+        updated_at: isoTimestamp(String(run.updated_at)),
+      }));
     if (!rows) return route.abort('failed');
-    const totalPages = Math.ceil(fixture.runs.summary.run_count / 4);
+    const totalPages = Math.ceil(fixture.runs.summary.run_count / pageSize);
     return route.fulfill(
       json(rows, {
         'X-Page': requestedPage,
-        'X-Page-Size': '4',
+        'X-Page-Size': String(pageSize),
         'X-Total-Count': String(fixture.runs.summary.run_count),
         'X-Page-Count': String(totalPages),
         'X-Has-More': Number(requestedPage) < totalPages ? 'true' : 'false',
@@ -189,10 +196,10 @@ test('AI ranking uses real 盛邦 data with read-only config and full numbered p
   await expect(samplingPager.getByText('第 1 / 34 页')).toBeVisible();
   await expect(samplingPager.getByText(/共 136 条/u)).toBeVisible();
 
-  await expect(page.locator('.runs-panel tbody tr')).toHaveCount(4);
+  await expect(page.locator('.runs-panel tbody tr')).toHaveCount(2);
   await expect(page.getByText('项目共 474 个 run')).toBeVisible();
   const runPager = page.getByRole('navigation', { name: '采样记录分页' });
-  await expect(runPager.getByText('第 1 / 119 页')).toBeVisible();
+  await expect(runPager.getByText('第 1 / 237 页')).toBeVisible();
   await expect(runPager.getByText(/共 474 条/u)).toBeVisible();
 
   await samplingPager.getByRole('spinbutton', { name: '跳转页码' }).fill('34');
@@ -213,10 +220,10 @@ test('AI ranking uses real 盛邦 data with read-only config and full numbered p
     samplingTable.getByText('高校双非资产排查可以找什么公司做', { exact: true }).first(),
   ).toBeVisible();
 
-  await runPager.getByRole('spinbutton', { name: '跳转页码' }).fill('119');
+  await runPager.getByRole('spinbutton', { name: '跳转页码' }).fill('237');
   await runPager.getByRole('button', { name: '跳转' }).click();
   await expect(page.getByText('run_4E01D5PXTRE089N1XTNKSSHE32')).toBeVisible();
-  expect(runRequestedPages).toContain('119');
+  expect(runRequestedPages).toContain('237');
   await page
     .getByRole('navigation', { name: '采样记录分页' })
     .getByRole('spinbutton', { name: '跳转页码' })

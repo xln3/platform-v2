@@ -21,19 +21,25 @@ type Props = {
   session: SessionContext;
   projectPubId: string;
   readOnly?: boolean;
+  pageSize?: number;
 };
 
-export function RunsPanel({ session, projectPubId, readOnly = false }: Props) {
+export function RunsPanel({
+  session,
+  projectPubId,
+  readOnly = false,
+  pageSize = COLLECTION_RUNS_DEFAULT_PAGE_SIZE,
+}: Props) {
   const loadPage = useCallback(
     (page: number) =>
       executionApi.runPage(session, {
         projectPubId,
         page,
-        pageSize: COLLECTION_RUNS_DEFAULT_PAGE_SIZE,
+        pageSize,
       }),
-    [session, projectPubId],
+    [session, projectPubId, pageSize],
   );
-  const runsPage = useNumberedCollection(loadPage, projectPubId);
+  const runsPage = useNumberedCollection(loadPage, `${projectPubId}:${pageSize}`);
   const [summary, setSummary] = useState<RunSummary | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [answersOpenRunId, setAnswersOpenRunId] = useState<string | null>(null);
