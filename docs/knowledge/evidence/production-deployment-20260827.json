@@ -1,0 +1,335 @@
+{
+  "schema_version": "knowledge-production-deployment-evidence-v1",
+  "recorded_at": "2026-08-27T23:24:57+08:00",
+  "status": "deployed_and_verified",
+  "scope": {
+    "capability": "shared knowledge continuous improvement and brand entity consolidation",
+    "production_domain": "brand/entity-resolution",
+    "contract_fixture_domain": "source/type-fixture"
+  },
+  "git": {
+    "platform": {
+      "remote": "xln3/platform-v2",
+      "runtime_commit": "16565010c5f73d70011c285a2bd55306d0fc2937",
+      "runtime_subject": "fix(identity): protect service credential hashes behind functions",
+      "task_branch": "codex/knowledge-remediation-20260827",
+      "pushed_task_branch": true,
+      "pushed_master_fast_forward": true,
+      "force_push": false
+    },
+    "siliconindex_monorepo": {
+      "remote": "Fuyujia799/GEO-auto-analysis",
+      "commit": "493b4c24b6d2e8674716a247a1394d3f0677d495",
+      "branch": "master",
+      "pushed": true
+    },
+    "siliconindex_split": {
+      "remote": "suzakuzhang/siliconindex-consumer",
+      "commit": "d40d2ab94aa237855cbd40d8565d45b36218915e",
+      "branch": "main",
+      "pushed": true,
+      "render_deployed": true
+    }
+  },
+  "runtime": {
+    "release_path": "/opt/geo-platform-v2/releases/16565010c5f73d70011c285a2bd55306d0fc2937",
+    "current_symlink_matches_release": true,
+    "immutable_root_owned_read_only": true,
+    "git_archive_sha256": "26f6499b2aeea3155a77ff2f6bfec8b188f982e292d056a2169598163cc312da",
+    "locked_runtime_dependency_count": 81,
+    "api": {
+      "systemd_unit": "geo-platform-v2-api.service",
+      "state": "active",
+      "substate": "running",
+      "started_at": "2026-08-27T22:52:27+08:00",
+      "invocation_id": "28dc28513d6b4ed59b87fe5cee4d473e"
+    },
+    "timers": [
+      {
+        "unit": "geo-platform-v2-knowledge-connector.timer",
+        "schedule": "every_5_minutes",
+        "enabled": true,
+        "active": true
+      },
+      {
+        "unit": "geo-platform-v2-siliconindex-sync.timer",
+        "schedule": "every_6_hours",
+        "enabled": true,
+        "active": true
+      },
+      {
+        "unit": "geo-platform-v2-knowledge-backup.timer",
+        "schedule": "daily",
+        "enabled": true,
+        "active": true
+      },
+      {
+        "unit": "geo-platform-v2-knowledge-governance.timer",
+        "schedule": "weekly_monday",
+        "enabled": true,
+        "active": true
+      }
+    ],
+    "last_service_results": {
+      "connector": "success",
+      "siliconindex_sync": "success",
+      "knowledge_backup": "success",
+      "knowledge_governance": "success"
+    }
+  },
+  "database": {
+    "migration_head": "s17_0005_credential_boundary",
+    "empty_database_upgrade_passed": true,
+    "downgrade_upgrade_cycle": [
+      "s17_0005_credential_boundary",
+      "s17_0004_release_membership",
+      "s17_0005_credential_boundary"
+    ],
+    "downgrade_upgrade_passed": true,
+    "active_release_materialization": "matched:objects=40",
+    "credential_boundary": {
+      "api_direct_table_select": false,
+      "api_direct_table_insert": false,
+      "api_direct_table_update": false,
+      "api_function_execute": true,
+      "worker_function_execute": false,
+      "public_function_execute": false
+    },
+    "temporary_smoke_identity_cleanup": {
+      "credential_revoked": true,
+      "membership_revoked": true,
+      "valid_credential_count": 0,
+      "revoked_token_http_status": 401,
+      "token_file_removed": true
+    },
+    "temporary_restore_databases_removed": [
+      "geo_platform_knowledge_backfill_20260827a",
+      "geo_platform_knowledge_remediation_20260827a",
+      "geo_platform_knowledge_credential_20260827a"
+    ]
+  },
+  "knowledge": {
+    "readiness_status": "ok",
+    "active_release": "knowledge-2026-08-27.6",
+    "previous_release": "knowledge-2026-08-27.3",
+    "release_verified": true,
+    "content_hash": "sha256:a7acba68675a2e430c256cb282c7d6fad08403b8156cb766b9daeb15c9785c58",
+    "published_object_count": 40,
+    "database_counts_at_recording": {
+      "observations": 116,
+      "candidates_total": 71,
+      "candidates_aggregated": 31,
+      "candidates_local_published": 40,
+      "inference_traces": 16,
+      "connector_runs": 12
+    },
+    "governance": {
+      "latest_success_report": "/var/lib/geo-platform-v2/knowledge/governance-reports/20260827T150200Z-f46713b54f5c.json",
+      "report_hash": "sha256:b72f6cece8dfafdb45a000c76fc02d288c4d14b80d4c43350acd3859fce9fcb5",
+      "candidate_backlog": 31,
+      "conflicts": 0,
+      "upstream_changed": 0,
+      "local_changed": 0
+    }
+  },
+  "siliconindex": {
+    "public_manifest_url": "https://siliconindex-consumer.onrender.com/data/v1/manifest.json",
+    "public_brands_url": "https://siliconindex-consumer.onrender.com/data/v1/brands.json",
+    "public_mentions_url": "https://siliconindex-consumer.onrender.com/data/v1/mentions.json",
+    "release_id": "2026-08-27.6",
+    "previous_release_id": "2026-08-27.2",
+    "schema_version": "1.2.0",
+    "content_hash": "sha256:d5e15f1dc9f6b3b2d1addf6c41500e3eb3a5514b295a3a1134d4c636c07dabd2",
+    "public_readback_verified": true,
+    "snapshot_meta_matches_manifest": true,
+    "reconciliation": {
+      "base_release": "2026-08-27.6",
+      "upstream_changed": 0,
+      "local_changed": 0,
+      "conflicts": 0,
+      "new_public_release_created": false,
+      "reason": "no approved public delta"
+    }
+  },
+  "production_requests": {
+    "published_only": {
+      "input_label": "Tencent Cloud",
+      "policy": "deterministic_only",
+      "latency_ms": 2,
+      "knowledge_release": "knowledge-2026-08-27.6",
+      "identity_id": "CYB-OBJ-TENCENT-CLOUD",
+      "identity_type": "business_unit",
+      "relation": "business_unit_of",
+      "roll_up_id": "CYB-BR-TENCENT",
+      "knowledge_state": "published",
+      "model_called": false,
+      "degraded": false
+    },
+    "llm_required": {
+      "input_label": "Newland Digital Technology",
+      "safe_context": "CTID and digital identity",
+      "model": "gpt-5.6-luna",
+      "prompt_version": "brand-entity-resolution-v5",
+      "latency_ms": 8775,
+      "input_tokens": 8786,
+      "output_tokens": 635,
+      "cost_usd": null,
+      "knowledge_state": "model_inferred",
+      "adopted_for_request": true,
+      "identity_id": "CYB-OBJ-NEWLAND-DIGITAL",
+      "comparison_scope": [
+        "ctid",
+        "digital_identity"
+      ],
+      "degraded": false
+    },
+    "client_replica_fallback": {
+      "remote_target": "127.0.0.1:9",
+      "source": "client_local_replica",
+      "knowledge_state": "published",
+      "degraded": true,
+      "degradation_reasons": [
+        "knowledge_service_transport_error",
+        "local_replica_deterministic_only"
+      ],
+      "model_called": false
+    }
+  },
+  "brand_validation": {
+    "case_count": 22,
+    "baseline_release": "knowledge-2026-08-27.3",
+    "baseline_error_count": 15,
+    "candidate_release": "knowledge-2026-08-27.6",
+    "candidate_error_count": 0,
+    "candidate_dimension_accuracy": {
+      "identity": 1.0,
+      "identity_type": 1.0,
+      "relation": 1.0,
+      "roll_up": 1.0,
+      "eligibility": 1.0,
+      "dedupe": 1.0
+    },
+    "representative_project_read_only_replay": {
+      "historical_answer_count": 1309,
+      "database_mutation_count": 0,
+      "target_brand_count_before": 741,
+      "target_brand_count_after": 741,
+      "changed_decision_count": 5,
+      "change_reason": "ambiguous 360 Group mentions moved from published match to unresolved"
+    }
+  },
+  "fault_recovery": {
+    "automated_seven_day_outage_simulation_passed": true,
+    "production_fault_injection": {
+      "remote_target": "127.0.0.1:9",
+      "immediate_failed_attempts": 2,
+      "seven_wall_days_elapsed": false,
+      "last_known_good_unchanged": true,
+      "deterministic_wall_latency_ms": 16,
+      "llm_latency_ms": 8117,
+      "cached_retry_latency_ms": 9,
+      "idempotent_observation_rows": 1,
+      "local_publish_and_switch_worked": true
+    },
+    "recovery": {
+      "official_remote_restored": true,
+      "sync_succeeded": true,
+      "governance_succeeded": true,
+      "data_lost": false,
+      "conflicts_overwritten": false,
+      "record_hash_chain_valid": true,
+      "status_sequence": [
+        "success",
+        "success",
+        "failed",
+        "failed",
+        "success",
+        "success"
+      ]
+    }
+  },
+  "backup_restore_and_rollback": {
+    "full_predeploy_backup": {
+      "path": "/home/xln/geo-system/platform-v2/.production-backups/20260827T140856Z",
+      "artifact_count": 9,
+      "total_bytes": 8698801063,
+      "postgres_bytes": 54160252,
+      "postgres_sha256": "aa824727e2dfc4bc89676296de7c1f4188f25cf807d4ec1699f5061d56504711",
+      "minio_bytes": 8642617370,
+      "minio_sha256": "a9bd5464cbbb38fb0c83f66bea3bad9ed298931d6a9ad7a98a5b13a9543faaaf",
+      "all_components_ok": true
+    },
+    "knowledge_backup": {
+      "manifest": "/home/xln/geo-system/platform-v2/.production-backups/knowledge/20260827T145631Z/manifest.json",
+      "file_count": 13,
+      "archive_sha256": "sha256:cb359f80a47b1c65f444cf2687b13405907cb48a739bd46ef2c47f6fba1ae90d",
+      "restored_to_empty_directory": true,
+      "restored_current": "knowledge-2026-08-27.6",
+      "restored_previous": "knowledge-2026-08-27.3",
+      "restored_hash_verified": true,
+      "temporary_restore_directory_removed": true
+    },
+    "production_knowledge_rollback": {
+      "sequence": [
+        "knowledge-2026-08-27.6",
+        "knowledge-2026-08-27.3",
+        "knowledge-2026-08-27.6"
+      ],
+      "object_versions": [
+        2,
+        1,
+        2
+      ],
+      "before_and_restored_attributes_md5": "54b7ee7ea9e5a4ff5002bfffece725a6",
+      "rollback_attributes_md5": "b0e7391cebbd530e8da1333e35ecb87f",
+      "readiness_ok_at_each_stage": true,
+      "database_materialization_matched_at_each_stage": true
+    }
+  },
+  "automated_validation": {
+    "python": {
+      "passed": 2677,
+      "skipped": 16,
+      "duration_seconds": 188.41
+    },
+    "ruff_file_count": 832,
+    "ruff_format_passed": true,
+    "ruff_lint_passed": true,
+    "mypy_source_file_count": 333,
+    "mypy_strict_passed": true,
+    "frontend_unit_lint_typecheck_build_passed": true,
+    "playwright": {
+      "passed": 535,
+      "failed": 14,
+      "failure_scope": "pre-existing visual and live API families"
+    },
+    "siliconindex_monorepo_tests_passed": 44,
+    "siliconindex_split_tests_passed": 44,
+    "siliconindex_builds_passed": true,
+    "siliconindex_existing_lint_warnings": 3,
+    "git_diff_check_passed": true
+  },
+  "research_evaluation": {
+    "status": "reproducible_pilot_not_paper_grade",
+    "case_count": 22,
+    "independent_held_out_set": false,
+    "gold_also_used_by_release_gate": true,
+    "supports_novelty_or_superiority_claim": false,
+    "method_case_accuracy": {
+      "traditional_rag_no_update_analogue": 0.3181818181818182,
+      "append_only_documents_analogue": 0.3181818181818182,
+      "llm_direct_knowledge_patch": 0.22727272727272727,
+      "expert_feedback_edit_analogue": 1.0,
+      "evidence_writeback_analogue": 0.8636363636363636,
+      "dynamic_entity_resolution_analogue": 1.0,
+      "scoped_replay_risk_governed_project": 1.0
+    },
+    "comparison_report_hash": "sha256:14fd55758edb0b2546ce1bcdc39846000863d3f0d328c05808ace31c19ed196e",
+    "limitations": [
+      "RAG, expert feedback, evidence writeback and DynamicER rows are controlled analogues rather than author pipeline reproductions.",
+      "The evaluation set is small and not independent from the release gate.",
+      "Human review minutes and counterfactual discovery-to-effect times were not measured.",
+      "Provider price was unavailable for live model calls."
+    ]
+  }
+}
