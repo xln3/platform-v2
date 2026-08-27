@@ -86,7 +86,9 @@ WIPO Nice class 是商标商品/服务分类，不是竞争关系真值。GS1 �
 
 当前迁移发布 40 个有公开证据且通过审核的实体。其余 28 个只保留 observation/candidate，不进入正式榜单。40 个发布对象的 `reviewed_without_evidence` 为 0。原 stable ID 和上游 release/hash 血缘被保留。
 
-平台当前本地 release 是 `knowledge-2026-08-27.2`，父版本是 `.1`，内容 hash 为 `sha256:05eee1d75251efdc151e65afe9856d62f0c5ba21486a1ee23d3f09f1dac4c9d0`。`.2` 只更新上游 release lineage；数据库验证 40 个 reviewed object 的 stable ID 与内容均未改变，proposal/object 未重复写入。
+SiliconIndex 独立仓库在合并原有 split 数据后发布 `2026-08-27.2`，内容 hash 为 `sha256:118980eaff29451ff8f280de44a206acc17c0d1906df6c272ab26b1836d715a7`。全局 hash 因其他行业记录合并而变化，但网安域 40 个 reviewed object 的 stable ID 与内容逐字段相等。
+
+平台当前本地 release 是 `knowledge-2026-08-27.3`，父版本是 `.2`，内容 hash 为 `sha256:93a04f23f5585efa6e569a973953f65acd8ee4897108982cb73f412b3ec21261`。`.3` 记录上游 release/hash 转换；lineage-only 门禁验证完整 reviewed object 集合和属性内容，而不是要求上游全局 hash 不变。开发数据库导入后 proposal/object 仍各为 40 条，没有重复写入。
 
 ## 版本和冲突
 

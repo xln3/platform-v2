@@ -1,11 +1,11 @@
 {
   "schema_version": "entity-master-v3",
   "domain": "cybersecurity",
-  "revision": "siliconindex:2026-08-27.1:cybersecurity",
+  "revision": "siliconindex:2026-08-27.2:cybersecurity",
   "aggregation_level": "brand_family",
   "source_system": "siliconindex",
-  "source_release_id": "2026-08-27.1",
-  "source_content_hash": "sha256:a36b4523d10ce7c09b073604b5f4bea63badf67be25a441b05ac61646ea92b00",
+  "source_release_id": "2026-08-27.2",
+  "source_content_hash": "sha256:118980eaff29451ff8f280de44a206acc17c0d1906df6c272ab26b1836d715a7",
   "source_url": "https://siliconindex-consumer.onrender.com/data/v1",
   "resolution_policy": "实体 ID、别名关系、证据和审核状态来自同一 SiliconIndex 发布快照；正式榜单仅消费 reviewed 实体。项目观测只能产生待审候选，不能在项目内创建实体真相；品牌家族归并不等于同一法人。此文件是生成的离线投影，不是第二事实源。",
   "entities": [

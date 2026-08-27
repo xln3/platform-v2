@@ -8,6 +8,7 @@ import hashlib
 import json
 import sys
 import unicodedata
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -96,6 +97,48 @@ def _document(projection: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any
         "reviewed_without_evidence": 0,
     }
     return document, quality
+
+
+def _verify_lineage_only_successor(
+    *,
+    parent_quality_report: dict[str, Any],
+    projection: dict[str, Any],
+    current_reviewed_objects: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Verify published objects are unchanged and describe the upstream transition."""
+
+    previous_source_release = str(parent_quality_report.get("source_release_id") or "")
+    previous_source_hash = str(parent_quality_report.get("source_content_hash") or "")
+    if not previous_source_release or not previous_source_hash:
+        raise RuntimeError("lineage_only_parent_source_lineage_missing")
+
+    source_release = str(projection["source_release_id"])
+    source_content_hash = str(projection["source_content_hash"])
+    reviewed_entities = {
+        str(entity["entity_id"]): {
+            "analysis_domain": projection["domain"],
+            **dict(entity),
+        }
+        for entity in projection["entities"]
+        if entity.get("review_status") == "reviewed"
+    }
+    if set(current_reviewed_objects) != set(reviewed_entities):
+        raise RuntimeError("lineage_only_governed_object_set_changed")
+    if any(
+        dict(current_reviewed_objects[stable_id]) != attributes
+        for stable_id, attributes in reviewed_entities.items()
+    ):
+        raise RuntimeError("lineage_only_governed_object_content_changed")
+
+    return {
+        "reviewed_objects_verified": len(reviewed_entities),
+        "previous_source_release_id": previous_source_release,
+        "source_release_id": source_release,
+        "source_release_changed": previous_source_release != source_release,
+        "previous_source_content_hash": previous_source_hash,
+        "source_content_hash": source_content_hash,
+        "source_content_hash_changed": previous_source_hash != source_content_hash,
+    }
 
 
 def _import_database(
@@ -343,7 +386,6 @@ def _record_database_lineage_only(
     namespace = "shared"
     domain = "brand/entity-resolution"
     source_release = str(projection["source_release_id"])
-    source_content_hash = str(projection["source_content_hash"])
     parent_release_id = manifest.get("parent_release_id")
     if not isinstance(parent_release_id, str) or not parent_release_id:
         raise RuntimeError("lineage_only_parent_release_required")
@@ -375,10 +417,6 @@ def _record_database_lineage_only(
         )
         if parent is None:
             raise RuntimeError("lineage_only_parent_release_not_found")
-        parent_source_hash = str(parent.quality_report.get("source_content_hash") or "")
-        if parent_source_hash != source_content_hash:
-            raise RuntimeError("lineage_only_requires_unchanged_source_content")
-
         latest_activation = session.scalar(
             select(ReleaseActivation)
             .where(
@@ -394,24 +432,15 @@ def _record_database_lineage_only(
 
         repository = KnowledgeRepository(session, tenant_pub_id)
         current_objects = repository.current_objects(namespace=namespace, domain=domain)
-        reviewed_entities = {
-            str(entity["entity_id"]): {
-                "analysis_domain": projection["domain"],
-                **dict(entity),
-            }
-            for entity in projection["entities"]
-            if entity.get("review_status") == "reviewed"
-        }
-        current_by_id = {
-            row.stable_id: row for row in current_objects if row.review_status == "reviewed"
-        }
-        if set(current_by_id) != set(reviewed_entities):
-            raise RuntimeError("lineage_only_governed_object_set_changed")
-        if any(
-            dict(current_by_id[stable_id].attributes) != attributes
-            for stable_id, attributes in reviewed_entities.items()
-        ):
-            raise RuntimeError("lineage_only_governed_object_content_changed")
+        verification = _verify_lineage_only_successor(
+            parent_quality_report=dict(parent.quality_report),
+            projection=projection,
+            current_reviewed_objects={
+                row.stable_id: dict(row.attributes)
+                for row in current_objects
+                if row.review_status == "reviewed"
+            },
+        )
 
         release = repository.add_release(
             namespace=namespace,
@@ -445,8 +474,7 @@ def _record_database_lineage_only(
                 "result": {
                     "mode": "lineage_only",
                     "outcome": "zero_data_change",
-                    "reviewed_objects_verified": len(reviewed_entities),
-                    "source_content_hash": source_content_hash,
+                    **verification,
                 },
                 "finished_at": now,
             }
@@ -465,7 +493,7 @@ def _record_database_lineage_only(
             "database": "lineage_recorded",
             "release_pub_id": release.pub_id,
             "parent_release_id": parent_release_id,
-            "reviewed_objects_verified": len(reviewed_entities),
+            **verification,
             "outcome": "zero_data_change",
         }
 
