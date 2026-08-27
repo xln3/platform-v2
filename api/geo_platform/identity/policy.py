@@ -2,12 +2,11 @@ import hashlib
 
 # ruff: noqa: B008
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from enum import StrEnum
 from functools import lru_cache
 
 from fastapi import Cookie, Depends, Header, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
@@ -15,7 +14,6 @@ from ..tenancy.database import get_db
 from ..tenancy.models import (
     Membership,
     OidcIdentityBinding,
-    ServiceCredential,
     Tenant,
     User,
 )
@@ -336,16 +334,15 @@ def get_principal(
     if user.is_service_account:
         if not x_service_token:
             raise HTTPException(status_code=401, detail={"code": "service_token_required"})
-        credential = session.scalar(
-            select(ServiceCredential).where(
-                ServiceCredential.tenant_id == membership.tenant_id,
-                ServiceCredential.user_id == user.id,
-                ServiceCredential.secret_hash
-                == hashlib.sha256(x_service_token.encode()).hexdigest(),
-                ServiceCredential.revoked_at.is_(None),
-                ServiceCredential.expires_at > datetime.now(UTC),
+        credential_valid = session.scalar(
+            select(
+                func.platform.verify_service_credential(
+                    membership.tenant_id,
+                    user.id,
+                    hashlib.sha256(x_service_token.encode()).hexdigest(),
+                )
             )
         )
-        if credential is None:
+        if credential_valid is not True:
             raise HTTPException(status_code=401, detail={"code": "service_token_invalid"})
     return Principal(user.subject, principal.role, tenant.pub_id, user.pub_id)

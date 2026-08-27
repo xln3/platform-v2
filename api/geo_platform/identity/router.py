@@ -3,6 +3,7 @@
 import hashlib
 import hmac
 import secrets
+import uuid
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Cookie, Depends, Form, Header, HTTPException, Path, Request, Response
@@ -19,7 +20,6 @@ from ..tenancy.models import (
     AuditLog,
     Membership,
     OidcIdentityBinding,
-    ServiceCredential,
     Tenant,
     User,
 )
@@ -616,18 +616,22 @@ def create_service_account(
     )
     token = secrets.token_urlsafe(48)
     expires_at = datetime.now(UTC) + timedelta(hours=body.expires_in_hours)
-    session.add_all(
-        [
-            membership,
-            ServiceCredential(
-                pub_id=new_pub_id("scr"),
-                tenant_id=tenant.id,
-                user_id=user.id,
-                secret_hash=hashlib.sha256(token.encode()).hexdigest(),
-                expires_at=expires_at,
-            ),
-        ]
+    session.add(membership)
+    session.flush()
+    credential_created = session.scalar(
+        select(
+            func.platform.create_service_credential(
+                uuid.uuid4(),
+                new_pub_id("scr"),
+                tenant.id,
+                user.id,
+                hashlib.sha256(token.encode()).hexdigest(),
+                expires_at,
+            )
+        )
     )
+    if credential_created is not True:
+        raise HTTPException(status_code=503, detail={"code": "service_credential_unavailable"})
     session.commit()
     return ServiceAccountCredential(
         pub_id=membership.pub_id,
@@ -675,13 +679,21 @@ def revoke_member(
         )
         if active_admins == 1:
             raise HTTPException(status_code=409, detail={"code": "last_admin"})
-    membership.state = "revoked"
-    membership.revoked_at = datetime.now(UTC)
+    revoked_at = datetime.now(UTC)
     if user.is_service_account:
-        session.query(ServiceCredential).filter(
-            ServiceCredential.user_id == user.id,
-            ServiceCredential.revoked_at.is_(None),
-        ).update({"revoked_at": datetime.now(UTC)})
+        value = session.scalar(
+            select(
+                func.platform.revoke_service_credentials(
+                    membership.tenant_id,
+                    user.id,
+                )
+            )
+        )
+        if not isinstance(value, datetime):
+            raise HTTPException(status_code=503, detail={"code": "service_credential_unavailable"})
+        revoked_at = value
+    membership.state = "revoked"
+    membership.revoked_at = revoked_at
     session.commit()
     return MemberView(
         pub_id=membership.pub_id,

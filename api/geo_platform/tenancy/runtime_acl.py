@@ -639,6 +639,11 @@ SEQUENCE_GRANTS: Final = MappingProxyType({role: _sequence_policy(role) for role
 RECONCILIATION_FUNCTION: Final = (
     "platform.record_collection_not_sent_proof_v2(uuid,uuid,uuid,text,text,text,text)"
 )
+API_SERVICE_CREDENTIAL_FUNCTIONS: Final = (
+    "platform.verify_service_credential(uuid,uuid,text)",
+    "platform.create_service_credential(uuid,text,uuid,uuid,text,timestamptz)",
+    "platform.revoke_service_credentials(uuid,uuid)",
+)
 WORKER_FUNCTIONS: Final = (
     RECONCILIATION_FUNCTION,
     "integration.business_alert_snapshot()",
@@ -692,7 +697,10 @@ WORKER_FUNCTIONS: Final = (
     "uuid,uuid,uuid,uuid,text,bigint,bigint,integer,text,text,text,timestamptz)",
 )
 FUNCTION_GRANTS: Final = MappingProxyType(
-    {API_ROLE: frozenset(), WORKER_ROLE: frozenset(WORKER_FUNCTIONS)}
+    {
+        API_ROLE: frozenset(API_SERVICE_CREDENTIAL_FUNCTIONS),
+        WORKER_ROLE: frozenset(WORKER_FUNCTIONS),
+    }
 )
 
 
@@ -773,13 +781,25 @@ def migration_reconcile_sql(role: str) -> str:
         schema, name = sequence.split(".", 1)
         statements.append(f'GRANT USAGE,SELECT ON SEQUENCE "{schema}"."{name}" TO "{role}";')
     for function in sorted(FUNCTION_GRANTS[role]):
-        statements.append(f'GRANT EXECUTE ON FUNCTION {function} TO "{role}";')
+        # Older migrations also import this renderer.  A current policy may
+        # therefore name a function created by a later migration.  Skip that
+        # grant until the creating migration both hardens and grants it; this
+        # keeps a from-empty-database upgrade valid without ever granting a
+        # broader table privilege as a compatibility shortcut.
+        statements.extend(
+            (
+                f"IF to_regprocedure('{function}') IS NOT NULL THEN",
+                f'GRANT EXECUTE ON FUNCTION {function} TO "{role}";',
+                "END IF;",
+            )
+        )
     statements.append("END IF; END $runtime_acl$;")
     return "\n".join(statements)
 
 
 __all__ = [
     "API_ROLE",
+    "API_SERVICE_CREDENTIAL_FUNCTIONS",
     "FUNCTION_GRANTS",
     "MANAGED_SCHEMAS",
     "RECONCILIATION_FUNCTION",
