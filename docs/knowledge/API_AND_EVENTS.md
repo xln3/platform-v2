@@ -14,6 +14,7 @@
 | 裁决          | `POST /proposals/{id}/adjudications`                            | review              |
 | 变更集        | `POST /change-sets`、`POST /change-sets/{id}/approve`           | review              |
 | 发布          | `GET/POST /releases`                                            | read/publish        |
+| 副本下载      | `GET /releases/{id}/replica`                                    | read                |
 | 激活/回滚     | `POST /releases/{id}/activate`、`POST /releases/{id}/rollback`  | publish             |
 | connector     | `GET/POST /connector-runs`                                      | read/connector      |
 | 审计/事件     | `GET /audit-events`、`GET /events`                              | audit               |
@@ -33,6 +34,12 @@
 
 cache read/write、observation 和 trace 失败分别披露 `semantic_cache_read_failed`、`semantic_cache_write_failed`、`observation_persistence_failed` 和 `trace_persistence_failed`。这些可选反馈故障不改变已经得到的当次 decision。调用方不能把 degradation 当成持久化成功回执。
 
+## 客户端最后验证副本
+
+`GET /releases/{id}/replica` 返回经过服务端重新验哈希的不可变完整 release，不是数据库当前行的临时拼接。`KnowledgeHttpClient` 可把它安装到调用方自己的内容寻址目录；安装时同时验证 release id、manifest hash、文档 hash 和领域 schema。服务短暂不可达或返回 5xx 时，客户端可以用注册的领域包在该副本上处理新的确定性请求，并返回 `last_known_good_replica` 降级原因。它不能在本地偷偷调用模型、提交观察或假装治理写入成功。
+
+如果调用方没有安装领域包，只允许复用输入、必要上下文、知识版本、政策、提示词、模型和工具版本都完全相同的内容寻址响应缓存；不能把一个旧请求的答案泛化到新请求。客户端要求的 release 与副本不一致时必须失败，不得静默换版本。
+
 ## Observation 契约
 
 观察批次最多 500 条。source reference 必须先做 SHA-256。idempotency key 只能包含安全字符。payload 上限为 64 KiB。服务返回 accepted、duplicate 和 receipt id。相同请求重试只返回 duplicate；不同应用的同一规范名称会聚合到同一 `shared` candidate，但 observation 仍保留各自不可逆来源收据。
@@ -41,7 +48,9 @@ cache read/write、observation 和 trace 失败分别披露 `semantic_cache_read
 
 批准 change set 前，每个 change 必须提交与对应 proposal 精确匹配的全部 `evidence_pub_ids`。存在 authoritative/primary `opposes` evidence 时 approval 返回冲突。终态 proposal 不能再次 adjudicate；reopen 只能由新 evidence version、新 policy version 或 reviewer 显式 `manual_override=true` 触发。
 
-品牌 release 还必须提交 `historical_replay-v1`：`evaluation_set_hash`、带时区的 `time_cutoff`、评测请求数、基线/候选错误数、修复数、新错误数、允许的新错误数和 `passed=true`。缺字段或新错误超过预算时返回 `historical_replay_gate_failed`。该报告会进入不可变 release manifest。
+品牌 release 的影响报告由服务端领域包生成和执行，不接受调用方自行填写“通过”计数。报告使用 `historical_replay-v2`，绑定 `evaluation_set_hash`、带时区的 `time_cutoff`、评测请求数、基线/候选原子错误数、修复数、新错误数、允许的新错误数、候选状态 hash 和 `passed=true`。缺字段、状态 hash 不一致或新错误超过预算时返回 `historical_replay_gate_failed`。报告及其 hash 会进入不可变 release manifest。
+
+激活前还会把 artifact 的领域逻辑视图与该 release 在 PostgreSQL 中的对象/断言成员关系逐项比较。两边不一致时返回 `release_materialization_mismatch`，artifact `CURRENT` 和数据库 active release 都不移动。回滚执行同一检查，因此回滚改变的不只是文件指针，也会把所有读取限定到目标 release 的数据库成员关系。
 
 ## `knowledge-event-v1`
 

@@ -109,10 +109,10 @@ WIPO Nice class 是商标商品/服务分类，不是竞争关系真值。GS1 �
 
 扩展后的时间冻结回放集有 22 条请求。当前本机 `.3` 在 15 条身份、层级、关系或场景判断上不符合新金标，`.6` 为 0 条，新增错误预算为 0。真实项目的 1309 条答案回放中，`.6` 相对 `.3` 只把 5 次歧义 `360集团` 从正式计权改为 unresolved；目标品牌 741 次 answer-level hit、8 次同回答别名折叠和 1158 个受治理投影影响的答案数均不变。这个结果是发布门禁和工程回归证据，不是论文结论。
 
-本机数据库的初次导入保存 40 个发布汇总对象；具体法人、集团、业务、产品和机构以带独立 stable ID、类型、关系和证据的 identity object 保存在其版本化属性中，并由运行时单独返回。后继导入不会复制完整对象集：只有内容变化的 stable ID 才创建新 observation、candidate、proposal、supporting evidence、adjudication、change set 和 `knowledge_object.version+1`；无变化对象继续引用旧版本。对象级来源会落成 claim-specific Evidence 行。artifact 先生成但不激活，数据库提交成功后才原子推进 `CURRENT`。同一 `.6` 重跑必须保持幂等。
+本机数据库的初次导入保存 40 个发布汇总对象；具体法人、集团、业务、产品和机构以带独立 stable ID、类型、关系和证据的 identity object 保存在其版本化属性中，并由运行时单独返回。后继导入不会复制完整对象集：只有内容变化的 stable ID 才创建新 observation、candidate、proposal、supporting evidence、adjudication、change set 和 `knowledge_object.version+1`；无变化对象继续引用旧版本。对象级来源会落成 claim-specific Evidence 行。每个 release 另存对象/断言成员关系，所以旧 release 仍指向当时版本，不会被全局最新行污染。artifact 先生成但不激活；服务端回放、数据库 materialization、artifact hash 和两者逻辑视图全部通过后才原子推进 `CURRENT` 与数据库 active release。同一 `.6` 重跑必须保持幂等。
 
 ## 版本和冲突
 
 事实纠正必须生成新 proposal、adjudication、change set 和 release。旧 release 和旧对象/assertion 行不能修改。上游和本地相对同一共同 base 修改不同字段时自动合并；修改同一字段时产生 state=`conflict` 的 change set 并阻止发布。冲突解决后旧冲突标为 `superseded`，不再计入未处理积压但仍可审计。
 
-品牌发布还必须通过历史回放 impact gate：报告包含截止时间、评测集内容 hash、基线/候选错误、修复数、新错误数和允许预算。紧急纠错可以绕过周度等待时间，但不能绕过证据、四眼审批、回放和质量门。若回放没有比强基线好，只能缩小变更或报告负结果。
+品牌发布还必须通过服务端历史回放 impact gate：领域包从数据库变更投影候选状态，自行运行固定 22 条回放，并把候选状态 hash、截止时间、评测集内容 hash、基线/候选错误、修复数、新错误数和允许预算写入 manifest。调用方提供的“passed”或错误计数不被信任。紧急纠错可以绕过周度等待时间，但不能绕过证据、四眼审批、回放和质量门。若回放没有比强基线好，只能缩小变更或报告负结果。

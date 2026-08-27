@@ -12,7 +12,7 @@
 4. `validate_model_output`：拒绝非法结构、虚构 ID、非法 evidence ref 和越权输出。
 5. `observations`：把未决或模型推理安全地投影为幂等观察。
 6. `validate_release`：执行领域本体、证据和质量门。
-7. `validate_release_impact`：按领域风险检查发布前回放、退化预算或明确的低风险豁免。
+7. `evaluate_release_impact`：由服务端领域包实际执行发布前回放，绑定候选状态，并检查退化预算或明确的低风险豁免。
 8. `project_release`：把通用对象与 assertion 编译成领域 read model。
 
 normalizer/resolver 位于 `deterministic_resolve`。inference strategy 位于 prompt 与 output validator。evidence collector 通过 prompt-declared、deployment-registered tool 提供。review policy 由领域证据规则和通用四眼状态机共同构成。quality gate 在发布前强制调用。projector 只能生成确定性 artifact。

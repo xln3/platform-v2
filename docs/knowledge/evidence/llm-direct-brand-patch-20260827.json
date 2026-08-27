@@ -1,0 +1,553 @@
+{
+  "baseline_release_id": "knowledge-2026-08-27.3",
+  "cost_usd": null,
+  "input_limitations": [
+    "Safe contexts are the evaluation fixture descriptions.",
+    "Allowed stable IDs, names, aliases and evidence-reference URLs came only from the pre-cutoff baseline release; expected structured labels were withheld.",
+    "Observation contexts necessarily contain evidence-bearing task statements; they are the post-cutoff input to be learned, not hidden labels.",
+    "The model did not retrieve or read the referenced source pages in this run."
+  ],
+  "input_tokens": 7156,
+  "knowledge_status": "model_inferred",
+  "latency_ms": 39606,
+  "model": "gpt-5.6-luna",
+  "model_version": "deployment",
+  "output_hash": "sha256:62fa14fc0502c6ac0fa5f3c02b3171baee61428ff30c1b54ca3e9b07f839c967",
+  "output_tokens": 4267,
+  "patches": [
+    {
+      "confidence": 0.97,
+      "eligible": true,
+      "evidence_refs": [
+        "https://cloud.tencent.com/about",
+        "https://www.tencent.com/index.php/zh-cn/about.html"
+      ],
+      "identity_entity_id": "CYB-BR-TENCENT",
+      "identity_entity_type": "brand_family",
+      "missing_evidence": [],
+      "relationship": "business_unit_of",
+      "roll_up_entity_id": "CYB-BR-TENCENT",
+      "scopes": [
+        "cloud_security"
+      ],
+      "surface_form": "腾讯云"
+    },
+    {
+      "confidence": 0.98,
+      "eligible": true,
+      "evidence_refs": [
+        "https://cloud.tencent.com/about",
+        "https://www.tencent.com/index.php/zh-cn/about.html"
+      ],
+      "identity_entity_id": "CYB-BR-TENCENT",
+      "identity_entity_type": "brand_family",
+      "missing_evidence": [],
+      "relationship": "self",
+      "roll_up_entity_id": "CYB-BR-TENCENT",
+      "scopes": [
+        "cloud_security",
+        "cybersecurity"
+      ],
+      "surface_form": "腾讯"
+    },
+    {
+      "confidence": 0.96,
+      "eligible": true,
+      "evidence_refs": [
+        "https://consumer.huawei.com/cn/support/content/zh-cn15955449/"
+      ],
+      "identity_entity_id": "CYB-BR-HUAWEI",
+      "identity_entity_type": "brand_family",
+      "missing_evidence": [],
+      "relationship": "business_unit_of",
+      "roll_up_entity_id": "CYB-BR-HUAWEI",
+      "scopes": [
+        "cloud_security"
+      ],
+      "surface_form": "华为云"
+    },
+    {
+      "confidence": 0.98,
+      "eligible": true,
+      "evidence_refs": [
+        "https://consumer.huawei.com/cn/support/content/zh-cn15955449/"
+      ],
+      "identity_entity_id": "CYB-BR-HUAWEI",
+      "identity_entity_type": "brand_family",
+      "missing_evidence": [],
+      "relationship": "self",
+      "roll_up_entity_id": "CYB-BR-HUAWEI",
+      "scopes": [
+        "cloud_security",
+        "cybersecurity"
+      ],
+      "surface_form": "华为"
+    },
+    {
+      "confidence": 0.99,
+      "eligible": true,
+      "evidence_refs": [
+        "https://www.nsfocus.com.cn/html/7/"
+      ],
+      "identity_entity_id": "CYB-BR-NSFOCUS",
+      "identity_entity_type": "brand",
+      "missing_evidence": [],
+      "relationship": "official_abbreviation",
+      "roll_up_entity_id": "CYB-BR-NSFOCUS",
+      "scopes": [
+        "cybersecurity"
+      ],
+      "surface_form": "绿盟"
+    },
+    {
+      "confidence": 0.99,
+      "eligible": true,
+      "evidence_refs": [
+        "https://www.nsfocus.com.cn/html/7/"
+      ],
+      "identity_entity_id": "CYB-BR-NSFOCUS",
+      "identity_entity_type": "brand",
+      "missing_evidence": [],
+      "relationship": "official_abbreviation",
+      "roll_up_entity_id": "CYB-BR-NSFOCUS",
+      "scopes": [
+        "cybersecurity"
+      ],
+      "surface_form": "NSFOCUS"
+    },
+    {
+      "confidence": 0.99,
+      "eligible": true,
+      "evidence_refs": [
+        "https://www.nsfocus.com.cn/html/7/"
+      ],
+      "identity_entity_id": "CYB-BR-NSFOCUS",
+      "identity_entity_type": "brand",
+      "missing_evidence": [],
+      "relationship": "self",
+      "roll_up_entity_id": "CYB-BR-NSFOCUS",
+      "scopes": [
+        "cybersecurity"
+      ],
+      "surface_form": "绿盟科技"
+    },
+    {
+      "confidence": 0.99,
+      "eligible": true,
+      "evidence_refs": [
+        "https://disc.static.szse.cn/download/disc/disk03/finalpage/2026-03-31/3179d1d6-b086-4d6c-8278-46846186df37.PDF",
+        "https://www.bjca.cn/about/index.html"
+      ],
+      "identity_entity_id": "CYB-BR-BJCA",
+      "identity_entity_type": "brand",
+      "missing_evidence": [],
+      "relationship": "official_abbreviation",
+      "roll_up_entity_id": "CYB-BR-BJCA",
+      "scopes": [
+        "cybersecurity"
+      ],
+      "surface_form": "BJCA"
+    },
+    {
+      "confidence": 0.98,
+      "eligible": true,
+      "evidence_refs": [
+        "https://disc.static.szse.cn/download/disc/disk03/finalpage/2026-03-31/3179d1d6-b086-4d6c-8278-46846186df37.PDF",
+        "https://www.bjca.cn/about/index.html"
+      ],
+      "identity_entity_id": "CYB-BR-BJCA",
+      "identity_entity_type": "brand",
+      "missing_evidence": [],
+      "relationship": "self",
+      "roll_up_entity_id": "CYB-BR-BJCA",
+      "scopes": [
+        "cybersecurity"
+      ],
+      "surface_form": "数字认证"
+    },
+    {
+      "confidence": 0.91,
+      "eligible": true,
+      "evidence_refs": [
+        "https://dt.newland.com.cn/news/information/2024/10923.htm",
+        "https://www.newland.com.cn/",
+        "https://www.newland.com.cn/news/list/0ea4ed39f3bc4824a4aef013b21b81ea.htm"
+      ],
+      "identity_entity_id": "CYB-BR-NEWLAND",
+      "identity_entity_type": "brand_family",
+      "missing_evidence": [],
+      "relationship": "self",
+      "roll_up_entity_id": "CYB-BR-NEWLAND",
+      "scopes": [
+        "ctid",
+        "cybersecurity",
+        "digital_identity"
+      ],
+      "surface_form": "新大陆"
+    },
+    {
+      "confidence": 0.98,
+      "eligible": true,
+      "evidence_refs": [
+        "https://dt.newland.com.cn/news/information/2024/10923.htm",
+        "https://www.newland.com.cn/",
+        "https://www.newland.com.cn/news/list/0ea4ed39f3bc4824a4aef013b21b81ea.htm"
+      ],
+      "identity_entity_id": "CYB-BR-NEWLAND",
+      "identity_entity_type": "brand_family",
+      "missing_evidence": [],
+      "relationship": "same_legal_entity",
+      "roll_up_entity_id": "CYB-BR-NEWLAND",
+      "scopes": [
+        "ctid",
+        "digital_identity"
+      ],
+      "surface_form": "新大陆数字技术股份有限公司"
+    },
+    {
+      "confidence": 0.99,
+      "eligible": true,
+      "evidence_refs": [
+        "https://www.knownsec.com/",
+        "https://www.knownsec.com/media/upload/201906.pdf"
+      ],
+      "identity_entity_id": "CYB-BR-KNOWNSEC",
+      "identity_entity_type": "brand_family",
+      "missing_evidence": [],
+      "relationship": "product_of",
+      "roll_up_entity_id": "CYB-BR-KNOWNSEC",
+      "scopes": [
+        "cybersecurity"
+      ],
+      "surface_form": "ZoomEye"
+    },
+    {
+      "confidence": 0.98,
+      "eligible": true,
+      "evidence_refs": [
+        "https://www.knownsec.com/",
+        "https://www.knownsec.com/media/upload/201906.pdf"
+      ],
+      "identity_entity_id": "CYB-BR-KNOWNSEC",
+      "identity_entity_type": "brand_family",
+      "missing_evidence": [],
+      "relationship": "self",
+      "roll_up_entity_id": "CYB-BR-KNOWNSEC",
+      "scopes": [
+        "cybersecurity"
+      ],
+      "surface_form": "知道创宇"
+    },
+    {
+      "confidence": 0.96,
+      "eligible": true,
+      "evidence_refs": [
+        "https://www.cetccst.com.cn/about/136.html"
+      ],
+      "identity_entity_id": "CYB-BR-WESTONE",
+      "identity_entity_type": "brand",
+      "missing_evidence": [],
+      "relationship": "historical_name",
+      "roll_up_entity_id": "CYB-BR-WESTONE",
+      "scopes": [
+        "cybersecurity"
+      ],
+      "surface_form": "卫士通"
+    },
+    {
+      "confidence": 0.99,
+      "eligible": true,
+      "evidence_refs": [
+        "https://www.cetccst.com.cn/about/136.html"
+      ],
+      "identity_entity_id": "CYB-BR-WESTONE",
+      "identity_entity_type": "brand",
+      "missing_evidence": [],
+      "relationship": "self",
+      "roll_up_entity_id": "CYB-BR-WESTONE",
+      "scopes": [
+        "cybersecurity"
+      ],
+      "surface_form": "电科网安"
+    },
+    {
+      "confidence": 0.98,
+      "eligible": true,
+      "evidence_refs": [
+        "https://www.webray.com.cn/about/index.html"
+      ],
+      "identity_entity_id": "CYB-BR-WEBRAY",
+      "identity_entity_type": "brand_family",
+      "missing_evidence": [],
+      "relationship": "product_of",
+      "roll_up_entity_id": "CYB-BR-WEBRAY",
+      "scopes": [
+        "ctid"
+      ],
+      "surface_form": "RayTAG"
+    },
+    {
+      "confidence": 0.98,
+      "eligible": true,
+      "evidence_refs": [
+        "https://www.webray.com.cn/about/index.html"
+      ],
+      "identity_entity_id": "CYB-BR-WEBRAY",
+      "identity_entity_type": "brand_family",
+      "missing_evidence": [],
+      "relationship": "self",
+      "roll_up_entity_id": "CYB-BR-WEBRAY",
+      "scopes": [
+        "ctid",
+        "cybersecurity"
+      ],
+      "surface_form": "盛邦安全"
+    },
+    {
+      "confidence": 0,
+      "eligible": false,
+      "evidence_refs": [],
+      "identity_entity_id": null,
+      "identity_entity_type": "unknown",
+      "missing_evidence": [
+        "No supplied evidence establishes 腾讯会议 as a cybersecurity vendor identity or alias."
+      ],
+      "relationship": null,
+      "roll_up_entity_id": null,
+      "scopes": [],
+      "surface_form": "腾讯会议"
+    },
+    {
+      "confidence": 0,
+      "eligible": false,
+      "evidence_refs": [],
+      "identity_entity_id": null,
+      "identity_entity_type": "unknown",
+      "missing_evidence": [
+        "Supplied evidence explicitly states that 绿盟大学 is not established as a 绿盟科技 alias."
+      ],
+      "relationship": null,
+      "roll_up_entity_id": null,
+      "scopes": [],
+      "surface_form": "绿盟大学"
+    },
+    {
+      "confidence": 0.98,
+      "eligible": true,
+      "evidence_refs": [
+        "https://cloud.tencent.com/about",
+        "https://www.tencent.com/index.php/zh-cn/about.html"
+      ],
+      "identity_entity_id": "CYB-BR-TENCENT",
+      "identity_entity_type": "brand_family",
+      "missing_evidence": [],
+      "relationship": "business_unit_of",
+      "roll_up_entity_id": "CYB-BR-TENCENT",
+      "scopes": [
+        "cybersecurity"
+      ],
+      "surface_form": "腾讯安全"
+    },
+    {
+      "confidence": 0.97,
+      "eligible": true,
+      "evidence_refs": [
+        "https://fofa.info/about",
+        "https://www.huashunxinan.net/about"
+      ],
+      "identity_entity_id": "CYB-BR-HUASHUNXINAN",
+      "identity_entity_type": "brand_family",
+      "missing_evidence": [],
+      "relationship": "brand_family_member",
+      "roll_up_entity_id": "CYB-BR-HUASHUNXINAN",
+      "scopes": [
+        "cybersecurity"
+      ],
+      "surface_form": "白帽汇"
+    },
+    {
+      "confidence": 0.98,
+      "eligible": true,
+      "evidence_refs": [
+        "https://fofa.info/about",
+        "https://www.huashunxinan.net/about"
+      ],
+      "identity_entity_id": "CYB-BR-HUASHUNXINAN",
+      "identity_entity_type": "brand_family",
+      "missing_evidence": [],
+      "relationship": "self",
+      "roll_up_entity_id": "CYB-BR-HUASHUNXINAN",
+      "scopes": [
+        "cybersecurity"
+      ],
+      "surface_form": "华顺信安"
+    },
+    {
+      "confidence": 0.99,
+      "eligible": true,
+      "evidence_refs": [
+        "https://360.net/mobile/about/safe"
+      ],
+      "identity_entity_id": "CYB-BR-360SECURITY",
+      "identity_entity_type": "brand",
+      "missing_evidence": [],
+      "relationship": "same_legal_entity",
+      "roll_up_entity_id": "CYB-BR-360SECURITY",
+      "scopes": [
+        "cybersecurity"
+      ],
+      "surface_form": "360数字安全集团"
+    },
+    {
+      "confidence": 0,
+      "eligible": false,
+      "evidence_refs": [
+        "https://360.net/mobile/about/safe"
+      ],
+      "identity_entity_id": null,
+      "identity_entity_type": "unknown",
+      "missing_evidence": [
+        "Context does not disambiguate the consumer internet group from the digital-security entity."
+      ],
+      "relationship": null,
+      "roll_up_entity_id": null,
+      "scopes": [],
+      "surface_form": "360集团"
+    },
+    {
+      "confidence": 0.99,
+      "eligible": true,
+      "evidence_refs": [
+        "https://www.webray.com.cn/about/index.html"
+      ],
+      "identity_entity_id": "CYB-BR-WEBRAY",
+      "identity_entity_type": "brand_family",
+      "missing_evidence": [],
+      "relationship": "same_legal_entity",
+      "roll_up_entity_id": "CYB-BR-WEBRAY",
+      "scopes": [
+        "cybersecurity"
+      ],
+      "surface_form": "远江盛邦安全科技集团"
+    },
+    {
+      "confidence": 0.99,
+      "eligible": true,
+      "evidence_refs": [
+        "https://consumer.huawei.com/cn/support/content/zh-cn15955449/"
+      ],
+      "identity_entity_id": "CYB-BR-HUAWEI",
+      "identity_entity_type": "brand_family",
+      "missing_evidence": [],
+      "relationship": "same_legal_entity",
+      "roll_up_entity_id": "CYB-BR-HUAWEI",
+      "scopes": [
+        "cybersecurity"
+      ],
+      "surface_form": "华为技术有限公司"
+    },
+    {
+      "confidence": 0.99,
+      "eligible": true,
+      "evidence_refs": [
+        "https://www.knownsec.com/",
+        "https://www.knownsec.com/media/upload/201906.pdf"
+      ],
+      "identity_entity_id": "CYB-BR-KNOWNSEC",
+      "identity_entity_type": "brand_family",
+      "missing_evidence": [],
+      "relationship": "same_legal_entity",
+      "roll_up_entity_id": "CYB-BR-KNOWNSEC",
+      "scopes": [
+        "cybersecurity"
+      ],
+      "surface_form": "北京知道创宇信息技术股份有限公司"
+    },
+    {
+      "confidence": 0.98,
+      "eligible": true,
+      "evidence_refs": [
+        "https://www.sheca.com/company"
+      ],
+      "identity_entity_id": "CYB-BR-SHECA",
+      "identity_entity_type": "brand",
+      "missing_evidence": [],
+      "relationship": "same_legal_entity",
+      "roll_up_entity_id": "CYB-BR-SHECA",
+      "scopes": [
+        "digital_identity"
+      ],
+      "surface_form": "上海市数字证书认证中心有限公司"
+    },
+    {
+      "confidence": 0.98,
+      "eligible": true,
+      "evidence_refs": [
+        "https://www.sdses.com/Uploads/file/2024102218080035675.pdf",
+        "https://www.sdses.com/lists/47.html"
+      ],
+      "identity_entity_id": "CYB-BR-SHENSI",
+      "identity_entity_type": "brand",
+      "missing_evidence": [],
+      "relationship": "same_legal_entity",
+      "roll_up_entity_id": "CYB-BR-SHENSI",
+      "scopes": [
+        "cybersecurity"
+      ],
+      "surface_form": "神思电子技术股份有限公司"
+    },
+    {
+      "confidence": 0,
+      "eligible": false,
+      "evidence_refs": [
+        "https://www.linewell.com/"
+      ],
+      "identity_entity_id": null,
+      "identity_entity_type": "unknown",
+      "missing_evidence": [
+        "The supplied evidence distinguishes 南威软件集团 from 南威软件股份有限公司 as different organizational levels, without a supplied identity ID for the group."
+      ],
+      "relationship": null,
+      "roll_up_entity_id": null,
+      "scopes": [],
+      "surface_form": "南威软件集团"
+    },
+    {
+      "confidence": 0.99,
+      "eligible": true,
+      "evidence_refs": [
+        "https://www.linewell.com/"
+      ],
+      "identity_entity_id": "CYB-BR-LINEWELL",
+      "identity_entity_type": "brand_family",
+      "missing_evidence": [],
+      "relationship": "same_legal_entity",
+      "roll_up_entity_id": "CYB-BR-LINEWELL",
+      "scopes": [
+        "cybersecurity"
+      ],
+      "surface_form": "南威软件股份有限公司"
+    },
+    {
+      "confidence": 0,
+      "eligible": false,
+      "evidence_refs": [],
+      "identity_entity_id": null,
+      "identity_entity_type": "unknown",
+      "missing_evidence": [
+        "No supplied evidence identifies Apple as one of the known cybersecurity entities or establishes cybersecurity competitor eligibility."
+      ],
+      "relationship": null,
+      "roll_up_entity_id": null,
+      "scopes": [],
+      "surface_form": "Apple"
+    }
+  ],
+  "prompt_hash": "sha256:42bfc3fcef797c6ff4f857f8126e67d108100514b1e1f12483eb990a89c4c178",
+  "prompt_id": "llm-direct-brand-knowledge-patch-baseline",
+  "prompt_version": "1",
+  "provider": "openai-compatible",
+  "review_status": "unreviewed",
+  "schema_version": "llm-brand-patch-v1",
+  "structured_gold_labels_exposed_to_model": false
+}

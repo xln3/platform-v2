@@ -23,7 +23,7 @@ GEO 请求、AI 回答抽取、人工纠错和外部知识源会持续产生新�
 3. 发布与同步平面生成内容寻址 release，并完成激活、回滚和 connector 对账。
 4. 领域策略平面定义本体、解析、提示词、证据政策、质量门和投影。
 
-请求热路径只读取本机激活的知识 release。SiliconIndex 只能由同步任务访问，不属于请求关键路径。知识服务不可用时，品牌消费者继续读取经过校验的 last-known-good 投影，并披露 degraded 状态。
+请求热路径只读取本机激活的知识 release。SiliconIndex 只能由同步任务访问，不属于请求关键路径。客户端通过认证接口安装完整、验哈希的 last-known-good release；知识服务不可用时，有领域包的消费者可在该副本上处理新的确定性请求，没有领域包的消费者只能使用完全相同请求的内容寻址缓存，并都披露 degraded 状态。
 
 ## 请求时模型边界
 
@@ -45,11 +45,13 @@ cache、observation 和 inference trace 写入属于可降级的运行反馈边�
 - 变更集创建者不能批准自己的变更集。
 - 发布者不能是变更集创建者或批准者。
 - 公开且已审核的品牌对象必须通过领域质量门并带公开证据。
-- 品牌 release 必须附带可重复的历史回放报告：时间截点、评测集哈希、请求数、修复数、新错误数和允许的新错误预算都要通过领域影响门；紧急发布可不等周度批次，但不能绕过回放。
+- 品牌 release 的历史回放由服务端领域包执行并绑定候选状态 hash：时间截点、评测集哈希、请求数、修复数、新错误数和允许的新错误预算都要通过领域影响门；调用方自报计数不被信任，紧急发布可不等周度批次但不能绕过回放。
 - change set 必须精确列出与已批准 proposal 绑定的全部 evidence public ID；反对证据不能从发布血缘中省略。
 - authoritative/primary 反对证据未解决时不能批准；终态 proposal 不能被后续 evidence 静默重开或覆盖裁决。
 - 三方合并出现同字段双写时必须产生显式冲突，不能 last-write-wins。
 - `knowledge_object` 和 `assertion` 的变化必须追加新版本；数据库唯一约束和 append-only trigger 同时阻止原地改写。
+- 每个 release 必须保存对象/断言 membership；激活和回滚前，数据库 materialization 与不可变 artifact 的领域逻辑视图必须相等，两边 active pointer 只能一起切换。
+- SiliconIndex 外发必须来自成功、无冲突的三方对账收据和本机已审血缘；确定性 bundle 通过静态站全部门禁后才允许普通 Git push，并从公网回读精确版本/hash。调用方不能注入 approval，禁止 force push。
 - 租户数据由 RLS 隔离；公共导出拒绝客户、项目、回答、上下文和凭证字段。
 
 ## 备选方案

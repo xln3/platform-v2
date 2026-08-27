@@ -1,0 +1,4955 @@
+{
+  "ablations": [
+    {
+      "case_accuracy": 0.8636363636363636,
+      "case_count": 22,
+      "case_pass": [
+        true,
+        true,
+        true,
+        true,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        false,
+        false,
+        true
+      ],
+      "cases": [
+        {
+          "case_id": "tencent-cloud-rollup",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-TENCENT-CLOUD",
+              "identity_type": "business_unit",
+              "relation": "business_unit_of",
+              "roll_up_id": "CYB-BR-TENCENT"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-TENCENT",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-TENCENT"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "huawei-cloud-rollup",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-HUAWEI-CLOUD",
+              "identity_type": "business_unit",
+              "relation": "business_unit_of",
+              "roll_up_id": "CYB-BR-HUAWEI"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-HUAWEI",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-HUAWEI"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "nsfocus-cross-language-aliases",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NSFOCUS",
+              "identity_type": "brand",
+              "relation": "official_abbreviation",
+              "roll_up_id": "CYB-BR-NSFOCUS"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NSFOCUS",
+              "identity_type": "brand",
+              "relation": "english_name",
+              "roll_up_id": "CYB-BR-NSFOCUS"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NSFOCUS",
+              "identity_type": "brand",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-NSFOCUS"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "bjca-trade-name",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-BJCA",
+              "identity_type": "brand",
+              "relation": "trade_name",
+              "roll_up_id": "CYB-BR-BJCA"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-BJCA",
+              "identity_type": "brand",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-BJCA"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "newland-general-negative",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NEWLAND",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-NEWLAND"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "newland-ctid-positive",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NEWLAND",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-NEWLAND"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-NEWLAND-DIGITAL",
+              "identity_type": "legal_entity",
+              "relation": "brand_family_member",
+              "roll_up_id": "CYB-BR-NEWLAND"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "product-rollup-zoomeye",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-KNOWNSEC-ZOOMEYE",
+              "identity_type": "product",
+              "relation": "product_of",
+              "roll_up_id": "CYB-BR-KNOWNSEC"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-KNOWNSEC",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-KNOWNSEC"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "historical-name-westone",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-WESTONE",
+              "identity_type": "brand",
+              "relation": "historical_name",
+              "roll_up_id": "CYB-BR-WESTONE"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-WESTONE",
+              "identity_type": "brand",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-WESTONE"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "product-rollup-raytag",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-WEBRAY-RAYTAG",
+              "identity_type": "product",
+              "relation": "product_of",
+              "roll_up_id": "CYB-BR-WEBRAY"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-WEBRAY",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-WEBRAY"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "product-name-not-company-negative",
+          "decisions": [
+            {
+              "confidence": 0.0,
+              "eligible": false,
+              "identity_id": null,
+              "identity_type": "unknown",
+              "relation": "unresolved",
+              "roll_up_id": null
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "similar-string-negative",
+          "decisions": [
+            {
+              "confidence": 0.0,
+              "eligible": false,
+              "identity_id": null,
+              "identity_type": "unknown",
+              "relation": "unresolved",
+              "roll_up_id": null
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "tencent-security-business-unit",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-TENCENT-SECURITY",
+              "identity_type": "business_unit",
+              "relation": "business_unit_of",
+              "roll_up_id": "CYB-BR-TENCENT"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-TENCENT",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-TENCENT"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "whitehat-institute-brand-family",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-HUASHUNXINAN-WHITEHAT",
+              "identity_type": "institution",
+              "relation": "official_abbreviation",
+              "roll_up_id": "CYB-BR-HUASHUNXINAN"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-HUASHUNXINAN",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-HUASHUNXINAN"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "360-digital-security-group",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-360SECURITY-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "official_abbreviation",
+              "roll_up_id": "CYB-BR-360SECURITY"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "360-group-ambiguous-negative",
+          "decisions": [
+            {
+              "confidence": 0.0,
+              "eligible": false,
+              "identity_id": null,
+              "identity_type": "unknown",
+              "relation": "unresolved",
+              "roll_up_id": null
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "webray-legal-name",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-WEBRAY-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "official_abbreviation",
+              "roll_up_id": "CYB-BR-WEBRAY"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-WEBRAY",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-WEBRAY"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "huawei-legal-name",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-HUAWEI-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "same_legal_entity",
+              "roll_up_id": "CYB-BR-HUAWEI"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-HUAWEI",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-HUAWEI"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "knownsec-legal-and-product",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-KNOWNSEC-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "same_legal_entity",
+              "roll_up_id": "CYB-BR-KNOWNSEC"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-KNOWNSEC-ZOOMEYE",
+              "identity_type": "product",
+              "relation": "product_of",
+              "roll_up_id": "CYB-BR-KNOWNSEC"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "sheca-legal-name",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-SHECA-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "same_legal_entity",
+              "roll_up_id": "CYB-BR-SHECA"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "shensi-legal-name-general-negative",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-SHENSI-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "same_legal_entity",
+              "roll_up_id": "CYB-BR-SHENSI"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "linewell-group-and-legal-entity",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-LINEWELL-GROUP",
+              "identity_type": "group",
+              "relation": "brand_family_member",
+              "roll_up_id": "CYB-BR-LINEWELL"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-LINEWELL-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "same_legal_entity",
+              "roll_up_id": "CYB-BR-LINEWELL"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "cross-industry-negative",
+          "decisions": [
+            {
+              "confidence": 0.0,
+              "eligible": false,
+              "identity_id": null,
+              "identity_type": "unknown",
+              "relation": "unresolved",
+              "roll_up_id": null
+            }
+          ],
+          "passed": true
+        }
+      ],
+      "cross_scene_misuse_count": 4,
+      "dimension_accuracy": {
+        "dedupe": 1.0,
+        "eligibility": 0.8918918918918919,
+        "identity": 1.0,
+        "identity_type": 1.0,
+        "relation": 1.0,
+        "roll_up": 1.0
+      },
+      "identity_resolution_brier_score": 8.918918918918936e-05,
+      "implementation_fidelity": "controlled_operational_analogue",
+      "latency_ms": {
+        "p50": 0.012085307389497757,
+        "p95": 0.02504047006368637,
+        "p99": 0.0408003106713295
+      },
+      "method": "ablation_no_applicability",
+      "missed_competitor_count": 0,
+      "missed_merge_count": 0,
+      "wrong_competitor_entry_count": 4,
+      "wrong_merge_count": 0
+    },
+    {
+      "method": "ablation_no_historical_replay",
+      "proxy": "unsafe pending publication",
+      "result": {
+        "case_accuracy": 1.0,
+        "case_count": 22,
+        "case_pass": [
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true,
+          true
+        ],
+        "cases": [
+          {
+            "case_id": "tencent-cloud-rollup",
+            "decisions": [
+              {
+                "confidence": 0.99,
+                "eligible": true,
+                "identity_id": "CYB-OBJ-TENCENT-CLOUD",
+                "identity_type": "business_unit",
+                "relation": "business_unit_of",
+                "roll_up_id": "CYB-BR-TENCENT"
+              },
+              {
+                "confidence": 0.99,
+                "eligible": true,
+                "identity_id": "CYB-BR-TENCENT",
+                "identity_type": "brand_family",
+                "relation": "self",
+                "roll_up_id": "CYB-BR-TENCENT"
+              }
+            ],
+            "passed": true
+          },
+          {
+            "case_id": "huawei-cloud-rollup",
+            "decisions": [
+              {
+                "confidence": 0.99,
+                "eligible": true,
+                "identity_id": "CYB-OBJ-HUAWEI-CLOUD",
+                "identity_type": "business_unit",
+                "relation": "business_unit_of",
+                "roll_up_id": "CYB-BR-HUAWEI"
+              },
+              {
+                "confidence": 0.99,
+                "eligible": true,
+                "identity_id": "CYB-BR-HUAWEI",
+                "identity_type": "brand_family",
+                "relation": "self",
+                "roll_up_id": "CYB-BR-HUAWEI"
+              }
+            ],
+            "passed": true
+          },
+          {
+            "case_id": "nsfocus-cross-language-aliases",
+            "decisions": [
+              {
+                "confidence": 0.99,
+                "eligible": true,
+                "identity_id": "CYB-BR-NSFOCUS",
+                "identity_type": "brand",
+                "relation": "official_abbreviation",
+                "roll_up_id": "CYB-BR-NSFOCUS"
+              },
+              {
+                "confidence": 0.99,
+                "eligible": true,
+                "identity_id": "CYB-BR-NSFOCUS",
+                "identity_type": "brand",
+                "relation": "english_name",
+                "roll_up_id": "CYB-BR-NSFOCUS"
+              },
+              {
+                "confidence": 0.99,
+                "eligible": true,
+                "identity_id": "CYB-BR-NSFOCUS",
+                "identity_type": "brand",
+                "relation": "self",
+                "roll_up_id": "CYB-BR-NSFOCUS"
+              }
+            ],
+            "passed": true
+          },
+          {
+            "case_id": "bjca-trade-name",
+            "decisions": [
+              {
+                "confidence": 0.99,
+                "eligible": true,
+                "identity_id": "CYB-BR-BJCA",
+                "identity_type": "brand",
+                "relation": "trade_name",
+                "roll_up_id": "CYB-BR-BJCA"
+              },
+              {
+                "confidence": 0.99,
+                "eligible": true,
+                "identity_id": "CYB-BR-BJCA",
+                "identity_type": "brand",
+                "relation": "self",
+                "roll_up_id": "CYB-BR-BJCA"
+              }
+            ],
+            "passed": true
+          },
+          {
+            "case_id": "newland-general-negative",
+            "decisions": [
+              {
+                "confidence": 0.99,
+                "eligible": false,
+                "identity_id": "CYB-BR-NEWLAND",
+                "identity_type": "brand_family",
+                "relation": "self",
+                "roll_up_id": "CYB-BR-NEWLAND"
+              }
+            ],
+            "passed": true
+          },
+          {
+            "case_id": "newland-ctid-positive",
+            "decisions": [
+              {
+                "confidence": 0.99,
+                "eligible": true,
+                "identity_id": "CYB-BR-NEWLAND",
+                "identity_type": "brand_family",
+                "relation": "self",
+                "roll_up_id": "CYB-BR-NEWLAND"
+              },
+              {
+                "confidence": 0.99,
+                "eligible": true,
+                "identity_id": "CYB-OBJ-NEWLAND-DIGITAL",
+                "identity_type": "legal_entity",
+                "relation": "brand_family_member",
+                "roll_up_id": "CYB-BR-NEWLAND"
+              }
+            ],
+            "passed": true
+          },
+          {
+            "case_id": "product-rollup-zoomeye",
+            "decisions": [
+              {
+                "confidence": 0.99,
+                "eligible": true,
+                "identity_id": "CYB-OBJ-KNOWNSEC-ZOOMEYE",
+                "identity_type": "product",
+                "relation": "product_of",
+                "roll_up_id": "CYB-BR-KNOWNSEC"
+              },
+              {
+                "confidence": 0.99,
+                "eligible": true,
+                "identity_id": "CYB-BR-KNOWNSEC",
+                "identity_type": "brand_family",
+                "relation": "self",
+                "roll_up_id": "CYB-BR-KNOWNSEC"
+              }
+            ],
+            "passed": true
+          },
+          {
+            "case_id": "historical-name-westone",
+            "decisions": [
+              {
+                "confidence": 0.99,
+                "eligible": true,
+                "identity_id": "CYB-BR-WESTONE",
+                "identity_type": "brand",
+                "relation": "historical_name",
+                "roll_up_id": "CYB-BR-WESTONE"
+              },
+              {
+                "confidence": 0.99,
+                "eligible": true,
+                "identity_id": "CYB-BR-WESTONE",
+                "identity_type": "brand",
+                "relation": "self",
+                "roll_up_id": "CYB-BR-WESTONE"
+              }
+            ],
+            "passed": true
+          },
+          {
+            "case_id": "product-rollup-raytag",
+            "decisions": [
+              {
+                "confidence": 0.99,
+                "eligible": true,
+                "identity_id": "CYB-OBJ-WEBRAY-RAYTAG",
+                "identity_type": "product",
+                "relation": "product_of",
+                "roll_up_id": "CYB-BR-WEBRAY"
+              },
+              {
+                "confidence": 0.99,
+                "eligible": true,
+                "identity_id": "CYB-BR-WEBRAY",
+                "identity_type": "brand_family",
+                "relation": "self",
+                "roll_up_id": "CYB-BR-WEBRAY"
+              }
+            ],
+            "passed": true
+          },
+          {
+            "case_id": "product-name-not-company-negative",
+            "decisions": [
+              {
+                "confidence": 0.0,
+                "eligible": false,
+                "identity_id": null,
+                "identity_type": "unknown",
+                "relation": "unresolved",
+                "roll_up_id": null
+              }
+            ],
+            "passed": true
+          },
+          {
+            "case_id": "similar-string-negative",
+            "decisions": [
+              {
+                "confidence": 0.0,
+                "eligible": false,
+                "identity_id": null,
+                "identity_type": "unknown",
+                "relation": "unresolved",
+                "roll_up_id": null
+              }
+            ],
+            "passed": true
+          },
+          {
+            "case_id": "tencent-security-business-unit",
+            "decisions": [
+              {
+                "confidence": 0.99,
+                "eligible": true,
+                "identity_id": "CYB-OBJ-TENCENT-SECURITY",
+                "identity_type": "business_unit",
+                "relation": "business_unit_of",
+                "roll_up_id": "CYB-BR-TENCENT"
+              },
+              {
+                "confidence": 0.99,
+                "eligible": true,
+                "identity_id": "CYB-BR-TENCENT",
+                "identity_type": "brand_family",
+                "relation": "self",
+                "roll_up_id": "CYB-BR-TENCENT"
+              }
+            ],
+            "passed": true
+          },
+          {
+            "case_id": "whitehat-institute-brand-family",
+            "decisions": [
+              {
+                "confidence": 0.99,
+                "eligible": true,
+                "identity_id": "CYB-OBJ-HUASHUNXINAN-WHITEHAT",
+                "identity_type": "institution",
+                "relation": "official_abbreviation",
+                "roll_up_id": "CYB-BR-HUASHUNXINAN"
+              },
+              {
+                "confidence": 0.99,
+                "eligible": true,
+                "identity_id": "CYB-BR-HUASHUNXINAN",
+                "identity_type": "brand_family",
+                "relation": "self",
+                "roll_up_id": "CYB-BR-HUASHUNXINAN"
+              }
+            ],
+            "passed": true
+          },
+          {
+            "case_id": "360-digital-security-group",
+            "decisions": [
+              {
+                "confidence": 0.99,
+                "eligible": true,
+                "identity_id": "CYB-OBJ-360SECURITY-LEGAL",
+                "identity_type": "legal_entity",
+                "relation": "official_abbreviation",
+                "roll_up_id": "CYB-BR-360SECURITY"
+              }
+            ],
+            "passed": true
+          },
+          {
+            "case_id": "360-group-ambiguous-negative",
+            "decisions": [
+              {
+                "confidence": 0.0,
+                "eligible": false,
+                "identity_id": null,
+                "identity_type": "unknown",
+                "relation": "unresolved",
+                "roll_up_id": null
+              }
+            ],
+            "passed": true
+          },
+          {
+            "case_id": "webray-legal-name",
+            "decisions": [
+              {
+                "confidence": 0.99,
+                "eligible": true,
+                "identity_id": "CYB-OBJ-WEBRAY-LEGAL",
+                "identity_type": "legal_entity",
+                "relation": "official_abbreviation",
+                "roll_up_id": "CYB-BR-WEBRAY"
+              },
+              {
+                "confidence": 0.99,
+                "eligible": true,
+                "identity_id": "CYB-BR-WEBRAY",
+                "identity_type": "brand_family",
+                "relation": "self",
+                "roll_up_id": "CYB-BR-WEBRAY"
+              }
+            ],
+            "passed": true
+          },
+          {
+            "case_id": "huawei-legal-name",
+            "decisions": [
+              {
+                "confidence": 0.99,
+                "eligible": true,
+                "identity_id": "CYB-OBJ-HUAWEI-LEGAL",
+                "identity_type": "legal_entity",
+                "relation": "same_legal_entity",
+                "roll_up_id": "CYB-BR-HUAWEI"
+              },
+              {
+                "confidence": 0.99,
+                "eligible": true,
+                "identity_id": "CYB-BR-HUAWEI",
+                "identity_type": "brand_family",
+                "relation": "self",
+                "roll_up_id": "CYB-BR-HUAWEI"
+              }
+            ],
+            "passed": true
+          },
+          {
+            "case_id": "knownsec-legal-and-product",
+            "decisions": [
+              {
+                "confidence": 0.99,
+                "eligible": true,
+                "identity_id": "CYB-OBJ-KNOWNSEC-LEGAL",
+                "identity_type": "legal_entity",
+                "relation": "same_legal_entity",
+                "roll_up_id": "CYB-BR-KNOWNSEC"
+              },
+              {
+                "confidence": 0.99,
+                "eligible": true,
+                "identity_id": "CYB-OBJ-KNOWNSEC-ZOOMEYE",
+                "identity_type": "product",
+                "relation": "product_of",
+                "roll_up_id": "CYB-BR-KNOWNSEC"
+              }
+            ],
+            "passed": true
+          },
+          {
+            "case_id": "sheca-legal-name",
+            "decisions": [
+              {
+                "confidence": 0.99,
+                "eligible": true,
+                "identity_id": "CYB-OBJ-SHECA-LEGAL",
+                "identity_type": "legal_entity",
+                "relation": "same_legal_entity",
+                "roll_up_id": "CYB-BR-SHECA"
+              }
+            ],
+            "passed": true
+          },
+          {
+            "case_id": "shensi-legal-name-general-negative",
+            "decisions": [
+              {
+                "confidence": 0.99,
+                "eligible": false,
+                "identity_id": "CYB-OBJ-SHENSI-LEGAL",
+                "identity_type": "legal_entity",
+                "relation": "same_legal_entity",
+                "roll_up_id": "CYB-BR-SHENSI"
+              }
+            ],
+            "passed": true
+          },
+          {
+            "case_id": "linewell-group-and-legal-entity",
+            "decisions": [
+              {
+                "confidence": 0.99,
+                "eligible": false,
+                "identity_id": "CYB-OBJ-LINEWELL-GROUP",
+                "identity_type": "group",
+                "relation": "brand_family_member",
+                "roll_up_id": "CYB-BR-LINEWELL"
+              },
+              {
+                "confidence": 0.99,
+                "eligible": false,
+                "identity_id": "CYB-OBJ-LINEWELL-LEGAL",
+                "identity_type": "legal_entity",
+                "relation": "same_legal_entity",
+                "roll_up_id": "CYB-BR-LINEWELL"
+              }
+            ],
+            "passed": true
+          },
+          {
+            "case_id": "cross-industry-negative",
+            "decisions": [
+              {
+                "confidence": 0.0,
+                "eligible": false,
+                "identity_id": null,
+                "identity_type": "unknown",
+                "relation": "unresolved",
+                "roll_up_id": null
+              }
+            ],
+            "passed": true
+          }
+        ],
+        "cross_scene_misuse_count": 0,
+        "dimension_accuracy": {
+          "dedupe": 1.0,
+          "eligibility": 1.0,
+          "identity": 1.0,
+          "identity_type": 1.0,
+          "relation": 1.0,
+          "roll_up": 1.0
+        },
+        "identity_resolution_brier_score": 8.918918918918936e-05,
+        "implementation_fidelity": "controlled_operational_analogue",
+        "latency_ms": {
+          "p50": 0.012440141290426254,
+          "p95": 0.02031959593296051,
+          "p99": 0.03635045140981674
+        },
+        "method": "ablation_no_opposing_evidence_or_human_gate",
+        "missed_competitor_count": 0,
+        "missed_merge_count": 0,
+        "wrong_competitor_entry_count": 0,
+        "wrong_merge_count": 0
+      }
+    },
+    {
+      "case_accuracy": 1.0,
+      "case_count": 22,
+      "case_pass": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "cases": [
+        {
+          "case_id": "tencent-cloud-rollup",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-TENCENT-CLOUD",
+              "identity_type": "business_unit",
+              "relation": "business_unit_of",
+              "roll_up_id": "CYB-BR-TENCENT"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-TENCENT",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-TENCENT"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "huawei-cloud-rollup",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-HUAWEI-CLOUD",
+              "identity_type": "business_unit",
+              "relation": "business_unit_of",
+              "roll_up_id": "CYB-BR-HUAWEI"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-HUAWEI",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-HUAWEI"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "nsfocus-cross-language-aliases",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NSFOCUS",
+              "identity_type": "brand",
+              "relation": "official_abbreviation",
+              "roll_up_id": "CYB-BR-NSFOCUS"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NSFOCUS",
+              "identity_type": "brand",
+              "relation": "english_name",
+              "roll_up_id": "CYB-BR-NSFOCUS"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NSFOCUS",
+              "identity_type": "brand",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-NSFOCUS"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "bjca-trade-name",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-BJCA",
+              "identity_type": "brand",
+              "relation": "trade_name",
+              "roll_up_id": "CYB-BR-BJCA"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-BJCA",
+              "identity_type": "brand",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-BJCA"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "newland-general-negative",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": false,
+              "identity_id": "CYB-BR-NEWLAND",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-NEWLAND"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "newland-ctid-positive",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NEWLAND",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-NEWLAND"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-NEWLAND-DIGITAL",
+              "identity_type": "legal_entity",
+              "relation": "brand_family_member",
+              "roll_up_id": "CYB-BR-NEWLAND"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "product-rollup-zoomeye",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-KNOWNSEC-ZOOMEYE",
+              "identity_type": "product",
+              "relation": "product_of",
+              "roll_up_id": "CYB-BR-KNOWNSEC"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-KNOWNSEC",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-KNOWNSEC"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "historical-name-westone",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-WESTONE",
+              "identity_type": "brand",
+              "relation": "historical_name",
+              "roll_up_id": "CYB-BR-WESTONE"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-WESTONE",
+              "identity_type": "brand",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-WESTONE"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "product-rollup-raytag",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-WEBRAY-RAYTAG",
+              "identity_type": "product",
+              "relation": "product_of",
+              "roll_up_id": "CYB-BR-WEBRAY"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-WEBRAY",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-WEBRAY"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "product-name-not-company-negative",
+          "decisions": [
+            {
+              "confidence": 0.0,
+              "eligible": false,
+              "identity_id": null,
+              "identity_type": "unknown",
+              "relation": "unresolved",
+              "roll_up_id": null
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "similar-string-negative",
+          "decisions": [
+            {
+              "confidence": 0.0,
+              "eligible": false,
+              "identity_id": null,
+              "identity_type": "unknown",
+              "relation": "unresolved",
+              "roll_up_id": null
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "tencent-security-business-unit",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-TENCENT-SECURITY",
+              "identity_type": "business_unit",
+              "relation": "business_unit_of",
+              "roll_up_id": "CYB-BR-TENCENT"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-TENCENT",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-TENCENT"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "whitehat-institute-brand-family",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-HUASHUNXINAN-WHITEHAT",
+              "identity_type": "institution",
+              "relation": "official_abbreviation",
+              "roll_up_id": "CYB-BR-HUASHUNXINAN"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-HUASHUNXINAN",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-HUASHUNXINAN"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "360-digital-security-group",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-360SECURITY-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "official_abbreviation",
+              "roll_up_id": "CYB-BR-360SECURITY"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "360-group-ambiguous-negative",
+          "decisions": [
+            {
+              "confidence": 0.0,
+              "eligible": false,
+              "identity_id": null,
+              "identity_type": "unknown",
+              "relation": "unresolved",
+              "roll_up_id": null
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "webray-legal-name",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-WEBRAY-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "official_abbreviation",
+              "roll_up_id": "CYB-BR-WEBRAY"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-WEBRAY",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-WEBRAY"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "huawei-legal-name",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-HUAWEI-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "same_legal_entity",
+              "roll_up_id": "CYB-BR-HUAWEI"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-HUAWEI",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-HUAWEI"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "knownsec-legal-and-product",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-KNOWNSEC-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "same_legal_entity",
+              "roll_up_id": "CYB-BR-KNOWNSEC"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-KNOWNSEC-ZOOMEYE",
+              "identity_type": "product",
+              "relation": "product_of",
+              "roll_up_id": "CYB-BR-KNOWNSEC"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "sheca-legal-name",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-SHECA-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "same_legal_entity",
+              "roll_up_id": "CYB-BR-SHECA"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "shensi-legal-name-general-negative",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": false,
+              "identity_id": "CYB-OBJ-SHENSI-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "same_legal_entity",
+              "roll_up_id": "CYB-BR-SHENSI"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "linewell-group-and-legal-entity",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": false,
+              "identity_id": "CYB-OBJ-LINEWELL-GROUP",
+              "identity_type": "group",
+              "relation": "brand_family_member",
+              "roll_up_id": "CYB-BR-LINEWELL"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": false,
+              "identity_id": "CYB-OBJ-LINEWELL-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "same_legal_entity",
+              "roll_up_id": "CYB-BR-LINEWELL"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "cross-industry-negative",
+          "decisions": [
+            {
+              "confidence": 0.0,
+              "eligible": false,
+              "identity_id": null,
+              "identity_type": "unknown",
+              "relation": "unresolved",
+              "roll_up_id": null
+            }
+          ],
+          "passed": true
+        }
+      ],
+      "cross_scene_misuse_count": 0,
+      "dimension_accuracy": {
+        "dedupe": 1.0,
+        "eligibility": 1.0,
+        "identity": 1.0,
+        "identity_type": 1.0,
+        "relation": 1.0,
+        "roll_up": 1.0
+      },
+      "identity_resolution_brier_score": 8.918918918918936e-05,
+      "implementation_fidelity": "controlled_operational_analogue",
+      "latency_ms": {
+        "p50": 0.012440141290426254,
+        "p95": 0.02031959593296051,
+        "p99": 0.03635045140981674
+      },
+      "method": "ablation_no_opposing_evidence_or_human_gate",
+      "missed_competitor_count": 0,
+      "missed_merge_count": 0,
+      "wrong_competitor_entry_count": 0,
+      "wrong_merge_count": 0
+    },
+    {
+      "mean_case_accuracy": 0.43636363636363634,
+      "method": "ablation_no_cross_project_aggregation",
+      "partition_case_accuracy": [
+        0.5909090909090909,
+        0.4090909090909091,
+        0.36363636363636365,
+        0.45454545454545453,
+        0.36363636363636365
+      ],
+      "partition_count": 5
+    },
+    {
+      "case_accuracy": 0.22727272727272727,
+      "method": "ablation_single_model",
+      "result_method": "llm_direct_knowledge_patch"
+    },
+    {
+      "case_accuracy": 0.22727272727272727,
+      "method": "ablation_no_human_review",
+      "result_method": "llm_direct_knowledge_patch"
+    }
+  ],
+  "evaluation_validity": {
+    "gold_fixture_also_used_by_candidate_release_gate": true,
+    "independent_held_out_set": false,
+    "interpretation": "This is an engineering acceptance pilot. It detects regressions and illustrates method behavior, but cannot establish a research claim.",
+    "supports_research_novelty_or_superiority_claim": false,
+    "temporal_cutoff_declared": true
+  },
+  "generated_at_epoch": 1787839529,
+  "llm_direct_run": {
+    "baseline_release_id": "knowledge-2026-08-27.3",
+    "cost_usd": null,
+    "input_limitations": [
+      "Safe contexts are the evaluation fixture descriptions.",
+      "Allowed stable IDs, names, aliases and evidence-reference URLs came only from the pre-cutoff baseline release; expected structured labels were withheld.",
+      "Observation contexts necessarily contain evidence-bearing task statements; they are the post-cutoff input to be learned, not hidden labels.",
+      "The model did not retrieve or read the referenced source pages in this run."
+    ],
+    "input_tokens": 7156,
+    "latency_ms": 39606,
+    "model": "gpt-5.6-luna",
+    "model_version": "deployment",
+    "output_hash": "sha256:62fa14fc0502c6ac0fa5f3c02b3171baee61428ff30c1b54ca3e9b07f839c967",
+    "output_tokens": 4267,
+    "prompt_hash": "sha256:42bfc3fcef797c6ff4f857f8126e67d108100514b1e1f12483eb990a89c4c178",
+    "provider": "openai-compatible"
+  },
+  "method_limitations": "RAG, WriteBack-RAG and DynamicER rows are controlled operational analogues on one common read model; they are not reproductions of author training pipelines.",
+  "operational_metrics_not_measured": [
+    "human_review_minutes_per_method",
+    "provider_price_when_gateway_omits_cost",
+    "discovery_to_effective_wall_clock_for_counterfactual_methods"
+  ],
+  "paired_statistics_against_project": {
+    "append_only_documents": {
+      "bootstrap_resamples": 10000,
+      "discordant_method_only_correct": 0,
+      "discordant_project_only_correct": 15,
+      "mcnemar_exact_two_sided_p": 6.103515625e-05,
+      "project_minus_method_case_accuracy_delta": 0.6818181818181818,
+      "project_minus_method_paired_bootstrap_95_ci": [
+        0.5,
+        0.8636363636363636
+      ],
+      "seed": 20260827
+    },
+    "dynamic_entity_resolution_proxy": {
+      "bootstrap_resamples": 10000,
+      "discordant_method_only_correct": 0,
+      "discordant_project_only_correct": 0,
+      "mcnemar_exact_two_sided_p": null,
+      "project_minus_method_case_accuracy_delta": 0.0,
+      "project_minus_method_paired_bootstrap_95_ci": [
+        0.0,
+        0.0
+      ],
+      "seed": 20260827
+    },
+    "evidence_writeback_proxy": {
+      "bootstrap_resamples": 10000,
+      "discordant_method_only_correct": 0,
+      "discordant_project_only_correct": 3,
+      "mcnemar_exact_two_sided_p": 0.25,
+      "project_minus_method_case_accuracy_delta": 0.13636363636363635,
+      "project_minus_method_paired_bootstrap_95_ci": [
+        0.0,
+        0.2727272727272727
+      ],
+      "seed": 20260827
+    },
+    "expert_feedback_edit": {
+      "bootstrap_resamples": 10000,
+      "discordant_method_only_correct": 0,
+      "discordant_project_only_correct": 0,
+      "mcnemar_exact_two_sided_p": null,
+      "project_minus_method_case_accuracy_delta": 0.0,
+      "project_minus_method_paired_bootstrap_95_ci": [
+        0.0,
+        0.0
+      ],
+      "seed": 20260827
+    },
+    "llm_direct_knowledge_patch": {
+      "bootstrap_resamples": 10000,
+      "discordant_method_only_correct": 0,
+      "discordant_project_only_correct": 17,
+      "mcnemar_exact_two_sided_p": 1.52587890625e-05,
+      "project_minus_method_case_accuracy_delta": 0.7727272727272727,
+      "project_minus_method_paired_bootstrap_95_ci": [
+        0.5909090909090909,
+        0.9545454545454546
+      ],
+      "seed": 20260827
+    },
+    "traditional_rag_no_update": {
+      "bootstrap_resamples": 10000,
+      "discordant_method_only_correct": 0,
+      "discordant_project_only_correct": 15,
+      "mcnemar_exact_two_sided_p": 6.103515625e-05,
+      "project_minus_method_case_accuracy_delta": 0.6818181818181818,
+      "project_minus_method_paired_bootstrap_95_ci": [
+        0.5,
+        0.8636363636363636
+      ],
+      "seed": 20260827
+    }
+  },
+  "report_hash": "sha256:14fd55758edb0b2546ce1bcdc39846000863d3f0d328c05808ace31c19ed196e",
+  "results": [
+    {
+      "candidate_discovery_rate": 0.0,
+      "case_accuracy": 0.3181818181818182,
+      "case_count": 22,
+      "case_pass": [
+        false,
+        false,
+        true,
+        true,
+        true,
+        false,
+        false,
+        true,
+        false,
+        true,
+        true,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true
+      ],
+      "cases": [
+        {
+          "case_id": "tencent-cloud-rollup",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-TENCENT",
+              "identity_type": "brand_family",
+              "relation": "business_unit_of",
+              "roll_up_id": "CYB-BR-TENCENT"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-TENCENT",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-TENCENT"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "huawei-cloud-rollup",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-HUAWEI",
+              "identity_type": "brand_family",
+              "relation": "business_unit_of",
+              "roll_up_id": "CYB-BR-HUAWEI"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-HUAWEI",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-HUAWEI"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "nsfocus-cross-language-aliases",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NSFOCUS",
+              "identity_type": "brand",
+              "relation": "official_abbreviation",
+              "roll_up_id": "CYB-BR-NSFOCUS"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NSFOCUS",
+              "identity_type": "brand",
+              "relation": "english_name",
+              "roll_up_id": "CYB-BR-NSFOCUS"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NSFOCUS",
+              "identity_type": "brand",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-NSFOCUS"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "bjca-trade-name",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-BJCA",
+              "identity_type": "brand",
+              "relation": "trade_name",
+              "roll_up_id": "CYB-BR-BJCA"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-BJCA",
+              "identity_type": "brand",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-BJCA"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "newland-general-negative",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": false,
+              "identity_id": "CYB-BR-NEWLAND",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-NEWLAND"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "newland-ctid-positive",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NEWLAND",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-NEWLAND"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NEWLAND",
+              "identity_type": "brand_family",
+              "relation": "brand_family_member",
+              "roll_up_id": "CYB-BR-NEWLAND"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "product-rollup-zoomeye",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-KNOWNSEC",
+              "identity_type": "brand_family",
+              "relation": "product_of",
+              "roll_up_id": "CYB-BR-KNOWNSEC"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-KNOWNSEC",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-KNOWNSEC"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "historical-name-westone",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-WESTONE",
+              "identity_type": "brand",
+              "relation": "historical_name",
+              "roll_up_id": "CYB-BR-WESTONE"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-WESTONE",
+              "identity_type": "brand",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-WESTONE"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "product-rollup-raytag",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-WEBRAY",
+              "identity_type": "brand_family",
+              "relation": "product_of",
+              "roll_up_id": "CYB-BR-WEBRAY"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-WEBRAY",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-WEBRAY"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "product-name-not-company-negative",
+          "decisions": [
+            {
+              "confidence": 0.0,
+              "eligible": false,
+              "identity_id": null,
+              "identity_type": "unknown",
+              "relation": "unresolved",
+              "roll_up_id": null
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "similar-string-negative",
+          "decisions": [
+            {
+              "confidence": 0.0,
+              "eligible": false,
+              "identity_id": null,
+              "identity_type": "unknown",
+              "relation": "unresolved",
+              "roll_up_id": null
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "tencent-security-business-unit",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-TENCENT",
+              "identity_type": "brand_family",
+              "relation": "business_unit_of",
+              "roll_up_id": "CYB-BR-TENCENT"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-TENCENT",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-TENCENT"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "whitehat-institute-brand-family",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-HUASHUNXINAN",
+              "identity_type": "brand_family",
+              "relation": "brand_family_member",
+              "roll_up_id": "CYB-BR-HUASHUNXINAN"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-HUASHUNXINAN",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-HUASHUNXINAN"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "360-digital-security-group",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-360SECURITY",
+              "identity_type": "brand",
+              "relation": "official_abbreviation",
+              "roll_up_id": "CYB-BR-360SECURITY"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "360-group-ambiguous-negative",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-360SECURITY",
+              "identity_type": "brand",
+              "relation": "official_abbreviation",
+              "roll_up_id": "CYB-BR-360SECURITY"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "webray-legal-name",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-WEBRAY",
+              "identity_type": "brand_family",
+              "relation": "official_abbreviation",
+              "roll_up_id": "CYB-BR-WEBRAY"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-WEBRAY",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-WEBRAY"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "huawei-legal-name",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-HUAWEI",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-HUAWEI"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-HUAWEI",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-HUAWEI"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "knownsec-legal-and-product",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-KNOWNSEC",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-KNOWNSEC"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-KNOWNSEC",
+              "identity_type": "brand_family",
+              "relation": "product_of",
+              "roll_up_id": "CYB-BR-KNOWNSEC"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "sheca-legal-name",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-SHECA",
+              "identity_type": "brand",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-SHECA"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "shensi-legal-name-general-negative",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": false,
+              "identity_id": "CYB-BR-SHENSI",
+              "identity_type": "brand",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-SHENSI"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "linewell-group-and-legal-entity",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": false,
+              "identity_id": "CYB-BR-LINEWELL",
+              "identity_type": "brand_family",
+              "relation": "brand_family_member",
+              "roll_up_id": "CYB-BR-LINEWELL"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": false,
+              "identity_id": "CYB-BR-LINEWELL",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-LINEWELL"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "cross-industry-negative",
+          "decisions": [
+            {
+              "confidence": 0.0,
+              "eligible": false,
+              "identity_id": null,
+              "identity_type": "unknown",
+              "relation": "unresolved",
+              "roll_up_id": null
+            }
+          ],
+          "passed": true
+        }
+      ],
+      "correct_publication_rate": null,
+      "cross_scene_misuse_count": 1,
+      "dimension_accuracy": {
+        "dedupe": 1.0,
+        "eligibility": 0.972972972972973,
+        "identity": 0.5405405405405406,
+        "identity_type": 0.5405405405405406,
+        "relation": 0.8108108108108109,
+        "roll_up": 0.972972972972973
+      },
+      "identity_resolution_brier_score": 0.4503621621621621,
+      "implementation_fidelity": "controlled_operational_analogue",
+      "latency_ms": {
+        "p50": 0.012196600437164307,
+        "p95": 0.021940097212791443,
+        "p99": 0.14435220509767532
+      },
+      "method": "traditional_rag_no_update",
+      "missed_competitor_count": 0,
+      "missed_merge_count": 0,
+      "wrong_competitor_entry_count": 1,
+      "wrong_merge_count": 0
+    },
+    {
+      "candidate_discovery_rate": 0.0,
+      "case_accuracy": 0.3181818181818182,
+      "case_count": 22,
+      "case_pass": [
+        false,
+        false,
+        true,
+        true,
+        true,
+        false,
+        false,
+        true,
+        false,
+        true,
+        true,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true
+      ],
+      "cases": [
+        {
+          "case_id": "tencent-cloud-rollup",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-TENCENT",
+              "identity_type": "brand_family",
+              "relation": "business_unit_of",
+              "roll_up_id": "CYB-BR-TENCENT"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-TENCENT",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-TENCENT"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "huawei-cloud-rollup",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-HUAWEI",
+              "identity_type": "brand_family",
+              "relation": "business_unit_of",
+              "roll_up_id": "CYB-BR-HUAWEI"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-HUAWEI",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-HUAWEI"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "nsfocus-cross-language-aliases",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NSFOCUS",
+              "identity_type": "brand",
+              "relation": "official_abbreviation",
+              "roll_up_id": "CYB-BR-NSFOCUS"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NSFOCUS",
+              "identity_type": "brand",
+              "relation": "english_name",
+              "roll_up_id": "CYB-BR-NSFOCUS"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NSFOCUS",
+              "identity_type": "brand",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-NSFOCUS"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "bjca-trade-name",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-BJCA",
+              "identity_type": "brand",
+              "relation": "trade_name",
+              "roll_up_id": "CYB-BR-BJCA"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-BJCA",
+              "identity_type": "brand",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-BJCA"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "newland-general-negative",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": false,
+              "identity_id": "CYB-BR-NEWLAND",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-NEWLAND"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "newland-ctid-positive",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NEWLAND",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-NEWLAND"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NEWLAND",
+              "identity_type": "brand_family",
+              "relation": "brand_family_member",
+              "roll_up_id": "CYB-BR-NEWLAND"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "product-rollup-zoomeye",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-KNOWNSEC",
+              "identity_type": "brand_family",
+              "relation": "product_of",
+              "roll_up_id": "CYB-BR-KNOWNSEC"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-KNOWNSEC",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-KNOWNSEC"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "historical-name-westone",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-WESTONE",
+              "identity_type": "brand",
+              "relation": "historical_name",
+              "roll_up_id": "CYB-BR-WESTONE"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-WESTONE",
+              "identity_type": "brand",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-WESTONE"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "product-rollup-raytag",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-WEBRAY",
+              "identity_type": "brand_family",
+              "relation": "product_of",
+              "roll_up_id": "CYB-BR-WEBRAY"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-WEBRAY",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-WEBRAY"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "product-name-not-company-negative",
+          "decisions": [
+            {
+              "confidence": 0.0,
+              "eligible": false,
+              "identity_id": null,
+              "identity_type": "unknown",
+              "relation": "unresolved",
+              "roll_up_id": null
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "similar-string-negative",
+          "decisions": [
+            {
+              "confidence": 0.0,
+              "eligible": false,
+              "identity_id": null,
+              "identity_type": "unknown",
+              "relation": "unresolved",
+              "roll_up_id": null
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "tencent-security-business-unit",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-TENCENT",
+              "identity_type": "brand_family",
+              "relation": "business_unit_of",
+              "roll_up_id": "CYB-BR-TENCENT"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-TENCENT",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-TENCENT"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "whitehat-institute-brand-family",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-HUASHUNXINAN",
+              "identity_type": "brand_family",
+              "relation": "brand_family_member",
+              "roll_up_id": "CYB-BR-HUASHUNXINAN"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-HUASHUNXINAN",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-HUASHUNXINAN"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "360-digital-security-group",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-360SECURITY",
+              "identity_type": "brand",
+              "relation": "official_abbreviation",
+              "roll_up_id": "CYB-BR-360SECURITY"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "360-group-ambiguous-negative",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-360SECURITY",
+              "identity_type": "brand",
+              "relation": "official_abbreviation",
+              "roll_up_id": "CYB-BR-360SECURITY"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "webray-legal-name",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-WEBRAY",
+              "identity_type": "brand_family",
+              "relation": "official_abbreviation",
+              "roll_up_id": "CYB-BR-WEBRAY"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-WEBRAY",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-WEBRAY"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "huawei-legal-name",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-HUAWEI",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-HUAWEI"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-HUAWEI",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-HUAWEI"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "knownsec-legal-and-product",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-KNOWNSEC",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-KNOWNSEC"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-KNOWNSEC",
+              "identity_type": "brand_family",
+              "relation": "product_of",
+              "roll_up_id": "CYB-BR-KNOWNSEC"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "sheca-legal-name",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-SHECA",
+              "identity_type": "brand",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-SHECA"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "shensi-legal-name-general-negative",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": false,
+              "identity_id": "CYB-BR-SHENSI",
+              "identity_type": "brand",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-SHENSI"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "linewell-group-and-legal-entity",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": false,
+              "identity_id": "CYB-BR-LINEWELL",
+              "identity_type": "brand_family",
+              "relation": "brand_family_member",
+              "roll_up_id": "CYB-BR-LINEWELL"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": false,
+              "identity_id": "CYB-BR-LINEWELL",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-LINEWELL"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "cross-industry-negative",
+          "decisions": [
+            {
+              "confidence": 0.0,
+              "eligible": false,
+              "identity_id": null,
+              "identity_type": "unknown",
+              "relation": "unresolved",
+              "roll_up_id": null
+            }
+          ],
+          "passed": true
+        }
+      ],
+      "correct_publication_rate": null,
+      "cross_scene_misuse_count": 1,
+      "dimension_accuracy": {
+        "dedupe": 1.0,
+        "eligibility": 0.972972972972973,
+        "identity": 0.5405405405405406,
+        "identity_type": 0.5405405405405406,
+        "relation": 0.8108108108108109,
+        "roll_up": 0.972972972972973
+      },
+      "identity_resolution_brier_score": 0.4503621621621621,
+      "implementation_fidelity": "controlled_operational_analogue",
+      "latency_ms": {
+        "p50": 0.011090654879808426,
+        "p95": 0.01747068017721176,
+        "p99": 0.021539628505706787
+      },
+      "method": "append_only_documents",
+      "missed_competitor_count": 0,
+      "missed_merge_count": 0,
+      "wrong_competitor_entry_count": 1,
+      "wrong_merge_count": 0
+    },
+    {
+      "candidate_discovery_rate": 0.06666666666666667,
+      "case_accuracy": 0.22727272727272727,
+      "case_count": 22,
+      "case_pass": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        false,
+        true,
+        true,
+        false,
+        false,
+        false,
+        true,
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true
+      ],
+      "cases": [
+        {
+          "case_id": "tencent-cloud-rollup",
+          "decisions": [
+            {
+              "confidence": 0.97,
+              "eligible": true,
+              "identity_id": "CYB-BR-TENCENT",
+              "identity_type": "brand_family",
+              "relation": "business_unit_of",
+              "roll_up_id": "CYB-BR-TENCENT"
+            },
+            {
+              "confidence": 0.98,
+              "eligible": true,
+              "identity_id": "CYB-BR-TENCENT",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-TENCENT"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "huawei-cloud-rollup",
+          "decisions": [
+            {
+              "confidence": 0.96,
+              "eligible": true,
+              "identity_id": "CYB-BR-HUAWEI",
+              "identity_type": "brand_family",
+              "relation": "business_unit_of",
+              "roll_up_id": "CYB-BR-HUAWEI"
+            },
+            {
+              "confidence": 0.98,
+              "eligible": true,
+              "identity_id": "CYB-BR-HUAWEI",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-HUAWEI"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "nsfocus-cross-language-aliases",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NSFOCUS",
+              "identity_type": "brand",
+              "relation": "official_abbreviation",
+              "roll_up_id": "CYB-BR-NSFOCUS"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NSFOCUS",
+              "identity_type": "brand",
+              "relation": "official_abbreviation",
+              "roll_up_id": "CYB-BR-NSFOCUS"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NSFOCUS",
+              "identity_type": "brand",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-NSFOCUS"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "bjca-trade-name",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-BJCA",
+              "identity_type": "brand",
+              "relation": "official_abbreviation",
+              "roll_up_id": "CYB-BR-BJCA"
+            },
+            {
+              "confidence": 0.98,
+              "eligible": true,
+              "identity_id": "CYB-BR-BJCA",
+              "identity_type": "brand",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-BJCA"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "newland-general-negative",
+          "decisions": [
+            {
+              "confidence": 0.91,
+              "eligible": true,
+              "identity_id": "CYB-BR-NEWLAND",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-NEWLAND"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "newland-ctid-positive",
+          "decisions": [
+            {
+              "confidence": 0.91,
+              "eligible": true,
+              "identity_id": "CYB-BR-NEWLAND",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-NEWLAND"
+            },
+            {
+              "confidence": 0.98,
+              "eligible": true,
+              "identity_id": "CYB-BR-NEWLAND",
+              "identity_type": "brand_family",
+              "relation": "same_legal_entity",
+              "roll_up_id": "CYB-BR-NEWLAND"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "product-rollup-zoomeye",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-KNOWNSEC",
+              "identity_type": "brand_family",
+              "relation": "product_of",
+              "roll_up_id": "CYB-BR-KNOWNSEC"
+            },
+            {
+              "confidence": 0.98,
+              "eligible": true,
+              "identity_id": "CYB-BR-KNOWNSEC",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-KNOWNSEC"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "historical-name-westone",
+          "decisions": [
+            {
+              "confidence": 0.96,
+              "eligible": true,
+              "identity_id": "CYB-BR-WESTONE",
+              "identity_type": "brand",
+              "relation": "historical_name",
+              "roll_up_id": "CYB-BR-WESTONE"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-WESTONE",
+              "identity_type": "brand",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-WESTONE"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "product-rollup-raytag",
+          "decisions": [
+            {
+              "confidence": 0.98,
+              "eligible": true,
+              "identity_id": "CYB-BR-WEBRAY",
+              "identity_type": "brand_family",
+              "relation": "product_of",
+              "roll_up_id": "CYB-BR-WEBRAY"
+            },
+            {
+              "confidence": 0.98,
+              "eligible": true,
+              "identity_id": "CYB-BR-WEBRAY",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-WEBRAY"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "product-name-not-company-negative",
+          "decisions": [
+            {
+              "confidence": 0.0,
+              "eligible": false,
+              "identity_id": null,
+              "identity_type": "unknown",
+              "relation": "unresolved",
+              "roll_up_id": null
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "similar-string-negative",
+          "decisions": [
+            {
+              "confidence": 0.0,
+              "eligible": false,
+              "identity_id": null,
+              "identity_type": "unknown",
+              "relation": "unresolved",
+              "roll_up_id": null
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "tencent-security-business-unit",
+          "decisions": [
+            {
+              "confidence": 0.98,
+              "eligible": true,
+              "identity_id": "CYB-BR-TENCENT",
+              "identity_type": "brand_family",
+              "relation": "business_unit_of",
+              "roll_up_id": "CYB-BR-TENCENT"
+            },
+            {
+              "confidence": 0.98,
+              "eligible": true,
+              "identity_id": "CYB-BR-TENCENT",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-TENCENT"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "whitehat-institute-brand-family",
+          "decisions": [
+            {
+              "confidence": 0.97,
+              "eligible": true,
+              "identity_id": "CYB-BR-HUASHUNXINAN",
+              "identity_type": "brand_family",
+              "relation": "brand_family_member",
+              "roll_up_id": "CYB-BR-HUASHUNXINAN"
+            },
+            {
+              "confidence": 0.98,
+              "eligible": true,
+              "identity_id": "CYB-BR-HUASHUNXINAN",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-HUASHUNXINAN"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "360-digital-security-group",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-360SECURITY",
+              "identity_type": "brand",
+              "relation": "same_legal_entity",
+              "roll_up_id": "CYB-BR-360SECURITY"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "360-group-ambiguous-negative",
+          "decisions": [
+            {
+              "confidence": 0.0,
+              "eligible": false,
+              "identity_id": null,
+              "identity_type": "unknown",
+              "relation": "unresolved",
+              "roll_up_id": null
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "webray-legal-name",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-WEBRAY",
+              "identity_type": "brand_family",
+              "relation": "same_legal_entity",
+              "roll_up_id": "CYB-BR-WEBRAY"
+            },
+            {
+              "confidence": 0.98,
+              "eligible": true,
+              "identity_id": "CYB-BR-WEBRAY",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-WEBRAY"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "huawei-legal-name",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-HUAWEI",
+              "identity_type": "brand_family",
+              "relation": "same_legal_entity",
+              "roll_up_id": "CYB-BR-HUAWEI"
+            },
+            {
+              "confidence": 0.98,
+              "eligible": true,
+              "identity_id": "CYB-BR-HUAWEI",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-HUAWEI"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "knownsec-legal-and-product",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-KNOWNSEC",
+              "identity_type": "brand_family",
+              "relation": "same_legal_entity",
+              "roll_up_id": "CYB-BR-KNOWNSEC"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-KNOWNSEC",
+              "identity_type": "brand_family",
+              "relation": "product_of",
+              "roll_up_id": "CYB-BR-KNOWNSEC"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "sheca-legal-name",
+          "decisions": [
+            {
+              "confidence": 0.98,
+              "eligible": true,
+              "identity_id": "CYB-BR-SHECA",
+              "identity_type": "brand",
+              "relation": "same_legal_entity",
+              "roll_up_id": "CYB-BR-SHECA"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "shensi-legal-name-general-negative",
+          "decisions": [
+            {
+              "confidence": 0.98,
+              "eligible": true,
+              "identity_id": "CYB-BR-SHENSI",
+              "identity_type": "brand",
+              "relation": "same_legal_entity",
+              "roll_up_id": "CYB-BR-SHENSI"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "linewell-group-and-legal-entity",
+          "decisions": [
+            {
+              "confidence": 0.0,
+              "eligible": false,
+              "identity_id": null,
+              "identity_type": "unknown",
+              "relation": "unresolved",
+              "roll_up_id": null
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-LINEWELL",
+              "identity_type": "brand_family",
+              "relation": "same_legal_entity",
+              "roll_up_id": "CYB-BR-LINEWELL"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "cross-industry-negative",
+          "decisions": [
+            {
+              "confidence": 0.0,
+              "eligible": false,
+              "identity_id": null,
+              "identity_type": "unknown",
+              "relation": "unresolved",
+              "roll_up_id": null
+            }
+          ],
+          "passed": true
+        }
+      ],
+      "correct_publication_rate": 0.25,
+      "cross_scene_misuse_count": 3,
+      "dimension_accuracy": {
+        "dedupe": 0.9545454545454546,
+        "eligibility": 0.918918918918919,
+        "identity": 0.5675675675675675,
+        "identity_type": 0.5675675675675675,
+        "relation": 0.8108108108108109,
+        "roll_up": 0.972972972972973
+      },
+      "identity_resolution_brier_score": 0.39156756756756755,
+      "implementation_fidelity": "controlled_operational_analogue",
+      "latency_ms": {
+        "p50": 0.005090143531560898,
+        "p95": 0.010239891707897186,
+        "p99": 0.013509765267372131
+      },
+      "method": "llm_direct_knowledge_patch",
+      "missed_competitor_count": 0,
+      "missed_merge_count": 1,
+      "wrong_competitor_entry_count": 3,
+      "wrong_merge_count": 0
+    },
+    {
+      "candidate_discovery_rate": 1.0,
+      "case_accuracy": 1.0,
+      "case_count": 22,
+      "case_pass": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "cases": [
+        {
+          "case_id": "tencent-cloud-rollup",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-TENCENT-CLOUD",
+              "identity_type": "business_unit",
+              "relation": "business_unit_of",
+              "roll_up_id": "CYB-BR-TENCENT"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-TENCENT",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-TENCENT"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "huawei-cloud-rollup",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-HUAWEI-CLOUD",
+              "identity_type": "business_unit",
+              "relation": "business_unit_of",
+              "roll_up_id": "CYB-BR-HUAWEI"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-HUAWEI",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-HUAWEI"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "nsfocus-cross-language-aliases",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NSFOCUS",
+              "identity_type": "brand",
+              "relation": "official_abbreviation",
+              "roll_up_id": "CYB-BR-NSFOCUS"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NSFOCUS",
+              "identity_type": "brand",
+              "relation": "english_name",
+              "roll_up_id": "CYB-BR-NSFOCUS"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NSFOCUS",
+              "identity_type": "brand",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-NSFOCUS"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "bjca-trade-name",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-BJCA",
+              "identity_type": "brand",
+              "relation": "trade_name",
+              "roll_up_id": "CYB-BR-BJCA"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-BJCA",
+              "identity_type": "brand",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-BJCA"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "newland-general-negative",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": false,
+              "identity_id": "CYB-BR-NEWLAND",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-NEWLAND"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "newland-ctid-positive",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NEWLAND",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-NEWLAND"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-NEWLAND-DIGITAL",
+              "identity_type": "legal_entity",
+              "relation": "brand_family_member",
+              "roll_up_id": "CYB-BR-NEWLAND"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "product-rollup-zoomeye",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-KNOWNSEC-ZOOMEYE",
+              "identity_type": "product",
+              "relation": "product_of",
+              "roll_up_id": "CYB-BR-KNOWNSEC"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-KNOWNSEC",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-KNOWNSEC"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "historical-name-westone",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-WESTONE",
+              "identity_type": "brand",
+              "relation": "historical_name",
+              "roll_up_id": "CYB-BR-WESTONE"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-WESTONE",
+              "identity_type": "brand",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-WESTONE"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "product-rollup-raytag",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-WEBRAY-RAYTAG",
+              "identity_type": "product",
+              "relation": "product_of",
+              "roll_up_id": "CYB-BR-WEBRAY"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-WEBRAY",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-WEBRAY"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "product-name-not-company-negative",
+          "decisions": [
+            {
+              "confidence": 0.0,
+              "eligible": false,
+              "identity_id": null,
+              "identity_type": "unknown",
+              "relation": "unresolved",
+              "roll_up_id": null
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "similar-string-negative",
+          "decisions": [
+            {
+              "confidence": 0.0,
+              "eligible": false,
+              "identity_id": null,
+              "identity_type": "unknown",
+              "relation": "unresolved",
+              "roll_up_id": null
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "tencent-security-business-unit",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-TENCENT-SECURITY",
+              "identity_type": "business_unit",
+              "relation": "business_unit_of",
+              "roll_up_id": "CYB-BR-TENCENT"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-TENCENT",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-TENCENT"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "whitehat-institute-brand-family",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-HUASHUNXINAN-WHITEHAT",
+              "identity_type": "institution",
+              "relation": "official_abbreviation",
+              "roll_up_id": "CYB-BR-HUASHUNXINAN"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-HUASHUNXINAN",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-HUASHUNXINAN"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "360-digital-security-group",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-360SECURITY-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "official_abbreviation",
+              "roll_up_id": "CYB-BR-360SECURITY"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "360-group-ambiguous-negative",
+          "decisions": [
+            {
+              "confidence": 0.0,
+              "eligible": false,
+              "identity_id": null,
+              "identity_type": "unknown",
+              "relation": "unresolved",
+              "roll_up_id": null
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "webray-legal-name",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-WEBRAY-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "official_abbreviation",
+              "roll_up_id": "CYB-BR-WEBRAY"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-WEBRAY",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-WEBRAY"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "huawei-legal-name",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-HUAWEI-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "same_legal_entity",
+              "roll_up_id": "CYB-BR-HUAWEI"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-HUAWEI",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-HUAWEI"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "knownsec-legal-and-product",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-KNOWNSEC-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "same_legal_entity",
+              "roll_up_id": "CYB-BR-KNOWNSEC"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-KNOWNSEC-ZOOMEYE",
+              "identity_type": "product",
+              "relation": "product_of",
+              "roll_up_id": "CYB-BR-KNOWNSEC"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "sheca-legal-name",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-SHECA-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "same_legal_entity",
+              "roll_up_id": "CYB-BR-SHECA"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "shensi-legal-name-general-negative",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": false,
+              "identity_id": "CYB-OBJ-SHENSI-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "same_legal_entity",
+              "roll_up_id": "CYB-BR-SHENSI"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "linewell-group-and-legal-entity",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": false,
+              "identity_id": "CYB-OBJ-LINEWELL-GROUP",
+              "identity_type": "group",
+              "relation": "brand_family_member",
+              "roll_up_id": "CYB-BR-LINEWELL"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": false,
+              "identity_id": "CYB-OBJ-LINEWELL-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "same_legal_entity",
+              "roll_up_id": "CYB-BR-LINEWELL"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "cross-industry-negative",
+          "decisions": [
+            {
+              "confidence": 0.0,
+              "eligible": false,
+              "identity_id": null,
+              "identity_type": "unknown",
+              "relation": "unresolved",
+              "roll_up_id": null
+            }
+          ],
+          "passed": true
+        }
+      ],
+      "correct_publication_rate": 1.0,
+      "cross_scene_misuse_count": 0,
+      "dimension_accuracy": {
+        "dedupe": 1.0,
+        "eligibility": 1.0,
+        "identity": 1.0,
+        "identity_type": 1.0,
+        "relation": 1.0,
+        "roll_up": 1.0
+      },
+      "identity_resolution_brier_score": 8.918918918918936e-05,
+      "implementation_fidelity": "controlled_operational_analogue",
+      "latency_ms": {
+        "p50": 0.011290423572063446,
+        "p95": 0.017201527953147888,
+        "p99": 0.029199756681919098
+      },
+      "method": "expert_feedback_edit",
+      "missed_competitor_count": 0,
+      "missed_merge_count": 0,
+      "wrong_competitor_entry_count": 0,
+      "wrong_merge_count": 0
+    },
+    {
+      "candidate_discovery_rate": 0.8666666666666667,
+      "case_accuracy": 0.8636363636363636,
+      "case_count": 22,
+      "case_pass": [
+        true,
+        true,
+        true,
+        true,
+        false,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        false,
+        false,
+        true
+      ],
+      "cases": [
+        {
+          "case_id": "tencent-cloud-rollup",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-TENCENT-CLOUD",
+              "identity_type": "business_unit",
+              "relation": "business_unit_of",
+              "roll_up_id": "CYB-BR-TENCENT"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-TENCENT",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-TENCENT"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "huawei-cloud-rollup",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-HUAWEI-CLOUD",
+              "identity_type": "business_unit",
+              "relation": "business_unit_of",
+              "roll_up_id": "CYB-BR-HUAWEI"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-HUAWEI",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-HUAWEI"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "nsfocus-cross-language-aliases",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NSFOCUS",
+              "identity_type": "brand",
+              "relation": "official_abbreviation",
+              "roll_up_id": "CYB-BR-NSFOCUS"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NSFOCUS",
+              "identity_type": "brand",
+              "relation": "english_name",
+              "roll_up_id": "CYB-BR-NSFOCUS"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NSFOCUS",
+              "identity_type": "brand",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-NSFOCUS"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "bjca-trade-name",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-BJCA",
+              "identity_type": "brand",
+              "relation": "trade_name",
+              "roll_up_id": "CYB-BR-BJCA"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-BJCA",
+              "identity_type": "brand",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-BJCA"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "newland-general-negative",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NEWLAND",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-NEWLAND"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "newland-ctid-positive",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NEWLAND",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-NEWLAND"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-NEWLAND-DIGITAL",
+              "identity_type": "legal_entity",
+              "relation": "brand_family_member",
+              "roll_up_id": "CYB-BR-NEWLAND"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "product-rollup-zoomeye",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-KNOWNSEC-ZOOMEYE",
+              "identity_type": "product",
+              "relation": "product_of",
+              "roll_up_id": "CYB-BR-KNOWNSEC"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-KNOWNSEC",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-KNOWNSEC"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "historical-name-westone",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-WESTONE",
+              "identity_type": "brand",
+              "relation": "historical_name",
+              "roll_up_id": "CYB-BR-WESTONE"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-WESTONE",
+              "identity_type": "brand",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-WESTONE"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "product-rollup-raytag",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-WEBRAY-RAYTAG",
+              "identity_type": "product",
+              "relation": "product_of",
+              "roll_up_id": "CYB-BR-WEBRAY"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-WEBRAY",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-WEBRAY"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "product-name-not-company-negative",
+          "decisions": [
+            {
+              "confidence": 0.0,
+              "eligible": false,
+              "identity_id": null,
+              "identity_type": "unknown",
+              "relation": "unresolved",
+              "roll_up_id": null
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "similar-string-negative",
+          "decisions": [
+            {
+              "confidence": 0.0,
+              "eligible": false,
+              "identity_id": null,
+              "identity_type": "unknown",
+              "relation": "unresolved",
+              "roll_up_id": null
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "tencent-security-business-unit",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-TENCENT-SECURITY",
+              "identity_type": "business_unit",
+              "relation": "business_unit_of",
+              "roll_up_id": "CYB-BR-TENCENT"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-TENCENT",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-TENCENT"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "whitehat-institute-brand-family",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-HUASHUNXINAN-WHITEHAT",
+              "identity_type": "institution",
+              "relation": "official_abbreviation",
+              "roll_up_id": "CYB-BR-HUASHUNXINAN"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-HUASHUNXINAN",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-HUASHUNXINAN"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "360-digital-security-group",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-360SECURITY-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "official_abbreviation",
+              "roll_up_id": "CYB-BR-360SECURITY"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "360-group-ambiguous-negative",
+          "decisions": [
+            {
+              "confidence": 0.0,
+              "eligible": false,
+              "identity_id": null,
+              "identity_type": "unknown",
+              "relation": "unresolved",
+              "roll_up_id": null
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "webray-legal-name",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-WEBRAY-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "official_abbreviation",
+              "roll_up_id": "CYB-BR-WEBRAY"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-WEBRAY",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-WEBRAY"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "huawei-legal-name",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-HUAWEI-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "same_legal_entity",
+              "roll_up_id": "CYB-BR-HUAWEI"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-HUAWEI",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-HUAWEI"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "knownsec-legal-and-product",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-KNOWNSEC-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "same_legal_entity",
+              "roll_up_id": "CYB-BR-KNOWNSEC"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-KNOWNSEC-ZOOMEYE",
+              "identity_type": "product",
+              "relation": "product_of",
+              "roll_up_id": "CYB-BR-KNOWNSEC"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "sheca-legal-name",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-SHECA-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "same_legal_entity",
+              "roll_up_id": "CYB-BR-SHECA"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "shensi-legal-name-general-negative",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-SHENSI-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "same_legal_entity",
+              "roll_up_id": "CYB-BR-SHENSI"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "linewell-group-and-legal-entity",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-LINEWELL-GROUP",
+              "identity_type": "group",
+              "relation": "brand_family_member",
+              "roll_up_id": "CYB-BR-LINEWELL"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-LINEWELL-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "same_legal_entity",
+              "roll_up_id": "CYB-BR-LINEWELL"
+            }
+          ],
+          "passed": false
+        },
+        {
+          "case_id": "cross-industry-negative",
+          "decisions": [
+            {
+              "confidence": 0.0,
+              "eligible": false,
+              "identity_id": null,
+              "identity_type": "unknown",
+              "relation": "unresolved",
+              "roll_up_id": null
+            }
+          ],
+          "passed": true
+        }
+      ],
+      "correct_publication_rate": 0.9285714285714286,
+      "cross_scene_misuse_count": 4,
+      "dimension_accuracy": {
+        "dedupe": 1.0,
+        "eligibility": 0.8918918918918919,
+        "identity": 1.0,
+        "identity_type": 1.0,
+        "relation": 1.0,
+        "roll_up": 1.0
+      },
+      "identity_resolution_brier_score": 8.918918918918936e-05,
+      "implementation_fidelity": "controlled_operational_analogue",
+      "latency_ms": {
+        "p50": 0.011289957910776138,
+        "p95": 0.021180137991905212,
+        "p99": 0.023701228201389313
+      },
+      "method": "evidence_writeback_proxy",
+      "missed_competitor_count": 0,
+      "missed_merge_count": 0,
+      "wrong_competitor_entry_count": 4,
+      "wrong_merge_count": 0
+    },
+    {
+      "candidate_discovery_rate": 1.0,
+      "case_accuracy": 1.0,
+      "case_count": 22,
+      "case_pass": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "cases": [
+        {
+          "case_id": "tencent-cloud-rollup",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-TENCENT-CLOUD",
+              "identity_type": "business_unit",
+              "relation": "business_unit_of",
+              "roll_up_id": "CYB-BR-TENCENT"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-TENCENT",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-TENCENT"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "huawei-cloud-rollup",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-HUAWEI-CLOUD",
+              "identity_type": "business_unit",
+              "relation": "business_unit_of",
+              "roll_up_id": "CYB-BR-HUAWEI"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-HUAWEI",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-HUAWEI"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "nsfocus-cross-language-aliases",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NSFOCUS",
+              "identity_type": "brand",
+              "relation": "official_abbreviation",
+              "roll_up_id": "CYB-BR-NSFOCUS"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NSFOCUS",
+              "identity_type": "brand",
+              "relation": "english_name",
+              "roll_up_id": "CYB-BR-NSFOCUS"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NSFOCUS",
+              "identity_type": "brand",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-NSFOCUS"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "bjca-trade-name",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-BJCA",
+              "identity_type": "brand",
+              "relation": "trade_name",
+              "roll_up_id": "CYB-BR-BJCA"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-BJCA",
+              "identity_type": "brand",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-BJCA"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "newland-general-negative",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": false,
+              "identity_id": "CYB-BR-NEWLAND",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-NEWLAND"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "newland-ctid-positive",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NEWLAND",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-NEWLAND"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-NEWLAND-DIGITAL",
+              "identity_type": "legal_entity",
+              "relation": "brand_family_member",
+              "roll_up_id": "CYB-BR-NEWLAND"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "product-rollup-zoomeye",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-KNOWNSEC-ZOOMEYE",
+              "identity_type": "product",
+              "relation": "product_of",
+              "roll_up_id": "CYB-BR-KNOWNSEC"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-KNOWNSEC",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-KNOWNSEC"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "historical-name-westone",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-WESTONE",
+              "identity_type": "brand",
+              "relation": "historical_name",
+              "roll_up_id": "CYB-BR-WESTONE"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-WESTONE",
+              "identity_type": "brand",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-WESTONE"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "product-rollup-raytag",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-WEBRAY-RAYTAG",
+              "identity_type": "product",
+              "relation": "product_of",
+              "roll_up_id": "CYB-BR-WEBRAY"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-WEBRAY",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-WEBRAY"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "product-name-not-company-negative",
+          "decisions": [
+            {
+              "confidence": 0.0,
+              "eligible": false,
+              "identity_id": null,
+              "identity_type": "unknown",
+              "relation": "unresolved",
+              "roll_up_id": null
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "similar-string-negative",
+          "decisions": [
+            {
+              "confidence": 0.0,
+              "eligible": false,
+              "identity_id": null,
+              "identity_type": "unknown",
+              "relation": "unresolved",
+              "roll_up_id": null
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "tencent-security-business-unit",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-TENCENT-SECURITY",
+              "identity_type": "business_unit",
+              "relation": "business_unit_of",
+              "roll_up_id": "CYB-BR-TENCENT"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-TENCENT",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-TENCENT"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "whitehat-institute-brand-family",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-HUASHUNXINAN-WHITEHAT",
+              "identity_type": "institution",
+              "relation": "official_abbreviation",
+              "roll_up_id": "CYB-BR-HUASHUNXINAN"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-HUASHUNXINAN",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-HUASHUNXINAN"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "360-digital-security-group",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-360SECURITY-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "official_abbreviation",
+              "roll_up_id": "CYB-BR-360SECURITY"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "360-group-ambiguous-negative",
+          "decisions": [
+            {
+              "confidence": 0.0,
+              "eligible": false,
+              "identity_id": null,
+              "identity_type": "unknown",
+              "relation": "unresolved",
+              "roll_up_id": null
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "webray-legal-name",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-WEBRAY-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "official_abbreviation",
+              "roll_up_id": "CYB-BR-WEBRAY"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-WEBRAY",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-WEBRAY"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "huawei-legal-name",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-HUAWEI-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "same_legal_entity",
+              "roll_up_id": "CYB-BR-HUAWEI"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-HUAWEI",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-HUAWEI"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "knownsec-legal-and-product",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-KNOWNSEC-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "same_legal_entity",
+              "roll_up_id": "CYB-BR-KNOWNSEC"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-KNOWNSEC-ZOOMEYE",
+              "identity_type": "product",
+              "relation": "product_of",
+              "roll_up_id": "CYB-BR-KNOWNSEC"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "sheca-legal-name",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-SHECA-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "same_legal_entity",
+              "roll_up_id": "CYB-BR-SHECA"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "shensi-legal-name-general-negative",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": false,
+              "identity_id": "CYB-OBJ-SHENSI-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "same_legal_entity",
+              "roll_up_id": "CYB-BR-SHENSI"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "linewell-group-and-legal-entity",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": false,
+              "identity_id": "CYB-OBJ-LINEWELL-GROUP",
+              "identity_type": "group",
+              "relation": "brand_family_member",
+              "roll_up_id": "CYB-BR-LINEWELL"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": false,
+              "identity_id": "CYB-OBJ-LINEWELL-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "same_legal_entity",
+              "roll_up_id": "CYB-BR-LINEWELL"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "cross-industry-negative",
+          "decisions": [
+            {
+              "confidence": 0.0,
+              "eligible": false,
+              "identity_id": null,
+              "identity_type": "unknown",
+              "relation": "unresolved",
+              "roll_up_id": null
+            }
+          ],
+          "passed": true
+        }
+      ],
+      "correct_publication_rate": 1.0,
+      "cross_scene_misuse_count": 0,
+      "dimension_accuracy": {
+        "dedupe": 1.0,
+        "eligibility": 1.0,
+        "identity": 1.0,
+        "identity_type": 1.0,
+        "relation": 1.0,
+        "roll_up": 1.0
+      },
+      "identity_resolution_brier_score": 8.918918918918936e-05,
+      "implementation_fidelity": "controlled_operational_analogue",
+      "latency_ms": {
+        "p50": 0.011754687875509262,
+        "p95": 0.027991831302642822,
+        "p99": 0.04976056516170502
+      },
+      "method": "dynamic_entity_resolution_proxy",
+      "missed_competitor_count": 0,
+      "missed_merge_count": 0,
+      "wrong_competitor_entry_count": 0,
+      "wrong_merge_count": 0
+    },
+    {
+      "candidate_discovery_rate": 1.0,
+      "case_accuracy": 1.0,
+      "case_count": 22,
+      "case_pass": [
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true,
+        true
+      ],
+      "cases": [
+        {
+          "case_id": "tencent-cloud-rollup",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-TENCENT-CLOUD",
+              "identity_type": "business_unit",
+              "relation": "business_unit_of",
+              "roll_up_id": "CYB-BR-TENCENT"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-TENCENT",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-TENCENT"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "huawei-cloud-rollup",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-HUAWEI-CLOUD",
+              "identity_type": "business_unit",
+              "relation": "business_unit_of",
+              "roll_up_id": "CYB-BR-HUAWEI"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-HUAWEI",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-HUAWEI"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "nsfocus-cross-language-aliases",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NSFOCUS",
+              "identity_type": "brand",
+              "relation": "official_abbreviation",
+              "roll_up_id": "CYB-BR-NSFOCUS"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NSFOCUS",
+              "identity_type": "brand",
+              "relation": "english_name",
+              "roll_up_id": "CYB-BR-NSFOCUS"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NSFOCUS",
+              "identity_type": "brand",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-NSFOCUS"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "bjca-trade-name",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-BJCA",
+              "identity_type": "brand",
+              "relation": "trade_name",
+              "roll_up_id": "CYB-BR-BJCA"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-BJCA",
+              "identity_type": "brand",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-BJCA"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "newland-general-negative",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": false,
+              "identity_id": "CYB-BR-NEWLAND",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-NEWLAND"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "newland-ctid-positive",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-NEWLAND",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-NEWLAND"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-NEWLAND-DIGITAL",
+              "identity_type": "legal_entity",
+              "relation": "brand_family_member",
+              "roll_up_id": "CYB-BR-NEWLAND"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "product-rollup-zoomeye",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-KNOWNSEC-ZOOMEYE",
+              "identity_type": "product",
+              "relation": "product_of",
+              "roll_up_id": "CYB-BR-KNOWNSEC"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-KNOWNSEC",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-KNOWNSEC"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "historical-name-westone",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-WESTONE",
+              "identity_type": "brand",
+              "relation": "historical_name",
+              "roll_up_id": "CYB-BR-WESTONE"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-WESTONE",
+              "identity_type": "brand",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-WESTONE"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "product-rollup-raytag",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-WEBRAY-RAYTAG",
+              "identity_type": "product",
+              "relation": "product_of",
+              "roll_up_id": "CYB-BR-WEBRAY"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-WEBRAY",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-WEBRAY"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "product-name-not-company-negative",
+          "decisions": [
+            {
+              "confidence": 0.0,
+              "eligible": false,
+              "identity_id": null,
+              "identity_type": "unknown",
+              "relation": "unresolved",
+              "roll_up_id": null
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "similar-string-negative",
+          "decisions": [
+            {
+              "confidence": 0.0,
+              "eligible": false,
+              "identity_id": null,
+              "identity_type": "unknown",
+              "relation": "unresolved",
+              "roll_up_id": null
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "tencent-security-business-unit",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-TENCENT-SECURITY",
+              "identity_type": "business_unit",
+              "relation": "business_unit_of",
+              "roll_up_id": "CYB-BR-TENCENT"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-TENCENT",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-TENCENT"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "whitehat-institute-brand-family",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-HUASHUNXINAN-WHITEHAT",
+              "identity_type": "institution",
+              "relation": "official_abbreviation",
+              "roll_up_id": "CYB-BR-HUASHUNXINAN"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-HUASHUNXINAN",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-HUASHUNXINAN"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "360-digital-security-group",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-360SECURITY-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "official_abbreviation",
+              "roll_up_id": "CYB-BR-360SECURITY"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "360-group-ambiguous-negative",
+          "decisions": [
+            {
+              "confidence": 0.0,
+              "eligible": false,
+              "identity_id": null,
+              "identity_type": "unknown",
+              "relation": "unresolved",
+              "roll_up_id": null
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "webray-legal-name",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-WEBRAY-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "official_abbreviation",
+              "roll_up_id": "CYB-BR-WEBRAY"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-WEBRAY",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-WEBRAY"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "huawei-legal-name",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-HUAWEI-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "same_legal_entity",
+              "roll_up_id": "CYB-BR-HUAWEI"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-BR-HUAWEI",
+              "identity_type": "brand_family",
+              "relation": "self",
+              "roll_up_id": "CYB-BR-HUAWEI"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "knownsec-legal-and-product",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-KNOWNSEC-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "same_legal_entity",
+              "roll_up_id": "CYB-BR-KNOWNSEC"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-KNOWNSEC-ZOOMEYE",
+              "identity_type": "product",
+              "relation": "product_of",
+              "roll_up_id": "CYB-BR-KNOWNSEC"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "sheca-legal-name",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": true,
+              "identity_id": "CYB-OBJ-SHECA-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "same_legal_entity",
+              "roll_up_id": "CYB-BR-SHECA"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "shensi-legal-name-general-negative",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": false,
+              "identity_id": "CYB-OBJ-SHENSI-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "same_legal_entity",
+              "roll_up_id": "CYB-BR-SHENSI"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "linewell-group-and-legal-entity",
+          "decisions": [
+            {
+              "confidence": 0.99,
+              "eligible": false,
+              "identity_id": "CYB-OBJ-LINEWELL-GROUP",
+              "identity_type": "group",
+              "relation": "brand_family_member",
+              "roll_up_id": "CYB-BR-LINEWELL"
+            },
+            {
+              "confidence": 0.99,
+              "eligible": false,
+              "identity_id": "CYB-OBJ-LINEWELL-LEGAL",
+              "identity_type": "legal_entity",
+              "relation": "same_legal_entity",
+              "roll_up_id": "CYB-BR-LINEWELL"
+            }
+          ],
+          "passed": true
+        },
+        {
+          "case_id": "cross-industry-negative",
+          "decisions": [
+            {
+              "confidence": 0.0,
+              "eligible": false,
+              "identity_id": null,
+              "identity_type": "unknown",
+              "relation": "unresolved",
+              "roll_up_id": null
+            }
+          ],
+          "passed": true
+        }
+      ],
+      "correct_publication_rate": 1.0,
+      "cross_scene_misuse_count": 0,
+      "dimension_accuracy": {
+        "dedupe": 1.0,
+        "eligibility": 1.0,
+        "identity": 1.0,
+        "identity_type": 1.0,
+        "relation": 1.0,
+        "roll_up": 1.0
+      },
+      "identity_resolution_brier_score": 8.918918918918936e-05,
+      "implementation_fidelity": "project_implementation",
+      "latency_ms": {
+        "p50": 0.01117028295993805,
+        "p95": 0.01746043562889099,
+        "p99": 0.02954155206680298
+      },
+      "method": "scoped_replay_risk_governed",
+      "missed_competitor_count": 0,
+      "missed_merge_count": 0,
+      "wrong_competitor_entry_count": 0,
+      "wrong_merge_count": 0
+    }
+  ],
+  "schema_version": "knowledge-update-method-comparison-v1",
+  "status": "reproducible_pilot_not_paper_grade",
+  "time_split": {
+    "baseline_content_hash": "sha256:93a04f23f5585efa6e569a973953f65acd8ee4897108982cb73f412b3ec21261",
+    "baseline_release_id": "knowledge-2026-08-27.3",
+    "candidate_content_hash": "sha256:a7acba68675a2e430c256cb282c7d6fad08403b8156cb766b9daeb15c9785c58",
+    "candidate_release_id": "knowledge-2026-08-27.6",
+    "future_knowledge_in_baseline": false,
+    "gold_hash": "sha256:db638c611fda0d7424bb8792001ff8b97b5d8f7fd20f6a0335e8f36354a95a1a",
+    "knowledge_cutoff": "2026-08-26T23:59:59+08:00",
+    "llm_patch_uses_pre_cutoff_baseline": true
+  }
+}
