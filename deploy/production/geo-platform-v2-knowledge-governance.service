@@ -7,11 +7,11 @@ After=network-online.target postgresql.service
 Type=oneshot
 User=xln
 Group=xln
-WorkingDirectory=/home/xln/geo-system/platform-v2
+WorkingDirectory=/opt/geo-platform-v2/current
 EnvironmentFile=/etc/geo-platform-v2/platform.env
 Environment=GEO_SILICONINDEX_SNAPSHOT_DIR=/var/lib/geo-platform-v2/siliconindex
 Environment=GEO_KNOWLEDGE_RELEASE_DIR=/var/lib/geo-platform-v2/knowledge
-ExecStart=/home/xln/geo-system/platform-v2/.venv/bin/python tools/run_knowledge_governance_batch.py
+ExecStart=/opt/geo-platform-v2/current/.venv/bin/python tools/run_knowledge_governance_batch.py
 StateDirectory=geo-platform-v2/knowledge geo-platform-v2/siliconindex
 StateDirectoryMode=0750
 NoNewPrivileges=true
