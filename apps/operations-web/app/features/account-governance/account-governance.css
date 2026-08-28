@@ -170,6 +170,16 @@
   text-align: center;
   vertical-align: middle;
 }
+.acct-gov-table td.acct-gov-owner-note {
+  min-width: 110px;
+  max-width: 180px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.acct-gov-owner-note button {
+  display: block;
+  margin-top: 6px;
+}
 .acct-gov-table tbody tr:hover td {
   background: #f8fbf9;
 }
@@ -311,6 +321,7 @@
   font-size: 13px;
 }
 .acct-gov-field input,
+.acct-gov-field textarea,
 .acct-gov-quota-grid input {
   box-sizing: border-box;
   width: 100%;
@@ -320,6 +331,10 @@
   background: #fff;
   color: #17211b;
   font: inherit;
+}
+.acct-gov-field textarea {
+  min-height: 76px;
+  resize: vertical;
 }
 .acct-gov-quota-grid {
   display: grid;

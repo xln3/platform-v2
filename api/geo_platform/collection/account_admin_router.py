@@ -129,7 +129,11 @@ class PhoneAccountRow(StrictModel):
 
 class PhoneAccountCreate(StrictModel):
     phone: str
-    owner_note: str | None = None
+    owner_note: str | None = Field(default=None, max_length=200)
+
+
+class PhoneAccountPatch(StrictModel):
+    owner_note: str | None = Field(..., max_length=200)
 
 
 class PlatformAccountCreate(StrictModel):
@@ -682,6 +686,8 @@ def create_collection_account(
 ) -> PhoneAccountRow:
     principal.require("account:operate")
     phone = body.phone.strip()
+    owner_note = body.owner_note.strip() if body.owner_note else None
+    owner_note = owner_note or None
     if not PHONE_RE.match(phone):
         raise HTTPException(status_code=400, detail={"code": "bad_phone"})
     existing = session.scalar(
@@ -693,7 +699,7 @@ def create_collection_account(
     row = CollectionPhoneAccount(
         pub_id=new_pub_id("pha"),
         phone=phone,
-        owner_note=body.owner_note,
+        owner_note=owner_note,
         state="active",
         sms_link_state="untested",
         push_link_state="untested",
@@ -707,10 +713,49 @@ def create_collection_account(
         "phone_account_created",
         actor=_actor(principal),
         phone_account_id=row.id,
-        new_value={"phone_masked": mask_phone(phone), "owner_note": body.owner_note},
+        new_value={"phone_masked": mask_phone(phone), "owner_note": owner_note},
     )
     session.commit()
     return _phone_row(row, [], reveal_phone=True)
+
+
+@router.patch("/collection-accounts/{pub_id}", response_model=PhoneAccountRow)
+def patch_collection_account(
+    pub_id: str,
+    body: PhoneAccountPatch,
+    principal: Principal = Depends(get_principal),
+    session: Session = Depends(get_db),
+) -> PhoneAccountRow:
+    """修改手机号备注；空字符串与 ``null`` 都表示清空备注。"""
+
+    principal.require("account:operate")
+    phone = _find_phone(session, pub_id)
+    owner_note = body.owner_note.strip() if body.owner_note else None
+    owner_note = owner_note or None
+    platform_rows = list(
+        session.scalars(
+            select(CollectionPlatformAccount).where(
+                CollectionPlatformAccount.phone_account_id == phone.id
+            )
+        )
+    )
+    if owner_note == phone.owner_note:
+        return _phone_row(phone, platform_rows, reveal_phone=True)
+
+    old_note = phone.owner_note
+    phone.owner_note = owner_note
+    phone.updated_at = now_utc()
+    session.flush()
+    _emit_event(
+        session,
+        "phone_account_note_changed",
+        actor=_actor(principal),
+        phone_account_id=phone.id,
+        old_value={"owner_note": old_note},
+        new_value={"owner_note": owner_note},
+    )
+    session.commit()
+    return _phone_row(phone, platform_rows, reveal_phone=True)
 
 
 @router.post(

@@ -152,6 +152,7 @@ function installFetch(handlers: {
   regions?: unknown;
   quotas?: unknown;
   patch?: { status: number; body: unknown };
+  patchAccount?: { status: number; body: unknown };
   linkTest?: { status: number; body: unknown };
   createAccount?: { status: number; body: unknown };
   syncOtp?: { status: number; body: unknown };
@@ -174,6 +175,10 @@ function installFetch(handlers: {
       return json(200, handlers.regions ?? []);
     if (method === 'GET' && path === '/api/v2/collection-account-quota-observations')
       return json(200, handlers.quotas ?? []);
+    if (method === 'PATCH' && path.startsWith('/api/v2/collection-accounts/')) {
+      const patch = handlers.patchAccount ?? { status: 200, body: {} };
+      return json(patch.status, patch.body);
+    }
     if (method === 'PATCH' && path.startsWith('/api/v2/collection-platform-accounts/')) {
       const patch = handlers.patch ?? { status: 200, body: {} };
       return json(patch.status, patch.body);
@@ -249,6 +254,7 @@ describe('AccountsPage', () => {
 
     const table = await screen.findByRole('table', { name: '采集账号列表' });
     expect(within(table).getByText('13300002231')).toBeTruthy();
+    expect(within(table).getByText('号主老张')).toBeTruthy();
     // null 格（文心一言未登记）
     expect(within(table).getAllByText('—').length).toBeGreaterThan(0);
     // 状态徽章映射
@@ -261,6 +267,27 @@ describe('AccountsPage', () => {
     expect(within(table).getByText(/剩余 1 小时/)).toBeTruthy();
     // 额度显示 used/quota
     expect(within(table).getAllByText('3/10').length).toBeGreaterThan(0);
+  });
+
+  it('备注独立展示，并可从前端修改或清空', async () => {
+    const calls = installFetch({ accounts: [makeAccountRow()], regions: REGIONS });
+    render(<AccountsPage session={session} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: '修改 13300002231 的备注' }));
+    const dialog = await screen.findByRole('dialog');
+    const note = within(dialog).getByRole('textbox', { name: '备注' });
+    expect((note as HTMLTextAreaElement).value).toBe('号主老张');
+    fireEvent.change(note, { target: { value: '  张杰  ' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: '保存' }));
+
+    await waitFor(() => {
+      expect(
+        calls.find(
+          (call) => call.method === 'PATCH' && call.path === '/api/v2/collection-accounts/phone_1',
+        )?.body,
+      ).toEqual({ owner_note: '张杰' });
+    });
+    expect(await screen.findByText('账号 13300002231 的备注已更新')).toBeTruthy();
   });
 
   it('刷新号码会同步 OTP 注册表并立即重拉账号列表', async () => {
@@ -297,7 +324,9 @@ describe('AccountsPage', () => {
 
     const table = await screen.findByRole('table', { name: '采集账号列表' });
     expect(within(table).getByText('133****2231')).toBeTruthy();
+    expect(within(table).getByText('号主老张')).toBeTruthy();
     expect(screen.queryByRole('button', { name: '刷新号码' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /修改 .* 的备注/ })).toBeNull();
   });
 
   it('RuntimeStateBadge 覆盖 running/captcha 映射', () => {

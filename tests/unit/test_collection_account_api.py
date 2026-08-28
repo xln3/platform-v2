@@ -483,6 +483,58 @@ def test_create_account_then_conflict_409(session: _FakeSession) -> None:
     assert bad.json()["error"]["code"] == "bad_phone"
 
 
+def test_patch_account_note_updates_clears_and_audits(session: _FakeSession) -> None:
+    phone = _seed_phone(session, owner_note="旧备注")
+    account = _seed_platform(session, phone.id)
+    _bind(session)
+
+    updated = client.patch(
+        f"/api/v2/collection-accounts/{phone.pub_id}",
+        json={"owner_note": "  张杰  "},
+    )
+    assert updated.status_code == 200, updated.text
+    body = updated.json()
+    assert body["owner_note"] == "张杰"
+    assert body["platforms"]["doubao"]["platform_account_pub_id"] == account.pub_id
+    assert phone.owner_note == "张杰"
+    events = _events(session, "phone_account_note_changed")
+    assert len(events) == 1
+    assert events[0].actor == "usr_ops"
+    assert events[0].old_value == {"owner_note": "旧备注"}
+    assert events[0].new_value == {"owner_note": "张杰"}
+
+    cleared = client.patch(
+        f"/api/v2/collection-accounts/{phone.pub_id}",
+        json={"owner_note": "   "},
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["owner_note"] is None
+    assert phone.owner_note is None
+    assert len(_events(session, "phone_account_note_changed")) == 2
+
+
+def test_patch_account_note_requires_operate_and_valid_payload(session: _FakeSession) -> None:
+    phone = _seed_phone(session)
+    _bind(session, role=Role.REVIEWER)
+    forbidden = client.patch(
+        f"/api/v2/collection-accounts/{phone.pub_id}",
+        json={"owner_note": "陈亮"},
+    )
+    assert forbidden.status_code == 403
+
+    _bind(session)
+    missing = client.patch(
+        "/api/v2/collection-accounts/pha_missing",
+        json={"owner_note": "陈亮"},
+    )
+    assert missing.status_code == 404
+    too_long = client.patch(
+        f"/api/v2/collection-accounts/{phone.pub_id}",
+        json={"owner_note": "x" * 201},
+    )
+    assert too_long.status_code == 422
+
+
 def test_create_platform_account_requires_confirmation_and_binds_safely(
     session: _FakeSession,
 ) -> None:
