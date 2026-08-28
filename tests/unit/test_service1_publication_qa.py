@@ -42,8 +42,10 @@ def test_publication_qa_detects_caption_page_without_image() -> None:
     assert _orphan_figure_caption_pages(pages, {3}) == [2]
 
 
-@pytest.mark.skipif(shutil.which("libreoffice") is None, reason="LibreOffice is unavailable")
+@pytest.mark.document_toolchain
 def test_libreoffice_export_is_tagged_clickable_and_reexport_stable() -> None:
+    if shutil.which("libreoffice") is None:
+        pytest.fail("LibreOffice is required by the document_toolchain test lane")
     title = "三个业务场景品牌 GEO 推荐结果评测报告"
     facts = {
         "project_name": "测试客户",
@@ -83,13 +85,14 @@ def test_libreoffice_export_is_tagged_clickable_and_reexport_stable() -> None:
     assert stability["status"] == "passed", stability
 
 
+@pytest.mark.external_fixture
 def test_reviewed_legacy_report_is_detected_as_not_deliverable() -> None:
     workspace = Path(__file__).resolve().parents[3]
     root = workspace / "client-sbaq/formal-reports-20260813/frp_94387df8ba4df75d3b26a9903e"
     docx_path = root / "服务1_品牌GEO推荐结果评测报告_正式_20260813.docx"
     pdf_path = root / "服务1_品牌GEO推荐结果评测报告_正式_20260813.pdf"
     if not docx_path.is_file() or not pdf_path.is_file():
-        pytest.skip("reviewed legacy fixture is not present")
+        pytest.fail("reviewed legacy fixture is not present")
 
     qa = inspect_publication(
         docx=docx_path.read_bytes(),

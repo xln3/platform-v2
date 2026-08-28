@@ -542,6 +542,7 @@ def _stream_summary(
     return checkpoint, materialized_count, peak_chunk_size, samples
 
 
+@pytest.mark.slow
 def test_large_campaign_streams_279000_slots_with_chunk_independent_identity_and_digest() -> None:
     config = _config(
         *(_target(surface) for surface in CollectionSurface),

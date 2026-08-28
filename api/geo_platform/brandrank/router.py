@@ -1,8 +1,12 @@
-"""品牌可见度（brandrank）REST：按需计算的只读端点。
+"""品牌可见度 REST。
 
 端点（project:read 门，与 analytics 只读端点同口径）::
 
+    GET /api/v2/projects/{project_pub_id}/brand-visibility/official
+        只读冻结的 V2 official snapshot set，是正式页面唯一入口。
+
     GET /api/v2/projects/{project_pub_id}/brand-visibility
+        deprecated legacy/audit 入口，保留旧抽取实验，不是正式指标真源。
         ?window_days=30          时间窗（1..366，缺省 30）
         &domain=insurance        显式规则包（可选；未知 → 400 unknown_domain）
         &industry=保险           显式行业 → 规则包映射（可选；未映射 → 400 unmapped_industry）
@@ -31,6 +35,7 @@ from __future__ import annotations
 
 # ruff: noqa: B008
 import re
+from datetime import date
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -41,6 +46,8 @@ from domain.knowledge_evolution.contracts import ReasoningPolicy
 
 from ..config import get_settings
 from ..identity.policy import Principal, get_principal
+from ..metrics_v2.consumer_projection import OfficialMetricsConsumer, OfficialScope
+from ..metrics_v2.repository import MetricsV2Repository
 from . import service
 
 router = APIRouter(prefix="/api/v2/projects", tags=["brandrank"])
@@ -57,6 +64,10 @@ def _dsn() -> str:
     return (settings.runtime_postgres_dsn or settings.postgres_dsn).replace(
         "postgresql+psycopg://", "postgresql://"
     )
+
+
+def _official_consumer() -> OfficialMetricsConsumer:
+    return OfficialMetricsConsumer(MetricsV2Repository(_dsn()))
 
 
 def _error(
@@ -119,7 +130,53 @@ def _parse_comparison_scopes(values: list[str] | None) -> list[str]:
 # JSONResponse，返回注解是 dict | JSONResponse 联合——FastAPI 不能从联合注解推导
 # Pydantic 响应模型（JSONResponse 不是可序列化字段），必须显式关闭推导。
 # Response 实例运行时绕过序列化，正常路径 dict 原样 JSON 化，语义与全局错误体一致。
-@router.get("/{project_pub_id}/brand-visibility", response_model=None)
+@router.get(
+    "/{project_pub_id}/brand-visibility/official",
+    response_model=None,
+    operation_id="getOfficialBrandVisibilityV2",
+)
+def official_brand_visibility(
+    project_pub_id: str,
+    start: date,
+    end: date,
+    model: str | None = None,
+    region: str | None = None,
+    mode: str | None = None,
+    focal_entity_id: list[str] | None = Query(default=None),
+    principal: Principal = Depends(get_principal),
+) -> dict[str, Any]:
+    """Formal BrandRank page backed only by the V2 official snapshot set."""
+
+    principal.require("project:read")
+    try:
+        return _official_consumer().brandrank(
+            OfficialScope(
+                tenant_pub_id=principal.tenant_pub_id,
+                project_pub_id=project_pub_id,
+                start=start,
+                end=end,
+                models=(model,) if model else (),
+                regions=(region,) if region else (),
+                modes=(mode,) if mode else (),
+                focal_entity_ids=tuple(focal_entity_id or ()),
+            )
+        )
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=404, detail={"code": "official_metric_snapshot_set_not_found"}
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422, detail={"code": "invalid_official_metric_scope"}
+        ) from exc
+
+
+@router.get(
+    "/{project_pub_id}/brand-visibility",
+    response_model=None,
+    deprecated=True,
+    tags=["brandrank-legacy"],
+)
 def brand_visibility(
     request: Request,
     project_pub_id: str,
@@ -139,8 +196,7 @@ def brand_visibility(
     max_reasoning_cost_usd: float | None = Query(default=None, ge=0, le=100),
     principal: Principal = Depends(get_principal),
 ) -> dict[str, Any] | JSONResponse:
-    """品牌可见度快照（按需计算；旧报告核心口径的 V2 只读端点）。"""
-    """品牌可见度快照（按需计算；旧报告核心口径的 V2 只读端点）。"""
+    """Deprecated V1-derived extraction/aggregation view for explicit audit only."""
     principal.require("project:read")
     try:
         return service.compute_brand_visibility(

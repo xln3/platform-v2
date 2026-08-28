@@ -701,6 +701,7 @@ class AnalyticsService:
         dimensions: dict[str, str] | None = None,
         include_account_dimension: bool = False,
     ) -> list[dict[str, Any]]:
+        """Deprecated metric_daily aggregation retained for explicit V1 audit."""
         if include_account_dimension:
             raise PermissionError("customer aggregates cannot expose account dimensions")
         dimensions = dimensions or {}
@@ -835,6 +836,7 @@ class AnalyticsService:
         end: date,
         dimensions: dict[str, str] | None = None,
     ) -> list[dict[str, Any]]:
+        """Deprecated answer_analysis competitor rollup; never used by official V2 routes."""
         dimensions = dimensions or {}
         with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
             rows = connection.execute(

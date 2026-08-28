@@ -25,25 +25,6 @@ from geo_platform.main import app
 from domain.brandrank import extract, metrics
 from domain.brandrank.rules import load_domain
 
-
-def _dev_pg_reachable() -> bool:
-    """本文件用例经 TestClient 走 settings 默认 DSN（dev PG 127.0.0.1:55433）。
-
-    2026-08-13 起开发栈已下线（生产只跑 production compose），dev PG 不可达时
-    整组 skip——恢复方式见 backups/dev-stack-shutdown-20260813T163118/README.md。
-    """
-    import socket
-
-    try:
-        with socket.create_connection(("127.0.0.1", 55433), timeout=1):
-            return True
-    except OSError:
-        return False
-
-
-if not _dev_pg_reachable():
-    pytest.skip("dev PG(127.0.0.1:55433) 不在线（开发栈已下线）", allow_module_level=True)
-
 TENANT = "tnt_facts"
 PROJECT = "prj_facts"
 NOW = datetime(2026, 8, 9, 12, 0, 0, tzinfo=UTC)

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -154,7 +154,9 @@ describe('local visual evidence DLP', () => {
   });
 
   it('removes a stale approved-path PNG and omits raw secrets from the rejection', async () => {
-    const directory = await mkdtemp(join(process.cwd(), 'tests/e2e-results/safe-shot-'));
+    const outputRoot = join(process.cwd(), 'test-results');
+    await mkdir(outputRoot, { recursive: true });
+    const directory = await mkdtemp(join(outputRoot, 'safe-shot-'));
     const target = join(directory, 'hostile.png');
     let screenshotCalls = 0;
     const page = {

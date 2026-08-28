@@ -1,0 +1,232 @@
+[
+  {
+    "name": "ai_recommendation_entity_share_v2",
+    "version": "2.0.0",
+    "definition_schema_version": "metric-definition-v2",
+    "status": "published",
+    "unit_type": "relation",
+    "focal_entity_required": true,
+    "outcome_source": "semantic_decision",
+    "query_predicate": {"all": [{"query_has_lens": "ai_recommendation"}, {"query_has_operation": "recommend"}, {"exposure_is": "brand_neutral"}]},
+    "required_semantic_capabilities": [{"name": "recommendation_relation", "task_ref": "recommendation-relation@2.0.0", "accepted_status": "ready"}],
+    "required_event_types": ["recommendation_relation"],
+    "applicability": {"any": [
+      {"event_exists": {"type": "recommendation_relation", "where": {"polarity": "positive"}}},
+      {"event_exists": {"type": "recommendation_relation", "where": {"polarity": "conditional_positive"}}}
+    ]},
+    "outcome": {"count_outcome": {
+      "from_events": "recommendation_relation",
+      "numerator_subject": "$focal_entity",
+      "numerator_where": {"polarity": ["positive", "conditional_positive"]},
+      "denominator_where": {"polarity": ["positive", "conditional_positive"]},
+      "unique_by": "subject_entity_id",
+      "credit_total": "one_per_answer"
+    }},
+    "missing_policy": "unknown_if_required_analysis_unready",
+    "allowed_aggregation_methods": ["query_macro", "answer_weighted"],
+    "default_aggregation_method": "query_macro",
+    "reason_codes": {"hit": "recommendation_positive", "miss": "target_not_in_ranked_list", "not_applicable": "no_applicable_claim"},
+    "metadata": {"release_role": "conditional_diagnostic", "metric_family": "entity_share"}
+  },
+  {
+    "name": "multibrand_pairwise_win_rate_v2",
+    "version": "2.0.0",
+    "definition_schema_version": "metric-definition-v2",
+    "status": "published",
+    "unit_type": "relation",
+    "focal_entity_required": true,
+    "outcome_source": "semantic_decision",
+    "query_predicate": {"all": [{"query_has_lens": "ai_recommendation"}, {"exposure_is": "focal_named_with_others"}]},
+    "required_semantic_capabilities": [{"name": "stance_and_pairwise", "task_ref": "stance-and-pairwise@2.0.0", "accepted_status": "ready"}],
+    "required_event_types": ["pairwise_preference"],
+    "applicability": {"any": [
+      {"event_exists": {"type": "pairwise_preference", "subject": "$focal_entity"}},
+      {"event_exists": {"type": "pairwise_preference", "object": "$focal_entity"}}
+    ]},
+    "outcome": {"binary_outcome": {"any": [
+      {"event_exists": {"type": "pairwise_preference", "subject": "$focal_entity", "where": {"relation": "subject_better"}}},
+      {"event_exists": {"type": "pairwise_preference", "object": "$focal_entity", "where": {"relation": "object_better"}}}
+    ]}},
+    "missing_policy": "unknown_if_required_analysis_unready",
+    "allowed_aggregation_methods": ["query_macro", "answer_weighted"],
+    "default_aggregation_method": "query_macro",
+    "reason_codes": {"hit": "included_hit", "miss": "included_miss", "not_applicable": "no_pairwise_relation"},
+    "metadata": {"release_role": "official", "metric_family": "pairwise"}
+  },
+  {
+    "name": "multibrand_pairwise_tie_rate_v2",
+    "version": "2.0.0",
+    "definition_schema_version": "metric-definition-v2",
+    "status": "published",
+    "unit_type": "relation",
+    "focal_entity_required": true,
+    "outcome_source": "semantic_decision",
+    "query_predicate": {"all": [{"query_has_lens": "ai_recommendation"}, {"exposure_is": "focal_named_with_others"}]},
+    "required_semantic_capabilities": [{"name": "stance_and_pairwise", "task_ref": "stance-and-pairwise@2.0.0", "accepted_status": "ready"}],
+    "required_event_types": ["pairwise_preference"],
+    "applicability": {"any": [{"event_exists": {"type": "pairwise_preference", "subject": "$focal_entity"}}, {"event_exists": {"type": "pairwise_preference", "object": "$focal_entity"}}]},
+    "outcome": {"binary_outcome": {"any": [
+      {"event_exists": {"type": "pairwise_preference", "subject": "$focal_entity", "where": {"relation": "tie"}}},
+      {"event_exists": {"type": "pairwise_preference", "object": "$focal_entity", "where": {"relation": "tie"}}}
+    ]}},
+    "missing_policy": "unknown_if_required_analysis_unready",
+    "allowed_aggregation_methods": ["query_macro", "answer_weighted"],
+    "default_aggregation_method": "query_macro",
+    "reason_codes": {"hit": "included_hit", "miss": "included_miss", "not_applicable": "no_pairwise_relation"},
+    "metadata": {"release_role": "official", "metric_family": "pairwise"}
+  },
+  {
+    "name": "multibrand_pairwise_loss_rate_v2",
+    "version": "2.0.0",
+    "definition_schema_version": "metric-definition-v2",
+    "status": "published",
+    "unit_type": "relation",
+    "focal_entity_required": true,
+    "outcome_source": "semantic_decision",
+    "query_predicate": {"all": [{"query_has_lens": "ai_recommendation"}, {"exposure_is": "focal_named_with_others"}]},
+    "required_semantic_capabilities": [{"name": "stance_and_pairwise", "task_ref": "stance-and-pairwise@2.0.0", "accepted_status": "ready"}],
+    "required_event_types": ["pairwise_preference"],
+    "applicability": {"any": [{"event_exists": {"type": "pairwise_preference", "subject": "$focal_entity"}}, {"event_exists": {"type": "pairwise_preference", "object": "$focal_entity"}}]},
+    "outcome": {"binary_outcome": {"any": [
+      {"event_exists": {"type": "pairwise_preference", "subject": "$focal_entity", "where": {"relation": "object_better"}}},
+      {"event_exists": {"type": "pairwise_preference", "object": "$focal_entity", "where": {"relation": "subject_better"}}}
+    ]}},
+    "missing_policy": "unknown_if_required_analysis_unready",
+    "allowed_aggregation_methods": ["query_macro", "answer_weighted"],
+    "default_aggregation_method": "query_macro",
+    "reason_codes": {"hit": "included_hit", "miss": "included_miss", "not_applicable": "no_pairwise_relation"},
+    "metadata": {"release_role": "official", "metric_family": "pairwise"}
+  },
+  {
+    "name": "multibrand_corecommendation_rate_v2",
+    "version": "2.0.0",
+    "definition_schema_version": "metric-definition-v2",
+    "status": "published",
+    "unit_type": "answer",
+    "focal_entity_required": true,
+    "outcome_source": "semantic_decision",
+    "query_predicate": {"all": [{"query_has_lens": "ai_recommendation"}, {"exposure_is": "focal_named_with_others"}]},
+    "required_semantic_capabilities": [{"name": "recommendation_relation", "task_ref": "recommendation-relation@2.0.0", "accepted_status": "ready"}],
+    "required_event_types": ["recommendation_relation"],
+    "outcome": {"binary_outcome": {"all": [
+      {"any": [
+        {"event_exists": {"type": "recommendation_relation", "subject": "$focal_entity", "where": {"polarity": "positive"}}},
+        {"event_exists": {"type": "recommendation_relation", "subject": "$focal_entity", "where": {"polarity": "conditional_positive"}}}
+      ]},
+      {"any": [
+        {"event_exists": {"type": "recommendation_relation", "subject": "$other_than_focal", "where": {"polarity": "positive"}}},
+        {"event_exists": {"type": "recommendation_relation", "subject": "$other_than_focal", "where": {"polarity": "conditional_positive"}}}
+      ]}
+    ]}},
+    "missing_policy": "unknown_if_required_analysis_unready",
+    "allowed_aggregation_methods": ["query_macro", "answer_weighted"],
+    "default_aggregation_method": "query_macro",
+    "reason_codes": {"hit": "recommendation_positive", "miss": "recommendation_neutral_or_absent"},
+    "metadata": {"release_role": "official", "metric_family": "corecommendation"}
+  },
+  {
+    "name": "ai_impression_requested_dimension_coverage_v2",
+    "version": "2.0.0",
+    "definition_schema_version": "metric-definition-v2",
+    "status": "published",
+    "unit_type": "dimension",
+    "focal_entity_required": true,
+    "outcome_source": "semantic_decision",
+    "query_predicate": {"query_has_lens": "ai_impression"},
+    "required_semantic_capabilities": [
+      {"name": "requested_dimension_applicability", "task_ref": "requested-dimension-applicability@2.0.0", "accepted_status": "ready"},
+      {"name": "answer_dimension_coverage", "task_ref": "answer-dimension-coverage@2.0.0", "accepted_status": "ready"}
+    ],
+    "required_event_types": [],
+    "decision_task_refs": ["requested-dimension-applicability@2.0.0", "answer-dimension-coverage@2.0.0"],
+    "semantic_rubric_ref": "project-cognition-rubric@3",
+    "outcome": {"count_outcome": {
+      "from_decisions": "answer-dimension-coverage",
+      "numerator_labels": ["covered", "partially_covered"],
+      "denominator_labels": ["covered", "partially_covered", "not_covered"],
+      "denominator": "applicable_dimensions",
+      "partial_credit": "0.5"
+    }},
+    "missing_policy": "unknown_if_required_analysis_unready",
+    "allowed_aggregation_methods": ["query_macro", "answer_weighted"],
+    "default_aggregation_method": "query_macro",
+    "reason_codes": {"hit": "included_hit", "miss": "included_miss", "not_applicable": "no_applicable_claim"},
+    "metadata": {"release_role": "official", "metric_family": "dimension_coverage"}
+  },
+  {
+    "name": "brand_attribution_accuracy_v2",
+    "version": "2.0.0",
+    "definition_schema_version": "metric-definition-v2",
+    "status": "published",
+    "unit_type": "claim",
+    "focal_entity_required": true,
+    "outcome_source": "semantic_decision",
+    "query_predicate": {"query_has_lens": "ai_impression"},
+    "required_semantic_capabilities": [{"name": "claim_evidence_verdict", "task_ref": "claim-evidence-verdict@2.0.0", "accepted_status": "ready"}],
+    "required_event_types": ["claim_evidence_verdict"],
+    "applicability": {"event_applicable_only": {"type": "claim_evidence_verdict", "where": {"attribution_known": true}}},
+    "outcome": {"count_outcome": {"from_events": "claim_evidence_verdict", "numerator_where": {"attribution_correct": true}, "denominator_where": {"attribution_known": true}}},
+    "missing_policy": "unknown_if_evidence_unready",
+    "allowed_aggregation_methods": ["query_macro", "answer_weighted"],
+    "default_aggregation_method": "query_macro",
+    "reason_codes": {"hit": "claim_supported", "miss": "claim_contradicted", "not_applicable": "no_applicable_claim"},
+    "metadata": {"release_role": "official", "metric_family": "attribution"}
+  },
+  {
+    "name": "stale_information_rate_v2",
+    "version": "2.0.0",
+    "definition_schema_version": "metric-definition-v2",
+    "status": "published",
+    "unit_type": "claim",
+    "focal_entity_required": true,
+    "outcome_source": "semantic_decision",
+    "query_predicate": {"query_has_lens": "ai_impression"},
+    "required_semantic_capabilities": [{"name": "claim_evidence_verdict", "task_ref": "claim-evidence-verdict@2.0.0", "accepted_status": "ready"}],
+    "required_event_types": ["claim_evidence_verdict"],
+    "applicability": {"event_applicable_only": {"type": "claim_evidence_verdict", "where": {"time_attribute_known": true}}},
+    "outcome": {"count_outcome": {"from_events": "claim_evidence_verdict", "numerator_where": {"stale": true}, "denominator_where": {"time_attribute_known": true}}},
+    "missing_policy": "unknown_if_evidence_unready",
+    "allowed_aggregation_methods": ["query_macro", "answer_weighted"],
+    "default_aggregation_method": "query_macro",
+    "reason_codes": {"hit": "claim_contradicted", "miss": "claim_supported", "not_applicable": "no_applicable_claim"},
+    "metadata": {"release_role": "official", "metric_family": "staleness"}
+  },
+  {
+    "name": "market_rank_claim_accuracy_v2",
+    "version": "2.0.0",
+    "definition_schema_version": "metric-definition-v2",
+    "status": "published",
+    "unit_type": "claim",
+    "focal_entity_required": true,
+    "outcome_source": "semantic_decision",
+    "query_predicate": {"query_has_lens": "ai_impression"},
+    "required_semantic_capabilities": [{"name": "claim_evidence_verdict", "task_ref": "claim-evidence-verdict@2.0.0", "accepted_status": "ready"}],
+    "required_event_types": ["market_rank_claim", "claim_evidence_verdict"],
+    "applicability": {"event_applicable_only": {"type": "claim_evidence_verdict", "where": {"claim_type": "market_rank_claim"}}},
+    "outcome": {"count_outcome": {"from_events": "claim_evidence_verdict", "numerator_where": {"claim_type": "market_rank_claim", "verdict": "supported"}, "denominator_where": {"claim_type": "market_rank_claim", "verdict": ["supported", "contradicted", "unsupported"]}}},
+    "missing_policy": "unknown_if_evidence_unready",
+    "allowed_aggregation_methods": ["query_macro", "answer_weighted"],
+    "default_aggregation_method": "query_macro",
+    "reason_codes": {"hit": "claim_supported", "miss": "claim_unsupported", "not_applicable": "no_applicable_claim"},
+    "metadata": {"release_role": "official", "metric_family": "market_rank_claim"}
+  },
+  {
+    "name": "target_first_mention_order_rate_v2",
+    "version": "2.0.0",
+    "definition_schema_version": "metric-definition-v2",
+    "status": "published",
+    "unit_type": "answer",
+    "focal_entity_required": true,
+    "outcome_source": "deterministic_expression",
+    "query_predicate": {"all_answers": true},
+    "required_semantic_capabilities": [{"name": "substantive_entity_mention", "task_ref": "substantive-entity-mention@2.0.0", "accepted_status": "ready"}],
+    "required_event_types": ["mention_order"],
+    "applicability": {"event_applicable_only": {"type": "mention_order", "subject": "$focal_entity"}},
+    "outcome": {"binary_outcome": {"event_numeric_compare": {"type": "mention_order", "subject": "$focal_entity", "field": "ordinal", "op": "lte", "value": 1}}},
+    "missing_policy": "unknown_if_required_analysis_unready",
+    "allowed_aggregation_methods": ["query_macro", "answer_weighted"],
+    "default_aggregation_method": "query_macro",
+    "reason_codes": {"hit": "included_hit", "miss": "included_miss", "not_applicable": "entity_absent"},
+    "metadata": {"release_role": "diagnostic", "metric_family": "mention_order"}
+  }
+]

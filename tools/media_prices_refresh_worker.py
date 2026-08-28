@@ -22,6 +22,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import BinaryIO
 
+from domain.security.redaction import safe_exception_summary
+
 ROOT = Path(__file__).resolve().parents[1]
 REQUEST_NAME = "media-prices.refresh.request.json"
 RUNNING_REQUEST_NAME = "media-prices.refresh.request.running.json"
@@ -196,7 +198,10 @@ def run_once(*, datasets_dir: Path | None = None, refresh_script: Path | None = 
                     check=False,
                 )
         except OSError as exc:
-            _write_launch_failure(base, f"refresh_worker_launch_failed: {exc}")
+            _write_launch_failure(
+                base,
+                f"refresh_worker_launch_failed:{safe_exception_summary(exc)}",
+            )
             return 1
         # The refresh script owns business-level done/failed status.  Reaching
         # this point means the durable request was consumed, even when a source

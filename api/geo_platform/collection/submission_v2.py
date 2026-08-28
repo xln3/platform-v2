@@ -17,7 +17,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 from hashlib import sha256
-from typing import Protocol, Self
+from typing import Protocol, Self, runtime_checkable
 
 from pydantic import Field, model_validator
 
@@ -417,6 +417,24 @@ class ReconciliationGateway(Protocol):
     def reconcile_sending(
         self, command: SendingReconciliationCommand
     ) -> ReconciliationDisposition: ...
+
+
+@runtime_checkable
+class ReconciliationGatewayBinder(Protocol):
+    """Bind a gateway only after the repository grants exclusive recovery.
+
+    A dead-owner adapter needs the durable reconciliation claim before it may
+    read owner-local evidence or create a non-submission proof.  Keeping this
+    as a separate, narrow port lets the coordinator establish that authority
+    first without giving the recovery implementation a submit capability.
+    """
+
+    def bind_reconciliation(
+        self,
+        *,
+        repository_claim: DurableReconciliationClaim,
+        sending_operation: SubmissionOperationTruth,
+    ) -> ReconciliationGateway: ...
 
 
 class CaptureGateway(Protocol):
@@ -829,7 +847,7 @@ class SubmissionCoordinator:
         repository: DurableSubmissionRepository,
         preflight_gateway: PreflightGateway,
         submit_gateway: SubmitOnceGateway,
-        reconciliation_gateway: ReconciliationGateway,
+        reconciliation_gateway: ReconciliationGateway | ReconciliationGatewayBinder,
         capture_gateway: CaptureGateway,
         outbox_publisher: OutboxPublisher,
         clock: Clock,
@@ -874,7 +892,7 @@ class SubmissionCoordinator:
             )
             if not reconciliation_claim.acquired:
                 raise SubmissionCoordinatorError("sending_owner_still_active_retryable")
-            operation = self._reconcile(work, operation)
+            operation = self._reconcile(work, operation, reconciliation_claim)
 
         if operation.send_state not in {
             SendState.CONFIRMED_SENT,
@@ -1082,11 +1100,21 @@ class SubmissionCoordinator:
         self,
         work: SubmissionWorkItem,
         operation: SubmissionOperationTruth,
+        repository_claim: DurableReconciliationClaim,
     ) -> SubmissionOperationTruth:
         claim = operation.claim
         if claim is None:
             raise SubmissionCoordinatorError("sending_claim_missing")
-        evidence = self._reconciliation_gateway.observe_sending(operation)
+        configured_gateway = self._reconciliation_gateway
+        gateway = (
+            configured_gateway.bind_reconciliation(
+                repository_claim=repository_claim,
+                sending_operation=operation,
+            )
+            if isinstance(configured_gateway, ReconciliationGatewayBinder)
+            else configured_gateway
+        )
+        evidence = gateway.observe_sending(operation)
         command = SendingReconciliationCommand(
             operation=work.workflow.operation,
             expected_state_version=operation.state_version,
@@ -1100,7 +1128,7 @@ class SubmissionCoordinator:
             durable_evidence_sha256=evidence.durable_evidence_sha256,
             observed_at=evidence.observed_at,
         )
-        disposition = self._reconciliation_gateway.reconcile_sending(command)
+        disposition = gateway.reconcile_sending(command)
         return self._repository.atomic_terminal_and_quota(
             work,
             reconcile_sending(operation, command, disposition),

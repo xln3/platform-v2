@@ -25,6 +25,16 @@ EXPECTED_ALERTS = {
     "GeoAnalyticsOutboxBacklog",
     "GeoAnalyticsOutboxQuarantined",
     "GeoReportDeliveryConfirmationOverdue",
+    "GeoMetricsV2OutboxBacklog",
+    "GeoMetricsV2EvaluationLag",
+    "GeoMetricsV2HashMismatch",
+    "GeoMetricsV2CoverageBelowGate",
+    "GeoMetricsV2OfficialPointerInvalid",
+    "GeoSemanticDecisionV2Backlog",
+    "GeoSemanticDecisionV2QualityGate",
+    "GeoSemanticDecisionV2InvalidOutput",
+    "GeoSemanticDecisionV2FallbackBlocked",
+    "GeoReportV2SnapshotValidationFailed",
 }
 ALLOWED_RULE_LABELS = {"severity", "category", "service"}
 FORBIDDEN_TEXT = (

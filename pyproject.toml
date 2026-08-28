@@ -54,6 +54,16 @@ select = ["E", "F", "I", "B", "UP", "ASYNC"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+addopts = "--strict-markers"
+markers = [
+  "isolated_postgres: requires an owner-controlled PostgreSQL database at the current migration head",
+  "knowledge_postgres: requires a dedicated knowledge-governance PostgreSQL database at the current migration head",
+  "compat_postgres: requires an owner-controlled PostgreSQL database pinned to a historical migration",
+  "external_fixture: requires reviewed source material that is intentionally stored outside this repository",
+  "document_toolchain: requires the LibreOffice document-rendering toolchain",
+  "slow: high-volume or restart/recovery coverage kept out of the local fast feedback loop",
+  "service_integration: requires repository-managed infrastructure such as Temporal",
+]
 
 [tool.mypy]
 python_version = "3.12"

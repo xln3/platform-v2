@@ -1,9 +1,18 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from ..metrics_v2.schemas import (
+    ContributionPageView,
+    Hash,
+    MetricSnapshotView,
+    PublicId,
+    SnapshotFilters,
+    SnapshotWindow,
+)
 
 
 class StrictModel(BaseModel):
@@ -173,6 +182,8 @@ class CustomerAnswerLibraryPageView(StrictModel):
     modes: list[CustomerAnswerLibraryDimensionView] = Field(max_length=100)
     data: list[CustomerAnswerLibraryMetaQueryView] = Field(max_length=20)
     page: CustomerAnswerLibraryPageMetaView
+    metric_snapshot_set_pub_id: PublicId | None = None
+    metric_snapshot_set_hash: Hash | None = None
 
 
 class CustomerAnswerLibraryQuestionView(StrictModel):
@@ -204,6 +215,8 @@ class CustomerAnswerLibraryMetaDetailView(StrictModel):
     mentioned_answer_count: int = Field(ge=0)
     latest_capture_time: datetime | None = None
     questions: list[CustomerAnswerLibraryQuestionView] = Field(min_length=1, max_length=500)
+    metric_snapshot_set_pub_id: PublicId | None = None
+    metric_snapshot_set_hash: Hash | None = None
 
 
 class CustomerAnswerLibraryRunView(StrictModel):
@@ -235,6 +248,8 @@ class CustomerAnswerLibraryQuestionRunsView(StrictModel):
     modes: list[CustomerAnswerLibraryDimensionView] = Field(max_length=100)
     data: list[CustomerAnswerLibraryRunView] = Field(max_length=50)
     page: CustomerAnswerLibraryPageMetaView
+    metric_snapshot_set_pub_id: PublicId | None = None
+    metric_snapshot_set_hash: Hash | None = None
 
 
 class CustomerAnswerLibraryDetailView(StrictModel):
@@ -251,6 +266,69 @@ class CustomerAnswerLibraryDetailView(StrictModel):
     question_text: str = Field(min_length=1, max_length=2_000)
     answer: CustomerAnswerLibraryRunView
     response_text: str = Field(max_length=200_000)
+    metric_snapshot_set_pub_id: PublicId | None = None
+    metric_snapshot_set_hash: Hash | None = None
+
+
+CustomerBusinessView = Literal["ai_impression", "ai_recommendation"]
+CustomerExposureRole = Literal[
+    "brand_neutral",
+    "focal_named_only",
+    "other_brand_named",
+    "focal_named_with_others",
+]
+CustomerPublicationChannel = Literal["official", "shadow"]
+
+
+class CustomerMetricDefinitionV2View(StrictModel):
+    business_question: str = Field(min_length=1, max_length=1_000)
+    denominator_description: str = Field(min_length=1, max_length=2_000)
+    outcome_source: Literal["deterministic_expression", "semantic_decision", "hybrid"]
+    query_predicate: dict[str, Any]
+    outcome_expression: dict[str, Any]
+    required_semantic_capabilities: list[str] = Field(max_length=100)
+    decision_task_refs: list[dict[str, Any]] = Field(max_length=100)
+    semantic_rubric_ref: str | None = Field(default=None, max_length=500)
+
+
+class CustomerDashboardMetricV2View(MetricSnapshotView):
+    label: str = Field(min_length=1, max_length=200)
+    business_view: CustomerBusinessView
+    exposure_role: CustomerExposureRole
+    aggregation_method: Literal["query_macro"]
+    definition: CustomerMetricDefinitionV2View
+
+
+class CustomerDashboardV2View(StrictModel):
+    schema_version: Literal["customer-dashboard-v2"] = "customer-dashboard-v2"
+    project_pub_id: PublicId
+    brand_name: str = Field(min_length=1, max_length=200)
+    business_view: CustomerBusinessView
+    exposure_role: CustomerExposureRole
+    publication_channel: CustomerPublicationChannel
+    requested_metric_names: list[str] = Field(min_length=1, max_length=40)
+    focal_entity_id: str = Field(min_length=1, max_length=200)
+    snapshot_set_pub_id: PublicId
+    snapshot_set_hash: Hash
+    state: Literal["ready", "partial", "failed"]
+    as_of: datetime
+    window: SnapshotWindow
+    filters: SnapshotFilters
+    aggregation_method: Literal["query_macro"]
+    design_basis: Literal["planned_cells", "observed_cells"]
+    scope_hash: Hash
+    dependency_bundle_hash: Hash
+    metrics: list[CustomerDashboardMetricV2View] = Field(min_length=1, max_length=40)
+
+
+class CustomerMetricTraceV2View(StrictModel):
+    schema_version: Literal["customer-metric-trace-v2"] = "customer-metric-trace-v2"
+    project_pub_id: PublicId
+    snapshot_set_pub_id: PublicId
+    snapshot_set_hash: Hash
+    as_of: datetime
+    metric: CustomerDashboardMetricV2View
+    contributions: ContributionPageView
 
 
 class CustomerDashboardView(StrictModel):

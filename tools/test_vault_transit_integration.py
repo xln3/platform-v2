@@ -22,20 +22,57 @@ from geo_platform.collection.vault import (
 
 ROOT = Path(__file__).parents[1]
 CONFIG = ROOT / "tests/fixtures/vault-integration-config.hcl"
-EVIDENCE = ROOT / "tests/s04-evidence/vault-transit-real-integration.json"
+EVIDENCE = Path(
+    os.getenv(
+        "GEO_VAULT_INTEGRATION_REPORT",
+        str(ROOT / "test-results/vault-transit-real-integration.json"),
+    )
+)
 IMAGE = "hashicorp/vault:2.0.3"
 IMAGE_DIGEST = "sha256:a296a888b118615dc01d5f1a6846e6d4a7277946caaed5b447008fff5fe06b54"
+IMAGE_REF = f"{IMAGE}@{IMAGE_DIGEST}"
 CONTAINER = "geo-vault-s04-integration"
-ADDRESS = "https://127.0.0.1:48200"
 
 
 def run(*arguments: str) -> None:
-    subprocess.run(arguments, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    result = subprocess.run(arguments, check=False, text=True, capture_output=True)
+    if result.returncode == 0:
+        return
+    diagnostic = (result.stderr or result.stdout).strip()[-2_000:]
+    raise RuntimeError(
+        f"{arguments[0]} exited {result.returncode}" + (f": {diagnostic}" if diagnostic else "")
+    )
+
+
+def remove_test_container() -> None:
+    subprocess.run(
+        ["docker", "rm", "-f", CONTAINER],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def container_address() -> str:
+    result = subprocess.run(
+        ["docker", "port", CONTAINER, "8200/tcp"],
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    mapping = result.stdout.strip()
+    if result.returncode != 0 or not mapping.startswith("127.0.0.1:"):
+        raise RuntimeError("vault_integration_dynamic_port_missing")
+    port = mapping.rsplit(":", 1)[-1]
+    if not port.isdigit():
+        raise RuntimeError("vault_integration_dynamic_port_invalid")
+    return f"https://127.0.0.1:{port}"
 
 
 def api(
     path: str,
     ca_file: Path,
+    address: str,
     *,
     method: str = "GET",
     token: str = "",
@@ -45,7 +82,7 @@ def api(
     if token:
         headers["X-Vault-Token"] = token
     request = Request(
-        f"{ADDRESS}{path}",
+        f"{address}{path}",
         data=None if payload is None else json.dumps(payload).encode(),
         headers=headers,
         method=method,
@@ -60,7 +97,7 @@ def api(
         return exc.code, json.loads(raw) if raw else {}
 
 
-def wait_for_vault(ca_file: Path) -> None:
+def wait_for_vault(ca_file: Path, address: str) -> None:
     for _attempt in range(60):
         running = subprocess.run(
             ["docker", "inspect", "-f", "{{.State.Running}}", CONTAINER],
@@ -78,7 +115,7 @@ def wait_for_vault(ca_file: Path) -> None:
             diagnostic = (logs.stdout + logs.stderr)[-2000:].strip()
             raise RuntimeError(f"vault_integration_container_exited: {diagnostic}")
         try:
-            status, _body = api("/v1/sys/health", ca_file)
+            status, _body = api("/v1/sys/health", ca_file, address)
             if status in {200, 429, 472, 473, 501, 503}:
                 return
         except (OSError, URLError):
@@ -88,12 +125,18 @@ def wait_for_vault(ca_file: Path) -> None:
 
 
 def create_account_key(
-    ca_file: Path, token: str, kms: VaultTransitKms, tenant: str, account: str
+    ca_file: Path,
+    address: str,
+    token: str,
+    kms: VaultTransitKms,
+    tenant: str,
+    account: str,
 ) -> str:
     key_name = kms.account_key_name(tenant, account)
     status, _ = api(
         f"/v1/transit/keys/{key_name}",
         ca_file,
+        address,
         method="POST",
         token=token,
         payload={"type": "aes256-gcm96", "exportable": False, "allow_plaintext_backup": False},
@@ -103,6 +146,7 @@ def create_account_key(
     status, _ = api(
         f"/v1/transit/keys/{key_name}/config",
         ca_file,
+        address,
         method="POST",
         token=token,
         payload={"deletion_allowed": True},
@@ -113,12 +157,7 @@ def create_account_key(
 
 
 def main() -> None:
-    subprocess.run(
-        ["docker", "rm", "-f", CONTAINER],
-        check=False,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    remove_test_container()
     with tempfile.TemporaryDirectory(prefix="geo-vault-integration-") as temporary:
         tls_dir = Path(temporary)
         ca_key = tls_dir / "ca.key"
@@ -195,19 +234,21 @@ def main() -> None:
                 "--entrypoint",
                 "vault",
                 "-p",
-                "127.0.0.1:48200:8200",
+                "127.0.0.1::8200",
                 "-v",
                 f"{CONFIG}:/vault/config/integration.hcl:ro",
                 "-v",
                 f"{tls_dir}:/vault/tls:ro",
-                IMAGE,
+                IMAGE_REF,
                 "server",
                 "-config=/vault/config/integration.hcl",
             )
-            wait_for_vault(ca_file)
+            address = container_address()
+            wait_for_vault(ca_file, address)
             status, initialized = api(
                 "/v1/sys/init",
                 ca_file,
+                address,
                 method="POST",
                 payload={"secret_shares": 1, "secret_threshold": 1},
             )
@@ -218,6 +259,7 @@ def main() -> None:
             status, _ = api(
                 "/v1/sys/unseal",
                 ca_file,
+                address,
                 method="POST",
                 payload={"key": unseal_key},
             )
@@ -226,6 +268,7 @@ def main() -> None:
             status, _ = api(
                 "/v1/sys/mounts/transit",
                 ca_file,
+                address,
                 method="POST",
                 token=root_token,
                 payload={"type": "transit"},
@@ -235,9 +278,9 @@ def main() -> None:
             token_file.write_text(root_token, encoding="utf-8")
             token_file.chmod(0o600)
             os.environ["SSL_CERT_FILE"] = str(ca_file)
-            kms = VaultTransitKms(ADDRESS, str(token_file), "geo-profile")
-            first_key = create_account_key(ca_file, root_token, kms, "tnt_a", "pac_a")
-            second_key = create_account_key(ca_file, root_token, kms, "tnt_a", "pac_b")
+            kms = VaultTransitKms(address, str(token_file), "geo-profile")
+            first_key = create_account_key(ca_file, address, root_token, kms, "tnt_a", "pac_a")
+            second_key = create_account_key(ca_file, address, root_token, kms, "tnt_a", "pac_b")
             vault = ProfileVault(kms)
             first_aad = profile_aad("tnt_a", "usr_a", "fixed", "pac_a", 1)
             second_aad = profile_aad("tnt_a", "usr_a", "fixed", "pac_b", 1)
@@ -247,7 +290,7 @@ def main() -> None:
             assert vault.open(second, second_aad) == b'{"synthetic":"account-b"}'
             retained_backup = first
             kms.destroy_account_key("tnt_a", "pac_a")
-            create_account_key(ca_file, root_token, kms, "tnt_a", "pac_a")
+            create_account_key(ca_file, address, root_token, kms, "tnt_a", "pac_a")
             backup_reactivation_blocked = False
             try:
                 vault.open(retained_backup, first_aad)
@@ -256,7 +299,7 @@ def main() -> None:
             assert backup_reactivation_blocked
             assert vault.open(second, second_aad) == b'{"synthetic":"account-b"}'
             image_id = subprocess.run(
-                ["docker", "image", "inspect", IMAGE, "--format", "{{.Id}}"],
+                ["docker", "image", "inspect", IMAGE_REF, "--format", "{{.Id}}"],
                 check=True,
                 text=True,
                 capture_output=True,
@@ -285,9 +328,10 @@ def main() -> None:
                 "production_data_touched": False,
                 "secret_material_in_evidence": False,
             }
+            EVIDENCE.parent.mkdir(parents=True, exist_ok=True)
             EVIDENCE.write_text(f"{json.dumps(evidence, indent=2)}\n", encoding="utf-8")
         finally:
-            run("docker", "rm", "-f", CONTAINER)
+            remove_test_container()
             for secret_file in (token_file, server_key, ca_key):
                 if secret_file.exists():
                     secret_file.write_bytes(b"")

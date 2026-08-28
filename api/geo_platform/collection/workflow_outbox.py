@@ -20,6 +20,7 @@ from geo_platform.config import get_settings
 from workflows.activities.collection import CollectionTaskInput
 from workflows.activities.own_content_disparagement import OwnContentDisparagementInput
 from workflows.definitions.collection import GeoCollectionInput, GeoCollectionWorkflow
+from workflows.definitions.metrics_v2 import MetricSnapshotSetWorkflowV2
 from workflows.definitions.own_content import OwnContentDisparagementWorkflow
 from workflows.definitions.page_inspection import (
     PageInspectionWorkflow,
@@ -31,6 +32,10 @@ from workflows.definitions.post_collection_analysis import (
     PostCollectionAnalysisWorkflow,
 )
 from workflows.definitions.s02 import AnswerAnalysisWorkflow, ReportProductionWorkflow
+from workflows.definitions.semantic_decisions_v2 import (
+    AnswerSemanticEventWorkflowV2,
+    SemanticDecisionWorkflowV2,
+)
 from workflows.definitions.service2_source_corpus import (
     Service2SourceCorpusWorkflow,
     Service2SourceCorpusWorkflowInput,
@@ -599,6 +604,8 @@ class WorkflowStartOutbox:
             settings = get_settings()
             analysis_task_queue = settings.analysis_temporal_task_queue
             source_task_queue = settings.source_temporal_task_queue
+            decision_task_queue = settings.decision_temporal_task_queue
+            metrics_task_queue = settings.metrics_temporal_task_queue
             temporal_run_id = None
             handle: Any
             try:
@@ -653,6 +660,35 @@ class WorkflowStartOutbox:
                         payload,
                         id=command.workflow_id,
                         task_queue=analysis_task_queue,
+                    )
+                elif command.workflow_type == "semantic_decision_v2":
+                    handle = await self.temporal.start_workflow(
+                        SemanticDecisionWorkflowV2.run,
+                        payload
+                        | {
+                            "analysis_task_queue": analysis_task_queue,
+                            "decision_task_queue": decision_task_queue,
+                        },
+                        id=command.workflow_id,
+                        task_queue=decision_task_queue,
+                    )
+                elif command.workflow_type == "answer_semantic_events_v2":
+                    handle = await self.temporal.start_workflow(
+                        AnswerSemanticEventWorkflowV2.run,
+                        payload
+                        | {
+                            "analysis_task_queue": analysis_task_queue,
+                            "decision_task_queue": decision_task_queue,
+                        },
+                        id=command.workflow_id,
+                        task_queue=decision_task_queue,
+                    )
+                elif command.workflow_type == "metric_snapshot_set_v2":
+                    handle = await self.temporal.start_workflow(
+                        MetricSnapshotSetWorkflowV2.run,
+                        payload | {"metrics_task_queue": metrics_task_queue},
+                        id=command.workflow_id,
+                        task_queue=metrics_task_queue,
                     )
                 elif command.workflow_type == "post_collection_analysis":
                     handle = await self.temporal.start_workflow(

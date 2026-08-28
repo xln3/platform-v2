@@ -424,7 +424,12 @@ def test_zero_mention_recycle_and_verified(w5_project: dict) -> None:
     client = w5_project["client"]
     headers = w5_project["admin"]
     project = w5_project["project"]
-    body = {"window_days": None, "use_llm": False, "max_variants": 100}
+    body = {
+        "window_days": None,
+        "use_llm": False,
+        "max_variants": 100,
+        "legacy_recycle_answer_analysis": True,
+    }
     status, _ = _generate(client, headers, project, "gen-" + secrets.token_hex(16), body)
     assert status == 201
 

@@ -191,6 +191,136 @@ def _formal_activity_result(value: dict[str, Any]) -> dict[str, Any]:
     return {key: _temporal_json_safe(child) for key, child in value.items()}
 
 
+def _enqueue_answer_semantic_v2(
+    payload: dict[str, Any], *, analysis_run_pub_id: str
+) -> dict[str, Any]:
+    """Fan out a reference-only shadow semantic bundle after legacy analysis.
+
+    Exact entity strings below are candidates, never accepted semantic labels.
+    All final labels still pass through an immutable DecisionTask record.  The
+    workflow contains no query/answer body and has no heuristic fallback.
+    """
+
+    from geo_platform.collection.workflow_outbox import enqueue_workflow_start
+
+    from domain.analysis.v2 import build_answer_semantic_workflow_request
+    from domain.metrics.v2 import derive_query_key, normalize_query_text
+
+    tenant_pub_id = str(payload["tenant_pub_id"])
+    project_pub_id = str(payload["project_pub_id"])
+    answer_pub_id = str(payload["answer_pub_id"])
+    dimensions = dict(payload.get("dimensions") or {})
+    query_text = str(dimensions.get("query_text") or "")
+    if not query_text:
+        raise ApplicationError(
+            "semantic V2 requires the frozen collection query",
+            type="semantic_v2_query_reference_missing",
+            non_retryable=True,
+        )
+    query_key = derive_query_key(
+        tenant_pub_id=tenant_pub_id,
+        project_pub_id=project_pub_id,
+        query_text=query_text,
+        query_pub_id=(
+            str(dimensions["question_pub_id"]) if dimensions.get("question_pub_id") else None
+        ),
+    )
+    query_text_hash = sha256(normalize_query_text(query_text).encode()).hexdigest()
+    answer_text_hash = str(
+        (payload.get("capture_ref") or {}).get("response_hash")
+        or sha256(str(payload["text"]).encode()).hexdigest()
+    )
+
+    with WorkerSessionLocal() as session:
+        TenantRepository(session, tenant_pub_id)
+        entity_rows = list(
+            session.execute(
+                sql_text(
+                    """
+                    SELECT pub_id,name,'brand' AS candidate_type
+                    FROM platform.brand
+                    WHERE project_id=(SELECT id FROM platform.project WHERE pub_id=:project_pub_id)
+                    UNION ALL
+                    SELECT pub_id,name,'competitor' AS candidate_type
+                    FROM platform.competitor
+                    WHERE project_id=(SELECT id FROM platform.project WHERE pub_id=:project_pub_id)
+                    ORDER BY candidate_type,pub_id
+                    """
+                ),
+                {"project_pub_id": project_pub_id},
+            ).mappings()
+        )
+        citation_rows = list(
+            session.execute(
+                sql_text(
+                    """
+                    SELECT pub_id
+                    FROM analytics.citation_fact
+                    WHERE tenant_pub_id=:tenant_pub_id
+                      AND answer_pub_id=:answer_pub_id
+                      AND analysis_run_pub_id=:analysis_run_pub_id
+                    ORDER BY ordinal,pub_id
+                    """
+                ),
+                {
+                    "tenant_pub_id": tenant_pub_id,
+                    "answer_pub_id": answer_pub_id,
+                    "analysis_run_pub_id": analysis_run_pub_id,
+                },
+            ).mappings()
+        )
+        if not entity_rows:
+            raise ApplicationError(
+                "semantic V2 has no managed focal entity",
+                type="semantic_v2_entity_dictionary_missing",
+                non_retryable=True,
+            )
+        workflow_payload = build_answer_semantic_workflow_request(
+            tenant_pub_id=tenant_pub_id,
+            project_pub_id=project_pub_id,
+            answer_pub_id=answer_pub_id,
+            analysis_run_pub_id=analysis_run_pub_id,
+            query_key=query_key,
+            query_pub_id=(
+                str(dimensions["question_pub_id"]) if dimensions.get("question_pub_id") else None
+            ),
+            query_text_hash=query_text_hash,
+            answer_text_hash=answer_text_hash,
+            managed_entities=[
+                {
+                    "candidate_id": str(row["pub_id"]),
+                    "candidate_type": str(row["candidate_type"]),
+                    "label": str(row["name"]),
+                }
+                for row in entity_rows
+            ],
+            citation_pub_ids=[str(row["pub_id"]) for row in citation_rows],
+            classification_source="live",
+            created_at=datetime.now(UTC),
+        )
+        manifest = dict(workflow_payload["manifest"])
+        manifest_input_hash = str(manifest["input_hash"])
+        semantic_manifest_pub_id = str(manifest["pub_id"])
+        workflow_id = (
+            f"answer-semantic-v2/{tenant_pub_id}/{answer_pub_id}/{manifest_input_hash[:16]}"
+        )
+        enqueue_workflow_start(
+            session,
+            tenant_pub_id=tenant_pub_id,
+            workflow_type="answer_semantic_events_v2",
+            workflow_id=workflow_id,
+            task_queue=get_settings().decision_temporal_task_queue,
+            payload=workflow_payload,
+        )
+        session.commit()
+    return {
+        "state": "queued",
+        "workflow_id": workflow_id,
+        "semantic_manifest_pub_id": semantic_manifest_pub_id,
+        "input_hash": manifest_input_hash,
+    }
+
+
 @activity.defn
 async def analyze_answer_activity(payload: dict[str, Any]) -> dict[str, Any]:
     payload = _resolve_answer_capture(payload)
@@ -264,6 +394,10 @@ async def analyze_answer_activity(payload: dict[str, Any]) -> dict[str, Any]:
             "analysis_run_pub_id": persisted["analysis_run_pub_id"],
             "outbox_event_id": persisted["outbox_event_id"],
         }
+        response["semantic_v2"] = _enqueue_answer_semantic_v2(
+            payload,
+            analysis_run_pub_id=str(persisted["analysis_run_pub_id"]),
+        )
     return response
 
 
@@ -628,11 +762,31 @@ async def produce_formal_report_activity(payload: dict[str, Any]) -> dict[str, A
                 if payload.get("service2_manifest_hash") is not None
                 else None
             ),
+            expected_metric_snapshot_set_pub_id=(
+                str(payload["metric_snapshot_set_pub_id"])
+                if payload.get("metric_snapshot_set_pub_id") is not None
+                else None
+            ),
+            expected_metric_snapshot_set_hash=(
+                str(payload["metric_snapshot_set_hash"])
+                if payload.get("metric_snapshot_set_hash") is not None
+                else None
+            ),
+            expected_metric_snapshot_dependency_hash=(
+                str(payload["metric_snapshot_dependency_hash"])
+                if payload.get("metric_snapshot_dependency_hash") is not None
+                else None
+            ),
         )
     except FormalProductionInvalid as exc:
         error_code = {
             "formal_evidence_requirements_not_met": "formal_evidence_requirements_not_met",
             "formal_fact_volume_exceeded": "formal_fact_volume_exceeded",
+            "metric_snapshot_binding_not_found": "metric_snapshot_binding_not_found",
+            "metric_snapshot_set_not_ready": "metric_snapshot_set_not_ready",
+            "metric_snapshot_dependency_hash_mismatch": (
+                "metric_snapshot_dependency_hash_mismatch"
+            ),
         }.get(str(exc), "production_failed")
         return _formal_activity_result(
             await asyncio.to_thread(

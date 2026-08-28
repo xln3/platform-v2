@@ -48,6 +48,8 @@ const libraryPage: CustomerAnswerLibraryPage = {
   project_pub_id: 'prj_answer_library_test',
   snapshot_id: snapshotId,
   snapshot_at: '2026-08-17T08:00:00Z',
+  metric_snapshot_set_pub_id: null,
+  metric_snapshot_set_hash: null,
   totals: {
     meta_query_count: 34,
     question_count: 136,
@@ -85,6 +87,8 @@ const metaDetail: CustomerAnswerLibraryMetaDetail = {
   project_pub_id: libraryPage.project_pub_id,
   snapshot_id: snapshotId,
   snapshot_at: libraryPage.snapshot_at,
+  metric_snapshot_set_pub_id: null,
+  metric_snapshot_set_hash: null,
   meta_query_id: metaQueryId,
   ordinal: 1,
   label: '测试关键词',
@@ -110,6 +114,8 @@ const runsPage: CustomerAnswerLibraryRuns = {
   project_pub_id: libraryPage.project_pub_id,
   snapshot_id: snapshotId,
   snapshot_at: libraryPage.snapshot_at,
+  metric_snapshot_set_pub_id: null,
+  metric_snapshot_set_hash: null,
   meta_query_id: metaQueryId,
   meta_query_ordinal: 1,
   meta_query_label: '测试关键词',
@@ -155,6 +161,8 @@ const answerDetail: CustomerAnswerLibraryAnswer = {
   project_pub_id: libraryPage.project_pub_id,
   snapshot_id: snapshotId,
   snapshot_at: libraryPage.snapshot_at,
+  metric_snapshot_set_pub_id: null,
+  metric_snapshot_set_hash: null,
   meta_query_id: metaQueryId,
   meta_query_ordinal: 1,
   meta_query_label: '测试关键词',
@@ -241,6 +249,27 @@ const enterFirstAnswer = async () => {
 };
 
 describe('CustomerAnswerExplorer four-level library', () => {
+  it('shows the immutable V2 metric snapshot-set binding when present', async () => {
+    const metricSnapshotSetPubId = 'mss_customer_answer_binding';
+    const metricSnapshotSetHash = 'b'.repeat(64);
+    render(
+      <CustomerAnswerExplorer
+        brandName="测试品牌"
+        loadLibraryPage={async () => ({
+          ...libraryPage,
+          metric_snapshot_set_pub_id: metricSnapshotSetPubId,
+          metric_snapshot_set_hash: metricSnapshotSetHash,
+        })}
+        loadMetaQuery={async () => metaDetail}
+        loadQuestionRuns={async () => runsPage}
+        loadAnswer={async () => answerDetail}
+      />,
+    );
+
+    expect(await screen.findByText(new RegExp(metricSnapshotSetPubId, 'u'))).toBeTruthy();
+    expect(screen.getByText(metricSnapshotSetHash)).toBeTruthy();
+  });
+
   it('reuses the first directory snapshot when loading another keyword page', async () => {
     const loadLibraryPage = vi.fn(async (query: { offset: number; limit: number }) => ({
       ...libraryPage,

@@ -39,6 +39,8 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
+from domain.security.redaction import safe_exception_summary
+
 PLATFORM_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BACKUP_ROOT = PLATFORM_ROOT / ".production-backups"
 DEFAULT_KEEP = 14
@@ -280,8 +282,9 @@ def main() -> int:
             log(f"{name}: ok")
         except (BackupError, OSError) as exc:
             status[name] = "failed"
-            failures.append(f"{name}: {exc}")
-            log_err(f"{name}: FAILED: {exc}")
+            safe_error = safe_exception_summary(exc)
+            failures.append(f"{name}: {safe_error}")
+            log_err(f"{name}: FAILED: {safe_error}")
 
     manifest = {
         "tool": TOOL_MARKER,

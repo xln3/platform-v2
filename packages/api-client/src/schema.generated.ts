@@ -387,7 +387,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Customer Metric Catalog */
+        /**
+         * Customer Metric Catalog
+         * @deprecated
+         */
         get: operations["getCustomerMetricCatalog"];
         put?: never;
         post?: never;
@@ -404,8 +407,45 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Customer Dashboard */
+        /**
+         * Customer Dashboard
+         * @deprecated
+         */
         get: operations["getCustomerDashboard"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/customer-dashboard/projects/{project_pub_id}/dashboard-v2": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Customer Dashboard V2 */
+        get: operations["getCustomerDashboardV2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/customer-dashboard/projects/{project_pub_id}/dashboard-v2/snapshot-sets/{snapshot_set_pub_id}/snapshots/{snapshot_pub_id}/trace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Customer Metric Trace V2 */
+        get: operations["getCustomerMetricTraceV2"];
         put?: never;
         post?: never;
         delete?: never;
@@ -421,7 +461,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Customer Answers */
+        /**
+         * Customer Answers
+         * @deprecated
+         */
         get: operations["getCustomerAnswerPage"];
         put?: never;
         post?: never;
@@ -2091,6 +2134,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/analytics/official/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Official Overview
+         * @description Formal Analytics cards from one immutable V2 ``official`` set.
+         */
+        get: operations["getOfficialAnalyticsOverviewV2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/analytics/official/breakdown": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Official Breakdown
+         * @description Breakdown of persisted V2 member contributions; no answer/rank SQL.
+         */
+        get: operations["getOfficialAnalyticsBreakdownV2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/analytics/official/delta": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Official Delta
+         * @description Paired-period view; incompatible support is an explicit null delta.
+         */
+        get: operations["getOfficialAnalyticsDeltaV2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/analytics/overview": {
         parameters: {
             query?: never;
@@ -2098,7 +2201,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Overview */
+        /**
+         * Overview
+         * @deprecated
+         */
         get: operations["overview_api_v2_analytics_overview_get"];
         put?: never;
         post?: never;
@@ -2115,7 +2221,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Breakdown */
+        /**
+         * Breakdown
+         * @deprecated
+         */
         get: operations["breakdown_api_v2_analytics_breakdown_get"];
         put?: never;
         post?: never;
@@ -2134,6 +2243,7 @@ export interface paths {
         };
         /**
          * Delta
+         * @deprecated
          * @description 前后等长窗口四指标 delta；config_version（冻结配置 pub_id）传入时两窗口
          *     只统计该配置产出的答案（报价单前后对比口径），不传时行为与旧版一致。
          *
@@ -3078,6 +3188,261 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/metrics/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Metric Catalog V2 */
+        get: operations["getMetricCatalogV2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/metrics/projects/{project_pub_id}/snapshot-sets/current": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Current Snapshot Set V2 */
+        get: operations["getCurrentMetricSnapshotSetV2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/metrics/projects/{project_pub_id}/snapshot-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Request Snapshot Set V2 */
+        post: operations["requestMetricSnapshotSetV2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/metrics/snapshot-jobs/{job_pub_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Snapshot Job V2 */
+        get: operations["getMetricSnapshotJobV2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/metrics/decision-jobs/{job_pub_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Decision Job V2 */
+        get: operations["getSemanticDecisionJobV2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/metrics/snapshot-sets/{set_pub_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Snapshot Set V2 */
+        get: operations["getMetricSnapshotSetV2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/metrics/snapshots/{snapshot_pub_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Metric Snapshot V2 */
+        get: operations["getMetricSnapshotV2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/metrics/snapshots/{snapshot_pub_id}/queries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Metric Query Contributions V2 */
+        get: operations["listMetricQueryContributionsV2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/metrics/snapshots/{snapshot_pub_id}/contributions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Metric Contributions V2 */
+        get: operations["listMetricContributionsV2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/metrics/semantic-events/{event_pub_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Semantic Event V2 */
+        get: operations["getSemanticEventV2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/metrics/semantic-decisions/{decision_pub_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Semantic Decision V2 */
+        get: operations["getSemanticDecisionV2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/metrics/snapshot-sets/{set_pub_id}/exports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Metric Export V2 */
+        post: operations["createMetricSnapshotExportV2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/metrics/operations/snapshot-sets/{set_pub_id}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish Metric Snapshot Set V2 */
+        post: operations["publishMetricSnapshotSetV2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/metrics/operations/recompute-jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Recompute Metrics V2 */
+        post: operations["createMetricRecomputeJobV2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/metrics/operations/semantic-decisions/{decision_pub_id}/overrides": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Override Semantic Decision V2 */
+        post: operations["overrideSemanticDecisionV2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/internal/service2-source-corpus/projects/{project_pub_id}/analysis-models": {
         parameters: {
             query?: never;
@@ -3694,6 +4059,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/sop/projects/{project_pub_id}/metrics/official": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Official Metrics
+         * @description Bind a SOP baseline, goal, or retest view to one official V2 set.
+         */
+        get: operations["getSopOfficialMetricsV2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/sop/projects/{project_pub_id}/metrics/before-after": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Official Before After
+         * @description SOP effect view with fail-closed common-support compatibility.
+         */
+        get: operations["getSopOfficialBeforeAfterV2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/sop/projects/{project_pub_id}/comparison-summary": {
         parameters: {
             query?: never;
@@ -3701,7 +4106,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Comparison Summary */
+        /**
+         * Get Comparison Summary
+         * @deprecated
+         */
         get: operations["get_comparison_summary_api_v2_sop_projects__project_pub_id__comparison_summary_get"];
         put?: never;
         post?: never;
@@ -4613,6 +5021,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/projects/{project_pub_id}/variants/official-metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Official Metrics
+         * @description Goal/verification metrics for variants from the V2 official set only.
+         */
+        get: operations["getVariantOfficialMetricsV2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/projects/{project_pub_id}/variants/coverage": {
         parameters: {
             query?: never;
@@ -4742,6 +5170,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/projects/{project_pub_id}/brand-visibility/official": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Official Brand Visibility
+         * @description Formal BrandRank page backed only by the V2 official snapshot set.
+         */
+        get: operations["getOfficialBrandVisibilityV2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v2/projects/{project_pub_id}/brand-visibility": {
         parameters: {
             query?: never;
@@ -4751,7 +5199,8 @@ export interface paths {
         };
         /**
          * Brand Visibility
-         * @description 品牌可见度快照（按需计算；旧报告核心口径的 V2 只读端点）。
+         * @deprecated
+         * @description Deprecated V1-derived extraction/aggregation view for explicit audit only.
          */
         get: operations["brand_visibility_api_v2_projects__project_pub_id__brand_visibility_get"];
         put?: never;
@@ -5771,6 +6220,71 @@ export interface components {
             url: string;
             /** Categories */
             categories: string[];
+        };
+        /** AnswerContributionView */
+        AnswerContributionView: {
+            /** Answer Pub Id */
+            answer_pub_id: string;
+            /** Query Pub Id */
+            query_pub_id?: string | null;
+            /** Query Key */
+            query_key: string;
+            /** Query Text */
+            query_text?: string | null;
+            /** Analysis Lenses */
+            analysis_lenses: string[];
+            /** Requested Operations */
+            requested_operations: string[];
+            /** Exposure Role */
+            exposure_role: string;
+            /** Model */
+            model: string;
+            /** Region */
+            region: string;
+            /** Mode */
+            mode: string;
+            /**
+             * Capture Time
+             * Format: date-time
+             */
+            capture_time: string;
+            /**
+             * Eligibility Status
+             * @enum {string}
+             */
+            eligibility_status: "included_hit" | "included_miss" | "excluded" | "not_applicable" | "analysis_unknown";
+            /** Reason Codes */
+            reason_codes: string[];
+            /** Outcome Value */
+            outcome_value?: unknown;
+            /** Numerator Contribution */
+            numerator_contribution: number;
+            /** Denominator Contribution */
+            denominator_contribution: number;
+            /** Query Weight */
+            query_weight: number;
+            /** Design Cell Weight */
+            design_cell_weight: number;
+            /** Repeat Weight */
+            repeat_weight: number;
+            /** Final Weight */
+            final_weight: number;
+            /** Weighted Numerator */
+            weighted_numerator: number;
+            /** Weighted Denominator */
+            weighted_denominator: number;
+            /** Semantic Manifest Pub Id */
+            semantic_manifest_pub_id?: string | null;
+            /** Supporting Events */
+            supporting_events?: components["schemas"]["SupportingEventView"][];
+            /** Supporting Decisions */
+            supporting_decisions?: components["schemas"]["SupportingDecisionView"][];
+            /** Answer Excerpt */
+            answer_excerpt?: string | null;
+            /** Answer Detail Href */
+            answer_detail_href: string;
+            /** Contribution Hash */
+            contribution_hash: string;
         };
         /** AnswerEvidenceView */
         AnswerEvidenceView: {
@@ -7625,6 +8139,41 @@ export interface components {
             /** Domain Pub Id */
             domain_pub_id?: string | null;
         };
+        /** ContributionPageView */
+        ContributionPageView: {
+            /**
+             * Schema Version
+             * @default metric-contributions-v2
+             * @constant
+             */
+            schema_version: "metric-contributions-v2";
+            /** Snapshot Pub Id */
+            snapshot_pub_id: string;
+            totals: components["schemas"]["ContributionTotalsView"];
+            /** Data */
+            data: components["schemas"]["AnswerContributionView"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /** Has More */
+            has_more: boolean;
+        };
+        /** ContributionTotalsView */
+        ContributionTotalsView: {
+            /** Snapshot Candidate Count */
+            snapshot_candidate_count: number;
+            /** Filtered Count */
+            filtered_count: number;
+            /** Raw Numerator */
+            raw_numerator: number;
+            /** Raw Denominator */
+            raw_denominator: number;
+            /** Weighted Numerator */
+            weighted_numerator: number;
+            /** Weighted Denominator */
+            weighted_denominator: number;
+            /** Contribution Set Hash */
+            contribution_set_hash: string;
+        };
         /** CorpusItemView */
         CorpusItemView: {
             /** Item Pub Id */
@@ -7798,6 +8347,21 @@ export interface components {
             /** Coverage Complete */
             coverage_complete: boolean;
         };
+        /** CoverageView */
+        CoverageView: {
+            /** Collection */
+            collection?: number | null;
+            /** Query Context */
+            query_context?: number | null;
+            /** Semantic */
+            semantic?: number | null;
+            /** Evidence */
+            evidence?: number | null;
+            /** Semantic By Capability */
+            semantic_by_capability?: {
+                [key: string]: number;
+            };
+        };
         /**
          * CurrentConfigView
          * @description Read-only v1 projection with explicit effective/pending semantics.
@@ -7914,6 +8478,10 @@ export interface components {
             answer: components["schemas"]["CustomerAnswerLibraryRunView"];
             /** Response Text */
             response_text: string;
+            /** Metric Snapshot Set Pub Id */
+            metric_snapshot_set_pub_id?: string | null;
+            /** Metric Snapshot Set Hash */
+            metric_snapshot_set_hash?: string | null;
         };
         /** CustomerAnswerLibraryDimensionView */
         CustomerAnswerLibraryDimensionView: {
@@ -7956,6 +8524,10 @@ export interface components {
             latest_capture_time?: string | null;
             /** Questions */
             questions: components["schemas"]["CustomerAnswerLibraryQuestionView"][];
+            /** Metric Snapshot Set Pub Id */
+            metric_snapshot_set_pub_id?: string | null;
+            /** Metric Snapshot Set Hash */
+            metric_snapshot_set_hash?: string | null;
         };
         /** CustomerAnswerLibraryMetaQueryView */
         CustomerAnswerLibraryMetaQueryView: {
@@ -8023,6 +8595,10 @@ export interface components {
             /** Data */
             data: components["schemas"]["CustomerAnswerLibraryMetaQueryView"][];
             page: components["schemas"]["CustomerAnswerLibraryPageMetaView"];
+            /** Metric Snapshot Set Pub Id */
+            metric_snapshot_set_pub_id?: string | null;
+            /** Metric Snapshot Set Hash */
+            metric_snapshot_set_hash?: string | null;
         };
         /** CustomerAnswerLibraryQuestionRunsView */
         CustomerAnswerLibraryQuestionRunsView: {
@@ -8056,6 +8632,10 @@ export interface components {
             /** Data */
             data: components["schemas"]["CustomerAnswerLibraryRunView"][];
             page: components["schemas"]["CustomerAnswerLibraryPageMetaView"];
+            /** Metric Snapshot Set Pub Id */
+            metric_snapshot_set_pub_id?: string | null;
+            /** Metric Snapshot Set Hash */
+            metric_snapshot_set_hash?: string | null;
         };
         /** CustomerAnswerLibraryQuestionView */
         CustomerAnswerLibraryQuestionView: {
@@ -8220,6 +8800,151 @@ export interface components {
             /** External Ref */
             external_ref?: string | null;
         };
+        /** CustomerDashboardMetricV2View */
+        CustomerDashboardMetricV2View: {
+            /** Snapshot Pub Id */
+            snapshot_pub_id: string;
+            /** Snapshot Hash */
+            snapshot_hash: string;
+            /** Focal Entity Id */
+            focal_entity_id: string;
+            /** Metric Name */
+            metric_name: string;
+            /** Metric Version */
+            metric_version: string;
+            /** Metric Definition Hash */
+            metric_definition_hash: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "ready" | "limited" | "insufficient" | "experimental" | "failed";
+            /** State Reason Codes */
+            state_reason_codes?: string[];
+            /** Value */
+            value?: number | null;
+            /** Observed Value */
+            observed_value?: number | null;
+            /** Answer Weighted Value */
+            answer_weighted_value?: number | null;
+            /** Raw Numerator */
+            raw_numerator: number;
+            /** Raw Denominator */
+            raw_denominator: number;
+            /** Weighted Numerator */
+            weighted_numerator: number;
+            /** Weighted Denominator */
+            weighted_denominator: number;
+            coverage: components["schemas"]["CoverageView"];
+            /** Decision Method Mix */
+            decision_method_mix?: {
+                [key: string]: number;
+            };
+            adjudication_sensitivity: components["schemas"]["IntervalView"];
+            missing_bounds: components["schemas"]["IntervalView"];
+            /** Unique Query Count */
+            unique_query_count: number;
+            /** Candidate Answer Count */
+            candidate_answer_count: number;
+            /** Known Answer Count */
+            known_answer_count: number;
+            /** Unknown Answer Count */
+            unknown_answer_count: number;
+            /** Not Applicable Answer Count */
+            not_applicable_answer_count: number;
+            /** Excluded Answer Count */
+            excluded_answer_count: number;
+            /** Design Cell Count */
+            design_cell_count: number;
+            /** Contribution Set Hash */
+            contribution_set_hash: string;
+            /** Query Contribution Set Hash */
+            query_contribution_set_hash: string;
+            /** Design Contribution Set Hash */
+            design_contribution_set_hash: string;
+            /** Label */
+            label: string;
+            /**
+             * Business View
+             * @enum {string}
+             */
+            business_view: "ai_impression" | "ai_recommendation";
+            /**
+             * Exposure Role
+             * @enum {string}
+             */
+            exposure_role: "brand_neutral" | "focal_named_only" | "other_brand_named" | "focal_named_with_others";
+            /**
+             * Aggregation Method
+             * @constant
+             */
+            aggregation_method: "query_macro";
+            definition: components["schemas"]["CustomerMetricDefinitionV2View"];
+        };
+        /** CustomerDashboardV2View */
+        CustomerDashboardV2View: {
+            /**
+             * Schema Version
+             * @default customer-dashboard-v2
+             * @constant
+             */
+            schema_version: "customer-dashboard-v2";
+            /** Project Pub Id */
+            project_pub_id: string;
+            /** Brand Name */
+            brand_name: string;
+            /**
+             * Business View
+             * @enum {string}
+             */
+            business_view: "ai_impression" | "ai_recommendation";
+            /**
+             * Exposure Role
+             * @enum {string}
+             */
+            exposure_role: "brand_neutral" | "focal_named_only" | "other_brand_named" | "focal_named_with_others";
+            /**
+             * Publication Channel
+             * @enum {string}
+             */
+            publication_channel: "official" | "shadow";
+            /** Requested Metric Names */
+            requested_metric_names: string[];
+            /** Focal Entity Id */
+            focal_entity_id: string;
+            /** Snapshot Set Pub Id */
+            snapshot_set_pub_id: string;
+            /** Snapshot Set Hash */
+            snapshot_set_hash: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "ready" | "partial" | "failed";
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            window: components["schemas"]["SnapshotWindow"];
+            filters: components["schemas"]["SnapshotFilters"];
+            /**
+             * Aggregation Method
+             * @constant
+             */
+            aggregation_method: "query_macro";
+            /**
+             * Design Basis
+             * @enum {string}
+             */
+            design_basis: "planned_cells" | "observed_cells";
+            /** Scope Hash */
+            scope_hash: string;
+            /** Dependency Bundle Hash */
+            dependency_bundle_hash: string;
+            /** Metrics */
+            metrics: components["schemas"]["CustomerDashboardMetricV2View"][];
+        };
         /** CustomerDashboardView */
         CustomerDashboardView: {
             /**
@@ -8305,6 +9030,34 @@ export interface components {
             /** Metrics */
             metrics: components["schemas"]["CustomerMetricSpecView"][];
         };
+        /** CustomerMetricDefinitionV2View */
+        CustomerMetricDefinitionV2View: {
+            /** Business Question */
+            business_question: string;
+            /** Denominator Description */
+            denominator_description: string;
+            /**
+             * Outcome Source
+             * @enum {string}
+             */
+            outcome_source: "deterministic_expression" | "semantic_decision" | "hybrid";
+            /** Query Predicate */
+            query_predicate: {
+                [key: string]: unknown;
+            };
+            /** Outcome Expression */
+            outcome_expression: {
+                [key: string]: unknown;
+            };
+            /** Required Semantic Capabilities */
+            required_semantic_capabilities: string[];
+            /** Decision Task Refs */
+            decision_task_refs: {
+                [key: string]: unknown;
+            }[];
+            /** Semantic Rubric Ref */
+            semantic_rubric_ref?: string | null;
+        };
         /** CustomerMetricSpecView */
         CustomerMetricSpecView: {
             /** Code */
@@ -8327,6 +9080,28 @@ export interface components {
             description: string;
             /** Version */
             version: string;
+        };
+        /** CustomerMetricTraceV2View */
+        CustomerMetricTraceV2View: {
+            /**
+             * Schema Version
+             * @default customer-metric-trace-v2
+             * @constant
+             */
+            schema_version: "customer-metric-trace-v2";
+            /** Project Pub Id */
+            project_pub_id: string;
+            /** Snapshot Set Pub Id */
+            snapshot_set_pub_id: string;
+            /** Snapshot Set Hash */
+            snapshot_set_hash: string;
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            metric: components["schemas"]["CustomerDashboardMetricV2View"];
+            contributions: components["schemas"]["ContributionPageView"];
         };
         /** CustomerMetricView */
         CustomerMetricView: {
@@ -8569,6 +9344,36 @@ export interface components {
             /** Steps */
             steps: components["schemas"]["StepView"][];
             articles: components["schemas"]["SopPage_DashboardArticle_"];
+        };
+        /** DecisionOverrideRequest */
+        DecisionOverrideRequest: {
+            /** Result */
+            result: {
+                [key: string]: unknown;
+            };
+            /** Rationale Summary */
+            rationale_summary: string;
+            /** Reason Codes */
+            reason_codes: string[];
+            /** Expected Decision Hash */
+            expected_decision_hash: string;
+        };
+        /** DecisionOverrideView */
+        DecisionOverrideView: {
+            /**
+             * Schema Version
+             * @default semantic-decision-override-v2
+             * @constant
+             */
+            schema_version: "semantic-decision-override-v2";
+            /** Decision Pub Id */
+            decision_pub_id: string;
+            /** Supersedes Pub Id */
+            supersedes_pub_id: string;
+            /** Decision Hash */
+            decision_hash: string;
+            /** Recompute Job Pub Id */
+            recompute_job_pub_id: string;
         };
         /**
          * DecisionScope
@@ -9177,6 +9982,44 @@ export interface components {
              */
             updated_at: string;
         };
+        /** ExportCreate */
+        ExportCreate: {
+            /**
+             * Format
+             * @default xlsx
+             * @enum {string}
+             */
+            format: "xlsx" | "csv_zip";
+        };
+        /** ExportView */
+        ExportView: {
+            /**
+             * Schema Version
+             * @default metric-export-v2
+             * @constant
+             */
+            schema_version: "metric-export-v2";
+            /** Export Pub Id */
+            export_pub_id: string;
+            /** Snapshot Set Pub Id */
+            snapshot_set_pub_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "running" | "succeeded" | "failed";
+            /**
+             * Format
+             * @enum {string}
+             */
+            format: "xlsx" | "csv_zip";
+            /** Artifact Hash */
+            artifact_hash?: string | null;
+            /** Download Url */
+            download_url?: string | null;
+            /** Expires At */
+            expires_at?: string | null;
+        };
         /**
          * FactAnchorState
          * @enum {string}
@@ -9300,6 +10143,15 @@ export interface components {
             /** Download Url */
             download_url: string;
         };
+        /** FormalMetricSnapshotFilters */
+        FormalMetricSnapshotFilters: {
+            /** Model */
+            model?: string[];
+            /** Region */
+            region?: string[];
+            /** Mode */
+            mode?: string[];
+        };
         /** FormalOutputView */
         FormalOutputView: {
             /**
@@ -9359,6 +10211,16 @@ export interface components {
             service2_manifest_pub_id?: string | null;
             /** Service2 Manifest Hash */
             service2_manifest_hash?: string | null;
+            /** Metric Snapshot Set Pub Id */
+            metric_snapshot_set_pub_id?: string | null;
+            /** Metric Snapshot Set Hash */
+            metric_snapshot_set_hash?: string | null;
+            /** Metric Snapshot Filters */
+            metric_snapshot_filters?: {
+                [key: string]: unknown;
+            };
+            /** Metric Snapshot Dependency Hash */
+            metric_snapshot_dependency_hash?: string | null;
             /**
              * Status
              * @enum {string}
@@ -9535,6 +10397,12 @@ export interface components {
              * @default 100
              */
             max_variants: number;
+            /**
+             * Legacy Recycle Answer Analysis
+             * @description Explicit audit-only V1 recycle. Never enabled by the formal V2 metrics path.
+             * @default false
+             */
+            legacy_recycle_answer_analysis: boolean;
         };
         /** GenerateResponse */
         GenerateResponse: {
@@ -9834,6 +10702,13 @@ export interface components {
             /** Variants */
             variants: components["schemas"]["VariantView"][];
         };
+        /** IntervalView */
+        IntervalView: {
+            /** Lower */
+            lower?: number | null;
+            /** Upper */
+            upper?: number | null;
+        };
         /** InterventionAssignment */
         InterventionAssignment: {
             /** Assigned To Pub Id */
@@ -10086,6 +10961,40 @@ export interface components {
              */
             updated_at: string;
         };
+        /** JobView */
+        JobView: {
+            /**
+             * Schema Version
+             * @enum {string}
+             */
+            schema_version: "metric-job-v2" | "semantic-decision-job-v2";
+            /** Job Pub Id */
+            job_pub_id: string;
+            /** Project Pub Id */
+            project_pub_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "running" | "succeeded" | "abstained" | "review_required" | "failed";
+            /** State Reason Codes */
+            state_reason_codes?: string[];
+            /** Failure Code */
+            failure_code?: string | null;
+            /** Snapshot Set Pub Id */
+            snapshot_set_pub_id?: string | null;
+            /** Selected Decision Pub Id */
+            selected_decision_pub_id?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Started At */
+            started_at?: string | null;
+            /** Completed At */
+            completed_at?: string | null;
+        };
         /** KnowledgeEventView */
         KnowledgeEventView: {
             /**
@@ -10303,6 +11212,67 @@ export interface components {
             /** Service Account */
             service_account: boolean;
         };
+        /** MetricCatalogView */
+        MetricCatalogView: {
+            /**
+             * Schema Version
+             * @default metric-catalog-v2
+             * @constant
+             */
+            schema_version: "metric-catalog-v2";
+            /** Definitions */
+            definitions: components["schemas"]["MetricDefinitionView"][];
+        };
+        /** MetricDefinitionView */
+        MetricDefinitionView: {
+            /** Metric Name */
+            metric_name: string;
+            /** Metric Version */
+            metric_version: string;
+            /** Business Question */
+            business_question: string;
+            /** Definition Hash */
+            definition_hash: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "draft" | "experimental" | "published" | "retired" | "legacy";
+            /**
+             * Unit Type
+             * @enum {string}
+             */
+            unit_type: "answer" | "claim" | "relation" | "citation" | "dimension" | "design_cell";
+            /**
+             * Outcome Source
+             * @enum {string}
+             */
+            outcome_source: "deterministic_expression" | "semantic_decision" | "hybrid";
+            /** Aggregation Methods */
+            aggregation_methods: string[];
+            /** Required Semantic Capabilities */
+            required_semantic_capabilities: string[];
+            /** Decision Task Refs */
+            decision_task_refs: {
+                [key: string]: unknown;
+            }[];
+            /** Query Predicate */
+            query_predicate: {
+                [key: string]: unknown;
+            };
+            /** Answer Eligibility Predicate */
+            answer_eligibility_predicate: {
+                [key: string]: unknown;
+            };
+            /** Outcome Expression */
+            outcome_expression: {
+                [key: string]: unknown;
+            };
+            /** Denominator Description */
+            denominator_description: string;
+            /** Semantic Rubric Ref */
+            semantic_rubric_ref?: string | null;
+        };
         /** MetricExportCreate */
         MetricExportCreate: {
             /** Project Pub Id */
@@ -10321,6 +11291,152 @@ export interface components {
             dimensions?: {
                 [key: string]: string;
             };
+        };
+        /** MetricSnapshotDetailView */
+        MetricSnapshotDetailView: {
+            /** Snapshot Pub Id */
+            snapshot_pub_id: string;
+            /** Snapshot Hash */
+            snapshot_hash: string;
+            /** Focal Entity Id */
+            focal_entity_id: string;
+            /** Metric Name */
+            metric_name: string;
+            /** Metric Version */
+            metric_version: string;
+            /** Metric Definition Hash */
+            metric_definition_hash: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "ready" | "limited" | "insufficient" | "experimental" | "failed";
+            /** State Reason Codes */
+            state_reason_codes?: string[];
+            /** Value */
+            value?: number | null;
+            /** Observed Value */
+            observed_value?: number | null;
+            /** Answer Weighted Value */
+            answer_weighted_value?: number | null;
+            /** Raw Numerator */
+            raw_numerator: number;
+            /** Raw Denominator */
+            raw_denominator: number;
+            /** Weighted Numerator */
+            weighted_numerator: number;
+            /** Weighted Denominator */
+            weighted_denominator: number;
+            coverage: components["schemas"]["CoverageView"];
+            /** Decision Method Mix */
+            decision_method_mix?: {
+                [key: string]: number;
+            };
+            adjudication_sensitivity: components["schemas"]["IntervalView"];
+            missing_bounds: components["schemas"]["IntervalView"];
+            /** Unique Query Count */
+            unique_query_count: number;
+            /** Candidate Answer Count */
+            candidate_answer_count: number;
+            /** Known Answer Count */
+            known_answer_count: number;
+            /** Unknown Answer Count */
+            unknown_answer_count: number;
+            /** Not Applicable Answer Count */
+            not_applicable_answer_count: number;
+            /** Excluded Answer Count */
+            excluded_answer_count: number;
+            /** Design Cell Count */
+            design_cell_count: number;
+            /** Contribution Set Hash */
+            contribution_set_hash: string;
+            /** Query Contribution Set Hash */
+            query_contribution_set_hash: string;
+            /** Design Contribution Set Hash */
+            design_contribution_set_hash: string;
+            /** Snapshot Set Pub Id */
+            snapshot_set_pub_id: string;
+            /** Formula */
+            formula: {
+                [key: string]: unknown;
+            };
+            /** Denominator Description */
+            denominator_description: string;
+            /** Required Semantic Capabilities */
+            required_semantic_capabilities: string[];
+            /** Decision Task Refs */
+            decision_task_refs: {
+                [key: string]: unknown;
+            }[];
+            /** Bootstrap */
+            bootstrap?: {
+                [key: string]: unknown;
+            };
+            /** Calibration Artifact Hashes */
+            calibration_artifact_hashes?: string[];
+        };
+        /** MetricSnapshotView */
+        MetricSnapshotView: {
+            /** Snapshot Pub Id */
+            snapshot_pub_id: string;
+            /** Snapshot Hash */
+            snapshot_hash: string;
+            /** Focal Entity Id */
+            focal_entity_id: string;
+            /** Metric Name */
+            metric_name: string;
+            /** Metric Version */
+            metric_version: string;
+            /** Metric Definition Hash */
+            metric_definition_hash: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "ready" | "limited" | "insufficient" | "experimental" | "failed";
+            /** State Reason Codes */
+            state_reason_codes?: string[];
+            /** Value */
+            value?: number | null;
+            /** Observed Value */
+            observed_value?: number | null;
+            /** Answer Weighted Value */
+            answer_weighted_value?: number | null;
+            /** Raw Numerator */
+            raw_numerator: number;
+            /** Raw Denominator */
+            raw_denominator: number;
+            /** Weighted Numerator */
+            weighted_numerator: number;
+            /** Weighted Denominator */
+            weighted_denominator: number;
+            coverage: components["schemas"]["CoverageView"];
+            /** Decision Method Mix */
+            decision_method_mix?: {
+                [key: string]: number;
+            };
+            adjudication_sensitivity: components["schemas"]["IntervalView"];
+            missing_bounds: components["schemas"]["IntervalView"];
+            /** Unique Query Count */
+            unique_query_count: number;
+            /** Candidate Answer Count */
+            candidate_answer_count: number;
+            /** Known Answer Count */
+            known_answer_count: number;
+            /** Unknown Answer Count */
+            unknown_answer_count: number;
+            /** Not Applicable Answer Count */
+            not_applicable_answer_count: number;
+            /** Excluded Answer Count */
+            excluded_answer_count: number;
+            /** Design Cell Count */
+            design_cell_count: number;
+            /** Contribution Set Hash */
+            contribution_set_hash: string;
+            /** Query Contribution Set Hash */
+            query_contribution_set_hash: string;
+            /** Design Contribution Set Hash */
+            design_contribution_set_hash: string;
         };
         /** MetricView */
         MetricView: {
@@ -11824,54 +12940,63 @@ export interface components {
             /** Note */
             note?: string | null;
         };
-        /** PublicationView */
-        PublicationView: {
-            /** Pub Id */
-            pub_id: string;
-            /** Tenant Pub Id */
-            tenant_pub_id: string;
-            /** Project Pub Id */
-            project_pub_id: string;
-            /** Article Version Pub Id */
-            article_version_pub_id: string;
-            /** Platform */
-            platform: string;
-            /** Account Label */
-            account_label: string;
-            /** Title */
-            title: string;
-            /** Body Sha256 */
-            body_sha256: string;
-            /** Status */
-            status: string;
-            /** Public Url */
-            public_url: string;
-            /** Content Id */
-            content_id: string;
-            /** Submitted At */
-            submitted_at: string | null;
-            /** Published At */
-            published_at: string | null;
-            /** Public Checked At */
-            public_checked_at: string | null;
-            /** Public Http Status */
-            public_http_status: number | null;
-            /** Evidence */
-            evidence: {
-                [key: string]: unknown;
-            };
-            /** Note */
-            note: string;
+        /** PublishRequest */
+        PublishRequest: {
             /**
-             * Created At
-             * Format: date-time
+             * Publication Channel
+             * @enum {string}
              */
-            created_at: string;
+            publication_channel: "shadow" | "official";
+            /** Expected Generation */
+            expected_generation: number;
+            /** Expected Snapshot Set Hash */
+            expected_snapshot_set_hash: string;
+        };
+        /** QueryContributionPageView */
+        QueryContributionPageView: {
             /**
-             * Updated At
-             * Format: date-time
+             * Schema Version
+             * @default metric-query-contributions-v2
+             * @constant
              */
-            updated_at: string;
+            schema_version: "metric-query-contributions-v2";
+            /** Snapshot Pub Id */
+            snapshot_pub_id: string;
+            /** Snapshot Candidate Count */
+            snapshot_candidate_count: number;
+            /** Filtered Count */
+            filtered_count: number;
+            /** Data */
+            data: components["schemas"]["QueryContributionView"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /** Has More */
+            has_more: boolean;
+        };
+        /** QueryContributionView */
+        QueryContributionView: {
+            /** Query Key */
+            query_key: string;
+            /** Query Pub Id */
+            query_pub_id?: string | null;
+            /** Query Text */
+            query_text?: string | null;
+            /** Query Weight */
+            query_weight: number;
+            /** Numerator */
+            numerator: number;
+            /** Denominator */
+            denominator: number;
+            /** Value */
+            value?: number | null;
+            /** Unknown Weight */
+            unknown_weight: number;
+            /** Design Cell Count */
+            design_cell_count: number;
+            /** Answer Count */
+            answer_count: number;
+            /** Contribution Hash */
+            contribution_hash: string;
         };
         /** QueryGroupDraft */
         QueryGroupDraft: {
@@ -12067,6 +13192,11 @@ export interface components {
             service2_manifest_pub_id?: string | null;
             /** Service2 Manifest Hash */
             service2_manifest_hash?: string | null;
+            /** Metric Snapshot Set Pub Id */
+            metric_snapshot_set_pub_id: string;
+            /** Metric Snapshot Set Hash */
+            metric_snapshot_set_hash: string;
+            metric_snapshot_filters: components["schemas"]["FormalMetricSnapshotFilters"];
         };
         /** Readiness */
         Readiness: {
@@ -12085,6 +13215,18 @@ export interface components {
          * @enum {string}
          */
         ReasoningPolicy: "deterministic_only" | "llm_assisted" | "llm_required" | "exploratory";
+        /** RecomputeRequest */
+        RecomputeRequest: {
+            /** Project Pub Id */
+            project_pub_id: string;
+            window: components["schemas"]["SnapshotWindow"];
+            /** Focal Entity Ids */
+            focal_entity_ids: string[];
+            /** Trigger Reason */
+            trigger_reason: string;
+            /** Idempotency Key */
+            idempotency_key: string;
+        };
         /** RefreshSourceView */
         RefreshSourceView: {
             /** Status */
@@ -13148,6 +14290,125 @@ export interface components {
             /** Workflow Operation Id */
             workflow_operation_id?: string | null;
         };
+        /** SemanticDecisionDetailView */
+        SemanticDecisionDetailView: {
+            /**
+             * Schema Version
+             * @default semantic-decision-record-v2
+             * @constant
+             */
+            schema_version: "semantic-decision-record-v2";
+            /** Decision Pub Id */
+            decision_pub_id: string;
+            /** Project Pub Id */
+            project_pub_id: string;
+            /** Task Name */
+            task_name: string;
+            /** Task Version */
+            task_version: string;
+            /** Subject Type */
+            subject_type: string;
+            /** Subject Key */
+            subject_key: string;
+            /**
+             * Method
+             * @enum {string}
+             */
+            method: "deterministic" | "model" | "hybrid" | "human";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "accepted" | "abstained" | "review_required" | "failed";
+            /** Result */
+            result: {
+                [key: string]: unknown;
+            };
+            /** Rationale Summary */
+            rationale_summary?: string | null;
+            /** Calibrated Confidence */
+            calibrated_confidence?: number | null;
+            /** Reason Codes */
+            reason_codes: string[];
+            /** Evidence Refs */
+            evidence_refs: {
+                [key: string]: unknown;
+            }[];
+            /** Evidence Spans */
+            evidence_spans: {
+                [key: string]: unknown;
+            }[];
+            /** Judge Policy Hash */
+            judge_policy_hash: string;
+            /** Rubric Ref */
+            rubric_ref: string;
+            /** Rubric Hash */
+            rubric_hash: string;
+            /** Decision Hash */
+            decision_hash: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+        };
+        /** SemanticEventDetailView */
+        SemanticEventDetailView: {
+            /**
+             * Schema Version
+             * @default answer-semantic-event-v2
+             * @constant
+             */
+            schema_version: "answer-semantic-event-v2";
+            /** Event Pub Id */
+            event_pub_id: string;
+            /** Project Pub Id */
+            project_pub_id: string;
+            /** Answer Pub Id */
+            answer_pub_id: string;
+            /** Semantic Manifest Pub Id */
+            semantic_manifest_pub_id: string;
+            /** Event Type */
+            event_type: string;
+            /** Subject Entity Id */
+            subject_entity_id?: string | null;
+            /** Object Entity Id */
+            object_entity_id?: string | null;
+            /** Event Value */
+            event_value: {
+                [key: string]: unknown;
+            };
+            /** Qualifiers */
+            qualifiers: {
+                [key: string]: unknown;
+            };
+            /** Answer Text Start */
+            answer_text_start?: number | null;
+            /** Answer Text End */
+            answer_text_end?: number | null;
+            /**
+             * Offset Unit
+             * @constant
+             */
+            offset_unit: "unicode_code_point_v1";
+            /** Answer Excerpt */
+            answer_excerpt?: string | null;
+            /** Answer Excerpt Hash */
+            answer_excerpt_hash?: string | null;
+            /**
+             * Derivation Method
+             * @enum {string}
+             */
+            derivation_method: "deterministic" | "model" | "hybrid" | "human";
+            /** Decision Record Pub Ids */
+            decision_record_pub_ids: string[];
+            /** Review Status */
+            review_status: string;
+            /** Event Fingerprint */
+            event_fingerprint: string;
+            /** Answer Detail Href */
+            answer_detail_href: string;
+        };
         /** ServiceAccountCreate */
         ServiceAccountCreate: {
             /** Name */
@@ -13350,6 +14611,15 @@ export interface components {
             /** Fetch Error Code */
             fetch_error_code: string | null;
         };
+        /** SnapshotFilters */
+        SnapshotFilters: {
+            /** Model */
+            model?: string[];
+            /** Region */
+            region?: string[];
+            /** Mode */
+            mode?: string[];
+        };
         /** SnapshotPage */
         SnapshotPage: {
             /**
@@ -13364,6 +14634,97 @@ export interface components {
             /** Data */
             data: components["schemas"]["SnapshotDetailSummary"][];
             page: components["schemas"]["CursorPage"];
+        };
+        /** SnapshotRequest */
+        SnapshotRequest: {
+            window: components["schemas"]["SnapshotWindow"];
+            filters?: components["schemas"]["SnapshotFilters"];
+            /** Focal Entity Ids */
+            focal_entity_ids: string[];
+            /**
+             * Aggregation Method
+             * @default query_macro
+             * @constant
+             */
+            aggregation_method: "query_macro";
+            /**
+             * Publication Channel
+             * @default shadow
+             * @constant
+             */
+            publication_channel: "shadow";
+            /** Idempotency Key */
+            idempotency_key?: string | null;
+        };
+        /** SnapshotRequestAccepted */
+        SnapshotRequestAccepted: {
+            /**
+             * Schema Version
+             * @default metric-snapshot-request-v2
+             * @constant
+             */
+            schema_version: "metric-snapshot-request-v2";
+            /** Job Pub Id */
+            job_pub_id?: string | null;
+            /** Snapshot Set Pub Id */
+            snapshot_set_pub_id?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "running" | "succeeded";
+            /**
+             * Reused
+             * @default false
+             */
+            reused: boolean;
+            /** Scope Hash */
+            scope_hash: string;
+        };
+        /** SnapshotSetView */
+        SnapshotSetView: {
+            /**
+             * Schema Version
+             * @default metric-snapshot-set-v2
+             * @constant
+             */
+            schema_version: "metric-snapshot-set-v2";
+            /** Snapshot Set Pub Id */
+            snapshot_set_pub_id: string;
+            /** Snapshot Set Hash */
+            snapshot_set_hash: string;
+            /** Project Pub Id */
+            project_pub_id: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "ready" | "partial" | "failed";
+            /**
+             * As Of
+             * Format: date-time
+             */
+            as_of: string;
+            window: components["schemas"]["SnapshotWindow"];
+            filters: components["schemas"]["SnapshotFilters"];
+            /** Focal Entity Ids */
+            focal_entity_ids: string[];
+            /**
+             * Aggregation Method
+             * @constant
+             */
+            aggregation_method: "query_macro";
+            /**
+             * Design Basis
+             * @enum {string}
+             */
+            design_basis: "planned_cells" | "observed_cells";
+            /** Scope Hash */
+            scope_hash: string;
+            /** Dependency Bundle Hash */
+            dependency_bundle_hash: string;
+            /** Metrics */
+            metrics: components["schemas"]["MetricSnapshotView"][];
         };
         /** SnapshotSummary */
         SnapshotSummary: {
@@ -13380,6 +14741,19 @@ export interface components {
             text_sha256: string | null;
             /** Extractor Version */
             extractor_version: string | null;
+        };
+        /** SnapshotWindow */
+        SnapshotWindow: {
+            /**
+             * Start
+             * Format: date
+             */
+            start: string;
+            /**
+             * End
+             * Format: date
+             */
+            end: string;
         };
         /** SopPage[ArticleVersionView] */
         SopPage_ArticleVersionView_: {
@@ -13456,7 +14830,7 @@ export interface components {
         /** SopPage[PublicationView] */
         SopPage_PublicationView_: {
             /** Data */
-            data: components["schemas"]["PublicationView"][];
+            data: components["schemas"]["geo_platform__sop__router__PublicationView"][];
             page: components["schemas"]["geo_platform__sop__router__PageMeta"];
         };
         /** SopPage[QueryItemView] */
@@ -13735,6 +15109,56 @@ export interface components {
             confirm_spend: true;
             /** Max Total Amount */
             max_total_amount: number | string;
+        };
+        /** SupportingDecisionView */
+        SupportingDecisionView: {
+            /** Decision Pub Id */
+            decision_pub_id: string;
+            /** Task */
+            task: string;
+            /** Version */
+            version: string;
+            /**
+             * Method
+             * @enum {string}
+             */
+            method: "deterministic" | "model" | "hybrid" | "human";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "accepted" | "abstained" | "review_required" | "failed";
+            /** Calibrated Confidence */
+            calibrated_confidence?: number | null;
+            /** Rubric Hash */
+            rubric_hash: string;
+            /** Evidence Refs */
+            evidence_refs?: {
+                [key: string]: unknown;
+            }[];
+            /** Rationale Summary */
+            rationale_summary?: string | null;
+        };
+        /** SupportingEventView */
+        SupportingEventView: {
+            /** Event Pub Id */
+            event_pub_id: string;
+            /** Event Type */
+            event_type: string;
+            /** Subject Entity Id */
+            subject_entity_id?: string | null;
+            /** Object Entity Id */
+            object_entity_id?: string | null;
+            /** Event Value */
+            event_value: {
+                [key: string]: unknown;
+            };
+            /** Answer Text Start */
+            answer_text_start?: number | null;
+            /** Answer Text End */
+            answer_text_end?: number | null;
+            /** Answer Excerpt */
+            answer_excerpt?: string | null;
         };
         /** TargetBackfill */
         TargetBackfill: {
@@ -14771,6 +16195,33 @@ export interface components {
              */
             created_at: string;
         };
+        /** PublicationView */
+        geo_platform__metrics_v2__schemas__PublicationView: {
+            /**
+             * Schema Version
+             * @default metric-publication-v2
+             * @constant
+             */
+            schema_version: "metric-publication-v2";
+            /** Project Pub Id */
+            project_pub_id: string;
+            /** Scope Hash */
+            scope_hash: string;
+            /** Snapshot Set Pub Id */
+            snapshot_set_pub_id: string;
+            /**
+             * Publication Channel
+             * @enum {string}
+             */
+            publication_channel: "shadow" | "official";
+            /** Generation */
+            generation: number;
+            /**
+             * Published At
+             * Format: date-time
+             */
+            published_at: string;
+        };
         /** PageMeta */
         geo_platform__post_analysis__router__PageMeta: {
             /** Next Cursor */
@@ -15233,6 +16684,55 @@ export interface components {
             success_definition?: ({
                 [key: string]: unknown;
             } | string)[];
+        };
+        /** PublicationView */
+        geo_platform__sop__router__PublicationView: {
+            /** Pub Id */
+            pub_id: string;
+            /** Tenant Pub Id */
+            tenant_pub_id: string;
+            /** Project Pub Id */
+            project_pub_id: string;
+            /** Article Version Pub Id */
+            article_version_pub_id: string;
+            /** Platform */
+            platform: string;
+            /** Account Label */
+            account_label: string;
+            /** Title */
+            title: string;
+            /** Body Sha256 */
+            body_sha256: string;
+            /** Status */
+            status: string;
+            /** Public Url */
+            public_url: string;
+            /** Content Id */
+            content_id: string;
+            /** Submitted At */
+            submitted_at: string | null;
+            /** Published At */
+            published_at: string | null;
+            /** Public Checked At */
+            public_checked_at: string | null;
+            /** Public Http Status */
+            public_http_status: number | null;
+            /** Evidence */
+            evidence: {
+                [key: string]: unknown;
+            };
+            /** Note */
+            note: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /** FindingView */
         geo_platform__source_analysis__router__FindingView: {
@@ -17482,6 +18982,168 @@ export interface operations {
             };
         };
     };
+    getCustomerDashboardV2: {
+        parameters: {
+            query: {
+                business_view: "ai_impression" | "ai_recommendation";
+                exposure_role: "brand_neutral" | "focal_named_only" | "other_brand_named" | "focal_named_with_others";
+                metric_name: string[];
+                start?: string | null;
+                end?: string | null;
+                model?: string[];
+                region?: string[];
+                mode?: string[];
+                focal_entity_id?: string | null;
+                publication_channel?: "official" | "shadow";
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerDashboardV2View"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getCustomerMetricTraceV2: {
+        parameters: {
+            query: {
+                snapshot_set_hash: string;
+                business_view: "ai_impression" | "ai_recommendation";
+                exposure_role: "brand_neutral" | "focal_named_only" | "other_brand_named" | "focal_named_with_others";
+                cursor?: string | null;
+                limit?: number;
+                eligibility_status?: ("included_hit" | "included_miss" | "excluded" | "not_applicable" | "analysis_unknown") | null;
+                reason_code?: string | null;
+                query?: string | null;
+                model?: string | null;
+                region?: string | null;
+                mode?: string | null;
+                hit?: boolean | null;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+                snapshot_set_pub_id: string;
+                snapshot_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustomerMetricTraceV2View"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     getCustomerAnswerPage: {
         parameters: {
             query?: {
@@ -17572,6 +19234,8 @@ export interface operations {
                 mode?: string | null;
                 snapshot_id?: string | null;
                 snapshot_at?: string | null;
+                metric_snapshot_set_pub_id?: string | null;
+                metric_snapshot_set_hash?: string | null;
                 offset?: number;
                 limit?: number;
             };
@@ -17645,6 +19309,8 @@ export interface operations {
             query: {
                 snapshot_id: string;
                 snapshot_at: string;
+                metric_snapshot_set_pub_id?: string | null;
+                metric_snapshot_set_hash?: string | null;
                 start?: string | null;
                 end?: string | null;
                 model?: string | null;
@@ -17722,6 +19388,8 @@ export interface operations {
             query: {
                 snapshot_id: string;
                 snapshot_at: string;
+                metric_snapshot_set_pub_id?: string | null;
+                metric_snapshot_set_hash?: string | null;
                 start?: string | null;
                 end?: string | null;
                 model?: string | null;
@@ -17798,9 +19466,11 @@ export interface operations {
     };
     getCustomerAnswerLibraryDetail: {
         parameters: {
-            query: {
-                snapshot_id: string;
-                snapshot_at: string;
+            query?: {
+                snapshot_id?: string | null;
+                snapshot_at?: string | null;
+                metric_snapshot_set_pub_id?: string | null;
+                metric_snapshot_set_hash?: string | null;
                 start?: string | null;
                 end?: string | null;
             };
@@ -24114,6 +25784,229 @@ export interface operations {
             };
         };
     };
+    getOfficialAnalyticsOverviewV2: {
+        parameters: {
+            query: {
+                project_pub_id: string;
+                start: string;
+                end: string;
+                model?: string | null;
+                region?: string | null;
+                mode?: string | null;
+                focal_entity_id?: string | null;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getOfficialAnalyticsBreakdownV2: {
+        parameters: {
+            query: {
+                project_pub_id: string;
+                start: string;
+                end: string;
+                group_by: "day" | "model" | "region_mode" | "question";
+                model?: string | null;
+                region?: string | null;
+                mode?: string | null;
+                focal_entity_id?: string | null;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getOfficialAnalyticsDeltaV2: {
+        parameters: {
+            query: {
+                project_pub_id: string;
+                start: string;
+                end: string;
+                model?: string | null;
+                region?: string | null;
+                mode?: string | null;
+                focal_entity_id?: string | null;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     overview_api_v2_analytics_overview_get: {
         parameters: {
             query: {
@@ -28462,6 +30355,1064 @@ export interface operations {
             };
         };
     };
+    getMetricCatalogV2: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetricCatalogView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getCurrentMetricSnapshotSetV2: {
+        parameters: {
+            query?: {
+                start?: string | null;
+                end?: string | null;
+                model?: string[];
+                region?: string[];
+                mode?: string[];
+                focal_entity_id?: string[];
+                publication_channel?: "official" | "shadow";
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SnapshotSetView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    requestMetricSnapshotSetV2: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SnapshotRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SnapshotRequestAccepted"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getMetricSnapshotJobV2: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                job_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getSemanticDecisionJobV2: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                job_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getMetricSnapshotSetV2: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                set_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SnapshotSetView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getMetricSnapshotV2: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                snapshot_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetricSnapshotDetailView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    listMetricQueryContributionsV2: {
+        parameters: {
+            query?: {
+                cursor?: string | null;
+                limit?: number;
+                query?: string | null;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                snapshot_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueryContributionPageView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    listMetricContributionsV2: {
+        parameters: {
+            query?: {
+                cursor?: string | null;
+                limit?: number;
+                eligibility_status?: ("included_hit" | "included_miss" | "excluded" | "not_applicable" | "analysis_unknown") | null;
+                reason_code?: string | null;
+                query?: string | null;
+                model?: string | null;
+                region?: string | null;
+                mode?: string | null;
+                hit?: boolean | null;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                snapshot_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContributionPageView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getSemanticEventV2: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                event_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SemanticEventDetailView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getSemanticDecisionV2: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                decision_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SemanticDecisionDetailView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    createMetricSnapshotExportV2: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                set_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExportCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExportView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    publishMetricSnapshotSetV2: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                set_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublishRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["geo_platform__metrics_v2__schemas__PublicationView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    createMetricRecomputeJobV2: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecomputeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    overrideSemanticDecisionV2: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                decision_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecisionOverrideRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecisionOverrideView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     analysis_models_api_v2_internal_service2_source_corpus_projects__project_pub_id__analysis_models_get: {
         parameters: {
             query?: never;
@@ -31570,7 +34521,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PublicationView"];
+                    "application/json": components["schemas"]["geo_platform__sop__router__PublicationView"];
                 };
             };
             /** @description Bad Request */
@@ -31783,7 +34734,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["PublicationView"];
+                    "application/json": components["schemas"]["geo_platform__sop__router__PublicationView"];
                 };
             };
             /** @description Bad Request */
@@ -32217,6 +35168,151 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ComparisonView"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getSopOfficialMetricsV2: {
+        parameters: {
+            query: {
+                start: string;
+                end: string;
+                purpose?: "baseline" | "goal" | "retest";
+                focal_entity_id?: string[] | null;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getSopOfficialBeforeAfterV2: {
+        parameters: {
+            query: {
+                retest_start: string;
+                retest_end: string;
+                focal_entity_id?: string[] | null;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Bad Request */
@@ -36963,6 +40059,78 @@ export interface operations {
             };
         };
     };
+    getVariantOfficialMetricsV2: {
+        parameters: {
+            query: {
+                start: string;
+                end: string;
+                focal_entity_id?: string[] | null;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     coverage_api_v2_projects__project_pub_id__variants_coverage_get: {
         parameters: {
             query?: never;
@@ -37475,6 +40643,81 @@ export interface operations {
                 };
                 content: {
                     "image/png": string;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getOfficialBrandVisibilityV2: {
+        parameters: {
+            query: {
+                start: string;
+                end: string;
+                model?: string | null;
+                region?: string | null;
+                mode?: string | null;
+                focal_entity_id?: string[] | null;
+            };
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                project_pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Bad Request */

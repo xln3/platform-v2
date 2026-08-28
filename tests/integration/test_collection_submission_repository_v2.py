@@ -87,6 +87,8 @@ from domain.collection.surface import CaptureState, CollectionSurface, SendState
 from . import test_collection_quota_v2 as quota_integration
 from .test_collection_quota_v2 import _seed_service_fixture
 
+pytestmark = pytest.mark.isolated_postgres
+
 PREPARE_SIGNATURE = (
     "platform.prepare_collection_submission_request_v2("
     "uuid,uuid,uuid,integer,text,text,text,text,text,text,text,timestamptz)"
@@ -181,14 +183,14 @@ class _SubmissionFixture:
 def _test_dsn() -> str:
     dsn = os.getenv("COLLECTION_SUBMISSION_V2_TEST_DSN")
     if not dsn:
-        pytest.skip("isolated submission-v2 PostgreSQL DSN not configured")
+        pytest.fail("COLLECTION_SUBMISSION_V2_TEST_DSN is not configured")
     parsed = urlparse(dsn)
     if parsed.scheme not in {"postgresql", "postgres"}:
-        pytest.skip("submission-v2 integration tests require a PostgreSQL DSN")
+        pytest.fail("submission-v2 integration tests require a PostgreSQL DSN")
     if parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
-        pytest.skip("submission-v2 integration tests refuse non-loopback PostgreSQL")
+        pytest.fail("submission-v2 integration tests refuse non-loopback PostgreSQL")
     if not parsed.path or parsed.path == "/":
-        pytest.skip("submission-v2 integration tests require an explicit database")
+        pytest.fail("submission-v2 integration tests require an explicit database")
     return dsn
 
 
@@ -219,19 +221,19 @@ def _ensure_s10(connection: psycopg.Connection[tuple[object, ...]]) -> None:
         "SELECT to_regclass('platform.collection_submission_request_manifest_v2')"
     ).fetchone()
     if table is None or table[0] is None:
-        pytest.skip("s10 collection submission migration is not installed")
+        pytest.fail("s10 collection submission migration is not installed")
     missing = tuple(
         signature
         for signature in RESTRICTED_SIGNATURES
         if connection.execute("SELECT to_regprocedure(%s)", (signature,)).fetchone() == (None,)
     )
     if missing:
-        pytest.skip(f"s10 restricted signatures are not installed: {missing!r}")
+        pytest.fail(f"s10 restricted signatures are not installed: {missing!r}")
     roles = connection.execute(
         "SELECT rolname FROM pg_roles WHERE rolname IN ('geo_api','geo_worker') ORDER BY rolname"
     ).fetchall()
     if tuple(str(row[0]) for row in roles) != ("geo_api", "geo_worker"):
-        pytest.skip("s10 runtime roles are not installed")
+        pytest.fail("s10 runtime roles are not installed")
 
 
 def _clone_binding_with_single_owner(

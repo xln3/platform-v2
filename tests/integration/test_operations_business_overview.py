@@ -14,26 +14,28 @@ from geo_platform.main import app
 from geo_platform.tenancy.ids import new_pub_id
 
 TEST_DATABASE_URL = os.getenv("S01_BUSINESS_OVERVIEW_POSTGRES_DSN")
-if TEST_DATABASE_URL is None:
-    pytest.skip(
-        "set S01_BUSINESS_OVERVIEW_POSTGRES_DSN to an isolated database",
-        allow_module_level=True,
-    )
-POSTGRES_DSN = TEST_DATABASE_URL.replace("postgresql+psycopg://", "postgresql://", 1)
+POSTGRES_DSN = (TEST_DATABASE_URL or "").replace("postgresql+psycopg://", "postgresql://", 1)
 effective_application_dsn = os.getenv("GEO_POSTGRES_DSN", "").replace(
     "postgresql+psycopg://", "postgresql://", 1
 )
 parsed_test_dsn = urlsplit(POSTGRES_DSN)
-if (
-    parsed_test_dsn.hostname not in {"127.0.0.1", "localhost"}
-    or parsed_test_dsn.path.removeprefix("/").startswith("geo_platform_s01_") is False
-    or effective_application_dsn != POSTGRES_DSN
-):
-    raise RuntimeError(
-        "business overview integration tests require matching GEO_POSTGRES_DSN and an "
-        "isolated geo_platform_s01_* database"
-    )
+pytestmark = pytest.mark.isolated_postgres
 OVERVIEW_PATH = "/api/v2/operations/business-overview"
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _require_isolated_postgres() -> None:
+    if TEST_DATABASE_URL is None:
+        pytest.fail("set S01_BUSINESS_OVERVIEW_POSTGRES_DSN to an isolated database")
+    if (
+        parsed_test_dsn.hostname not in {"127.0.0.1", "localhost"}
+        or parsed_test_dsn.path.removeprefix("/").startswith("geo_platform_s01_") is False
+        or effective_application_dsn != POSTGRES_DSN
+    ):
+        pytest.fail(
+            "business overview integration tests require matching GEO_POSTGRES_DSN and an "
+            "isolated geo_platform_s01_* database"
+        )
 
 
 def _bootstrap(client: TestClient, marker: str) -> tuple[str, str, dict[str, str]]:
@@ -527,8 +529,18 @@ def test_business_overview_fails_closed_for_cross_tenant_customer_association() 
     project_id, original_customer_id = own_row
     foreign_customer_id = foreign_row[0]
 
+    with pytest.raises(psycopg.errors.ForeignKeyViolation):
+        with psycopg.connect(POSTGRES_DSN) as connection:
+            connection.execute(
+                "UPDATE platform.project SET customer_id=%s WHERE id=%s",
+                (foreign_customer_id, project_id),
+            )
+
     try:
         with psycopg.connect(POSTGRES_DSN) as connection:
+            # Simulate historical corruption that predates the composite FK.  This
+            # test runs only against an isolated owner-controlled database.
+            connection.execute("SET LOCAL session_replication_role = replica")
             connection.execute(
                 "UPDATE platform.project SET customer_id=%s WHERE id=%s",
                 (foreign_customer_id, project_id),

@@ -9,6 +9,7 @@ INV-25 确认门：变体状态机 pending → confirmed/rejected；仅 confirme
 import hashlib
 import json
 import uuid
+from datetime import date
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
@@ -19,6 +20,8 @@ from sqlalchemy.orm import Session
 from ..config import get_settings
 from ..identity.policy import Principal, get_principal
 from ..intake import research
+from ..metrics_v2.consumer_projection import OfficialMetricsConsumer, OfficialScope
+from ..metrics_v2.repository import MetricsV2Repository
 from ..projects.models import Project
 from ..tenancy.database import get_db
 from ..tenancy.ids import new_pub_id
@@ -31,6 +34,17 @@ router = APIRouter(prefix="/api/v2/projects", tags=["query-variants"])
 IdempotencyKey = Annotated[str, Header(alias="Idempotency-Key", min_length=16, max_length=128)]
 
 _MAX_GAP_LIST = 200
+
+
+def _dsn() -> str:
+    settings = get_settings()
+    return (settings.runtime_postgres_dsn or settings.postgres_dsn).replace(
+        "postgresql+psycopg://", "postgresql://", 1
+    )
+
+
+def _official_consumer() -> OfficialMetricsConsumer:
+    return OfficialMetricsConsumer(MetricsV2Repository(_dsn()))
 
 
 class StrictModel(BaseModel):
@@ -73,6 +87,12 @@ class GenerateRequest(StrictModel):
     window_days: int | None = Field(default=90, ge=1, le=365)
     use_llm: bool = False
     max_variants: int = Field(default=100, ge=1, le=500)
+    legacy_recycle_answer_analysis: bool = Field(
+        default=False,
+        description=(
+            "Explicit audit-only V1 recycle. Never enabled by the formal V2 metrics path."
+        ),
+    )
 
 
 class GenerateResponse(StrictModel):
@@ -283,6 +303,7 @@ def generate(
         use_llm=body.use_llm,
         llm_config=llm_config,
         max_variants=body.max_variants,
+        legacy_recycle_answer_analysis=body.legacy_recycle_answer_analysis,
         pub_id_factory=new_pub_id,
     )
     result = GenerateResponse(
@@ -357,6 +378,42 @@ def confirm(
     )
     session.commit()
     return result
+
+
+@router.get(
+    "/{project_pub_id}/variants/official-metrics",
+    response_model=None,
+    operation_id="getVariantOfficialMetricsV2",
+)
+def official_metrics(
+    project_pub_id: str,
+    start: date,
+    end: date,
+    focal_entity_id: list[str] | None = Query(default=None),
+    principal: Principal = Depends(get_principal),
+) -> dict[str, Any]:
+    """Goal/verification metrics for variants from the V2 official set only."""
+
+    principal.require("project:read")
+    try:
+        result = _official_consumer().overview(
+            OfficialScope(
+                tenant_pub_id=principal.tenant_pub_id,
+                project_pub_id=project_pub_id,
+                start=start,
+                end=end,
+                focal_entity_ids=tuple(focal_entity_id or ()),
+            )
+        )
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=404, detail={"code": "official_metric_snapshot_set_not_found"}
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422, detail={"code": "invalid_official_metric_scope"}
+        ) from exc
+    return {**result, "schema_version": "variant-official-metrics-v2"}
 
 
 @router.get("/{project_pub_id}/variants/coverage", response_model=CoverageResponse)

@@ -1193,6 +1193,59 @@ main:has(> .geo-customer-dashboard) > .page-heading {
   }
 }
 
+.geo-metric-v2-navigation {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid var(--geo-border, #d8e0eb);
+  border-radius: 1rem;
+  background: var(--geo-surface, #fff);
+}
+
+.geo-metric-v2-navigation > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.geo-metric-v2-navigation button {
+  min-height: 2.5rem;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid var(--geo-border, #d8e0eb);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.geo-metric-v2-navigation button[aria-pressed='true'] {
+  border-color: #3159d4;
+  background: #3159d4;
+  color: #fff;
+}
+
+.geo-metric-v2-navigation button:focus-visible,
+.geo-metric-v2-grid button:focus-visible {
+  outline: 3px solid #7aa7ff;
+  outline-offset: 2px;
+}
+
+.geo-metric-v2-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+  gap: 1rem;
+}
+
+.geo-metric-v2-binding,
+.geo-metric-v2-empty {
+  margin: 1rem 0;
+  padding: 0.85rem 1rem;
+  overflow-wrap: anywhere;
+  border-left: 4px solid #3159d4;
+  border-radius: 0.5rem;
+  background: #eef3ff;
+}
+
 .geo-filter-label,
 .geo-metric-label-with-help {
   display: inline-flex;

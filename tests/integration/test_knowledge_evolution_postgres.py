@@ -26,6 +26,7 @@ EFFECTIVE_DSN = os.getenv("GEO_POSTGRES_DSN", "").replace(
     "postgresql+psycopg://", "postgresql://", 1
 )
 PARSED_DSN = urlsplit(POSTGRES_DSN)
+pytestmark = pytest.mark.knowledge_postgres
 
 
 @pytest.fixture(scope="module", autouse=True)

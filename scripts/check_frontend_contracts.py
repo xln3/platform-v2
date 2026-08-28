@@ -802,7 +802,7 @@ for fragment in (
     "operational fields fail the atomic customer dashboard snapshot closed",
     "a malformed nested dimension fails atomically instead of claiming an empty window",
     "filter changes discard an older customer dashboard snapshot response",
-    "models: Array.from({ length: 101 }",
+    "metrics: Array.from({ length: 41 }",
     "expectAccessible(page)",
     "atomic-dashboard-oversize-canary",
     "wf_customer_dashboard_forbidden",
@@ -1715,9 +1715,9 @@ for fragment in (
 ):
     if fragment not in api_client:
         errors.append(f"@geo/api-client browser identity type is missing {fragment}")
-if api_client.count("client: ProjectedApiClientOverride = apiClient") != 144:
+if api_client.count("client: ProjectedApiClientOverride = apiClient") != 146:
     errors.append(
-        "@geo/api-client must keep all 144 projected wrapper overrides free of the raw "
+        "@geo/api-client must keep all 146 projected wrapper overrides free of the raw "
         "generated client type"
     )
 projected_client_unwraps = len(
@@ -1726,7 +1726,7 @@ projected_client_unwraps = len(
         api_client,
     )
 ) + api_client.count("const api = projectedApiClient(client);")
-if projected_client_unwraps != 144:
+if projected_client_unwraps != 146:
     errors.append(
         "@geo/api-client must unwrap every projected wrapper override only inside its "
         "generated request implementation"

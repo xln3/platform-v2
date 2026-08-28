@@ -130,3 +130,96 @@ groups:
           service: api
         annotations:
           summary: Published report delivery confirmation is overdue
+
+  - name: geo-platform-query-cohort-metrics-v2
+    rules:
+      - alert: GeoMetricsV2OutboxBacklog
+        expr: geo_metrics_v2_outbox_backlog > 0
+        for: 10m
+        labels:
+          severity: warning
+          category: metrics-v2
+          service: metrics-worker
+        annotations:
+          summary: V2 metrics workflow commands remain queued
+      - alert: GeoMetricsV2EvaluationLag
+        expr: geo_metrics_v2_evaluation_lag_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+          category: metrics-v2
+          service: metrics-worker
+        annotations:
+          summary: V2 metric evaluation latency exceeds the operating target
+      - alert: GeoMetricsV2HashMismatch
+        expr: geo_metrics_v2_hash_mismatch_total > 0
+        for: 0m
+        labels:
+          severity: critical
+          category: integrity
+          service: metrics-worker
+        annotations:
+          summary: V2 metric hash or reconciliation mismatch was detected
+      - alert: GeoMetricsV2CoverageBelowGate
+        expr: (geo_metrics_v2_collection_coverage < 0.98) or (geo_metrics_v2_semantic_coverage < 0.98)
+        for: 5m
+        labels:
+          severity: critical
+          category: integrity
+          service: metrics-worker
+        annotations:
+          summary: V2 collection or semantic coverage is below the publication gate
+      - alert: GeoMetricsV2OfficialPointerInvalid
+        expr: geo_metrics_v2_official_pointer_invalid > 0
+        for: 0m
+        labels:
+          severity: critical
+          category: publication
+          service: metrics-worker
+        annotations:
+          summary: A V2 official pointer does not reference a ready snapshot set
+      - alert: GeoSemanticDecisionV2Backlog
+        expr: geo_semantic_decision_v2_backlog > 0
+        for: 10m
+        labels:
+          severity: warning
+          category: decision-v2
+          service: decision-worker
+        annotations:
+          summary: V2 semantic decisions remain pending or running
+      - alert: GeoSemanticDecisionV2QualityGate
+        expr: (geo_semantic_decision_v2_abstention_ratio > 0.02) or (geo_semantic_decision_v2_disagreement_ratio > 0.02) or (geo_semantic_decision_v2_evidence_failure_ratio > 0.02)
+        for: 5m
+        labels:
+          severity: critical
+          category: decision-v2
+          service: decision-worker
+        annotations:
+          summary: V2 semantic decision quality exceeds an approved error gate
+      - alert: GeoSemanticDecisionV2InvalidOutput
+        expr: geo_semantic_decision_v2_invalid_output_total > 0
+        for: 0m
+        labels:
+          severity: warning
+          category: decision-v2
+          service: decision-worker
+        annotations:
+          summary: A V2 judge returned invalid structured output
+      - alert: GeoSemanticDecisionV2FallbackBlocked
+        expr: geo_semantic_decision_v2_fallback_blocked_total > 0
+        for: 0m
+        labels:
+          severity: critical
+          category: decision-v2
+          service: decision-worker
+        annotations:
+          summary: An uncalibrated semantic fallback attempt was blocked
+      - alert: GeoReportV2SnapshotValidationFailed
+        expr: geo_report_v2_snapshot_validation_failures_total > 0
+        for: 0m
+        labels:
+          severity: critical
+          category: reporting
+          service: report-worker
+        annotations:
+          summary: A formal report failed V2 snapshot binding validation

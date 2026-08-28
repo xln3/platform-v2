@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Protocol
+from urllib.parse import urlencode
 
 import psycopg
 from psycopg.rows import dict_row
@@ -23,6 +24,98 @@ from domain.metrics.customer import (
     is_own_site,
     own_site_host,
 )
+
+from ..metrics_v2.repository import MetricsV2Repository
+from ..metrics_v2.schemas import MetricSnapshotView
+from .schemas import CustomerDashboardV2View, CustomerMetricTraceV2View
+
+CUSTOMER_METRIC_NAMES_V2: dict[tuple[str, str], tuple[str, ...]] = {
+    (
+        "ai_impression",
+        "brand_neutral",
+    ): ("ai_impression_neutral_spontaneous_association_rate_v2",),
+    ("ai_impression", "focal_named_only"): (),
+    ("ai_impression", "other_brand_named"): (),
+    ("ai_impression", "focal_named_with_others"): (),
+    (
+        "ai_recommendation",
+        "brand_neutral",
+    ): (
+        "ai_recommendation_organic_mention_rate_v2",
+        "ai_recommendation_organic_recommendation_rate_v2",
+        "ai_recommendation_rankable_response_rate_v2",
+        "ai_recommendation_organic_top1_visibility_rate_v2",
+        "ai_recommendation_organic_top3_visibility_rate_v2",
+        "ai_recommendation_organic_top5_visibility_rate_v2",
+        "ai_recommendation_organic_top1_given_rankable_rate_v2",
+        "ai_recommendation_organic_top3_given_rankable_rate_v2",
+        "ai_recommendation_organic_top5_given_rankable_rate_v2",
+        "ai_recommendation_mean_rank_given_target_ranked_v2",
+        "ai_recommendation_entity_share_v2",
+    ),
+    (
+        "ai_recommendation",
+        "focal_named_only",
+    ): (
+        "prompted_recommendation_positive_rate_v2",
+        "prompted_recommendation_conditional_rate_v2",
+        "prompted_recommendation_negative_rate_v2",
+        "prompted_recommendation_neutral_rate_v2",
+    ),
+    (
+        "ai_recommendation",
+        "other_brand_named",
+    ): (
+        "competitor_anchored_target_bring_in_rate_v2",
+        "competitor_anchored_target_alternative_rate_v2",
+    ),
+    (
+        "ai_recommendation",
+        "focal_named_with_others",
+    ): (
+        "multibrand_pairwise_win_rate_v2",
+        "multibrand_pairwise_tie_rate_v2",
+        "multibrand_pairwise_loss_rate_v2",
+        "multibrand_corecommendation_rate_v2",
+    ),
+}
+
+_CUSTOMER_METRIC_LABELS_V2 = {
+    "ai_impression_neutral_spontaneous_association_rate_v2": "品牌中性 AI 印象自发联想率",
+    "ai_recommendation_organic_mention_rate_v2": "中性 AI 推荐自然提及率",
+    "ai_recommendation_organic_recommendation_rate_v2": "中性 AI 推荐自然推荐率",
+    "ai_recommendation_rankable_response_rate_v2": "中性 AI 推荐可排序回答率",
+    "ai_recommendation_organic_top1_visibility_rate_v2": "中性 AI 推荐 Top1 可见率",
+    "ai_recommendation_organic_top3_visibility_rate_v2": "中性 AI 推荐 Top3 可见率",
+    "ai_recommendation_organic_top5_visibility_rate_v2": "中性 AI 推荐 Top5 可见率",
+    "ai_recommendation_organic_top1_given_rankable_rate_v2": "可排序回答内 Top1 率",
+    "ai_recommendation_organic_top3_given_rankable_rate_v2": "可排序回答内 Top3 率",
+    "ai_recommendation_organic_top5_given_rankable_rate_v2": "可排序回答内 Top5 率",
+    "ai_recommendation_mean_rank_given_target_ranked_v2": "目标有推荐排名时的平均名次",
+    "ai_recommendation_entity_share_v2": "中性推荐实体份额",
+    "prompted_recommendation_positive_rate_v2": "焦点品牌点名后正向推荐率",
+    "prompted_recommendation_conditional_rate_v2": "焦点品牌点名后有条件推荐率",
+    "prompted_recommendation_negative_rate_v2": "焦点品牌点名后负向推荐率",
+    "prompted_recommendation_neutral_rate_v2": "焦点品牌点名后中性推荐率",
+    "competitor_anchored_target_bring_in_rate_v2": "其他品牌点名后焦点品牌带出率",
+    "competitor_anchored_target_alternative_rate_v2": "其他品牌点名后替代推荐率",
+    "multibrand_pairwise_win_rate_v2": "多品牌同问两两胜出率",
+    "multibrand_pairwise_tie_rate_v2": "多品牌同问两两持平率",
+    "multibrand_pairwise_loss_rate_v2": "多品牌同问两两落后率",
+    "multibrand_corecommendation_rate_v2": "多品牌同问共同推荐率",
+}
+
+
+class CustomerMetricsV2RepositoryProtocol(Protocol):
+    def catalog(self) -> list[dict[str, Any]]: ...
+
+    def current_snapshot_set(self, **kwargs: Any) -> dict[str, Any]: ...
+
+    def get_snapshot_set(self, **kwargs: Any) -> dict[str, Any]: ...
+
+    def get_snapshot(self, **kwargs: Any) -> dict[str, Any]: ...
+
+    def list_contributions(self, **kwargs: Any) -> dict[str, Any]: ...
 
 
 @contextmanager
@@ -55,6 +148,305 @@ def _safe_competitor_ranks(value: object) -> dict[str, int]:
         and not isinstance(rank, bool)
         and 1 <= rank <= 10_000
     }
+
+
+class CustomerDashboardV2Service:
+    """Read-only customer projection over immutable metric snapshot sets.
+
+    This boundary deliberately has no metric evaluator, heuristic classifier or
+    model client.  Missing sets, metrics and definitions are surfaced as
+    unavailable; an official customer read never falls back to V1 computation.
+    """
+
+    def __init__(
+        self,
+        *,
+        dsn: str,
+        repository: CustomerMetricsV2RepositoryProtocol | None = None,
+    ) -> None:
+        self.dsn = dsn
+        self.repository = repository or MetricsV2Repository(dsn=dsn)
+
+    def _brand_name(self, *, tenant_pub_id: str, project_pub_id: str) -> str:
+        with _customer_connection(self.dsn, tenant_pub_id) as connection:
+            row = connection.execute(
+                """
+                SELECT p.name,b.name AS brand_name
+                FROM platform.project p
+                LEFT JOIN LATERAL (
+                  SELECT name FROM platform.brand
+                  WHERE project_id=p.id
+                  ORDER BY updated_at DESC,pub_id DESC LIMIT 1
+                ) b ON true
+                WHERE p.pub_id=%s
+                """,
+                (project_pub_id,),
+            ).fetchone()
+        if row is None:
+            raise LookupError("project_not_found")
+        return str(row["brand_name"] or row["name"]).strip() or "未命名品牌"
+
+    @staticmethod
+    def _validate_metric_names(
+        *, business_view: str, exposure_role: str, metric_names: Sequence[str]
+    ) -> tuple[str, ...]:
+        normalized = tuple(metric_names)
+        if not normalized or len(normalized) != len(set(normalized)):
+            raise ValueError("invalid_customer_metric_names_v2")
+        allowed = CUSTOMER_METRIC_NAMES_V2.get((business_view, exposure_role))
+        if allowed is None or not allowed:
+            raise ValueError("unsupported_customer_metric_cohort_v2")
+        if any(name not in allowed for name in normalized):
+            raise ValueError("customer_metric_outside_requested_cohort_v2")
+        return normalized
+
+    def _catalog(self) -> dict[tuple[str, str, str], Mapping[str, Any]]:
+        return {
+            (
+                str(item["metric_name"]),
+                str(item["metric_version"]),
+                str(item["definition_hash"]),
+            ): item
+            for item in self.repository.catalog()
+        }
+
+    @staticmethod
+    def _filter_values(values: Sequence[str], *, maximum_length: int) -> tuple[str, ...]:
+        if len(values) > 100:
+            raise ValueError("customer_dashboard_v2_filter_limit_exceeded")
+        normalized = tuple(value.strip() for value in values)
+        if any(not value or len(value) > maximum_length for value in normalized):
+            raise ValueError("invalid_customer_dashboard_v2_filter")
+        return tuple(sorted(set(normalized)))
+
+    @staticmethod
+    def _metric_card(
+        *,
+        raw_metric: Mapping[str, Any],
+        definition: Mapping[str, Any],
+        business_view: str,
+        exposure_role: str,
+        aggregation_method: str,
+    ) -> dict[str, Any]:
+        metric = MetricSnapshotView.model_validate(
+            {name: raw_metric[name] for name in MetricSnapshotView.model_fields}
+        ).model_dump(mode="python")
+        metric_name = str(metric["metric_name"])
+        return {
+            **metric,
+            "label": _CUSTOMER_METRIC_LABELS_V2.get(metric_name, metric_name),
+            "business_view": business_view,
+            "exposure_role": exposure_role,
+            "aggregation_method": aggregation_method,
+            "definition": {
+                "business_question": definition["business_question"],
+                "denominator_description": definition["denominator_description"],
+                "outcome_source": definition["outcome_source"],
+                "query_predicate": definition["query_predicate"],
+                "outcome_expression": definition["outcome_expression"],
+                "required_semantic_capabilities": definition["required_semantic_capabilities"],
+                "decision_task_refs": definition["decision_task_refs"],
+                "semantic_rubric_ref": definition.get("semantic_rubric_ref"),
+            },
+        }
+
+    def dashboard(
+        self,
+        *,
+        tenant_pub_id: str,
+        project_pub_id: str,
+        business_view: str,
+        exposure_role: str,
+        metric_names: Sequence[str],
+        start: date | None,
+        end: date | None,
+        models: Sequence[str] = (),
+        regions: Sequence[str] = (),
+        modes: Sequence[str] = (),
+        focal_entity_id: str | None = None,
+        publication_channel: str = "official",
+    ) -> dict[str, Any]:
+        if publication_channel not in {"official", "shadow"}:
+            raise ValueError("invalid_customer_metric_publication_channel_v2")
+        if (start is None) != (end is None) or (
+            start is not None and end is not None and (start > end or (end - start).days > 366)
+        ):
+            raise ValueError("invalid_customer_metric_window_v2")
+        if focal_entity_id is not None and (
+            not focal_entity_id.strip() or len(focal_entity_id) > 200
+        ):
+            raise ValueError("invalid_customer_metric_focal_entity_v2")
+        requested_names = self._validate_metric_names(
+            business_view=business_view,
+            exposure_role=exposure_role,
+            metric_names=metric_names,
+        )
+        snapshot_set = self.repository.current_snapshot_set(
+            tenant_pub_id=tenant_pub_id,
+            project_pub_id=project_pub_id,
+            start=start.isoformat() if start else None,
+            end=end.isoformat() if end else None,
+            models=self._filter_values(models, maximum_length=120),
+            regions=self._filter_values(regions, maximum_length=120),
+            modes=self._filter_values(modes, maximum_length=80),
+            focal_entity_ids=(focal_entity_id,) if focal_entity_id else (),
+            publication_channel=publication_channel,
+        )
+        if snapshot_set.get("project_pub_id") != project_pub_id:
+            raise LookupError("metrics_v2_snapshot_set_not_found")
+        focal_entities = [str(value) for value in snapshot_set.get("focal_entity_ids", ())]
+        selected_focal = focal_entity_id
+        if selected_focal is None:
+            if len(focal_entities) != 1:
+                raise ValueError("customer_dashboard_v2_requires_focal_entity_id")
+            selected_focal = focal_entities[0]
+        elif selected_focal not in focal_entities:
+            raise LookupError("metrics_v2_snapshot_set_not_found")
+
+        catalog = self._catalog()
+        snapshots = {
+            (str(metric["metric_name"]), str(metric["focal_entity_id"])): metric
+            for metric in snapshot_set.get("metrics", ())
+        }
+        cards: list[dict[str, Any]] = []
+        for metric_name in requested_names:
+            raw_metric = snapshots.get((metric_name, selected_focal))
+            if raw_metric is None:
+                raise LookupError("customer_metric_snapshot_not_found_v2")
+            definition = catalog.get(
+                (
+                    metric_name,
+                    str(raw_metric["metric_version"]),
+                    str(raw_metric["metric_definition_hash"]),
+                )
+            )
+            if definition is None:
+                raise LookupError("customer_metric_definition_not_found_v2")
+            cards.append(
+                self._metric_card(
+                    raw_metric=raw_metric,
+                    definition=definition,
+                    business_view=business_view,
+                    exposure_role=exposure_role,
+                    aggregation_method=str(snapshot_set["aggregation_method"]),
+                )
+            )
+
+        document = {
+            "schema_version": "customer-dashboard-v2",
+            "project_pub_id": project_pub_id,
+            "brand_name": self._brand_name(
+                tenant_pub_id=tenant_pub_id, project_pub_id=project_pub_id
+            ),
+            "business_view": business_view,
+            "exposure_role": exposure_role,
+            "publication_channel": publication_channel,
+            "requested_metric_names": list(requested_names),
+            "focal_entity_id": selected_focal,
+            "snapshot_set_pub_id": snapshot_set["snapshot_set_pub_id"],
+            "snapshot_set_hash": snapshot_set["snapshot_set_hash"],
+            "state": snapshot_set["state"],
+            "as_of": snapshot_set["as_of"],
+            "window": snapshot_set["window"],
+            "filters": snapshot_set["filters"],
+            "aggregation_method": snapshot_set["aggregation_method"],
+            "design_basis": snapshot_set["design_basis"],
+            "scope_hash": snapshot_set["scope_hash"],
+            "dependency_bundle_hash": snapshot_set["dependency_bundle_hash"],
+            "metrics": cards,
+        }
+        return CustomerDashboardV2View.model_validate(document).model_dump(mode="python")
+
+    def trace(
+        self,
+        *,
+        tenant_pub_id: str,
+        project_pub_id: str,
+        snapshot_set_pub_id: str,
+        expected_snapshot_set_hash: str,
+        snapshot_pub_id: str,
+        business_view: str,
+        exposure_role: str,
+        cursor: str | None,
+        limit: int,
+        eligibility_status: str | None = None,
+        reason_code: str | None = None,
+        query: str | None = None,
+        model: str | None = None,
+        region: str | None = None,
+        mode: str | None = None,
+        hit: bool | None = None,
+    ) -> dict[str, Any]:
+        snapshot_set = self.repository.get_snapshot_set(
+            tenant_pub_id=tenant_pub_id, set_pub_id=snapshot_set_pub_id
+        )
+        if (
+            snapshot_set.get("project_pub_id") != project_pub_id
+            or snapshot_set.get("snapshot_set_hash") != expected_snapshot_set_hash
+        ):
+            raise LookupError("metrics_v2_snapshot_set_not_found")
+        raw_metric = self.repository.get_snapshot(
+            tenant_pub_id=tenant_pub_id, snapshot_pub_id=snapshot_pub_id
+        )
+        if raw_metric.get("snapshot_set_pub_id") != snapshot_set_pub_id:
+            raise LookupError("metrics_v2_snapshot_not_found")
+        metric_name = str(raw_metric["metric_name"])
+        self._validate_metric_names(
+            business_view=business_view,
+            exposure_role=exposure_role,
+            metric_names=(metric_name,),
+        )
+        definition = self._catalog().get(
+            (
+                metric_name,
+                str(raw_metric["metric_version"]),
+                str(raw_metric["metric_definition_hash"]),
+            )
+        )
+        if definition is None:
+            raise LookupError("customer_metric_definition_not_found_v2")
+        contributions = self.repository.list_contributions(
+            tenant_pub_id=tenant_pub_id,
+            snapshot_pub_id=snapshot_pub_id,
+            cursor=cursor,
+            limit=limit,
+            eligibility_status=eligibility_status,
+            reason_code=reason_code,
+            query=query,
+            model=model,
+            region=region,
+            mode=mode,
+            hit=hit,
+        )
+        binding_query = urlencode(
+            {
+                "metric_snapshot_set_pub_id": snapshot_set_pub_id,
+                "metric_snapshot_set_hash": expected_snapshot_set_hash,
+                "snapshot_at": str(snapshot_set["as_of"]),
+                "start": str(snapshot_set["window"]["start"]),
+                "end": str(snapshot_set["window"]["end"]),
+            }
+        )
+        for row in contributions.get("data", ()):
+            answer_href = str(row["answer_detail_href"])
+            separator = "&" if "?" in answer_href else "?"
+            row["answer_detail_href"] = f"{answer_href}{separator}{binding_query}"
+        document = {
+            "schema_version": "customer-metric-trace-v2",
+            "project_pub_id": project_pub_id,
+            "snapshot_set_pub_id": snapshot_set_pub_id,
+            "snapshot_set_hash": expected_snapshot_set_hash,
+            "as_of": snapshot_set["as_of"],
+            "metric": self._metric_card(
+                raw_metric=raw_metric,
+                definition=definition,
+                business_view=business_view,
+                exposure_role=exposure_role,
+                aggregation_method=str(snapshot_set["aggregation_method"]),
+            ),
+            "contributions": contributions,
+        }
+        return CustomerMetricTraceV2View.model_validate(document).model_dump(mode="python")
 
 
 class CustomerDashboardService:

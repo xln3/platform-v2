@@ -40,6 +40,20 @@ function formatMetric(metric: string, value: number | null): string {
   return metric === 'average_rank' ? value.toFixed(2) : `${(value * 100).toFixed(1)}%`;
 }
 
+const INDUSTRY_FIT_LABELS: Record<string, string> = {
+  core_cybersecurity: '核心网安',
+  adjacent_platform_security: '平台型安全',
+  identity_security_specialist: '身份安全',
+  scenario_specific_adjacent: '场景型相关',
+  cybersecurity_integrator: '安全服务/集成',
+  project_declared: '项目指定',
+};
+
+function industryFitLabel(value: string | null | undefined): string {
+  if (!value) return '已审核竞品';
+  return INDUSTRY_FIT_LABELS[value] ?? value;
+}
+
 type ResourceState<T> =
   | { kind: 'loading' }
   | { kind: 'ready'; data: T }
@@ -114,6 +128,10 @@ export function VisibilityWorkspace({
   // 规则包域以项目真源 project.brandrank_domain 为准，响应 domain 佐证；都未到位时显示中性占位。
   const rulepackDomain =
     project.brandrank_domain ?? (brands.kind === 'ready' ? brands.data.domain : undefined);
+  const entityResolution =
+    brands.kind === 'ready' ? brands.data.result?.entity_resolution : undefined;
+  const pendingEntityNames = entityResolution?.counts?.unclassified_distinct_names ?? 0;
+  const collapsedAliases = entityResolution?.counts?.alias_collapses_within_answers ?? 0;
   const brandRows = brands.kind === 'ready' ? (brands.data.result?.overall?.merged ?? []) : [];
   const brandPage = usePageWindow(
     brandRows,
@@ -249,6 +267,14 @@ export function VisibilityWorkspace({
             rulepackDomain ? `规则包：${rulepackDomain}` : '规则包信息加载中…'
           }）`}
         </h3>
+        {entityResolution?.mode === 'governed_hybrid_v2' ? (
+          <p className="service-note">
+            {`正式榜按品牌家族实体口径归并；本窗同一答案内消除 ${collapsedAliases} 次重复别名。`}
+            {pendingEntityNames > 0
+              ? `另有 ${pendingEntityNames} 个名称待语义复核，复核前不计入正式竞品榜。`
+              : '本窗没有待复核名称。'}
+          </p>
+        ) : null}
         {brands.kind === 'ready' ? (
           brandRows.length > 0 ? (
             <>
@@ -285,6 +311,7 @@ export function VisibilityWorkspace({
                     <tr>
                       <th>排名</th>
                       <th>品牌</th>
+                      <th>竞品属性</th>
                       <th>综合得分</th>
                       <th>出现次数</th>
                       <th>平均排名</th>
@@ -296,6 +323,9 @@ export function VisibilityWorkspace({
                       <tr key={row.brand}>
                         <td>{row.rank}</td>
                         <td>{row.brand}</td>
+                        <td title={row.eligibility_note ?? undefined}>
+                          {industryFitLabel(row.industry_fit)}
+                        </td>
                         <td>{row.score}</td>
                         <td>{row.occurrences}</td>
                         <td>{row.avg_rank}</td>

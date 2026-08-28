@@ -155,6 +155,7 @@
 
 .geo-answer-library__snapshot p {
   display: grid;
+  min-width: 0;
   gap: 3px;
   margin: 0;
 }
@@ -162,6 +163,10 @@
 .geo-answer-library__snapshot small {
   color: #596174;
   line-height: 1.55;
+}
+
+.geo-answer-library__snapshot code {
+  overflow-wrap: anywhere;
 }
 
 .geo-answer-library__search {

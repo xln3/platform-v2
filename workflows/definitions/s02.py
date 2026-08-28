@@ -8,6 +8,9 @@ from temporalio.common import RetryPolicy
 
 with workflow.unsafe.imports_passed_through():
     from workflows.activities.analysis_jobs import AnalysisJobStateInput, mark_analysis_job
+    from workflows.activities.report_v2 import (
+        validate_formal_metric_snapshot_binding_activity,
+    )
     from workflows.activities.s02 import (
         analyze_answer_activity,
         capture_evidence_activity,
@@ -218,6 +221,33 @@ class ReportProductionWorkflow:
         }
 
     async def _run_formal(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if payload.get("metric_snapshot_set_pub_id") is not None and workflow.patched(
+            "formal-metric-snapshot-binding-v2"
+        ):
+            self._formal_state = "binding_snapshot"
+            try:
+                await workflow.execute_activity(
+                    validate_formal_metric_snapshot_binding_activity,
+                    payload,
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=_RETRY,
+                )
+            except Exception as exc:
+                self._formal_state = "failed"
+                activity_error = getattr(exc, "cause", None)
+                error_type = getattr(activity_error, "type", None) or getattr(exc, "type", None)
+                error_code = (
+                    "metric_snapshot_set_not_ready"
+                    if error_type == "metric_snapshot_set_not_ready"
+                    else "metric_snapshot_binding_failed"
+                )
+                binding_failed: dict[str, Any] = await workflow.execute_activity(
+                    fail_formal_report_activity,
+                    payload | {"error_code": error_code},
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=_RETRY,
+                )
+                return binding_failed
         self._formal_state = "preflight"
         try:
             await workflow.execute_activity(

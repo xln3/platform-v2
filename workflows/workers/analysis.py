@@ -27,6 +27,14 @@ from workflows.activities.post_analysis import (
     finalize_post_analysis_task,
 )
 from workflows.activities.s02 import analyze_answer_activity, extract_brands_activity
+from workflows.activities.semantic_decisions_v2 import (
+    build_candidates_activity,
+    derive_query_context_activity,
+    freeze_decision_input_activity,
+    load_semantic_decision_backfill_batch_activity,
+    persist_query_context_activity,
+    retrieve_evidence_activity,
+)
 from workflows.activities.service2_source_corpus import (
     fail_service2_corpus_batch,
     finish_service2_corpus_batch,
@@ -41,6 +49,7 @@ from workflows.definitions.page_inspection import PageInspectionWorkflow
 from workflows.definitions.post_analysis import PostAnalysisWorkflow
 from workflows.definitions.post_collection_analysis import PostCollectionAnalysisWorkflow
 from workflows.definitions.s02 import AnswerAnalysisWorkflow
+from workflows.definitions.semantic_decisions_v2 import QueryContextClassificationWorkflowV2
 from workflows.definitions.service2_source_corpus import Service2SourceCorpusWorkflow
 
 ANALYSIS_WORKFLOWS = (
@@ -50,6 +59,7 @@ ANALYSIS_WORKFLOWS = (
     PostAnalysisWorkflow,
     OwnContentDisparagementWorkflow,
     Service2SourceCorpusWorkflow,
+    QueryContextClassificationWorkflowV2,
 )
 ANALYSIS_ACTIVITIES = (
     mark_analysis_job,
@@ -72,6 +82,12 @@ ANALYSIS_ACTIVITIES = (
     refresh_service2_corpus_bindings,
     process_service2_corpus_page,
     finish_service2_corpus_batch,
+    build_candidates_activity,
+    freeze_decision_input_activity,
+    retrieve_evidence_activity,
+    derive_query_context_activity,
+    persist_query_context_activity,
+    load_semantic_decision_backfill_batch_activity,
 )
 
 

@@ -1141,6 +1141,7 @@ describe('platform session lifecycle UX', () => {
   it('signs out from the shared shell topbar through the audited logout boundary', async () => {
     logoutIdentitySessionMock.mockClear();
     logoutIdentitySessionMock.mockResolvedValue(true);
+    const navigate = vi.fn();
     window.localStorage.setItem('geo.session.role', 'admin');
     render(
       <ProductShell
@@ -1149,6 +1150,7 @@ describe('platform session lifecycle UX', () => {
         description="安全工作区"
         nav={[{ id: 'home', label: '首页' }]}
         probe={async () => ({ status: 'ok' })}
+        logout={() => logoutPlatformSession(undefined, navigate)}
       >
         {() => <section>安全业务内容</section>}
       </ProductShell>,
@@ -1159,5 +1161,6 @@ describe('platform session lifecycle UX', () => {
 
     await waitFor(() => expect(logoutIdentitySessionMock).toHaveBeenCalledOnce());
     await waitFor(() => expect(window.localStorage.getItem('geo.session.role')).toBeNull());
+    expect(navigate).toHaveBeenCalledWith(platformLoginHref);
   });
 });

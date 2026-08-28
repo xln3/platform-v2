@@ -210,6 +210,36 @@ _ANALYTICS_TABLES = _names(
     run_comparison answer_agg_blind
     """,
 )
+
+# GEO metrics V2 deliberately splits immutable facts from the two mutable
+# control-plane projections.  Keep the objects explicit here: a future table
+# must not inherit access merely because it lives in ``analytics``.
+_ANALYTICS_V2_GLOBAL_READ = _names(
+    "analytics",
+    "semantic_decision_task_definition_v2 semantic_judge_policy_v2",
+)
+_ANALYTICS_V2_TENANT_READ = _names(
+    "analytics",
+    """
+    query_context_fact_v2 query_context_current_v2 query_entity_exposure_fact_v2
+    answer_semantic_manifest_v2 answer_semantic_event_v2 semantic_evidence_bundle_v2
+    semantic_decision_job_v2 semantic_decision_record_v2 metric_evaluation_v2
+    metric_snapshot_set_v2 metric_snapshot_v2 metric_contribution_v2
+    metric_query_contribution_v2 metric_design_cell_contribution_v2
+    metric_publication_v2 metric_recompute_job_v2
+    """,
+)
+_ANALYTICS_V2_WORKER_INSERT = _names(
+    "analytics",
+    """
+    query_context_fact_v2 query_entity_exposure_fact_v2 answer_semantic_manifest_v2
+    answer_semantic_event_v2 semantic_evidence_bundle_v2 semantic_decision_job_v2
+    semantic_decision_attempt_v2 semantic_decision_record_v2 metric_evaluation_v2
+    metric_snapshot_set_v2 metric_snapshot_v2 metric_contribution_v2
+    metric_query_contribution_v2 metric_design_cell_contribution_v2
+    metric_publication_v2 metric_recompute_job_v2
+    """,
+)
 _EVIDENCE_TABLES = _names(
     "evidence",
     """
@@ -437,6 +467,8 @@ def _build_table_policy(role: str) -> MappingProxyType[str, TableGrant]:
         _put(grants, _API_IDENTITY_READ, frozenset({"SELECT"}))
         _put(grants, _API_PLATFORM_WRITE, frozenset({"SELECT", "INSERT", "UPDATE"}))
         _put(grants, _ANALYTICS_TABLES, frozenset({"SELECT"}))
+        _put(grants, _ANALYTICS_V2_GLOBAL_READ, frozenset({"SELECT"}))
+        _put(grants, _ANALYTICS_V2_TENANT_READ, frozenset({"SELECT"}))
         for tables in (
             _EVIDENCE_TABLES,
             _REPORTING_TABLES,
@@ -469,6 +501,9 @@ def _build_table_policy(role: str) -> MappingProxyType[str, TableGrant]:
             _NOTIFICATION_TABLES,
         ):
             _put(grants, tables, frozenset({"SELECT", "INSERT", "UPDATE"}))
+        _put(grants, _ANALYTICS_V2_GLOBAL_READ, frozenset({"SELECT"}))
+        _put(grants, _ANALYTICS_V2_TENANT_READ, frozenset({"SELECT"}))
+        _put(grants, _ANALYTICS_V2_WORKER_INSERT, frozenset({"SELECT", "INSERT"}))
         _put(grants, _SOP_TABLES, frozenset({"SELECT"}))
         _put(grants, _POSTING_TABLES, frozenset({"SELECT"}))
         for table in _STAGE2_TABLES:
@@ -486,6 +521,56 @@ def _build_table_policy(role: str) -> MappingProxyType[str, TableGrant]:
         grants[table] = TableGrant(frozenset({"SELECT"}))
     for table in _S11_EXECUTION_TABLES:
         grants[table] = TableGrant(frozenset({"SELECT"}))
+
+    # The API can enqueue work and move the publication pointer only after its
+    # service-layer authorization checks.  Analysis/metrics workers own job
+    # execution state; immutable fact tables never receive UPDATE/DELETE.
+    if role == API_ROLE:
+        grants["analytics.semantic_decision_override_command_v2"] = TableGrant(
+            frozenset({"SELECT", "INSERT"})
+        )
+        grants["analytics.semantic_decision_job_v2"] = TableGrant(frozenset({"SELECT", "INSERT"}))
+        grants["analytics.metric_recompute_job_v2"] = TableGrant(frozenset({"SELECT", "INSERT"}))
+        grants["analytics.metric_publication_v2"] = TableGrant(
+            frozenset({"SELECT", "INSERT"}),
+            ("snapshot_set_pub_id", "generation", "published_by", "published_at"),
+        )
+    else:
+        grants["analytics.semantic_decision_job_v2"] = TableGrant(
+            frozenset({"SELECT", "INSERT"}),
+            (
+                "status",
+                "selected_decision_pub_id",
+                "workflow_id",
+                "run_id",
+                "retry_count",
+                "state_reason_codes",
+                "failure_code",
+                "started_at",
+                "completed_at",
+            ),
+        )
+        grants["analytics.metric_recompute_job_v2"] = TableGrant(
+            frozenset({"SELECT", "INSERT"}),
+            (
+                "status",
+                "cursor_state",
+                "input_count",
+                "output_count",
+                "skipped_count",
+                "failure_codes",
+                "retry_count",
+                "workflow_id",
+                "run_id",
+                "snapshot_set_pub_id",
+                "started_at",
+                "completed_at",
+            ),
+        )
+        grants["analytics.metric_publication_v2"] = TableGrant(
+            frozenset({"SELECT", "INSERT"}),
+            ("snapshot_set_pub_id", "generation", "published_by", "published_at"),
+        )
 
     # Preserve the deliberately asymmetric formal-production and workflow
     # outbox boundaries established by s06_0019.  Group-level defaults above
@@ -541,7 +626,16 @@ _SEQUENCES_BY_SCHEMA = {
         "analytics",
         "analysis_run_id_seq anomaly_event_id_seq answer_analysis_id_seq "
         "answer_brand_extract_id_seq answer_citation_relation_id_seq answer_id_seq "
-        "citation_fact_id_seq metric_daily_id_seq metric_definition_id_seq metric_trace_id_seq",
+        "citation_fact_id_seq metric_daily_id_seq metric_definition_id_seq metric_trace_id_seq "
+        "query_context_fact_v2_id_seq query_entity_exposure_fact_v2_id_seq "
+        "answer_semantic_manifest_v2_id_seq answer_semantic_event_v2_id_seq "
+        "semantic_decision_task_definition_v2_id_seq semantic_judge_policy_v2_id_seq "
+        "semantic_evidence_bundle_v2_id_seq semantic_decision_job_v2_id_seq "
+        "semantic_decision_attempt_v2_id_seq semantic_decision_record_v2_id_seq "
+        "metric_evaluation_v2_id_seq metric_snapshot_set_v2_id_seq "
+        "metric_snapshot_v2_id_seq metric_contribution_v2_id_seq "
+        "metric_query_contribution_v2_id_seq metric_design_cell_contribution_v2_id_seq "
+        "metric_publication_v2_id_seq metric_recompute_job_v2_id_seq",
     ),
     "evidence": _names(
         "evidence",
@@ -611,6 +705,9 @@ def _sequence_policy(role: str) -> frozenset[str]:
                 *_SEQUENCES_BY_SCHEMA["sop"],
                 *_SEQUENCES_BY_SCHEMA["posting"],
                 *_SEQUENCES_BY_SCHEMA["platform_api"],
+                "analytics.semantic_decision_job_v2_id_seq",
+                "analytics.metric_publication_v2_id_seq",
+                "analytics.metric_recompute_job_v2_id_seq",
             }
         )
     if role == WORKER_ROLE:
@@ -761,19 +858,31 @@ def migration_reconcile_sql(role: str) -> str:
         )
     for table, grant in TABLE_GRANTS[role].items():
         schema, name = table.split(".", 1)
+        relation = f'\'"{schema}"."{name}"\''
         if grant.privileges:
             statements.append(
+                f"IF to_regclass({relation}) IS NOT NULL THEN "
                 f"GRANT {','.join(sorted(grant.privileges))} ON TABLE "
-                f'"{schema}"."{name}" TO "{role}";'
+                f'"{schema}"."{name}" TO "{role}"; END IF;'
             )
         if grant.update_columns:
             columns = ",".join(f'"{column}"' for column in grant.update_columns)
-            statements.append(f'GRANT UPDATE ({columns}) ON TABLE "{schema}"."{name}" TO "{role}";')
+            statements.append(
+                f"IF to_regclass({relation}) IS NOT NULL THEN "
+                f'GRANT UPDATE ({columns}) ON TABLE "{schema}"."{name}" TO "{role}"; END IF;'
+            )
     for sequence in sorted(SEQUENCE_GRANTS[role]):
         schema, name = sequence.split(".", 1)
-        statements.append(f'GRANT USAGE,SELECT ON SEQUENCE "{schema}"."{name}" TO "{role}";')
+        relation = f'\'"{schema}"."{name}"\''
+        statements.append(
+            f"IF to_regclass({relation}) IS NOT NULL THEN "
+            f'GRANT USAGE,SELECT ON SEQUENCE "{schema}"."{name}" TO "{role}"; END IF;'
+        )
     for function in sorted(FUNCTION_GRANTS[role]):
-        statements.append(f'GRANT EXECUTE ON FUNCTION {function} TO "{role}";')
+        statements.append(
+            f"IF to_regprocedure('{function}') IS NOT NULL THEN "
+            f'GRANT EXECUTE ON FUNCTION {function} TO "{role}"; END IF;'
+        )
     statements.append("END IF; END $runtime_acl$;")
     return "\n".join(statements)
 

@@ -19,6 +19,13 @@ type LegacyWithoutCatalog = CommonCreateFields & { services: [1, 4] };
 type QuotationServiceFive = CommonCreateFields & {
   services: [5];
   service_catalog_version: 'quotation_services_v2';
+  metric_snapshot_set_pub_id: 'mss_typecheck';
+  metric_snapshot_set_hash: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  metric_snapshot_filters: {
+    model: [];
+    region: [];
+    mode: [];
+  };
 };
 type InvalidLegacyServiceFive = CommonCreateFields & { services: [5] };
 type InvalidExplicitLegacyServiceFive = CommonCreateFields & {

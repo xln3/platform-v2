@@ -1,9 +1,8 @@
 import { expectAccessible } from './accessibility';
 import { expect, test } from './runtime-fixture';
 
-// @live-api 车道：本用例 POST 真实 /api/v2/identity/bootstrap（需可写 API+库，静态 harness 的
-// /api 代理目标 45200 在 CI/本地均无监听）。CI browser-e2e 以 --grep-invert @live-api 显式排除；
-// 本地有 API 时可直接跑。待 dedicated live-API e2e 车道立项后归位。
+// @live-api 车道：本用例 POST 真实 /api/v2/identity/bootstrap，需要 45200 上的可写 API+库；
+// CI 的 live-api-e2e job 会生成确定性 20k+ 数据集，本地由 test:e2e:live 显式执行。
 test('media prices consumes the real 20k-row API artifact through the generated boundary @live-api', async ({
   page,
   request,

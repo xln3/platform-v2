@@ -207,6 +207,25 @@ export type BrandVisibilityRow = {
   avg_rank: number;
   occurrences: number;
   appearance_rate?: number;
+  entity_type?: string;
+  brand_level?: string;
+  industry_fit?: string | null;
+  competitor_scopes?: string[];
+  eligibility_note?: string | null;
+};
+
+export type BrandEntityResolution = {
+  mode: 'governed_hybrid_v2' | 'legacy_merge_rules';
+  master?: {
+    revision?: string;
+    aggregation_level?: string;
+  } | null;
+  counts?: {
+    unclassified_answer_mentions?: number;
+    unclassified_distinct_names?: number;
+    alias_collapses_within_answers?: number;
+  };
+  pending_review_truncated?: boolean;
 };
 
 export type BrandVisibility = {
@@ -218,6 +237,7 @@ export type BrandVisibility = {
   competitors?: string[];
   result?: {
     overall?: { merged?: BrandVisibilityRow[] };
+    entity_resolution?: BrandEntityResolution;
     insufficient?: boolean;
   };
 };

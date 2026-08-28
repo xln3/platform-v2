@@ -33,11 +33,13 @@ def _cases(seed=20260719, n=60):
 
 
 # ── 与她的函数逐案对拍（源码不在场时 skip）─────────────────────────────
+@pytest.mark.external_fixture
 def test_calculate_brand_ranking_matches_her_impl(her):
     for case in _cases():
         assert metrics.calculate_brand_ranking(case) == her["calculate_brand_ranking"](case)
 
 
+@pytest.mark.external_fixture
 def test_collect_and_merge_rank_maps_match_her_impl(her):
     for case in _cases(n=20):
         assert metrics.collect_brand_ranks(case) == her["collect_brand_ranks"](case)
@@ -47,6 +49,7 @@ def test_collect_and_merge_rank_maps_match_her_impl(her):
     assert metrics.merge_rank_maps(*maps) == her["merge_rank_maps"](*maps)
 
 
+@pytest.mark.external_fixture
 def test_rates_match_her_impl(her):
     rng = random.Random(11)
     for _ in range(200):
