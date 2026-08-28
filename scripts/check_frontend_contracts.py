@@ -321,6 +321,21 @@ production_browser_acceptance = (root / "tools/production_browser_acceptance.mjs
 )
 frontend_release = (root / "scripts/frontend_release.py").read_text(encoding="utf-8")
 frontend_release_tests = (root / "tests/unit/test_frontend_release.py").read_text(encoding="utf-8")
+frontend_nginx = terminal_nginx + (root / "deploy/production/nginx-v2-locations.conf").read_text(
+    encoding="utf-8"
+)
+for app in (
+    "customer-web",
+    "operations-web",
+    "report-studio",
+    "intelligence-web",
+    "intake-form",
+):
+    immutable_alias = f"/opt/geo-platform-v2/current/apps/{app}/build/client/"
+    if immutable_alias not in frontend_nginx:
+        errors.append(f"Production frontend alias is not release-bound: {app}")
+if "/home/xln/geo-system/platform-v2/apps/" in frontend_nginx:
+    errors.append("Production frontend aliases must not read from the mutable development tree")
 for fragment in (
     "GEO_FRONTEND_RELEASE_BUILD",
     "renameat2",
@@ -329,7 +344,9 @@ for fragment in (
     "verification_command_required",
     "rolled_back_after_failed_activation",
     "certify_active_release",
+    "materialize_release",
     "rollback_trees_match_previous_release",
+    "served_root",
 ):
     if fragment not in frontend_release:
         errors.append(f"Atomic frontend release boundary is missing {fragment}")
@@ -338,6 +355,7 @@ for fragment in (
     "test_failed_activation_can_be_inspected_and_retried_without_rebuilding",
     "test_verified_activation_and_manual_rollback_exchange_whole_trees",
     "test_build_environment_drops_all_secret_and_vite_values",
+    "test_materialize_fresh_immutable_root_restores_candidates_on_failure",
 ):
     if fragment not in frontend_release_tests:
         errors.append(f"Atomic frontend release regression is missing {fragment}")
@@ -802,7 +820,7 @@ for fragment in (
     "operational fields fail the atomic customer dashboard snapshot closed",
     "a malformed nested dimension fails atomically instead of claiming an empty window",
     "filter changes discard an older customer dashboard snapshot response",
-    "models: Array.from({ length: 101 }",
+    "metrics: Array.from({ length: 41 }",
     "expectAccessible(page)",
     "atomic-dashboard-oversize-canary",
     "wf_customer_dashboard_forbidden",
@@ -1715,9 +1733,9 @@ for fragment in (
 ):
     if fragment not in api_client:
         errors.append(f"@geo/api-client browser identity type is missing {fragment}")
-if api_client.count("client: ProjectedApiClientOverride = apiClient") != 144:
+if api_client.count("client: ProjectedApiClientOverride = apiClient") != 147:
     errors.append(
-        "@geo/api-client must keep all 144 projected wrapper overrides free of the raw "
+        "@geo/api-client must keep all 147 projected wrapper overrides free of the raw "
         "generated client type"
     )
 projected_client_unwraps = len(
@@ -1726,7 +1744,7 @@ projected_client_unwraps = len(
         api_client,
     )
 ) + api_client.count("const api = projectedApiClient(client);")
-if projected_client_unwraps != 144:
+if projected_client_unwraps != 147:
     errors.append(
         "@geo/api-client must unwrap every projected wrapper override only inside its "
         "generated request implementation"

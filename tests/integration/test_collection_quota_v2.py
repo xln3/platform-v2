@@ -68,6 +68,8 @@ from domain.collection.surface import (
     SendState,
 )
 
+pytestmark = pytest.mark.compat_postgres
+
 
 @dataclass(frozen=True, slots=True)
 class _ServiceFixture:
@@ -84,12 +86,12 @@ class _ServiceFixture:
 def _test_dsn() -> str:
     dsn = os.getenv("COLLECTION_QUOTA_V2_TEST_DSN")
     if not dsn:
-        pytest.skip("isolated PostgreSQL DSN not configured")
+        pytest.fail("COLLECTION_QUOTA_V2_TEST_DSN is not configured")
     parsed = urlparse(dsn)
     if parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
-        pytest.skip("quota integration tests refuse non-loopback PostgreSQL")
+        pytest.fail("quota integration tests refuse non-loopback PostgreSQL")
     if os.getenv("COLLECTION_QUOTA_V2_TEST_AS_WORKER") != "1":
-        pytest.skip("Stage-2 quota integration requires the geo_worker role gate")
+        pytest.fail("Stage-2 quota integration requires the geo_worker role gate")
     with psycopg.connect(dsn) as connection:
         revisions = tuple(
             str(row[0])
@@ -98,7 +100,7 @@ def _test_dsn() -> str:
             ).fetchall()
         )
     if revisions != ("s07_0002_execution_governance",):
-        pytest.skip(
+        pytest.fail(
             "Stage-2 direct-DML quota integration requires exact s07_0002; "
             "use the restricted repository suite at s10 or later"
         )
@@ -127,7 +129,7 @@ def _scope(kind: QuotaScopeKind, *, limit: int) -> QuotaScopeDeclaration:
 def _ensure_migration(connection: psycopg.Connection[tuple[object, ...]]) -> None:
     exists = connection.execute("SELECT to_regclass('platform.collection_quota_bucket')").fetchone()
     if exists is None or exists[0] is None:
-        pytest.skip("s07_0002 quota migration is not installed")
+        pytest.fail("s07_0002 quota migration is not installed")
 
 
 def _activate_worker_role(connection: psycopg.Connection[tuple[object, ...]]) -> None:

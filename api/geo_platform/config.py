@@ -30,6 +30,18 @@ class Settings(BaseSettings):
     # logged-in collection worker's browser slots or account session lease.
     source_temporal_task_queue: str = "geo-platform-v2-source"
     analysis_temporal_task_queue: str = "geo-platform-v2-analysis"
+    # V2 semantic adjudication, deterministic aggregation and document rendering
+    # have independent failure/concurrency domains.
+    decision_temporal_task_queue: str = "geo-platform-v2-decision"
+    metrics_temporal_task_queue: str = "geo-platform-v2-metrics"
+    report_temporal_task_queue: str = "geo-platform-v2-report"
+    metrics_max_concurrent_activities: int = 16
+    metrics_snapshot_max_concurrent_activities: int = 4
+    metrics_backfill_batch_size: int = 500
+    semantic_decision_max_concurrent_activities: int = 8
+    semantic_decision_backfill_batch_size: int = 100
+    semantic_decision_daily_budget: float = 0.0
+    semantic_decision_judge_policy_version: str = ""
     minio_endpoint: str = "http://127.0.0.1:19000"
     minio_access_key: str = "geo"
     minio_secret_key: str = "geo_dev_only_password"

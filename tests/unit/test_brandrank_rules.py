@@ -99,11 +99,13 @@ def _battery(rules):
     return cases
 
 
+@pytest.mark.external_fixture
 def test_normalize_brand_matches_her_impl(rules, her):
     for b in _battery(rules):
         assert normalize_brand(b, rules) == her["normalize_brand"](b), f"brand={b!r}"
 
 
+@pytest.mark.external_fixture
 def test_normalize_brand_list_matches_her_impl(rules, her):
     battery = _battery(rules)
     lists = [battery[i : i + 5] for i in range(0, len(battery), 5)]

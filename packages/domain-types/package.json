@@ -9,7 +9,7 @@
     "build": "tsc --noEmit",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "tsc --noEmit"
   },
   "devDependencies": {
     "vitest": "3.2.4"

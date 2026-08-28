@@ -16,6 +16,7 @@ import re
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime, time
+from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 from importlib import import_module
 from typing import Any, Protocol, cast
@@ -27,8 +28,18 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from domain.evidence.provenance import AccessClass, CaptureChannel, RedactedProvenance
+from domain.reporting.formal_metric_snapshot_docx import (
+    render_bound_metric_snapshot_docx,
+)
 from domain.reporting.freeze import ReportFreeze, freeze_report
 from domain.reporting.libreoffice import refresh_docx_and_export_pdf, report_runtime_preflight
+from domain.reporting.metric_snapshot_binding import (
+    MetricSnapshotBindingError,
+    MetricSnapshotSetBinding,
+    bind_frozen_metric_projection,
+    bind_metric_snapshot_set,
+    frozen_metric_projection,
+)
 from domain.reporting.policy import assert_customer_report_safe
 from domain.reporting.publication_qa import (
     compare_reexport,
@@ -97,14 +108,39 @@ _MIME_TYPES = {
 }
 
 
-def _artifact_formats(service: int, document_status: str) -> tuple[str, ...]:
-    if service == 1 and document_status in {
-        "internal_review",
-        "delivery_candidate",
-        "approved_signed",
-    }:
+def _artifact_formats(
+    service: int,
+    document_status: str,
+    *,
+    metric_snapshot_bound: bool = False,
+) -> tuple[str, ...]:
+    if metric_snapshot_bound or (
+        service == 1
+        and document_status
+        in {
+            "internal_review",
+            "delivery_candidate",
+            "approved_signed",
+        }
+    ):
         return ("docx", "pdf", "xlsx", "zip", "manifest")
     return ("docx", "pdf", "manifest")
+
+
+def _manifest_schema_version(request: FormalProductionRequest, service: int) -> str:
+    if request.metric_snapshot_set_pub_id is not None:
+        return "formal-report-manifest-metrics-v2"
+    if (
+        request.document_status
+        in {
+            "internal_review",
+            "delivery_candidate",
+            "approved_signed",
+        }
+        and service == 1
+    ):
+        return "formal-report-manifest-v2"
+    return "formal-report-manifest-v1"
 
 
 class FormalProductionNotFound(LookupError):
@@ -175,6 +211,10 @@ class FormalProductionRequest:
     service2_semantics: str = "all_u_v2"
     service2_manifest_pub_id: str | None = None
     service2_manifest_hash: str | None = None
+    metric_snapshot_set_pub_id: str | None = None
+    metric_snapshot_set_hash: str | None = None
+    metric_snapshot_filters: Mapping[str, object] | None = None
+    metric_snapshot_dependency_hash: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -199,6 +239,12 @@ class FormalReportAdapter(Protocol):
     ) -> bytes: ...
 
 
+class MetricSnapshotReader(Protocol):
+    def get_snapshot_set(self, *, tenant_pub_id: str, set_pub_id: str) -> dict[str, Any]: ...
+
+    def export_bundle(self, *, tenant_pub_id: str, set_pub_id: str) -> dict[str, Any]: ...
+
+
 def _json_default(value: object) -> object:
     if isinstance(value, datetime):
         return value.astimezone(UTC).isoformat()
@@ -219,6 +265,128 @@ def _canonical_json(value: object) -> str:
 
 def _canonical_hash(value: object) -> str:
     return sha256(_canonical_json(value).encode()).hexdigest()
+
+
+def _assert_metric_export_binding(
+    export: Mapping[str, Any], binding: MetricSnapshotSetBinding
+) -> None:
+    readme = export.get("readme")
+    metrics = export.get("metrics")
+    hashes = export.get("hashes")
+    if (
+        not isinstance(readme, Sequence)
+        or isinstance(readme, str | bytes)
+        or len(readme) != 1
+        or not isinstance(readme[0], Mapping)
+        or readme[0].get("snapshot_set_pub_id") != binding.snapshot_set_pub_id
+        or readme[0].get("snapshot_set_hash") != binding.snapshot_set_hash
+        or readme[0].get("project_pub_id") != binding.project_pub_id
+        or readme[0].get("state") != binding.snapshot_set_state
+        or str(readme[0].get("window_start")) != binding.window_start.isoformat()
+        or str(readme[0].get("window_end")) != binding.window_end.isoformat()
+        or _canonical_json(readme[0].get("filters")) != _canonical_json(binding.filters)
+        or readme[0].get("aggregation_method") != binding.aggregation_method
+        or not isinstance(metrics, Sequence)
+        or isinstance(metrics, str | bytes)
+        or not isinstance(hashes, Sequence)
+        or isinstance(hashes, str | bytes)
+    ):
+        raise FormalProductionIncomplete("metric_snapshot_export_binding_invalid")
+
+    metric_rows: dict[str, Mapping[str, Any]] = {}
+    for row in metrics:
+        if not isinstance(row, Mapping):
+            raise FormalProductionIncomplete("metric_snapshot_export_members_invalid")
+        snapshot_pub_id = str(row.get("pub_id") or row.get("snapshot_pub_id") or "")
+        if not snapshot_pub_id or snapshot_pub_id in metric_rows:
+            raise FormalProductionIncomplete("metric_snapshot_export_members_invalid")
+        metric_rows[snapshot_pub_id] = row
+    if set(metric_rows) != {member.snapshot_pub_id for member in binding.snapshots}:
+        raise FormalProductionIncomplete("metric_snapshot_export_members_invalid")
+
+    def numeric_matches(actual: object, expected: str | None) -> bool:
+        if expected is None:
+            return actual is None
+        try:
+            return Decimal(str(actual)) == Decimal(expected)
+        except InvalidOperation:
+            return False
+
+    for member in binding.snapshots:
+        row = metric_rows[member.snapshot_pub_id]
+        if (
+            row.get("snapshot_hash") != member.snapshot_hash
+            or row.get("focal_entity_id") != member.focal_entity_id
+            or row.get("metric_name") != member.metric_name
+            or row.get("metric_version") != member.metric_version
+            or row.get("state") != member.state
+            or row.get("metric_definition_hash") != member.definition_hash
+            or row.get("contribution_set_hash") != member.contribution_set_hash
+            or row.get("query_contribution_set_hash") != member.query_contribution_set_hash
+            or row.get("design_contribution_set_hash") != member.design_contribution_set_hash
+            or int(row.get("unique_query_count") or 0) != member.unique_query_count
+            or not numeric_matches(row.get("value"), member.value)
+            or not numeric_matches(row.get("observed_value"), member.observed_value)
+            or not numeric_matches(row.get("raw_numerator"), member.raw_numerator)
+            or not numeric_matches(row.get("raw_denominator"), member.raw_denominator)
+            or not numeric_matches(row.get("semantic_coverage"), member.semantic_coverage)
+        ):
+            raise FormalProductionIncomplete("metric_snapshot_export_members_invalid")
+
+    member_ids = set(metric_rows)
+    for sheet_name in ("queries", "answers", "exclusions", "design_cells"):
+        rows = export.get(sheet_name)
+        if (
+            not isinstance(rows, Sequence)
+            or isinstance(rows, str | bytes)
+            or any(
+                not isinstance(row, Mapping)
+                or str(row.get("snapshot_pub_id") or "") not in member_ids
+                for row in rows
+            )
+        ):
+            raise FormalProductionIncomplete("metric_snapshot_export_member_scope_invalid")
+    for sheet_name in ("decisions", "events"):
+        rows = export.get(sheet_name)
+        if (
+            not isinstance(rows, Sequence)
+            or isinstance(rows, str | bytes)
+            or any(not isinstance(row, Mapping) for row in rows)
+        ):
+            raise FormalProductionIncomplete("metric_snapshot_export_sheet_invalid")
+    observed_hashes = {
+        (
+            str(row.get("object_type") or ""),
+            str(row.get("object_pub_id") or ""),
+            str(row.get("content_hash") or ""),
+        )
+        for row in hashes
+        if isinstance(row, Mapping)
+    }
+    expected_hashes = {("snapshot_set", binding.snapshot_set_pub_id, binding.snapshot_set_hash)}
+    for member in binding.snapshots:
+        expected_hashes.update(
+            {
+                ("snapshot_hash", member.snapshot_pub_id, member.snapshot_hash),
+                (
+                    "contribution_set_hash",
+                    member.snapshot_pub_id,
+                    member.contribution_set_hash,
+                ),
+                (
+                    "query_contribution_set_hash",
+                    member.snapshot_pub_id,
+                    member.query_contribution_set_hash,
+                ),
+                (
+                    "design_contribution_set_hash",
+                    member.snapshot_pub_id,
+                    member.design_contribution_set_hash,
+                ),
+            }
+        )
+    if not expected_hashes.issubset(observed_hashes):
+        raise FormalProductionIncomplete("metric_snapshot_export_hashes_invalid")
 
 
 def _stable_pub_id(prefix: str, *values: object) -> str:
@@ -246,6 +414,25 @@ def normalize_services(
     return services
 
 
+def normalize_metric_snapshot_filters(
+    value: Mapping[str, object] | None,
+) -> dict[str, list[str]] | None:
+    if value is None:
+        return None
+    if set(value) != {"model", "region", "mode"}:
+        raise FormalProductionInvalid("metric_snapshot_filters_invalid")
+    normalized: dict[str, list[str]] = {}
+    for key in ("model", "region", "mode"):
+        items = value[key]
+        if not isinstance(items, Sequence) or isinstance(items, str | bytes):
+            raise FormalProductionInvalid("metric_snapshot_filters_invalid")
+        values = [str(item).strip() for item in items]
+        if any(not item or len(item) > 120 for item in values):
+            raise FormalProductionInvalid("metric_snapshot_filters_invalid")
+        normalized[key] = sorted(set(values))
+    return normalized
+
+
 def request_contract(
     *,
     project_pub_id: str,
@@ -260,11 +447,45 @@ def request_contract(
     sop_project_pub_id: str | None = None,
     service2_manifest_pub_id: str | None = None,
     service2_manifest_hash: str | None = None,
+    metric_snapshot_set_pub_id: str | None = None,
+    metric_snapshot_set_hash: str | None = None,
+    metric_snapshot_filters: Mapping[str, object] | None = None,
+    require_metric_snapshot_binding: bool = False,
     legacy_service2_sop_compat: bool = False,
     legacy_service2_manifest_compat: bool = False,
 ) -> dict[str, Any]:
     resolved_catalog = service_catalog_version or LEGACY_SERVICE_CATALOG
     normalized_services = normalize_services(services, service_catalog_version=resolved_catalog)
+    normalized_metric_set = str(metric_snapshot_set_pub_id or "").strip() or None
+    normalized_metric_hash = str(metric_snapshot_set_hash or "").strip().lower() or None
+    normalized_metric_filters = normalize_metric_snapshot_filters(metric_snapshot_filters)
+    metric_binding_complete = (
+        normalized_metric_set is not None
+        and normalized_metric_hash is not None
+        and normalized_metric_filters is not None
+    )
+    if require_metric_snapshot_binding and not metric_binding_complete:
+        raise FormalProductionInvalid("metric_snapshot_binding_required")
+    if (
+        any(
+            value is not None
+            for value in (
+                normalized_metric_set,
+                normalized_metric_hash,
+                normalized_metric_filters,
+            )
+        )
+        and not metric_binding_complete
+    ):
+        raise FormalProductionInvalid("metric_snapshot_binding_incomplete")
+    if normalized_metric_set is not None and not re.fullmatch(
+        r"mss_[0-9A-Za-z_-]{3,116}", normalized_metric_set
+    ):
+        raise FormalProductionInvalid("metric_snapshot_set_pub_id_invalid")
+    if normalized_metric_hash is not None and not re.fullmatch(
+        r"[0-9a-f]{64}", normalized_metric_hash
+    ):
+        raise FormalProductionInvalid("metric_snapshot_set_hash_invalid")
     if window.start > window.end:
         raise FormalProductionInvalid("invalid_window")
     if (window.end - window.start).days > 366:
@@ -328,7 +549,7 @@ def request_contract(
         raise FormalProductionInvalid("sop_project_required_for_selected_services")
     if not requires_sop_project and normalized_sop_project is not None:
         raise FormalProductionInvalid("sop_project_not_applicable")
-    contract = {
+    contract: dict[str, Any] = {
         "project_pub_id": project_pub_id,
         "services": list(normalized_services),
         "window": {"start": window.start.isoformat(), "end": window.end.isoformat()},
@@ -353,6 +574,10 @@ def request_contract(
         contract["service_catalog_version"] = resolved_catalog
     if normalized_sop_project is not None:
         contract["sop_project_pub_id"] = normalized_sop_project
+    if metric_binding_complete:
+        contract["metric_snapshot_set_pub_id"] = normalized_metric_set
+        contract["metric_snapshot_set_hash"] = normalized_metric_hash
+        contract["metric_snapshot_filters"] = normalized_metric_filters
     normalized_manifest_pub_id = str(service2_manifest_pub_id or "").strip() or None
     normalized_manifest_hash = str(service2_manifest_hash or "").strip().lower() or None
     service2_selected = resolved_catalog == QUOTATION_SERVICE_CATALOG and 2 in normalized_services
@@ -397,6 +622,16 @@ _INTERNAL_KEYS = frozenset(
     }
 )
 _PUBLIC_ID_RE = re.compile(r"^[a-z][a-z0-9]{1,15}_(?:[0-9A-HJKMNP-TV-Z]{26}|[0-9a-f]{20,64})$")
+_CUSTOMER_TRACE_KEYS = frozenset(
+    {
+        "metric_snapshot_set_pub_id",
+        "snapshot_pub_id",
+        "metric_snapshot_set_hash",
+        "metric_snapshot_dependency_hash",
+        "definition_hash",
+        "contribution_set_hash",
+    }
+)
 
 
 def customer_fact_snapshot(value: Any) -> Any:
@@ -404,7 +639,7 @@ def customer_fact_snapshot(value: Any) -> Any:
 
     def clean(child: Any, *, key: str | None = None) -> Any:
         normalized = (key or "").lower()
-        if (
+        if normalized not in _CUSTOMER_TRACE_KEYS and (
             normalized in _INTERNAL_KEYS
             or normalized.startswith("_")
             or normalized == "pub_id"
@@ -429,11 +664,17 @@ def customer_fact_snapshot(value: Any) -> Any:
                 if cleaned is not _DROP:
                     output_list.append(cleaned)
             return output_list
-        if isinstance(child, str) and (
-            child.startswith("file://")
-            or child.startswith("/home/")
-            or child.startswith(("ans_", "dpj_", "evd_", "prj_", "rpt_", "run_", "tnt_", "usr_"))
-            or _PUBLIC_ID_RE.fullmatch(child) is not None
+        if (
+            normalized not in _CUSTOMER_TRACE_KEYS
+            and isinstance(child, str)
+            and (
+                child.startswith("file://")
+                or child.startswith("/home/")
+                or child.startswith(
+                    ("ans_", "dpj_", "evd_", "prj_", "rpt_", "run_", "tnt_", "usr_")
+                )
+                or _PUBLIC_ID_RE.fullmatch(child) is not None
+            )
         ):
             return _DROP
         return child
@@ -485,6 +726,15 @@ def _freeze_service_fact(
             {
                 "service2_manifest_pub_id": request.service2_manifest_pub_id,
                 "service2_manifest_hash": request.service2_manifest_hash,
+            }
+        )
+    if request.metric_snapshot_set_pub_id is not None:
+        filters.update(
+            {
+                "metric_snapshot_set_pub_id": request.metric_snapshot_set_pub_id,
+                "metric_snapshot_set_hash": request.metric_snapshot_set_hash,
+                "metric_snapshot_filters": dict(request.metric_snapshot_filters or {}),
+                "metric_snapshot_dependency_hash": request.metric_snapshot_dependency_hash,
             }
         )
     return freeze_report(
@@ -553,6 +803,33 @@ def formal_evidence_gate(service: int, facts: Mapping[str, Any]) -> tuple[bool, 
     """Return a conservative, explicit gate for customer-signable report facts."""
 
     reasons: list[str] = []
+    metric_projection = facts.get("metric_snapshot")
+    if isinstance(metric_projection, Mapping):
+        metrics = metric_projection.get("metrics")
+        if not isinstance(metrics, Sequence) or isinstance(metrics, str | bytes) or not metrics:
+            return False, ("metric_snapshot_members_missing",)
+        publishable = 0
+        for metric in metrics:
+            if not isinstance(metric, Mapping):
+                reasons.append("metric_snapshot_member_invalid")
+                continue
+            state = str(metric.get("state") or "")
+            value = metric.get("value")
+            if state in {"ready", "limited"} and value is not None:
+                publishable += 1
+            elif state in {"insufficient", "experimental", "failed"} and value is not None:
+                reasons.append("non_publishable_metric_value_present")
+            elif state not in {
+                "ready",
+                "limited",
+                "insufficient",
+                "experimental",
+                "failed",
+            }:
+                reasons.append("metric_snapshot_member_state_invalid")
+        if publishable == 0:
+            reasons.append("publishable_metric_snapshot_member_required")
+        return not reasons, tuple(dict.fromkeys(reasons))
     service_code = str(facts.get("service_code") or "")
     if service == 1:
         service1_facts_value = facts.get("service1")
@@ -1336,9 +1613,54 @@ def _assert_sop_brand_binding(
 
 
 class FormalReportProductionService:
-    def __init__(self, *, dsn: str, evidence: EvidenceService) -> None:
+    def __init__(
+        self,
+        *,
+        dsn: str,
+        evidence: EvidenceService,
+        metric_snapshots: MetricSnapshotReader | None = None,
+    ) -> None:
         self.dsn = dsn.replace("postgresql+psycopg://", "postgresql://", 1)
         self.evidence = evidence
+        self._metric_snapshots = metric_snapshots
+
+    def _metric_snapshot_reader(self) -> MetricSnapshotReader:
+        if self._metric_snapshots is None:
+            from geo_platform.metrics_v2.repository import MetricsV2Repository
+
+            self._metric_snapshots = MetricsV2Repository(self.dsn)
+        return self._metric_snapshots
+
+    def validate_metric_snapshot_binding(
+        self,
+        *,
+        tenant_pub_id: str,
+        project_pub_id: str,
+        window: FormalWindow,
+        snapshot_set_pub_id: str,
+        snapshot_set_hash: str,
+        filters: Mapping[str, object],
+    ) -> MetricSnapshotSetBinding:
+        try:
+            document = self._metric_snapshot_reader().get_snapshot_set(
+                tenant_pub_id=tenant_pub_id,
+                set_pub_id=snapshot_set_pub_id,
+            )
+            return bind_metric_snapshot_set(
+                document,
+                expected_project_pub_id=project_pub_id,
+                expected_set_pub_id=snapshot_set_pub_id,
+                expected_set_hash=snapshot_set_hash,
+                expected_window_start=window.start,
+                expected_window_end=window.end,
+                expected_filters=filters,
+            )
+        except LookupError as exc:
+            raise FormalProductionInvalid("metric_snapshot_set_not_ready") from exc
+        except MetricSnapshotBindingError as exc:
+            if str(exc) == "metric_snapshot_set_not_renderable":
+                raise FormalProductionInvalid("metric_snapshot_set_not_ready") from exc
+            raise FormalProductionInvalid(str(exc)) from exc
 
     def enqueue(
         self,
@@ -1361,6 +1683,9 @@ class FormalReportProductionService:
         sop_project_pub_id: str | None = None,
         service2_manifest_pub_id: str | None = None,
         service2_manifest_hash: str | None = None,
+        metric_snapshot_set_pub_id: str | None = None,
+        metric_snapshot_set_hash: str | None = None,
+        metric_snapshot_filters: Mapping[str, object] | None = None,
     ) -> tuple[dict[str, Any], bool]:
         contract_catalog = (
             service_catalog_version if service_catalog_version != LEGACY_SERVICE_CATALOG else None
@@ -1378,6 +1703,10 @@ class FormalReportProductionService:
             sop_project_pub_id=sop_project_pub_id,
             service2_manifest_pub_id=service2_manifest_pub_id,
             service2_manifest_hash=service2_manifest_hash,
+            metric_snapshot_set_pub_id=metric_snapshot_set_pub_id,
+            metric_snapshot_set_hash=metric_snapshot_set_hash,
+            metric_snapshot_filters=metric_snapshot_filters,
+            require_metric_snapshot_binding=(service_catalog_version == QUOTATION_SERVICE_CATALOG),
         )
         project_exists = session.execute(
             text(
@@ -1388,6 +1717,18 @@ class FormalReportProductionService:
         ).scalar_one_or_none()
         if project_exists is None:
             raise FormalProductionNotFound("project_not_found")
+        metric_binding: MetricSnapshotSetBinding | None = None
+        if metric_snapshot_set_pub_id is not None and metric_snapshot_set_hash is not None:
+            normalized_filters = normalize_metric_snapshot_filters(metric_snapshot_filters)
+            assert normalized_filters is not None
+            metric_binding = self.validate_metric_snapshot_binding(
+                tenant_pub_id=tenant_pub_id,
+                project_pub_id=project_pub_id,
+                window=window,
+                snapshot_set_pub_id=metric_snapshot_set_pub_id,
+                snapshot_set_hash=metric_snapshot_set_hash,
+                filters=normalized_filters,
+            )
         if service_catalog_version == QUOTATION_SERVICE_CATALOG and 2 in contract["services"]:
             manifest = (
                 session.execute(
@@ -1556,13 +1897,17 @@ class FormalReportProductionService:
                   before_start,before_end,after_start,after_end,document_status,
                   candidate_group_strategy,idempotency_key_hash,request_hash,workflow_id,
                   created_by_pub_id,document_governance,service_catalog_version,
-                  sop_project_pub_id,service2_manifest_pub_id,service2_manifest_hash
+                  sop_project_pub_id,service2_manifest_pub_id,service2_manifest_hash,
+                  metric_snapshot_set_pub_id,metric_snapshot_set_hash,
+                  metric_snapshot_filters,metric_snapshot_dependency_hash
                 ) VALUES (
                   :pub_id,:tenant_pub_id,:project_pub_id,:services,:window_start,:window_end,
                   :before_start,:before_end,:after_start,:after_end,:document_status,
                   :strategy,:key_hash,:request_hash,:workflow_id,:created_by,
                   CAST(:document_governance AS jsonb),:service_catalog_version,
-                  :sop_project_pub_id,:service2_manifest_pub_id,:service2_manifest_hash
+                  :sop_project_pub_id,:service2_manifest_pub_id,:service2_manifest_hash,
+                  :metric_snapshot_set_pub_id,:metric_snapshot_set_hash,
+                  CAST(:metric_snapshot_filters AS jsonb),:metric_snapshot_dependency_hash
                 )
                 ON CONFLICT (tenant_pub_id,idempotency_key_hash) DO NOTHING
                 RETURNING pub_id
@@ -1592,6 +1937,16 @@ class FormalReportProductionService:
                 "sop_project_pub_id": sop_project_pub_id,
                 "service2_manifest_pub_id": service2_manifest_pub_id,
                 "service2_manifest_hash": service2_manifest_hash,
+                "metric_snapshot_set_pub_id": metric_snapshot_set_pub_id,
+                "metric_snapshot_set_hash": metric_snapshot_set_hash,
+                "metric_snapshot_filters": (
+                    json.dumps(contract["metric_snapshot_filters"], ensure_ascii=False)
+                    if "metric_snapshot_filters" in contract
+                    else None
+                ),
+                "metric_snapshot_dependency_hash": (
+                    metric_binding.dependency_hash if metric_binding is not None else None
+                ),
             },
         ).scalar_one_or_none()
         created = inserted is not None
@@ -1626,8 +1981,17 @@ class FormalReportProductionService:
                     "tenant_pub_id": tenant_pub_id,
                     "formal_production_pub_id": production_pub_id,
                     "formal_request_hash": contract_hash,
+                    "project_pub_id": project_pub_id,
+                    "window_start": window.start.isoformat(),
+                    "window_end": window.end.isoformat(),
                     "service2_manifest_pub_id": service2_manifest_pub_id,
                     "service2_manifest_hash": service2_manifest_hash,
+                    "metric_snapshot_set_pub_id": metric_snapshot_set_pub_id,
+                    "metric_snapshot_set_hash": metric_snapshot_set_hash,
+                    "metric_snapshot_filters": contract.get("metric_snapshot_filters"),
+                    "metric_snapshot_dependency_hash": (
+                        metric_binding.dependency_hash if metric_binding is not None else None
+                    ),
                 },
             )
         return self._public_row(dict(row), outputs=[]), created
@@ -1676,7 +2040,9 @@ class FormalReportProductionService:
             }
             expected_formats = set(
                 _artifact_formats(
-                    int(output["service_number"]), str(row.get("document_status") or "")
+                    int(output["service_number"]),
+                    str(row.get("document_status") or ""),
+                    metric_snapshot_bound=row.get("metric_snapshot_set_pub_id") is not None,
                 )
             )
             if formats != expected_formats or len(artifacts) != len(expected_formats):
@@ -1747,12 +2113,17 @@ class FormalReportProductionService:
         expected_request_hash: str | None = None,
         expected_service2_manifest_pub_id: str | None = None,
         expected_service2_manifest_hash: str | None = None,
+        expected_metric_snapshot_set_pub_id: str | None = None,
+        expected_metric_snapshot_set_hash: str | None = None,
+        expected_metric_snapshot_dependency_hash: str | None = None,
     ) -> dict[str, Any]:
         if expected_request_hash is not None:
             with tenant_connection(self.dsn, tenant_pub_id, row_factory=dict_row) as connection:
                 task_binding = connection.execute(
                     """
-                    SELECT request_hash,service2_manifest_pub_id,service2_manifest_hash
+                    SELECT request_hash,service2_manifest_pub_id,service2_manifest_hash,
+                           metric_snapshot_set_pub_id,metric_snapshot_set_hash,
+                           metric_snapshot_dependency_hash
                     FROM reporting.formal_report_production
                     WHERE tenant_pub_id=%s AND pub_id=%s
                     """,
@@ -1764,6 +2135,10 @@ class FormalReportProductionService:
                 task_binding["request_hash"] != expected_request_hash
                 or task_binding["service2_manifest_pub_id"] != expected_service2_manifest_pub_id
                 or task_binding["service2_manifest_hash"] != expected_service2_manifest_hash
+                or task_binding["metric_snapshot_set_pub_id"] != expected_metric_snapshot_set_pub_id
+                or task_binding["metric_snapshot_set_hash"] != expected_metric_snapshot_set_hash
+                or task_binding["metric_snapshot_dependency_hash"]
+                != expected_metric_snapshot_dependency_hash
             ):
                 raise FormalProductionIncomplete("formal_workflow_binding_drifted")
         current = self.get(
@@ -1789,6 +2164,10 @@ class FormalReportProductionService:
                 "production_failed",
                 "formal_evidence_requirements_not_met",
                 "formal_fact_volume_exceeded",
+                "metric_snapshot_binding_failed",
+                "metric_snapshot_binding_not_found",
+                "metric_snapshot_set_not_ready",
+                "metric_snapshot_dependency_hash_mismatch",
                 "libreoffice_dependency_missing",
                 "workflow_interrupted",
                 "changes_requested",
@@ -1874,7 +2253,13 @@ class FormalReportProductionService:
     ) -> str:
         """Persist the post-approval rendering as version 2 and point delivery at it."""
 
-        expected_formats = set(_artifact_formats(service, "approved_signed"))
+        expected_formats = set(
+            _artifact_formats(
+                service,
+                "approved_signed",
+                metric_snapshot_bound=request.metric_snapshot_set_pub_id is not None,
+            )
+        )
         if set(artifacts) != expected_formats:
             raise FormalProductionIncomplete("signed_artifacts_incomplete")
         frozen = _freeze_service_fact(request, service, facts)
@@ -1970,7 +2355,11 @@ class FormalReportProductionService:
             capture_time=request.frozen_at,
             access_class=AccessClass.CUSTOMER_PRIVATE,
         )
-        for format_name in _artifact_formats(service, "approved_signed"):
+        for format_name in _artifact_formats(
+            service,
+            "approved_signed",
+            metric_snapshot_bound=request.metric_snapshot_set_pub_id is not None,
+        ):
             evidence_pub_id = _stable_pub_id(
                 "evd",
                 request.tenant_pub_id,
@@ -2461,6 +2850,19 @@ class FormalReportProductionService:
         sop_project_pub_id = str(row.get("sop_project_pub_id") or "").strip() or None
         service2_manifest_pub_id = str(row.get("service2_manifest_pub_id") or "").strip() or None
         service2_manifest_hash = str(row.get("service2_manifest_hash") or "").strip() or None
+        metric_snapshot_set_pub_id = (
+            str(row.get("metric_snapshot_set_pub_id") or "").strip() or None
+        )
+        metric_snapshot_set_hash = str(row.get("metric_snapshot_set_hash") or "").strip() or None
+        raw_metric_filters = row.get("metric_snapshot_filters")
+        metric_snapshot_filters = (
+            normalize_metric_snapshot_filters(raw_metric_filters)
+            if isinstance(raw_metric_filters, Mapping) and raw_metric_filters
+            else None
+        )
+        metric_snapshot_dependency_hash = (
+            str(row.get("metric_snapshot_dependency_hash") or "").strip() or None
+        )
         legacy_manifest_compat = service2_manifest_pub_id is None
         request_hash = str(row["request_hash"])
         contract: dict[str, Any] | None = None
@@ -2482,6 +2884,9 @@ class FormalReportProductionService:
                 sop_project_pub_id=sop_project_pub_id,
                 service2_manifest_pub_id=service2_manifest_pub_id,
                 service2_manifest_hash=service2_manifest_hash,
+                metric_snapshot_set_pub_id=metric_snapshot_set_pub_id,
+                metric_snapshot_set_hash=metric_snapshot_set_hash,
+                metric_snapshot_filters=metric_snapshot_filters,
                 legacy_service2_manifest_compat=legacy_manifest_compat,
             )
             if _canonical_hash(candidate) == request_hash:
@@ -2511,6 +2916,9 @@ class FormalReportProductionService:
                     sop_project_pub_id=sop_project_pub_id,
                     service2_manifest_pub_id=service2_manifest_pub_id,
                     service2_manifest_hash=service2_manifest_hash,
+                    metric_snapshot_set_pub_id=metric_snapshot_set_pub_id,
+                    metric_snapshot_set_hash=metric_snapshot_set_hash,
+                    metric_snapshot_filters=metric_snapshot_filters,
                     legacy_service2_sop_compat=True,
                     legacy_service2_manifest_compat=True,
                 )
@@ -2539,11 +2947,17 @@ class FormalReportProductionService:
             service2_semantics=("own_content_v1" if legacy_service2_request else "all_u_v2"),
             service2_manifest_pub_id=service2_manifest_pub_id,
             service2_manifest_hash=service2_manifest_hash,
+            metric_snapshot_set_pub_id=metric_snapshot_set_pub_id,
+            metric_snapshot_set_hash=metric_snapshot_set_hash,
+            metric_snapshot_filters=metric_snapshot_filters,
+            metric_snapshot_dependency_hash=metric_snapshot_dependency_hash,
         )
 
     def _build_fact_bundle(
         self, request: FormalProductionRequest
     ) -> tuple[dict[int, dict[str, Any]], str]:
+        if request.metric_snapshot_set_pub_id is not None:
+            return self._build_metric_snapshot_fact_bundle(request)
         context = FormalBuildContext(
             dsn=self.dsn,
             request=request,
@@ -2590,6 +3004,107 @@ class FormalReportProductionService:
         )
         return facts, _canonical_hash(customer_facts)
 
+    def _build_metric_snapshot_fact_bundle(
+        self, request: FormalProductionRequest
+    ) -> tuple[dict[int, dict[str, Any]], str]:
+        if (
+            request.metric_snapshot_set_pub_id is None
+            or request.metric_snapshot_set_hash is None
+            or request.metric_snapshot_filters is None
+            or request.metric_snapshot_dependency_hash is None
+        ):
+            raise FormalProductionIncomplete("metric_snapshot_binding_incomplete")
+        binding = self.validate_metric_snapshot_binding(
+            tenant_pub_id=request.tenant_pub_id,
+            project_pub_id=request.project_pub_id,
+            window=request.window,
+            snapshot_set_pub_id=request.metric_snapshot_set_pub_id,
+            snapshot_set_hash=request.metric_snapshot_set_hash,
+            filters=request.metric_snapshot_filters,
+        )
+        if binding.dependency_hash != request.metric_snapshot_dependency_hash:
+            raise FormalProductionIncomplete("metric_snapshot_dependency_hash_mismatch")
+        export = self._metric_snapshot_reader().export_bundle(
+            tenant_pub_id=request.tenant_pub_id,
+            set_pub_id=request.metric_snapshot_set_pub_id,
+        )
+        _assert_metric_export_binding(export, binding)
+        raw_queries = export.get("queries")
+        if not isinstance(raw_queries, Sequence) or isinstance(raw_queries, str | bytes):
+            raise FormalProductionIncomplete("metric_snapshot_query_contributions_missing")
+        member_ids = {item.snapshot_pub_id for item in binding.snapshots}
+        query_contributions: list[dict[str, Any]] = []
+        for raw in raw_queries:
+            if not isinstance(raw, Mapping):
+                raise FormalProductionIncomplete("metric_snapshot_query_contribution_invalid")
+            snapshot_pub_id = str(raw.get("snapshot_pub_id") or "")
+            contribution_hash = str(raw.get("contribution_hash") or "")
+            if (
+                snapshot_pub_id not in member_ids
+                or re.fullmatch(r"[0-9a-f]{64}", contribution_hash) is None
+            ):
+                raise FormalProductionIncomplete("metric_snapshot_query_contribution_invalid")
+            query_contributions.append(
+                {
+                    "snapshot_pub_id": snapshot_pub_id,
+                    "query_key": str(raw.get("query_key") or ""),
+                    "query_text": str(raw.get("query_text") or ""),
+                    "query_weight": raw.get("query_weight"),
+                    "query_numerator": raw.get("query_numerator"),
+                    "query_denominator": raw.get("query_denominator"),
+                    "query_value": raw.get("query_value"),
+                    "unknown_weight": raw.get("unknown_weight"),
+                    "reason_codes": list(raw.get("reason_codes") or ()),
+                    "contribution_hash": contribution_hash,
+                }
+            )
+        projection = frozen_metric_projection(binding)
+        governance = {
+            "version": "V1.0",
+            "prepared_by": request.created_by_pub_id,
+            "reviewed_by": None,
+            "approved_by": None,
+            "prepared_date": request.frozen_at.date().isoformat(),
+            "reviewed_date": None,
+            "approved_date": None,
+            **dict(request.document_governance or {}),
+        }
+        facts: dict[int, dict[str, Any]] = {}
+        for service in request.services:
+            value: dict[str, Any] = {
+                "schema_version": "formal-report-facts-metric-snapshot-v2",
+                "service_catalog_version": request.service_catalog_version,
+                "service_code": _service_code_for(request, service),
+                "service_number": service,
+                "report_title": _adapter_for(request, service).title,
+                "document_status": request.document_status,
+                "document_governance": governance,
+                "metric_snapshot": copy.deepcopy(projection),
+                "metric_query_contributions": copy.deepcopy(query_contributions),
+            }
+            if service == 2 and request.service2_manifest_pub_id is not None:
+                value["source_manifest"] = {
+                    "manifest_pub_id": request.service2_manifest_pub_id,
+                    "manifest_hash": request.service2_manifest_hash,
+                }
+            ready, reasons = formal_evidence_gate(service, value)
+            value["formal_evidence_gate"] = {
+                "status": "ready" if ready else "insufficient",
+                "reasons": list(reasons),
+            }
+            facts[service] = value
+        if request.document_status in {"formal", "delivery_candidate"} and any(
+            value["formal_evidence_gate"]["status"] != "ready" for value in facts.values()
+        ):
+            raise FormalProductionInvalid("formal_evidence_requirements_not_met")
+        customer_facts = {
+            str(service): customer_fact_snapshot(value) for service, value in facts.items()
+        }
+        assert_customer_report_safe(
+            [value for value in customer_facts.values() if isinstance(value, dict)]
+        )
+        return facts, _canonical_hash(customer_facts)
+
     def _freeze_facts(
         self, request: FormalProductionRequest
     ) -> tuple[dict[int, dict[str, Any]], str]:
@@ -2613,7 +3128,37 @@ class FormalReportProductionService:
                 value.get("document_status") != request.document_status for value in parsed.values()
             ):
                 raise FormalProductionIncomplete("frozen_fact_bundle_request_drifted")
-            if 2 in parsed and request.service2_semantics == "all_u_v2":
+            if request.metric_snapshot_set_pub_id is not None:
+                if (
+                    request.metric_snapshot_set_hash is None
+                    or request.metric_snapshot_filters is None
+                    or request.metric_snapshot_dependency_hash is None
+                ):
+                    raise FormalProductionIncomplete("metric_snapshot_binding_incomplete")
+                for value in parsed.values():
+                    projection = value.get("metric_snapshot")
+                    if not isinstance(projection, Mapping):
+                        raise FormalProductionIncomplete(
+                            "frozen_metric_snapshot_projection_missing"
+                        )
+                    try:
+                        bind_frozen_metric_projection(
+                            projection,
+                            expected_project_pub_id=request.project_pub_id,
+                            expected_set_pub_id=request.metric_snapshot_set_pub_id,
+                            expected_set_hash=request.metric_snapshot_set_hash,
+                            expected_window_start=request.window.start,
+                            expected_window_end=request.window.end,
+                            expected_filters=request.metric_snapshot_filters,
+                            expected_dependency_hash=request.metric_snapshot_dependency_hash,
+                        )
+                    except MetricSnapshotBindingError as exc:
+                        raise FormalProductionIncomplete(str(exc)) from exc
+            if (
+                2 in parsed
+                and request.service2_semantics == "all_u_v2"
+                and request.metric_snapshot_set_pub_id is None
+            ):
                 service2_manifest = parsed[2].get("manifest")
                 if not isinstance(service2_manifest, Mapping) or (
                     service2_manifest.get("manifest_pub_id") != request.service2_manifest_pub_id
@@ -2691,15 +3236,84 @@ class FormalReportProductionService:
     ) -> dict[int, dict[str, bytes]]:
         rendered: dict[int, dict[str, bytes]] = {}
         for service in request.services:
-            initial_docx = _adapter_for(request, service).render(
-                facts[service], blob_loader=self.evidence.store.get_verified
-            )
+            metric_binding: MetricSnapshotSetBinding | None = None
+            if request.metric_snapshot_set_pub_id is not None:
+                if (
+                    request.metric_snapshot_set_hash is None
+                    or request.metric_snapshot_filters is None
+                    or request.metric_snapshot_dependency_hash is None
+                ):
+                    raise FormalProductionIncomplete("metric_snapshot_binding_incomplete")
+                metric_projection = facts[service].get("metric_snapshot")
+                query_rows = facts[service].get("metric_query_contributions")
+                if (
+                    not isinstance(metric_projection, Mapping)
+                    or not isinstance(query_rows, Sequence)
+                    or isinstance(query_rows, str | bytes)
+                ):
+                    raise FormalProductionIncomplete("frozen_metric_snapshot_projection_missing")
+                try:
+                    metric_binding = bind_frozen_metric_projection(
+                        metric_projection,
+                        expected_project_pub_id=request.project_pub_id,
+                        expected_set_pub_id=request.metric_snapshot_set_pub_id,
+                        expected_set_hash=request.metric_snapshot_set_hash,
+                        expected_window_start=request.window.start,
+                        expected_window_end=request.window.end,
+                        expected_filters=request.metric_snapshot_filters,
+                        expected_dependency_hash=request.metric_snapshot_dependency_hash,
+                    )
+                except MetricSnapshotBindingError as exc:
+                    raise FormalProductionIncomplete(str(exc)) from exc
+                raw_governance = facts[service].get("document_governance")
+                governance: Mapping[str, Any] = (
+                    raw_governance if isinstance(raw_governance, Mapping) else {}
+                )
+                initial_docx = render_bound_metric_snapshot_docx(
+                    title=str(
+                        facts[service].get("report_title") or _adapter_for(request, service).title
+                    ),
+                    service_number=service,
+                    binding=metric_binding,
+                    query_contributions=[row for row in query_rows if isinstance(row, Mapping)],
+                    document_status=release_state_label(request.document_status),
+                    governance=governance,
+                )
+            else:
+                initial_docx = _adapter_for(request, service).render(
+                    facts[service], blob_loader=self.evidence.store.get_verified
+                )
             docx, pdf = refresh_docx_and_export_pdf(initial_docx)
             frozen = _freeze_service_fact(request, service, facts[service])
             extra_artifacts: dict[str, bytes] = {}
             publication_qa: dict[str, Any] | None = None
             reexport_qa: dict[str, Any] | None = None
-            if service == 1 and request.document_status in {
+            if metric_binding is not None:
+                from geo_platform.metrics_v2.export import (
+                    build_metrics_csv_zip,
+                    build_metrics_xlsx,
+                )
+
+                export_bundle = self._metric_snapshot_reader().export_bundle(
+                    tenant_pub_id=request.tenant_pub_id,
+                    set_pub_id=metric_binding.snapshot_set_pub_id,
+                )
+                _assert_metric_export_binding(export_bundle, metric_binding)
+                extra_artifacts = {
+                    "xlsx": build_metrics_xlsx(export_bundle),
+                    "zip": build_metrics_csv_zip(export_bundle),
+                }
+                publication_qa = {
+                    "schema_version": "metric-snapshot-report-qa-v2",
+                    "status": "passed",
+                    "checks": {
+                        "snapshot_set_id_bound": True,
+                        "snapshot_set_hash_bound": True,
+                        "member_dependency_hash_bound": True,
+                        "query_macro_only": metric_binding.aggregation_method == "query_macro",
+                    },
+                }
+            elif service == 1 and request.document_status in {
                 "internal_review",
                 "delivery_candidate",
                 "approved_signed",
@@ -2728,13 +3342,7 @@ class FormalReportProductionService:
                     raise FormalProductionInvalid("publication_quality_gate_failed")
             payloads = {"docx": docx, "pdf": pdf, **extra_artifacts}
             manifest = {
-                "schema_version": (
-                    "formal-report-manifest-v2"
-                    if request.document_status
-                    in {"internal_review", "delivery_candidate", "approved_signed"}
-                    and service == 1
-                    else "formal-report-manifest-v1"
-                ),
+                "schema_version": _manifest_schema_version(request, service),
                 "service_number": service,
                 "service_code": _service_code_for(request, service),
                 "service_catalog_version": request.service_catalog_version,
@@ -2747,6 +3355,25 @@ class FormalReportProductionService:
                 },
                 "generated_at": request.frozen_at.astimezone(UTC).isoformat(),
                 "fact_snapshot_hash": frozen.fact_snapshot_hash,
+                "metric_snapshot": (
+                    {
+                        "snapshot_set_pub_id": metric_binding.snapshot_set_pub_id,
+                        "snapshot_set_hash": metric_binding.snapshot_set_hash,
+                        "dependency_hash": metric_binding.dependency_hash,
+                        "member_snapshot_pub_ids": sorted(
+                            item.snapshot_pub_id for item in metric_binding.snapshots
+                        ),
+                        "member_snapshot_hashes": {
+                            item.snapshot_pub_id: item.snapshot_hash
+                            for item in sorted(
+                                metric_binding.snapshots,
+                                key=lambda snapshot: snapshot.snapshot_pub_id,
+                            )
+                        },
+                    }
+                    if metric_binding is not None
+                    else None
+                ),
                 "source_manifest": (
                     {
                         "manifest_pub_id": request.service2_manifest_pub_id,
@@ -2853,7 +3480,13 @@ class FormalReportProductionService:
         for service, formats in descriptors.items():
             if not isinstance(formats, Mapping):
                 raise FormalProductionIncomplete("rendered_bundle_invalid")
-            expected_formats = set(_artifact_formats(int(service), request.document_status))
+            expected_formats = set(
+                _artifact_formats(
+                    int(service),
+                    request.document_status,
+                    metric_snapshot_bound=request.metric_snapshot_set_pub_id is not None,
+                )
+            )
             if set(formats) != expected_formats:
                 raise FormalProductionIncomplete("rendered_bundle_invalid")
             output[int(service)] = {}
@@ -2884,16 +3517,47 @@ class FormalReportProductionService:
                 manifest = json.loads(output[int(service)]["manifest"])
             except (UnicodeDecodeError, json.JSONDecodeError) as exc:
                 raise FormalProductionIncomplete("rendered_manifest_integrity_failed") from exc
+            expected_metric_snapshot: dict[str, object] | None = None
+            if request.metric_snapshot_set_pub_id is not None:
+                projection = facts[int(service)].get("metric_snapshot")
+                if (
+                    not isinstance(projection, Mapping)
+                    or request.metric_snapshot_set_hash is None
+                    or request.metric_snapshot_filters is None
+                    or request.metric_snapshot_dependency_hash is None
+                ):
+                    raise FormalProductionIncomplete("metric_snapshot_binding_incomplete")
+                try:
+                    binding = bind_frozen_metric_projection(
+                        projection,
+                        expected_project_pub_id=request.project_pub_id,
+                        expected_set_pub_id=request.metric_snapshot_set_pub_id,
+                        expected_set_hash=request.metric_snapshot_set_hash,
+                        expected_window_start=request.window.start,
+                        expected_window_end=request.window.end,
+                        expected_filters=request.metric_snapshot_filters,
+                        expected_dependency_hash=request.metric_snapshot_dependency_hash,
+                    )
+                except MetricSnapshotBindingError as exc:
+                    raise FormalProductionIncomplete(str(exc)) from exc
+                expected_metric_snapshot = {
+                    "snapshot_set_pub_id": binding.snapshot_set_pub_id,
+                    "snapshot_set_hash": binding.snapshot_set_hash,
+                    "dependency_hash": binding.dependency_hash,
+                    "member_snapshot_pub_ids": sorted(
+                        item.snapshot_pub_id for item in binding.snapshots
+                    ),
+                    "member_snapshot_hashes": {
+                        item.snapshot_pub_id: item.snapshot_hash
+                        for item in sorted(
+                            binding.snapshots,
+                            key=lambda snapshot: snapshot.snapshot_pub_id,
+                        )
+                    },
+                }
             if (
                 not isinstance(manifest, Mapping)
-                or manifest.get("schema_version")
-                != (
-                    "formal-report-manifest-v2"
-                    if int(service) == 1
-                    and request.document_status
-                    in {"internal_review", "delivery_candidate", "approved_signed"}
-                    else "formal-report-manifest-v1"
-                )
+                or manifest.get("schema_version") != _manifest_schema_version(request, int(service))
                 or manifest.get("service_number") != int(service)
                 or (
                     request.service_catalog_version == QUOTATION_SERVICE_CATALOG
@@ -2934,6 +3598,7 @@ class FormalReportProductionService:
                     if int(service) == 2 and request.service2_semantics == "all_u_v2"
                     else None
                 )
+                or manifest.get("metric_snapshot") != expected_metric_snapshot
             ):
                 raise FormalProductionIncomplete("rendered_manifest_request_drifted")
             manifest_artifacts = manifest.get("artifacts")
@@ -2957,7 +3622,13 @@ class FormalReportProductionService:
         if set(facts) != set(request.services) or set(artifacts) != set(request.services):
             raise FormalProductionIncomplete("formal_bundle_services_incomplete")
         for service in request.services:
-            expected_formats = set(_artifact_formats(service, request.document_status))
+            expected_formats = set(
+                _artifact_formats(
+                    service,
+                    request.document_status,
+                    metric_snapshot_bound=request.metric_snapshot_set_pub_id is not None,
+                )
+            )
             if set(artifacts[service]) != expected_formats or any(
                 not isinstance(artifacts[service][format_name], bytes)
                 or not artifacts[service][format_name]
@@ -3144,7 +3815,11 @@ class FormalReportProductionService:
                     capture_time=request.frozen_at,
                     access_class=AccessClass.CUSTOMER_PRIVATE,
                 )
-                for format_name in _artifact_formats(service, request.document_status):
+                for format_name in _artifact_formats(
+                    service,
+                    request.document_status,
+                    metric_snapshot_bound=request.metric_snapshot_set_pub_id is not None,
+                ):
                     evidence_pub_id = _stable_pub_id(
                         "evd", request.tenant_pub_id, request.pub_id, service, format_name
                     )
@@ -3304,6 +3979,10 @@ class FormalReportProductionService:
             "sop_project_pub_id": row.get("sop_project_pub_id"),
             "service2_manifest_pub_id": row.get("service2_manifest_pub_id"),
             "service2_manifest_hash": row.get("service2_manifest_hash"),
+            "metric_snapshot_set_pub_id": row.get("metric_snapshot_set_pub_id"),
+            "metric_snapshot_set_hash": row.get("metric_snapshot_set_hash"),
+            "metric_snapshot_filters": dict(row.get("metric_snapshot_filters") or {}),
+            "metric_snapshot_dependency_hash": row.get("metric_snapshot_dependency_hash"),
             "status": row["status"],
             "document_status": row["document_status"],
             "window_start": row["window_start"],
@@ -3349,5 +4028,6 @@ __all__ = [
     "evidence_descriptors",
     "formal_evidence_gate",
     "normalize_services",
+    "normalize_metric_snapshot_filters",
     "request_contract",
 ]

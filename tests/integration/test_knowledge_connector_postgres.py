@@ -23,6 +23,8 @@ from domain.siliconindex import project_brand_domain
 from domain.siliconindex.snapshot import CORE_FILES, FILES
 from tools.run_knowledge_connector_queue import reconcile_snapshot, run_queue
 
+pytestmark = pytest.mark.knowledge_postgres
+
 TEST_DATABASE_URL = os.getenv("KNOWLEDGE_POSTGRES_DSN")
 POSTGRES_DSN = (TEST_DATABASE_URL or "").replace("postgresql+psycopg://", "postgresql://", 1)
 EFFECTIVE_DSN = os.getenv("GEO_POSTGRES_DSN", "").replace(

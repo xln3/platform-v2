@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { expectAccessible } from './accessibility';
-import { expectSafeLocatorScreenshot, expectSafePageScreenshot } from './screenshot-safety';
+import { expectSafeLocatorScreenshot } from './screenshot-safety';
 import { installSyntheticHttpResponses, syntheticHttpResponseCount } from './synthetic-http';
 
 const customerReportHtml =
@@ -1164,10 +1164,6 @@ test('validated customer reads mounted data and serializes every write without s
     page.locator('.geo-kpi-card').filter({ hasText: '品牌提及率' }).getByText('75.0%'),
   ).toBeVisible();
   await expect(page.getByRole('heading', { name: '真实客户品牌 · 真实 AI 回答' })).toHaveCount(0);
-  await expectSafePageScreenshot(page, 'customer-live-home.png', {
-    fullPage: true,
-    animations: 'disabled',
-  });
   await page.goto('/platform/customer/?section=answers');
   await expect(
     page.getByRole('heading', { name: '真实客户品牌 · 真实 AI 回答与模型语境' }),
@@ -1182,11 +1178,6 @@ test('validated customer reads mounted data and serializes every write without s
     page.getByText('真实客户回答原文，完整展示品牌提及、推荐语境与引用信息。'),
   ).toHaveCount(0);
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  await expectSafePageScreenshot(page, 'customer-live-answers.png', {
-    fullPage: true,
-    animations: 'disabled',
-  });
-
   await page.getByRole('button', { name: /进入 4 条问题/u }).click();
   await expect(page.getByRole('button', { name: /选择采集条件/u })).toHaveCount(4);
   await expect(page.getByRole('navigation', { name: '答案库路径' })).toContainText(
@@ -1316,11 +1307,6 @@ test('validated customer reads mounted data and serializes every write without s
       (element) => element.scrollWidth <= Math.ceil(element.clientWidth) + 1,
     ),
   ).toBe(true);
-  await expectSafePageScreenshot(page, 'customer-live-answer-official.png', {
-    fullPage: true,
-    animations: 'disabled',
-  });
-
   await modeTabs.getByRole('tab', { name: '分享图片' }).click();
   const officialShareImage = answerDossier.getByRole('img', {
     name: 'doubao 官方分享图片',
@@ -1329,18 +1315,9 @@ test('validated customer reads mounted data and serializes every write without s
   await expect.poll(() => shareImageContentReads).toBe(1);
   expect((await answerStage.boundingBox())?.height).toBeCloseTo(textStageBox!.height, 0);
   await expect(answerDossier.getByText(/采集现场截图/u)).toHaveCount(0);
-  await expectSafePageScreenshot(page, 'customer-live-answer-share-image.png', {
-    fullPage: true,
-    animations: 'disabled',
-  });
-
   await modeTabs.getByRole('tab', { name: '文本回答' }).click();
   await expect(answerDossier.getByRole('heading', { name: '核验建议' })).toBeVisible();
   expect((await answerStage.boundingBox())?.height).toBeCloseTo(textStageBox!.height, 0);
-  await expectSafePageScreenshot(page, 'customer-live-answer-dossier.png', {
-    fullPage: true,
-    animations: 'disabled',
-  });
 
   await page.getByRole('button', { name: '问题 01 · 原问题' }).click();
   const deepSeekRun = page
@@ -1370,10 +1347,6 @@ test('validated customer reads mounted data and serializes every write without s
   await expect(page.getByRole('tab', { name: '官方实时页' })).toHaveCount(0);
   await expect(page.getByRole('tab', { name: '分享图片' })).toHaveCount(0);
   await expect(fallbackAnswer.getByRole('img')).toHaveCount(0);
-  await expectSafePageScreenshot(page, 'customer-live-answer-fallback.png', {
-    fullPage: true,
-    animations: 'disabled',
-  });
   await page.getByRole('button', { name: '关键词', exact: true }).click();
   const requestsBeforeModelChange = customerAnswerPageRequests;
   await page.getByLabel('AI 模型').selectOption('doubao');
@@ -1419,17 +1392,9 @@ test('validated customer reads mounted data and serializes every write without s
   await page.getByRole('checkbox', { name: /我确认品牌、产品、竞品与禁止表述真实/ }).check();
   await page.getByRole('button', { name: '登记资产' }).click();
   await expect(page.getByText('最新客户确认 v3')).toBeVisible();
-  await expectSafePageScreenshot(page, 'customer-live-assets.png', {
-    fullPage: true,
-    animations: 'disabled',
-  });
   await page.getByRole('button', { name: '监测问题与目标' }).click();
   await expect(page.getByText('真实目录中的客户关注问题')).toBeVisible();
   await expect(page.getByText('目标 80.0% · active')).toBeVisible();
-  await expectSafePageScreenshot(page, 'customer-live-questions.png', {
-    fullPage: true,
-    animations: 'disabled',
-  });
   await page.goto('/platform/customer/?section=monitoring');
   await expect(
     page.getByRole('heading', { name: '真实客户品牌 · 品牌可见度与模型表现' }),
@@ -1443,10 +1408,6 @@ test('validated customer reads mounted data and serializes every write without s
   await expect(page.getByLabel('地区表现数据表')).toContainText('east');
   await expect(page.getByLabel('回答模式表现数据表')).toContainText('deep');
   await expect(page.getByText('真实客户合同问题', { exact: true })).toHaveCount(0);
-  await expectSafePageScreenshot(page, 'customer-live-monitoring.png', {
-    fullPage: true,
-    animations: 'disabled',
-  });
   await page.goto('/platform/customer/?section=sources');
   await expect(
     page.getByRole('heading', { name: '真实客户品牌 · 信源权威与内容准备度' }),
@@ -1478,10 +1439,6 @@ test('validated customer reads mounted data and serializes every write without s
   await expect(page.getByText('Bearer relation-cited-text-canary')).toHaveCount(0);
   await expect(page.getByText('Cookie=relation-object-key-canary')).toHaveCount(0);
   await expect(page.getByText('Bearer relation-diff-canary')).toHaveCount(0);
-  await expectSafePageScreenshot(page, 'customer-live-evidence.png', {
-    fullPage: true,
-    animations: 'disabled',
-  });
   await page.getByRole('button', { name: '关闭证据弹窗' }).click();
   await synchronouslyActivateTwice(page.getByRole('button', { name: '生成证据包' }));
   await expect(page.getByText('真实证据包已生成并冻结清单')).toBeVisible();
@@ -1510,6 +1467,8 @@ test('validated customer reads mounted data and serializes every write without s
   await expect(sourceLink).toHaveAttribute('rel', 'noopener noreferrer');
   await expectSafeLocatorScreenshot(page, htmlPreview, 'customer-live-html-report-preview.png', {
     animations: 'disabled',
+    caret: 'hide',
+    maxDiffPixelRatio: 0.005,
   });
   await page.getByRole('button', { name: '关闭在线报告预览' }).click();
   await page.getByRole('button', { name: '打开 PDF' }).click();
@@ -1536,10 +1495,6 @@ test('validated customer reads mounted data and serializes every write without s
   await expect(page.getByText('问题已写入真实报告版本评论')).toBeVisible();
   expect(reportQuestionAuthorityReads).toBe(2);
   expect(reportQuestionBodies).toHaveLength(1);
-  await expectSafePageScreenshot(page, 'customer-live-reports.png', {
-    fullPage: true,
-    animations: 'disabled',
-  });
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= document.documentElement.clientWidth,

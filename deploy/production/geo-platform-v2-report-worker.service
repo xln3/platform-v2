@@ -1,0 +1,28 @@
+[Unit]
+Description=GEO Platform V2 Frozen Snapshot Report Temporal Worker
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=xln
+Group=xln
+WorkingDirectory=/opt/geo-platform-v2/current
+EnvironmentFile=/etc/geo-platform-v2/platform.env
+# Required so snapshot-bound report work cannot silently run with a
+# development environment or an unreviewed task queue.
+EnvironmentFile=/etc/geo-platform-v2/report-worker.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStartPre=/opt/geo-platform-v2/current/.venv/bin/python -c "from domain.reporting.libreoffice import report_runtime_preflight; report_runtime_preflight()"
+ExecStart=/opt/geo-platform-v2/current/.venv/bin/python -m workflows.workers.report
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadOnlyPaths=/opt/geo-platform-v2/current
+
+[Install]
+WantedBy=multi-user.target

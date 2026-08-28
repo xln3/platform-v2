@@ -13,14 +13,28 @@ if (!Number.isSafeInteger(e2ePortBase) || e2ePortBase < 1024 || e2ePortBase > 65
 }
 const reuseExistingE2eServer = process.env.GEO_E2E_REUSE_SERVER === '1';
 const appUrl = (offset: number) => `http://127.0.0.1:${e2ePortBase + offset}`;
-const e2eOutputDir = process.env.GEO_E2E_OUTPUT_DIR ?? 'tests/e2e-results';
-const e2eJsonReport = process.env.GEO_E2E_JSON_REPORT ?? 'tests/s04-evidence/e2e-results.json';
+const e2eOutputDir = process.env.GEO_E2E_OUTPUT_DIR ?? 'test-results/playwright/results';
+const e2eJsonReport = process.env.GEO_E2E_JSON_REPORT ?? 'test-results/playwright/e2e-results.json';
+const e2eWorkers = Number(process.env.GEO_E2E_WORKERS ?? '2');
+if (!Number.isSafeInteger(e2eWorkers) || e2eWorkers < 1) {
+  throw new Error('GEO_E2E_WORKERS must be a positive integer.');
+}
+
+// Desktop exercises every business flow. Tablet/mobile repeat only the suites that
+// intentionally verify responsive layout, accessibility, navigation, or screenshots.
+const customerResponsive =
+  /customer-(?:accessibility|account|shared-shell|state-matrix|visual)\.spec\.ts/;
+const operationsResponsive =
+  /operations-(?:accessibility|readonly-pagination|shared-shell|visual)\.spec\.ts/;
+const reportsResponsive = /reports-(?:accessibility|shared-shell|studio|visual)\.spec\.ts/;
+const intelligenceResponsive =
+  /intelligence-(?:accessibility|shared-shell|visual|workbench)\.spec\.ts/;
 
 export default defineConfig({
   testDir: './tests/e2e',
   outputDir: e2eOutputDir,
   fullyParallel: false,
-  workers: 1,
+  workers: e2eWorkers,
   forbidOnly: true,
   retries: 0,
   reporter: [['list'], ['json', { outputFile: e2eJsonReport }]],
@@ -51,12 +65,12 @@ export default defineConfig({
     },
     {
       name: 'customer-tablet',
-      testMatch: /customer-.*\.spec\.ts/,
+      testMatch: customerResponsive,
       use: { baseURL: appUrl(1), viewport: { width: 1024, height: 768 } },
     },
     {
       name: 'customer-mobile',
-      testMatch: /customer-.*\.spec\.ts/,
+      testMatch: customerResponsive,
       use: { baseURL: appUrl(1), viewport: { width: 390, height: 844 } },
     },
     {
@@ -66,12 +80,12 @@ export default defineConfig({
     },
     {
       name: 'operations-tablet',
-      testMatch: /operations-.*\.spec\.ts/,
+      testMatch: operationsResponsive,
       use: { baseURL: appUrl(2), viewport: { width: 1024, height: 768 } },
     },
     {
       name: 'operations-mobile',
-      testMatch: /operations-.*\.spec\.ts/,
+      testMatch: operationsResponsive,
       use: { baseURL: appUrl(2), viewport: { width: 390, height: 844 } },
     },
     {
@@ -81,12 +95,12 @@ export default defineConfig({
     },
     {
       name: 'reports-tablet',
-      testMatch: /reports-.*\.spec\.ts/,
+      testMatch: reportsResponsive,
       use: { baseURL: appUrl(3), viewport: { width: 1024, height: 768 } },
     },
     {
       name: 'reports-mobile',
-      testMatch: /reports-.*\.spec\.ts/,
+      testMatch: reportsResponsive,
       use: { baseURL: appUrl(3), viewport: { width: 390, height: 844 } },
     },
     {
@@ -96,12 +110,12 @@ export default defineConfig({
     },
     {
       name: 'intelligence-tablet',
-      testMatch: /intelligence-.*\.spec\.ts/,
+      testMatch: intelligenceResponsive,
       use: { baseURL: appUrl(4), viewport: { width: 1024, height: 768 } },
     },
     {
       name: 'intelligence-mobile',
-      testMatch: /intelligence-.*\.spec\.ts/,
+      testMatch: intelligenceResponsive,
       use: { baseURL: appUrl(4), viewport: { width: 390, height: 844 } },
     },
     {

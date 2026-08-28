@@ -22,13 +22,15 @@ import sys
 import threading
 import time
 
+from domain.security.redaction import redact_value, safe_exception_summary
+
 CONNECT_TIMEOUT_S = 10.0
 IDLE_TIMEOUT_S = 300.0
 MAX_LINE = 65536
 
 
 def _log(msg: str, **kv: object) -> None:
-    suffix = " ".join(f"{k}={v}" for k, v in kv.items())
+    suffix = " ".join(f"{k}={redact_value(v, key=k)}" for k, v in kv.items())
     print(f"[wukong-auth-relay] {msg} {suffix}".rstrip(), flush=True)
 
 
@@ -141,7 +143,7 @@ class _ConnectHandler(socketserver.BaseRequestHandler):
                 except OSError:
                     pass
         except (ConnectionError, OSError, ValueError) as exc:
-            _log("connect_failed", error=f"{type(exc).__name__}: {exc}"[:160])
+            _log("connect_failed", error=safe_exception_summary(exc))
         finally:
             try:
                 client.close()
@@ -162,7 +164,7 @@ def main() -> int:
     try:
         host, port, basic = _parse_upstream(os.environ.get("UPSTREAM_PROXY_URL", ""))
     except ValueError as exc:
-        _log("config_error", detail=str(exc))
+        _log("config_error", detail=safe_exception_summary(exc))
         return 2
     _ConnectHandler.upstream_host = host
     _ConnectHandler.upstream_port = port

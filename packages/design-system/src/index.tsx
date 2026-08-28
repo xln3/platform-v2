@@ -2622,6 +2622,7 @@ export function ProductShell({
   currentNavId,
   children,
   probe,
+  logout = logoutPlatformSession,
 }: {
   product: string;
   title: string;
@@ -2631,6 +2632,7 @@ export function ProductShell({
   currentNavId?: string;
   children: (active: string) => ReactNode;
   probe: () => Promise<{ status: string }>;
+  logout?: () => Promise<void>;
 }) {
   const safeNav = useMemo(() => projectSafeProductNavigation(nav), [nav]);
   const sectionNav = useMemo(
@@ -2800,7 +2802,7 @@ export function ProductShell({
                 onClick={() => {
                   if (logoutPending) return;
                   setLogoutPending(true);
-                  void logoutPlatformSession();
+                  void logout();
                 }}
               >
                 {logoutPending ? '正在退出…' : '退出登录'}

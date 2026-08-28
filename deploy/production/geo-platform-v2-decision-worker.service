@@ -1,0 +1,27 @@
+[Unit]
+Description=GEO Platform V2 Semantic Decision Temporal Worker
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=xln
+Group=xln
+WorkingDirectory=/opt/geo-platform-v2/current
+EnvironmentFile=/etc/geo-platform-v2/platform.env
+# Required and loaded last: the production profile pins model spend to zero
+# until an operator installs a separately reviewed activation profile.
+EnvironmentFile=/etc/geo-platform-v2/decision-worker.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/geo-platform-v2/current/.venv/bin/python -m workflows.workers.decision
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadOnlyPaths=/opt/geo-platform-v2/current
+
+[Install]
+WantedBy=multi-user.target

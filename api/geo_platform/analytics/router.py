@@ -20,6 +20,8 @@ from ..brandrank import compare as brandrank_compare
 from ..brandrank import service as brandrank_service
 from ..config import get_settings
 from ..identity.policy import Principal, get_principal
+from ..metrics_v2.consumer_projection import OfficialMetricsConsumer, OfficialScope
+from ..metrics_v2.repository import MetricsV2Repository
 from ..pagination import decode_keyset_cursor, encode_keyset_cursor, numbered_page
 from ..tenancy.psycopg import tenant_connection
 from . import comparisons
@@ -431,6 +433,33 @@ def _dsn() -> str:
     settings = get_settings()
     return (settings.runtime_postgres_dsn or settings.postgres_dsn).replace(
         "postgresql+psycopg://", "postgresql://"
+    )
+
+
+def _official_consumer() -> OfficialMetricsConsumer:
+    return OfficialMetricsConsumer(MetricsV2Repository(_dsn()))
+
+
+def _official_scope(
+    *,
+    principal: Principal,
+    project_pub_id: str,
+    start: date,
+    end: date,
+    model: str | None,
+    region: str | None,
+    mode: str | None,
+    focal_entity_id: str | None,
+) -> OfficialScope:
+    return OfficialScope(
+        tenant_pub_id=principal.tenant_pub_id,
+        project_pub_id=project_pub_id,
+        start=start,
+        end=end,
+        models=(model,) if model else (),
+        regions=(region,) if region else (),
+        modes=(mode,) if mode else (),
+        focal_entity_ids=(focal_entity_id,) if focal_entity_id else (),
     )
 
 
@@ -1520,7 +1549,137 @@ def answer_relations(
     )
 
 
-@router.get("/overview", response_model=list[MetricView])
+@router.get(
+    "/official/overview",
+    response_model=None,
+    operation_id="getOfficialAnalyticsOverviewV2",
+)
+def official_overview(
+    project_pub_id: str,
+    start: date,
+    end: date,
+    model: str | None = None,
+    region: str | None = None,
+    mode: str | None = None,
+    focal_entity_id: str | None = None,
+    principal: Principal = Depends(get_principal),
+) -> dict[str, Any]:
+    """Formal Analytics cards from one immutable V2 ``official`` set."""
+
+    principal.require("project:read")
+    try:
+        return _official_consumer().overview(
+            _official_scope(
+                principal=principal,
+                project_pub_id=project_pub_id,
+                start=start,
+                end=end,
+                model=model,
+                region=region,
+                mode=mode,
+                focal_entity_id=focal_entity_id,
+            )
+        )
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=404, detail={"code": "official_metric_snapshot_set_not_found"}
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422, detail={"code": "invalid_official_metric_scope"}
+        ) from exc
+
+
+@router.get(
+    "/official/breakdown",
+    response_model=None,
+    operation_id="getOfficialAnalyticsBreakdownV2",
+)
+def official_breakdown(
+    project_pub_id: str,
+    start: date,
+    end: date,
+    group_by: Literal["day", "model", "region_mode", "question"],
+    model: str | None = None,
+    region: str | None = None,
+    mode: str | None = None,
+    focal_entity_id: str | None = None,
+    principal: Principal = Depends(get_principal),
+) -> dict[str, Any]:
+    """Breakdown of persisted V2 member contributions; no answer/rank SQL."""
+
+    principal.require("project:read")
+    try:
+        return _official_consumer().breakdown(
+            _official_scope(
+                principal=principal,
+                project_pub_id=project_pub_id,
+                start=start,
+                end=end,
+                model=model,
+                region=region,
+                mode=mode,
+                focal_entity_id=focal_entity_id,
+            ),
+            group_by=group_by,
+        )
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=404, detail={"code": "official_metric_snapshot_set_not_found"}
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422, detail={"code": "invalid_official_metric_scope"}
+        ) from exc
+
+
+@router.get(
+    "/official/delta",
+    response_model=None,
+    operation_id="getOfficialAnalyticsDeltaV2",
+)
+def official_delta(
+    project_pub_id: str,
+    start: date,
+    end: date,
+    model: str | None = None,
+    region: str | None = None,
+    mode: str | None = None,
+    focal_entity_id: str | None = None,
+    principal: Principal = Depends(get_principal),
+) -> dict[str, Any]:
+    """Paired-period view; incompatible support is an explicit null delta."""
+
+    principal.require("project:read")
+    try:
+        return _official_consumer().delta(
+            _official_scope(
+                principal=principal,
+                project_pub_id=project_pub_id,
+                start=start,
+                end=end,
+                model=model,
+                region=region,
+                mode=mode,
+                focal_entity_id=focal_entity_id,
+            )
+        )
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=404, detail={"code": "official_metric_snapshot_set_not_found"}
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422, detail={"code": "invalid_official_metric_scope"}
+        ) from exc
+
+
+@router.get(
+    "/overview",
+    response_model=list[MetricView],
+    deprecated=True,
+    tags=["analytics-legacy"],
+)
 def overview(
     project_pub_id: str,
     start: date,
@@ -1559,7 +1718,12 @@ def overview(
     ]
 
 
-@router.get("/breakdown", response_model=list[BreakdownView])
+@router.get(
+    "/breakdown",
+    response_model=list[BreakdownView],
+    deprecated=True,
+    tags=["analytics-legacy"],
+)
 def breakdown(
     project_pub_id: str,
     start: date,
@@ -1677,7 +1841,7 @@ def breakdown(
     return projections
 
 
-@router.get("/delta")
+@router.get("/delta", deprecated=True, tags=["analytics-legacy"])
 def delta(
     project_pub_id: str,
     start: date,

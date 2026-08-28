@@ -19,8 +19,6 @@ import re
 import statistics
 from collections import Counter, defaultdict
 
-import pytest
-
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _HER_DIR = os.path.join(
     _HERE, "..", "..", "..", "GEO-auto-analysis", "data_analysis", "scripts", "tmp", "保险"
@@ -70,9 +68,9 @@ def _exec_funcs(src_text: str, tree: ast.Module, func_names, namespace: dict) ->
 def load_her_impl() -> dict:
     """返回 {normalize_brand, normalize_brand_list, collect_brand_ranks, merge_rank_maps,
     calculate_brand_ranking, calculate_appearance_rate, calculate_top_rate}——她的真实函数体。
-    她的源码不在（其他机器/CI）→ skip 而非 fail。"""
+    她的源码不在（其他机器/CI）时显式失败；调用方属于 external_fixture 车道。"""
     if not (os.path.isfile(_ANALYZE_BRAND) and os.path.isfile(_COMPARE)):
-        pytest.skip("同事版 GEO-auto-analysis 源码不在本机")
+        raise AssertionError("同事版 GEO-auto-analysis 源码不在本机")
     with open(_ANALYZE_BRAND, encoding="utf-8") as f:
         src_a = f.read()
     tree_a = ast.parse(src_a)

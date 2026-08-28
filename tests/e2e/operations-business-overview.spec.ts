@@ -43,10 +43,10 @@ test('business overview keeps 4 + 1 projects reachable, restores URL filters, an
     await expect(page.locator('.business-project-table tbody tr')).toHaveCount(4);
   }
 
-  await expect(page.getByRole('link', { name: '星河科技', exact: true })).toHaveAttribute(
-    'href',
-    '/platform/operations/onboarding?project=prj_fixture_business_05',
-  );
+  await expect(
+    page.locator('.business-customer-name:visible').filter({ hasText: '星河科技' }),
+  ).toHaveCount(1);
+  await expect(page.getByRole('link', { name: '星河科技', exact: true })).toHaveCount(0);
   await expect(page.getByRole('link', { name: '华东品牌增长', exact: true })).toHaveAttribute(
     'href',
     '/platform/operations/sop/projects/prj_fixture_business_05',
@@ -57,9 +57,7 @@ test('business overview keeps 4 + 1 projects reachable, restores URL filters, an
   expect(attentionHrefs).toContain(
     '/platform/operations/formal-reports?project=prj_fixture_business_03',
   );
-  expect(attentionHrefs).toContain(
-    '/platform/operations/execution?project=prj_fixture_business_02',
-  );
+  expect(attentionHrefs).toContain('/platform/operations/execution');
   await expect(
     page.getByRole('link', { name: '正式报告生成', exact: true }).last(),
   ).toHaveAttribute('href', '/platform/operations/formal-reports');

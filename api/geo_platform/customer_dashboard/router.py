@@ -6,6 +6,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
+from pydantic import BaseModel
 
 from domain.metrics.customer import metric_catalog
 
@@ -18,11 +19,15 @@ from .schemas import (
     CustomerAnswerLibraryPageView,
     CustomerAnswerLibraryQuestionRunsView,
     CustomerAnswerPageView,
+    CustomerBusinessView,
+    CustomerDashboardV2View,
     CustomerDashboardView,
+    CustomerExposureRole,
     CustomerMetricCatalogView,
     CustomerMetricSpecView,
+    CustomerMetricTraceV2View,
 )
-from .service import CustomerDashboardService
+from .service import CustomerDashboardService, CustomerDashboardV2Service
 
 router = APIRouter(prefix="/api/v2/customer-dashboard", tags=["customer-dashboard"])
 
@@ -75,10 +80,83 @@ def _answer_library_not_found(exc: LookupError) -> HTTPException:
     )
 
 
+def _customer_metrics_v2_not_found(exc: LookupError) -> HTTPException:
+    return HTTPException(
+        status_code=404,
+        detail={"code": "customer_metrics_v2_resource_not_found"},
+    )
+
+
+def _bound_metric_snapshot_set(
+    *,
+    principal: Principal,
+    project_pub_id: str,
+    set_pub_id: str | None,
+    set_hash: str | None,
+) -> dict[str, object] | None:
+    if (set_pub_id is None) != (set_hash is None):
+        raise HTTPException(status_code=422, detail={"code": "incomplete_metric_snapshot_binding"})
+    if set_pub_id is None or set_hash is None:
+        return None
+    try:
+        snapshot_set = CustomerDashboardV2Service(dsn=_dsn()).repository.get_snapshot_set(
+            tenant_pub_id=principal.tenant_pub_id,
+            set_pub_id=set_pub_id,
+        )
+    except LookupError as exc:
+        raise _customer_metrics_v2_not_found(exc) from exc
+    if (
+        snapshot_set.get("project_pub_id") != project_pub_id
+        or snapshot_set.get("snapshot_set_hash") != set_hash
+    ):
+        raise _customer_metrics_v2_not_found(LookupError("snapshot_binding_mismatch"))
+    return snapshot_set
+
+
+def _metric_binding_cutoff(
+    *,
+    snapshot_set: dict[str, object] | None,
+    requested_snapshot_at: datetime | None,
+    start: date,
+    end: date,
+) -> datetime:
+    if snapshot_set is None:
+        return (
+            datetime.now(UTC)
+            if requested_snapshot_at is None
+            else _customer_snapshot(requested_snapshot_at)
+        )
+    raw_as_of = snapshot_set.get("as_of")
+    if not isinstance(raw_as_of, datetime):
+        raise HTTPException(status_code=404, detail={"code": "metric_snapshot_binding_invalid"})
+    as_of = raw_as_of.astimezone(UTC)
+    window = snapshot_set.get("window")
+    if not isinstance(window, dict) or window.get("start") != start or window.get("end") != end:
+        raise HTTPException(status_code=422, detail={"code": "metric_snapshot_window_mismatch"})
+    if requested_snapshot_at is not None and _customer_snapshot(requested_snapshot_at) != as_of:
+        raise HTTPException(status_code=422, detail={"code": "metric_snapshot_cutoff_mismatch"})
+    return as_of
+
+
+def _with_metric_binding[ProjectionModelT: BaseModel](
+    document: ProjectionModelT,
+    snapshot_set: dict[str, object] | None,
+) -> ProjectionModelT:
+    if snapshot_set is None:
+        return document
+    return document.model_copy(
+        update={
+            "metric_snapshot_set_pub_id": snapshot_set["snapshot_set_pub_id"],
+            "metric_snapshot_set_hash": snapshot_set["snapshot_set_hash"],
+        }
+    )
+
+
 @router.get(
     "/metrics/catalog",
     response_model=CustomerMetricCatalogView,
     operation_id="getCustomerMetricCatalog",
+    deprecated=True,
 )
 def customer_metric_catalog(
     principal: Principal = Depends(get_principal),
@@ -94,6 +172,7 @@ def customer_metric_catalog(
     "/projects/{project_pub_id}",
     response_model=CustomerDashboardView,
     operation_id="getCustomerDashboard",
+    deprecated=True,
 )
 def customer_dashboard(
     project_pub_id: str = Path(pattern=r"^prj_[A-Za-z0-9_-]{1,116}$"),
@@ -125,9 +204,116 @@ def customer_dashboard(
 
 
 @router.get(
+    "/projects/{project_pub_id}/dashboard-v2",
+    response_model=CustomerDashboardV2View,
+    operation_id="getCustomerDashboardV2",
+)
+def customer_dashboard_v2(
+    response: Response,
+    project_pub_id: str = Path(pattern=r"^prj_[A-Za-z0-9_-]{1,116}$"),
+    business_view: CustomerBusinessView = Query(),
+    exposure_role: CustomerExposureRole = Query(),
+    metric_name: list[str] = Query(min_length=1, max_length=40),
+    start: date | None = Query(default=None),
+    end: date | None = Query(default=None),
+    model: list[str] = Query(default_factory=list, max_length=100),
+    region: list[str] = Query(default_factory=list, max_length=100),
+    mode: list[str] = Query(default_factory=list, max_length=100),
+    focal_entity_id: str | None = Query(default=None, min_length=1, max_length=200),
+    publication_channel: Literal["official", "shadow"] = Query(default="official"),
+    principal: Principal = Depends(get_principal),
+) -> CustomerDashboardV2View:
+    principal.require("project:read")
+    if publication_channel == "shadow" and not principal.allows("metrics:publish"):
+        raise HTTPException(status_code=403, detail={"code": "permission_denied"})
+    if (start is None) != (end is None) or (
+        start is not None and end is not None and (start > end or (end - start).days > 366)
+    ):
+        raise HTTPException(status_code=422, detail={"code": "invalid_metric_window"})
+    _secure_projection_headers(response)
+    try:
+        document = CustomerDashboardV2Service(dsn=_dsn()).dashboard(
+            tenant_pub_id=principal.tenant_pub_id,
+            project_pub_id=project_pub_id,
+            business_view=business_view,
+            exposure_role=exposure_role,
+            metric_names=metric_name,
+            start=start,
+            end=end,
+            models=model,
+            regions=region,
+            modes=mode,
+            focal_entity_id=focal_entity_id,
+            publication_channel=publication_channel,
+        )
+    except LookupError as exc:
+        raise _customer_metrics_v2_not_found(exc) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={"code": str(exc)}) from exc
+    return CustomerDashboardV2View.model_validate(document)
+
+
+@router.get(
+    "/projects/{project_pub_id}/dashboard-v2/snapshot-sets/{snapshot_set_pub_id}"
+    "/snapshots/{snapshot_pub_id}/trace",
+    response_model=CustomerMetricTraceV2View,
+    operation_id="getCustomerMetricTraceV2",
+)
+def customer_metric_trace_v2(
+    response: Response,
+    project_pub_id: str = Path(pattern=r"^prj_[A-Za-z0-9_-]{1,116}$"),
+    snapshot_set_pub_id: str = Path(pattern=r"^mss_[A-Za-z0-9_-]{1,116}$"),
+    snapshot_pub_id: str = Path(pattern=r"^msn_[A-Za-z0-9_-]{1,116}$"),
+    snapshot_set_hash: str = Query(pattern=r"^[0-9a-f]{64}$"),
+    business_view: CustomerBusinessView = Query(),
+    exposure_role: CustomerExposureRole = Query(),
+    cursor: str | None = Query(default=None, min_length=8, max_length=2_000),
+    limit: int = Query(default=50, ge=1, le=100),
+    eligibility_status: Literal[
+        "included_hit", "included_miss", "excluded", "not_applicable", "analysis_unknown"
+    ]
+    | None = Query(default=None),
+    reason_code: str | None = Query(default=None, min_length=1, max_length=120),
+    query: str | None = Query(default=None, min_length=1, max_length=200),
+    model: str | None = Query(default=None, min_length=1, max_length=120),
+    region: str | None = Query(default=None, min_length=1, max_length=120),
+    mode: str | None = Query(default=None, min_length=1, max_length=80),
+    hit: bool | None = Query(default=None),
+    principal: Principal = Depends(get_principal),
+) -> CustomerMetricTraceV2View:
+    principal.require("project:read")
+    _secure_projection_headers(response)
+    try:
+        document = CustomerDashboardV2Service(dsn=_dsn()).trace(
+            tenant_pub_id=principal.tenant_pub_id,
+            project_pub_id=project_pub_id,
+            snapshot_set_pub_id=snapshot_set_pub_id,
+            expected_snapshot_set_hash=snapshot_set_hash,
+            snapshot_pub_id=snapshot_pub_id,
+            business_view=business_view,
+            exposure_role=exposure_role,
+            cursor=cursor,
+            limit=limit,
+            eligibility_status=eligibility_status,
+            reason_code=reason_code,
+            query=query,
+            model=model,
+            region=region,
+            mode=mode,
+            hit=hit,
+        )
+    except LookupError as exc:
+        raise _customer_metrics_v2_not_found(exc) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={"code": str(exc)}) from exc
+    return CustomerMetricTraceV2View.model_validate(document)
+
+
+@router.get(
     "/projects/{project_pub_id}/answers",
     response_model=CustomerAnswerPageView,
     operation_id="getCustomerAnswerPage",
+    deprecated=True,
 )
 def customer_answers(
     project_pub_id: str = Path(pattern=r"^prj_[A-Za-z0-9_-]{1,116}$"),
@@ -184,18 +370,33 @@ def customer_answer_library(
     mode: str | None = Query(default=None, min_length=1, max_length=80),
     snapshot_id: str | None = Query(default=None, pattern=r"^als_[0-9a-f]{24}$"),
     snapshot_at: datetime | None = Query(default=None),
+    metric_snapshot_set_pub_id: str | None = Query(
+        default=None, pattern=r"^mss_[A-Za-z0-9_-]{1,116}$"
+    ),
+    metric_snapshot_set_hash: str | None = Query(default=None, pattern=r"^[0-9a-f]{64}$"),
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=8, ge=1, le=20),
     principal: Principal = Depends(get_principal),
 ) -> CustomerAnswerLibraryPageView:
     principal.require("project:read")
     effective_start, effective_end = _customer_window(start, end)
-    if (snapshot_id is None) != (snapshot_at is None):
+    snapshot_set = _bound_metric_snapshot_set(
+        principal=principal,
+        project_pub_id=project_pub_id,
+        set_pub_id=metric_snapshot_set_pub_id,
+        set_hash=metric_snapshot_set_hash,
+    )
+    if snapshot_set is None and (snapshot_id is None) != (snapshot_at is None):
         raise HTTPException(
             status_code=422,
             detail={"code": "incomplete_answer_library_snapshot"},
         )
-    cutoff = datetime.now(UTC) if snapshot_at is None else _customer_snapshot(snapshot_at)
+    cutoff = _metric_binding_cutoff(
+        snapshot_set=snapshot_set,
+        requested_snapshot_at=snapshot_at,
+        start=effective_start,
+        end=effective_end,
+    )
     _secure_projection_headers(response)
     try:
         document = CustomerAnswerLibraryService(dsn=_dsn()).library_page(
@@ -214,7 +415,8 @@ def customer_answer_library(
         )
     except LookupError as exc:
         raise _answer_library_not_found(exc) from exc
-    return CustomerAnswerLibraryPageView.model_validate(document)
+    result = CustomerAnswerLibraryPageView.model_validate(document)
+    return _with_metric_binding(result, snapshot_set)
 
 
 @router.get(
@@ -228,6 +430,10 @@ def customer_answer_library_meta_query(
     meta_query_id: str = Path(pattern=r"^amq_[0-9a-f]{24}$"),
     snapshot_id: str = Query(pattern=r"^als_[0-9a-f]{24}$"),
     snapshot_at: datetime = Query(),
+    metric_snapshot_set_pub_id: str | None = Query(
+        default=None, pattern=r"^mss_[A-Za-z0-9_-]{1,116}$"
+    ),
+    metric_snapshot_set_hash: str | None = Query(default=None, pattern=r"^[0-9a-f]{64}$"),
     start: date | None = Query(default=None),
     end: date | None = Query(default=None),
     model: str | None = Query(default=None, min_length=1, max_length=120),
@@ -237,7 +443,18 @@ def customer_answer_library_meta_query(
 ) -> CustomerAnswerLibraryMetaDetailView:
     principal.require("project:read")
     effective_start, effective_end = _customer_window(start, end)
-    cutoff = _customer_snapshot(snapshot_at)
+    snapshot_set = _bound_metric_snapshot_set(
+        principal=principal,
+        project_pub_id=project_pub_id,
+        set_pub_id=metric_snapshot_set_pub_id,
+        set_hash=metric_snapshot_set_hash,
+    )
+    cutoff = _metric_binding_cutoff(
+        snapshot_set=snapshot_set,
+        requested_snapshot_at=snapshot_at,
+        start=effective_start,
+        end=effective_end,
+    )
     _secure_projection_headers(response)
     try:
         document = CustomerAnswerLibraryService(dsn=_dsn()).meta_query(
@@ -254,7 +471,8 @@ def customer_answer_library_meta_query(
         )
     except LookupError as exc:
         raise _answer_library_not_found(exc) from exc
-    return CustomerAnswerLibraryMetaDetailView.model_validate(document)
+    result = CustomerAnswerLibraryMetaDetailView.model_validate(document)
+    return _with_metric_binding(result, snapshot_set)
 
 
 @router.get(
@@ -268,6 +486,10 @@ def customer_answer_library_question_runs(
     question_id: str = Path(pattern=r"^aq_[0-9a-f]{24}$"),
     snapshot_id: str = Query(pattern=r"^als_[0-9a-f]{24}$"),
     snapshot_at: datetime = Query(),
+    metric_snapshot_set_pub_id: str | None = Query(
+        default=None, pattern=r"^mss_[A-Za-z0-9_-]{1,116}$"
+    ),
+    metric_snapshot_set_hash: str | None = Query(default=None, pattern=r"^[0-9a-f]{64}$"),
     start: date | None = Query(default=None),
     end: date | None = Query(default=None),
     model: str | None = Query(default=None, min_length=1, max_length=120),
@@ -279,7 +501,18 @@ def customer_answer_library_question_runs(
 ) -> CustomerAnswerLibraryQuestionRunsView:
     principal.require("project:read")
     effective_start, effective_end = _customer_window(start, end)
-    cutoff = _customer_snapshot(snapshot_at)
+    snapshot_set = _bound_metric_snapshot_set(
+        principal=principal,
+        project_pub_id=project_pub_id,
+        set_pub_id=metric_snapshot_set_pub_id,
+        set_hash=metric_snapshot_set_hash,
+    )
+    cutoff = _metric_binding_cutoff(
+        snapshot_set=snapshot_set,
+        requested_snapshot_at=snapshot_at,
+        start=effective_start,
+        end=effective_end,
+    )
     _secure_projection_headers(response)
     try:
         document = CustomerAnswerLibraryService(dsn=_dsn()).question_runs(
@@ -298,7 +531,8 @@ def customer_answer_library_question_runs(
         )
     except LookupError as exc:
         raise _answer_library_not_found(exc) from exc
-    return CustomerAnswerLibraryQuestionRunsView.model_validate(document)
+    result = CustomerAnswerLibraryQuestionRunsView.model_validate(document)
+    return _with_metric_binding(result, snapshot_set)
 
 
 @router.get(
@@ -310,26 +544,61 @@ def customer_answer_library_detail(
     response: Response,
     project_pub_id: str = Path(pattern=r"^prj_[A-Za-z0-9_-]{1,116}$"),
     answer_pub_id: str = Path(pattern=r"^ans_[A-Za-z0-9_-]{1,116}$"),
-    snapshot_id: str = Query(pattern=r"^als_[0-9a-f]{24}$"),
-    snapshot_at: datetime = Query(),
+    snapshot_id: str | None = Query(default=None, pattern=r"^als_[0-9a-f]{24}$"),
+    snapshot_at: datetime | None = Query(default=None),
+    metric_snapshot_set_pub_id: str | None = Query(
+        default=None, pattern=r"^mss_[A-Za-z0-9_-]{1,116}$"
+    ),
+    metric_snapshot_set_hash: str | None = Query(default=None, pattern=r"^[0-9a-f]{64}$"),
     start: date | None = Query(default=None),
     end: date | None = Query(default=None),
     principal: Principal = Depends(get_principal),
 ) -> CustomerAnswerLibraryDetailView:
     principal.require("project:read")
     effective_start, effective_end = _customer_window(start, end)
-    cutoff = _customer_snapshot(snapshot_at)
+    snapshot_set = _bound_metric_snapshot_set(
+        principal=principal,
+        project_pub_id=project_pub_id,
+        set_pub_id=metric_snapshot_set_pub_id,
+        set_hash=metric_snapshot_set_hash,
+    )
+    if snapshot_set is None and (snapshot_id is None or snapshot_at is None):
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "incomplete_answer_library_snapshot"},
+        )
+    cutoff = _metric_binding_cutoff(
+        snapshot_set=snapshot_set,
+        requested_snapshot_at=snapshot_at,
+        start=effective_start,
+        end=effective_end,
+    )
     _secure_projection_headers(response)
     try:
-        document = CustomerAnswerLibraryService(dsn=_dsn()).answer_detail(
+        library_service = CustomerAnswerLibraryService(dsn=_dsn())
+        resolved_snapshot_id = snapshot_id
+        if resolved_snapshot_id is None:
+            root = library_service.library_page(
+                tenant_pub_id=principal.tenant_pub_id,
+                project_pub_id=project_pub_id,
+                start=effective_start,
+                end=effective_end,
+                snapshot_at=cutoff,
+                snapshot_id=None,
+                offset=0,
+                limit=1,
+            )
+            resolved_snapshot_id = str(root["snapshot_id"])
+        document = library_service.answer_detail(
             tenant_pub_id=principal.tenant_pub_id,
             project_pub_id=project_pub_id,
             answer_pub_id=answer_pub_id,
-            snapshot_id=snapshot_id,
+            snapshot_id=resolved_snapshot_id,
             snapshot_at=cutoff,
             start=effective_start,
             end=effective_end,
         )
     except LookupError as exc:
         raise _answer_library_not_found(exc) from exc
-    return CustomerAnswerLibraryDetailView.model_validate(document)
+    result = CustomerAnswerLibraryDetailView.model_validate(document)
+    return _with_metric_binding(result, snapshot_set)

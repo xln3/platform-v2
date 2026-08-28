@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -151,6 +152,7 @@ def test_bundle_inspection_rejects_fixture_source_map_and_missing_asset(tmp_path
 
 def test_nginx_contract_accepts_frontends_split_across_port_edges(tmp_path: Path) -> None:
     root = tmp_path / "workspace"
+    served_root = Path("/opt/geo-platform-v2/current")
     backend_config = tmp_path / "backend.conf"
     port_edges_config = tmp_path / "port-edges.conf"
     backend_lines: list[str] = []
@@ -161,7 +163,7 @@ def test_nginx_contract_accepts_frontends_split_across_port_edges(tmp_path: Path
         lines.extend(
             [
                 f"location {basename} {{",
-                f"alias {root / 'apps' / app / 'build' / 'client'}/;",
+                f"alias {served_root / 'apps' / app / 'build' / 'client'}/;",
                 "}",
             ]
         )
@@ -169,7 +171,9 @@ def test_nginx_contract_accepts_frontends_split_across_port_edges(tmp_path: Path
     backend_config.write_text("\n".join(backend_lines), encoding="utf-8")
     port_edges_config.write_text("\n".join(port_edge_lines), encoding="utf-8")
 
-    frontend_release.assert_nginx_direct_build_contract((backend_config, port_edges_config), root)
+    frontend_release.assert_nginx_direct_build_contract(
+        (backend_config, port_edges_config), root, served_root
+    )
 
     port_edges_config.write_text(
         port_edges_config.read_text(encoding="utf-8").replace(
@@ -179,8 +183,50 @@ def test_nginx_contract_accepts_frontends_split_across_port_edges(tmp_path: Path
     )
     with pytest.raises(frontend_release.ReleaseError, match="/platform/customer"):
         frontend_release.assert_nginx_direct_build_contract(
-            (backend_config, port_edges_config), root
+            (backend_config, port_edges_config), root, served_root
         )
+
+
+def test_materialize_fresh_immutable_root_restores_candidates_on_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, nginx_config, release_id = make_release_fixture(tmp_path, monkeypatch)
+    releases = root / ".frontend-releases"
+    served_root = Path("/opt/geo-platform-v2/current")
+    nginx_config.write_text(
+        nginx_config.read_text(encoding="utf-8").replace(str(root), str(served_root)),
+        encoding="utf-8",
+    )
+    for app in frontend_release.APPS:
+        shutil.rmtree(root / "apps" / app / "build")
+
+    with pytest.raises(frontend_release.ReleaseError, match="verification_command_failed:7"):
+        frontend_release.materialize_release(
+            release_id,
+            [sys.executable, "-c", "raise SystemExit(7)"],
+            root=root,
+            releases_root=releases,
+            nginx_config=nginx_config,
+            served_root=served_root,
+        )
+
+    for app in frontend_release.APPS:
+        assert not (root / "apps" / app / "build").exists()
+        assert f"new-{app}" in bundle_marker(releases / release_id / "candidates" / app)
+
+    materialized = frontend_release.materialize_release(
+        release_id,
+        [sys.executable, "-c", "raise SystemExit(0)"],
+        root=root,
+        releases_root=releases,
+        nginx_config=nginx_config,
+        served_root=served_root,
+    )
+
+    assert materialized["status"] == "materialized_verified"
+    for app in frontend_release.APPS:
+        assert f"new-{app}" in bundle_marker(root / "apps" / app / "build")
+        assert not (releases / release_id / "candidates" / app).exists()
 
 
 def test_failed_verification_atomically_restores_every_active_bundle(

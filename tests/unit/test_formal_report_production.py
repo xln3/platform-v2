@@ -40,6 +40,9 @@ from temporalio.exceptions import ApplicationError
 from domain.reporting import libreoffice
 from domain.reporting.formal_review_service2_docx import _answer_views
 from workflows.activities import s02 as s02_activities
+from workflows.activities.report_v2 import (
+    validate_formal_metric_snapshot_binding_activity,
+)
 from workflows.activities.s02 import (
     fail_formal_report_activity,
     finalize_formal_report_activity,
@@ -48,6 +51,7 @@ from workflows.activities.s02 import (
 )
 from workflows.definitions import s02 as s02_definitions
 from workflows.definitions.s02 import ReportProductionWorkflow
+from workflows.workers import report as report_worker
 from workflows.workers import s02 as s02_worker
 
 
@@ -735,10 +739,53 @@ def test_service1_formal_asset_loader_prefers_clean_excerpt_screenshot(
 def test_formal_temporal_activities_are_registered() -> None:
     assert {
         preflight_formal_report_runtime_activity,
+        validate_formal_metric_snapshot_binding_activity,
         produce_formal_report_activity,
         fail_formal_report_activity,
         finalize_formal_report_activity,
-    }.issubset(set(s02_worker.S02_ACTIVITIES))
+    }.issubset(set(report_worker.REPORT_ACTIVITIES))
+    assert ReportProductionWorkflow in report_worker.REPORT_WORKFLOWS
+    assert report_worker.FormalSnapshotReportWorkflowV2 in report_worker.REPORT_WORKFLOWS
+    assert ReportProductionWorkflow not in s02_worker.S02_WORKFLOWS
+
+
+def test_formal_workflow_validates_v2_binding_before_preflight(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    instance = ReportProductionWorkflow()
+    calls: list[str] = []
+
+    async def execute_activity(activity_fn: object, payload: dict[str, Any], **kwargs: object):
+        del payload, kwargs
+        name = getattr(activity_fn, "__name__", "")
+        calls.append(name)
+        if name == "validate_formal_metric_snapshot_binding_activity":
+            return {"state": "bound"}
+        if name == "preflight_formal_report_runtime_activity":
+            return {"state": "ready"}
+        if name == "produce_formal_report_activity":
+            return {"status": "failed"}
+        raise AssertionError(name)
+
+    monkeypatch.setattr(s02_definitions.workflow, "patched", lambda _patch: True)
+    monkeypatch.setattr(s02_definitions.workflow, "execute_activity", execute_activity)
+
+    result = asyncio.run(
+        instance._run_formal(
+            {
+                "tenant_pub_id": "ten_unit",
+                "formal_production_pub_id": "frp_unit",
+                "metric_snapshot_set_pub_id": "mss_unit",
+            }
+        )
+    )
+
+    assert result == {"status": "failed"}
+    assert calls == [
+        "validate_formal_metric_snapshot_binding_activity",
+        "preflight_formal_report_runtime_activity",
+        "produce_formal_report_activity",
+    ]
 
 
 def test_fail_formal_activity_does_not_preflight_object_store(
@@ -952,7 +999,7 @@ def test_formal_activity_result_is_temporal_json_serializable() -> None:
     assert json.loads(json.dumps(result)) == result
 
 
-def test_s02_worker_preflights_before_accepting_work(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_report_worker_preflights_before_accepting_work(monkeypatch: pytest.MonkeyPatch) -> None:
     events: list[str] = []
 
     class FakeClient:
@@ -974,13 +1021,15 @@ def test_s02_worker_preflights_before_accepting_work(monkeypatch: pytest.MonkeyP
         async def run(self) -> None:
             events.append("run")
 
-    monkeypatch.setattr(s02_worker, "report_runtime_preflight", lambda: events.append("preflight"))
-    monkeypatch.setattr(s02_worker, "Client", FakeClient)
-    monkeypatch.setattr(s02_worker, "Worker", FakeWorker)
-    monkeypatch.setattr(s02_worker, "get_settings", lambda: SimpleNamespace(log_level="INFO"))
-    monkeypatch.setattr(s02_worker, "configure_logging", lambda _level: None)
-    monkeypatch.setattr(s02_worker, "configure_tracing", lambda *args, **kwargs: None)
-    asyncio.run(s02_worker.run_s02_worker())
+    monkeypatch.setattr(
+        report_worker, "report_runtime_preflight", lambda: events.append("preflight")
+    )
+    monkeypatch.setattr(report_worker, "Client", FakeClient)
+    monkeypatch.setattr(report_worker, "Worker", FakeWorker)
+    monkeypatch.setattr(report_worker, "get_settings", lambda: SimpleNamespace(log_level="INFO"))
+    monkeypatch.setattr(report_worker, "configure_logging", lambda _level: None)
+    monkeypatch.setattr(report_worker, "configure_tracing", lambda *args, **kwargs: None)
+    asyncio.run(report_worker.run_report_worker())
     assert events == ["preflight", "connect", "run"]
 
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
@@ -11,6 +11,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from ..config import get_settings
 from ..identity.policy import Principal, get_principal
+from ..metrics_v2.consumer_projection import OfficialMetricsConsumer, OfficialScope
+from ..metrics_v2.repository import MetricsV2Repository
 from .pagination_policy import (
     SOP_DEFAULT_PAGE_NUMBER,
     SOP_DEFAULT_PAGE_SIZE,
@@ -552,6 +554,10 @@ def _dsn() -> str:
 
 def _service() -> SopService:
     return SopService(dsn=_dsn())
+
+
+def _official_consumer() -> OfficialMetricsConsumer:
+    return OfficialMetricsConsumer(MetricsV2Repository(_dsn()))
 
 
 @contextmanager
@@ -1417,8 +1423,83 @@ def list_comparisons(
 
 
 @router.get(
+    "/projects/{project_pub_id}/metrics/official",
+    response_model=None,
+    operation_id="getSopOfficialMetricsV2",
+)
+def get_official_metrics(
+    project_pub_id: str,
+    start: date,
+    end: date,
+    purpose: Literal["baseline", "goal", "retest"] = "goal",
+    focal_entity_id: list[str] | None = Query(default=None),
+    principal: Principal = Depends(get_principal),
+) -> dict[str, Any]:
+    """Bind a SOP baseline, goal, or retest view to one official V2 set."""
+
+    principal.require("sop:read")
+    try:
+        result = _official_consumer().overview(
+            OfficialScope(
+                tenant_pub_id=principal.tenant_pub_id,
+                project_pub_id=project_pub_id,
+                start=start,
+                end=end,
+                focal_entity_ids=tuple(focal_entity_id or ()),
+            )
+        )
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=404, detail={"code": "official_metric_snapshot_set_not_found"}
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422, detail={"code": "invalid_official_metric_scope"}
+        ) from exc
+    return {**result, "schema_version": "sop-official-metrics-v2", "purpose": purpose}
+
+
+@router.get(
+    "/projects/{project_pub_id}/metrics/before-after",
+    response_model=None,
+    operation_id="getSopOfficialBeforeAfterV2",
+)
+def get_official_before_after(
+    project_pub_id: str,
+    retest_start: date,
+    retest_end: date,
+    focal_entity_id: list[str] | None = Query(default=None),
+    principal: Principal = Depends(get_principal),
+) -> dict[str, Any]:
+    """SOP effect view with fail-closed common-support compatibility."""
+
+    principal.require("sop:read")
+    try:
+        result = _official_consumer().delta(
+            OfficialScope(
+                tenant_pub_id=principal.tenant_pub_id,
+                project_pub_id=project_pub_id,
+                start=retest_start,
+                end=retest_end,
+                focal_entity_ids=tuple(focal_entity_id or ()),
+            )
+        )
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=404, detail={"code": "official_metric_snapshot_set_not_found"}
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422, detail={"code": "invalid_official_metric_scope"}
+        ) from exc
+    return {**result, "schema_version": "sop-official-before-after-v2"}
+
+
+@router.get(
     "/projects/{project_pub_id}/comparison-summary",
     response_model=ComparisonSummaryView,
+    deprecated=True,
+    tags=["sop-legacy"],
 )
 def get_comparison_summary(
     project_pub_id: str,

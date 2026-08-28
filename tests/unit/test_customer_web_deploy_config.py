@@ -11,7 +11,6 @@ def test_customer_web_redirects_missing_trailing_slash_to_canonical_route() -> N
     customer_server = edges.split("listen 8787 ssl;", 1)[1].split("\n}\n", 1)[0]
     assert "location = /platform/customer {" in customer_server
     assert "return 308 /platform/customer/;" in customer_server
-    assert (
-        "alias /home/xln/geo-system/platform-v2/apps/customer-web/build/client/;" in customer_server
-    )
+    assert "alias /opt/geo-platform-v2/current/apps/customer-web/build/client/;" in customer_server
+    assert "/home/xln/geo-system/platform-v2/apps/" not in locations + edges
     assert "return 308 https://39.105.175.14:8787/platform/customer/;" in locations

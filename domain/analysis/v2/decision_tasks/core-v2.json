@@ -1,0 +1,1122 @@
+[
+  {
+    "name": "query-intent",
+    "version": "2.0.0",
+    "subject_type": "query",
+    "subject_ref_schema": {
+      "type": "object",
+      "properties": { "query_pub_id": { "type": "string", "minLength": 1 } },
+      "required": ["query_pub_id"],
+      "additionalProperties": false
+    },
+    "business_question": "Which analysis lenses, requested operations, and query subtypes does this query express?",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "normalized_query_text": { "type": "string", "minLength": 1 },
+        "query_text_hash": { "type": "string", "format": "sha256" },
+        "deterministic_candidates": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        }
+      },
+      "required": ["normalized_query_text", "query_text_hash", "deterministic_candidates"],
+      "additionalProperties": false
+    },
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "analysis_lenses": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["selection", "reputation", "comparison", "factual"]
+          },
+          "uniqueItems": true
+        },
+        "requested_operations": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["recommend", "rank", "compare", "describe", "verify"]
+          },
+          "uniqueItems": true
+        },
+        "query_subtypes": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+      },
+      "required": ["analysis_lenses", "requested_operations", "query_subtypes"],
+      "additionalProperties": false
+    },
+    "dependency_task_refs": [],
+    "candidate_policy": { "mode": "none" },
+    "decision_method_policy": "hybrid",
+    "rubric_ref": "resource://analysis/v2/rubrics/query-intent-2.0.0",
+    "rubric_hash": "6c8ef12dc21f5f7716280362102125adfd26cfb9291d7cb8f5a67031d2cdba82",
+    "prompt_template_ref": "resource://analysis/v2/prompts/query-intent-2.0.0",
+    "prompt_template_hash": "e8a4d146838f2ba7b2c94a7f5349cf2890d33f40dd216f609885e56ad98cc533",
+    "evidence_requirements": {},
+    "abstention_policy": {},
+    "adjudication_policy": { "required_roles": ["proposer"], "disagreement_action": "review" },
+    "calibration_gate": {
+      "minimum_support_per_label": 50,
+      "required_metrics": { "macro_f1": 0.95, "minimum_core_class_f1": 0.9 },
+      "required_slices": ["zh", "multi_intent", "prompt_injection"]
+    },
+    "status": "published",
+    "published_at": "2026-08-27T00:00:00Z",
+    "created_at": "2026-08-27T00:00:00Z"
+  },
+  {
+    "name": "query-brand-entity-resolution",
+    "version": "2.0.0",
+    "subject_type": "query",
+    "subject_ref_schema": {
+      "type": "object",
+      "properties": { "query_pub_id": { "type": "string", "minLength": 1 } },
+      "required": ["query_pub_id"],
+      "additionalProperties": false
+    },
+    "business_question": "Which managed or unmanaged brand, company, and product surfaces occur in this query?",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "normalized_query_text": { "type": "string", "minLength": 1 },
+        "query_text_hash": { "type": "string", "format": "sha256" },
+        "candidate_set_hash": { "type": "string", "format": "sha256" }
+      },
+      "required": ["normalized_query_text", "query_text_hash", "candidate_set_hash"],
+      "additionalProperties": false
+    },
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "resolutions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "surface": { "type": "string", "minLength": 1 },
+              "entity_type": {
+                "type": "string",
+                "enum": ["brand", "company", "product", "unknown"]
+              },
+              "resolution_state": {
+                "type": "string",
+                "enum": ["resolved", "unmanaged", "ambiguous"]
+              },
+              "entity_id": { "type": ["string", "null"] },
+              "candidate_entity_ids": {
+                "type": "array",
+                "items": { "type": "string" },
+                "uniqueItems": true
+              },
+              "start": { "type": "integer", "minimum": 0 },
+              "end": { "type": "integer", "minimum": 1 },
+              "excerpt_hash": { "type": "string", "format": "sha256" }
+            },
+            "required": [
+              "surface",
+              "entity_type",
+              "resolution_state",
+              "entity_id",
+              "candidate_entity_ids",
+              "start",
+              "end",
+              "excerpt_hash"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["resolutions"],
+      "additionalProperties": false
+    },
+    "dependency_task_refs": [],
+    "candidate_policy": {
+      "mode": "closed_with_open_surface_discovery",
+      "candidate_paths": ["$.resolutions[].entity_id", "$.resolutions[].candidate_entity_ids[]"]
+    },
+    "decision_method_policy": "hybrid",
+    "rubric_ref": "resource://analysis/v2/rubrics/query-brand-entity-resolution-2.0.0",
+    "rubric_hash": "956042799393476f2afaa42e130bad308859190ad2eca91e13036b3c2a38fdfa",
+    "prompt_template_ref": "resource://analysis/v2/prompts/query-brand-entity-resolution-2.0.0",
+    "prompt_template_hash": "83e27b3d67651b3847a725847756c1bd8edfc72e11623ba4b19e90d1945273ea",
+    "evidence_requirements": {},
+    "abstention_policy": {},
+    "adjudication_policy": { "required_roles": ["proposer"], "disagreement_action": "review" },
+    "calibration_gate": {
+      "minimum_support_per_label": 50,
+      "required_metrics": { "macro_f1": 0.95, "minimum_core_class_f1": 0.9 },
+      "required_slices": ["alias", "open_surface", "ambiguous"]
+    },
+    "status": "published",
+    "published_at": "2026-08-27T00:00:00Z",
+    "created_at": "2026-08-27T00:00:00Z"
+  },
+  {
+    "name": "answer-entity-resolution",
+    "version": "2.0.0",
+    "subject_type": "answer_entity",
+    "subject_ref_schema": {
+      "type": "object",
+      "properties": {
+        "answer_pub_id": { "type": "string", "minLength": 1 },
+        "query_pub_id": { "type": "string", "minLength": 1 },
+        "surface_key": { "type": "string", "minLength": 1 }
+      },
+      "required": ["answer_pub_id", "query_pub_id", "surface_key"],
+      "additionalProperties": false
+    },
+    "business_question": "Which managed entity does each answer surface or coreference denote?",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "answer_text": { "type": "string" },
+        "answer_text_hash": { "type": "string", "format": "sha256" },
+        "query_context_hash": { "type": "string", "format": "sha256" },
+        "candidate_set_hash": { "type": "string", "format": "sha256" }
+      },
+      "required": ["answer_text", "answer_text_hash", "query_context_hash", "candidate_set_hash"],
+      "additionalProperties": false
+    },
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "resolutions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "surface": { "type": "string", "minLength": 1 },
+              "resolution_state": {
+                "type": "string",
+                "enum": ["resolved", "unmanaged", "ambiguous"]
+              },
+              "entity_id": { "type": ["string", "null"] },
+              "candidate_entity_ids": {
+                "type": "array",
+                "items": { "type": "string" },
+                "uniqueItems": true
+              },
+              "resolution_source": {
+                "type": "string",
+                "enum": ["answer_literal", "query_context_coreference"]
+              },
+              "start": { "type": "integer", "minimum": 0 },
+              "end": { "type": "integer", "minimum": 1 },
+              "excerpt_hash": { "type": "string", "format": "sha256" }
+            },
+            "required": [
+              "surface",
+              "resolution_state",
+              "entity_id",
+              "candidate_entity_ids",
+              "resolution_source",
+              "start",
+              "end",
+              "excerpt_hash"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["resolutions"],
+      "additionalProperties": false
+    },
+    "dependency_task_refs": [],
+    "candidate_policy": {
+      "mode": "closed_with_open_surface_discovery",
+      "candidate_paths": ["$.resolutions[].entity_id", "$.resolutions[].candidate_entity_ids[]"]
+    },
+    "decision_method_policy": "hybrid",
+    "rubric_ref": "resource://analysis/v2/rubrics/answer-entity-resolution-2.0.0",
+    "rubric_hash": "2974cbcbfefbcd4d2361d0040bbb4d27a92fc04b3a99c5c15fd434d97b370f79",
+    "prompt_template_ref": "resource://analysis/v2/prompts/answer-entity-resolution-2.0.0",
+    "prompt_template_hash": "6a94385c430a433e81c79f7f7192d3caf9056bee4f335596bd7b1b8ef1397d40",
+    "evidence_requirements": { "requires_answer_spans": true, "minimum_span_count": 1 },
+    "abstention_policy": {},
+    "adjudication_policy": { "required_roles": ["proposer"], "disagreement_action": "review" },
+    "calibration_gate": {
+      "minimum_support_per_label": 50,
+      "required_metrics": { "macro_f1": 0.95 },
+      "required_slices": ["pronoun", "omission", "multi_brand"]
+    },
+    "status": "published",
+    "published_at": "2026-08-27T00:00:00Z",
+    "created_at": "2026-08-27T00:00:00Z"
+  },
+  {
+    "name": "substantive-entity-mention",
+    "version": "2.0.0",
+    "subject_type": "answer_entity",
+    "subject_ref_schema": {
+      "type": "object",
+      "properties": {
+        "answer_pub_id": { "type": "string", "minLength": 1 },
+        "entity_id": { "type": "string", "minLength": 1 }
+      },
+      "required": ["answer_pub_id", "entity_id"],
+      "additionalProperties": false
+    },
+    "business_question": "Is this entity a substantive answer-body mention rather than prompt echo, navigation, or citation metadata?",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "answer_text": { "type": "string" },
+        "answer_text_hash": { "type": "string", "format": "sha256" },
+        "entity_resolution_decision_ref": { "type": "string", "minLength": 1 }
+      },
+      "required": ["answer_text", "answer_text_hash", "entity_resolution_decision_ref"],
+      "additionalProperties": false
+    },
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "entity_id": { "type": "string", "minLength": 1 },
+        "surface": { "type": "string", "minLength": 1 },
+        "substantive": { "type": ["boolean", "string"], "enum": [true, false, "unknown"] },
+        "mention_role": {
+          "type": "string",
+          "enum": ["asserted_body", "quoted_body", "prompt_echo", "citation_metadata"]
+        },
+        "start": { "type": "integer", "minimum": 0 },
+        "end": { "type": "integer", "minimum": 1 },
+        "excerpt_hash": { "type": "string", "format": "sha256" },
+        "reason_codes": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+      },
+      "required": [
+        "entity_id",
+        "surface",
+        "substantive",
+        "mention_role",
+        "start",
+        "end",
+        "excerpt_hash",
+        "reason_codes"
+      ],
+      "additionalProperties": false
+    },
+    "dependency_task_refs": ["answer-entity-resolution@2.0.0"],
+    "candidate_policy": {
+      "mode": "closed",
+      "candidate_paths": ["$.entity_id"],
+      "deterministic_fast_paths": ["exact_substantive_body_mention"]
+    },
+    "decision_method_policy": "hybrid",
+    "rubric_ref": "resource://analysis/v2/rubrics/substantive-entity-mention-2.0.0",
+    "rubric_hash": "dca2cadae4a545cb4ce412f633eeb00d1aaf45c1a9e4b2f2282790944370658c",
+    "prompt_template_ref": "resource://analysis/v2/prompts/substantive-entity-mention-2.0.0",
+    "prompt_template_hash": "35f58990e1451eea4573dfe59eec33996696ed619be1827359c845dd19323d6a",
+    "evidence_requirements": {
+      "requires_answer_spans": true,
+      "minimum_span_count": 1,
+      "requires_subject": true
+    },
+    "abstention_policy": {},
+    "adjudication_policy": { "required_roles": ["proposer"], "disagreement_action": "review" },
+    "calibration_gate": {
+      "minimum_support_per_label": 100,
+      "required_metrics": { "precision": 0.98, "recall": 0.98 },
+      "required_slices": ["prompt_echo", "quoted_body", "citation_metadata"]
+    },
+    "status": "published",
+    "published_at": "2026-08-27T00:00:00Z",
+    "created_at": "2026-08-27T00:00:00Z"
+  },
+  {
+    "name": "recommendation-relation",
+    "version": "2.0.0",
+    "subject_type": "answer_entity",
+    "subject_ref_schema": {
+      "type": "object",
+      "properties": {
+        "answer_pub_id": { "type": "string", "minLength": 1 },
+        "query_pub_id": { "type": "string", "minLength": 1 },
+        "entity_id": { "type": "string", "minLength": 1 }
+      },
+      "required": ["answer_pub_id", "query_pub_id", "entity_id"],
+      "additionalProperties": false
+    },
+    "business_question": "Does the answer recommend this entity, with what polarity, strength, scenario, and stance owner?",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "answer_text": { "type": "string" },
+        "answer_text_hash": { "type": "string", "format": "sha256" },
+        "query_context_hash": { "type": "string", "format": "sha256" },
+        "candidate_set_hash": { "type": "string", "format": "sha256" }
+      },
+      "required": ["answer_text", "answer_text_hash", "query_context_hash", "candidate_set_hash"],
+      "additionalProperties": false
+    },
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "subject_entity_id": { "type": "string", "minLength": 1 },
+        "surface": { "type": ["string", "null"] },
+        "polarity": {
+          "type": "string",
+          "enum": ["positive", "conditional_positive", "negative", "neutral", "unknown"]
+        },
+        "strength": { "type": "number", "minimum": 0, "maximum": 1 },
+        "scenario": { "type": "string" },
+        "stance_owner": {
+          "type": "string",
+          "enum": ["assistant", "quoted_source", "user", "unknown"]
+        },
+        "subject_resolution": {
+          "type": "string",
+          "enum": ["answer_literal", "query_context_coreference"]
+        },
+        "start": { "type": "integer", "minimum": 0 },
+        "end": { "type": "integer", "minimum": 1 },
+        "excerpt_hash": { "type": "string", "format": "sha256" }
+      },
+      "required": [
+        "subject_entity_id",
+        "surface",
+        "polarity",
+        "strength",
+        "scenario",
+        "stance_owner",
+        "subject_resolution",
+        "start",
+        "end",
+        "excerpt_hash"
+      ],
+      "additionalProperties": false
+    },
+    "dependency_task_refs": ["answer-entity-resolution@2.0.0"],
+    "candidate_policy": { "mode": "closed", "candidate_paths": ["$.subject_entity_id"] },
+    "decision_method_policy": "model_required",
+    "rubric_ref": "resource://analysis/v2/rubrics/recommendation-relation-2.0.0",
+    "rubric_hash": "4823dc528c46563789f8c5383a637469c570090b4664ba34e2b5fbe087753b72",
+    "prompt_template_ref": "resource://analysis/v2/prompts/recommendation-relation-2.0.0",
+    "prompt_template_hash": "13f561ddc3176c5eb5d950e03d582a3c16f8cc44e954056924991f8b977107aa",
+    "evidence_requirements": {
+      "requires_answer_spans": true,
+      "minimum_span_count": 1,
+      "requires_subject": true
+    },
+    "abstention_policy": {},
+    "adjudication_policy": {
+      "required_roles": ["proposer", "verifier"],
+      "disagreement_action": "review"
+    },
+    "calibration_gate": {
+      "minimum_support_per_label": 100,
+      "required_metrics": { "macro_f1": 0.9, "negative_to_positive_error_max_complement": 0.99 },
+      "required_slices": ["conditional", "negation", "coreference", "prompt_injection"]
+    },
+    "status": "published",
+    "published_at": "2026-08-27T00:00:00Z",
+    "created_at": "2026-08-27T00:00:00Z"
+  },
+  {
+    "name": "rank-semantics",
+    "version": "2.0.0",
+    "subject_type": "answer",
+    "subject_ref_schema": {
+      "type": "object",
+      "properties": {
+        "answer_pub_id": { "type": "string", "minLength": 1 },
+        "query_pub_id": { "type": "string", "minLength": 1 }
+      },
+      "required": ["answer_pub_id", "query_pub_id"],
+      "additionalProperties": false
+    },
+    "business_question": "Which independent recommendation-list, market-rank, pairwise, mention-order, or source-order semantics are evidenced?",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "answer_text": { "type": "string" },
+        "answer_text_hash": { "type": "string", "format": "sha256" },
+        "query_context_hash": { "type": "string", "format": "sha256" },
+        "candidate_set_hash": { "type": "string", "format": "sha256" }
+      },
+      "required": ["answer_text", "answer_text_hash", "query_context_hash", "candidate_set_hash"],
+      "additionalProperties": false
+    },
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "rank_events": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "event_type": {
+                "type": "string",
+                "enum": [
+                  "recommendation_list_rank",
+                  "market_rank_claim",
+                  "pairwise_preference",
+                  "mention_order",
+                  "source_result_rank"
+                ]
+              },
+              "subject_entity_id": { "type": ["string", "null"] },
+              "object_entity_id": { "type": ["string", "null"] },
+              "rank": { "type": ["integer", "null"], "minimum": 1 },
+              "list_size": { "type": ["integer", "null"], "minimum": 1 },
+              "list_id": { "type": ["string", "null"] },
+              "ordered": { "type": ["boolean", "null"] },
+              "rank_low": { "type": ["integer", "null"], "minimum": 1 },
+              "rank_high": { "type": ["integer", "null"], "minimum": 1 },
+              "market_scope": { "type": ["string", "null"] },
+              "time_scope": { "type": ["string", "null"] },
+              "claim_text": { "type": ["string", "null"] },
+              "relation": {
+                "type": ["string", "null"],
+                "enum": [
+                  "subject_better",
+                  "object_better",
+                  "tie",
+                  "different_scenarios",
+                  "unknown",
+                  null
+                ]
+              },
+              "ordinal": { "type": ["integer", "null"], "minimum": 1 },
+              "entity_count": { "type": ["integer", "null"], "minimum": 1 },
+              "source_id": { "type": ["string", "null"] },
+              "start": { "type": "integer", "minimum": 0 },
+              "end": { "type": "integer", "minimum": 1 },
+              "excerpt_hash": { "type": "string", "format": "sha256" }
+            },
+            "required": [
+              "event_type",
+              "subject_entity_id",
+              "object_entity_id",
+              "rank",
+              "list_size",
+              "list_id",
+              "ordered",
+              "rank_low",
+              "rank_high",
+              "market_scope",
+              "time_scope",
+              "claim_text",
+              "relation",
+              "ordinal",
+              "entity_count",
+              "source_id",
+              "start",
+              "end",
+              "excerpt_hash"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["rank_events"],
+      "additionalProperties": false
+    },
+    "dependency_task_refs": ["answer-entity-resolution@2.0.0"],
+    "candidate_policy": {
+      "mode": "closed",
+      "candidate_paths": ["$.rank_events[].subject_entity_id", "$.rank_events[].object_entity_id"],
+      "deterministic_fast_paths": ["confirmed_ordered_list_integer_rank"]
+    },
+    "decision_method_policy": "hybrid",
+    "rubric_ref": "resource://analysis/v2/rubrics/rank-semantics-2.0.0",
+    "rubric_hash": "6ebfc6b687d93ffcab21359db85977f6d1c05bcaf6d9ac7aa9a299a373615136",
+    "prompt_template_ref": "resource://analysis/v2/prompts/rank-semantics-2.0.0",
+    "prompt_template_hash": "9bc6f7c7b64417f7f52e93f81d9ec34b3426c96dbec27928623444555d272d9c",
+    "evidence_requirements": { "requires_answer_spans": true, "minimum_span_count": 1 },
+    "abstention_policy": {},
+    "adjudication_policy": { "required_roles": ["proposer"], "disagreement_action": "review" },
+    "calibration_gate": {
+      "minimum_support_per_label": 100,
+      "required_metrics": { "precision": 0.95, "recommendation_rank_exact_match": 0.95 },
+      "required_slices": ["market_rank", "source_rank", "chinese_numeral", "table"]
+    },
+    "status": "published",
+    "published_at": "2026-08-27T00:00:00Z",
+    "created_at": "2026-08-27T00:00:00Z"
+  },
+  {
+    "name": "stance-and-pairwise",
+    "version": "2.0.0",
+    "subject_type": "relation",
+    "subject_ref_schema": {
+      "type": "object",
+      "properties": {
+        "answer_pub_id": { "type": "string", "minLength": 1 },
+        "subject_entity_id": { "type": "string", "minLength": 1 },
+        "object_entity_id": { "type": ["string", "null"] }
+      },
+      "required": ["answer_pub_id", "subject_entity_id", "object_entity_id"],
+      "additionalProperties": false
+    },
+    "business_question": "What stance or pairwise preference does the answer express for the scoped relation?",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "answer_text": { "type": "string" },
+        "answer_text_hash": { "type": "string", "format": "sha256" },
+        "candidate_set_hash": { "type": "string", "format": "sha256" }
+      },
+      "required": ["answer_text", "answer_text_hash", "candidate_set_hash"],
+      "additionalProperties": false
+    },
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "kind": { "type": "string", "enum": ["stance", "pairwise"] },
+        "subject_entity_id": { "type": "string", "minLength": 1 },
+        "object_entity_id": { "type": ["string", "null"] },
+        "polarity": {
+          "type": ["string", "null"],
+          "enum": ["positive", "neutral", "negative", "mixed", "unknown", null]
+        },
+        "relation": {
+          "type": ["string", "null"],
+          "enum": ["subject_better", "object_better", "tie", "different_scenarios", "unknown", null]
+        },
+        "aspect": { "type": "string" },
+        "scenario": { "type": "string" },
+        "start": { "type": "integer", "minimum": 0 },
+        "end": { "type": "integer", "minimum": 1 },
+        "excerpt_hash": { "type": "string", "format": "sha256" }
+      },
+      "required": [
+        "kind",
+        "subject_entity_id",
+        "object_entity_id",
+        "polarity",
+        "relation",
+        "aspect",
+        "scenario",
+        "start",
+        "end",
+        "excerpt_hash"
+      ],
+      "additionalProperties": false
+    },
+    "dependency_task_refs": ["answer-entity-resolution@2.0.0"],
+    "candidate_policy": {
+      "mode": "closed",
+      "candidate_paths": ["$.subject_entity_id", "$.object_entity_id"]
+    },
+    "decision_method_policy": "model_required",
+    "rubric_ref": "resource://analysis/v2/rubrics/stance-and-pairwise-2.0.0",
+    "rubric_hash": "b58109cf7c8ed64211073151e8fc863b233286c1aff665389d005dec16cb53c8",
+    "prompt_template_ref": "resource://analysis/v2/prompts/stance-and-pairwise-2.0.0",
+    "prompt_template_hash": "b41e1db71f7babe1f2706cfe85b71bdd1046261f66da08d7b0c2560a5e5ea61f",
+    "evidence_requirements": {
+      "requires_answer_spans": true,
+      "minimum_span_count": 1,
+      "requires_subject": true
+    },
+    "abstention_policy": {},
+    "adjudication_policy": { "required_roles": ["proposer"], "disagreement_action": "review" },
+    "calibration_gate": {
+      "minimum_support_per_label": 100,
+      "required_metrics": { "macro_f1": 0.9 },
+      "required_slices": ["quoted_stance", "mixed", "different_scenarios"]
+    },
+    "status": "published",
+    "published_at": "2026-08-27T00:00:00Z",
+    "created_at": "2026-08-27T00:00:00Z"
+  },
+  {
+    "name": "requested-dimension-applicability",
+    "version": "2.0.0",
+    "subject_type": "query_dimension",
+    "subject_ref_schema": {
+      "type": "object",
+      "properties": {
+        "query_pub_id": { "type": "string", "minLength": 1 },
+        "focal_entity_id": { "type": "string", "minLength": 1 },
+        "dimension_id": { "type": "string", "minLength": 1 }
+      },
+      "required": ["query_pub_id", "focal_entity_id", "dimension_id"],
+      "additionalProperties": false
+    },
+    "business_question": "Is this immutable project-rubric dimension applicable to the query and focal entity?",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "normalized_query_text": { "type": "string", "minLength": 1 },
+        "query_text_hash": { "type": "string", "format": "sha256" },
+        "rubric_hash": { "type": "string", "format": "sha256" },
+        "dimension_id": { "type": "string", "minLength": 1 }
+      },
+      "required": ["normalized_query_text", "query_text_hash", "rubric_hash", "dimension_id"],
+      "additionalProperties": false
+    },
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "dimension_id": { "type": "string", "minLength": 1 },
+        "status": { "type": "string", "enum": ["applicable", "not_applicable", "unknown"] },
+        "reason_codes": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+      },
+      "required": ["dimension_id", "status", "reason_codes"],
+      "additionalProperties": false
+    },
+    "dependency_task_refs": ["query-intent@2.0.0"],
+    "candidate_policy": { "mode": "closed", "candidate_paths": ["$.dimension_id"] },
+    "decision_method_policy": "model_required",
+    "rubric_ref": "resource://analysis/v2/rubrics/requested-dimension-applicability-2.0.0",
+    "rubric_hash": "6cba1c6ced8619ef33e0b2256d0fb7f501784259118254864e7ccba32c338fd0",
+    "prompt_template_ref": "resource://analysis/v2/prompts/requested-dimension-applicability-2.0.0",
+    "prompt_template_hash": "0c8fff73dfa62e721dc46a126d89eb23e1de85d07ba3cc9bae795dc46e291254",
+    "evidence_requirements": { "requires_subject": true },
+    "abstention_policy": {},
+    "adjudication_policy": { "required_roles": ["proposer"], "disagreement_action": "review" },
+    "calibration_gate": {
+      "minimum_support_per_label": 100,
+      "required_metrics": { "per_dimension_macro_f1": 0.9 },
+      "required_slices": ["synonym", "negation"]
+    },
+    "status": "published",
+    "published_at": "2026-08-27T00:00:00Z",
+    "created_at": "2026-08-27T00:00:00Z"
+  },
+  {
+    "name": "answer-dimension-coverage",
+    "version": "2.0.0",
+    "subject_type": "answer_dimension",
+    "subject_ref_schema": {
+      "type": "object",
+      "properties": {
+        "answer_pub_id": { "type": "string", "minLength": 1 },
+        "query_pub_id": { "type": "string", "minLength": 1 },
+        "focal_entity_id": { "type": "string", "minLength": 1 },
+        "dimension_id": { "type": "string", "minLength": 1 }
+      },
+      "required": ["answer_pub_id", "query_pub_id", "focal_entity_id", "dimension_id"],
+      "additionalProperties": false
+    },
+    "business_question": "Does the answer semantically cover the applicable project-rubric dimension?",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "answer_text": { "type": "string" },
+        "answer_text_hash": { "type": "string", "format": "sha256" },
+        "rubric_hash": { "type": "string", "format": "sha256" },
+        "applicability_decision_ref": { "type": "string", "minLength": 1 }
+      },
+      "required": ["answer_text", "answer_text_hash", "rubric_hash", "applicability_decision_ref"],
+      "additionalProperties": false
+    },
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "dimension_id": { "type": "string", "minLength": 1 },
+        "status": {
+          "type": "string",
+          "enum": ["covered", "partially_covered", "not_covered", "unknown"]
+        },
+        "start": { "type": "integer", "minimum": 0 },
+        "end": { "type": "integer", "minimum": 1 },
+        "excerpt_hash": { "type": "string", "format": "sha256" },
+        "reason_codes": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+      },
+      "required": ["dimension_id", "status", "start", "end", "excerpt_hash", "reason_codes"],
+      "additionalProperties": false
+    },
+    "dependency_task_refs": ["requested-dimension-applicability@2.0.0"],
+    "candidate_policy": { "mode": "closed", "candidate_paths": ["$.dimension_id"] },
+    "decision_method_policy": "model_required",
+    "rubric_ref": "resource://analysis/v2/rubrics/answer-dimension-coverage-2.0.0",
+    "rubric_hash": "c9fbed94ab592cb58d05b5c54af29991507d881fd8e45083ea534ad59e8ead2e",
+    "prompt_template_ref": "resource://analysis/v2/prompts/answer-dimension-coverage-2.0.0",
+    "prompt_template_hash": "3c4308c80e17bf1817e60be93b747a3f42e2b62ee0ff2a7e84903778e4ceb4ec",
+    "evidence_requirements": {
+      "requires_answer_spans": true,
+      "minimum_span_count": 1,
+      "requires_subject": true
+    },
+    "abstention_policy": {},
+    "adjudication_policy": { "required_roles": ["proposer"], "disagreement_action": "review" },
+    "calibration_gate": {
+      "minimum_support_per_label": 100,
+      "required_metrics": { "per_dimension_macro_f1": 0.9, "covered_not_covered_accuracy": 0.98 },
+      "required_slices": ["synonym", "keyword_negation"]
+    },
+    "status": "published",
+    "published_at": "2026-08-27T00:00:00Z",
+    "created_at": "2026-08-27T00:00:00Z"
+  },
+  {
+    "name": "claim-extraction",
+    "version": "2.0.0",
+    "subject_type": "answer",
+    "subject_ref_schema": {
+      "type": "object",
+      "properties": { "answer_pub_id": { "type": "string", "minLength": 1 } },
+      "required": ["answer_pub_id"],
+      "additionalProperties": false
+    },
+    "business_question": "Which atomic factual claims, subjects, predicates, objects, time scopes, and exact spans occur in the answer?",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "answer_text": { "type": "string" },
+        "answer_text_hash": { "type": "string", "format": "sha256" },
+        "candidate_set_hash": { "type": "string", "format": "sha256" }
+      },
+      "required": ["answer_text", "answer_text_hash", "candidate_set_hash"],
+      "additionalProperties": false
+    },
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "claims": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "claim_text": { "type": "string", "minLength": 1 },
+              "claim_fingerprint": { "type": "string", "format": "sha256" },
+              "subject": { "type": "string", "minLength": 1 },
+              "subject_entity_id": { "type": ["string", "null"] },
+              "predicate": { "type": "string", "minLength": 1 },
+              "object": { "type": "string", "minLength": 1 },
+              "time_scope": { "type": "string", "minLength": 1 },
+              "start": { "type": "integer", "minimum": 0 },
+              "end": { "type": "integer", "minimum": 1 },
+              "excerpt_hash": { "type": "string", "format": "sha256" }
+            },
+            "required": [
+              "claim_text",
+              "claim_fingerprint",
+              "subject",
+              "subject_entity_id",
+              "predicate",
+              "object",
+              "time_scope",
+              "start",
+              "end",
+              "excerpt_hash"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["claims"],
+      "additionalProperties": false
+    },
+    "dependency_task_refs": [],
+    "candidate_policy": {
+      "mode": "closed_with_open_surface_discovery",
+      "candidate_paths": ["$.claims[].subject_entity_id"]
+    },
+    "decision_method_policy": "model_required",
+    "rubric_ref": "resource://analysis/v2/rubrics/claim-extraction-2.0.0",
+    "rubric_hash": "e2e98e39f846664ed667c8bd97e7b3955ed1fb6d31aac334f33ef60f9de98741",
+    "prompt_template_ref": "resource://analysis/v2/prompts/claim-extraction-2.0.0",
+    "prompt_template_hash": "caedcaea5a241bab0aad07d4c7e98f09369e3714733f9fd009538dbead7eda2d",
+    "evidence_requirements": { "requires_answer_spans": true, "minimum_span_count": 1 },
+    "abstention_policy": {},
+    "adjudication_policy": { "required_roles": ["proposer"], "disagreement_action": "review" },
+    "calibration_gate": {
+      "minimum_support_per_label": 100,
+      "required_metrics": { "span_validity": 0.99 },
+      "required_slices": ["multi_claim", "table", "time_scope"]
+    },
+    "status": "published",
+    "published_at": "2026-08-27T00:00:00Z",
+    "created_at": "2026-08-27T00:00:00Z"
+  },
+  {
+    "name": "claim-verifiability",
+    "version": "2.0.0",
+    "subject_type": "claim",
+    "subject_ref_schema": {
+      "type": "object",
+      "properties": {
+        "answer_pub_id": { "type": "string", "minLength": 1 },
+        "claim_fingerprint": { "type": "string", "format": "sha256" }
+      },
+      "required": ["answer_pub_id", "claim_fingerprint"],
+      "additionalProperties": false
+    },
+    "business_question": "Is this atomic claim objectively verifiable in the declared evidence domain, and what evidence type is needed?",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "claim_decision_ref": { "type": "string", "minLength": 1 },
+        "claim_fingerprint": { "type": "string", "format": "sha256" },
+        "evidence_domain_hash": { "type": "string", "format": "sha256" }
+      },
+      "required": ["claim_decision_ref", "claim_fingerprint", "evidence_domain_hash"],
+      "additionalProperties": false
+    },
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "claim_fingerprint": { "type": "string", "format": "sha256" },
+        "verifiability": { "type": "string", "enum": ["verifiable", "unverifiable", "unknown"] },
+        "required_evidence_types": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "reason_codes": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+      },
+      "required": ["claim_fingerprint", "verifiability", "required_evidence_types", "reason_codes"],
+      "additionalProperties": false
+    },
+    "dependency_task_refs": ["claim-extraction@2.0.0"],
+    "candidate_policy": { "mode": "none" },
+    "decision_method_policy": "model_required",
+    "rubric_ref": "resource://analysis/v2/rubrics/claim-verifiability-2.0.0",
+    "rubric_hash": "28936b046c7ab74c864a0ef622431aa47989d34137f9765a9378906d1b37cd17",
+    "prompt_template_ref": "resource://analysis/v2/prompts/claim-verifiability-2.0.0",
+    "prompt_template_hash": "1f5655c46565905c113566204a5c95aa397ba8817b7610908b82db8147d7de2a",
+    "evidence_requirements": {},
+    "abstention_policy": {},
+    "adjudication_policy": { "required_roles": ["proposer"], "disagreement_action": "review" },
+    "calibration_gate": {
+      "minimum_support_per_label": 100,
+      "required_metrics": { "macro_f1": 0.9 },
+      "required_slices": ["subjective", "time_sensitive"]
+    },
+    "status": "published",
+    "published_at": "2026-08-27T00:00:00Z",
+    "created_at": "2026-08-27T00:00:00Z"
+  },
+  {
+    "name": "claim-evidence-verdict",
+    "version": "2.0.0",
+    "subject_type": "claim",
+    "subject_ref_schema": {
+      "type": "object",
+      "properties": {
+        "answer_pub_id": { "type": "string", "minLength": 1 },
+        "claim_fingerprint": { "type": "string", "format": "sha256" }
+      },
+      "required": ["answer_pub_id", "claim_fingerprint"],
+      "additionalProperties": false
+    },
+    "business_question": "What verdict does the independent verifier reach from the frozen evidence bundle at the declared historical time?",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "claim_decision_ref": { "type": "string", "minLength": 1 },
+        "evidence_bundle_ref": { "type": "string", "minLength": 1 },
+        "evidence_bundle_hash": { "type": "string", "format": "sha256" },
+        "truth_as_of_policy": {
+          "type": "string",
+          "enum": ["answer_capture_time", "snapshot_as_of"]
+        }
+      },
+      "required": [
+        "claim_decision_ref",
+        "evidence_bundle_ref",
+        "evidence_bundle_hash",
+        "truth_as_of_policy"
+      ],
+      "additionalProperties": false
+    },
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "claim_event_pub_id": { "type": "string", "minLength": 1 },
+        "verdict": {
+          "type": "string",
+          "enum": ["supported", "contradicted", "unsupported", "unverifiable", "unknown"]
+        },
+        "verification_as_of": { "type": "string", "format": "date-time" },
+        "evidence_snapshot_refs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "reason_codes": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+      },
+      "required": [
+        "claim_event_pub_id",
+        "verdict",
+        "verification_as_of",
+        "evidence_snapshot_refs",
+        "reason_codes"
+      ],
+      "additionalProperties": false
+    },
+    "dependency_task_refs": ["claim-verifiability@2.0.0"],
+    "candidate_policy": { "mode": "none" },
+    "decision_method_policy": "model_required",
+    "rubric_ref": "resource://analysis/v2/rubrics/claim-evidence-verdict-2.0.0",
+    "rubric_hash": "9cd8a8f1b709f6c296ec2905fd476dd592b16e54a245a2e85c55226d96e9f048",
+    "prompt_template_ref": "resource://analysis/v2/prompts/claim-evidence-verdict-2.0.0",
+    "prompt_template_hash": "45b56326d90fbecb72d4b259f4e3acab37d26b05d29ecec68ce5fda36c527e11",
+    "evidence_requirements": {
+      "requires_frozen_evidence_bundle": true,
+      "requires_complete_retrieval": true,
+      "requires_independent_verifier": true,
+      "allowed_truth_as_of_policies": ["answer_capture_time", "snapshot_as_of"]
+    },
+    "abstention_policy": {},
+    "adjudication_policy": {
+      "required_roles": ["proposer", "verifier"],
+      "disagreement_action": "review"
+    },
+    "calibration_gate": {
+      "minimum_support_per_label": 100,
+      "required_metrics": { "macro_f1": 0.9, "unverifiable_not_unsupported_accuracy": 0.99 },
+      "required_slices": ["retrieval_failure", "historical_as_of", "conflicting_evidence"]
+    },
+    "status": "published",
+    "published_at": "2026-08-27T00:00:00Z",
+    "created_at": "2026-08-27T00:00:00Z"
+  },
+  {
+    "name": "citation-claim-support",
+    "version": "2.0.0",
+    "subject_type": "citation",
+    "subject_ref_schema": {
+      "type": "object",
+      "properties": {
+        "answer_pub_id": { "type": "string", "minLength": 1 },
+        "citation_pub_id": { "type": "string", "minLength": 1 },
+        "claim_fingerprint": { "type": "string", "format": "sha256" }
+      },
+      "required": ["answer_pub_id", "citation_pub_id", "claim_fingerprint"],
+      "additionalProperties": false
+    },
+    "business_question": "Does the frozen citation support, contradict, merely mention, or not relate to the atomic claim?",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "citation_pub_id": { "type": "string", "minLength": 1 },
+        "claim_decision_ref": { "type": "string", "minLength": 1 },
+        "evidence_bundle_ref": { "type": "string", "minLength": 1 }
+      },
+      "required": ["citation_pub_id", "claim_decision_ref", "evidence_bundle_ref"],
+      "additionalProperties": false
+    },
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "citation_pub_id": { "type": "string", "minLength": 1 },
+        "claim_event_pub_id": { "type": "string", "minLength": 1 },
+        "support_state": {
+          "type": "string",
+          "enum": ["supports", "contradicts", "mentions", "unrelated", "unknown"]
+        },
+        "evidence_snapshot_refs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "reason_codes": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+      },
+      "required": [
+        "citation_pub_id",
+        "claim_event_pub_id",
+        "support_state",
+        "evidence_snapshot_refs",
+        "reason_codes"
+      ],
+      "additionalProperties": false
+    },
+    "dependency_task_refs": ["claim-extraction@2.0.0"],
+    "candidate_policy": { "mode": "none" },
+    "decision_method_policy": "model_required",
+    "rubric_ref": "resource://analysis/v2/rubrics/citation-claim-support-2.0.0",
+    "rubric_hash": "ed55e072d28e7acbc3679b649f86caffe94c126188fcb0f99681add742781dfc",
+    "prompt_template_ref": "resource://analysis/v2/prompts/citation-claim-support-2.0.0",
+    "prompt_template_hash": "7e7a254f12b08ee568bbd5b2dd5d80c1c0e726e6c77ebaa7022c85694c05bece",
+    "evidence_requirements": {
+      "requires_frozen_evidence_bundle": true,
+      "requires_independent_verifier": true,
+      "allowed_truth_as_of_policies": ["answer_capture_time", "snapshot_as_of"]
+    },
+    "abstention_policy": {},
+    "adjudication_policy": { "required_roles": ["proposer"], "disagreement_action": "review" },
+    "calibration_gate": {
+      "minimum_support_per_label": 100,
+      "required_metrics": { "macro_f1": 0.9 },
+      "required_slices": ["citation_metadata_only", "fetch_failure"]
+    },
+    "status": "published",
+    "published_at": "2026-08-27T00:00:00Z",
+    "created_at": "2026-08-27T00:00:00Z"
+  },
+  {
+    "name": "risk-adjudication",
+    "version": "2.0.0",
+    "subject_type": "relation",
+    "subject_ref_schema": {
+      "type": "object",
+      "properties": {
+        "answer_pub_id": { "type": "string", "minLength": 1 },
+        "risk_subject_key": { "type": "string", "minLength": 1 }
+      },
+      "required": ["answer_pub_id", "risk_subject_key"],
+      "additionalProperties": false
+    },
+    "business_question": "What bounded risk type, severity, verdict, subject, and object are evidenced, with mandatory escalation for high severity?",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "answer_text": { "type": "string" },
+        "answer_text_hash": { "type": "string", "format": "sha256" },
+        "candidate_set_hash": { "type": "string", "format": "sha256" },
+        "evidence_bundle_ref": { "type": ["string", "null"] }
+      },
+      "required": ["answer_text", "answer_text_hash", "candidate_set_hash", "evidence_bundle_ref"],
+      "additionalProperties": false
+    },
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "risk_type": { "type": "string", "minLength": 1 },
+        "severity": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+        "verdict": { "type": "string", "enum": ["confirmed", "dismissed", "unknown"] },
+        "subject_entity_id": { "type": "string", "minLength": 1 },
+        "object_entity_id": { "type": ["string", "null"] },
+        "start": { "type": "integer", "minimum": 0 },
+        "end": { "type": "integer", "minimum": 1 },
+        "excerpt_hash": { "type": "string", "format": "sha256" }
+      },
+      "required": [
+        "risk_type",
+        "severity",
+        "verdict",
+        "subject_entity_id",
+        "object_entity_id",
+        "start",
+        "end",
+        "excerpt_hash"
+      ],
+      "additionalProperties": false
+    },
+    "dependency_task_refs": [],
+    "candidate_policy": {
+      "mode": "closed",
+      "candidate_paths": ["$.subject_entity_id", "$.object_entity_id"]
+    },
+    "decision_method_policy": "model_required",
+    "rubric_ref": "resource://analysis/v2/rubrics/risk-adjudication-2.0.0",
+    "rubric_hash": "45cb2c7e75dd0bc657453f08c66d28893a1b06cbe3fa2aa597fbf0154734dfca",
+    "prompt_template_ref": "resource://analysis/v2/prompts/risk-adjudication-2.0.0",
+    "prompt_template_hash": "d970e445d51d35de2b05c6bc3a224a7291a74c936438393593b69fa9bcf40425",
+    "evidence_requirements": {
+      "requires_answer_spans": true,
+      "minimum_span_count": 1,
+      "requires_subject": true,
+      "requires_independent_verifier": true
+    },
+    "abstention_policy": {},
+    "adjudication_policy": {
+      "required_roles": ["proposer"],
+      "disagreement_action": "human_review",
+      "high_severity_requires": "double_judge"
+    },
+    "calibration_gate": {
+      "minimum_support_per_label": 100,
+      "required_metrics": { "macro_f1": 0.9 },
+      "required_slices": ["high_severity", "prompt_injection", "quoted_claim"]
+    },
+    "status": "published",
+    "published_at": "2026-08-27T00:00:00Z",
+    "created_at": "2026-08-27T00:00:00Z"
+  }
+]

@@ -543,7 +543,9 @@ def compute_brand_visibility(
     client_factory: Callable[[], Any] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    """按需计算品牌可见度：读窗内答案 → 缓存命中跳过 → LLM 补抽 → 指标快照。
+    """Legacy audit aggregation: answers → extracts → on-request result.
+
+    正式 BrandRank 页面不调用本函数；它只读 V2 official snapshot set。
 
     client_factory 是测试缝（生产=extract.default_client）；返回 envelope+result 全量 dict。
     domain 解析 fail-loud（allow_default=False）：无显式 domain/industry 且项目真源

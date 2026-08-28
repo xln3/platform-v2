@@ -38,6 +38,8 @@ import {
   getCustomerAnswerLibraryQuestionRuns,
   getCustomerAnswerPage,
   getCustomerDashboard,
+  getCustomerDashboardV2,
+  getCustomerMetricTraceV2,
   getCustomerFiveServices,
   getCustomerMetricCatalog,
   getEvidenceAssetContent,
@@ -97,6 +99,8 @@ import {
   projectCustomerAnswerLibraryRunsBoundary,
   projectCustomerAnswerPageBoundary,
   projectCustomerDashboardBoundary,
+  projectCustomerDashboardV2Boundary,
+  projectCustomerMetricTraceV2Boundary,
   projectCustomerMetricCatalogBoundary,
   projectCustomerEventView,
   projectCustomerPairingView,
@@ -5288,6 +5292,293 @@ describe('generated client', () => {
     });
   });
 
+  it('projects only the requested customer V2 cohort and keeps trace reads snapshot-bound', async () => {
+    const hash = 'a'.repeat(64);
+    const metricName = 'ai_recommendation_organic_mention_rate_v2';
+    const metric = {
+      snapshot_pub_id: 'msn_customer_safe',
+      snapshot_hash: hash,
+      focal_entity_id: 'entity_target',
+      metric_name: metricName,
+      metric_version: '2.0.0',
+      metric_definition_hash: hash,
+      state: 'ready',
+      state_reason_codes: [],
+      value: 0.5,
+      observed_value: 0.5,
+      answer_weighted_value: 0.5,
+      raw_numerator: 1,
+      raw_denominator: 2,
+      weighted_numerator: 0.5,
+      weighted_denominator: 1,
+      coverage: {
+        collection: 1,
+        query_context: 1,
+        semantic: 1,
+        evidence: 1,
+        semantic_by_capability: { entity_mention: 1 },
+      },
+      decision_method_mix: { hybrid: 1 },
+      adjudication_sensitivity: { lower: 0.48, upper: 0.52 },
+      missing_bounds: { lower: 0.5, upper: 0.5 },
+      unique_query_count: 2,
+      candidate_answer_count: 2,
+      known_answer_count: 2,
+      unknown_answer_count: 0,
+      not_applicable_answer_count: 0,
+      excluded_answer_count: 0,
+      design_cell_count: 2,
+      contribution_set_hash: hash,
+      query_contribution_set_hash: hash,
+      design_contribution_set_hash: hash,
+      label: '中性 AI 推荐自然提及率',
+      business_view: 'ai_recommendation',
+      exposure_role: 'brand_neutral',
+      aggregation_method: 'query_macro',
+      definition: {
+        business_question: '中性推荐回答中，目标品牌被实质提及的比例是多少？',
+        denominator_description: '全部语义已知的中性 AI 推荐有效回答。',
+        outcome_source: 'hybrid',
+        query_predicate: { exposure_is: 'brand_neutral' },
+        outcome_expression: { event_exists: { type: 'entity_mention' } },
+        required_semantic_capabilities: ['entity_mention'],
+        decision_task_refs: [{ task_ref: 'substantive-entity-mention@2.0.0' }],
+        semantic_rubric_ref: 'rubric://entity-mention/2.0.0',
+      },
+    } as const;
+    const dashboard = {
+      schema_version: 'customer-dashboard-v2',
+      project_pub_id: 'prj_safe',
+      brand_name: '盛邦安全',
+      business_view: 'ai_recommendation',
+      exposure_role: 'brand_neutral',
+      publication_channel: 'official',
+      requested_metric_names: [metricName],
+      focal_entity_id: 'entity_target',
+      snapshot_set_pub_id: 'mss_customer_safe',
+      snapshot_set_hash: hash,
+      state: 'ready',
+      as_of: '2026-08-17T08:00:00Z',
+      window: { start: '2026-08-01', end: '2026-08-17' },
+      filters: { model: [], region: [], mode: [] },
+      aggregation_method: 'query_macro',
+      design_basis: 'planned_cells',
+      scope_hash: hash,
+      dependency_bundle_hash: hash,
+      metrics: [metric],
+    } as const;
+    const expected = {
+      projectPubId: 'prj_safe',
+      businessView: 'ai_recommendation' as const,
+      exposureRole: 'brand_neutral' as const,
+      metricNames: [metricName],
+      publicationChannel: 'official' as const,
+      start: '2026-08-01',
+      end: '2026-08-17',
+      filters: { model: [], region: [], mode: [] },
+      focalEntityId: 'entity_target',
+    };
+    expect(projectCustomerDashboardV2Boundary(dashboard, expected)?.snapshot_set_pub_id).toBe(
+      'mss_customer_safe',
+    );
+    expect(
+      projectCustomerDashboardV2Boundary(
+        { ...dashboard, schema_version: 'customer-dashboard-v1' },
+        expected,
+      ),
+    ).toBeNull();
+    expect(
+      projectCustomerDashboardV2Boundary({ ...dashboard, project_pub_id: 'prj_other' }, expected),
+    ).toBeNull();
+    expect(
+      projectCustomerDashboardV2Boundary(
+        { ...dashboard, snapshot_set_pub_id: undefined },
+        expected,
+      ),
+    ).toBeNull();
+    expect(
+      projectCustomerDashboardV2Boundary(
+        { ...dashboard, metrics: [{ ...metric, snapshot_hash: undefined }] },
+        expected,
+      ),
+    ).toBeNull();
+    expect(
+      projectCustomerDashboardV2Boundary(
+        { ...dashboard, metrics: [{ ...metric, value: 1.2 }] },
+        expected,
+      ),
+    ).toBeNull();
+    expect(
+      projectCustomerDashboardV2Boundary(
+        { ...dashboard, metrics: [{ ...metric, state: 'unknown' }] },
+        expected,
+      ),
+    ).toBeNull();
+
+    const trace = {
+      schema_version: 'customer-metric-trace-v2',
+      project_pub_id: 'prj_safe',
+      snapshot_set_pub_id: 'mss_customer_safe',
+      snapshot_set_hash: hash,
+      as_of: '2026-08-17T08:00:00Z',
+      metric,
+      contributions: {
+        schema_version: 'metric-contributions-v2',
+        snapshot_pub_id: 'msn_customer_safe',
+        totals: {
+          snapshot_candidate_count: 2,
+          filtered_count: 1,
+          raw_numerator: 1,
+          raw_denominator: 2,
+          weighted_numerator: 0.5,
+          weighted_denominator: 1,
+          contribution_set_hash: hash,
+        },
+        data: [
+          {
+            answer_pub_id: 'ans_customer_safe',
+            query_pub_id: 'qry_customer_safe',
+            query_key: 'query-customer-safe',
+            query_text: '推荐几家网络安全公司',
+            analysis_lenses: ['ai_recommendation'],
+            requested_operations: ['recommend'],
+            exposure_role: 'brand_neutral',
+            model: 'DeepSeek',
+            region: '中国',
+            mode: 'normal',
+            capture_time: '2026-08-16T08:00:00Z',
+            eligibility_status: 'included_hit',
+            reason_codes: ['substantive_entity_mention'],
+            outcome_value: true,
+            numerator_contribution: 1,
+            denominator_contribution: 1,
+            query_weight: 0.5,
+            design_cell_weight: 1,
+            repeat_weight: 1,
+            final_weight: 0.5,
+            weighted_numerator: 0.5,
+            weighted_denominator: 0.5,
+            semantic_manifest_pub_id: 'asm_customer_safe',
+            supporting_events: [
+              {
+                event_pub_id: 'ase_customer_safe',
+                event_type: 'entity_mention',
+                subject_entity_id: 'entity_target',
+                object_entity_id: null,
+                event_value: { mention_kind: 'substantive' },
+                answer_text_start: 0,
+                answer_text_end: 4,
+                answer_excerpt: '盛邦安全',
+              },
+            ],
+            supporting_decisions: [
+              {
+                decision_pub_id: 'sdr_customer_safe',
+                task: 'substantive-entity-mention',
+                version: '2.0.0',
+                method: 'hybrid',
+                status: 'accepted',
+                calibrated_confidence: 0.98,
+                rubric_hash: hash,
+                evidence_refs: [{ event_pub_id: 'ase_customer_safe', relation: 'supports' }],
+                rationale_summary: '回答正文对目标品牌有实质描述。',
+              },
+            ],
+            answer_excerpt: '盛邦安全提供网络安全服务。',
+            answer_detail_href:
+              '/api/v2/customer-dashboard/projects/prj_safe/answer-library/answers/' +
+              `ans_customer_safe?metric_snapshot_set_pub_id=mss_customer_safe&` +
+              `metric_snapshot_set_hash=${hash}&snapshot_at=2026-08-17T08%3A00%3A00Z&` +
+              'start=2026-08-01&end=2026-08-17',
+            contribution_hash: hash,
+          },
+        ],
+        next_cursor: null,
+        has_more: false,
+      },
+    } as const;
+    const traceExpected = {
+      projectPubId: 'prj_safe',
+      snapshotSetPubId: 'mss_customer_safe',
+      snapshotSetHash: hash,
+      snapshotPubId: 'msn_customer_safe',
+      businessView: 'ai_recommendation' as const,
+      exposureRole: 'brand_neutral' as const,
+    };
+    expect(
+      projectCustomerMetricTraceV2Boundary(trace, traceExpected)?.contributions.data,
+    ).toHaveLength(1);
+    expect(
+      projectCustomerMetricTraceV2Boundary(
+        { ...trace, snapshot_set_hash: 'b'.repeat(64) },
+        traceExpected,
+      ),
+    ).toBeNull();
+    expect(
+      projectCustomerMetricTraceV2Boundary(
+        {
+          ...trace,
+          contributions: {
+            ...trace.contributions,
+            data: [
+              {
+                ...trace.contributions.data[0],
+                answer_detail_href:
+                  '/api/v2/customer-dashboard/projects/prj_safe/answer-library/answers/' +
+                  `ans_customer_safe?metric_snapshot_set_pub_id=mss_customer_safe&` +
+                  `metric_snapshot_set_hash=${'b'.repeat(64)}&` +
+                  'snapshot_at=2026-08-17T08%3A00%3A00Z&start=2026-08-01&end=2026-08-17',
+              },
+            ],
+          },
+        },
+        traceExpected,
+      ),
+    ).toBeNull();
+
+    const request = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL((input as Request).url);
+      return new Response(JSON.stringify(url.pathname.endsWith('/trace') ? trace : dashboard), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+    vi.stubGlobal('fetch', request);
+    const client = createGeoApiClient('http://127.0.0.1:45200');
+    const headers = {
+      'X-Tenant-Id': 'tnt_safe',
+      'X-Actor-Id': 'customer-safe',
+      'X-Actor-Role': 'customer' as const,
+    };
+    await expect(
+      getCustomerDashboardV2(
+        'prj_safe',
+        '2026-08-01',
+        '2026-08-17',
+        {
+          businessView: 'ai_recommendation',
+          exposureRole: 'brand_neutral',
+          metricNames: [metricName],
+        },
+        {},
+        headers,
+        client,
+      ),
+    ).resolves.toMatchObject({ kind: 'ready', data: { snapshot_set_pub_id: 'mss_customer_safe' } });
+    await expect(
+      getCustomerMetricTraceV2('prj_safe', traceExpected, {}, headers, client),
+    ).resolves.toMatchObject({ kind: 'ready', data: { snapshot_set_hash: hash } });
+    const dashboardUrl = new URL((request.mock.calls[0]?.[0] as Request).url);
+    expect(dashboardUrl.searchParams.getAll('metric_name')).toEqual([metricName]);
+    expect(dashboardUrl.searchParams.get('business_view')).toBe('ai_recommendation');
+    expect(dashboardUrl.searchParams.get('exposure_role')).toBe('brand_neutral');
+    const traceUrl = new URL((request.mock.calls[1]?.[0] as Request).url);
+    expect(traceUrl.pathname).toContain(
+      '/snapshot-sets/mss_customer_safe/snapshots/msn_customer_safe/trace',
+    );
+    expect(traceUrl.searchParams.get('snapshot_set_hash')).toBe(hash);
+  });
+
   it('projects customer answer pages with complete public answer text and exact pagination', async () => {
     const payload = {
       schema_version: 'customer-answer-page-v1',
@@ -5390,6 +5681,8 @@ describe('generated client', () => {
       (_, index) => `aq_${String(index + 1).repeat(24)}`,
     );
     const snapshotAt = '2026-08-19T03:00:00Z';
+    const metricSnapshotSetPubId = `mss_${'b'.repeat(24)}`;
+    const metricSnapshotSetHash = 'c'.repeat(64);
     const dimensions = [{ label: 'DeepSeek', answer_count: 2 }];
     const choices = questionIds.map((question_id, index) => ({
       question_id,
@@ -5525,6 +5818,41 @@ describe('generated client', () => {
       totals: { meta_query_count: 34, question_count: 136 },
     });
     expect(projectedRoot?.data[0]?.questions[0]).toMatchObject({ variant_label: '原问题' });
+    expect(
+      projectCustomerAnswerLibraryPageBoundary(
+        {
+          ...rootPayload,
+          metric_snapshot_set_pub_id: metricSnapshotSetPubId,
+          metric_snapshot_set_hash: metricSnapshotSetHash,
+        },
+        'prj_safe',
+        0,
+        8,
+        undefined,
+        undefined,
+        metricSnapshotSetPubId,
+        metricSnapshotSetHash,
+      ),
+    ).toMatchObject({
+      metric_snapshot_set_pub_id: metricSnapshotSetPubId,
+      metric_snapshot_set_hash: metricSnapshotSetHash,
+    });
+    expect(
+      projectCustomerAnswerLibraryPageBoundary(
+        {
+          ...rootPayload,
+          metric_snapshot_set_pub_id: metricSnapshotSetPubId,
+          metric_snapshot_set_hash: 'd'.repeat(64),
+        },
+        'prj_safe',
+        0,
+        8,
+        undefined,
+        undefined,
+        metricSnapshotSetPubId,
+        metricSnapshotSetHash,
+      ),
+    ).toBeNull();
     expect(
       projectCustomerAnswerLibraryPageBoundary(
         {

@@ -239,10 +239,7 @@ test('AI ranking uses real 盛邦 data with read-only config and full numbered p
     .toBe(true);
 
   await captureSafeScreenshot(page, {
-    path: path.resolve(
-      process.cwd(),
-      `tests/visual-evidence/s02/ai-ranking-readonly-${testInfo.project.name}.png`,
-    ),
+    path: testInfo.outputPath(`ai-ranking-readonly-${testInfo.project.name}.png`),
     fullPage: true,
     animations: 'disabled',
   });

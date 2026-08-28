@@ -1,6 +1,6 @@
 import { expect, test, type Page } from './runtime-fixture';
 import { expectAccessible } from './accessibility';
-import { buildCustomerDashboardFixture } from './customer-dashboard-fixture';
+import { buildCustomerDashboardV2FixtureFromUrl } from './customer-dashboard-fixture';
 
 async function installMonitoringExperience(page: Page) {
   await page.addInitScript(() => {
@@ -41,24 +41,24 @@ async function installMonitoringExperience(page: Page) {
   );
 }
 
-const dashboardRoute = '**/api/v2/customer-dashboard/projects/*';
+const dashboardRoute = '**/api/v2/customer-dashboard/projects/**';
 
 test('oversized atomic dashboard collections fail closed without exposing rejected rows', async ({
   page,
 }) => {
   await installMonitoringExperience(page);
   await page.route(dashboardRoute, (route) => {
-    const projectPubId = new URL(route.request().url()).pathname.split('/').at(-1) ?? '';
-    const fixture = buildCustomerDashboardFixture(projectPubId);
+    const fixture = buildCustomerDashboardV2FixtureFromUrl(new URL(route.request().url()));
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
         ...fixture,
-        models: Array.from({ length: 101 }, (_, index) => ({
-          ...fixture.models[0]!,
-          key: `model-${index}`,
-          label: index === 100 ? 'Bearer atomic-dashboard-oversize-canary' : `安全模型 ${index}`,
+        metrics: Array.from({ length: 41 }, (_, index) => ({
+          ...fixture.metrics[index % fixture.metrics.length]!,
+          snapshot_pub_id: `msn_atomic_oversize_${index}`,
+          metric_name:
+            index === 40 ? 'Bearer atomic-dashboard-oversize-canary' : `atomic_metric_${index}`,
         })),
       }),
     });
@@ -67,7 +67,7 @@ test('oversized atomic dashboard collections fail closed without exposing reject
   await page.goto('/platform/customer/?section=monitoring');
   await expect(page.getByText('加载失败', { exact: true })).toBeVisible();
   await expect(page.getByText('暂无数据', { exact: true })).toHaveCount(0);
-  await expect(page.getByRole('heading', { name: /品牌可见度与模型表现/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '查看计算明细' })).toHaveCount(0);
   await expectAccessible(page);
   const surfaces = await page.evaluate(() =>
     JSON.stringify({
@@ -83,12 +83,11 @@ test('oversized atomic dashboard collections fail closed without exposing reject
 test('operational fields fail the atomic customer dashboard snapshot closed', async ({ page }) => {
   await installMonitoringExperience(page);
   await page.route(dashboardRoute, (route) => {
-    const projectPubId = new URL(route.request().url()).pathname.split('/').at(-1) ?? '';
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        ...buildCustomerDashboardFixture(projectPubId),
+        ...buildCustomerDashboardV2FixtureFromUrl(new URL(route.request().url())),
         workflow_id: 'wf_customer_dashboard_forbidden',
         profile_path: '/secret/profile/customer-dashboard-canary',
         token: 'Bearer customer-dashboard-token-canary',
@@ -119,14 +118,13 @@ test('a malformed nested dimension fails atomically instead of claiming an empty
 }) => {
   await installMonitoringExperience(page);
   await page.route(dashboardRoute, (route) => {
-    const projectPubId = new URL(route.request().url()).pathname.split('/').at(-1) ?? '';
-    const fixture = buildCustomerDashboardFixture(projectPubId);
+    const fixture = buildCustomerDashboardV2FixtureFromUrl(new URL(route.request().url()));
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
         ...fixture,
-        models: [{ ...fixture.models[0], key: '' }],
+        metrics: [{ ...fixture.metrics[0], label: '' }, ...fixture.metrics.slice(1)],
       }),
     });
   });
@@ -147,7 +145,6 @@ test('filter changes discard an older customer dashboard snapshot response', asy
   await installMonitoringExperience(page);
   await page.route(dashboardRoute, async (route) => {
     const url = new URL(route.request().url());
-    const projectPubId = url.pathname.split('/').at(-1) ?? '';
     const model = url.searchParams.get('model');
     if (model === 'doubao') {
       oldRequestCount += 1;
@@ -158,9 +155,8 @@ test('filter changes discard an older customer dashboard snapshot response', asy
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify(
-        buildCustomerDashboardFixture(projectPubId, {
-          mentionRate: model === 'DeepSeek' ? 0.95 : model === 'doubao' ? 0.1 : 0.5,
-          model: model ?? 'doubao',
+        buildCustomerDashboardV2FixtureFromUrl(url, {
+          value: model === 'DeepSeek' ? 0.95 : model === 'doubao' ? 0.1 : 0.5,
         }),
       ),
     });
@@ -168,7 +164,12 @@ test('filter changes discard an older customer dashboard snapshot response', asy
 
   await page.goto('/platform/customer/?section=monitoring');
   await expect(page.getByText('50.0%', { exact: true }).first()).toBeVisible();
-  await page.getByLabel('AI 模型').selectOption('doubao');
+  await page.evaluate(() => {
+    const url = new URL(location.href);
+    url.searchParams.set('model', 'doubao');
+    history.pushState(null, '', url);
+    dispatchEvent(new PopStateEvent('popstate'));
+  });
   await expect.poll(() => oldRequestCount).toBe(1);
   await page.evaluate(() => {
     const url = new URL(location.href);

@@ -270,6 +270,91 @@ export type AnalyticsOverviewMetric = Pick<
 export type AnalyticsOverviewSafeResponse = AnalyticsOverviewMetric[];
 type CustomerDashboardContractResponse =
   paths['/api/v2/customer-dashboard/projects/{project_pub_id}']['get']['responses']['200']['content']['application/json'];
+type CustomerDashboardV2ContractResponse =
+  paths['/api/v2/customer-dashboard/projects/{project_pub_id}/dashboard-v2']['get']['responses']['200']['content']['application/json'];
+type CustomerMetricTraceV2ContractResponse =
+  paths['/api/v2/customer-dashboard/projects/{project_pub_id}/dashboard-v2/snapshot-sets/{snapshot_set_pub_id}/snapshots/{snapshot_pub_id}/trace']['get']['responses']['200']['content']['application/json'];
+export type SemanticDecisionOverrideRequest =
+  paths['/api/v2/metrics/operations/semantic-decisions/{decision_pub_id}/overrides']['post']['requestBody']['content']['application/json'];
+type SemanticDecisionOverrideContractResponse =
+  paths['/api/v2/metrics/operations/semantic-decisions/{decision_pub_id}/overrides']['post']['responses']['201']['content']['application/json'];
+export type CustomerBusinessViewV2 = CustomerDashboardV2ContractResponse['business_view'];
+export type CustomerExposureRoleV2 = CustomerDashboardV2ContractResponse['exposure_role'];
+export type CustomerPublicationChannelV2 =
+  CustomerDashboardV2ContractResponse['publication_channel'];
+export type CustomerDashboardMetricV2Projection =
+  CustomerDashboardV2ContractResponse['metrics'][number];
+export type CustomerDashboardV2Projection = CustomerDashboardV2ContractResponse;
+export type CustomerMetricTraceV2Projection = CustomerMetricTraceV2ContractResponse;
+export type SemanticDecisionOverrideReceipt = {
+  decisionPubId: string;
+  supersedesPubId: string;
+  decisionHash: string;
+  recomputeJobPubId: string;
+};
+export type SemanticDecisionOverrideResult =
+  | { kind: 'ready'; data: SemanticDecisionOverrideReceipt }
+  | { kind: 'conflict' }
+  | { kind: 'forbidden' }
+  | { kind: 'unavailable' };
+export type CustomerMetricTraceV2Query = {
+  cursor?: string;
+  limit?: number;
+  eligibility_status?:
+    | 'included_hit'
+    | 'included_miss'
+    | 'excluded'
+    | 'not_applicable'
+    | 'analysis_unknown';
+  reason_code?: string;
+  query?: string;
+  model?: string;
+  region?: string;
+  mode?: string;
+  hit?: boolean;
+};
+export const customerMetricNamesV2 = {
+  ai_impression: {
+    brand_neutral: ['ai_impression_neutral_spontaneous_association_rate_v2'],
+    focal_named_only: [],
+    other_brand_named: [],
+    focal_named_with_others: [],
+  },
+  ai_recommendation: {
+    brand_neutral: [
+      'ai_recommendation_organic_mention_rate_v2',
+      'ai_recommendation_organic_recommendation_rate_v2',
+      'ai_recommendation_rankable_response_rate_v2',
+      'ai_recommendation_organic_top1_visibility_rate_v2',
+      'ai_recommendation_organic_top3_visibility_rate_v2',
+      'ai_recommendation_organic_top5_visibility_rate_v2',
+      'ai_recommendation_organic_top1_given_rankable_rate_v2',
+      'ai_recommendation_organic_top3_given_rankable_rate_v2',
+      'ai_recommendation_organic_top5_given_rankable_rate_v2',
+      'ai_recommendation_mean_rank_given_target_ranked_v2',
+      'ai_recommendation_entity_share_v2',
+    ],
+    focal_named_only: [
+      'prompted_recommendation_positive_rate_v2',
+      'prompted_recommendation_conditional_rate_v2',
+      'prompted_recommendation_negative_rate_v2',
+      'prompted_recommendation_neutral_rate_v2',
+    ],
+    other_brand_named: [
+      'competitor_anchored_target_bring_in_rate_v2',
+      'competitor_anchored_target_alternative_rate_v2',
+    ],
+    focal_named_with_others: [
+      'multibrand_pairwise_win_rate_v2',
+      'multibrand_pairwise_tie_rate_v2',
+      'multibrand_pairwise_loss_rate_v2',
+      'multibrand_corecommendation_rate_v2',
+    ],
+  },
+} as const satisfies Record<
+  CustomerBusinessViewV2,
+  Record<CustomerExposureRoleV2, readonly string[]>
+>;
 type CustomerMetricContractView = CustomerDashboardContractResponse['metrics'][number];
 export type CustomerMetricProjection = Pick<
   CustomerMetricContractView,
@@ -421,6 +506,8 @@ export type CustomerAnswerLibraryPageProjection = {
   project_pub_id: string;
   snapshot_id: string;
   snapshot_at: string;
+  metric_snapshot_set_pub_id: string | null;
+  metric_snapshot_set_hash: string | null;
   totals: {
     meta_query_count: number;
     question_count: number;
@@ -441,6 +528,8 @@ export type CustomerAnswerLibraryMetaDetailProjection = {
   project_pub_id: string;
   snapshot_id: string;
   snapshot_at: string;
+  metric_snapshot_set_pub_id: string | null;
+  metric_snapshot_set_hash: string | null;
   meta_query_id: string;
   ordinal: number;
   label: string;
@@ -470,6 +559,8 @@ export type CustomerAnswerLibraryRunsProjection = {
   project_pub_id: string;
   snapshot_id: string;
   snapshot_at: string;
+  metric_snapshot_set_pub_id: string | null;
+  metric_snapshot_set_hash: string | null;
   meta_query_id: string;
   meta_query_ordinal: number;
   meta_query_label: string;
@@ -485,6 +576,8 @@ export type CustomerAnswerLibraryDetailProjection = {
   project_pub_id: string;
   snapshot_id: string;
   snapshot_at: string;
+  metric_snapshot_set_pub_id: string | null;
+  metric_snapshot_set_hash: string | null;
   meta_query_id: string;
   meta_query_ordinal: number;
   meta_query_label: string;
@@ -502,12 +595,16 @@ export type CustomerAnswerLibraryPageQuery = {
   mode?: string;
   snapshot_id?: string;
   snapshot_at?: string;
+  metric_snapshot_set_pub_id?: string;
+  metric_snapshot_set_hash?: string;
   offset?: number;
   limit?: number;
 };
 export type CustomerAnswerLibrarySnapshotQuery = {
   snapshot_id: string;
   snapshot_at: string;
+  metric_snapshot_set_pub_id?: string;
+  metric_snapshot_set_hash?: string;
   model?: string;
   region?: string;
   mode?: string;
@@ -2072,6 +2169,179 @@ export async function getCustomerDashboard(
   }
 }
 
+export async function getCustomerDashboardV2(
+  projectPubId: string,
+  start: string,
+  end: string,
+  selection: {
+    businessView: CustomerBusinessViewV2;
+    exposureRole: CustomerExposureRoleV2;
+    metricNames: readonly string[];
+    focalEntityId?: string;
+    publicationChannel?: CustomerPublicationChannelV2;
+  },
+  filters: { model?: string; region?: string; mode?: string },
+  headers: IdentitySessionHeaders,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<ProjectResourceResult<CustomerDashboardV2Projection>> {
+  if (
+    selection.metricNames.length === 0 ||
+    selection.metricNames.length > 40 ||
+    new Set(selection.metricNames).size !== selection.metricNames.length
+  ) {
+    return { kind: 'unavailable' };
+  }
+  try {
+    const result = await projectedApiClient(client).GET(
+      '/api/v2/customer-dashboard/projects/{project_pub_id}/dashboard-v2',
+      {
+        params: {
+          path: { project_pub_id: projectPubId },
+          query: {
+            business_view: selection.businessView,
+            exposure_role: selection.exposureRole,
+            metric_name: [...selection.metricNames],
+            start,
+            end,
+            ...(filters.model ? { model: [filters.model] } : {}),
+            ...(filters.region ? { region: [filters.region] } : {}),
+            ...(filters.mode ? { mode: [filters.mode] } : {}),
+            ...(selection.focalEntityId ? { focal_entity_id: selection.focalEntityId } : {}),
+            publication_channel: selection.publicationChannel ?? 'official',
+          },
+          header: headers,
+        },
+      },
+    );
+    if (!result.data) return classifyResourceFailure(result.response.status);
+    const projected = projectCustomerDashboardV2Boundary(result.data, {
+      projectPubId,
+      businessView: selection.businessView,
+      exposureRole: selection.exposureRole,
+      metricNames: selection.metricNames,
+      publicationChannel: selection.publicationChannel ?? 'official',
+      start,
+      end,
+      filters: {
+        model: filters.model ? [filters.model] : [],
+        region: filters.region ? [filters.region] : [],
+        mode: filters.mode ? [filters.mode] : [],
+      },
+      ...(selection.focalEntityId ? { focalEntityId: selection.focalEntityId } : {}),
+    });
+    return projected ? { kind: 'ready', data: projected } : { kind: 'unavailable' };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+export async function getCustomerMetricTraceV2(
+  projectPubId: string,
+  binding: {
+    snapshotSetPubId: string;
+    snapshotSetHash: string;
+    snapshotPubId: string;
+    businessView: CustomerBusinessViewV2;
+    exposureRole: CustomerExposureRoleV2;
+  },
+  query: CustomerMetricTraceV2Query,
+  headers: IdentitySessionHeaders,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<ProjectResourceResult<CustomerMetricTraceV2Projection>> {
+  const limit = query.limit ?? 50;
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+    return { kind: 'unavailable' };
+  }
+  try {
+    const result = await projectedApiClient(client).GET(
+      '/api/v2/customer-dashboard/projects/{project_pub_id}/dashboard-v2/snapshot-sets/{snapshot_set_pub_id}/snapshots/{snapshot_pub_id}/trace',
+      {
+        params: {
+          path: {
+            project_pub_id: projectPubId,
+            snapshot_set_pub_id: binding.snapshotSetPubId,
+            snapshot_pub_id: binding.snapshotPubId,
+          },
+          query: {
+            snapshot_set_hash: binding.snapshotSetHash,
+            business_view: binding.businessView,
+            exposure_role: binding.exposureRole,
+            ...(query.cursor ? { cursor: query.cursor } : {}),
+            limit,
+            ...(query.eligibility_status ? { eligibility_status: query.eligibility_status } : {}),
+            ...(query.reason_code ? { reason_code: query.reason_code } : {}),
+            ...(query.query ? { query: query.query } : {}),
+            ...(query.model ? { model: query.model } : {}),
+            ...(query.region ? { region: query.region } : {}),
+            ...(query.mode ? { mode: query.mode } : {}),
+            ...(query.hit === undefined ? {} : { hit: query.hit }),
+          },
+          header: headers,
+        },
+      },
+    );
+    if (!result.data) return classifyResourceFailure(result.response.status);
+    const projected = projectCustomerMetricTraceV2Boundary(result.data, {
+      projectPubId,
+      ...binding,
+    });
+    return projected ? { kind: 'ready', data: projected } : { kind: 'unavailable' };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+/**
+ * Corrects one immutable semantic decision and requests recomputation of its dependent metrics.
+ * The expected hash is a CAS guard: stale trace drawers cannot silently overwrite a newer
+ * correction.
+ */
+export async function overrideSemanticDecisionV2(
+  decisionPubId: string,
+  request: SemanticDecisionOverrideRequest,
+  headers: IdentitySessionHeaders,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<SemanticDecisionOverrideResult> {
+  const result = projectSafeStructuredRecord(request.result);
+  const rationale = request.rationale_summary.trim();
+  const reasonCodes = request.reason_codes.map((reason) => reason.trim());
+  if (
+    !/^sdr_[A-Za-z0-9_-]{1,116}$/u.test(decisionPubId) ||
+    !result ||
+    !safeBrowserString(rationale, 2_000) ||
+    reasonCodes.length < 1 ||
+    reasonCodes.length > 20 ||
+    new Set(reasonCodes).size !== reasonCodes.length ||
+    reasonCodes.some((reason) => !safeBrowserString(reason, 200)) ||
+    !safeHash(request.expected_decision_hash)
+  ) {
+    return { kind: 'unavailable' };
+  }
+  try {
+    const response = await projectedApiClient(client).POST(
+      '/api/v2/metrics/operations/semantic-decisions/{decision_pub_id}/overrides',
+      {
+        params: { path: { decision_pub_id: decisionPubId }, header: headers },
+        body: {
+          result,
+          rationale_summary: rationale,
+          reason_codes: reasonCodes,
+          expected_decision_hash: request.expected_decision_hash,
+        },
+      },
+    );
+    if (!response.data) {
+      return response.response.status === 409
+        ? { kind: 'conflict' }
+        : classifyResourceFailure(response.response.status);
+    }
+    const projected = projectSemanticDecisionOverrideReceipt(response.data, decisionPubId);
+    return projected ? { kind: 'ready', data: projected } : { kind: 'unavailable' };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
 export async function getCustomerAnswerPage(
   projectPubId: string,
   start: string,
@@ -2143,7 +2413,11 @@ export async function getCustomerAnswerLibraryPage(
     (query.snapshot_id === undefined) !== (query.snapshot_at === undefined) ||
     (query.snapshot_id !== undefined &&
       !customerAnswerLibrarySnapshotPattern.test(query.snapshot_id)) ||
-    (query.snapshot_at !== undefined && !snapshotAt)
+    (query.snapshot_at !== undefined && !snapshotAt) ||
+    !validCustomerMetricSnapshotBinding(
+      query.metric_snapshot_set_pub_id,
+      query.metric_snapshot_set_hash,
+    )
   ) {
     return { kind: 'unavailable' };
   }
@@ -2163,6 +2437,12 @@ export async function getCustomerAnswerLibraryPage(
             ...(query.snapshot_id && snapshotAt
               ? { snapshot_id: query.snapshot_id, snapshot_at: snapshotAt }
               : {}),
+            ...(query.metric_snapshot_set_pub_id && query.metric_snapshot_set_hash
+              ? {
+                  metric_snapshot_set_pub_id: query.metric_snapshot_set_pub_id,
+                  metric_snapshot_set_hash: query.metric_snapshot_set_hash,
+                }
+              : {}),
             offset,
             limit,
           },
@@ -2178,6 +2458,8 @@ export async function getCustomerAnswerLibraryPage(
       limit,
       query.snapshot_id,
       snapshotAt,
+      query.metric_snapshot_set_pub_id,
+      query.metric_snapshot_set_hash,
     );
     return projected ? { kind: 'ready', data: projected } : { kind: 'unavailable' };
   } catch {
@@ -2198,7 +2480,11 @@ export async function getCustomerAnswerLibraryMetaQuery(
   if (
     !customerAnswerLibraryMetaPattern.test(metaQueryId) ||
     !customerAnswerLibrarySnapshotPattern.test(query.snapshot_id) ||
-    !snapshotAt
+    !snapshotAt ||
+    !validCustomerMetricSnapshotBinding(
+      query.metric_snapshot_set_pub_id,
+      query.metric_snapshot_set_hash,
+    )
   ) {
     return { kind: 'unavailable' };
   }
@@ -2216,6 +2502,12 @@ export async function getCustomerAnswerLibraryMetaQuery(
             ...(query.model ? { model: query.model } : {}),
             ...(query.region ? { region: query.region } : {}),
             ...(query.mode ? { mode: query.mode } : {}),
+            ...(query.metric_snapshot_set_pub_id && query.metric_snapshot_set_hash
+              ? {
+                  metric_snapshot_set_pub_id: query.metric_snapshot_set_pub_id,
+                  metric_snapshot_set_hash: query.metric_snapshot_set_hash,
+                }
+              : {}),
           },
           header: headers,
         },
@@ -2228,6 +2520,8 @@ export async function getCustomerAnswerLibraryMetaQuery(
       metaQueryId,
       query.snapshot_id,
       snapshotAt,
+      query.metric_snapshot_set_pub_id,
+      query.metric_snapshot_set_hash,
     );
     return projected ? { kind: 'ready', data: projected } : { kind: 'unavailable' };
   } catch {
@@ -2255,7 +2549,11 @@ export async function getCustomerAnswerLibraryQuestionRuns(
     offset < 0 ||
     !Number.isSafeInteger(limit) ||
     limit < 1 ||
-    limit > 50
+    limit > 50 ||
+    !validCustomerMetricSnapshotBinding(
+      query.metric_snapshot_set_pub_id,
+      query.metric_snapshot_set_hash,
+    )
   ) {
     return { kind: 'unavailable' };
   }
@@ -2273,6 +2571,12 @@ export async function getCustomerAnswerLibraryQuestionRuns(
             ...(query.model ? { model: query.model } : {}),
             ...(query.region ? { region: query.region } : {}),
             ...(query.mode ? { mode: query.mode } : {}),
+            ...(query.metric_snapshot_set_pub_id && query.metric_snapshot_set_hash
+              ? {
+                  metric_snapshot_set_pub_id: query.metric_snapshot_set_pub_id,
+                  metric_snapshot_set_hash: query.metric_snapshot_set_hash,
+                }
+              : {}),
             offset,
             limit,
           },
@@ -2289,6 +2593,8 @@ export async function getCustomerAnswerLibraryQuestionRuns(
       snapshotAt,
       offset,
       limit,
+      query.metric_snapshot_set_pub_id,
+      query.metric_snapshot_set_hash,
     );
     return projected ? { kind: 'ready', data: projected } : { kind: 'unavailable' };
   } catch {
@@ -2301,7 +2607,10 @@ export async function getCustomerAnswerLibraryDetail(
   answerPubId: string,
   start: string,
   end: string,
-  query: Pick<CustomerAnswerLibrarySnapshotQuery, 'snapshot_id' | 'snapshot_at'>,
+  query: Pick<
+    CustomerAnswerLibrarySnapshotQuery,
+    'snapshot_id' | 'snapshot_at' | 'metric_snapshot_set_pub_id' | 'metric_snapshot_set_hash'
+  >,
   headers: IdentitySessionHeaders,
   client: ProjectedApiClientOverride = apiClient,
 ): Promise<ProjectResourceResult<CustomerAnswerLibraryDetailProjection>> {
@@ -2309,7 +2618,11 @@ export async function getCustomerAnswerLibraryDetail(
   if (
     !safeCustomerAnswerPubId(answerPubId) ||
     !customerAnswerLibrarySnapshotPattern.test(query.snapshot_id) ||
-    !snapshotAt
+    !snapshotAt ||
+    !validCustomerMetricSnapshotBinding(
+      query.metric_snapshot_set_pub_id,
+      query.metric_snapshot_set_hash,
+    )
   ) {
     return { kind: 'unavailable' };
   }
@@ -2324,6 +2637,12 @@ export async function getCustomerAnswerLibraryDetail(
             snapshot_at: snapshotAt,
             start,
             end,
+            ...(query.metric_snapshot_set_pub_id && query.metric_snapshot_set_hash
+              ? {
+                  metric_snapshot_set_pub_id: query.metric_snapshot_set_pub_id,
+                  metric_snapshot_set_hash: query.metric_snapshot_set_hash,
+                }
+              : {}),
           },
           header: headers,
         },
@@ -2336,6 +2655,8 @@ export async function getCustomerAnswerLibraryDetail(
       answerPubId,
       query.snapshot_id,
       snapshotAt,
+      query.metric_snapshot_set_pub_id,
+      query.metric_snapshot_set_hash,
     );
     return projected ? { kind: 'ready', data: projected } : { kind: 'unavailable' };
   } catch {
@@ -3066,6 +3387,507 @@ export function projectCustomerDashboardBoundary(
   };
 }
 
+const safeFiniteNumber = (value: unknown, minimum = 0): number | null =>
+  typeof value === 'number' && Number.isFinite(value) && value >= minimum ? value : null;
+
+const safeOptionalMetricNumber = (value: unknown): number | null | undefined =>
+  value === null ? null : typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+
+const safeRatioOrNull = (value: unknown): number | null | undefined => {
+  const projected = safeOptionalMetricNumber(value);
+  return projected === null || (typeof projected === 'number' && projected >= 0 && projected <= 1)
+    ? projected
+    : undefined;
+};
+
+const safeStringList = (value: unknown, limit: number, itemLength: number): string[] | null => {
+  if (!Array.isArray(value) || value.length > limit) return null;
+  const projected: string[] = [];
+  for (const item of value) {
+    const text = safeBrowserString(item, itemLength);
+    if (!text) return null;
+    projected.push(text);
+  }
+  return projected;
+};
+
+const customerMetricV2StateValues = [
+  'ready',
+  'limited',
+  'insufficient',
+  'experimental',
+  'failed',
+] as const;
+const customerMetricV2BusinessValues = ['ai_impression', 'ai_recommendation'] as const;
+const customerMetricV2ExposureValues = [
+  'brand_neutral',
+  'focal_named_only',
+  'other_brand_named',
+  'focal_named_with_others',
+] as const;
+
+const validCustomerMetricV2Definition = (value: unknown): boolean => {
+  if (!isBrowserRecord(value)) return false;
+  const businessQuestion = safeBrowserString(value.business_question, 1_000);
+  const denominator = safeBrowserString(value.denominator_description, 2_000);
+  const source = safeBrowserEnum(value.outcome_source, [
+    'deterministic_expression',
+    'semantic_decision',
+    'hybrid',
+  ] as const);
+  const capabilities = safeStringList(value.required_semantic_capabilities, 100, 200);
+  const rubricIsValid =
+    value.semantic_rubric_ref === null ||
+    value.semantic_rubric_ref === undefined ||
+    safeBrowserString(value.semantic_rubric_ref, 500) !== null;
+  return Boolean(
+    businessQuestion &&
+      denominator &&
+      source &&
+      capabilities &&
+      rubricIsValid &&
+      projectSafeStructuredRecord(value.query_predicate) &&
+      projectSafeStructuredRecord(value.outcome_expression) &&
+      Array.isArray(value.decision_task_refs) &&
+      value.decision_task_refs.length <= 100 &&
+      value.decision_task_refs.every((item) => projectSafeStructuredRecord(item) !== null),
+  );
+};
+
+export const projectCustomerMetricV2Boundary = (
+  value: unknown,
+  expectedBusinessView: CustomerBusinessViewV2,
+  expectedExposureRole: CustomerExposureRoleV2,
+  expectedName?: string,
+): value is CustomerDashboardMetricV2Projection => {
+  if (!isBrowserRecord(value)) return false;
+  const snapshotPubId = safeBrowserString(value.snapshot_pub_id, 120);
+  const focalEntityId = safeBrowserString(value.focal_entity_id, 200);
+  const metricName = safeBrowserString(value.metric_name, 160);
+  const metricVersion = safeBrowserString(value.metric_version, 80);
+  const label = safeBrowserString(value.label, 200);
+  const state = safeBrowserEnum(value.state, customerMetricV2StateValues);
+  const metricValue = safeOptionalMetricNumber(value.value);
+  const observedValue = safeOptionalMetricNumber(value.observed_value);
+  const answerWeightedValue = safeOptionalMetricNumber(value.answer_weighted_value);
+  const isRatioMetric = metricName?.endsWith('_rate_v2') || metricName?.endsWith('_share_v2');
+  if (
+    !snapshotPubId ||
+    !customerMetricSnapshotPattern.test(snapshotPubId) ||
+    !focalEntityId ||
+    !metricName ||
+    (expectedName !== undefined && metricName !== expectedName) ||
+    !metricVersion ||
+    !label ||
+    !safeHash(value.snapshot_hash) ||
+    !safeHash(value.metric_definition_hash) ||
+    !state ||
+    value.business_view !== expectedBusinessView ||
+    value.exposure_role !== expectedExposureRole ||
+    value.aggregation_method !== 'query_macro' ||
+    metricValue === undefined ||
+    observedValue === undefined ||
+    answerWeightedValue === undefined ||
+    (['insufficient', 'experimental', 'failed'].includes(state) && metricValue !== null) ||
+    (isRatioMetric &&
+      [metricValue, observedValue, answerWeightedValue].some(
+        (item) => item !== null && (item < 0 || item > 1),
+      )) ||
+    !validCustomerMetricV2Definition(value.definition)
+  ) {
+    return false;
+  }
+  const nonnegativeNumbers = [
+    value.raw_numerator,
+    value.raw_denominator,
+    value.weighted_numerator,
+    value.weighted_denominator,
+  ];
+  if (nonnegativeNumbers.some((item) => safeFiniteNumber(item) === null)) return false;
+  if (
+    isRatioMetric &&
+    (Number(value.raw_numerator) > Number(value.raw_denominator) ||
+      Number(value.weighted_numerator) > Number(value.weighted_denominator))
+  ) {
+    return false;
+  }
+  const counts = [
+    value.unique_query_count,
+    value.candidate_answer_count,
+    value.known_answer_count,
+    value.unknown_answer_count,
+    value.not_applicable_answer_count,
+    value.excluded_answer_count,
+    value.design_cell_count,
+  ].map(safeCount);
+  if (counts.some((item) => item === null)) return false;
+  if (
+    Number(value.known_answer_count) +
+      Number(value.unknown_answer_count) +
+      Number(value.not_applicable_answer_count) +
+      Number(value.excluded_answer_count) !==
+    Number(value.candidate_answer_count)
+  ) {
+    return false;
+  }
+  if (
+    !safeStringList(value.state_reason_codes ?? [], 100, 200) ||
+    !safeHash(value.contribution_set_hash) ||
+    !safeHash(value.query_contribution_set_hash) ||
+    !safeHash(value.design_contribution_set_hash) ||
+    !isBrowserRecord(value.coverage) ||
+    !isBrowserRecord(value.coverage.semantic_by_capability) ||
+    !isBrowserRecord(value.decision_method_mix) ||
+    !isBrowserRecord(value.adjudication_sensitivity) ||
+    !isBrowserRecord(value.missing_bounds)
+  ) {
+    return false;
+  }
+  const coverageValues = [
+    value.coverage.collection,
+    value.coverage.query_context,
+    value.coverage.semantic,
+    value.coverage.evidence,
+    ...Object.values(value.coverage.semantic_by_capability),
+    ...Object.values(value.decision_method_mix),
+  ];
+  if (coverageValues.some((item) => safeRatioOrNull(item) === undefined)) return false;
+  for (const interval of [value.adjudication_sensitivity, value.missing_bounds]) {
+    const lower = safeOptionalMetricNumber(interval.lower);
+    const upper = safeOptionalMetricNumber(interval.upper);
+    if (
+      lower === undefined ||
+      upper === undefined ||
+      (lower !== null && upper !== null && lower > upper) ||
+      (isRatioMetric && [lower, upper].some((item) => item !== null && (item < 0 || item > 1)))
+    ) {
+      return false;
+    }
+  }
+  return true;
+};
+
+export function projectCustomerDashboardV2Boundary(
+  value: unknown,
+  expected: {
+    projectPubId: string;
+    businessView: CustomerBusinessViewV2;
+    exposureRole: CustomerExposureRoleV2;
+    metricNames: readonly string[];
+    publicationChannel: CustomerPublicationChannelV2;
+    start: string;
+    end: string;
+    filters: {
+      model: readonly string[];
+      region: readonly string[];
+      mode: readonly string[];
+    };
+    focalEntityId?: string;
+  },
+): CustomerDashboardV2Projection | null {
+  if (
+    !isBrowserRecord(value) ||
+    customerDashboardContainsOperationalField(value) ||
+    value.schema_version !== 'customer-dashboard-v2' ||
+    value.project_pub_id !== expected.projectPubId ||
+    !/^prj_[A-Za-z0-9_-]{1,116}$/u.test(expected.projectPubId) ||
+    value.business_view !== expected.businessView ||
+    value.exposure_role !== expected.exposureRole ||
+    value.publication_channel !== expected.publicationChannel ||
+    value.aggregation_method !== 'query_macro' ||
+    !Array.isArray(value.requested_metric_names) ||
+    value.requested_metric_names.length !== expected.metricNames.length ||
+    value.requested_metric_names.some((name, index) => name !== expected.metricNames[index]) ||
+    !Array.isArray(value.metrics) ||
+    value.metrics.length !== expected.metricNames.length ||
+    value.metrics.some(
+      (metric, index) =>
+        !projectCustomerMetricV2Boundary(
+          metric,
+          expected.businessView,
+          expected.exposureRole,
+          expected.metricNames[index],
+        ),
+    )
+  ) {
+    return null;
+  }
+  const brandName = safeBrowserString(value.brand_name, 200);
+  const focalEntityId = safeBrowserString(value.focal_entity_id, 200);
+  const snapshotSetPubId = safeBrowserString(value.snapshot_set_pub_id, 120);
+  const state = safeBrowserEnum(value.state, ['ready', 'partial', 'failed'] as const);
+  const asOf = projectSafeIsoTimestamp(value.as_of);
+  if (
+    !brandName ||
+    !focalEntityId ||
+    (expected.focalEntityId !== undefined && focalEntityId !== expected.focalEntityId) ||
+    !snapshotSetPubId ||
+    !customerMetricSnapshotSetPattern.test(snapshotSetPubId) ||
+    !safeHash(value.snapshot_set_hash) ||
+    !safeHash(value.scope_hash) ||
+    !safeHash(value.dependency_bundle_hash) ||
+    !state ||
+    !asOf ||
+    !isBrowserRecord(value.window) ||
+    value.window.start !== expected.start ||
+    value.window.end !== expected.end ||
+    (value.design_basis !== 'planned_cells' && value.design_basis !== 'observed_cells') ||
+    !isBrowserRecord(value.filters)
+  ) {
+    return null;
+  }
+  for (const key of ['model', 'region', 'mode'] as const) {
+    const projected = safeStringList(value.filters[key], 100, key === 'mode' ? 80 : 120);
+    if (
+      !projected ||
+      projected.length !== expected.filters[key].length ||
+      projected.some((item, index) => item !== expected.filters[key][index])
+    ) {
+      return null;
+    }
+  }
+  return value as CustomerDashboardV2Projection;
+}
+
+const validMetricTraceContribution = (
+  value: unknown,
+  expectedProjectPubId: string,
+  expectedSetPubId: string,
+  expectedSetHash: string,
+  expectedAsOf: string,
+  expectedExposureRole: CustomerExposureRoleV2,
+): boolean => {
+  if (!isBrowserRecord(value)) return false;
+  const answerPubId = safeCustomerAnswerPubId(value.answer_pub_id);
+  const eligibility = safeBrowserEnum(value.eligibility_status, [
+    'included_hit',
+    'included_miss',
+    'excluded',
+    'not_applicable',
+    'analysis_unknown',
+  ] as const);
+  const detailHref = safeBrowserString(value.answer_detail_href, 4_000);
+  let detailUrl: URL | null = null;
+  try {
+    detailUrl = detailHref ? new URL(detailHref, 'https://geo.invalid') : null;
+  } catch {
+    detailUrl = null;
+  }
+  const detailSnapshotAt = detailUrl
+    ? projectSafeIsoTimestamp(detailUrl.searchParams.get('snapshot_at'))
+    : null;
+  const expectedDetailPath =
+    `/api/v2/customer-dashboard/projects/${expectedProjectPubId}` +
+    `/answer-library/answers/${answerPubId ?? ''}`;
+  if (
+    !answerPubId ||
+    !eligibility ||
+    !detailHref ||
+    !detailUrl ||
+    detailUrl.origin !== 'https://geo.invalid' ||
+    detailUrl.pathname !== expectedDetailPath ||
+    detailUrl.searchParams.getAll('metric_snapshot_set_pub_id').length !== 1 ||
+    detailUrl.searchParams.get('metric_snapshot_set_pub_id') !== expectedSetPubId ||
+    detailUrl.searchParams.getAll('metric_snapshot_set_hash').length !== 1 ||
+    detailUrl.searchParams.get('metric_snapshot_set_hash') !== expectedSetHash ||
+    detailUrl.searchParams.getAll('snapshot_at').length !== 1 ||
+    !detailSnapshotAt ||
+    Date.parse(detailSnapshotAt) !== Date.parse(expectedAsOf) ||
+    detailUrl.searchParams.getAll('start').length !== 1 ||
+    !/^\d{4}-\d{2}-\d{2}$/u.test(detailUrl.searchParams.get('start') ?? '') ||
+    detailUrl.searchParams.getAll('end').length !== 1 ||
+    !/^\d{4}-\d{2}-\d{2}$/u.test(detailUrl.searchParams.get('end') ?? '') ||
+    !safeBrowserString(value.query_key, 500) ||
+    (value.query_pub_id !== null &&
+      value.query_pub_id !== undefined &&
+      !safeBrowserString(value.query_pub_id, 120)) ||
+    (value.query_text !== null &&
+      value.query_text !== undefined &&
+      !safeCustomerAnswerText(value.query_text, 20_000)) ||
+    value.exposure_role !== expectedExposureRole ||
+    !safeBrowserString(value.model, 120) ||
+    !safeBrowserString(value.region, 120) ||
+    !safeBrowserString(value.mode, 80) ||
+    !safeHash(value.contribution_hash) ||
+    !projectSafeIsoTimestamp(value.capture_time) ||
+    !safeStringList(value.reason_codes, 100, 200) ||
+    !safeStringList(value.analysis_lenses, 100, 200) ||
+    !safeStringList(value.requested_operations, 100, 200)
+  ) {
+    return false;
+  }
+  if (
+    (value.semantic_manifest_pub_id !== null &&
+      value.semantic_manifest_pub_id !== undefined &&
+      !safeBrowserString(value.semantic_manifest_pub_id, 120)) ||
+    (value.answer_excerpt !== null &&
+      value.answer_excerpt !== undefined &&
+      !safeCustomerAnswerText(value.answer_excerpt, 5_000))
+  ) {
+    return false;
+  }
+  for (const key of [
+    'numerator_contribution',
+    'denominator_contribution',
+    'query_weight',
+    'design_cell_weight',
+    'repeat_weight',
+    'final_weight',
+    'weighted_numerator',
+    'weighted_denominator',
+  ] as const) {
+    if (safeFiniteNumber(value[key]) === null) return false;
+  }
+  if (!Array.isArray(value.supporting_events) || value.supporting_events.length > 200) return false;
+  for (const event of value.supporting_events) {
+    if (
+      !isBrowserRecord(event) ||
+      !safeBrowserString(event.event_pub_id, 120) ||
+      !safeBrowserString(event.event_type, 200) ||
+      (event.subject_entity_id !== null &&
+        event.subject_entity_id !== undefined &&
+        !safeBrowserString(event.subject_entity_id, 200)) ||
+      (event.object_entity_id !== null &&
+        event.object_entity_id !== undefined &&
+        !safeBrowserString(event.object_entity_id, 200)) ||
+      !projectSafeStructuredRecord(event.event_value) ||
+      (event.answer_excerpt !== null && !safeCustomerAnswerText(event.answer_excerpt, 5_000)) ||
+      (event.answer_text_start !== null && safeCount(event.answer_text_start) === null) ||
+      (event.answer_text_end !== null && safeCount(event.answer_text_end) === null) ||
+      (typeof event.answer_text_start === 'number' &&
+        typeof event.answer_text_end === 'number' &&
+        event.answer_text_start >= event.answer_text_end)
+    ) {
+      return false;
+    }
+  }
+  if (!Array.isArray(value.supporting_decisions) || value.supporting_decisions.length > 200) {
+    return false;
+  }
+  for (const decision of value.supporting_decisions) {
+    if (
+      !isBrowserRecord(decision) ||
+      !safeBrowserString(decision.decision_pub_id, 120) ||
+      !safeBrowserString(decision.task, 200) ||
+      !safeBrowserString(decision.version, 80) ||
+      !safeBrowserEnum(decision.method, ['deterministic', 'model', 'hybrid', 'human'] as const) ||
+      !safeBrowserEnum(decision.status, [
+        'accepted',
+        'abstained',
+        'review_required',
+        'failed',
+      ] as const) ||
+      !safeHash(decision.rubric_hash) ||
+      safeRatioOrNull(decision.calibrated_confidence) === undefined ||
+      !Array.isArray(decision.evidence_refs) ||
+      decision.evidence_refs.length > 200 ||
+      decision.evidence_refs.some((item) => projectSafeStructuredRecord(item) === null) ||
+      (decision.rationale_summary !== null &&
+        !safeCustomerAnswerText(decision.rationale_summary, 2_000))
+    ) {
+      return false;
+    }
+  }
+  return true;
+};
+
+export function projectCustomerMetricTraceV2Boundary(
+  value: unknown,
+  expected: {
+    projectPubId: string;
+    snapshotSetPubId: string;
+    snapshotSetHash: string;
+    snapshotPubId: string;
+    businessView: CustomerBusinessViewV2;
+    exposureRole: CustomerExposureRoleV2;
+  },
+): CustomerMetricTraceV2Projection | null {
+  const asOf = isBrowserRecord(value) ? projectSafeIsoTimestamp(value.as_of) : null;
+  if (
+    !isBrowserRecord(value) ||
+    customerDashboardContainsOperationalField(value) ||
+    value.schema_version !== 'customer-metric-trace-v2' ||
+    value.project_pub_id !== expected.projectPubId ||
+    value.snapshot_set_pub_id !== expected.snapshotSetPubId ||
+    value.snapshot_set_hash !== expected.snapshotSetHash ||
+    !customerMetricSnapshotSetPattern.test(expected.snapshotSetPubId) ||
+    !safeHash(expected.snapshotSetHash) ||
+    !asOf ||
+    !projectCustomerMetricV2Boundary(value.metric, expected.businessView, expected.exposureRole) ||
+    value.metric.snapshot_pub_id !== expected.snapshotPubId ||
+    !isBrowserRecord(value.contributions) ||
+    value.contributions.schema_version !== 'metric-contributions-v2' ||
+    value.contributions.snapshot_pub_id !== expected.snapshotPubId ||
+    !customerMetricSnapshotPattern.test(expected.snapshotPubId) ||
+    !Array.isArray(value.contributions.data) ||
+    value.contributions.data.length > 100 ||
+    value.contributions.data.some(
+      (item) =>
+        !validMetricTraceContribution(
+          item,
+          expected.projectPubId,
+          expected.snapshotSetPubId,
+          expected.snapshotSetHash,
+          asOf,
+          expected.exposureRole,
+        ),
+    ) ||
+    !isBrowserRecord(value.contributions.totals)
+  ) {
+    return null;
+  }
+  const totals = value.contributions.totals;
+  if (
+    safeCount(totals.snapshot_candidate_count) === null ||
+    safeCount(totals.filtered_count) === null ||
+    Number(totals.filtered_count) > Number(totals.snapshot_candidate_count) ||
+    value.contributions.data.length > Number(totals.filtered_count) ||
+    safeFiniteNumber(totals.raw_numerator) === null ||
+    safeFiniteNumber(totals.raw_denominator) === null ||
+    safeFiniteNumber(totals.weighted_numerator) === null ||
+    safeFiniteNumber(totals.weighted_denominator) === null ||
+    !safeHash(totals.contribution_set_hash) ||
+    totals.contribution_set_hash !== value.metric.contribution_set_hash ||
+    totals.snapshot_candidate_count !== value.metric.candidate_answer_count ||
+    totals.raw_numerator !== value.metric.raw_numerator ||
+    totals.raw_denominator !== value.metric.raw_denominator ||
+    totals.weighted_numerator !== value.metric.weighted_numerator ||
+    totals.weighted_denominator !== value.metric.weighted_denominator ||
+    typeof value.contributions.has_more !== 'boolean' ||
+    (value.contributions.next_cursor !== null &&
+      !safeBrowserString(value.contributions.next_cursor, 2_000)) ||
+    (value.contributions.has_more && value.contributions.next_cursor === null) ||
+    (!value.contributions.has_more && value.contributions.next_cursor !== null)
+  ) {
+    return null;
+  }
+  return value as CustomerMetricTraceV2Projection;
+}
+
+function projectSemanticDecisionOverrideReceipt(
+  value: unknown,
+  expectedSupersedesPubId: string,
+): SemanticDecisionOverrideReceipt | null {
+  if (!isBrowserRecord(value)) return null;
+  const response = value as SemanticDecisionOverrideContractResponse;
+  if (
+    response.schema_version !== 'semantic-decision-override-v2' ||
+    !/^sdr_[A-Za-z0-9_-]{1,116}$/u.test(response.decision_pub_id) ||
+    response.decision_pub_id === expectedSupersedesPubId ||
+    response.supersedes_pub_id !== expectedSupersedesPubId ||
+    !safeHash(response.decision_hash) ||
+    !/^mrj_[A-Za-z0-9_-]{1,116}$/u.test(response.recompute_job_pub_id)
+  ) {
+    return null;
+  }
+  return {
+    decisionPubId: response.decision_pub_id,
+    supersedesPubId: response.supersedes_pub_id,
+    decisionHash: response.decision_hash,
+    recomputeJobPubId: response.recompute_job_pub_id,
+  };
+}
+
 export function projectCustomerAnswerPageBoundary(
   value: unknown,
   expectedProjectPubId: string,
@@ -3190,6 +4012,19 @@ export function projectCustomerAnswerPageBoundary(
 const customerAnswerLibrarySnapshotPattern = /^als_[0-9a-f]{24}$/u;
 const customerAnswerLibraryMetaPattern = /^amq_[0-9a-f]{24}$/u;
 const customerAnswerLibraryQuestionPattern = /^aq_[0-9a-f]{24}$/u;
+const customerMetricSnapshotSetPattern = /^mss_[A-Za-z0-9_-]{1,116}$/u;
+const customerMetricSnapshotPattern = /^msn_[A-Za-z0-9_-]{1,116}$/u;
+
+const validCustomerMetricSnapshotBinding = (
+  snapshotSetPubId: string | undefined,
+  snapshotSetHash: string | undefined,
+): boolean =>
+  snapshotSetPubId === undefined && snapshotSetHash === undefined
+    ? true
+    : snapshotSetPubId !== undefined &&
+      snapshotSetHash !== undefined &&
+      customerMetricSnapshotSetPattern.test(snapshotSetPubId) &&
+      safeHash(snapshotSetHash) !== null;
 const customerAnswerLibraryBodyFields = new Set([
   'responsetext',
   'responseraw',
@@ -3415,7 +4250,14 @@ const projectCustomerAnswerLibraryCommon = (
   expectedProjectPubId: string,
   expectedSnapshotId?: string,
   expectedSnapshotAt?: string,
-): { snapshot_id: string; snapshot_at: string } | null => {
+  expectedMetricSnapshotSetPubId?: string,
+  expectedMetricSnapshotSetHash?: string,
+): {
+  snapshot_id: string;
+  snapshot_at: string;
+  metric_snapshot_set_pub_id: string | null;
+  metric_snapshot_set_hash: string | null;
+} | null => {
   if (
     !isBrowserRecord(value) ||
     customerDashboardContainsOperationalField(value) ||
@@ -3429,16 +4271,36 @@ const projectCustomerAnswerLibraryCommon = (
   }
   const snapshotId = safeBrowserString(value.snapshot_id, 28);
   const snapshotAt = projectSafeIsoTimestamp(value.snapshot_at);
+  const metricSnapshotSetPubId =
+    value.metric_snapshot_set_pub_id === null || value.metric_snapshot_set_pub_id === undefined
+      ? null
+      : safeBrowserString(value.metric_snapshot_set_pub_id, 120);
+  const metricSnapshotSetHash =
+    value.metric_snapshot_set_hash === null || value.metric_snapshot_set_hash === undefined
+      ? null
+      : safeHash(value.metric_snapshot_set_hash);
   if (
     !snapshotId ||
     !customerAnswerLibrarySnapshotPattern.test(snapshotId) ||
     !snapshotAt ||
     (expectedSnapshotId !== undefined && snapshotId !== expectedSnapshotId) ||
-    (expectedSnapshotAt !== undefined && snapshotAt !== expectedSnapshotAt)
+    (expectedSnapshotAt !== undefined && snapshotAt !== expectedSnapshotAt) ||
+    (metricSnapshotSetPubId === null) !== (metricSnapshotSetHash === null) ||
+    (metricSnapshotSetPubId !== null &&
+      !customerMetricSnapshotSetPattern.test(metricSnapshotSetPubId)) ||
+    (expectedMetricSnapshotSetPubId !== undefined &&
+      metricSnapshotSetPubId !== expectedMetricSnapshotSetPubId) ||
+    (expectedMetricSnapshotSetHash !== undefined &&
+      metricSnapshotSetHash !== expectedMetricSnapshotSetHash)
   ) {
     return null;
   }
-  return { snapshot_id: snapshotId, snapshot_at: snapshotAt };
+  return {
+    snapshot_id: snapshotId,
+    snapshot_at: snapshotAt,
+    metric_snapshot_set_pub_id: metricSnapshotSetPubId,
+    metric_snapshot_set_hash: metricSnapshotSetHash,
+  };
 };
 
 export function projectCustomerAnswerLibraryPageBoundary(
@@ -3448,6 +4310,8 @@ export function projectCustomerAnswerLibraryPageBoundary(
   expectedLimit: number,
   expectedSnapshotId?: string,
   expectedSnapshotAt?: string,
+  expectedMetricSnapshotSetPubId?: string,
+  expectedMetricSnapshotSetHash?: string,
 ): CustomerAnswerLibraryPageProjection | null {
   const common = projectCustomerAnswerLibraryCommon(
     value,
@@ -3455,6 +4319,8 @@ export function projectCustomerAnswerLibraryPageBoundary(
     expectedProjectPubId,
     expectedSnapshotId,
     expectedSnapshotAt,
+    expectedMetricSnapshotSetPubId,
+    expectedMetricSnapshotSetHash,
   );
   if (
     !common ||
@@ -3531,6 +4397,8 @@ export function projectCustomerAnswerLibraryMetaBoundary(
   expectedMetaQueryId: string,
   expectedSnapshotId: string,
   expectedSnapshotAt: string,
+  expectedMetricSnapshotSetPubId?: string,
+  expectedMetricSnapshotSetHash?: string,
 ): CustomerAnswerLibraryMetaDetailProjection | null {
   const common = projectCustomerAnswerLibraryCommon(
     value,
@@ -3538,6 +4406,8 @@ export function projectCustomerAnswerLibraryMetaBoundary(
     expectedProjectPubId,
     expectedSnapshotId,
     expectedSnapshotAt,
+    expectedMetricSnapshotSetPubId,
+    expectedMetricSnapshotSetHash,
   );
   if (!common || !isBrowserRecord(value) || value.meta_query_id !== expectedMetaQueryId)
     return null;
@@ -3663,6 +4533,8 @@ export function projectCustomerAnswerLibraryRunsBoundary(
   expectedSnapshotAt: string,
   expectedOffset: number,
   expectedLimit: number,
+  expectedMetricSnapshotSetPubId?: string,
+  expectedMetricSnapshotSetHash?: string,
 ): CustomerAnswerLibraryRunsProjection | null {
   const common = projectCustomerAnswerLibraryCommon(
     value,
@@ -3670,6 +4542,8 @@ export function projectCustomerAnswerLibraryRunsBoundary(
     expectedProjectPubId,
     expectedSnapshotId,
     expectedSnapshotAt,
+    expectedMetricSnapshotSetPubId,
+    expectedMetricSnapshotSetHash,
   );
   if (!common || !isBrowserRecord(value)) return null;
   const metaQueryId = safeBrowserString(value.meta_query_id, 28);
@@ -3733,6 +4607,8 @@ export function projectCustomerAnswerLibraryDetailBoundary(
   expectedAnswerPubId: string,
   expectedSnapshotId: string,
   expectedSnapshotAt: string,
+  expectedMetricSnapshotSetPubId?: string,
+  expectedMetricSnapshotSetHash?: string,
 ): CustomerAnswerLibraryDetailProjection | null {
   const common = projectCustomerAnswerLibraryCommon(
     value,
@@ -3740,6 +4616,8 @@ export function projectCustomerAnswerLibraryDetailBoundary(
     expectedProjectPubId,
     expectedSnapshotId,
     expectedSnapshotAt,
+    expectedMetricSnapshotSetPubId,
+    expectedMetricSnapshotSetHash,
   );
   if (!common || !isBrowserRecord(value)) return null;
   const metaQueryId = safeBrowserString(value.meta_query_id, 28);

@@ -5,11 +5,19 @@ import {
   getCustomerAnswerLibraryPage,
   getCustomerAnswerLibraryQuestionRuns,
   getCustomerDashboard,
+  getCustomerDashboardV2,
+  getCustomerMetricTraceV2,
   getCustomerMetricCatalog,
   getEvidenceAssetContent,
+  overrideSemanticDecisionV2,
   type CustomerDashboardProjection,
+  type CustomerDashboardV2Projection,
+  type CustomerBusinessViewV2,
+  type CustomerExposureRoleV2,
+  type CustomerMetricTraceV2Projection,
   type CustomerMetricProjection,
   type CustomerMetricSpecProjection,
+  customerMetricNamesV2,
 } from '@geo/api-client';
 import { getValidatedIdentityHeaders } from '@geo/auth';
 import {
@@ -42,6 +50,16 @@ import {
   type CustomerAnswerLibrarySnapshot,
 } from './customer-answer-explorer';
 import { QuestionDataExplorer, SourceDataExplorer } from './customer-data-explorer';
+import {
+  CustomerMetricTrace,
+  CustomerMetricV2Card,
+  RecommendationTopKGroup,
+  type MetricV2ContributionPage,
+  type MetricV2DecisionCorrectionRequest,
+  type MetricV2DecisionCorrectionResult,
+  type MetricV2Definition,
+  type MetricV2Summary,
+} from './customer-metric-trace';
 import './customer-dashboard.css';
 
 export type CustomerAnalyticsFocus =
@@ -710,6 +728,8 @@ const customerAnswerLibraryFixturePage: CustomerAnswerLibraryPage = {
   project_pub_id: customerDashboardFixture.project_pub_id,
   snapshot_id: customerAnswerLibraryFixtureSnapshot.snapshotId,
   snapshot_at: customerAnswerLibraryFixtureSnapshot.snapshotAt,
+  metric_snapshot_set_pub_id: null,
+  metric_snapshot_set_hash: null,
   totals: {
     meta_query_count: customerAnswerLibraryFixtureMetas.length,
     question_count: customerAnswerLibraryFixtureMetas.length * 4,
@@ -742,6 +762,8 @@ const fixtureLibraryMetaDetail = (metaQueryId: string): CustomerAnswerLibraryMet
     project_pub_id: customerDashboardFixture.project_pub_id,
     snapshot_id: customerAnswerLibraryFixtureSnapshot.snapshotId,
     snapshot_at: customerAnswerLibraryFixtureSnapshot.snapshotAt,
+    metric_snapshot_set_pub_id: null,
+    metric_snapshot_set_hash: null,
     meta_query_id: meta.meta_query_id,
     ordinal: meta.ordinal,
     label: meta.label,
@@ -819,6 +841,8 @@ const fixtureLibraryAnswer = (answerPubId: string): CustomerAnswerLibraryAnswer 
         project_pub_id: customerDashboardFixture.project_pub_id,
         snapshot_id: customerAnswerLibraryFixtureSnapshot.snapshotId,
         snapshot_at: customerAnswerLibraryFixtureSnapshot.snapshotAt,
+        metric_snapshot_set_pub_id: null,
+        metric_snapshot_set_hash: null,
         meta_query_id: meta.meta_query_id,
         meta_query_ordinal: meta.ordinal,
         meta_query_label: meta.label,
@@ -1662,7 +1686,7 @@ function DashboardSection({ children }: { children: ReactNode }) {
   return <div className="geo-dashboard-section">{children}</div>;
 }
 
-export function CustomerAnalyticsWorkspace({
+function CustomerAnalyticsLegacyWorkspace({
   focus = 'overview',
 }: {
   focus?: CustomerAnalyticsFocus;
@@ -1873,6 +1897,8 @@ export function CustomerAnalyticsWorkspace({
           project_pub_id: customerDashboardFixture.project_pub_id,
           snapshot_id: customerAnswerLibraryFixtureSnapshot.snapshotId,
           snapshot_at: customerAnswerLibraryFixtureSnapshot.snapshotAt,
+          metric_snapshot_set_pub_id: null,
+          metric_snapshot_set_hash: null,
           meta_query_id: selected.meta.meta_query_id,
           meta_query_ordinal: selected.meta.ordinal,
           meta_query_label: selected.meta.label,
@@ -2242,4 +2268,689 @@ export function CustomerAnalyticsWorkspace({
       ) : null}
     </div>
   );
+}
+
+const customerBusinessViewLabels: Record<CustomerBusinessViewV2, string> = {
+  ai_impression: 'AI 印象',
+  ai_recommendation: 'AI 推荐',
+};
+
+const customerExposureRoleLabels: Record<CustomerExposureRoleV2, string> = {
+  brand_neutral: '品牌中性',
+  focal_named_only: '焦点品牌点名',
+  other_brand_named: '其他品牌点名',
+  focal_named_with_others: '多品牌同问',
+};
+
+const readCustomerMetricV2Selection = (): {
+  businessView: CustomerBusinessViewV2;
+  exposureRole: CustomerExposureRoleV2;
+} => {
+  if (typeof window === 'undefined') {
+    return { businessView: 'ai_recommendation', exposureRole: 'brand_neutral' };
+  }
+  const parameters = new URL(window.location.href).searchParams;
+  const rawBusiness = parameters.get('business_view');
+  const rawExposure = parameters.get('exposure_role');
+  return {
+    businessView:
+      rawBusiness === 'ai_impression' || rawBusiness === 'ai_recommendation'
+        ? rawBusiness
+        : 'ai_recommendation',
+    exposureRole:
+      rawExposure === 'brand_neutral' ||
+      rawExposure === 'focal_named_only' ||
+      rawExposure === 'other_brand_named' ||
+      rawExposure === 'focal_named_with_others'
+        ? rawExposure
+        : 'brand_neutral',
+  };
+};
+
+const projectMetricV2Summary = (
+  metric: CustomerDashboardV2Projection['metrics'][number],
+): MetricV2Summary => ({
+  snapshot_pub_id: metric.snapshot_pub_id,
+  snapshot_hash: metric.snapshot_hash,
+  metric_name: metric.metric_name,
+  metric_version: metric.metric_version,
+  state: metric.state,
+  state_reason_codes: metric.state_reason_codes ?? [],
+  value: metric.value ?? null,
+  observed_value: metric.observed_value ?? null,
+  answer_weighted_value: metric.answer_weighted_value ?? null,
+  raw_numerator: metric.raw_numerator,
+  raw_denominator: metric.raw_denominator,
+  weighted_numerator: metric.weighted_numerator,
+  weighted_denominator: metric.weighted_denominator,
+  unique_query_count: metric.unique_query_count,
+  candidate_answer_count: metric.candidate_answer_count,
+  known_answer_count: metric.known_answer_count,
+  unknown_answer_count: metric.unknown_answer_count,
+  not_applicable_answer_count: metric.not_applicable_answer_count,
+  excluded_answer_count: metric.excluded_answer_count,
+  design_cell_count: metric.design_cell_count,
+  coverage: {
+    collection: metric.coverage.collection ?? null,
+    query_context: metric.coverage.query_context ?? null,
+    semantic: metric.coverage.semantic ?? null,
+    evidence: metric.coverage.evidence ?? null,
+    semantic_by_capability: metric.coverage.semantic_by_capability ?? {},
+  },
+  missing_bounds: {
+    lower: metric.missing_bounds.lower ?? null,
+    upper: metric.missing_bounds.upper ?? null,
+  },
+  adjudication_sensitivity: {
+    lower: metric.adjudication_sensitivity.lower ?? null,
+    upper: metric.adjudication_sensitivity.upper ?? null,
+  },
+  decision_method_mix: metric.decision_method_mix ?? {},
+  contribution_set_hash: metric.contribution_set_hash,
+  query_contribution_set_hash: metric.query_contribution_set_hash,
+  design_contribution_set_hash: metric.design_contribution_set_hash,
+});
+
+const projectMetricV2Definition = (
+  metric: CustomerDashboardV2Projection['metrics'][number],
+): MetricV2Definition => ({
+  business_question: metric.definition.business_question,
+  denominator_description: metric.definition.denominator_description,
+  outcome_source: metric.definition.outcome_source,
+  query_predicate: metric.definition.query_predicate,
+  outcome_expression: metric.definition.outcome_expression,
+  required_semantic_capabilities: metric.definition.required_semantic_capabilities,
+  decision_task_refs: metric.definition.decision_task_refs,
+  semantic_rubric_ref: metric.definition.semantic_rubric_ref ?? null,
+});
+
+const projectMetricV2ContributionPage = (
+  trace: CustomerMetricTraceV2Projection,
+): MetricV2ContributionPage => ({
+  snapshot_pub_id: trace.contributions.snapshot_pub_id,
+  snapshot_candidate_count: trace.contributions.totals.snapshot_candidate_count,
+  filtered_count: trace.contributions.totals.filtered_count,
+  next_cursor: trace.contributions.next_cursor ?? null,
+  has_more: trace.contributions.has_more,
+  data: trace.contributions.data.map((row) => ({
+    answer_pub_id: row.answer_pub_id,
+    query_key: row.query_key,
+    query_text: row.query_text ?? null,
+    analysis_lenses: row.analysis_lenses,
+    requested_operations: row.requested_operations,
+    exposure_role: row.exposure_role,
+    model: row.model,
+    region: row.region,
+    mode: row.mode,
+    eligibility_status: row.eligibility_status,
+    reason_codes: row.reason_codes,
+    numerator_contribution: row.numerator_contribution,
+    denominator_contribution: row.denominator_contribution,
+    query_weight: row.query_weight,
+    design_cell_weight: row.design_cell_weight,
+    repeat_weight: row.repeat_weight,
+    final_weight: row.final_weight,
+    weighted_numerator: row.weighted_numerator,
+    weighted_denominator: row.weighted_denominator,
+    supporting_events: (row.supporting_events ?? []).map((event) => ({
+      event_pub_id: event.event_pub_id,
+      event_type: event.event_type,
+      event_value: event.event_value,
+      answer_excerpt: event.answer_excerpt ?? null,
+      answer_text_start: event.answer_text_start ?? null,
+      answer_text_end: event.answer_text_end ?? null,
+    })),
+    supporting_decisions: (row.supporting_decisions ?? []).map((decision) => ({
+      decision_pub_id: decision.decision_pub_id,
+      decision_hash: decision.decision_hash,
+      task: decision.task,
+      version: decision.version,
+      method: decision.method,
+      status: decision.status,
+      rationale_summary: decision.rationale_summary ?? null,
+      calibrated_confidence: decision.calibrated_confidence ?? null,
+      rubric_hash: decision.rubric_hash,
+      result: decision.result,
+      evidence_refs: decision.evidence_refs ?? [],
+    })),
+    answer_excerpt: row.answer_excerpt ?? null,
+    answer_detail_href: row.answer_detail_href,
+  })),
+});
+
+function CustomerAnalyticsV2LiveWorkspace({
+  focus,
+  projectPubId,
+}: {
+  focus: CustomerAnalyticsFocus;
+  projectPubId: string;
+}) {
+  const [urlState, setUrlState] = useState<DashboardUrlState>(readDashboardUrlState);
+  const [selection, setSelection] = useState(readCustomerMetricV2Selection);
+  const [dashboard, setDashboard] = useState<CustomerDashboardV2Projection | null>(null);
+  const [state, setState] = useState<LoadState>('loading');
+  const [retryKey, setRetryKey] = useState(0);
+  const [selectedSnapshotId, setSelectedSnapshotId] = useState<string | null>(null);
+  const activeDateWindow = useMemo(() => dashboardDateWindow(urlState.window), [urlState.window]);
+  const activeFilters = useMemo(
+    () => ({
+      ...(urlState.model !== 'all' ? { model: urlState.model } : {}),
+      ...(urlState.region !== 'all' ? { region: urlState.region } : {}),
+      ...(urlState.mode !== 'all' ? { mode: urlState.mode } : {}),
+    }),
+    [urlState.mode, urlState.model, urlState.region],
+  );
+  const metricNames = customerMetricNamesV2[selection.businessView][selection.exposureRole];
+
+  useEffect(() => {
+    const sync = () => {
+      setState('loading');
+      setUrlState(readDashboardUrlState());
+      setSelection(readCustomerMetricV2Selection());
+    };
+    window.addEventListener('popstate', sync);
+    return () => window.removeEventListener('popstate', sync);
+  }, []);
+
+  useEffect(() => {
+    setSelectedSnapshotId(null);
+    if (metricNames.length === 0) {
+      setDashboard(null);
+      setState('empty');
+      return;
+    }
+    const headers = getValidatedIdentityHeaders();
+    if (!headers) {
+      setDashboard(null);
+      setState('forbidden');
+      return;
+    }
+    let cancelled = false;
+    setState('loading');
+    void getCustomerDashboardV2(
+      projectPubId,
+      activeDateWindow.start,
+      activeDateWindow.end,
+      {
+        businessView: selection.businessView,
+        exposureRole: selection.exposureRole,
+        metricNames,
+      },
+      activeFilters,
+      headers,
+    ).then((result) => {
+      if (cancelled) return;
+      if (result.kind !== 'ready') {
+        setDashboard(null);
+        setState(result.kind === 'forbidden' ? 'forbidden' : 'failed');
+        return;
+      }
+      setDashboard(result.data);
+      setState(result.data.metrics.length > 0 ? 'ready' : 'empty');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeDateWindow.end,
+    activeDateWindow.start,
+    activeFilters,
+    metricNames,
+    projectPubId,
+    retryKey,
+    selection.businessView,
+    selection.exposureRole,
+  ]);
+
+  const setFilter = (key: string, value: string) => {
+    const nextValue = value === 'all' || (key === 'window' && value === '30d') ? null : value;
+    setState('loading');
+    updateClientUrlParameters({ [key]: nextValue }, customerDashboardAllowedSections);
+    setUrlState((current) => ({ ...current, [key]: value }));
+  };
+
+  const changeSelection = (
+    nextBusinessView: CustomerBusinessViewV2,
+    nextExposureRole: CustomerExposureRoleV2,
+  ) => {
+    setState('loading');
+    updateClientUrlParameters(
+      { business_view: nextBusinessView, exposure_role: nextExposureRole },
+      customerDashboardAllowedSections,
+    );
+    setSelection({ businessView: nextBusinessView, exposureRole: nextExposureRole });
+  };
+
+  const requireDashboard = (): CustomerDashboardV2Projection => {
+    if (!dashboard) throw new CustomerAnswerLoadError('unavailable');
+    return dashboard;
+  };
+
+  const loadAnswerLibraryPage = useCallback(
+    async (query: CustomerAnswerLibraryRootQuery): Promise<CustomerAnswerLibraryPage> => {
+      const current = requireDashboard();
+      const headers = getValidatedIdentityHeaders();
+      if (!headers) throw new CustomerAnswerLoadError('forbidden');
+      const result = await getCustomerAnswerLibraryPage(
+        projectPubId,
+        activeDateWindow.start,
+        activeDateWindow.end,
+        {
+          ...activeFilters,
+          ...(query.search ? { search: query.search } : {}),
+          ...(query.snapshotId && query.snapshotAt
+            ? { snapshot_id: query.snapshotId, snapshot_at: query.snapshotAt }
+            : {}),
+          metric_snapshot_set_pub_id: current.snapshot_set_pub_id,
+          metric_snapshot_set_hash: current.snapshot_set_hash,
+          offset: query.offset,
+          limit: query.limit,
+        },
+        headers,
+      );
+      if (result.kind !== 'ready') throw new CustomerAnswerLoadError(result.kind);
+      return result.data;
+    },
+    [activeDateWindow.end, activeDateWindow.start, activeFilters, dashboard, projectPubId],
+  );
+
+  const loadAnswerMetaQuery = useCallback(
+    async (
+      metaQueryId: string,
+      snapshot: CustomerAnswerLibrarySnapshot,
+    ): Promise<CustomerAnswerLibraryMetaDetail> => {
+      const current = requireDashboard();
+      const headers = getValidatedIdentityHeaders();
+      if (!headers) throw new CustomerAnswerLoadError('forbidden');
+      const result = await getCustomerAnswerLibraryMetaQuery(
+        projectPubId,
+        metaQueryId,
+        activeDateWindow.start,
+        activeDateWindow.end,
+        {
+          snapshot_id: snapshot.snapshotId,
+          snapshot_at: snapshot.snapshotAt,
+          metric_snapshot_set_pub_id: current.snapshot_set_pub_id,
+          metric_snapshot_set_hash: current.snapshot_set_hash,
+          ...activeFilters,
+        },
+        headers,
+      );
+      if (result.kind !== 'ready') throw new CustomerAnswerLoadError(result.kind);
+      return result.data;
+    },
+    [activeDateWindow.end, activeDateWindow.start, activeFilters, dashboard, projectPubId],
+  );
+
+  const loadAnswerQuestionRuns = useCallback(
+    async (
+      questionId: string,
+      query: CustomerAnswerLibraryRunQuery,
+    ): Promise<CustomerAnswerLibraryRuns> => {
+      const current = requireDashboard();
+      const headers = getValidatedIdentityHeaders();
+      if (!headers) throw new CustomerAnswerLoadError('forbidden');
+      const result = await getCustomerAnswerLibraryQuestionRuns(
+        projectPubId,
+        questionId,
+        activeDateWindow.start,
+        activeDateWindow.end,
+        {
+          snapshot_id: query.snapshotId,
+          snapshot_at: query.snapshotAt,
+          metric_snapshot_set_pub_id: current.snapshot_set_pub_id,
+          metric_snapshot_set_hash: current.snapshot_set_hash,
+          ...(query.model !== 'all'
+            ? { model: query.model }
+            : activeFilters.model
+              ? { model: activeFilters.model }
+              : {}),
+          ...(query.region !== 'all'
+            ? { region: query.region }
+            : activeFilters.region
+              ? { region: activeFilters.region }
+              : {}),
+          ...(query.mode !== 'all'
+            ? { mode: query.mode }
+            : activeFilters.mode
+              ? { mode: activeFilters.mode }
+              : {}),
+          offset: query.offset,
+          limit: query.limit,
+        },
+        headers,
+      );
+      if (result.kind !== 'ready') throw new CustomerAnswerLoadError(result.kind);
+      return result.data;
+    },
+    [activeDateWindow.end, activeDateWindow.start, activeFilters, dashboard, projectPubId],
+  );
+
+  const loadAnswerContent = useCallback(
+    async (
+      answerPubId: string,
+      snapshot: CustomerAnswerLibrarySnapshot,
+    ): Promise<CustomerAnswerLibraryAnswer> => {
+      const current = requireDashboard();
+      const headers = getValidatedIdentityHeaders();
+      if (!headers) throw new CustomerAnswerLoadError('forbidden');
+      const result = await getCustomerAnswerLibraryDetail(
+        projectPubId,
+        answerPubId,
+        activeDateWindow.start,
+        activeDateWindow.end,
+        {
+          snapshot_id: snapshot.snapshotId,
+          snapshot_at: snapshot.snapshotAt,
+          metric_snapshot_set_pub_id: current.snapshot_set_pub_id,
+          metric_snapshot_set_hash: current.snapshot_set_hash,
+        },
+        headers,
+      );
+      if (result.kind !== 'ready') throw new CustomerAnswerLoadError(result.kind);
+      return result.data;
+    },
+    [activeDateWindow.end, activeDateWindow.start, dashboard, projectPubId],
+  );
+
+  const loadAnswerDetail = useCallback(
+    async (
+      answerPubId: string,
+      snapshot: CustomerAnswerLibrarySnapshot,
+    ): Promise<CustomerAnswerDetail> => {
+      const headers = getValidatedIdentityHeaders();
+      if (!headers) throw new CustomerAnswerLoadError('forbidden');
+      const result = await getAnalyticsAnswerRelations(
+        answerPubId,
+        headers,
+        undefined,
+        projectPubId,
+        snapshot.snapshotAt,
+      );
+      if (result.kind !== 'ready') throw new CustomerAnswerLoadError(result.kind);
+      return {
+        citations: result.data.answer_citations.map((citation) => ({
+          id: citation.pub_id,
+          ordinal: citation.ordinal,
+          url: citation.canonical_url,
+          host: citation.host,
+          title: citation.title,
+          citedText: citation.cited_text,
+          ownSource: citation.own_source,
+          contentHash: citation.content_hash,
+          publishedAtRaw: citation.published_at_raw ?? null,
+          publishedAt: citation.published_at ?? null,
+          publishedAtTimezone: citation.published_at_timezone ?? null,
+          publishedAtPrecision:
+            citation.published_at_precision === 'date' ||
+            citation.published_at_precision === 'minute' ||
+            citation.published_at_precision === 'second'
+              ? citation.published_at_precision
+              : null,
+          publishedAtSource: citation.published_at_source ?? null,
+          publishedAtConfidence: citation.published_at_confidence,
+          support: {
+            mappingStatus: citation.support.mapping_status,
+            answerSentence: citation.support.answer_sentence ?? null,
+            sourceQuote: citation.support.source_quote ?? null,
+            sourceQuoteHash: citation.support.source_quote_hash ?? null,
+            sourceMatchStatus: citation.support.source_match_status,
+            relation: citation.support.relation,
+            relevanceConfidence: citation.support.relevance_confidence ?? null,
+            reviewStatus: citation.support.review_status,
+          },
+        })),
+        evidence: result.data.evidence.map((evidence) => ({
+          id: evidence.pub_id,
+          relation: evidence.relation_type,
+          kind: evidence.kind,
+          mimeType: evidence.mime_type,
+          byteSize: evidence.byte_size,
+          sha256: evidence.sha256,
+          sourceUrl: evidence.source_url,
+          captureTime: evidence.capture_time,
+        })),
+        projectionComplete: Object.values(result.data.projection).every(
+          (collection) => !collection.invalid && collection.total === collection.shown,
+        ),
+      };
+    },
+    [projectPubId],
+  );
+
+  const loadAnswerEvidenceImage = useCallback<CustomerAnswerEvidenceImageLoader>(
+    async (evidence) => {
+      const headers = getValidatedIdentityHeaders();
+      if (!headers) return { kind: 'forbidden' };
+      const result = await getEvidenceAssetContent(
+        evidence.id,
+        { byteSize: evidence.byteSize, mimeType: evidence.mimeType, sha256: evidence.sha256 },
+        headers,
+      );
+      return result.kind === 'ready'
+        ? { kind: 'ready', blob: result.data.blob }
+        : { kind: result.kind };
+    },
+    [],
+  );
+
+  const loadContributions = useCallback(
+    async (snapshotPubId: string, cursor: string | null): Promise<MetricV2ContributionPage> => {
+      const current = requireDashboard();
+      const headers = getValidatedIdentityHeaders();
+      if (!headers) throw new CustomerAnswerLoadError('forbidden');
+      const result = await getCustomerMetricTraceV2(
+        projectPubId,
+        {
+          snapshotSetPubId: current.snapshot_set_pub_id,
+          snapshotSetHash: current.snapshot_set_hash,
+          snapshotPubId,
+          businessView: current.business_view,
+          exposureRole: current.exposure_role,
+        },
+        { ...(cursor ? { cursor } : {}), limit: 50 },
+        headers,
+      );
+      if (result.kind !== 'ready') throw new CustomerAnswerLoadError(result.kind);
+      return projectMetricV2ContributionPage(result.data);
+    },
+    [dashboard, projectPubId],
+  );
+
+  const correctDecision = useCallback(
+    async (
+      request: MetricV2DecisionCorrectionRequest,
+    ): Promise<MetricV2DecisionCorrectionResult> => {
+      const headers = getValidatedIdentityHeaders();
+      if (!headers) return { kind: 'forbidden' };
+      const result = await overrideSemanticDecisionV2(
+        request.decisionPubId,
+        {
+          result: request.result,
+          rationale_summary: request.rationaleSummary,
+          reason_codes: ['customer_correction'],
+          expected_decision_hash: request.expectedDecisionHash,
+        },
+        headers,
+      );
+      return result.kind === 'ready'
+        ? { kind: 'submitted', recomputeJobPubId: result.data.recomputeJobPubId }
+        : { kind: result.kind };
+    },
+    [],
+  );
+
+  const filterOptions: DashboardFilterOptions = {
+    model: activeFilters.model ? [activeFilters.model] : [],
+    region: activeFilters.region ? [activeFilters.region] : [],
+    mode: activeFilters.mode ? [activeFilters.mode] : [],
+  };
+  const selectedMetric = dashboard?.metrics.find(
+    (metric) => metric.snapshot_pub_id === selectedSnapshotId,
+  );
+  const summaries = new Map(
+    dashboard?.metrics.map((metric) => [metric.metric_name, projectMetricV2Summary(metric)]) ?? [],
+  );
+  const definitions = Object.fromEntries(
+    dashboard?.metrics.map((metric) => [metric.metric_name, projectMetricV2Definition(metric)]) ??
+      [],
+  );
+  const top3Visibility = summaries.get('ai_recommendation_organic_top3_visibility_rate_v2');
+  const rankable = summaries.get('ai_recommendation_rankable_response_rate_v2');
+  const top3Conditional = summaries.get('ai_recommendation_organic_top3_given_rankable_rate_v2');
+  const top3Names = new Set([
+    'ai_recommendation_organic_top3_visibility_rate_v2',
+    'ai_recommendation_rankable_response_rate_v2',
+    'ai_recommendation_organic_top3_given_rankable_rate_v2',
+  ]);
+
+  return (
+    <div className="geo-customer-dashboard geo-customer-dashboard--v2">
+      <section className="geo-dashboard-hero">
+        <div>
+          <span>QUERY COHORT METRICS V2</span>
+          <h2>
+            {dashboard?.brand_name ?? '客户指标'} ·{' '}
+            {customerBusinessViewLabels[selection.businessView]}
+          </h2>
+          <p>每张卡片只读取同一冻结快照集；业务入口与品牌暴露 cohort 不做混合平均。</p>
+        </div>
+        <div className="geo-snapshot-meta">
+          <span>{dashboard?.publication_channel === 'shadow' ? '影子快照' : '正式快照'}</span>
+          <strong>
+            {dashboard ? new Date(dashboard.as_of).toLocaleString('zh-CN') : '读取中'}
+          </strong>
+          <small title={dashboard?.snapshot_set_hash}>
+            {dashboard?.snapshot_set_pub_id ?? '—'}
+          </small>
+        </div>
+      </section>
+
+      <nav className="geo-metric-v2-navigation" aria-label="客户指标业务入口与暴露范围">
+        <div role="group" aria-label="业务入口">
+          {(Object.keys(customerBusinessViewLabels) as CustomerBusinessViewV2[]).map((value) => (
+            <button
+              type="button"
+              key={value}
+              aria-pressed={selection.businessView === value}
+              onClick={() => changeSelection(value, 'brand_neutral')}
+            >
+              {customerBusinessViewLabels[value]}
+            </button>
+          ))}
+        </div>
+        <div role="group" aria-label="品牌暴露 cohort">
+          {(Object.keys(customerExposureRoleLabels) as CustomerExposureRoleV2[]).map((value) => (
+            <button
+              type="button"
+              key={value}
+              aria-pressed={selection.exposureRole === value}
+              onClick={() => changeSelection(selection.businessView, value)}
+            >
+              {customerExposureRoleLabels[value]}
+            </button>
+          ))}
+        </div>
+      </nav>
+      <DashboardFilters options={filterOptions} urlState={urlState} setFilter={setFilter} />
+
+      {state === 'loading' ? <StatePanel state="loading" /> : null}
+      {state === 'forbidden' ? <StatePanel state="forbidden" /> : null}
+      {state === 'failed' ? (
+        <StatePanel state="failed" onRetry={() => setRetryKey((value) => value + 1)} />
+      ) : null}
+      {state === 'empty' ? (
+        <div className="geo-metric-v2-empty" role="status">
+          当前业务入口与暴露 cohort 尚无已发布 V2 指标；系统不会用其他 cohort 或旧公式补值。
+        </div>
+      ) : null}
+
+      {state === 'ready' && dashboard && focus === 'answers' ? (
+        <>
+          <div className="geo-metric-v2-binding" role="note">
+            回答库固定到 {dashboard.snapshot_set_pub_id} ·{' '}
+            {dashboard.snapshot_set_hash.slice(0, 12)}… ·{' '}
+            {new Date(dashboard.as_of).toLocaleString('zh-CN')}，下钻不会跳到当前最新回答。
+          </div>
+          <CustomerAnswerExplorer
+            key={`${dashboard.snapshot_set_pub_id}:${urlState.model}:${urlState.region}:${urlState.mode}`}
+            brandName={dashboard.brand_name}
+            loadLibraryPage={loadAnswerLibraryPage}
+            loadMetaQuery={loadAnswerMetaQuery}
+            loadQuestionRuns={loadAnswerQuestionRuns}
+            loadAnswer={loadAnswerContent}
+            loadDetail={loadAnswerDetail}
+            loadEvidenceImage={loadAnswerEvidenceImage}
+          />
+        </>
+      ) : null}
+
+      {state === 'ready' && dashboard && focus !== 'answers' ? (
+        <DashboardSection>
+          <div className="geo-metric-v2-binding" role="note">
+            <strong>{customerExposureRoleLabels[dashboard.exposure_role]}</strong> ·{' '}
+            {dashboard.aggregation_method} · set {dashboard.snapshot_set_pub_id} · hash{' '}
+            {dashboard.snapshot_set_hash.slice(0, 12)}…
+          </div>
+          {top3Visibility && rankable && top3Conditional ? (
+            <RecommendationTopKGroup
+              visibility={top3Visibility}
+              rankable={rankable}
+              conditional={top3Conditional}
+              definitions={definitions}
+              snapshotSetId={dashboard.snapshot_set_pub_id}
+              snapshotSetHash={dashboard.snapshot_set_hash}
+              onInspect={(metric) => setSelectedSnapshotId(metric.snapshot_pub_id)}
+            />
+          ) : null}
+          <div className="geo-metric-v2-grid">
+            {dashboard.metrics
+              .filter((metric) => !top3Names.has(metric.metric_name))
+              .map((metric) => (
+                <CustomerMetricV2Card
+                  key={metric.snapshot_pub_id}
+                  label={metric.label}
+                  metric={projectMetricV2Summary(metric)}
+                  definition={projectMetricV2Definition(metric)}
+                  aggregationMethod="query_macro"
+                  snapshotSetId={dashboard.snapshot_set_pub_id}
+                  snapshotSetHash={dashboard.snapshot_set_hash}
+                  onInspect={() => setSelectedSnapshotId(metric.snapshot_pub_id)}
+                />
+              ))}
+          </div>
+        </DashboardSection>
+      ) : null}
+
+      {dashboard && selectedMetric ? (
+        <CustomerMetricTrace
+          snapshotSetId={dashboard.snapshot_set_pub_id}
+          snapshotSetHash={dashboard.snapshot_set_hash}
+          metric={projectMetricV2Summary(selectedMetric)}
+          definition={projectMetricV2Definition(selectedMetric)}
+          loadContributions={loadContributions}
+          correctDecision={correctDecision}
+          onClose={() => setSelectedSnapshotId(null)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+export function CustomerAnalyticsWorkspace({
+  focus = 'overview',
+}: {
+  focus?: CustomerAnalyticsFocus;
+}) {
+  const experience = useOptionalExperienceContext();
+  if (experience?.source === 'live') {
+    return experience.projectPubId ? (
+      <CustomerAnalyticsV2LiveWorkspace focus={focus} projectPubId={experience.projectPubId} />
+    ) : (
+      <div className="geo-customer-dashboard geo-customer-dashboard--v2">
+        <StatePanel state="failed" />
+      </div>
+    );
+  }
+  return <CustomerAnalyticsLegacyWorkspace focus={focus} />;
 }

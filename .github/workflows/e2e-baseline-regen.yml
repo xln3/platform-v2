@@ -40,7 +40,7 @@ jobs:
           sudo apt-get install -y fonts-noto-cjk
           fc-match "sans-serif:lang=zh-cn"
           fc-match "serif:lang=zh-cn"
-      - run: pnpm test:e2e --update-snapshots=changed --grep-invert @live-api
+      - run: pnpm test:e2e:contract --update-snapshots=changed
         env:
           GEO_E2E_OUTPUT_DIR: test-results
           GEO_E2E_JSON_REPORT: test-results/e2e-results.json

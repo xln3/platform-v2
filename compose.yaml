@@ -67,6 +67,14 @@ services:
       POSTGRES_USER: temporal
       POSTGRES_PWD: temporal_dev_only
       POSTGRES_SEEDS: temporal-postgres
+      # Docker Desktop/daemon may inject the host HTTP proxy. Temporal advertises
+      # container-private gRPC addresses, which must never be routed through it.
+      HTTP_PROXY: ''
+      HTTPS_PROXY: ''
+      http_proxy: ''
+      https_proxy: ''
+      NO_PROXY: '*'
+      no_proxy: '*'
     ports: ['127.0.0.1:17233:7233']
     healthcheck:
       test: ['CMD', 'temporal', 'operator', 'cluster', 'health', '--address', 'temporal:7233']
@@ -81,6 +89,12 @@ services:
     environment:
       TEMPORAL_ADDRESS: temporal:7233
       TEMPORAL_CORS_ORIGINS: http://127.0.0.1:45102
+      HTTP_PROXY: ''
+      HTTPS_PROXY: ''
+      http_proxy: ''
+      https_proxy: ''
+      NO_PROXY: '*'
+      no_proxy: '*'
     ports: ['127.0.0.1:18080:8080']
     healthcheck:
       test: ['CMD', 'wget', '-Y', 'off', '--spider', '-q', 'http://127.0.0.1:8080']

@@ -69,6 +69,9 @@ ROLE_PERMISSIONS: dict[Role, frozenset[str]] = {
             "knowledge:read",
             "knowledge:propose",
             "knowledge:evidence",
+            "metrics:publish",
+            "metrics:recompute",
+            "semantic:override",
         }
     ),
     Role.ANALYST: frozenset(
@@ -91,6 +94,7 @@ ROLE_PERMISSIONS: dict[Role, frozenset[str]] = {
             "knowledge:read",
             "knowledge:propose",
             "knowledge:evidence",
+            "metrics:recompute",
         }
     ),
     Role.REVIEWER: frozenset(
@@ -117,6 +121,8 @@ ROLE_PERMISSIONS: dict[Role, frozenset[str]] = {
             "knowledge:evidence",
             "knowledge:review",
             "knowledge:audit",
+            "metrics:publish",
+            "semantic:override",
         }
     ),
     Role.ADMIN: frozenset({"*"}),

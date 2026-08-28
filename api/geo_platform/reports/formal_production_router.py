@@ -67,6 +67,21 @@ class WindowView(StrictModel):
         return self
 
 
+class FormalMetricSnapshotFilters(StrictModel):
+    model: list[str] = Field(default_factory=list, max_length=100)
+    region: list[str] = Field(default_factory=list, max_length=100)
+    mode: list[str] = Field(default_factory=list, max_length=100)
+
+    @model_validator(mode="after")
+    def normalize_values(self) -> Self:
+        for field_name in ("model", "region", "mode"):
+            values = [value.strip() for value in getattr(self, field_name)]
+            if any(not value or len(value) > 120 for value in values):
+                raise ValueError("metric_snapshot_filter_invalid")
+            setattr(self, field_name, sorted(set(values)))
+        return self
+
+
 class _FormalProductionCreateBase(StrictModel):
     project_pub_id: str = Field(min_length=5, max_length=120)
     services: list[int]
@@ -124,6 +139,13 @@ class QuotationFormalProductionCreate(_FormalProductionCreateBase):
     service2_manifest_hash: str | None = Field(
         default=None, pattern=r"^[0-9a-f]{64}$", max_length=64
     )
+    metric_snapshot_set_pub_id: str = Field(
+        min_length=7,
+        max_length=120,
+        pattern=r"^mss_[0-9A-Za-z_-]+$",
+    )
+    metric_snapshot_set_hash: str = Field(pattern=r"^[0-9a-f]{64}$", max_length=64)
+    metric_snapshot_filters: FormalMetricSnapshotFilters
 
     @model_validator(mode="after")
     def validate_service2_manifest_binding(self) -> Self:
@@ -188,6 +210,10 @@ class FormalProductionView(StrictModel):
     sop_project_pub_id: str | None
     service2_manifest_pub_id: str | None = None
     service2_manifest_hash: str | None = None
+    metric_snapshot_set_pub_id: str | None = None
+    metric_snapshot_set_hash: str | None = None
+    metric_snapshot_filters: dict[str, object] = Field(default_factory=dict)
+    metric_snapshot_dependency_hash: str | None = None
     status: Literal["queued", "running", "failed", "awaiting_review", "signed"]
     document_status: Literal[
         "pre_formal", "formal", "internal_review", "delivery_candidate", "approved_signed"
@@ -302,9 +328,16 @@ def create_formal_production(
             sop_project_pub_id=payload.sop_project_pub_id,
             service2_manifest_pub_id=getattr(payload, "service2_manifest_pub_id", None),
             service2_manifest_hash=getattr(payload, "service2_manifest_hash", None),
+            metric_snapshot_set_pub_id=getattr(payload, "metric_snapshot_set_pub_id", None),
+            metric_snapshot_set_hash=getattr(payload, "metric_snapshot_set_hash", None),
+            metric_snapshot_filters=(
+                payload.metric_snapshot_filters.model_dump()
+                if isinstance(payload, QuotationFormalProductionCreate)
+                else None
+            ),
             idempotency_key=idempotency_key,
             created_by_pub_id=principal.actor_pub_id,
-            task_queue=get_settings().s02_temporal_task_queue,
+            task_queue=get_settings().report_temporal_task_queue,
         )
         session.commit()
     except FormalProductionNotFound as exc:

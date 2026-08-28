@@ -111,6 +111,9 @@ def test_create_model_rejects_service5_under_default_legacy_catalog() -> None:
         | {
             "service_catalog_version": QUOTATION_SERVICE_CATALOG,
             "sop_project_pub_id": "spr_unit",
+            "metric_snapshot_set_pub_id": "mss_unit",
+            "metric_snapshot_set_hash": "a" * 64,
+            "metric_snapshot_filters": {"model": [], "region": [], "mode": []},
             "before_window": {"start": "2026-08-01", "end": "2026-08-08"},
             "after_window": {"start": "2026-08-12", "end": "2026-08-20"},
         }

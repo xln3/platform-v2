@@ -375,9 +375,16 @@ def generate_variants(
     use_llm: bool,
     llm_config: LlmConfig | None,
     max_variants: int,
+    legacy_recycle_answer_analysis: bool,
     pub_id_factory: Any,
 ) -> GenerateSummary:
-    """种子聚合 → 聚类出候选 → 矩阵空格补格 → （可选）LLM 扩写 → 零提及闭环。"""
+    """种子聚合 → 聚类出候选 → 矩阵空格补格 → （可选）LLM 扩写。
+
+    V2 起生成写路径不再根据 ``answer_analysis.mentioned`` 自动验证或回炉
+    变体。正式目标/效果必须由 official snapshot contribution 读路径完成；旧
+    ``recycle_zero_mentions`` 仅在调用方显式设置
+    ``legacy_recycle_answer_analysis`` 时用于历史审计。
+    """
     summary = GenerateSummary()
     axes = project_axes(session, tenant_id, project)
     pool = existing_pool(session, tenant_id, project)
@@ -511,14 +518,15 @@ def generate_variants(
                     summary.llm_variants_created += 1
             session.flush()
 
-    recycle_zero_mentions(
-        session,
-        tenant_id=tenant_id,
-        tenant_pub_id=tenant_pub_id,
-        project=project,
-        pub_id_factory=pub_id_factory,
-        summary=summary,
-    )
+    if legacy_recycle_answer_analysis:
+        recycle_zero_mentions(
+            session,
+            tenant_id=tenant_id,
+            tenant_pub_id=tenant_pub_id,
+            project=project,
+            pub_id_factory=pub_id_factory,
+            summary=summary,
+        )
 
     variant_texts = list(
         session.scalars(
@@ -563,7 +571,9 @@ def recycle_zero_mentions(
     pub_id_factory: Any,
     summary: GenerateSummary,
 ) -> None:
-    """已验证闭环：mentioned>0 → verified=True；mentioned=0 → 回炉为优先种子。
+    """Legacy audit helper; never called by the V2 formal generate path.
+
+    已验证闭环：mentioned>0 → verified=True；mentioned=0 → 回炉为优先种子。
 
     口径：任一 analysis mentioned=true 即算"有结果"（多 analysis_run 取并集，宁可不
     回炉也不错杀）。回炉种子 usage_count = 该问法回答数（回答越多、越是优先种子）。

@@ -2,6 +2,8 @@ import base64
 import json
 import os
 import threading
+from collections.abc import AsyncGenerator, Generator
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from uuid import uuid4
@@ -19,11 +21,24 @@ from workflows.definitions.s02 import (
     EvidenceCaptureWorkflow,
     ReportProductionWorkflow,
 )
+from workflows.workers.analysis import ANALYSIS_ACTIVITIES, ANALYSIS_WORKFLOWS
+from workflows.workers.report import REPORT_ACTIVITIES, REPORT_WORKFLOWS
 from workflows.workers.s02 import S02_ACTIVITIES, S02_WORKFLOWS
+
+pytestmark = pytest.mark.service_integration
 
 
 @pytest.fixture
-def gateway_server(monkeypatch: pytest.MonkeyPatch) -> str:
+def analysis_activity_executor() -> Generator[ThreadPoolExecutor, None, None]:
+    with ThreadPoolExecutor(
+        max_workers=8,
+        thread_name_prefix="geo-analysis-test-activity",
+    ) as executor:
+        yield executor
+
+
+@pytest.fixture
+def gateway_server(monkeypatch: pytest.MonkeyPatch) -> Generator[str, None, None]:
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self) -> None:  # noqa: N802
             length = int(self.headers.get("content-length", "0"))
@@ -92,19 +107,46 @@ def gateway_server(monkeypatch: pytest.MonkeyPatch) -> str:
 
 
 @pytest.fixture
-async def temporal(gateway_server: str) -> tuple[Client, str]:
+async def temporal(
+    gateway_server: str,
+    analysis_activity_executor: ThreadPoolExecutor,
+) -> AsyncGenerator[tuple[Client, dict[str, str]], None]:
     client = await Client.connect("127.0.0.1:17233")
-    queue = f"s02-test-{uuid4().hex}"
-    async with Worker(
-        client,
-        task_queue=queue,
-        workflows=list(S02_WORKFLOWS),
-        activities=list(S02_ACTIVITIES),
+    token = uuid4().hex
+    queues = {
+        "analysis": f"analysis-test-{token}",
+        "s02": f"s02-test-{token}",
+        "report": f"report-test-{token}",
+    }
+    async with (
+        Worker(
+            client,
+            task_queue=queues["s02"],
+            workflows=list(S02_WORKFLOWS),
+            activities=list(S02_ACTIVITIES),
+        ),
+        Worker(
+            client,
+            task_queue=queues["analysis"],
+            workflows=list(ANALYSIS_WORKFLOWS),
+            activities=list(ANALYSIS_ACTIVITIES),
+            activity_executor=analysis_activity_executor,
+        ),
+        Worker(
+            client,
+            task_queue=queues["report"],
+            workflows=list(REPORT_WORKFLOWS),
+            activities=list(REPORT_ACTIVITIES),
+        ),
     ):
-        yield client, queue
+        yield client, queues
 
 
-def _seed_platform_tenant(tenant_pub_id: str) -> None:
+def _seed_platform_scope(*, tenant_pub_id: str, project_pub_id: str) -> None:
+    tenant_id = uuid4()
+    customer_id = uuid4()
+    project_id = uuid4()
+    token = uuid4().hex[:20]
     with psycopg.connect(
         os.getenv(
             "S02_POSTGRES_DSN",
@@ -116,20 +158,56 @@ def _seed_platform_tenant(tenant_pub_id: str) -> None:
             INSERT INTO platform.tenant (id,pub_id,name,state,created_at,updated_at)
             VALUES (%s,%s,'S02 Temporal integration','active',now(),now())
             """,
-            (uuid4(), tenant_pub_id),
+            (tenant_id, tenant_pub_id),
+        )
+        connection.execute(
+            """
+            INSERT INTO platform.customer
+              (id,pub_id,tenant_id,name,version,created_at,updated_at)
+            VALUES (%s,%s,%s,'S02 Temporal customer',1,now(),now())
+            """,
+            (customer_id, f"cus_{token}", tenant_id),
+        )
+        connection.execute(
+            """
+            INSERT INTO platform.project
+              (id,pub_id,tenant_id,customer_id,name,state,version,created_at,updated_at)
+            VALUES (%s,%s,%s,%s,'S02 Temporal project','active',1,now(),now())
+            """,
+            (project_id, project_pub_id, tenant_id, customer_id),
+        )
+        connection.execute(
+            """
+            INSERT INTO platform.brand
+              (id,pub_id,tenant_id,project_id,name,version,created_at,updated_at)
+            VALUES (%s,%s,%s,%s,'Acme',1,now(),now())
+            """,
+            (uuid4(), f"brd_{token}", tenant_id, project_id),
+        )
+        connection.execute(
+            """
+            INSERT INTO platform.competitor
+              (id,pub_id,tenant_id,project_id,name,version,created_at,updated_at)
+            VALUES (%s,%s,%s,%s,'Beta',1,now(),now())
+            """,
+            (uuid4(), f"cmp_{token}", tenant_id, project_id),
         )
 
 
 @pytest.mark.asyncio
 async def test_answer_analysis_workflow_runs_on_real_temporal(
-    temporal: tuple[Client, str],
+    temporal: tuple[Client, dict[str, str]],
 ) -> None:
-    client, queue = temporal
+    client, queues = temporal
     suffix = uuid4().hex
     # platform.tenant.pub_id is VARCHAR(30): keep the standard tnt_ prefix and
     # retain 104 random bits without relying on database-side truncation.
     tenant_pub_id = f"tnt_{suffix[:26]}"
-    _seed_platform_tenant(tenant_pub_id)
+    project_pub_id = f"prj_{suffix[:26]}"
+    _seed_platform_scope(
+        tenant_pub_id=tenant_pub_id,
+        project_pub_id=project_pub_id,
+    )
     answer_pub_id = f"ans_{suffix}"
     result = await client.execute_workflow(
         AnswerAnalysisWorkflow.run,
@@ -139,7 +217,10 @@ async def test_answer_analysis_workflow_runs_on_real_temporal(
             "brand": "Acme",
             "competitors": ["Beta"],
             "citations": [{"url": "https://example.com/source"}],
-            "dimensions": {"model": "test"},
+            "dimensions": {
+                "model": "test",
+                "query_text": "推荐 Acme 和 Beta 时如何排序？",
+            },
             "filters": {"model": "test"},
             "metric_version": "metrics-v2",
             "scorer_version": "scorer-v2",
@@ -147,14 +228,14 @@ async def test_answer_analysis_workflow_runs_on_real_temporal(
             "fail_until_attempt": 1,
             "persist": True,
             "tenant_pub_id": tenant_pub_id,
-            "project_pub_id": f"prj_{suffix}",
+            "project_pub_id": project_pub_id,
             "adapter_version": "temporal-test-v1",
             "capture_time": datetime.now(UTC).isoformat(),
             "channel": "api",
             "access_class": "public",
         },
         id=f"answer-analysis/tnt_test/{answer_pub_id}/{uuid4().hex}",
-        task_queue=queue,
+        task_queue=queues["analysis"],
     )
     assert result["metrics"]["mention_rate"]["value"] == "1"
     assert result["metrics"]["recommendation_rate"]["state"] == "experimental"
@@ -174,9 +255,10 @@ async def test_answer_analysis_workflow_runs_on_real_temporal(
 
 @pytest.mark.asyncio
 async def test_evidence_workflow_waits_for_lease_and_revocation_stops_capture(
-    temporal: tuple[Client, str],
+    temporal: tuple[Client, dict[str, str]],
 ) -> None:
-    client, queue = temporal
+    client, queues = temporal
+    queue = queues["s02"]
     suffix = uuid4().hex
     evidence_pub_id = f"evd_{suffix}"
     payload = {
@@ -235,9 +317,9 @@ async def test_evidence_workflow_waits_for_lease_and_revocation_stops_capture(
 
 @pytest.mark.asyncio
 async def test_report_and_investigation_resume_from_human_signals(
-    temporal: tuple[Client, str],
+    temporal: tuple[Client, dict[str, str]],
 ) -> None:
-    client, queue = temporal
+    client, queues = temporal
     now = datetime.now(UTC)
     suffix = uuid4().hex
     tenant_pub_id = f"tnt_{suffix}"
@@ -262,7 +344,7 @@ async def test_report_and_investigation_resume_from_human_signals(
             "access_class": "customer_private",
         },
         id=f"report-production/tnt_test/rpt_test/{uuid4().hex}",
-        task_queue=queue,
+        task_queue=queues["report"],
     )
     await report.signal(
         ReportProductionWorkflow.review,
@@ -308,7 +390,7 @@ async def test_report_and_investigation_resume_from_human_signals(
             "investigation_pub_id": investigation_pub_id,
         },
         id=f"anti-geo-investigation/tnt_test/inv_test/{uuid4().hex}",
-        task_queue=queue,
+        task_queue=queues["s02"],
     )
     await investigation.signal(
         AntiGeoInvestigationWorkflow.human_verdict,
@@ -343,8 +425,8 @@ async def test_report_workflow_survives_worker_interruption_and_duplicate_signal
     async with Worker(
         client,
         task_queue=queue,
-        workflows=list(S02_WORKFLOWS),
-        activities=list(S02_ACTIVITIES),
+        workflows=list(REPORT_WORKFLOWS),
+        activities=list(REPORT_ACTIVITIES),
     ):
         handle = await client.start_workflow(
             ReportProductionWorkflow.run,
@@ -368,8 +450,8 @@ async def test_report_workflow_survives_worker_interruption_and_duplicate_signal
     async with Worker(
         client,
         task_queue=queue,
-        workflows=list(S02_WORKFLOWS),
-        activities=list(S02_ACTIVITIES),
+        workflows=list(REPORT_WORKFLOWS),
+        activities=list(REPORT_ACTIVITIES),
     ):
         decision = {"approved": True, "reviewer_pub_id": "usr_recovery"}
         await handle.signal(ReportProductionWorkflow.review, decision)
@@ -382,16 +464,28 @@ async def test_report_workflow_survives_worker_interruption_and_duplicate_signal
 @pytest.mark.asyncio
 async def test_analysis_evidence_and_investigation_resume_after_worker_restart(
     gateway_server: str,
+    analysis_activity_executor: ThreadPoolExecutor,
 ) -> None:
     client = await Client.connect("127.0.0.1:17233")
-    queue = f"s02-multi-recovery-{uuid4().hex}"
+    queue_token = uuid4().hex
+    analysis_queue = f"analysis-multi-recovery-{queue_token}"
+    s02_queue = f"s02-multi-recovery-{queue_token}"
     suffix = uuid4().hex
     now = datetime.now(UTC)
-    async with Worker(
-        client,
-        task_queue=queue,
-        workflows=list(S02_WORKFLOWS),
-        activities=list(S02_ACTIVITIES),
+    async with (
+        Worker(
+            client,
+            task_queue=analysis_queue,
+            workflows=list(ANALYSIS_WORKFLOWS),
+            activities=list(ANALYSIS_ACTIVITIES),
+            activity_executor=analysis_activity_executor,
+        ),
+        Worker(
+            client,
+            task_queue=s02_queue,
+            workflows=list(S02_WORKFLOWS),
+            activities=list(S02_ACTIVITIES),
+        ),
     ):
         answer = await client.start_workflow(
             AnswerAnalysisWorkflow.run,
@@ -408,7 +502,7 @@ async def test_analysis_evidence_and_investigation_resume_after_worker_restart(
                 "fail_until_attempt": 2,
             },
             id=f"answer-analysis/recovery/{suffix}",
-            task_queue=queue,
+            task_queue=analysis_queue,
         )
         evidence = await client.start_workflow(
             EvidenceCaptureWorkflow.run,
@@ -424,7 +518,7 @@ async def test_analysis_evidence_and_investigation_resume_after_worker_restart(
                 "platform_account_pub_id": "acct_01ABCDEFGHIJKLMNOPQRSTUV",
             },
             id=f"evidence-capture/recovery/{suffix}",
-            task_queue=queue,
+            task_queue=s02_queue,
         )
         investigation = await client.start_workflow(
             AntiGeoInvestigationWorkflow.run,
@@ -442,7 +536,7 @@ async def test_analysis_evidence_and_investigation_resume_after_worker_restart(
                 "circular_citation_risk": "0.1",
             },
             id=f"anti-geo-investigation/recovery/{suffix}",
-            task_queue=queue,
+            task_queue=s02_queue,
         )
         for _ in range(50):
             evidence_state = await evidence.query(EvidenceCaptureWorkflow.state)
@@ -456,11 +550,20 @@ async def test_analysis_evidence_and_investigation_resume_after_worker_restart(
         AntiGeoInvestigationWorkflow.human_verdict,
         {"verdict": "uncertain", "reviewer_pub_id": "usr_recovery"},
     )
-    async with Worker(
-        client,
-        task_queue=queue,
-        workflows=list(S02_WORKFLOWS),
-        activities=list(S02_ACTIVITIES),
+    async with (
+        Worker(
+            client,
+            task_queue=analysis_queue,
+            workflows=list(ANALYSIS_WORKFLOWS),
+            activities=list(ANALYSIS_ACTIVITIES),
+            activity_executor=analysis_activity_executor,
+        ),
+        Worker(
+            client,
+            task_queue=s02_queue,
+            workflows=list(S02_WORKFLOWS),
+            activities=list(S02_ACTIVITIES),
+        ),
     ):
         answer_result = await answer.result()
         evidence_result = await evidence.result()
@@ -496,9 +599,10 @@ def test_gateway_rejects_expired_revoked_wrong_account_and_unknown_leases(
 
 @pytest.mark.asyncio
 async def test_evidence_workflow_rejects_invalid_leases_with_secret_free_audit(
-    temporal: tuple[Client, str],
+    temporal: tuple[Client, dict[str, str]],
 ) -> None:
-    client, queue = temporal
+    client, queues = temporal
+    queue = queues["s02"]
     suffix = uuid4().hex
     tenant_pub_id = f"tnt_{suffix}"
     base_payload = {
@@ -559,9 +663,10 @@ async def test_evidence_workflow_rejects_invalid_leases_with_secret_free_audit(
 
 @pytest.mark.asyncio
 async def test_evidence_workflow_binary_secret_marker_fails_closed_and_audits(
-    temporal: tuple[Client, str],
+    temporal: tuple[Client, dict[str, str]],
 ) -> None:
-    client, queue = temporal
+    client, queues = temporal
+    queue = queues["s02"]
     suffix = uuid4().hex
     tenant_pub_id = f"tnt_{suffix}"
     evidence_pub_id = f"evd_{suffix}"

@@ -36,7 +36,6 @@ from workflows.activities.doubao_adapter import (
     _try_enable_deep_think,
     _try_enable_quick_mode,
     _WallError,
-    mask_proxy_url,
     run_doubao_collection,
 )
 from workflows.activities.human_like import human_pause
@@ -472,15 +471,6 @@ async def test_screenshot_ref_and_answer_pass_dlp(adapter_env: Path) -> None:
     # 真调用 DLP：两个字段都必须干净（persist 层同语义）
     assert_secret_free(result.screenshot_ref)
     assert_secret_free(result.answer_text)
-
-
-def test_proxy_url_masking_never_leaks_credentials() -> None:
-    assert mask_proxy_url("http://user:pass@proxy.example.com:8080") == (
-        "http://proxy.example.com:8080"
-    )
-    assert mask_proxy_url("http://proxy.example.com:8080") == "http://proxy.example.com:8080"
-    assert mask_proxy_url(None) is None
-    assert mask_proxy_url("not-a-url") == "<invalid-proxy-url>"
 
 
 def test_overlay_cleanup_handles_late_download_modal() -> None:

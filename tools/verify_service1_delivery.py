@@ -13,6 +13,8 @@ from statistics import mean
 from typing import Any
 from zipfile import BadZipFile, ZipFile
 
+from domain.security.redaction import safe_exception_summary
+
 _SHEET_NS = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
 _REL_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 _PACKAGE_REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
@@ -244,7 +246,7 @@ def _evidence_package_integrity(
                 "payload_failures": failures,
             }
     except (BadZipFile, KeyError, json.JSONDecodeError) as exc:
-        return {"status": "failed", "error": f"{type(exc).__name__}: {exc}"}
+        return {"status": "failed", "error": safe_exception_summary(exc)}
 
 
 def _is_blank_provenance(value: str) -> bool:

@@ -7,7 +7,7 @@
     "dev": "react-router dev --host 127.0.0.1 --port 45101",
     "lint": "react-router typegen && tsc --noEmit",
     "typecheck": "react-router typegen && tsc --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run"
   },
   "dependencies": {
     "@geo/api-client": "workspace:*",

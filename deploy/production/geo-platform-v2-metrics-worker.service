@@ -1,0 +1,27 @@
+[Unit]
+Description=GEO Platform V2 Deterministic Metrics Temporal Worker
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=xln
+Group=xln
+WorkingDirectory=/opt/geo-platform-v2/current
+EnvironmentFile=/etc/geo-platform-v2/platform.env
+# Required so a production worker cannot silently inherit a development
+# environment or an unreviewed task queue.
+EnvironmentFile=/etc/geo-platform-v2/metrics-worker.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/geo-platform-v2/current/.venv/bin/python -m workflows.workers.metrics
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadOnlyPaths=/opt/geo-platform-v2/current
+
+[Install]
+WantedBy=multi-user.target

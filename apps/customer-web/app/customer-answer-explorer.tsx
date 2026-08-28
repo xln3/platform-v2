@@ -156,6 +156,8 @@ export type CustomerAnswerLibraryRootQuery = {
 export type CustomerAnswerLibrarySnapshot = {
   snapshotId: string;
   snapshotAt: string;
+  metricSnapshotSetPubId?: string | null;
+  metricSnapshotSetHash?: string | null;
 };
 
 export type CustomerAnswerLibraryRunQuery = CustomerAnswerLibrarySnapshot & {
@@ -1834,6 +1836,12 @@ const libraryRunLimits = [10, 20, 50] as const;
 const librarySnapshot = (page: CustomerAnswerLibraryPage): CustomerAnswerLibrarySnapshot => ({
   snapshotId: page.snapshot_id,
   snapshotAt: page.snapshot_at,
+  ...(page.metric_snapshot_set_pub_id && page.metric_snapshot_set_hash
+    ? {
+        metricSnapshotSetPubId: page.metric_snapshot_set_pub_id,
+        metricSnapshotSetHash: page.metric_snapshot_set_hash,
+      }
+    : {}),
 });
 
 const libraryStateForError = (error: unknown): LibraryLoadState =>
@@ -2512,6 +2520,12 @@ export function CustomerAnswerExplorer({
             <small>
               截点 {snapshotTime}；分页与下钻始终使用同一版配置，新采集不会使当前页跳项。
             </small>
+            {rootResult?.metric_snapshot_set_pub_id && rootResult.metric_snapshot_set_hash ? (
+              <small>
+                指标快照集 {rootResult.metric_snapshot_set_pub_id} · hash{' '}
+                <code>{rootResult.metric_snapshot_set_hash}</code>
+              </small>
+            ) : null}
           </p>
         </div>
       ) : null}
