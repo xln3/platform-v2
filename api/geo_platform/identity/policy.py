@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from functools import lru_cache
 
-from fastapi import Cookie, Depends, Header, HTTPException
+from fastapi import Cookie, Depends, Header, HTTPException, Request
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -20,6 +20,7 @@ from ..tenancy.models import (
 from ..tenancy.repository import set_tenant_context
 from .native_session import authenticate_native_session
 from .oidc import OidcIdentity, OidcUnavailableError, OidcVerifier
+from .project_access import enforce_customer_project_request
 
 
 class Role(StrEnum):
@@ -262,7 +263,18 @@ def _oidc_session_principal(
     return Principal(user.subject, role, tenant.pub_id, user.pub_id), membership, user
 
 
+def _project_scoped_principal(request: Request, principal: Principal) -> Principal:
+    enforce_customer_project_request(
+        request,
+        role=principal.role.value,
+        tenant_pub_id=principal.tenant_pub_id,
+        user_pub_id=principal.user_pub_id,
+    )
+    return principal
+
+
 def get_principal(
+    request: Request,
     x_tenant_id: str | None = Header(default=None, alias="X-Tenant-Id"),
     x_actor_id: str | None = Header(default=None, alias="X-Actor-Id"),
     x_actor_role: str | None = Header(default=None, alias="X-Actor-Role"),
@@ -285,7 +297,10 @@ def get_principal(
             role = Role(identity.role)
         except ValueError as exc:
             raise HTTPException(status_code=401, detail={"code": "invalid_role"}) from exc
-        return Principal(identity.subject, role, identity.tenant_pub_id, identity.user_pub_id)
+        return _project_scoped_principal(
+            request,
+            Principal(identity.subject, role, identity.tenant_pub_id, identity.user_pub_id),
+        )
     if x_service_token is None and settings.identity_mode == "oidc":
         try:
             oidc_identity = _oidc_verifier().verify(
@@ -298,7 +313,7 @@ def get_principal(
                 status_code=503, detail={"code": "identity_provider_unavailable"}
             ) from exc
         principal, _, _ = _oidc_session_principal(session, oidc_identity)
-        return principal
+        return _project_scoped_principal(request, principal)
     if settings.env in {"production", "prod"} and settings.identity_mode == "trusted_headers":
         raise HTTPException(status_code=503, detail={"code": "identity_provider_unavailable"})
     if settings.identity_mode not in {
@@ -352,4 +367,7 @@ def get_principal(
         )
         if credential_valid is not True:
             raise HTTPException(status_code=401, detail={"code": "service_token_invalid"})
-    return Principal(user.subject, principal.role, tenant.pub_id, user.pub_id)
+    return _project_scoped_principal(
+        request,
+        Principal(user.subject, principal.role, tenant.pub_id, user.pub_id),
+    )

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
-from typing import Annotated, Literal, cast
+from typing import Annotated, Any, Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Response
 
@@ -10,6 +10,7 @@ from domain.evidence.provenance import AccessClass, CaptureChannel, RedactedProv
 from geo_platform.evidence.object_store import ContentAddressedObjectStore
 from geo_platform.evidence.service import EvidenceService
 from geo_platform.identity.policy import Principal, get_principal
+from geo_platform.identity.project_access import enforce_customer_project_access
 from geo_platform.tenancy.ids import new_pub_id
 
 from ..config import get_settings
@@ -87,6 +88,39 @@ def _not_found(exc: LookupError) -> HTTPException:
     return HTTPException(status_code=404, detail={"code": "metrics_v2_resource_not_found"})
 
 
+def _project_pub_id(resource: Any) -> str:
+    value = (
+        resource.get("project_pub_id")
+        if isinstance(resource, dict)
+        else getattr(resource, "project_pub_id", None)
+    )
+    if not isinstance(value, str) or not value:
+        raise LookupError("metrics_v2_resource_project_not_found")
+    return value
+
+
+def _enforce_customer_project(principal: Principal, project_pub_id: str) -> None:
+    enforce_customer_project_access(
+        project_pub_id,
+        role=principal.role.value,
+        tenant_pub_id=principal.tenant_pub_id,
+        user_pub_id=principal.user_pub_id,
+    )
+
+
+def _enforce_snapshot_project(
+    *,
+    service: MetricsV2Service,
+    principal: Principal,
+    snapshot: MetricSnapshotDetailView,
+) -> None:
+    snapshot_set = service.snapshot_set(
+        tenant_pub_id=principal.tenant_pub_id,
+        set_pub_id=snapshot.snapshot_set_pub_id,
+    )
+    _enforce_customer_project(principal, _project_pub_id(snapshot_set))
+
+
 @router.get("/catalog", response_model=MetricCatalogView, operation_id="getMetricCatalogV2")
 def metric_catalog_v2(
     response: Response,
@@ -115,6 +149,7 @@ def current_snapshot_set_v2(
     principal: Principal = Depends(get_principal),
 ) -> SnapshotSetView:
     principal.require("project:read")
+    _enforce_customer_project(principal, project_pub_id)
     if publication_channel == "shadow" and not principal.allows("metrics:publish"):
         raise HTTPException(status_code=403, detail={"code": "permission_denied"})
     if (start is None) != (end is None) or (start is not None and end is not None and start > end):
@@ -149,6 +184,7 @@ def request_snapshot_set_v2(
     principal: Principal = Depends(get_principal),
 ) -> SnapshotRequestAccepted:
     principal.require("project:read")
+    _enforce_customer_project(principal, project_pub_id)
     _private(response)
     try:
         return _service().request_snapshot(
@@ -174,7 +210,11 @@ def snapshot_job_v2(
     principal.require("project:read")
     _private(response)
     try:
-        return _service().snapshot_job(tenant_pub_id=principal.tenant_pub_id, job_pub_id=job_pub_id)
+        result = _service().snapshot_job(
+            tenant_pub_id=principal.tenant_pub_id, job_pub_id=job_pub_id
+        )
+        _enforce_customer_project(principal, _project_pub_id(result))
+        return result
     except LookupError as exc:
         raise _not_found(exc) from exc
 
@@ -192,7 +232,11 @@ def decision_job_v2(
     principal.require("project:read")
     _private(response)
     try:
-        return _service().decision_job(tenant_pub_id=principal.tenant_pub_id, job_pub_id=job_pub_id)
+        result = _service().decision_job(
+            tenant_pub_id=principal.tenant_pub_id, job_pub_id=job_pub_id
+        )
+        _enforce_customer_project(principal, _project_pub_id(result))
+        return result
     except LookupError as exc:
         raise _not_found(exc) from exc
 
@@ -210,7 +254,11 @@ def snapshot_set_v2(
     principal.require("project:read")
     _private(response)
     try:
-        return _service().snapshot_set(tenant_pub_id=principal.tenant_pub_id, set_pub_id=set_pub_id)
+        result = _service().snapshot_set(
+            tenant_pub_id=principal.tenant_pub_id, set_pub_id=set_pub_id
+        )
+        _enforce_customer_project(principal, _project_pub_id(result))
+        return result
     except LookupError as exc:
         raise _not_found(exc) from exc
 
@@ -228,9 +276,12 @@ def metric_snapshot_v2(
     principal.require("project:read")
     _private(response)
     try:
-        return _service().snapshot(
+        service = _service()
+        result = service.snapshot(
             tenant_pub_id=principal.tenant_pub_id, snapshot_pub_id=snapshot_pub_id
         )
+        _enforce_snapshot_project(service=service, principal=principal, snapshot=result)
+        return result
     except LookupError as exc:
         raise _not_found(exc) from exc
 
@@ -251,7 +302,12 @@ def metric_query_contributions_v2(
     principal.require("project:read")
     _private(response)
     try:
-        return _service().query_contributions(
+        service = _service()
+        snapshot = service.snapshot(
+            tenant_pub_id=principal.tenant_pub_id, snapshot_pub_id=snapshot_pub_id
+        )
+        _enforce_snapshot_project(service=service, principal=principal, snapshot=snapshot)
+        return service.query_contributions(
             tenant_pub_id=principal.tenant_pub_id,
             snapshot_pub_id=snapshot_pub_id,
             cursor=cursor,
@@ -292,7 +348,12 @@ def metric_contributions_v2(
     principal.require("project:read")
     _private(response)
     try:
-        return _service().contributions(
+        service = _service()
+        snapshot = service.snapshot(
+            tenant_pub_id=principal.tenant_pub_id, snapshot_pub_id=snapshot_pub_id
+        )
+        _enforce_snapshot_project(service=service, principal=principal, snapshot=snapshot)
+        return service.contributions(
             tenant_pub_id=principal.tenant_pub_id,
             snapshot_pub_id=snapshot_pub_id,
             cursor=cursor,
@@ -322,9 +383,11 @@ def semantic_event_v2(
     principal.require("project:read")
     _private(response)
     try:
-        return _service().semantic_event(
+        result = _service().semantic_event(
             tenant_pub_id=principal.tenant_pub_id, event_pub_id=event_pub_id
         )
+        _enforce_customer_project(principal, _project_pub_id(result))
+        return result
     except LookupError as exc:
         raise _not_found(exc) from exc
 
@@ -342,9 +405,11 @@ def semantic_decision_v2(
     principal.require("project:read")
     _private(response)
     try:
-        return _service().semantic_decision(
+        result = _service().semantic_decision(
             tenant_pub_id=principal.tenant_pub_id, decision_pub_id=decision_pub_id
         )
+        _enforce_customer_project(principal, _project_pub_id(result))
+        return result
     except LookupError as exc:
         raise _not_found(exc) from exc
 
@@ -365,14 +430,15 @@ def metric_export_v2(
     _private(response)
     try:
         service = _service()
+        snapshot_set = service.snapshot_set(
+            tenant_pub_id=principal.tenant_pub_id,
+            set_pub_id=set_pub_id,
+        )
+        _enforce_customer_project(principal, _project_pub_id(snapshot_set))
         payload, mime_type, digest = service.render_export(
             tenant_pub_id=principal.tenant_pub_id,
             set_pub_id=set_pub_id,
             export_format=body.format,
-        )
-        snapshot_set = service.snapshot_set(
-            tenant_pub_id=principal.tenant_pub_id,
-            set_pub_id=set_pub_id,
         )
         evidence = _evidence_service()
         now = datetime.now(UTC)
@@ -462,6 +528,7 @@ def recompute_metrics_v2(
     principal: Principal = Depends(get_principal),
 ) -> JobView:
     principal.require("metrics:recompute")
+    _enforce_customer_project(principal, body.project_pub_id)
     _private(response)
     try:
         return _service().recompute(
@@ -486,6 +553,7 @@ def override_semantic_decision_v2(
     principal: Principal = Depends(get_principal),
 ) -> DecisionOverrideView:
     principal.require("semantic:override")
+    _enforce_customer_project(principal, body.project_pub_id)
     _private(response)
     try:
         return _service().override_decision(

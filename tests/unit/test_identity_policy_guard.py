@@ -12,7 +12,7 @@ import uuid
 from dataclasses import dataclass
 
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from geo_platform.config import Settings
 from geo_platform.identity import policy as policy_module
 from geo_platform.identity.policy import Role, get_principal
@@ -78,6 +78,16 @@ class _FakeSession:
 
 def _call_principal(session: _FakeSession, **headers: object) -> object:
     defaults: dict[str, object] = {
+        "request": Request(
+            {
+                "type": "http",
+                "method": "GET",
+                "path": "/",
+                "headers": [],
+                "query_string": b"",
+                "path_params": {},
+            }
+        ),
         "x_tenant_id": None,
         "x_actor_id": None,
         "x_actor_role": None,
