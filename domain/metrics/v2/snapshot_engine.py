@@ -306,7 +306,6 @@ class MetricSnapshotEngine:
                             for item in evaluations
                             if item.eligibility_status is EligibilityStatus.ANALYSIS_FAILED
                             for code in item.reason_codes
-                            if code.startswith(("llm_api_", "upstream_"))
                         }
                     )
                 )

@@ -567,12 +567,12 @@ def derive_manifest_status(
     ]
     if not requested:
         return ManifestStatus.READY
-    if CapabilityStatus.REVIEW_REQUIRED in requested:
-        return ManifestStatus.REVIEW_REQUIRED
     if all(status is CapabilityStatus.FAILED for status in requested):
         return ManifestStatus.FAILED
     if any(status in {CapabilityStatus.ABSTAINED, CapabilityStatus.FAILED} for status in requested):
         return ManifestStatus.PARTIAL
+    if CapabilityStatus.REVIEW_REQUIRED in requested:
+        return ManifestStatus.REVIEW_REQUIRED
     return ManifestStatus.READY
 
 

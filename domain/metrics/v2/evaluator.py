@@ -101,8 +101,27 @@ def _decision(subject: EvaluationInput, task_ref: str) -> SemanticDecisionFact |
 def _decision_failure_reason(decision: SemanticDecisionFact, fallback: str) -> str:
     """Preserve actionable infrastructure failures through metric projections."""
 
+    execution_failures = {
+        "chunk_incomplete",
+        "decision_method_not_allowed",
+        "dependency_failed",
+        "evidence_retrieval_failed",
+        "judge_policy_not_published_for_official_use",
+        "model_timeout",
+        "model_unavailable_for_policy",
+        "output_schema_hash_mismatch",
+        "prompt_template_hash_mismatch",
+        "required_judge_role_missing",
+        "rubric_hash_mismatch",
+        "structured_output_invalid",
+        "truth_as_of_policy_invalid",
+    }
     return next(
-        (code for code in decision.reason_codes if code.startswith(("llm_api_", "upstream_"))),
+        (
+            code
+            for code in decision.reason_codes
+            if code.startswith(("llm_api_", "upstream_")) or code in execution_failures
+        ),
         fallback,
     )
 
@@ -562,10 +581,9 @@ class MetricEvaluator:
                     interpreter.supporting_decisions.add(decision.decision_pub_id)
             reason = next(
                 (
-                    code
+                    candidate
                     for decision in failed_query_decisions
-                    for code in decision.reason_codes
-                    if code.startswith(("llm_api_", "upstream_"))
+                    if (candidate := _decision_failure_reason(decision, ""))
                 ),
                 "query_context_analysis_failed",
             )
@@ -591,6 +609,49 @@ class MetricEvaluator:
                 Decimal("0"),
                 interpreter,
             )
+        required_task_refs: set[str] = set(definition.decision_task_refs)
+        required_task_refs.update(
+            capability.task_ref for capability in definition.required_semantic_capabilities
+        )
+        # A review/unknown state must never hide a known execution failure in
+        # another required capability or task.
+        for capability in definition.required_semantic_capabilities:
+            if _capability_status(subject, capability.name) != "failed":
+                continue
+            failed_decision = _decision(subject, capability.task_ref)
+            if failed_decision and failed_decision.decision_pub_id:
+                interpreter.supporting_decisions.add(failed_decision.decision_pub_id)
+            reason = (
+                _decision_failure_reason(failed_decision, "semantic_analysis_failed")
+                if failed_decision is not None
+                else "semantic_analysis_failed"
+            )
+            return self._result(
+                definition,
+                subject,
+                EligibilityStatus.ANALYSIS_FAILED,
+                reason,
+                None,
+                Decimal("0"),
+                Decimal("0"),
+                interpreter,
+            )
+        for task_ref in sorted(required_task_refs):
+            failed_decision = _decision(subject, task_ref)
+            if failed_decision is None or failed_decision.status is not DecisionStatus.FAILED:
+                continue
+            if failed_decision.decision_pub_id:
+                interpreter.supporting_decisions.add(failed_decision.decision_pub_id)
+            return self._result(
+                definition,
+                subject,
+                EligibilityStatus.ANALYSIS_FAILED,
+                _decision_failure_reason(failed_decision, "decision_failed"),
+                None,
+                Decimal("0"),
+                Decimal("0"),
+                interpreter,
+            )
         if predicate_result is TruthValue.UNKNOWN:
             return self._result(
                 definition,
@@ -602,10 +663,8 @@ class MetricEvaluator:
                 Decimal("0"),
                 interpreter,
             )
-        required_task_refs: set[str] = set(definition.decision_task_refs)
         for capability in definition.required_semantic_capabilities:
             capability_status = _capability_status(subject, capability.name)
-            required_task_refs.add(capability.task_ref)
             if capability_status != capability.accepted_status:
                 failed_decision = _decision(subject, capability.task_ref)
                 if failed_decision and failed_decision.decision_pub_id:

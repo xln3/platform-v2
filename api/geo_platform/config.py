@@ -52,9 +52,11 @@ class Settings(BaseSettings):
     semantic_decision_llm_model_revision: str = "runtime-configured"
     semantic_decision_llm_timeout_seconds: float = 120.0
     semantic_decision_llm_max_retries: int = 2
-    # Fail closed until a durable metered budget has been configured.  The
-    # current value is an operational call gate, not a monetary counter.
-    semantic_decision_daily_budget: float = 0.0
+    # A positive default keeps the automatic judge connected whenever a
+    # credential is configured.  Operations may explicitly set zero as a
+    # fail-closed spending stop; this remains a call gate, not a monetary
+    # counter.
+    semantic_decision_daily_budget: float = 100.0
     semantic_decision_judge_policy_version: str = ""
     minio_endpoint: str = "http://127.0.0.1:19000"
     minio_access_key: str = "geo"

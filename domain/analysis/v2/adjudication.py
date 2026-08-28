@@ -191,19 +191,20 @@ def adjudicate_decision(request: AdjudicationRequest) -> DecisionAdjudication:
             _method_for_request(request),
             ("dependency_failed",),
         )
+    evidence_execution_failure = _known_evidence_execution_failure(request)
+    if evidence_execution_failure is not None:
+        return _terminal(
+            request,
+            DecisionStatus.FAILED,
+            _method_for_request(request),
+            (evidence_execution_failure,),
+        )
     if any(state is not DecisionStatus.ACCEPTED for state in dependency_states):
         return _terminal(
             request,
             DecisionStatus.ABSTAINED,
             _method_for_request(request),
             ("dependency_unknown",),
-        )
-    if not request.required_chunks_complete:
-        return _terminal(
-            request,
-            DecisionStatus.FAILED,
-            _method_for_request(request),
-            ("chunk_incomplete",),
         )
     evidence_error = _evidence_requirement_error(request)
     if evidence_error is not None:
@@ -453,6 +454,21 @@ def _evidence_requirement_error(request: AdjudicationRequest) -> str | None:
             requirements.allowed_truth_as_of_policies
         ):
             return "truth_as_of_policy_invalid"
+    return None
+
+
+def _known_evidence_execution_failure(request: AdjudicationRequest) -> str | None:
+    """Return observed execution failures before dependency unknown can mask them."""
+
+    if (
+        not request.required_chunks_complete
+        or request.evidence_context.get("evidence_material_truncated") is True
+    ):
+        return "chunk_incomplete"
+    if request.evidence_context.get("evidence_bundle_status") in {"partial", "failed"}:
+        return "evidence_retrieval_failed"
+    if request.evidence_context.get("retrieval_protocol_complete") is False:
+        return "evidence_retrieval_failed"
     return None
 
 

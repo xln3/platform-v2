@@ -67,6 +67,9 @@ def _request(
     include_request_span: bool = True,
     judge_policy: JudgePolicyDefinition | None = None,
     task_version: str = "2.0.0",
+    dependency_statuses: dict[str, DecisionStatus] | None = None,
+    evidence_context: dict[str, object] | None = None,
+    required_chunks_complete: bool = True,
 ) -> AdjudicationRequest:
     definition = task(task_name, version=task_version)
     return AdjudicationRequest(
@@ -80,9 +83,13 @@ def _request(
         evidence_refs=("answer-snapshot-v2",),
         evidence_spans=(evidence_span(text, 0, len(text)),) if include_request_span else (),
         answer_source_ref=ANSWER_ID,
-        dependency_statuses={
-            ref: DecisionStatus.ACCEPTED for ref in definition.dependency_task_refs
-        },
+        evidence_context=evidence_context or {},
+        dependency_statuses=(
+            dependency_statuses
+            if dependency_statuses is not None
+            else {ref: DecisionStatus.ACCEPTED for ref in definition.dependency_task_refs}
+        ),
+        required_chunks_complete=required_chunks_complete,
         explicit_human_override=human_override,
         official_use=official_use,
     )
@@ -247,6 +254,51 @@ def test_evidence_retrieval_execution_failure_is_not_semantic_unknown() -> None:
 
     assert outcome.status is DecisionStatus.FAILED
     assert outcome.reason_codes == ("evidence_retrieval_failed",)
+
+
+def test_known_evidence_failure_precedes_dependency_unknown() -> None:
+    text = "该主张需要外部证据"
+    definition = task("claim-evidence-verdict")
+    dependencies = {
+        ref: DecisionStatus.ABSTAINED for ref in definition.dependency_task_refs
+    }
+
+    outcome = adjudicate_decision(
+        _request(
+            definition.name,
+            text,
+            (),
+            dependency_statuses=dependencies,
+            evidence_context={
+                "evidence_bundle_status": "failed",
+                "retrieval_protocol_complete": False,
+            },
+        )
+    )
+
+    assert outcome.status is DecisionStatus.FAILED
+    assert outcome.reason_codes == ("evidence_retrieval_failed",)
+
+
+def test_truncated_evidence_is_chunk_failure_before_dependency_unknown() -> None:
+    text = "该主张需要外部证据"
+    definition = task("claim-evidence-verdict")
+    dependencies = {
+        ref: DecisionStatus.ABSTAINED for ref in definition.dependency_task_refs
+    }
+
+    outcome = adjudicate_decision(
+        _request(
+            definition.name,
+            text,
+            (),
+            dependency_statuses=dependencies,
+            evidence_context={"evidence_material_truncated": True},
+        )
+    )
+
+    assert outcome.status is DecisionStatus.FAILED
+    assert outcome.reason_codes == ("chunk_incomplete",)
 
 
 def test_validated_model_output_spans_become_immutable_record_evidence() -> None:

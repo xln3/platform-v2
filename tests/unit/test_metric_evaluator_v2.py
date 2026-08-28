@@ -271,6 +271,49 @@ def test_llm_api_failure_reason_survives_metric_evaluation() -> None:
     assert result.supporting_decision_pub_ids == ("sdr_llm_failed",)
 
 
+def test_required_failure_pre_scan_wins_over_earlier_review_unknown() -> None:
+    definition = load_definitions().get(
+        "ai_impression_requested_dimension_coverage_v2", "2.0.0"
+    )
+    review_ref = "requested-dimension-applicability@2.0.0"
+    failed_ref = "answer-dimension-coverage@2.0.0"
+    subject = EvaluationInput(
+        answer_pub_id="ans_required_failure_priority",
+        query_context=_query(
+            "q_required_failure_priority",
+            lenses=frozenset({AnalysisLens.AI_IMPRESSION}),
+            operations=frozenset({RequestedOperation.DESCRIBE}),
+            state=ClassificationState.REVIEW_REQUIRED,
+        ),
+        focal_entity_id=TARGET,
+        exposure_role=ExposureRole.BRAND_NEUTRAL,
+        capability_statuses={
+            "requested_dimension_applicability": SemanticCapabilityStatus.REVIEW_REQUIRED,
+            "answer_dimension_coverage": SemanticCapabilityStatus.FAILED,
+        },
+        decisions={
+            review_ref: SemanticDecisionFact(
+                task_ref=review_ref,
+                status=DecisionStatus.REVIEW_REQUIRED,
+                decision_pub_id="sdr_review_first",
+                reason_codes=("semantic_evidence_insufficient",),
+            ),
+            failed_ref: SemanticDecisionFact(
+                task_ref=failed_ref,
+                status=DecisionStatus.FAILED,
+                decision_pub_id="sdr_failed_second",
+                reason_codes=("model_unavailable_for_policy",),
+            ),
+        },
+    )
+
+    result = MetricEvaluator().evaluate(definition, subject)
+
+    assert result.eligibility_status is EligibilityStatus.ANALYSIS_FAILED
+    assert result.reason_codes == ("model_unavailable_for_policy",)
+    assert result.supporting_decision_pub_ids == ("sdr_failed_second",)
+
+
 def test_execution_integrity_failures_are_not_semantic_unknown() -> None:
     definition = load_definitions().get("ai_recommendation_organic_mention_rate_v2", "2.0.0")
     base = _answer("integrity_failed", [])

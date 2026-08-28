@@ -4,6 +4,7 @@ import json
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from hashlib import sha256
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -486,7 +487,7 @@ def test_request_hash_changes_with_source_but_source_is_not_returned() -> None:
     assert hashes[0] != hashes[1]
 
 
-def test_config_defaults_to_fail_closed_strong_model_and_reuses_shared_gateway() -> None:
+def test_config_defaults_to_connected_strong_model_and_reuses_shared_gateway() -> None:
     settings = Settings(
         _env_file=None,
         research_llm_api_key="shared-secret",
@@ -499,7 +500,7 @@ def test_config_defaults_to_fail_closed_strong_model_and_reuses_shared_gateway()
     assert config.base_url == "https://api.inferera.com"
     assert config.api_key == "shared-secret"
     assert "shared-secret" not in repr(config)
-    assert settings.semantic_decision_daily_budget == 0
+    assert settings.semantic_decision_daily_budget == 100
 
 
 def test_source_loader_uses_frozen_tenant_answer_ref_and_verifies_both_hashes(
@@ -647,6 +648,56 @@ def test_activity_missing_key_returns_error_attempt_without_loading_source(
     assert "shared-secret" not in serialized
 
     assert _status_for_reason("llm_api_auth_missing").value == "failed"
+
+
+def test_activity_missing_policy_route_returns_failed_attempt_without_loading_source(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tasks = load_builtin_task_definitions()
+    task = tasks.get("query-intent@2.1.0")
+    policy = next(
+        item
+        for item in load_builtin_judge_policies(tasks=tasks)
+        if task.task_ref in item.compatible_task_refs
+    )
+    settings = Settings(
+        _env_file=None,
+        semantic_decision_llm_api_key="unused-secret",
+        semantic_decision_daily_budget=100,
+    )
+    monkeypatch.setattr(semantic_decisions_v2, "get_settings", lambda: settings)
+    monkeypatch.setattr(
+        semantic_decisions_v2,
+        "_policy",
+        lambda **_kwargs: SimpleNamespace(
+            method_pipeline=policy.method_pipeline,
+            model_routes=(),
+        ),
+    )
+    monkeypatch.setattr(
+        semantic_decisions_v2,
+        "load_frozen_semantic_source",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("must not load source")),
+    )
+    payload = {
+        "tenant_pub_id": "tenant_test",
+        "project_pub_id": "project_test",
+        "decision_job_pub_id": "sdj_job_missing_route",
+        "task_ref": task.task_ref,
+        "judge_policy_hash": policy.policy_hash,
+        "judge_policy_ref": policy.policy_ref,
+        "subject_ref": {"query_pub_id": "query_1"},
+        "input_snapshot_ref": "capture://query/query_1",
+        "input_hash": _digest("input"),
+        "context_hash": _digest("context"),
+    }
+
+    raw_attempt = semantic_decisions_v2.run_model_judge_activity(payload)
+    attempt = SemanticDecisionAttempt.model_validate(raw_attempt)
+
+    assert attempt.validation_status is AttemptValidationStatus.ERROR
+    assert attempt.reason_codes == ("model_unavailable_for_policy",)
+    assert attempt.inference_config["route_name"] == "unavailable"
 
 
 def test_activity_builds_valid_single_model_attempt_with_policy_route_metadata(
@@ -1026,4 +1077,4 @@ def test_evidence_hydration_enforces_per_item_total_and_item_count_bounds() -> N
         evidence_context=frozen.evidence_context,
     )
     assert not checked.is_valid
-    assert "truncated_evidence_requires_semantic_unknown" in checked.reason_codes
+    assert "chunk_incomplete" in checked.reason_codes

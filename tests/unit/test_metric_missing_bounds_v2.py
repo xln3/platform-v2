@@ -73,7 +73,9 @@ def test_four_query_unknown_fixture_has_separate_point_and_missing_bounds() -> N
     assert bounds.upper_bound == Decimal("0.75")
 
 
-def _subject(index: int, *, failed: bool) -> EvaluationInput:
+def _subject(
+    index: int, *, failed: bool, failure_code: str = "llm_api_rate_limited"
+) -> EvaluationInput:
     query = QueryContextFact(
         query_key=f"qry_{index}",
         query_text_hash=hash_query_text(f"query {index}"),
@@ -114,7 +116,7 @@ def _subject(index: int, *, failed: bool) -> EvaluationInput:
                     task_ref=task,
                     status=DecisionStatus.FAILED,
                     decision_pub_id=f"dec_{index}",
-                    reason_codes=("llm_api_rate_limited",),
+                    reason_codes=(failure_code,),
                 )
                 if failed
                 else SemanticDecisionFact(
@@ -177,6 +179,29 @@ def test_all_api_failures_make_snapshot_failed_not_semantically_unknown() -> Non
     assert snapshot.state_reason_codes == (
         "analysis_failed_no_known_answers",
         "llm_api_rate_limited",
+    )
+
+
+def test_snapshot_preserves_non_llm_execution_failure_reason() -> None:
+    definition = load_definitions().get("ai_recommendation_organic_mention_rate_v2", "2.0.0")
+    request = SnapshotBuildRequest(
+        definitions=(definition,),
+        subjects=tuple(
+            _subject(index, failed=True, failure_code="chunk_incomplete")
+            for index in range(2)
+        ),
+        as_of=datetime(2026, 8, 27, tzinfo=UTC),
+        scope={"tenant": "ten_1", "project": "prj_1"},
+        dependency_bundle={"answer_set_hash": "a" * 64},
+        minimum_queries_for_ready=1,
+    )
+
+    snapshot = MetricSnapshotEngine().build_set(request).snapshots[0]
+
+    assert snapshot.state is MetricSnapshotState.FAILED
+    assert snapshot.state_reason_codes == (
+        "analysis_failed_no_known_answers",
+        "chunk_incomplete",
     )
 
 

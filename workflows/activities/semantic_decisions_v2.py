@@ -268,33 +268,28 @@ def run_model_judge_activity(payload: dict[str, Any]) -> dict[str, Any]:
         (item for item in policy.model_routes if stage and item.route_name == stage.route_name),
         None,
     )
-    if stage is None or route is None:
-        raise ApplicationError(
-            "judge policy has no model route",
-            type="judge_policy_invalid",
-            non_retryable=True,
-        )
+    config = semantic_judge_config_from_settings(settings)
+    attempt_role = AttemptRole(stage.role.value) if stage is not None else AttemptRole.PROPOSER
     attempt_seed = canonical_hash(
         {
             "decision_job_pub_id": payload["decision_job_pub_id"],
             "attempt_index": int(payload.get("attempt_index") or 0),
-            "role": stage.role.value,
+            "role": attempt_role.value,
         }
     )
-    config = semantic_judge_config_from_settings(settings)
     common_attempt: dict[str, Any] = {
         "pub_id": f"sda_{attempt_seed[:26]}",
         "tenant_pub_id": str(payload["tenant_pub_id"]),
         "project_pub_id": str(payload["project_pub_id"]),
         "decision_job_pub_id": str(payload["decision_job_pub_id"]),
         "attempt_index": int(payload.get("attempt_index") or 0),
-        "role": AttemptRole(stage.role.value),
+        "role": attempt_role,
         "method": DecisionMethod.MODEL,
         "provider": config.provider,
         "model": config.model,
         "model_revision": config.model_revision,
         "inference_config": {
-            "route_name": route.route_name,
+            "route_name": route.route_name if route is not None else "unavailable",
             "response_format": "json_schema",
             "single_model": True,
             "timeout_ms": int(config.timeout_seconds * 1000),
@@ -318,7 +313,9 @@ def run_model_judge_activity(payload: dict[str, Any]) -> dict[str, Any]:
     )
     failure_code: str | None = None
     result = None
-    if settings.semantic_decision_daily_budget <= 0 or payload.get("llm_budget_exhausted"):
+    if stage is None or route is None:
+        failure_code = "model_unavailable_for_policy"
+    elif settings.semantic_decision_daily_budget <= 0 or payload.get("llm_budget_exhausted"):
         failure_code = "llm_api_budget_exhausted"
     elif not config.api_key:
         failure_code = "llm_api_auth_missing"

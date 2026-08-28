@@ -289,6 +289,37 @@ def test_empty_ready_manifest_is_distinct_from_failed_or_partial_analysis() -> N
     assert failed.event_set_hash is None
 
 
+def test_mixed_failure_and_review_manifest_is_partial_not_review_required() -> None:
+    manifest = build_answer_semantic_manifest(
+        pub_id="asm_manifest_mixed_failure_review_0001",
+        tenant_pub_id=TENANT_ID,
+        project_pub_id=PROJECT_ID,
+        answer_pub_id=ANSWER_ID,
+        analysis_run_pub_id="analysis_run_mixed_failure_review_0001",
+        query_context_fact_pub_id="qcf_test_0001",
+        answer_text_hash=digest("混合失败与复核"),
+        input_hash=digest("input-mixed-failure-review"),
+        extractor_bundle={"entity": "v2"},
+        decision_task_bundle={"claim": "2.1.0"},
+        entity_dictionary_hash=digest("dictionary"),
+        capability_statuses={
+            "claim_evidence_verdict": CapabilityAnalysis(
+                status=CapabilityStatus.FAILED,
+                reason_codes=("model_unavailable_for_policy",),
+            ),
+            "citation_claim_support": CapabilityAnalysis(
+                status=CapabilityStatus.REVIEW_REQUIRED,
+                reason_codes=("semantic_evidence_insufficient",),
+            ),
+        },
+        events=(),
+        created_at=NOW,
+        completed_at=NOW + timedelta(seconds=1),
+    )
+
+    assert manifest.status is ManifestStatus.PARTIAL
+
+
 def test_manifest_hashes_decisions_and_events_independent_of_input_order() -> None:
     text = "盛邦安全和奇安信"
     first = _manual_entity_event(text, 0, len("盛邦安全"))

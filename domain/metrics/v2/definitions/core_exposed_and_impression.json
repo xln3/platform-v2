@@ -336,7 +336,7 @@
       "hit": "claim_supported",
       "miss": "claim_unsupported",
       "not_applicable": "no_applicable_claim",
-      "unknown": "evidence_retrieval_failed"
+      "unknown": "semantic_result_unknown"
     },
     "metadata": { "release_role": "official", "metric_family": "claim_verification" }
   },
@@ -372,7 +372,7 @@
       "hit": "claim_unsupported",
       "miss": "claim_supported",
       "not_applicable": "no_applicable_claim",
-      "unknown": "evidence_retrieval_failed"
+      "unknown": "semantic_result_unknown"
     },
     "metadata": { "release_role": "official", "metric_family": "claim_verification" }
   },

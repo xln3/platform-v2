@@ -183,8 +183,55 @@ def test_claim_unsupported_requires_complete_historical_retrieval() -> None:
     )
 
     assert "unsupported_requires_complete_retrieval" in failed.reason_codes
-    assert "evidence_retrieval_failure_requires_unknown" in failed.reason_codes
+    assert "evidence_retrieval_failed" in failed.reason_codes
     assert complete.is_valid
+
+
+def test_failed_or_partial_evidence_cannot_validate_semantic_unknown() -> None:
+    output = {
+        "claim_event_pub_id": "ase_claim_0001",
+        "verdict": "unknown",
+        "verification_as_of": datetime(2026, 8, 1, tzinfo=UTC).isoformat(),
+        "evidence_snapshot_refs": [],
+        "reason_codes": ["insufficient_evidence"],
+    }
+
+    for status in ("failed", "partial"):
+        result = validate_decision_output(
+            task=task("claim-evidence-verdict"),
+            output=output,
+            evidence_context={
+                "evidence_bundle_status": status,
+                "retrieval_protocol_complete": False,
+                "truth_as_of_policy": "answer_capture_time",
+            },
+        )
+        assert not result.is_valid
+        assert "evidence_retrieval_failed" in result.reason_codes
+
+
+def test_truncated_evidence_is_chunk_incomplete_even_for_unknown_output() -> None:
+    output = {
+        "claim_event_pub_id": "ase_claim_0001",
+        "verdict": "unknown",
+        "verification_as_of": datetime(2026, 8, 1, tzinfo=UTC).isoformat(),
+        "evidence_snapshot_refs": [],
+        "reason_codes": ["insufficient_evidence"],
+    }
+
+    result = validate_decision_output(
+        task=task("claim-evidence-verdict"),
+        output=output,
+        evidence_context={
+            "evidence_bundle_status": "ready",
+            "retrieval_protocol_complete": True,
+            "truth_as_of_policy": "answer_capture_time",
+            "evidence_material_truncated": True,
+        },
+    )
+
+    assert not result.is_valid
+    assert "chunk_incomplete" in result.reason_codes
 
 
 def test_legal_semantic_unknown_is_not_a_structural_failure() -> None:

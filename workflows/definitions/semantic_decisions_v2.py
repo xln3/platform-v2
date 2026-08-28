@@ -60,6 +60,48 @@ _RETRYABLE_LLM_FAILURE_CODES = frozenset(
     }
 )
 
+_DYNAMIC_TASK_CAPABILITIES: dict[str, tuple[str, ...]] = {
+    **{
+        f"claim-verifiability@{version}": ("claim_evidence_verdict",)
+        for version in ("2.0.0", "2.1.0")
+    },
+    **{
+        f"claim-evidence-verdict@{version}": ("claim_evidence_verdict",)
+        for version in ("2.0.0", "2.1.0")
+    },
+    **{
+        f"citation-claim-support@{version}": ("citation_claim_support",)
+        for version in ("2.0.0", "2.1.0")
+    },
+}
+
+
+def _record_dynamic_template_failure(
+    forced_capability_failures: dict[str, list[str]], task_ref: str
+) -> dict[str, Any]:
+    """Turn a missing dynamic definition into an explicit capability failure."""
+
+    for capability in _DYNAMIC_TASK_CAPABILITIES.get(task_ref, ()):
+        forced_capability_failures.setdefault(capability, []).append(
+            "dynamic_task_template_missing"
+        )
+    return {
+        "task_ref": task_ref,
+        "status": "failed",
+        "reason_codes": ["dynamic_task_template_missing"],
+    }
+
+
+def _manifest_status_from_capability_states(states: set[str]) -> str:
+    requested_states = states - {"not_requested"}
+    if requested_states == {"failed"}:
+        return "failed"
+    if requested_states & {"failed", "abstained"}:
+        return "partial"
+    if "review_required" in requested_states:
+        return "review_required"
+    return "ready"
+
 
 def _next_auto_rejudge_payload(
     payload: dict[str, Any], decision: dict[str, Any]
@@ -243,6 +285,7 @@ class QueryContextClassificationWorkflowV2:
             retry_policy=_IO_RETRY,
         )
         decisions: list[dict[str, Any]] = []
+        dependency_statuses = dict(payload.get("dependency_statuses") or {})
         for index, task_payload in enumerate(payload.get("decision_tasks", [])):
             result = await workflow.execute_child_workflow(
                 SemanticDecisionWorkflowV2.run,
@@ -254,12 +297,17 @@ class QueryContextClassificationWorkflowV2:
                     "candidate_set_hash": candidate_set["candidate_set_hash"],
                     "analysis_task_queue": analysis_queue,
                     "decision_task_queue": decision_queue,
+                    "dependency_statuses": dependency_statuses,
                 },
                 id=f"{workflow.info().workflow_id}:decision:{index}",
                 task_queue=decision_queue,
             )
             if isinstance(result.get("decision"), dict):
-                decisions.append(result["decision"])
+                decision = result["decision"]
+                decisions.append(decision)
+                dependency_statuses[
+                    f"{decision['task_name']}@{decision['task_version']}"
+                ] = decision["status"]
         derived: dict[str, Any] = await workflow.execute_activity(
             derive_query_context_activity,
             payload | {"decisions": decisions},
@@ -283,6 +331,7 @@ class QueryContextClassificationWorkflowV2:
             **derived,
             "candidate_set": candidate_set,
             "decisions": decisions,
+            "dependency_statuses": dependency_statuses,
         }
 
 
@@ -359,7 +408,9 @@ class AnswerSemanticEventWorkflowV2:
             nonlocal dynamic_index
             template = dynamic_templates.get(task_ref)
             if not isinstance(template, dict):
-                return None
+                return _record_dynamic_template_failure(
+                    forced_capability_failures, task_ref
+                )
             request = instantiate_decision_task_request(template, subject_ref)
             result = await workflow.execute_child_workflow(
                 SemanticDecisionWorkflowV2.run,
@@ -448,6 +499,7 @@ class AnswerSemanticEventWorkflowV2:
                             *(
                                 [str(verifiability["decision_pub_id"])]
                                 if isinstance(verifiability, dict)
+                                and verifiability.get("decision_pub_id")
                                 else []
                             ),
                         ],
@@ -504,14 +556,15 @@ class AnswerSemanticEventWorkflowV2:
             name: str(item["status"]) for name, item in capability_statuses.items()
         }
         states = set(capability_states.values())
-        if "review_required" in states:
-            status = "review_required"
-        elif "failed" in states and len(states) == 1:
-            status = "failed"
-        elif states & {"failed", "abstained"}:
-            status = "partial"
-        else:
-            status = "ready"
+        status = _manifest_status_from_capability_states(states)
+        failure_reason_codes = sorted(
+            {
+                str(reason_code)
+                for item in capability_statuses.values()
+                if str(item.get("status")) == "failed"
+                for reason_code in item.get("reason_codes", [])
+            }
+        )
         manifest = dict(payload["manifest"])
         if query_context is not None:
             manifest["query_context_fact_pub_id"] = query_context["query_context_fact_pub_id"]
@@ -525,7 +578,16 @@ class AnswerSemanticEventWorkflowV2:
                 "evidenced_event_count": sum(
                     event.get("answer_text_start") is not None for event in derived["events"]
                 ),
-                "event_set_hash": derived["event_set_hash"],
+                "failure_code": (
+                    failure_reason_codes[0]
+                    if status == "failed" and failure_reason_codes
+                    else "semantic_analysis_failed"
+                    if status == "failed"
+                    else None
+                ),
+                "event_set_hash": (
+                    None if status == "failed" else derived["event_set_hash"]
+                ),
                 "completed_at": workflow.now().isoformat(),
             }
         )

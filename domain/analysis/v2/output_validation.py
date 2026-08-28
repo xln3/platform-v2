@@ -171,7 +171,12 @@ def validate_decision_output(
             for path, span in spans:
                 _validate_span(span, answer_text, path, issues)
 
-    _validate_task_invariants(task.name, output, evidence_context or {}, issues)
+    validated_evidence_context = evidence_context or {}
+    if validated_evidence_context.get("evidence_bundle_status") in {"partial", "failed"}:
+        issues.append(ValidationIssue("evidence_retrieval_failed", "$"))
+    if validated_evidence_context.get("evidence_material_truncated") is True:
+        issues.append(ValidationIssue("chunk_incomplete", "$"))
+    _validate_task_invariants(task.name, output, validated_evidence_context, issues)
 
     deduplicated = tuple(_deduplicate_issues(issues))
     return DecisionOutputValidation(
@@ -456,17 +461,11 @@ def _validate_task_invariants(
     elif task_name == "claim-evidence-verdict":
         _validate_claim_verdict(output, evidence_context, issues)
     elif task_name == "claim-verifiability":
-        if (
-            evidence_context.get("evidence_material_truncated") is True
-            and output.get("verifiability") != "unknown"
-        ):
-            issues.append(ValidationIssue("truncated_evidence_requires_semantic_unknown", "$"))
+        if evidence_context.get("evidence_material_truncated") is True:
+            issues.append(ValidationIssue("chunk_incomplete", "$"))
     elif task_name == "citation-claim-support":
-        if (
-            evidence_context.get("evidence_material_truncated") is True
-            and output.get("support_state") != "unknown"
-        ):
-            issues.append(ValidationIssue("truncated_evidence_requires_semantic_unknown", "$"))
+        if evidence_context.get("evidence_material_truncated") is True:
+            issues.append(ValidationIssue("chunk_incomplete", "$"))
         if output.get("support_state") in {"supports", "contradicts"}:
             if not output.get("evidence_snapshot_refs"):
                 issues.append(ValidationIssue("citation_verdict_requires_frozen_evidence", "$"))
@@ -511,14 +510,16 @@ def _validate_claim_verdict(
     bundle_status = evidence_context.get("evidence_bundle_status")
     retrieval_complete = evidence_context.get("retrieval_protocol_complete") is True
     evidence_refs = output.get("evidence_snapshot_refs", ())
-    if evidence_context.get("evidence_material_truncated") is True and verdict != "unknown":
-        issues.append(ValidationIssue("truncated_evidence_requires_semantic_unknown", "$"))
+    if evidence_context.get("evidence_material_truncated") is True:
+        issues.append(ValidationIssue("chunk_incomplete", "$"))
     if verdict in {"supported", "contradicted"} and not evidence_refs:
         issues.append(ValidationIssue("claim_verdict_requires_frozen_evidence", "$"))
     if verdict == "unsupported" and not (bundle_status == "ready" and retrieval_complete):
         issues.append(ValidationIssue("unsupported_requires_complete_retrieval", "$"))
-    if bundle_status in {"partial", "failed"} and verdict != "unknown":
-        issues.append(ValidationIssue("evidence_retrieval_failure_requires_unknown", "$"))
+    if bundle_status in {"partial", "failed"} or (
+        bundle_status is not None and not retrieval_complete
+    ):
+        issues.append(ValidationIssue("evidence_retrieval_failed", "$"))
     truth_policy = evidence_context.get("truth_as_of_policy")
     if truth_policy not in {"answer_capture_time", "snapshot_as_of"}:
         issues.append(ValidationIssue("truth_as_of_policy_invalid", "$"))
