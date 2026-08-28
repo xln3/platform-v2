@@ -110,6 +110,12 @@ class AbstentionPolicy(FrozenDomainModel):
         "evidence_not_closed",
         "evidence_retrieval_failed",
         "low_calibrated_confidence",
+        "llm_api_adapter_unavailable",
+        "llm_api_auth_missing",
+        "llm_api_budget_exhausted",
+        "llm_api_network_error",
+        "llm_api_rate_limited",
+        "llm_api_timeout",
         "model_timeout",
         "model_unavailable_for_policy",
         "structured_output_invalid",
@@ -394,8 +400,6 @@ class JudgePolicyDefinition(FrozenDomainModel):
         if self.status in {DefinitionStatus.PUBLISHED, DefinitionStatus.RETIRED}:
             if self.published_at is None:
                 raise ValueError("published_policy_requires_published_at")
-            if self.calibration_artifact_hash is None:
-                raise ValueError("published_policy_requires_calibration_artifact")
         elif self.published_at is not None:
             raise ValueError("unpublished_policy_cannot_have_published_at")
         return self

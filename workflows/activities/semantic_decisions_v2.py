@@ -31,6 +31,7 @@ from domain.analysis.v2.decision_models import (
     AttemptRole,
     AttemptValidationStatus,
     DecisionMethod,
+    DecisionStatus,
     subject_key_for,
 )
 from domain.analysis.v2.event_derivation import (
@@ -49,6 +50,15 @@ from domain.metrics.v2.query_context import (
     RequestedOperation,
     derive_brand_structure,
     derive_exposure_role,
+)
+from workflows.activities.semantic_judge_llm import (
+    SemanticJudgeFailure,
+    execute_semantic_judge,
+    load_frozen_semantic_context,
+    load_frozen_semantic_source,
+)
+from workflows.activities.semantic_judge_llm import (
+    config_from_settings as semantic_judge_config_from_settings,
 )
 
 
@@ -152,6 +162,16 @@ async def freeze_decision_input_activity(payload: dict[str, Any]) -> dict[str, A
             type="decision_input_hash_invalid",
             non_retryable=True,
         )
+    material_hashes = payload.get("input_material_hashes")
+    safe_material_hashes: dict[str, str] = {}
+    if isinstance(material_hashes, dict):
+        safe_material_hashes = {str(key): str(value) for key, value in material_hashes.items()}
+        if any(len(value) != 64 for value in safe_material_hashes.values()):
+            raise ApplicationError(
+                "decision source hash envelope is invalid",
+                type="decision_input_hash_invalid",
+                non_retryable=True,
+            )
     # The returned object is deliberately reference-only.  Raw input is loaded
     # by run_model_judge_v2 using input_snapshot_ref inside its process.
     return {
@@ -162,7 +182,10 @@ async def freeze_decision_input_activity(payload: dict[str, Any]) -> dict[str, A
         "subject_ref": subject_ref,
         "input_snapshot_ref": input_snapshot_ref,
         "input_hash": input_hash,
+        "input_material_hashes": safe_material_hashes,
         "context_hash": context_hash,
+        "source_answer_pub_id": payload.get("source_answer_pub_id"),
+        "source_query_pub_id": payload.get("source_query_pub_id"),
         "candidate_set_hash": payload.get("candidate_set_hash"),
         "evidence_bundle_ref": payload.get("evidence_bundle_ref"),
         "evidence_bundle_hash": payload.get("evidence_bundle_hash"),
@@ -222,13 +245,8 @@ async def retrieve_evidence_activity(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 @activity.defn(name="run_model_judge_v2")
-async def run_model_judge_activity(payload: dict[str, Any]) -> dict[str, Any]:
-    """Run a configured judge adapter or fail closed.
-
-    The repository ships only an offline fixture route until calibration has
-    been approved.  Tests/backfills may provide a frozen ``fixture_attempt``.
-    Production never interprets strings or silently substitutes a heuristic.
-    """
+def run_model_judge_activity(payload: dict[str, Any]) -> dict[str, Any]:
+    """Run the blocking DB/HTTP judge work outside the worker event loop."""
 
     settings = get_settings()
     fixture_attempt = payload.get("fixture_attempt")
@@ -256,9 +274,6 @@ async def run_model_judge_activity(payload: dict[str, Any]) -> dict[str, Any]:
             type="judge_policy_invalid",
             non_retryable=True,
         )
-    reason_codes = ["model_unavailable_for_policy"]
-    if settings.semantic_decision_daily_budget <= 0:
-        reason_codes.append("model_budget_exhausted")
     attempt_seed = canonical_hash(
         {
             "decision_job_pub_id": payload["decision_job_pub_id"],
@@ -266,27 +281,110 @@ async def run_model_judge_activity(payload: dict[str, Any]) -> dict[str, Any]:
             "role": stage.role.value,
         }
     )
-    attempt = SemanticDecisionAttempt(
-        pub_id=f"sda_{attempt_seed[:26]}",
-        tenant_pub_id=str(payload["tenant_pub_id"]),
-        project_pub_id=str(payload["project_pub_id"]),
-        decision_job_pub_id=str(payload["decision_job_pub_id"]),
-        attempt_index=int(payload.get("attempt_index") or 0),
-        role=AttemptRole(stage.role.value),
-        method=DecisionMethod.MODEL,
-        provider=route.provider,
-        model=route.model,
-        model_revision=route.resolved_revision,
-        inference_config=policy.inference_configs.get(route.route_name, {}),
-        prompt_template_ref=task.prompt_template_ref,
-        prompt_template_hash=task.prompt_template_hash,
-        rubric_hash=task.rubric_hash,
-        output_schema_hash=canonical_hash(task.output_schema),
-        request_payload_hash=str(payload["input_hash"]),
-        validation_status=AttemptValidationStatus.ERROR,
-        reason_codes=tuple(reason_codes),
-        created_at=datetime.now(UTC),
+    config = semantic_judge_config_from_settings(settings)
+    common_attempt: dict[str, Any] = {
+        "pub_id": f"sda_{attempt_seed[:26]}",
+        "tenant_pub_id": str(payload["tenant_pub_id"]),
+        "project_pub_id": str(payload["project_pub_id"]),
+        "decision_job_pub_id": str(payload["decision_job_pub_id"]),
+        "attempt_index": int(payload.get("attempt_index") or 0),
+        "role": AttemptRole(stage.role.value),
+        "method": DecisionMethod.MODEL,
+        "provider": config.provider,
+        "model": config.model,
+        "model_revision": config.model_revision,
+        "inference_config": {
+            "route_name": route.route_name,
+            "response_format": "json_schema",
+            "single_model": True,
+            "timeout_ms": int(config.timeout_seconds * 1000),
+            "max_attempts": config.max_retries + 1,
+        },
+        "prompt_template_ref": task.prompt_template_ref,
+        "prompt_template_hash": task.prompt_template_hash,
+        "rubric_hash": task.rubric_hash,
+        "output_schema_hash": canonical_hash(task.output_schema),
+        "created_at": datetime.now(UTC),
+    }
+    failure_hash = canonical_hash(
+        {
+            "context_hash": payload.get("context_hash"),
+            "decision_job_pub_id": payload.get("decision_job_pub_id"),
+            "input_hash": payload.get("input_hash"),
+            "model": config.model,
+            "subject_ref": payload.get("subject_ref"),
+            "task_ref": task.task_ref,
+        }
     )
+    failure_code: str | None = None
+    result = None
+    if settings.semantic_decision_daily_budget <= 0 or payload.get("llm_budget_exhausted"):
+        failure_code = "llm_api_budget_exhausted"
+    elif not config.api_key:
+        failure_code = "llm_api_auth_missing"
+    else:
+        candidate_payload = payload.get("candidate_set")
+        candidate_set = (
+            CandidateSet.model_validate(candidate_payload)
+            if isinstance(candidate_payload, dict)
+            else None
+        )
+        try:
+            source = load_frozen_semantic_source(
+                dsn=settings.worker_postgres_dsn or settings.postgres_dsn,
+                payload=payload,
+                task=task,
+            )
+            frozen_context = load_frozen_semantic_context(
+                dsn=settings.worker_postgres_dsn or settings.postgres_dsn,
+                settings=settings,
+                payload=payload,
+                task=task,
+                source=source,
+            )
+            validated_evidence_context = (
+                frozen_context.evidence_context
+                if frozen_context.evidence_context
+                else (
+                    dict(payload["evidence_context"])
+                    if isinstance(payload.get("evidence_context"), dict)
+                    else None
+                )
+            )
+            result = execute_semantic_judge(
+                config=config,
+                task=task,
+                source=source,
+                subject_ref=dict(payload["subject_ref"]),
+                candidate_set=candidate_set,
+                evidence_context=validated_evidence_context,
+                frozen_context=frozen_context,
+            )
+        except SemanticJudgeFailure as failure:
+            failure_code = failure.code
+    if result is None:
+        attempt = SemanticDecisionAttempt(
+            **common_attempt,
+            request_payload_hash=failure_hash,
+            validation_status=AttemptValidationStatus.ERROR,
+            reason_codes=(failure_code or "llm_api_adapter_unavailable",),
+        )
+    else:
+        common_attempt["inference_config"] = dict(common_attempt["inference_config"]) | {
+            "transport_mode": result.transport_mode
+        }
+        attempt = SemanticDecisionAttempt(
+            **common_attempt,
+            request_payload_hash=result.request_payload_hash,
+            response_payload_hash=result.response_payload_hash,
+            validated_output=result.output,
+            rationale_summary="单一 LLM 的结构化判定已通过任务、候选集和证据跨度校验。",
+            validation_status=AttemptValidationStatus.VALID,
+            reason_codes=("llm_api_success",),
+            latency_ms=result.latency_ms,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+        )
     return attempt.model_dump(mode="json")
 
 
@@ -344,6 +442,19 @@ async def adjudicate_decision_activity(payload: dict[str, Any]) -> dict[str, Any
     attempts = tuple(
         SemanticDecisionAttempt.model_validate(item) for item in payload.get("attempts", [])
     )
+    source_text = payload.get("answer_text")
+    source_text_hash = payload.get("answer_text_hash")
+    answer_source_ref = payload.get("input_snapshot_ref")
+    if any(attempt.validation_status is AttemptValidationStatus.VALID for attempt in attempts):
+        settings = get_settings()
+        source = load_frozen_semantic_source(
+            dsn=settings.worker_postgres_dsn or settings.postgres_dsn,
+            payload=payload,
+            task=task,
+        )
+        source_text = source.source_text
+        source_text_hash = source.source_text_hash
+        answer_source_ref = source.source_ref
     request = AdjudicationRequest(
         task=task,
         judge_policy=policy,
@@ -353,11 +464,12 @@ async def adjudicate_decision_activity(payload: dict[str, Any]) -> dict[str, Any
             for key, value in dict(payload.get("calibrated_confidences") or {}).items()
         },
         candidate_set=candidate_set,
-        answer_text=payload.get("answer_text"),
-        expected_answer_text_hash=payload.get("answer_text_hash"),
+        answer_text=source_text,
+        expected_answer_text_hash=source_text_hash,
         evidence_context=dict(payload.get("evidence_context") or {}),
         evidence_refs=tuple(map(str, payload.get("evidence_refs", []))),
         evidence_spans=tuple(payload.get("evidence_spans", [])),
+        answer_source_ref=(str(answer_source_ref) if answer_source_ref else None),
         dependency_statuses=dict(payload.get("dependency_statuses") or {}),
         required_chunks_complete=bool(payload.get("required_chunks_complete", True)),
         explicit_human_override=bool(payload.get("explicit_human_override", False)),
@@ -491,12 +603,24 @@ async def derive_query_context_activity(payload: dict[str, Any]) -> dict[str, An
     accepted = {item.task_name: item for item in decisions if item.status.value == "accepted"}
     intent = accepted.get("query-intent")
     entities = accepted.get("query-brand-entity-resolution")
-    if intent is None or entities is None:
-        classification_state = "review_required"
+    query_decisions = tuple(
+        item
+        for item in decisions
+        if item.task_name in {"query-intent", "query-brand-entity-resolution"}
+    )
+    if any(item.status is DecisionStatus.FAILED for item in query_decisions):
+        classification_state = "failed"
         lenses: set[str] = set()
         operations: set[str] = set()
         subtypes: set[str] = set()
         detected: set[str] = set()
+        unresolved = True
+    elif intent is None or entities is None:
+        classification_state = "review_required"
+        lenses = set()
+        operations = set()
+        subtypes = set()
+        detected = set()
         unresolved = True
     else:
         classification_state = "ready"

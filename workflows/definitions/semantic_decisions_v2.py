@@ -39,6 +39,67 @@ _MODEL_RETRY = RetryPolicy(
     maximum_attempts=2,
 )
 
+# The adapter enforces a ten-minute total transport deadline across endpoints,
+# retries, and response-format fallback.  Leave six minutes for at most twelve
+# 15-second CAS evidence reads, source hydration, attempt serialization, and
+# worker scheduling so a sanitized FAILED attempt is persisted instead of
+# Temporal killing the activity.
+_MODEL_ACTIVITY_TIMEOUT = timedelta(minutes=16)
+
+_RETRYABLE_LLM_FAILURE_CODES = frozenset(
+    {
+        "llm_api_adapter_unavailable",
+        "llm_api_empty_response",
+        "llm_api_invalid_json",
+        "llm_api_invalid_response",
+        "llm_api_network_error",
+        "llm_api_rate_limited",
+        "llm_api_schema_violation",
+        "llm_api_timeout",
+        "llm_api_upstream_unavailable",
+    }
+)
+
+
+def _next_auto_rejudge_payload(
+    payload: dict[str, Any], decision: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Build one immutable successor generation for a retryable LLM outage."""
+
+    if decision.get("status") != "failed":
+        return None
+    reason_codes = set(map(str, decision.get("reason_codes") or ()))
+    if not reason_codes & _RETRYABLE_LLM_FAILURE_CODES:
+        return None
+    generation = int(payload.get("rejudge_generation") or 0)
+    maximum_generation = max(0, min(10, int(payload.get("max_auto_rejudge_generations") or 5)))
+    if generation >= maximum_generation:
+        return None
+    decision_pub_id = str(decision.get("decision_pub_id") or "")
+    if not decision_pub_id:
+        return None
+    next_generation = generation + 1
+    result = dict(payload)
+    for transient_field in ("attempts", "decision_pub_id", "workflow_id", "run_id"):
+        result.pop(transient_field, None)
+    result.update(
+        {
+            "rejudge_generation": next_generation,
+            "supersedes_decision_pub_id": decision_pub_id,
+            "idempotency_key": (
+                f"{payload.get('idempotency_key', 'semantic-decision')}"
+                f":auto-rejudge:{next_generation}"
+            ),
+        }
+    )
+    return result
+
+
+def _auto_rejudge_delay(payload: dict[str, Any]) -> timedelta:
+    generation = max(1, int(payload.get("rejudge_generation") or 1))
+    base_seconds = max(1, min(3_600, int(payload.get("auto_rejudge_base_delay_seconds") or 30)))
+    return timedelta(seconds=min(3_600, base_seconds * (4 ** (generation - 1))))
+
 
 def _queues(payload: dict[str, Any]) -> tuple[str, str]:
     return (
@@ -79,6 +140,10 @@ class SemanticDecisionWorkflowV2:
             "review_required",
             "failed",
         } and request.get("decision"):
+            retry_payload = _next_auto_rejudge_payload(payload, dict(request["decision"]))
+            if retry_payload is not None:
+                await workflow.sleep(_auto_rejudge_delay(retry_payload))
+                workflow.continue_as_new(retry_payload)
             return request
 
         evidence: dict[str, Any] | None = None
@@ -90,6 +155,17 @@ class SemanticDecisionWorkflowV2:
                 start_to_close_timeout=timedelta(minutes=2),
                 retry_policy=_IO_RETRY,
             )
+        evidence_context = (
+            {
+                "evidence_bundle_ref": evidence["bundle_ref"],
+                "evidence_bundle_hash": evidence["bundle_hash"],
+                "evidence_bundle_status": evidence["status"],
+                "retrieval_protocol_complete": evidence["status"] == "ready",
+                "truth_as_of_policy": payload.get("truth_as_of_policy", "answer_capture_time"),
+            }
+            if evidence
+            else dict(payload.get("evidence_context") or {})
+        )
 
         attempts = list(payload.get("attempts", []))
         dependency_statuses = dict(payload.get("dependency_statuses") or {})
@@ -106,9 +182,10 @@ class SemanticDecisionWorkflowV2:
                 | {
                     "evidence_bundle_ref": evidence and evidence["bundle_ref"],
                     "evidence_bundle_hash": evidence and evidence["bundle_hash"],
+                    "evidence_context": evidence_context,
                 },
                 task_queue=decision_queue,
-                start_to_close_timeout=timedelta(minutes=2),
+                start_to_close_timeout=_MODEL_ACTIVITY_TIMEOUT,
                 retry_policy=_MODEL_RETRY,
             )
             attempts.append(attempt)
@@ -125,17 +202,7 @@ class SemanticDecisionWorkflowV2:
                     or f"sdr_{str(request['decision_job_pub_id']).removeprefix('sdj_')}"
                 ),
                 "evidence_refs": [evidence["bundle_ref"]] if evidence else [],
-                "evidence_context": (
-                    {
-                        "evidence_bundle_status": evidence["status"],
-                        "retrieval_protocol_complete": evidence["status"] == "ready",
-                        "truth_as_of_policy": payload.get(
-                            "truth_as_of_policy", "answer_capture_time"
-                        ),
-                    }
-                    if evidence
-                    else dict(payload.get("evidence_context") or {})
-                ),
+                "evidence_context": evidence_context,
                 "created_at": workflow.now().isoformat(),
             },
             task_queue=decision_queue,
@@ -154,6 +221,10 @@ class SemanticDecisionWorkflowV2:
             start_to_close_timeout=timedelta(seconds=30),
             retry_policy=_IO_RETRY,
         )
+        retry_payload = _next_auto_rejudge_payload(payload, decision)
+        if retry_payload is not None:
+            await workflow.sleep(_auto_rejudge_delay(retry_payload))
+            workflow.continue_as_new(retry_payload)
         return {**persisted, "decision": decision}
 
 

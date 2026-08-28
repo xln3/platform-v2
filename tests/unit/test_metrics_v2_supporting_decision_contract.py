@@ -32,6 +32,7 @@ class _Connection:
     def __init__(self) -> None:
         captured_at = datetime(2026, 8, 27, tzinfo=UTC)
         self.snapshot = {
+            "project_pub_id": "prj_supporting",
             "candidate_answer_count": 1,
             "raw_numerator": 1,
             "raw_denominator": 1,

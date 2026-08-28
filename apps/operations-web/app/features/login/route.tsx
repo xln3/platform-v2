@@ -1,11 +1,22 @@
 import { useState, type FormEvent } from 'react';
+import { projectIdentitySessionBoundary } from '@geo/api-client';
 import { useOptionalExperienceContext } from '@geo/design-system';
 import './login.css';
 
-type LoginResult = 'ready' | 'invalid_input' | 'invalid_credentials' | 'unavailable';
+type LoginDestination = 'customer' | 'operations';
+type LoginResult = LoginDestination | 'invalid_input' | 'invalid_credentials' | 'unavailable';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/u;
 const OPERATIONS_HOME = '/platform/operations/';
+const CUSTOMER_HOME = '/platform/customer/';
+const PROJECT_PUB_ID_PATTERN = /^prj_[A-Za-z0-9_-]{1,116}$/u;
+
+export function customerHomeForSearch(search: string): string {
+  const projectPubId = new URLSearchParams(search).get('project');
+  return projectPubId && PROJECT_PUB_ID_PATTERN.test(projectPubId)
+    ? `${CUSTOMER_HOME}?project=${encodeURIComponent(projectPubId)}`
+    : CUSTOMER_HOME;
+}
 
 export async function createOperationsSession(
   credentials: { email: string; password: string },
@@ -30,7 +41,11 @@ export async function createOperationsSession(
       },
       body: JSON.stringify({ email, password: credentials.password }),
     });
-    if (response.status === 200) return 'ready';
+    if (response.status === 200) {
+      const session = projectIdentitySessionBoundary(await response.json());
+      if (!session || session.role === 'worker') return 'unavailable';
+      return session.role === 'customer' ? 'customer' : 'operations';
+    }
     if (response.status === 401) return 'invalid_credentials';
     return 'unavailable';
   } catch {
@@ -38,7 +53,7 @@ export async function createOperationsSession(
   }
 }
 
-const loginMessage: Record<Exclude<LoginResult, 'ready'>, string> = {
+const loginMessage: Record<Exclude<LoginResult, LoginDestination>, string> = {
   invalid_input: '请输入有效邮箱和密码。',
   invalid_credentials: '邮箱或密码错误。',
   unavailable: '登录服务暂不可用，请稍后重试。',
@@ -58,8 +73,10 @@ export default function OperationsLoginRoute() {
     setMessage(null);
     const result = await createOperationsSession({ email, password });
     setPassword('');
-    if (result === 'ready') {
-      window.location.replace(OPERATIONS_HOME);
+    if (result === 'customer' || result === 'operations') {
+      window.location.replace(
+        result === 'customer' ? customerHomeForSearch(window.location.search) : OPERATIONS_HOME,
+      );
       return;
     }
     setSubmitting(false);
@@ -87,7 +104,7 @@ export default function OperationsLoginRoute() {
         ) : (
           <>
             <p>
-              使用平台账号邮箱登录，登录成功后进入运营工作台。账号密码只提交给同源认证接口，不写入浏览器存储。
+              使用平台账号邮箱登录，登录成功后按账号权限进入对应页面。账号密码只提交给同源认证接口，不写入浏览器存储。
             </p>
             <form onSubmit={(event) => void submit(event)}>
               <label htmlFor="operations-login-email">邮箱</label>
@@ -117,7 +134,7 @@ export default function OperationsLoginRoute() {
                 </p>
               ) : null}
               <button className="operations-login-submit" type="submit" disabled={submitting}>
-                {submitting ? '正在登录…' : '登录并进入运营工作台'}
+                {submitting ? '正在登录…' : '登录并进入平台'}
               </button>
             </form>
           </>

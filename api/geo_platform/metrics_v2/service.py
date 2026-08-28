@@ -294,15 +294,21 @@ class MetricsV2Service:
         request: DecisionOverrideRequest,
         actor_pub_id: str,
     ) -> DecisionOverrideView:
-        result = self.repository.create_override(
-            tenant_pub_id=tenant_pub_id,
-            decision_pub_id=decision_pub_id,
-            result=request.result,
-            rationale_summary=request.rationale_summary,
-            reason_codes=request.reason_codes,
-            expected_decision_hash=request.expected_decision_hash,
-            actor_pub_id=actor_pub_id,
-        )
+        try:
+            result = self.repository.create_override(
+                tenant_pub_id=tenant_pub_id,
+                project_pub_id=request.project_pub_id,
+                decision_pub_id=decision_pub_id,
+                result=request.result,
+                rationale_summary=request.rationale_summary,
+                reason_codes=request.reason_codes,
+                expected_decision_hash=request.expected_decision_hash,
+                actor_pub_id=actor_pub_id,
+            )
+        except RuntimeError as exc:
+            raise MetricsV2Conflict(str(exc)) from exc
+        except ValueError as exc:
+            raise MetricsV2Invalid(str(exc)) from exc
         return DecisionOverrideView.model_validate(
             {"schema_version": "semantic-decision-override-v2", **result}
         )

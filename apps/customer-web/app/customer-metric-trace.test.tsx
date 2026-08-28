@@ -31,6 +31,7 @@ const metric = (name = 'ai_recommendation_organic_top3_visibility_rate_v2'): Met
   candidate_answer_count: 5,
   known_answer_count: 4,
   unknown_answer_count: 1,
+  failed_answer_count: 0,
   not_applicable_answer_count: 0,
   excluded_answer_count: 0,
   design_cell_count: 4,
@@ -108,6 +109,7 @@ const page: MetricV2ContributionPage = {
           calibrated_confidence: 0.98,
           rubric_hash: hash,
           result: { rankable: true, target_rank: 3 },
+          reason_codes: ['rank_within_k'],
           evidence_refs: [{ event_pub_id: 'ase_hit', relation: 'supports' }],
         },
       ],
@@ -167,7 +169,7 @@ describe('CustomerMetricTrace', () => {
       expect(loadContributions).toHaveBeenCalledWith(metric().snapshot_pub_id, null),
     );
     expect(await screen.findByText('命中')).toBeTruthy();
-    expect(screen.getAllByText('分析未知').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('内容证据不足，当前无法判断').length).toBeGreaterThan(0);
     expect(screen.getAllByText('judge_disagreement').length).toBeGreaterThan(0);
     expect(screen.getByText('正文构成明确有序的推荐列表。')).toBeTruthy();
     expect(screen.getByText('推荐名单中，盛邦安全位列第三。')).toBeTruthy();
@@ -213,6 +215,93 @@ describe('CustomerMetricTrace', () => {
     await userEvent.keyboard('{Escape}');
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(loadContributions).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['llm_api_auth_missing', 'LLM API 未配置'],
+    ['llm_api_rate_limited', 'LLM API 限流'],
+    ['llm_api_timeout', 'LLM API 超时'],
+    ['llm_api_budget_exhausted', 'LLM 调用预算不足'],
+    ['llm_api_network_error', 'LLM API 不可用'],
+    ['llm_api_adapter_error', 'LLM API 不可用'],
+  ] as const)(
+    'labels %s as infrastructure failure without requesting review',
+    async (reason, copy) => {
+      const outagePage: MetricV2ContributionPage = {
+        ...page,
+        data: page.data.map((row) =>
+          row.answer_pub_id === 'ans_unknown'
+            ? {
+                ...row,
+                eligibility_status: 'analysis_failed',
+                reason_codes: ['decision_failed'],
+                supporting_decisions: [
+                  {
+                    decision_pub_id: 'sdr_llm_outage',
+                    decision_hash: 'c'.repeat(64),
+                    task: 'rank-semantics',
+                    version: '2.0.0',
+                    method: 'model',
+                    status: 'failed',
+                    rationale_summary: null,
+                    calibrated_confidence: null,
+                    rubric_hash: hash,
+                    result: {},
+                    reason_codes: [reason],
+                    evidence_refs: [],
+                  },
+                ],
+              }
+            : row,
+        ),
+      };
+      render(
+        <CustomerMetricTrace
+          snapshotSetId="mss_test"
+          snapshotSetHash={hash}
+          metric={{ ...metric(), unknown_answer_count: 0, failed_answer_count: 1 }}
+          definition={definition}
+          loadContributions={async () => outagePage}
+          correctDecision={vi.fn()}
+          onClose={() => undefined}
+        />,
+      );
+
+      expect((await screen.findAllByText(copy)).length).toBeGreaterThan(0);
+      expect(screen.getByText(/内容证据不足 0 · 系统异常 1/u)).toBeTruthy();
+      expect(screen.queryByText('内容证据不足，当前无法判断')).toBeNull();
+      expect(screen.getAllByRole('button', { name: '纠错' })).toHaveLength(1);
+    },
+  );
+
+  it('does not mislabel a non-LLM analysis failure as an API outage', async () => {
+    const failedPage: MetricV2ContributionPage = {
+      ...page,
+      data: page.data.map((row) =>
+        row.answer_pub_id === 'ans_unknown'
+          ? {
+              ...row,
+              eligibility_status: 'analysis_failed',
+              reason_codes: ['evidence_integrity_failed'],
+              supporting_decisions: [],
+            }
+          : row,
+      ),
+    };
+    render(
+      <CustomerMetricTrace
+        snapshotSetId="mss_test"
+        snapshotSetHash={hash}
+        metric={{ ...metric(), unknown_answer_count: 0, failed_answer_count: 1 }}
+        definition={definition}
+        loadContributions={async () => failedPage}
+        correctDecision={vi.fn()}
+        onClose={() => undefined}
+      />,
+    );
+
+    expect((await screen.findAllByText('系统分析失败')).length).toBeGreaterThan(0);
+    expect(screen.queryByText('LLM API 不可用')).toBeNull();
   });
 
   it('corrects only the explicitly opened decision and submits its CAS hash', async () => {

@@ -98,6 +98,30 @@ def _decision(subject: EvaluationInput, task_ref: str) -> SemanticDecisionFact |
     return subject.decisions.get(task_name)
 
 
+def _decision_failure_reason(decision: SemanticDecisionFact, fallback: str) -> str:
+    """Preserve actionable infrastructure failures through metric projections."""
+
+    return next(
+        (code for code in decision.reason_codes if code.startswith(("llm_api_", "upstream_"))),
+        fallback,
+    )
+
+
+def _failed_query_context_decisions(
+    subject: EvaluationInput,
+) -> tuple[SemanticDecisionFact, ...]:
+    task_names = {"query-intent", "query-brand-entity-resolution"}
+    by_id: dict[str, SemanticDecisionFact] = {}
+    for task_ref, decision in sorted(subject.decisions.items()):
+        if task_ref.split("@", 1)[0] not in task_names:
+            continue
+        if decision.status is not DecisionStatus.FAILED:
+            continue
+        identity = decision.decision_pub_id or task_ref
+        by_id[identity] = decision
+    return tuple(by_id[key] for key in sorted(by_id))
+
+
 def _decision_result_is_unknown(value: Mapping[str, Any]) -> bool:
     semantic_label_keys = {
         "label",
@@ -531,6 +555,30 @@ class MetricEvaluator:
                 Decimal("0"),
                 interpreter,
             )
+        if subject.query_context.classification_state is ClassificationState.FAILED:
+            failed_query_decisions = _failed_query_context_decisions(subject)
+            for decision in failed_query_decisions:
+                if decision.decision_pub_id:
+                    interpreter.supporting_decisions.add(decision.decision_pub_id)
+            reason = next(
+                (
+                    code
+                    for decision in failed_query_decisions
+                    for code in decision.reason_codes
+                    if code.startswith(("llm_api_", "upstream_"))
+                ),
+                "query_context_analysis_failed",
+            )
+            return self._result(
+                definition,
+                subject,
+                EligibilityStatus.ANALYSIS_FAILED,
+                reason,
+                None,
+                Decimal("0"),
+                Decimal("0"),
+                interpreter,
+            )
         predicate_result, predicate_reason = _query_failure_reason(definition, subject, interpreter)
         if predicate_result is TruthValue.FALSE:
             return self._result(
@@ -557,7 +605,11 @@ class MetricEvaluator:
         required_task_refs: set[str] = set(definition.decision_task_refs)
         for capability in definition.required_semantic_capabilities:
             capability_status = _capability_status(subject, capability.name)
+            required_task_refs.add(capability.task_ref)
             if capability_status != capability.accepted_status:
+                failed_decision = _decision(subject, capability.task_ref)
+                if failed_decision and failed_decision.decision_pub_id:
+                    interpreter.supporting_decisions.add(failed_decision.decision_pub_id)
                 reason = {
                     "failed": "semantic_analysis_failed",
                     "abstained": "decision_abstained",
@@ -565,20 +617,25 @@ class MetricEvaluator:
                     "not_requested": "required_decision_missing",
                     "missing": "required_decision_missing",
                 }.get(capability_status, "semantic_result_unknown")
+                if failed_decision is not None:
+                    reason = _decision_failure_reason(failed_decision, reason)
                 return self._result(
                     definition,
                     subject,
-                    EligibilityStatus.ANALYSIS_UNKNOWN,
+                    (
+                        EligibilityStatus.ANALYSIS_FAILED
+                        if capability_status == "failed"
+                        else EligibilityStatus.ANALYSIS_UNKNOWN
+                    ),
                     reason,
                     None,
                     Decimal("0"),
                     Decimal("0"),
                     interpreter,
                 )
-            required_task_refs.add(capability.task_ref)
         for task_ref in sorted(required_task_refs):
-            decision = _decision(subject, task_ref)
-            if decision is None:
+            task_decision = _decision(subject, task_ref)
+            if task_decision is None:
                 return self._result(
                     definition,
                     subject,
@@ -589,26 +646,31 @@ class MetricEvaluator:
                     Decimal("0"),
                     interpreter,
                 )
-            if decision.decision_pub_id:
-                interpreter.supporting_decisions.add(decision.decision_pub_id)
-            if decision.status is not DecisionStatus.ACCEPTED:
+            if task_decision.decision_pub_id:
+                interpreter.supporting_decisions.add(task_decision.decision_pub_id)
+            if task_decision.status is not DecisionStatus.ACCEPTED:
                 reason = {
                     DecisionStatus.FAILED: "decision_failed",
                     DecisionStatus.ABSTAINED: "decision_abstained",
                     DecisionStatus.REVIEW_REQUIRED: "decision_review_required",
                     DecisionStatus.MISSING: "required_decision_missing",
-                }.get(decision.status, "required_decision_missing")
+                }.get(task_decision.status, "required_decision_missing")
+                reason = _decision_failure_reason(task_decision, reason)
                 return self._result(
                     definition,
                     subject,
-                    EligibilityStatus.ANALYSIS_UNKNOWN,
+                    (
+                        EligibilityStatus.ANALYSIS_FAILED
+                        if task_decision.status is DecisionStatus.FAILED
+                        else EligibilityStatus.ANALYSIS_UNKNOWN
+                    ),
                     reason,
                     None,
                     Decimal("0"),
                     Decimal("0"),
                     interpreter,
                 )
-            if _decision_result_is_unknown(decision.value):
+            if _decision_result_is_unknown(task_decision.value):
                 return self._result(
                     definition,
                     subject,
@@ -619,18 +681,7 @@ class MetricEvaluator:
                     Decimal("0"),
                     interpreter,
                 )
-            if not decision.calibrated:
-                return self._result(
-                    definition,
-                    subject,
-                    EligibilityStatus.ANALYSIS_UNKNOWN,
-                    "decision_not_calibrated",
-                    None,
-                    Decimal("0"),
-                    Decimal("0"),
-                    interpreter,
-                )
-            if not decision.policy_matches:
+            if not task_decision.policy_matches:
                 return self._result(
                     definition,
                     subject,
@@ -641,11 +692,11 @@ class MetricEvaluator:
                     Decimal("0"),
                     interpreter,
                 )
-            if not decision.evidence_ready:
+            if not task_decision.evidence_ready:
                 return self._result(
                     definition,
                     subject,
-                    EligibilityStatus.ANALYSIS_UNKNOWN,
+                    EligibilityStatus.ANALYSIS_FAILED,
                     "evidence_retrieval_failed",
                     None,
                     Decimal("0"),
@@ -656,8 +707,8 @@ class MetricEvaluator:
             return self._result(
                 definition,
                 subject,
-                EligibilityStatus.ANALYSIS_UNKNOWN,
-                "required_event_unknown",
+                EligibilityStatus.ANALYSIS_FAILED,
+                "semantic_event_integrity_failed",
                 None,
                 Decimal("0"),
                 Decimal("0"),
@@ -667,8 +718,8 @@ class MetricEvaluator:
             return self._result(
                 definition,
                 subject,
-                EligibilityStatus.ANALYSIS_UNKNOWN,
-                "evidence_span_invalid",
+                EligibilityStatus.ANALYSIS_FAILED,
+                "evidence_span_integrity_failed",
                 None,
                 Decimal("0"),
                 Decimal("0"),
@@ -678,7 +729,7 @@ class MetricEvaluator:
             return self._result(
                 definition,
                 subject,
-                EligibilityStatus.ANALYSIS_UNKNOWN,
+                EligibilityStatus.ANALYSIS_FAILED,
                 "evidence_retrieval_failed",
                 None,
                 Decimal("0"),

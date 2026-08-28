@@ -40,6 +40,20 @@ class Settings(BaseSettings):
     metrics_backfill_batch_size: int = 500
     semantic_decision_max_concurrent_activities: int = 8
     semantic_decision_backfill_batch_size: int = 100
+    # Semantic Metrics V2 uses one automatic OpenAI-compatible judge.  The
+    # dedicated values may override the shared research gateway without ever
+    # entering a workflow payload, database row, or log record.  Empty
+    # credential/base URL values inherit GEO_RESEARCH_LLM_*.
+    semantic_decision_llm_api_key: str = ""
+    semantic_decision_llm_base_url: str = ""
+    semantic_decision_llm_base_url_fallback: str = ""
+    semantic_decision_llm_provider: str = "openai-compatible"
+    semantic_decision_llm_model: str = "gpt-5.6-sol"
+    semantic_decision_llm_model_revision: str = "runtime-configured"
+    semantic_decision_llm_timeout_seconds: float = 120.0
+    semantic_decision_llm_max_retries: int = 2
+    # Fail closed until a durable metered budget has been configured.  The
+    # current value is an operational call gate, not a monetary counter.
     semantic_decision_daily_budget: float = 0.0
     semantic_decision_judge_policy_version: str = ""
     minio_endpoint: str = "http://127.0.0.1:19000"

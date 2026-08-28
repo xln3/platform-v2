@@ -274,8 +274,12 @@ type CustomerDashboardV2ContractResponse =
   paths['/api/v2/customer-dashboard/projects/{project_pub_id}/dashboard-v2']['get']['responses']['200']['content']['application/json'];
 type CustomerMetricTraceV2ContractResponse =
   paths['/api/v2/customer-dashboard/projects/{project_pub_id}/dashboard-v2/snapshot-sets/{snapshot_set_pub_id}/snapshots/{snapshot_pub_id}/trace']['get']['responses']['200']['content']['application/json'];
-export type SemanticDecisionOverrideRequest =
+type SemanticDecisionOverrideContractRequest =
   paths['/api/v2/metrics/operations/semantic-decisions/{decision_pub_id}/overrides']['post']['requestBody']['content']['application/json'];
+export type SemanticDecisionOverrideRequest = Pick<
+  SemanticDecisionOverrideContractRequest,
+  'result' | 'rationale_summary' | 'reason_codes' | 'expected_decision_hash'
+>;
 type SemanticDecisionOverrideContractResponse =
   paths['/api/v2/metrics/operations/semantic-decisions/{decision_pub_id}/overrides']['post']['responses']['201']['content']['application/json'];
 export type CustomerBusinessViewV2 = CustomerDashboardV2ContractResponse['business_view'];
@@ -305,7 +309,8 @@ export type CustomerMetricTraceV2Query = {
     | 'included_miss'
     | 'excluded'
     | 'not_applicable'
-    | 'analysis_unknown';
+    | 'analysis_unknown'
+    | 'analysis_failed';
   reason_code?: string;
   query?: string;
   model?: string;
@@ -2393,6 +2398,7 @@ export async function getCustomerMetricTraceV2(
  * correction.
  */
 export async function overrideSemanticDecisionV2(
+  projectPubId: string,
   decisionPubId: string,
   request: SemanticDecisionOverrideRequest,
   headers: IdentitySessionHeaders,
@@ -2402,6 +2408,7 @@ export async function overrideSemanticDecisionV2(
   const rationale = request.rationale_summary.trim();
   const reasonCodes = request.reason_codes.map((reason) => reason.trim());
   if (
+    !/^prj_[A-Za-z0-9_-]{1,116}$/u.test(projectPubId) ||
     !/^sdr_[A-Za-z0-9_-]{1,116}$/u.test(decisionPubId) ||
     !result ||
     !safeBrowserString(rationale, 2_000) ||
@@ -2419,6 +2426,7 @@ export async function overrideSemanticDecisionV2(
       {
         params: { path: { decision_pub_id: decisionPubId }, header: headers },
         body: {
+          project_pub_id: projectPubId,
           result,
           rationale_summary: rationale,
           reason_codes: reasonCodes,
@@ -3612,6 +3620,7 @@ export const projectCustomerMetricV2Boundary = (
     value.candidate_answer_count,
     value.known_answer_count,
     value.unknown_answer_count,
+    value.failed_answer_count,
     value.not_applicable_answer_count,
     value.excluded_answer_count,
     value.design_cell_count,
@@ -3620,6 +3629,7 @@ export const projectCustomerMetricV2Boundary = (
   if (
     Number(value.known_answer_count) +
       Number(value.unknown_answer_count) +
+      Number(value.failed_answer_count) +
       Number(value.not_applicable_answer_count) +
       Number(value.excluded_answer_count) !==
     Number(value.candidate_answer_count)
@@ -3761,6 +3771,7 @@ const validMetricTraceContribution = (
     'excluded',
     'not_applicable',
     'analysis_unknown',
+    'analysis_failed',
   ] as const);
   const detailHref = safeBrowserString(value.answer_detail_href, 4_000);
   let detailUrl: URL | null = null;
@@ -3864,6 +3875,7 @@ const validMetricTraceContribution = (
     if (
       !isBrowserRecord(decision) ||
       !safeBrowserString(decision.decision_pub_id, 120) ||
+      !safeHash(decision.decision_hash) ||
       !safeBrowserString(decision.task, 200) ||
       !safeBrowserString(decision.version, 80) ||
       !safeBrowserEnum(decision.method, ['deterministic', 'model', 'hybrid', 'human'] as const) ||
@@ -3874,6 +3886,8 @@ const validMetricTraceContribution = (
         'failed',
       ] as const) ||
       !safeHash(decision.rubric_hash) ||
+      !projectSafeStructuredRecord(decision.result) ||
+      !safeStringList(decision.reason_codes, 20, 200) ||
       safeRatioOrNull(decision.calibrated_confidence) === undefined ||
       !Array.isArray(decision.evidence_refs) ||
       decision.evidence_refs.length > 200 ||

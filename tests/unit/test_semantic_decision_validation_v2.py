@@ -206,6 +206,98 @@ def test_legal_semantic_unknown_is_not_a_structural_failure() -> None:
     assert result.is_valid
 
 
+def test_known_empty_and_negative_outputs_do_not_invent_evidence_spans() -> None:
+    text = "回答没有列出任何品牌或主张。"
+    cases = (
+        ("answer-entity-resolution", {"resolutions": []}),
+        ("rank-semantics", {"rank_events": []}),
+        ("claim-extraction", {"claims": []}),
+        (
+            "substantive-entity-mention",
+            {
+                "entity_id": ENTITY_ID,
+                "surface": "盛邦安全",
+                "substantive": False,
+                "mention_role": "prompt_echo",
+                "start": None,
+                "end": None,
+                "excerpt_hash": None,
+                "reason_codes": ["not_present_in_answer"],
+            },
+        ),
+        (
+            "recommendation-relation",
+            {
+                "subject_entity_id": ENTITY_ID,
+                "surface": None,
+                "polarity": "neutral",
+                "strength": 0,
+                "scenario": "",
+                "stance_owner": "assistant",
+                "subject_resolution": "query_context_coreference",
+                "start": None,
+                "end": None,
+                "excerpt_hash": None,
+            },
+        ),
+    )
+
+    for task_name, output in cases:
+        result = validate_decision_output(
+            task=task(task_name, version="2.1.0"),
+            output=output,
+            candidate_set=candidate_set(),
+            answer_text=text,
+            expected_answer_text_hash=digest(text),
+        )
+        assert result.is_valid, (task_name, result.reason_codes)
+
+
+def test_positive_fact_still_requires_a_valid_answer_span() -> None:
+    text = "盛邦安全值得推荐。"
+    output = _recommendation_output(text) | {
+        "polarity": "positive",
+        "scenario": "",
+        "start": None,
+        "end": None,
+        "excerpt_hash": None,
+    }
+
+    result = validate_decision_output(
+        task=task("recommendation-relation", version="2.1.0"),
+        output=output,
+        candidate_set=candidate_set(),
+        answer_text=text,
+        expected_answer_text_hash=digest(text),
+    )
+
+    assert "required_evidence_span_missing" in result.reason_codes
+
+
+def test_high_severity_risk_is_valid_with_single_strong_model_and_evidence() -> None:
+    text = "盛邦安全存在高危漏洞"
+    output = {
+        "risk_type": "security_vulnerability",
+        "severity": "high",
+        "verdict": "confirmed",
+        "subject_entity_id": ENTITY_ID,
+        "object_entity_id": None,
+        "start": 0,
+        "end": len(text),
+        "excerpt_hash": digest(text),
+    }
+
+    result = validate_decision_output(
+        task=task("risk-adjudication", version="2.1.0"),
+        output=output,
+        candidate_set=candidate_set(),
+        answer_text=text,
+        expected_answer_text_hash=digest(text),
+    )
+
+    assert result.is_valid, result.reason_codes
+
+
 def test_additional_output_field_and_bad_excerpt_hash_fail_closed() -> None:
     text = "盛邦安全"
     output = {

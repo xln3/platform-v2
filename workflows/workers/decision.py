@@ -7,6 +7,7 @@ does not calculate aggregate metrics or render reports.
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 import structlog
 from geo_platform.config import get_settings
@@ -65,14 +66,19 @@ async def run_worker() -> None:
         max_concurrent_activities=settings.semantic_decision_max_concurrent_activities,
         judge_policy_version=settings.semantic_decision_judge_policy_version or None,
     )
-    worker = Worker(
-        client,
-        task_queue=settings.decision_temporal_task_queue,
-        workflows=list(DECISION_WORKFLOWS),
-        activities=list(DECISION_ACTIVITIES),
-        max_concurrent_activities=settings.semantic_decision_max_concurrent_activities,
-    )
-    await worker.run()
+    with ThreadPoolExecutor(
+        max_workers=settings.semantic_decision_max_concurrent_activities,
+        thread_name_prefix="geo-decision-activity",
+    ) as executor:
+        worker = Worker(
+            client,
+            task_queue=settings.decision_temporal_task_queue,
+            workflows=list(DECISION_WORKFLOWS),
+            activities=list(DECISION_ACTIVITIES),
+            activity_executor=executor,
+            max_concurrent_activities=settings.semantic_decision_max_concurrent_activities,
+        )
+        await worker.run()
 
 
 if __name__ == "__main__":

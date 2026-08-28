@@ -6940,7 +6940,8 @@
                     "included_miss",
                     "excluded",
                     "not_applicable",
-                    "analysis_unknown"
+                    "analysis_unknown",
+                    "analysis_failed"
                   ],
                   "type": "string"
                 },
@@ -42262,7 +42263,8 @@
                     "included_miss",
                     "excluded",
                     "not_applicable",
-                    "analysis_unknown"
+                    "analysis_unknown",
+                    "analysis_failed"
                   ],
                   "type": "string"
                 },
@@ -80615,7 +80617,8 @@
               "included_miss",
               "excluded",
               "not_applicable",
-              "analysis_unknown"
+              "analysis_unknown",
+              "analysis_failed"
             ],
             "title": "Eligibility Status"
           },
@@ -88387,6 +88390,12 @@
             "minimum": 0.0,
             "title": "Unknown Answer Count"
           },
+          "failed_answer_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Failed Answer Count",
+            "default": 0
+          },
           "not_applicable_answer_count": {
             "type": "integer",
             "minimum": 0.0,
@@ -89918,6 +89927,13 @@
       },
       "DecisionOverrideRequest": {
         "properties": {
+          "project_pub_id": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 5,
+            "pattern": "^[a-z][a-z0-9]*_[A-Za-z0-9_-]+$",
+            "title": "Project Pub Id"
+          },
           "result": {
             "additionalProperties": true,
             "type": "object",
@@ -89947,6 +89963,7 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
+          "project_pub_id",
           "result",
           "rationale_summary",
           "reason_codes",
@@ -89987,6 +90004,16 @@
             "minLength": 5,
             "pattern": "^[a-z][a-z0-9]*_[A-Za-z0-9_-]+$",
             "title": "Recompute Job Pub Id"
+          },
+          "recompute_job_pub_ids": {
+            "items": {
+              "type": "string",
+              "maxLength": 120,
+              "minLength": 5,
+              "pattern": "^[a-z][a-z0-9]*_[A-Za-z0-9_-]+$"
+            },
+            "type": "array",
+            "title": "Recompute Job Pub Ids"
           }
         },
         "additionalProperties": false,
@@ -95863,6 +95890,12 @@
             "minimum": 0.0,
             "title": "Unknown Answer Count"
           },
+          "failed_answer_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Failed Answer Count",
+            "default": 0
+          },
           "not_applicable_answer_count": {
             "type": "integer",
             "minimum": 0.0,
@@ -96109,6 +96142,12 @@
             "type": "integer",
             "minimum": 0.0,
             "title": "Unknown Answer Count"
+          },
+          "failed_answer_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Failed Answer Count",
+            "default": 0
           },
           "not_applicable_answer_count": {
             "type": "integer",
@@ -107072,6 +107111,13 @@
             "additionalProperties": true,
             "type": "object",
             "title": "Result"
+          },
+          "reason_codes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reason Codes"
           },
           "calibrated_confidence": {
             "anyOf": [

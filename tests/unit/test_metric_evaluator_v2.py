@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from decimal import Decimal
 
 from domain.metrics.v2.definition_loader import load_definitions
@@ -226,7 +227,7 @@ def test_primary_lens_never_controls_metric_admission() -> None:
     )
 
 
-def test_capability_failure_is_unknown_and_never_a_miss() -> None:
+def test_capability_failure_is_failed_and_never_a_semantic_unknown_or_miss() -> None:
     definition = load_definitions().get("ai_recommendation_organic_mention_rate_v2", "2.0.0")
     subject = _answer("failed", [])
     subject = EvaluationInput(
@@ -237,9 +238,92 @@ def test_capability_failure_is_unknown_and_never_a_miss() -> None:
         capability_statuses={"substantive_entity_mention": SemanticCapabilityStatus.FAILED},
     )
     result = MetricEvaluator().evaluate(definition, subject)
-    assert result.eligibility_status is EligibilityStatus.ANALYSIS_UNKNOWN
+    assert result.eligibility_status is EligibilityStatus.ANALYSIS_FAILED
     assert result.reason_codes == ("semantic_analysis_failed",)
     assert result.denominator_contribution == 0
+
+
+def test_llm_api_failure_reason_survives_metric_evaluation() -> None:
+    definition = load_definitions().get("ai_recommendation_organic_mention_rate_v2", "2.0.0")
+    task_ref = "substantive-entity-mention@2.0.0"
+    base = _answer("llm_failed", [])
+    subject = EvaluationInput(
+        answer_pub_id=base.answer_pub_id,
+        query_context=base.query_context,
+        focal_entity_id=TARGET,
+        exposure_role=ExposureRole.BRAND_NEUTRAL,
+        capability_statuses={"substantive_entity_mention": SemanticCapabilityStatus.FAILED},
+        decisions={
+            task_ref: SemanticDecisionFact(
+                task_ref=task_ref,
+                status=DecisionStatus.FAILED,
+                decision_pub_id="sdr_llm_failed",
+                method=DecisionMethod.MODEL,
+                reason_codes=("llm_api_rate_limited",),
+            )
+        },
+    )
+
+    result = MetricEvaluator().evaluate(definition, subject)
+
+    assert result.eligibility_status is EligibilityStatus.ANALYSIS_FAILED
+    assert result.reason_codes == ("llm_api_rate_limited",)
+    assert result.supporting_decision_pub_ids == ("sdr_llm_failed",)
+
+
+def test_execution_integrity_failures_are_not_semantic_unknown() -> None:
+    definition = load_definitions().get("ai_recommendation_organic_mention_rate_v2", "2.0.0")
+    base = _answer("integrity_failed", [])
+
+    cases = (
+        (replace(base, event_invariants_valid=False), "semantic_event_integrity_failed"),
+        (replace(base, evidence_spans_valid=False), "evidence_span_integrity_failed"),
+        (replace(base, evidence_retrieval_ready=False), "evidence_retrieval_failed"),
+    )
+    for subject, expected_reason in cases:
+        result = MetricEvaluator().evaluate(definition, subject)
+        assert result.eligibility_status is EligibilityStatus.ANALYSIS_FAILED
+        assert result.reason_codes == (expected_reason,)
+
+
+def test_accepted_uncalibrated_strong_model_decision_remains_metric_eligible() -> None:
+    definition = load_definitions().get("ai_recommendation_organic_mention_rate_v2", "2.0.0")
+    task_ref = "substantive-entity-mention@2.0.0"
+    subject = _answer(
+        "uncalibrated",
+        [
+            _event(
+                "evt_uncalibrated",
+                "entity_mention",
+                TARGET,
+                surface="盛邦安全",
+                substantive=True,
+                mention_role="asserted_body",
+            )
+        ],
+    )
+    subject = replace(
+        subject,
+        decisions={
+            **subject.decisions,
+            task_ref: SemanticDecisionFact(
+                task_ref=task_ref,
+                status=DecisionStatus.ACCEPTED,
+                value={"substantive": True, "mention_role": "asserted_body"},
+                decision_pub_id="sdr_uncalibrated",
+                method=DecisionMethod.MODEL,
+                calibrated=False,
+                policy_matches=True,
+                evidence_ready=True,
+                reason_codes=("accepted_without_calibration",),
+            ),
+        },
+    )
+
+    result = MetricEvaluator().evaluate(definition, subject)
+
+    assert result.eligibility_status is EligibilityStatus.INCLUDED_HIT
+    assert result.supporting_decision_pub_ids == ("sdr_uncalibrated",)
 
 
 def test_claim_metrics_keep_one_answer_evaluation_but_count_three_claims() -> None:

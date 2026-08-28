@@ -91,6 +91,7 @@ import {
   listResponsibleMembers,
   listSopProjects,
   logoutIdentitySession,
+  overrideSemanticDecisionV2,
   publishReport,
   projectCustomerAccountView,
   projectCustomerAnswerLibraryDetailBoundary,
@@ -5325,6 +5326,7 @@ describe('generated client', () => {
       candidate_answer_count: 2,
       known_answer_count: 2,
       unknown_answer_count: 0,
+      failed_answer_count: 0,
       not_applicable_answer_count: 0,
       excluded_answer_count: 0,
       design_cell_count: 2,
@@ -5474,12 +5476,15 @@ describe('generated client', () => {
             supporting_decisions: [
               {
                 decision_pub_id: 'sdr_customer_safe',
+                decision_hash: 'd'.repeat(64),
                 task: 'substantive-entity-mention',
                 version: '2.0.0',
                 method: 'hybrid',
                 status: 'accepted',
                 calibrated_confidence: 0.98,
                 rubric_hash: hash,
+                result: { mention_kind: 'substantive', mentioned: true },
+                reason_codes: ['substantive_entity_mention'],
                 evidence_refs: [{ event_pub_id: 'ase_customer_safe', relation: 'supports' }],
                 rationale_summary: '回答正文对目标品牌有实质描述。',
               },
@@ -5577,6 +5582,88 @@ describe('generated client', () => {
       '/snapshot-sets/mss_customer_safe/snapshots/msn_customer_safe/trace',
     );
     expect(traceUrl.searchParams.get('snapshot_set_hash')).toBe(hash);
+  });
+
+  it('submits a tenant-scoped semantic correction with the frozen decision CAS hash', async () => {
+    const originalDecisionHash = 'd'.repeat(64);
+    const successorDecisionHash = 'e'.repeat(64);
+    const request = vi.fn(
+      async (_input: RequestInfo | URL) =>
+        new Response(
+          JSON.stringify({
+            schema_version: 'semantic-decision-override-v2',
+            decision_pub_id: 'sdr_customer_successor',
+            supersedes_pub_id: 'sdr_customer_original',
+            decision_hash: successorDecisionHash,
+            recompute_job_pub_id: 'mrj_customer_correction',
+          }),
+          { status: 201, headers: { 'content-type': 'application/json' } },
+        ),
+    );
+    vi.stubGlobal('fetch', request);
+    const client = createGeoApiClient('http://127.0.0.1:45200');
+    const headers: IdentitySessionHeaders = {
+      'X-Tenant-Id': 'tnt_customer_safe',
+      'X-Actor-Id': 'usr_customer_safe',
+      'X-Actor-Role': 'customer',
+    };
+    await expect(
+      overrideSemanticDecisionV2(
+        'prj_customer_safe',
+        'sdr_customer_original',
+        {
+          result: { rankable: true, target_rank: 2 },
+          rationale_summary: ' 原文是并列第二，不是第三。 ',
+          reason_codes: ['customer_correction'],
+          expected_decision_hash: originalDecisionHash,
+        },
+        headers,
+        client,
+      ),
+    ).resolves.toEqual({
+      kind: 'ready',
+      data: {
+        decisionPubId: 'sdr_customer_successor',
+        supersedesPubId: 'sdr_customer_original',
+        decisionHash: successorDecisionHash,
+        recomputeJobPubId: 'mrj_customer_correction',
+      },
+    });
+    const sent = request.mock.calls[0]?.[0] as Request;
+    expect(sent.method).toBe('POST');
+    expect(new URL(sent.url).pathname).toBe(
+      '/api/v2/metrics/operations/semantic-decisions/sdr_customer_original/overrides',
+    );
+    await expect(sent.clone().json()).resolves.toEqual({
+      project_pub_id: 'prj_customer_safe',
+      result: { rankable: true, target_rank: 2 },
+      rationale_summary: '原文是并列第二，不是第三。',
+      reason_codes: ['customer_correction'],
+      expected_decision_hash: originalDecisionHash,
+    });
+
+    const conflict = vi.fn(
+      async (_input: RequestInfo | URL) =>
+        new Response(JSON.stringify({ detail: { code: 'metrics_v2_decision_hash_conflict' } }), {
+          status: 409,
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+    vi.stubGlobal('fetch', conflict);
+    await expect(
+      overrideSemanticDecisionV2(
+        'prj_customer_safe',
+        'sdr_customer_original',
+        {
+          result: { rankable: false },
+          rationale_summary: '判定已改变。',
+          reason_codes: ['customer_correction'],
+          expected_decision_hash: originalDecisionHash,
+        },
+        headers,
+        client,
+      ),
+    ).resolves.toEqual({ kind: 'conflict' });
   });
 
   it('projects customer answer pages with complete public answer text and exact pagination', async () => {

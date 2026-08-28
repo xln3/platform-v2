@@ -21,6 +21,7 @@ export type MetricV2Summary = {
   candidate_answer_count: number;
   known_answer_count: number;
   unknown_answer_count: number;
+  failed_answer_count: number;
   not_applicable_answer_count: number;
   excluded_answer_count: number;
   design_cell_count: number;
@@ -70,6 +71,7 @@ export type MetricV2Decision = {
   calibrated_confidence: number | null;
   rubric_hash: string;
   result: Record<string, unknown>;
+  reason_codes?: readonly string[];
   evidence_refs?: readonly Record<string, unknown>[];
 };
 
@@ -99,7 +101,8 @@ export type MetricV2Contribution = {
     | 'included_miss'
     | 'excluded'
     | 'not_applicable'
-    | 'analysis_unknown';
+    | 'analysis_unknown'
+    | 'analysis_failed';
   reason_codes: readonly string[];
   numerator_contribution: number;
   denominator_contribution: number;
@@ -152,7 +155,50 @@ const eligibilityLabels: Record<MetricV2Contribution['eligibility_status'], stri
   included_miss: '未命中',
   excluded: '排除',
   not_applicable: '不适用',
-  analysis_unknown: '分析未知',
+  analysis_unknown: '内容证据不足，当前无法判断',
+  analysis_failed: '系统分析失败',
+};
+
+const includesAnyReason = (reasonCodes: readonly string[], fragments: readonly string[]): boolean =>
+  reasonCodes.some((reason) =>
+    fragments.some((fragment) => reason.toLowerCase().includes(fragment)),
+  );
+
+const infrastructureFailureLabel = (reasonCodes: readonly string[]): string => {
+  if (includesAnyReason(reasonCodes, ['auth', 'credential', 'config', 'api_key_missing'])) {
+    return 'LLM API 未配置';
+  }
+  if (includesAnyReason(reasonCodes, ['rate_limit'])) {
+    return 'LLM API 限流';
+  }
+  if (includesAnyReason(reasonCodes, ['timeout'])) {
+    return 'LLM API 超时';
+  }
+  if (includesAnyReason(reasonCodes, ['budget'])) {
+    return 'LLM 调用预算不足';
+  }
+  return 'LLM API 不可用';
+};
+
+const contributionStateLabel = (row: MetricV2Contribution): string => {
+  if (row.eligibility_status !== 'analysis_failed') {
+    return eligibilityLabels[row.eligibility_status];
+  }
+  const decisionReasonCodes = row.supporting_decisions.flatMap(
+    (decision) => decision.reason_codes ?? [],
+  );
+  const diagnosticReasonCodes =
+    decisionReasonCodes.length > 0 ? decisionReasonCodes : row.reason_codes;
+  return diagnosticReasonCodes.some((reason) => reason.toLowerCase().startsWith('llm_api_'))
+    ? infrastructureFailureLabel(diagnosticReasonCodes)
+    : eligibilityLabels.analysis_failed;
+};
+
+const reasonCodeLabel = (reason: string): string => {
+  const normalized = reason.toLowerCase();
+  if (normalized.includes('unknown')) return '内容证据不足';
+  if (normalized.startsWith('llm_api_')) return infrastructureFailureLabel([normalized]);
+  return reason;
 };
 
 const percent = (value: number | null): string =>
@@ -163,6 +209,14 @@ const isRatioMetric = (metricName: string): boolean =>
 
 const metricValue = (metricName: string, value: number | null): string =>
   value === null ? '—' : isRatioMetric(metricName) ? percent(value) : value.toFixed(2);
+
+const decisionMethodLabel = (decision: MetricV2Decision): string => {
+  if (decision.method === 'human') return '用户纠错';
+  if (decision.method === 'deterministic') return '规则自动判定';
+  return decision.calibrated_confidence === null
+    ? '模型自动判定'
+    : `模型自动判定 · 置信度 ${percent(decision.calibrated_confidence)}`;
+};
 
 const shortHash = (value: string): string => `${value.slice(0, 12)}…${value.slice(-8)}`;
 
@@ -328,11 +382,9 @@ function ContributionTable({ rows }: { rows: readonly MetricV2Contribution[] }) 
                 </small>
               </td>
               <td>
-                <span data-state={row.eligibility_status}>
-                  {eligibilityLabels[row.eligibility_status]}
-                </span>
+                <span data-state={row.eligibility_status}>{contributionStateLabel(row)}</span>
               </td>
-              <td>{row.reason_codes.join('、')}</td>
+              <td>{row.reason_codes.map(reasonCodeLabel).join('、')}</td>
               <td>
                 {row.numerator_contribution}/{row.denominator_contribution}
               </td>
@@ -452,10 +504,12 @@ export function CustomerMetricTrace({
         <div>
           <span>语义覆盖率</span>
           <strong>{percent(metric.coverage.semantic)}</strong>
-          <small>{metric.unknown_answer_count} 条未知</small>
+          <small>
+            内容证据不足 {metric.unknown_answer_count} · 系统异常 {metric.failed_answer_count}
+          </small>
         </div>
         <div>
-          <span>未知界限</span>
+          <span>缺失结果界限</span>
           <strong>
             {metricValue(metric.metric_name, metric.missing_bounds.lower)}–
             {metricValue(metric.metric_name, metric.missing_bounds.upper)}
@@ -515,10 +569,11 @@ export function CustomerMetricTrace({
         ) : null}
       </TraceSection>
 
-      <TraceSection title="未计入与未知">
+      <TraceSection title="未计入、证据不足与系统异常">
         <p>
-          排除 {metric.excluded_answer_count}；不适用 {metric.not_applicable_answer_count}；分析未知{' '}
-          {metric.unknown_answer_count}。
+          排除 {metric.excluded_answer_count}；不适用 {metric.not_applicable_answer_count}
+          ；内容证据不足 {metric.unknown_answer_count}；系统异常 {metric.failed_answer_count}
+          。两者独立计数，具体原因见明细。
         </p>
         {omitted.length > 0 ? (
           <ContributionTable rows={omitted} />
@@ -538,33 +593,35 @@ export function CustomerMetricTrace({
               <strong>
                 {decision.task}@{decision.version}
               </strong>{' '}
-              · {decision.method} · {decision.status} ·{' '}
-              {decision.calibrated_confidence === null
-                ? '无已校准置信度'
-                : `已校准置信度 ${percent(decision.calibrated_confidence)}`}
+              · {decision.method} · {decision.status} · {decisionMethodLabel(decision)}
               {decision.rationale_summary ? <p>{decision.rationale_summary}</p> : null}
               <small title={decision.rubric_hash}>
                 rubric {shortHash(decision.rubric_hash)} · 证据引用{' '}
                 {decision.evidence_refs?.length ?? 0} 条
               </small>
+              {(decision.reason_codes?.length ?? 0) > 0 ? (
+                <small>判定原因 {decision.reason_codes?.map(reasonCodeLabel).join('、')}</small>
+              ) : null}
               {(decision.evidence_refs?.length ?? 0) > 0 ? (
                 <details>
                   <summary>展开 decision evidence 引用</summary>
                   <code>{JSON.stringify(decision.evidence_refs)}</code>
                 </details>
               ) : null}
-              <button
-                type="button"
-                aria-expanded={correctingDecisionId === decision.decision_pub_id}
-                aria-controls={`decision-correction-${decision.decision_pub_id}`}
-                onClick={() =>
-                  setCorrectingDecisionId((current) =>
-                    current === decision.decision_pub_id ? null : decision.decision_pub_id,
-                  )
-                }
-              >
-                纠错
-              </button>
+              {decision.status === 'accepted' ? (
+                <button
+                  type="button"
+                  aria-expanded={correctingDecisionId === decision.decision_pub_id}
+                  aria-controls={`decision-correction-${decision.decision_pub_id}`}
+                  onClick={() =>
+                    setCorrectingDecisionId((current) =>
+                      current === decision.decision_pub_id ? null : decision.decision_pub_id,
+                    )
+                  }
+                >
+                  纠错
+                </button>
+              ) : null}
               {correctingDecisionId === decision.decision_pub_id ? (
                 <DecisionCorrectionForm
                   decision={decision}

@@ -17,6 +17,7 @@ EligibilityStatus = Literal[
     "excluded",
     "not_applicable",
     "analysis_unknown",
+    "analysis_failed",
 ]
 
 
@@ -157,6 +158,7 @@ class MetricSnapshotView(StrictModel):
     candidate_answer_count: int = Field(ge=0)
     known_answer_count: int = Field(ge=0)
     unknown_answer_count: int = Field(ge=0)
+    failed_answer_count: int = Field(default=0, ge=0)
     not_applicable_answer_count: int = Field(ge=0)
     excluded_answer_count: int = Field(ge=0)
     design_cell_count: int = Field(ge=0)
@@ -206,6 +208,7 @@ class SupportingDecisionView(StrictModel):
     method: Literal["deterministic", "model", "hybrid", "human"]
     status: Literal["accepted", "abstained", "review_required", "failed"]
     result: dict[str, Any]
+    reason_codes: list[str] = Field(default_factory=list)
     calibrated_confidence: float | None = Field(default=None, ge=0, le=1)
     rubric_hash: Hash
     evidence_refs: list[dict[str, Any]] = Field(default_factory=list)
@@ -397,6 +400,7 @@ class RecomputeRequest(StrictModel):
 
 
 class DecisionOverrideRequest(StrictModel):
+    project_pub_id: PublicId
     result: dict[str, Any]
     rationale_summary: str = Field(min_length=1, max_length=2_000)
     reason_codes: list[str] = Field(min_length=1, max_length=20)
@@ -409,3 +413,4 @@ class DecisionOverrideView(StrictModel):
     supersedes_pub_id: PublicId
     decision_hash: Hash
     recompute_job_pub_id: PublicId
+    recompute_job_pub_ids: list[PublicId] = Field(default_factory=list)

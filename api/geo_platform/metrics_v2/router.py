@@ -273,7 +273,12 @@ def metric_contributions_v2(
     cursor: str | None = Query(default=None, min_length=8, max_length=2_000),
     limit: int = Query(default=50, ge=1, le=100),
     eligibility_status: Literal[
-        "included_hit", "included_miss", "excluded", "not_applicable", "analysis_unknown"
+        "included_hit",
+        "included_miss",
+        "excluded",
+        "not_applicable",
+        "analysis_unknown",
+        "analysis_failed",
     ]
     | None = Query(default=None),
     reason_code: str | None = Query(default=None, min_length=1, max_length=120),
@@ -491,6 +496,11 @@ def override_semantic_decision_v2(
         )
     except LookupError as exc:
         raise _not_found(exc) from exc
+    except MetricsV2Conflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "semantic_decision_override_conflict"},
+        ) from exc
     except MetricsV2Invalid as exc:
         raise HTTPException(status_code=422, detail={"code": str(exc)}) from exc
 

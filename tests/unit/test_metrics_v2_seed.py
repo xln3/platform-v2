@@ -12,14 +12,14 @@ from tools.seed_metrics_v2_definitions import build_seed_bundle
 def test_seed_bundle_is_complete_unique_and_never_official() -> None:
     artifacts = build_seed_bundle()
 
-    assert len(artifacts) == 50
+    assert len(artifacts) == 66
     assert {item.kind for item in artifacts} == {
         "decision_task",
         "judge_policy",
         "metric_definition",
     }
-    assert len({(item.kind, item.name, item.version) for item in artifacts}) == 50
-    assert len({item.content_hash for item in artifacts}) == 50
+    assert len({(item.kind, item.name, item.version) for item in artifacts}) == 66
+    assert len({item.content_hash for item in artifacts}) == 66
     assert all(item.document["status"] == "experimental" for item in artifacts)
     assert all(item.document.get("published_at") is None for item in artifacts)
 
@@ -60,6 +60,15 @@ def test_live_and_backfill_request_builder_is_reference_only() -> None:
         "risk-adjudication@2.0.0",
     }
     assert all(item["official_use"] is False for item in request["decision_tasks"])
+    assert len(request["manifest"]["decision_task_bundle"]["task_refs"]) == 14
+    assert all(
+        task_ref.endswith("@2.0.0")
+        for task_ref in request["manifest"]["decision_task_bundle"]["task_refs"]
+    )
+    assert all(
+        not policy_ref.startswith("semantic-v2-primary-")
+        for policy_ref in request["policy_versions_by_hash"].values()
+    )
 
 
 def test_request_builder_freezes_all_applicable_static_and_dynamic_task_fanout() -> None:
@@ -121,5 +130,7 @@ def test_request_builder_freezes_all_applicable_static_and_dynamic_task_fanout()
     first = instantiate_decision_task_request(template, subject)
     second = instantiate_decision_task_request(dict(reversed(list(template.items()))), subject)
     assert first == second
-    assert "input_material_hashes" not in first
+    assert first["input_material_hashes"] == template["input_material_hashes"]
+    assert first["source_answer_pub_id"] == "ans_fixture"
+    assert "answer_text" not in first and "query_text" not in first
     assert len(first["input_hash"]) == len(first["idempotency_key"]) == 64

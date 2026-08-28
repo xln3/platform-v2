@@ -2327,6 +2327,7 @@ const projectMetricV2Summary = (
   candidate_answer_count: metric.candidate_answer_count,
   known_answer_count: metric.known_answer_count,
   unknown_answer_count: metric.unknown_answer_count,
+  failed_answer_count: metric.failed_answer_count,
   not_applicable_answer_count: metric.not_applicable_answer_count,
   excluded_answer_count: metric.excluded_answer_count,
   design_cell_count: metric.design_cell_count,
@@ -2411,6 +2412,7 @@ const projectMetricV2ContributionPage = (
       calibrated_confidence: decision.calibrated_confidence ?? null,
       rubric_hash: decision.rubric_hash,
       result: decision.result,
+      reason_codes: decision.reason_codes ?? [],
       evidence_refs: decision.evidence_refs ?? [],
     })),
     answer_excerpt: row.answer_excerpt ?? null,
@@ -2764,6 +2766,7 @@ function CustomerAnalyticsV2LiveWorkspace({
       const headers = getValidatedIdentityHeaders();
       if (!headers) return { kind: 'forbidden' };
       const result = await overrideSemanticDecisionV2(
+        projectPubId,
         request.decisionPubId,
         {
           result: request.result,
@@ -2777,7 +2780,7 @@ function CustomerAnalyticsV2LiveWorkspace({
         ? { kind: 'submitted', recomputeJobPubId: result.data.recomputeJobPubId }
         : { kind: result.kind };
     },
-    [],
+    [projectPubId],
   );
 
   const filterOptions: DashboardFilterOptions = {

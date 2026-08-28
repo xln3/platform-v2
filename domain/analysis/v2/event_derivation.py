@@ -135,10 +135,10 @@ def capability_analyses_from_decisions(
     answer: dict[str, CapabilityAnalysis] = {}
     for capability, records in grouped.items():
         statuses = {record.status for record in records}
-        if DecisionStatus.REVIEW_REQUIRED in statuses:
-            status = CapabilityStatus.REVIEW_REQUIRED
-        elif DecisionStatus.FAILED in statuses:
+        if DecisionStatus.FAILED in statuses:
             status = CapabilityStatus.FAILED
+        elif DecisionStatus.REVIEW_REQUIRED in statuses:
+            status = CapabilityStatus.REVIEW_REQUIRED
         elif DecisionStatus.ABSTAINED in statuses:
             status = CapabilityStatus.ABSTAINED
         else:

@@ -158,6 +158,7 @@ def _subject(payload: dict[str, Any]) -> EvaluationInput:
             policy_matches=bool(item.get("policy_matches", True)),
             evidence_ready=bool(item.get("evidence_ready", True)),
             calibration_artifact_hash=item.get("calibration_artifact_hash"),
+            reason_codes=tuple(map(str, item.get("reason_codes", []))),
         )
         for task_ref, item in dict(payload.get("decisions") or {}).items()
     }

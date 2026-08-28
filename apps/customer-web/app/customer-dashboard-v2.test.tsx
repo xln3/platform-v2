@@ -54,6 +54,7 @@ const metric = (name: string, index: number) => ({
   candidate_answer_count: 2,
   known_answer_count: 2,
   unknown_answer_count: 0,
+  failed_answer_count: 0,
   not_applicable_answer_count: 0,
   excluded_answer_count: 0,
   design_cell_count: 2,

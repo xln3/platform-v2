@@ -13,6 +13,7 @@ from domain.analysis.v2.decision_task_loader import (
 )
 
 _QUERY_SUBJECT_TYPES = frozenset({"query", "query_dimension"})
+_ACTIVE_TASK_VERSION = "2.0.0"
 
 
 def instantiate_decision_task_request(
@@ -40,7 +41,14 @@ def instantiate_decision_task_request(
             "task_ref": task_ref,
         }
     )
-    request = {key: value for key, value in template.items() if key != "input_material_hashes"}
+    # Source text never enters the request, but its frozen hashes and the
+    # answer/query references must survive template instantiation.  The
+    # decision activity uses these values to hydrate and verify the immutable
+    # tenant row without copying raw text into Temporal workflow history.
+    request = dict(template)
+    request["input_material_hashes"] = {
+        str(key): str(value) for key, value in material_hashes.items()
+    }
     request.update(
         {
             "subject_ref": concrete_subject,
@@ -126,15 +134,22 @@ def build_answer_semantic_workflow_request(
 
     tasks = load_builtin_task_definitions()
     policies = load_builtin_judge_policies(tasks=tasks)
+    active_task_refs = tuple(
+        task_ref
+        for task_ref in tasks.topological_refs
+        if task_ref.endswith(f"@{_ACTIVE_TASK_VERSION}")
+    )
+    active_task_ref_set = frozenset(active_task_refs)
     policy_by_task = {
         task_ref: next(policy for policy in policies if task_ref in policy.compatible_task_refs)
-        for task_ref in tasks.topological_refs
+        for task_ref in active_task_refs
     }
     entity_dictionary_hash = canonical_hash(entities)
     decision_task_bundle_hash = canonical_hash(
         [
             {"task_ref": item.task_ref, "definition_hash": item.definition_hash}
             for item in tasks.definitions
+            if item.task_ref in active_task_ref_set
         ]
     )
     context_hash = canonical_hash(
@@ -159,6 +174,8 @@ def build_answer_semantic_workflow_request(
                 if query_scoped
                 else f"capture://answer/{answer_pub_id}"
             ),
+            "source_answer_pub_id": answer_pub_id,
+            "source_query_pub_id": query_pub_id,
             "input_material_hashes": (
                 {"query_text_hash": query_text_hash}
                 if query_scoped
@@ -174,7 +191,7 @@ def build_answer_semantic_workflow_request(
             "official_use": False,
         }
 
-    templates = {task_ref: decision_template(task_ref) for task_ref in tasks.topological_refs}
+    templates = {task_ref: decision_template(task_ref) for task_ref in active_task_refs}
 
     def decision_request(task_ref: str, subject_ref: dict[str, Any]) -> dict[str, Any]:
         return instantiate_decision_task_request(
@@ -322,7 +339,11 @@ def build_answer_semantic_workflow_request(
         "semantic_manifest_pub_id": semantic_manifest_pub_id,
         "extractor_version": extractor_bundle["extractor_version"],
         "scorer_version": extractor_bundle["scorer_version"],
-        "policy_versions_by_hash": {policy.policy_hash: policy.policy_ref for policy in policies},
+        "policy_versions_by_hash": {
+            policy.policy_hash: policy.policy_ref
+            for policy in policies
+            if active_task_ref_set.intersection(policy.compatible_task_refs)
+        },
         "dynamic_task_templates": {
             task_ref: templates[task_ref]
             for task_ref in (
@@ -368,7 +389,7 @@ def build_answer_semantic_workflow_request(
             "event_schema_version": "answer-semantic-events-v2",
             "extractor_bundle": extractor_bundle,
             "decision_task_bundle": {
-                "task_refs": list(tasks.topological_refs),
+                "task_refs": list(active_task_refs),
                 "bundle_hash": decision_task_bundle_hash,
             },
             "extractor_bundle_hash": extractor_bundle_hash,

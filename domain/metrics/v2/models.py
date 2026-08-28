@@ -21,6 +21,7 @@ class EligibilityStatus(StrEnum):
     EXCLUDED = "excluded"
     NOT_APPLICABLE = "not_applicable"
     ANALYSIS_UNKNOWN = "analysis_unknown"
+    ANALYSIS_FAILED = "analysis_failed"
 
 
 class MetricSnapshotState(StrEnum):
@@ -66,6 +67,7 @@ class SemanticDecisionFact:
     policy_matches: bool = True
     evidence_ready: bool = True
     calibration_artifact_hash: str | None = None
+    reason_codes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,6 +209,7 @@ class MetricSnapshot:
     semantic_coverage: Decimal
     contribution_set_hash: str
     snapshot_hash: str
+    failed_answer_count: int = 0
     adjudication_sensitivity_low: Decimal | None = None
     adjudication_sensitivity_high: Decimal | None = None
     calibration_artifact_hashes: tuple[str, ...] = ()

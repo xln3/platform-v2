@@ -288,6 +288,7 @@ class OfficialMetricsConsumer:
                         "candidate_answer_count": 0,
                         "known_answer_count": 0,
                         "unknown_answer_count": 0,
+                        "failed_answer_count": 0,
                         "contribution_hashes": [],
                     },
                 )
@@ -296,7 +297,12 @@ class OfficialMetricsConsumer:
                 bucket["candidate_answer_count"] += 1
                 if contribution.get("eligibility_status") == "analysis_unknown":
                     bucket["unknown_answer_count"] += 1
-                else:
+                elif contribution.get("eligibility_status") == "analysis_failed":
+                    bucket["failed_answer_count"] += 1
+                elif contribution.get("eligibility_status") in {
+                    "included_hit",
+                    "included_miss",
+                }:
                     bucket["known_answer_count"] += 1
                 bucket["contribution_hashes"].append(contribution["contribution_hash"])
             for key in sorted(groups):
@@ -320,6 +326,7 @@ class OfficialMetricsConsumer:
                         "candidate_answer_count": bucket["candidate_answer_count"],
                         "known_answer_count": bucket["known_answer_count"],
                         "unknown_answer_count": bucket["unknown_answer_count"],
+                        "failed_answer_count": bucket["failed_answer_count"],
                         "contribution_hash": _canonical_hash(sorted(bucket["contribution_hashes"])),
                     }
                 )

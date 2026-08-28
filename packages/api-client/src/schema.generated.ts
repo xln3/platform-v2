@@ -6309,7 +6309,7 @@ export interface components {
              * Eligibility Status
              * @enum {string}
              */
-            eligibility_status: "included_hit" | "included_miss" | "excluded" | "not_applicable" | "analysis_unknown";
+            eligibility_status: "included_hit" | "included_miss" | "excluded" | "not_applicable" | "analysis_unknown" | "analysis_failed";
             /** Reason Codes */
             reason_codes: string[];
             /** Outcome Value */
@@ -8907,6 +8907,11 @@ export interface components {
             known_answer_count: number;
             /** Unknown Answer Count */
             unknown_answer_count: number;
+            /**
+             * Failed Answer Count
+             * @default 0
+             */
+            failed_answer_count: number;
             /** Not Applicable Answer Count */
             not_applicable_answer_count: number;
             /** Excluded Answer Count */
@@ -9404,6 +9409,8 @@ export interface components {
         };
         /** DecisionOverrideRequest */
         DecisionOverrideRequest: {
+            /** Project Pub Id */
+            project_pub_id: string;
             /** Result */
             result: {
                 [key: string]: unknown;
@@ -9431,6 +9438,8 @@ export interface components {
             decision_hash: string;
             /** Recompute Job Pub Id */
             recompute_job_pub_id: string;
+            /** Recompute Job Pub Ids */
+            recompute_job_pub_ids?: string[];
         };
         /**
          * DecisionScope
@@ -11477,6 +11486,11 @@ export interface components {
             known_answer_count: number;
             /** Unknown Answer Count */
             unknown_answer_count: number;
+            /**
+             * Failed Answer Count
+             * @default 0
+             */
+            failed_answer_count: number;
             /** Not Applicable Answer Count */
             not_applicable_answer_count: number;
             /** Excluded Answer Count */
@@ -11560,6 +11574,11 @@ export interface components {
             known_answer_count: number;
             /** Unknown Answer Count */
             unknown_answer_count: number;
+            /**
+             * Failed Answer Count
+             * @default 0
+             */
+            failed_answer_count: number;
             /** Not Applicable Answer Count */
             not_applicable_answer_count: number;
             /** Excluded Answer Count */
@@ -15326,6 +15345,8 @@ export interface components {
             result: {
                 [key: string]: unknown;
             };
+            /** Reason Codes */
+            reason_codes?: string[];
             /** Calibrated Confidence */
             calibrated_confidence?: number | null;
             /** Rubric Hash */
@@ -19267,7 +19288,7 @@ export interface operations {
                 exposure_role: "brand_neutral" | "focal_named_only" | "other_brand_named" | "focal_named_with_others";
                 cursor?: string | null;
                 limit?: number;
-                eligibility_status?: ("included_hit" | "included_miss" | "excluded" | "not_applicable" | "analysis_unknown") | null;
+                eligibility_status?: ("included_hit" | "included_miss" | "excluded" | "not_applicable" | "analysis_unknown" | "analysis_failed") | null;
                 reason_code?: string | null;
                 query?: string | null;
                 model?: string | null;
@@ -31188,7 +31209,7 @@ export interface operations {
             query?: {
                 cursor?: string | null;
                 limit?: number;
-                eligibility_status?: ("included_hit" | "included_miss" | "excluded" | "not_applicable" | "analysis_unknown") | null;
+                eligibility_status?: ("included_hit" | "included_miss" | "excluded" | "not_applicable" | "analysis_unknown" | "analysis_failed") | null;
                 reason_code?: string | null;
                 query?: string | null;
                 model?: string | null;

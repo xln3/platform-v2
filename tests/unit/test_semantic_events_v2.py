@@ -216,6 +216,30 @@ def test_only_accepted_decisions_can_derive_events() -> None:
     assert derive_answer_semantic_events((failed,), context=_context(failed)) == ()
 
 
+def test_failed_decision_wins_over_review_for_the_same_capability() -> None:
+    extraction_review = make_record(
+        "claim-extraction",
+        {},
+        decision_id="sdr_claim_extraction_review_0001",
+        status=DecisionStatus.REVIEW_REQUIRED,
+        reason_codes=("semantic_evidence_insufficient",),
+    )
+    verdict_failed = make_record(
+        "claim-evidence-verdict",
+        {},
+        decision_id="sdr_claim_verdict_failed_0001",
+        status=DecisionStatus.FAILED,
+        reason_codes=("llm_api_timeout",),
+    )
+
+    capability = capability_analyses_from_decisions((extraction_review, verdict_failed))[
+        "claim_evidence_verdict"
+    ]
+
+    assert capability.status is CapabilityStatus.FAILED
+    assert "llm_api_timeout" in capability.reason_codes
+
+
 def test_empty_ready_manifest_is_distinct_from_failed_or_partial_analysis() -> None:
     ready = build_answer_semantic_manifest(
         pub_id=MANIFEST_ID,

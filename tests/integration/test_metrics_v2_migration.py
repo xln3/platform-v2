@@ -35,6 +35,9 @@ def test_metrics_v2_physical_contract_is_installed_at_head() -> None:
         "metric_recompute_job_v2",
     }
     with psycopg.connect(POSTGRES_DSN) as connection:
+        assert connection.execute("SELECT version_num FROM alembic_version").fetchone() == (
+            "s18_0003_metrics_v2_failure",
+        )
         tables = {
             str(row[0])
             for row in connection.execute(
@@ -119,6 +122,45 @@ def test_metrics_v2_physical_contract_is_installed_at_head() -> None:
             "semantic_decision_task_definition_v2.decision_method_policy": "text",
             "semantic_judge_policy_v2.disagreement_policy": "text",
         }
+        assert connection.execute(
+            """
+            SELECT column_default,is_nullable
+            FROM information_schema.columns
+            WHERE table_schema='analytics' AND table_name='metric_snapshot_v2'
+              AND column_name='failed_answer_count'
+            """
+        ).fetchone() == ("0", "NO")
+        override_columns = {
+            str(row[0])
+            for row in connection.execute(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema='analytics'
+                  AND table_name='semantic_decision_override_command_v2'
+                """
+            ).fetchall()
+        }
+        assert "project_pub_id" in override_columns
+        assert connection.execute(
+            """
+            SELECT count(*)
+            FROM pg_trigger
+            WHERE tgrelid='analytics.semantic_decision_override_command_v2'::regclass
+              AND tgname='trg_semantic_decision_override_command_v2'
+              AND NOT tgisinternal
+            """
+        ).fetchone() == (1,)
+        override_function = connection.execute(
+            """
+            SELECT pg_get_functiondef(
+              'analytics.metrics_v2_create_override_command()'::regprocedure
+            )
+            """
+        ).fetchone()
+        assert override_function is not None
+        assert "project_pub_id=NEW.project_pub_id" in str(override_function[0])
+        assert "metrics_v2_canonical_json" in str(override_function[0])
 
 
 def test_metrics_v2_ratios_use_fixed_precision_and_history_has_guards() -> None:
@@ -154,7 +196,7 @@ def test_metrics_v2_ratios_use_fixed_precision_and_history_has_guards() -> None:
         } <= triggers
 
 
-def test_judge_policy_requires_calibration_only_when_published() -> None:
+def test_judge_policy_publication_requires_timestamp_but_not_calibration() -> None:
     token = uuid4().hex
     insert = """
         INSERT INTO analytics.semantic_judge_policy_v2 (
@@ -186,17 +228,24 @@ def test_judge_policy_requires_calibration_only_when_published() -> None:
                 "DELETE FROM analytics.semantic_judge_policy_v2 WHERE name=%s",
                 (f"experimental-{token}",),
             )
-        with pytest.raises(psycopg.errors.CheckViolation):
-            connection.execute(
-                insert,
-                (
-                    f"published-{token}",
-                    None,
-                    uuid4().hex * 2,
-                    "published",
-                    "2026-01-01T00:00:00Z",
-                ),
-            )
+        published_name = f"published-{token}"
+        connection.execute(
+            insert,
+            (
+                published_name,
+                None,
+                uuid4().hex * 2,
+                "published",
+                "2026-01-01T00:00:00Z",
+            ),
+        )
+        assert connection.execute(
+            """
+            SELECT status,calibration_artifact_hash
+            FROM analytics.semantic_judge_policy_v2 WHERE name=%s
+            """,
+            (published_name,),
+        ).fetchone() == ("published", None)
 
         lifecycle_name = f"lifecycle-{token}"
         calibration_hash = uuid4().hex * 2

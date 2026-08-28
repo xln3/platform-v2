@@ -225,8 +225,12 @@ class SemanticDecisionRecord(FrozenDomainModel):
                 raise ValueError("accepted_decision_requires_selected_attempt")
             if not self.result:
                 raise ValueError("accepted_decision_requires_result")
-            if self.method is not DecisionMethod.HUMAN and self.calibrated_confidence is None:
-                raise ValueError("automatic_acceptance_requires_calibrated_confidence")
+            if (
+                self.method is not DecisionMethod.HUMAN
+                and self.calibrated_confidence is None
+                and "accepted_without_calibration" not in self.reason_codes
+            ):
+                raise ValueError("uncalibrated_acceptance_requires_audit_reason")
         elif self.selected_attempt_pub_ids:
             raise ValueError("nonaccepted_decision_cannot_select_attempts")
         if (self.calibrated_confidence is None) != (self.calibration_bucket is None):

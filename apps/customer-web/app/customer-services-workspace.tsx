@@ -6,6 +6,8 @@ import {
 } from '@geo/api-client';
 import { getValidatedIdentityHeaders } from '@geo/auth';
 import { Badge, StatePanel, useOptionalExperienceContext } from '@geo/design-system';
+import { CustomerProjectShowcase } from './customer-project-showcase';
+import './customer-project-showcase.css';
 
 const fixtureServices: CustomerFiveServices = {
   projectPubId: 'prj_fixture',
@@ -216,6 +218,12 @@ export function CustomerServicesWorkspace({ focus }: { focus?: 1 | 2 | 3 | 4 | 5
           </article>
         ))}
       </div>
+      {!focus ? (
+        <CustomerProjectShowcase
+          projectLabel={experience?.projectLabel ?? '当前客户项目'}
+          services={view.services}
+        />
+      ) : null}
     </div>
   );
 }

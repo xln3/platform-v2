@@ -161,7 +161,7 @@ def validate_decision_output(
             issues.append(ValidationIssue("answer_text_hash_mismatch", "$"))
 
     spans = _declared_spans(output)
-    if task.evidence_requirements.requires_answer_spans:
+    if answer_evidence_required(task, output):
         if len(spans) < task.evidence_requirements.minimum_span_count:
             issues.append(ValidationIssue("required_evidence_span_missing", "$"))
     if spans:
@@ -177,6 +177,60 @@ def validate_decision_output(
     return DecisionOutputValidation(
         output=output if not deduplicated else None, issues=deduplicated
     )
+
+
+def validate_structured_output(
+    output: object, schema: Mapping[str, Any]
+) -> DecisionOutputValidation:
+    """Validate a correction against its frozen closed output schema.
+
+    Manual correction endpoints do not rerun the model or infer new evidence;
+    they must nevertheless submit a complete, schema-valid replacement result.
+    """
+
+    issues: list[ValidationIssue] = []
+    _validate_instance(output, schema, "$", issues)
+    deduplicated = tuple(_deduplicate_issues(issues))
+    return DecisionOutputValidation(
+        output=output if isinstance(output, dict) and not deduplicated else None,
+        issues=deduplicated,
+    )
+
+
+def answer_evidence_required(task: DecisionTaskDefinition, output: Mapping[str, Any]) -> bool:
+    """Require answer spans only when the output asserts an answer fact.
+
+    Known empty/negative results are measurements, not missing analysis.  They
+    must remain eligible denominator observations without inventing a source
+    span that does not exist.
+    """
+
+    if not task.evidence_requirements.requires_answer_spans:
+        return False
+    if task.name == "answer-entity-resolution":
+        return bool(output.get("resolutions"))
+    if task.name == "substantive-entity-mention":
+        return output.get("substantive") is True
+    if task.name == "recommendation-relation":
+        return output.get("polarity") in {
+            "positive",
+            "conditional_positive",
+            "negative",
+        }
+    if task.name == "rank-semantics":
+        return bool(output.get("rank_events"))
+    if task.name == "stance-and-pairwise":
+        return output.get("polarity") not in {None, "unknown"} or output.get("relation") not in {
+            None,
+            "unknown",
+        }
+    if task.name == "answer-dimension-coverage":
+        return output.get("status") in {"covered", "partially_covered"}
+    if task.name == "claim-extraction":
+        return bool(output.get("claims"))
+    if task.name == "risk-adjudication":
+        return output.get("verdict") in {"confirmed", "dismissed"}
+    return True
 
 
 def validate_subject_ref(
@@ -303,7 +357,12 @@ def _declared_spans(output: Mapping[str, Any]) -> tuple[tuple[str, Mapping[str, 
 
     def visit(value: object, path: str) -> None:
         if isinstance(value, Mapping):
-            if "start" in value and "end" in value:
+            if (
+                isinstance(value.get("start"), int)
+                and not isinstance(value.get("start"), bool)
+                and isinstance(value.get("end"), int)
+                and not isinstance(value.get("end"), bool)
+            ):
                 found.append((path, value))
             for name, item in value.items():
                 visit(item, f"{path}.{name}")
@@ -396,15 +455,21 @@ def _validate_task_invariants(
             issues.append(ValidationIssue("stance_pairwise_fields_mutually_exclusive", "$"))
     elif task_name == "claim-evidence-verdict":
         _validate_claim_verdict(output, evidence_context, issues)
+    elif task_name == "claim-verifiability":
+        if (
+            evidence_context.get("evidence_material_truncated") is True
+            and output.get("verifiability") != "unknown"
+        ):
+            issues.append(ValidationIssue("truncated_evidence_requires_semantic_unknown", "$"))
     elif task_name == "citation-claim-support":
+        if (
+            evidence_context.get("evidence_material_truncated") is True
+            and output.get("support_state") != "unknown"
+        ):
+            issues.append(ValidationIssue("truncated_evidence_requires_semantic_unknown", "$"))
         if output.get("support_state") in {"supports", "contradicts"}:
             if not output.get("evidence_snapshot_refs"):
                 issues.append(ValidationIssue("citation_verdict_requires_frozen_evidence", "$"))
-    elif task_name == "risk-adjudication":
-        if output.get("severity") in {"high", "critical"}:
-            required = evidence_context.get("high_severity_review")
-            if required not in {"double_judge_complete", "human_complete"}:
-                issues.append(ValidationIssue("high_severity_review_incomplete", "$"))
 
 
 def _validate_rank_event(
@@ -446,6 +511,8 @@ def _validate_claim_verdict(
     bundle_status = evidence_context.get("evidence_bundle_status")
     retrieval_complete = evidence_context.get("retrieval_protocol_complete") is True
     evidence_refs = output.get("evidence_snapshot_refs", ())
+    if evidence_context.get("evidence_material_truncated") is True and verdict != "unknown":
+        issues.append(ValidationIssue("truncated_evidence_requires_semantic_unknown", "$"))
     if verdict in {"supported", "contradicted"} and not evidence_refs:
         issues.append(ValidationIssue("claim_verdict_requires_frozen_evidence", "$"))
     if verdict == "unsupported" and not (bundle_status == "ready" and retrieval_complete):

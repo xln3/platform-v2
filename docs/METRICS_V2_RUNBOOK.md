@@ -9,7 +9,7 @@
 - 不修改或重新采集原始 query/answer，也不更新 V1 `metric_trace`、`metric_daily` 或旧 analysis。
 - 先冻结统一的 UTC `as_of`，再按稳定 keyset cursor 回放；不得跳过难样本来改善覆盖率。
 - decision、event、evaluation、snapshot 和 contribution 均追加写；定义只允许 `draft -> experimental -> published`，发布后不可变。
-- 模型失败、预算耗尽、证据不可恢复、输出非法或 judge 分歧都保持为可追踪的 unknown/review，不得用关键词、正则或 V1 值兜底。
+- LLM 未配置、鉴权失败、超时、限流、预算耗尽、网络/上游故障或输出非法都必须保存为带 `llm_api_*` 原因码的 `failed/analysis_failed`；不得伪装成语义 `unknown`，也不得因此进入逐条人工审核。只有 LLM 已成功运行但输入内容或冻结证据本身不足以得出结论时，才使用 `analysis_unknown`。两类状态都不得用关键词、正则或 V1 值兜底。
 - 所有正式消费者只读同一个已冻结 V2 snapshot set。GET、前端、报告和导出不得现场重算。
 - `official` 只能通过带预期 generation 和 set hash 的 CAS 发布；回滚目标只能是上一份已验证的 V2 set。
 - 物理删除、历史表清理和生产数据销毁不在本次授权范围内。
@@ -67,7 +67,7 @@ sudo systemctl status geo-platform-v2-backup.service --no-pager
 .venv/bin/python tools/seed_metrics_v2_definitions.py
 ```
 
-预期输出为 50 个 artifact：14 个 DecisionTask、2 个 judge policy、34 个 MetricDefinition，且 `mode=dry_run`、`target_status=experimental`、`official_activation=false`。
+预期输出为 66 个 artifact：28 个 DecisionTask、4 个 judge policy、34 个 MetricDefinition，且 `mode=dry_run`、`target_status=experimental`、`official_activation=false`。其中已发布的 `2.0.0` 定义保持不可变，新增 `2.1.0` 仅以 experimental 状态加载。
 
 在已迁移的目标库显式加载：
 
@@ -103,7 +103,29 @@ GROUP BY status ORDER BY status;
 | 纯确定性 evaluation/snapshot/publication | `geo-platform-v2-metrics`  | `geo-platform-v2-metrics-worker.service`  |
 | 冻结快照报告和 LibreOffice               | `geo-platform-v2-report`   | `geo-platform-v2-report-worker.service`   |
 
-配置样例位于 `deploy/production/*-worker.env.example`。判定预算默认是零；在预算与 policy 未获批准前保持零会让需要模型的任务诚实排队/unknown。
+配置样例位于 `deploy/production/*-worker.env.example`。判定服务默认预算为零并保持 fail-closed；任务会保存为 `llm_api_budget_exhausted/analysis_failed`，不会变成语义 unknown 或人工审核任务。只有显式设置正值后，专用 `GEO_SEMANTIC_DECISION_LLM_*` 或继承的 `GEO_RESEARCH_LLM_*` 网关凭据才会触发真实模型调用。当前正值只是启用开关，不是耐久的每日扣减额度，因此生产不得把它当作真实预算上限。
+
+默认单模型为 `gpt-5.6-sol`。专属 key/base URL 留空会复用受保护的 research 配置；模型、超时和有限重试可独立覆盖：
+
+```dotenv
+GEO_SEMANTIC_DECISION_LLM_API_KEY=
+GEO_SEMANTIC_DECISION_LLM_BASE_URL=
+GEO_SEMANTIC_DECISION_LLM_BASE_URL_FALLBACK=
+GEO_SEMANTIC_DECISION_LLM_PROVIDER=openai-compatible
+GEO_SEMANTIC_DECISION_LLM_MODEL=gpt-5.6-sol
+GEO_SEMANTIC_DECISION_LLM_MODEL_REVISION=runtime-configured
+GEO_SEMANTIC_DECISION_LLM_TIMEOUT_SECONDS=120
+GEO_SEMANTIC_DECISION_LLM_MAX_RETRIES=2
+GEO_SEMANTIC_DECISION_DAILY_BUDGET=0
+```
+
+调用先尝试 strict `response_format=json_schema`。该结构化请求收到 400 时，用同一模型和同一 prompt 去掉 `response_format` 做一次 JSON-only 兼容请求，随后仍执行本地严格 JSON、schema、候选集、跨度和任务不变量校验；JSON-only 自身的 400、认证、限流、超时、网络或 5xx 不会触发更多兼容降级。
+
+获准访问真实网关后，先用完全合成的 query/answer smoke。输出只含模型、HTTP 状态、attempt validation、reason code、token、耗时和 hash，不打印 key、原文或上游原始响应：
+
+```bash
+.venv/bin/python tools/smoke_semantic_llm_v2.py
+```
 
 隔离环境可以分别启动：
 
@@ -213,9 +235,9 @@ Content-Type: application/json
 
 对每个 snapshot 验证：
 
-- 每个候选 answer 恰有一个 `included_hit/included_miss/excluded/not_applicable/analysis_unknown` 状态；
+- 每个候选 answer 恰有一个 `included_hit/included_miss/excluded/not_applicable/analysis_unknown/analysis_failed` 状态；
 - answer、query、design-cell 三层贡献和权重方程闭合；
-- unknown 只进入缺失界限，adjudication sensitivity 只反映判定方法与校准 artifact；
+- `analysis_unknown` 只表示成功分析后的内容/证据不足并进入缺失界限；`analysis_failed` 单独计数并显示具体 `llm_api_*` 故障，不得混入语义未知数量；
 - pagination 不改变总计或 contribution hash；
 - `snapshot_hash`、三类 contribution set hash、dependency bundle hash 和 set hash 可重复；
 - XLSX 的 `README/METRICS/QUERIES/ANSWERS/DECISIONS/EVENTS/EXCLUSIONS/DESIGN_CELLS/HASHES` 能重算相同结果，公式前缀文本已转义；
@@ -230,26 +252,26 @@ Content-Type: application/json
 {"format":"xlsx"}
 ```
 
-## 8. 校准与定义发布门
+## 8. 自动判定、纠错与可选离线评估
 
-在发布任何定义前，为每个 DecisionTask/确定性快路运行冻结金标集，保存样本版本、任务/策略 hash、选择性准确率、覆盖率、弃权率、分歧率、证据失败率、成本和漂移结果。事实任务还要冻结证据检索协议和 verification-as-of。
+正式运行不以前置人工金标集、固定抽检比例或逐条人工复核为条件。已发布的 DecisionTask、rubric 和 judge policy 直接驱动 LLM 自动形成原子判断；结构、候选边界、证据区间和版本哈希校验通过后即可被指标消费。管理员或获授权客户发现某一条事实错误时，在 trace 中提交结构化“纠错”；系统追加 human successor、保留模型原判断，并自动重算受影响的 evaluation 和快照。
 
-judge policy 的已发布版本必须在 artifact 本身包含非空 `calibration_artifact_hash`。如果 experimental 版本没有该 hash，不得原地补字段；应创建新的版本化 policy artifact、重新 seed，并保留旧版本。所有发布必须只做生命周期变化、同事务写 publication outbox、记录操作者与审批证据，并让数据库约束再次验证 hash。禁止用临时 SQL 绕过该门。
+日常纠错样本应按 task/rubric/policy/model 聚合成回归集。团队也可以主动建立离线评估集，记录准确率、覆盖率、弃权率、证据失败率、成本和漂移，但它们是模型迭代与风险观测工具，不是系统运行硬门。没有样本时如实标记“误差尚未估计”，不得把全部自动判定锁为 experimental。`calibration_artifact_hash` 因而是可选审计关联；若填写，数据库仍校验其一致性，已发布 artifact 仍不可原地修改。
 
 定义发布前必须同时满足：
 
 - 任务 DAG 无环，父任务版本存在且可发布；
-- task/rubric/prompt/schema hash 与校准记录完全一致；
-- policy 与 task 兼容，calibration artifact 存在且 hash 一致；
+- task/rubric/prompt/schema hash 与实际运行记录完全一致；
+- policy 与 task、模型路由和输出 schema 兼容；若声明 calibration artifact，其 hash 必须一致；
 - metric 定义依赖的 task 均已发布；
-- 核心 metric 覆盖率、unknown 界限和全部对账门通过；
+- 核心 metric 的语义未知、API/分析失败数量和全部对账门均被单独披露；
 - 没有关键词/正则、V1 或现场聚合作为正式 fallback。
 
 定义、policy 或 rubric 的任何语义变化都必须增加版本；已经发布的行不可修改或删除。
 
 ## 9. Official 原子切换
 
-这一节只供获授权的生产发布执行。先记录当前 official publication 的 generation 和上一份 V2 set ID/hash，再对候选 set 执行完整 smoke。候选 set 必须 `state=ready`，成员 snapshot 全部 ready，metric/task/policy 均 published，所有支撑 decision accepted，policy 带校准 artifact。
+这一节只供获授权的生产发布执行。先记录当前 official publication 的 generation 和上一份 V2 set ID/hash，再对候选 set 执行完整 smoke。候选 set 必须满足已批准的发布范围，metric/task/policy 均为 published，所有被计入的支撑 decision 为 accepted；`calibration_artifact_hash` 不是硬前置。存在 `analysis_failed` 时必须在页面和发布检查中明确披露，不能伪装为 unknown 或静默发布完整值。
 
 CAS 请求：
 
@@ -281,9 +303,10 @@ generation 或 hash 不一致返回 conflict，必须重新读取状态并复核
 
 - `metrics_v2_seed_hash_conflict`：同名版本语义已漂移；增加版本或恢复正确 artifact，不能覆盖。
 - `blocked_on_dependency`：补齐/发布父 DecisionTask，保留叶任务 pending。
-- `judge_disagreement`、`review_required`：进入人工复核；相关能力为 unknown。
-- `model_not_configured`、预算耗尽、熔断：恢复配置/预算后幂等续跑；禁止弱规则 fallback。
-- `evidence_retrieval_failed`：恢复冻结证据或明确 unknown；不能记为 unsupported claim。
+- `judge_disagreement`、`review_required`：保持为可追踪的不确定状态并允许自动重判；只有管理员/客户发现具体事实错误时才按需纠错，不建立全量人工复核队列。
+- `llm_api_auth_missing`、`llm_api_auth_rejected`、`llm_api_timeout`、`llm_api_rate_limited`、`llm_api_budget_exhausted`、`llm_api_network_error`、`llm_api_upstream_unavailable`：明确显示对应 API 故障，恢复配置/预算/上游后幂等续跑；状态为 `analysis_failed`，禁止写成 unknown 或弱规则 fallback。
+- `llm_api_invalid_json`、`llm_api_invalid_response`、`llm_api_schema_violation`：有限自动重试后仍失败则保持 `analysis_failed`；修复模型、prompt 或网关兼容性后重判，不能把非法响应解释成 semantic unknown。
+- `evidence_retrieval_failed`、`evidence_integrity_failed`：检索API、CAS、数据库、hash或工作流执行失败时保持 `analysis_failed`，恢复后幂等重判；不能记为unknown或unsupported claim。只有检索协议成功完成后证据本身仍不足才是语义unknown。
 - `metric_snapshot_set_not_ready`：修复缺失 evaluation/decision 后生成新 set；报告不能走 legacy。
 - `metric_publication_conflict`：重新读取 generation/hash，确认没有并发发布后再提交新 CAS。
 - 任一 hash mismatch 或对账失败：停止发布，一次即告警，保留输入与 hash 以精确重放。
@@ -300,6 +323,7 @@ generation 或 hash 不一致返回 conflict，必须重新读取状态并复核
   tests/unit/test_semantic_events_v2.py \
   tests/unit/test_decision_task_definition_v2.py \
   tests/unit/test_semantic_judge_policy_v2.py \
+  tests/unit/test_semantic_judge_llm_v2.py \
   tests/unit/test_semantic_decision_validation_v2.py \
   tests/unit/test_semantic_decision_adjudication_v2.py \
   tests/unit/test_metric_definition_v2.py \
@@ -336,8 +360,9 @@ pnpm exec playwright test tests/e2e/customer-metric-trace.spec.ts
 两条路径均到达唯一 head `s18_0001_geo_metrics_v2`；未读取或修改生产客户数据。
 
 - 50 个 experimental artifact 加载成功：14 个 DecisionTask、2 个 judge policy、34 个 MetricDefinition；`official_activation=false`。
-- 合成历史回放包含 2 个候选答案：1 个可执行、1 个因旧 analysis 不可恢复而显式 unknown。零模型预算下，14 个原子判定全部 abstained，可执行答案形成 partial manifest。
-- metrics 回放为 2 个实体 × 34 个指标持久化 68 个 `analysis_unknown` evaluation；`outcome_value` 为 JSON null，不是未命中或 SQL NULL。
+- 旧的零预算合成回放只验证了失败闭合，没有调用 LLM，因此不能作为语义判定验收结果。当前实现必须另行通过真实网关的合成输入 smoke；API 故障样本按 `analysis_failed` 记录，只有内容/证据确实不足的样本才按 `analysis_unknown` 记录。
+- 旧回放产生的 68 个 `analysis_unknown` 不能解释为模型结论；按新契约重放时，基础设施失败必须迁移为 `analysis_failed`，不得计入 unknown 数量或冒充未命中。
+- 2026-08-28 使用受保护生产网关凭据、完全合成文本执行真实 smoke：`gpt-5.6-sol` 返回 HTTP 200，JSON-only兼容传输经本地完整校验为valid，耗时5759ms，输入/输出1084/195 tokens；请求/响应hash分别为 `3eda1282ac9138e1f135273dfe59cc4788a1c5af106e2052b067e10beaa13d24` 和 `d550001c430dc40877b1aef26390d28fcf88ac7b978f43732ed181533b800eaa`。未读取客户数据，未输出密钥、原文或上游原始响应。
 - shadow 构建持久化 68 个 experimental snapshot，以及 answer/query/design-cell 各 68 条贡献；set 为 `mss_b1c375f590e4031d9e6585b2b8`，set hash 为 `b1c375f590e4031d9e6585b2b8a1092072d7ff28197eaddefc5e4067b65b39fb`，shadow generation 为 1。它只证明失败闭合与确定性链路，不具备 official 资格。
 - 快速 Python 车道 `2820 passed, 57 deselected`；指标/语义判定真实 PostgreSQL 车道 20 个通过，owner-loss 恢复真实 PostgreSQL 车道 3 个通过，报告绑定车道 22 个通过。
 - 真实 Temporal 的 Analysis/S02/Report 分离、人工信号、worker 重启和错误租约拒绝 8 个通过。
@@ -345,4 +370,4 @@ pnpm exec playwright test tests/e2e/customer-metric-trace.spec.ts
 - OpenAPI SHA-256 为 `dfda68628aed14981d9a19d6348d35994d5f28d0314293247835daca595f27f0`；生成 TypeScript schema SHA-256 为 `62e1183480d90771e629513c2ffd41de3d1a2320b56b198b10ab533cb251b958`。
 - 全局 `pnpm check`、生成 manifest、frontend contract、五 SPA production bundle、生产 route、E2E artifact DLP 和不可变 Nginx alias 守卫均通过。
 
-生产状态：`待授权生产激活`。仍需指定 tenant/project、批准模型预算、完成冻结金标校准并生成带 `calibration_artifact_hash` 的新版本 policy，随后才能执行真实历史回放、定义发布、official CAS 与生产只读 smoke。
+生产状态：`待授权生产激活`。生产操作仍需指定 tenant/project、配置可用 LLM 凭据和容量、执行真实历史回放及只读 smoke；不再要求先建设人工金标或生成非空 `calibration_artifact_hash`。生产授权是外部变更边界，不是自动判定代码的运行门。
