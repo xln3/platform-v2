@@ -829,7 +829,9 @@ MetricSnapshot + MetricContribution
 | `workflows/workers/s02.py`                                                     | 同进程混有分析、证据和报告且并发受LibreOffice限制         | 报告迁至独立report队列                                                           |
 | `api/geo_platform/business_metrics.py`                                         | Prometheus运行指标                                        | 保持原职责，不能误作客户统计服务                                                 |
 
-当前Alembic head为 `s17_0002_knowledge_trace_details`。建议新迁移名为 `s18_0001_geo_metrics_v2.py`；如果实施时head已变化，只调整 `revision/down_revision`，不得省略第22节的数据结构或RLS。
+实施时确认的直接前置 head 为 `s17_0005_credential_boundary`，指标迁移已落为
+`s18_0001_geo_metrics_v2.py`，当前唯一 head 为 `s18_0001_geo_metrics_v2`。不得省略第22节的
+数据结构或 RLS，也不得通过 `stamp` 绕过正式迁移链。
 
 ### 18.4 决策优先级
 

@@ -332,15 +332,17 @@ pnpm exec playwright test tests/e2e/customer-metric-trace.spec.ts
 
 ## 12. 2026-08-27 隔离验收记录
 
-本次实施在两座从零迁移到 `s18_0001_geo_metrics_v2` 的一次性数据库中完成验证；验证后数据库已删除，未读取或修改客户数据。
+本次实施分别在空隔离库和从 `s17_0002_knowledge_trace_details` 起步的历史隔离库完成升级，
+两条路径均到达唯一 head `s18_0001_geo_metrics_v2`；未读取或修改生产客户数据。
 
 - 50 个 experimental artifact 加载成功：14 个 DecisionTask、2 个 judge policy、34 个 MetricDefinition；`official_activation=false`。
 - 合成历史回放包含 2 个候选答案：1 个可执行、1 个因旧 analysis 不可恢复而显式 unknown。零模型预算下，14 个原子判定全部 abstained，可执行答案形成 partial manifest。
 - metrics 回放为 2 个实体 × 34 个指标持久化 68 个 `analysis_unknown` evaluation；`outcome_value` 为 JSON null，不是未命中或 SQL NULL。
 - shadow 构建持久化 68 个 experimental snapshot，以及 answer/query/design-cell 各 68 条贡献；set 为 `mss_b1c375f590e4031d9e6585b2b8`，set hash 为 `b1c375f590e4031d9e6585b2b8a1092072d7ff28197eaddefc5e4067b65b39fb`，shadow generation 为 1。它只证明失败闭合与确定性链路，不具备 official 资格。
-- 核心、消费者和报告相关单元测试 115 个通过；任务书指定的 11 个集成文件在第二座全新数据库中 23 个通过；真实 Temporal 的 Analysis/S02/Report 分离与恢复测试 8 个通过。
-- customer-web 49 个测试、API client 142 个测试、客户指标 trace Playwright 1 个测试通过；13 个前端包 typecheck、Python mypy 374 个源文件、ruff、CI workflow guard 和 24 条可观测性告警检查通过。
-- OpenAPI SHA-256 为 `b7e0d58684cbcf9235c213b2aa2636f77175469376b1696cccd8917a0334eab0`；生成 TypeScript schema SHA-256 为 `3bec92d47a9e7df4a007f7295a14f549328bc6f7c3bcabdc49895d456fc8aba1`。
-- 全局 `pnpm check:api` 的生成与 generated-manifest 校验通过，但最终 frontend contract guard 被工作树中既有的 `customer-live-html-report-preview.png` 覆盖缺口阻塞；本任务未覆盖或恢复该无关改动。
+- 快速 Python 车道 `2820 passed, 57 deselected`；指标/语义判定真实 PostgreSQL 车道 20 个通过，owner-loss 恢复真实 PostgreSQL 车道 3 个通过，报告绑定车道 22 个通过。
+- 真实 Temporal 的 Analysis/S02/Report 分离、人工信号、worker 重启和错误租约拒绝 8 个通过。
+- customer-web 51 个测试、operations-web 173 个测试、API client 142 个测试、浏览器运行时安全测试 13 个通过；13 个前端工作区 typecheck/build、Python mypy 374 个源文件、Ruff、CI workflow guard 和 24 条可观测性告警检查通过。
+- OpenAPI SHA-256 为 `dfda68628aed14981d9a19d6348d35994d5f28d0314293247835daca595f27f0`；生成 TypeScript schema SHA-256 为 `62e1183480d90771e629513c2ffd41de3d1a2320b56b198b10ab533cb251b958`。
+- 全局 `pnpm check`、生成 manifest、frontend contract、五 SPA production bundle、生产 route、E2E artifact DLP 和不可变 Nginx alias 守卫均通过。
 
 生产状态：`待授权生产激活`。仍需指定 tenant/project、批准模型预算、完成冻结金标校准并生成带 `calibration_artifact_hash` 的新版本 policy，随后才能执行真实历史回放、定义发布、official CAS 与生产只读 smoke。
