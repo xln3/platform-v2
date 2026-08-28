@@ -53,6 +53,9 @@ type Pages = {
   "/formal-reports": {
     params: {};
   };
+  "/knowledge-runtime": {
+    params: {};
+  };
   "/sop": {
     params: {};
   };
@@ -80,7 +83,7 @@ type Pages = {
 type RouteFiles = {
   "root.tsx": {
     id: "root";
-    page: "/" | "/login" | "/execution" | "/media-prices" | "/posting" | "/quotations" | "/onboarding" | "/service-visibility" | "/service-outbound-risk" | "/service-inbound-risk" | "/service-risk" | "/service-site-audit" | "/service-pilot" | "/formal-reports" | "/sop" | "/sop/projects/:projectPubId" | "/post-analysis" | "/post-analysis/tasks/:taskPubId" | "/accounts" | "/browsers";
+    page: "/" | "/login" | "/execution" | "/media-prices" | "/posting" | "/quotations" | "/onboarding" | "/service-visibility" | "/service-outbound-risk" | "/service-inbound-risk" | "/service-risk" | "/service-site-audit" | "/service-pilot" | "/formal-reports" | "/knowledge-runtime" | "/sop" | "/sop/projects/:projectPubId" | "/post-analysis" | "/post-analysis/tasks/:taskPubId" | "/accounts" | "/browsers";
   };
   "shell.tsx": {
     id: "shell";
@@ -138,6 +141,10 @@ type RouteFiles = {
     id: "features/services/formal-reports/route";
     page: "/formal-reports";
   };
+  "features/services/knowledge-runtime/route.tsx": {
+    id: "features/services/knowledge-runtime/route";
+    page: "/knowledge-runtime";
+  };
   "features/sop/route.tsx": {
     id: "features/sop/route";
     page: "/sop";
@@ -180,6 +187,7 @@ type RouteModules = {
   "features/services/service-site-audit/route": typeof import("./app/features/services/service-site-audit/route.tsx");
   "features/services/service-pilot/route": typeof import("./app/features/services/service-pilot/route.tsx");
   "features/services/formal-reports/route": typeof import("./app/features/services/formal-reports/route.tsx");
+  "features/services/knowledge-runtime/route": typeof import("./app/features/services/knowledge-runtime/route.tsx");
   "features/sop/route": typeof import("./app/features/sop/route.tsx");
   "features/sop/project-route": typeof import("./app/features/sop/project-route.tsx");
   "features/post-analysis/route": typeof import("./app/features/post-analysis/route.tsx");

@@ -14,13 +14,15 @@ import pytest
 from fastapi.testclient import TestClient
 from geo_platform.config import get_settings
 from geo_platform.knowledge import router as knowledge_router_module
-from geo_platform.knowledge.models import ChangeSet
+from geo_platform.knowledge import service as knowledge_service_module
+from geo_platform.knowledge.models import ChangeSet, InferenceTrace
 from geo_platform.knowledge.repository import KnowledgeRepository
 from geo_platform.main import app
 from geo_platform.tenancy.database import SessionLocal
 from geo_platform.tenancy.ids import new_pub_id
 from geo_platform.tenancy.repository import TenantRepository
 
+from domain.knowledge_evolution.gateway import GatewayError
 from domain.knowledge_evolution.release import KnowledgeReleaseStore
 
 TEST_DATABASE_URL = os.getenv("KNOWLEDGE_POSTGRES_DSN")
@@ -772,3 +774,233 @@ def test_metrics_only_count_unresolved_connector_conflicts() -> None:
         session.flush()
         assert repository.metrics()["conflicts"] == 0
         session.rollback()
+
+
+def test_requested_and_actual_model_lineage_persists_and_aggregates_separately() -> None:
+    tenant = f"tnt_model_metrics_{secrets.token_hex(5)}"
+
+    def trace(
+        request_id: str,
+        *,
+        requested: str | None,
+        actual: str | None,
+        called: bool,
+        cache_status: str,
+        cost_usd: float | None,
+        degradation: list[str],
+    ) -> dict[str, object]:
+        return {
+            "request_id": request_id,
+            "namespace": "shared",
+            "domain": "brand/entity-resolution",
+            "task": "resolve-brand-identity",
+            "input_hash": "sha256:" + "a" * 64,
+            "policy_id": "integration-model-lineage",
+            "policy_version": "1",
+            "reasoning_policy": "llm_required",
+            "knowledge_release_id": "knowledge-2026-08-27.6",
+            "knowledge_content_hash": "sha256:" + "b" * 64,
+            "prompt_id": "brand-entity-resolution",
+            "prompt_version": "brand-entity-resolution-v5",
+            "model_provider": "fixture",
+            "requested_model": requested,
+            "model": actual,
+            "model_version": "deployment",
+            "model_identity_source": "provider_response" if actual else None,
+            "model_catalog_revision": "catalog-integration-1",
+            "model_call_attempted": called,
+            "tool_version": "brand-tool-v1",
+            "adopt_model_inferred": False,
+            "adopted_model_decisions": 0,
+            "latency_ms": 20,
+            "model_latency_ms": 12 if called and actual else None,
+            "input_tokens": 20 if called and actual else 0,
+            "output_tokens": 5 if called and actual else 0,
+            "cost_usd": cost_usd,
+            "cache_status": cache_status,
+            "degradation": degradation,
+            "data_classification": "internal",
+            "tool_summary": [],
+        }
+
+    with SessionLocal() as session:
+        repository = KnowledgeRepository(session, tenant)
+        repository.record_trace(
+            tenant,
+            trace(
+                "qwen-call",
+                requested="qwen3.7-plus",
+                actual="qwen3.7-plus-20260828",
+                called=True,
+                cache_status="miss",
+                cost_usd=None,
+                degradation=[],
+            ),
+        )
+        repository.record_trace(
+            tenant,
+            trace(
+                "qwen-cache",
+                requested="qwen3.7-plus",
+                actual="qwen3.7-plus-20260828",
+                called=False,
+                cache_status="hit",
+                cost_usd=0,
+                degradation=[],
+            ),
+        )
+        repository.record_trace(
+            tenant,
+            trace(
+                "gpt-timeout",
+                requested="gpt-5.6-luna",
+                actual=None,
+                called=True,
+                cache_status="miss",
+                cost_usd=None,
+                degradation=["model_timeout"],
+            ),
+        )
+        repository.record_trace(
+            tenant,
+            trace(
+                "qwen-invalid-output",
+                requested="qwen3.7-plus",
+                actual="qwen3.7-plus-20260828",
+                called=True,
+                cache_status="miss",
+                cost_usd=None,
+                degradation=["invalid_model_output"],
+            ),
+        )
+        repository.record_trace(
+            tenant,
+            trace(
+                "qwen-tool-failure",
+                requested="qwen3.7-plus",
+                actual=None,
+                called=True,
+                cache_status="miss",
+                cost_usd=None,
+                degradation=["tool_failure"],
+            ),
+        )
+        repository.record_trace(
+            tenant,
+            trace(
+                "legacy-provider-call",
+                requested=None,
+                actual="legacy-model",
+                called=False,
+                cache_status="miss",
+                cost_usd=None,
+                degradation=[],
+            ),
+        )
+        session.flush()
+
+        stored = session.query(InferenceTrace).filter_by(tenant_pub_id=tenant).all()
+        assert {(row.requested_model_name, row.model_name) for row in stored} == {
+            ("qwen3.7-plus", "qwen3.7-plus-20260828"),
+            ("qwen3.7-plus", None),
+            ("gpt-5.6-luna", None),
+            (None, "legacy-model"),
+        }
+        metrics = repository.metrics()
+        requested = {row["model"]: row for row in metrics["requested_model_metrics"]}
+        actual = {row["model"]: row for row in metrics["actual_model_metrics"]}
+        assert requested["qwen3.7-plus"] == {
+            "model": "qwen3.7-plus",
+            "inference_count": 4,
+            "provider_call_count": 3,
+            "error_count": 2,
+            "cache_hit_count": 1,
+            "cache_hit_rate": 0.25,
+            "provider_latency_avg_ms": 12.0,
+            "input_tokens": 40,
+            "output_tokens": 10,
+            "cost_usd": 0.0,
+            "cost_unknown_count": 3,
+        }
+        assert requested["gpt-5.6-luna"]["provider_call_count"] == 1
+        assert requested["gpt-5.6-luna"]["error_count"] == 1
+        assert requested["gpt-5.6-luna"]["cost_unknown_count"] == 1
+        assert set(actual) == {"legacy-model", "qwen3.7-plus-20260828"}
+        assert actual["legacy-model"]["provider_call_count"] == 1
+        assert actual["legacy-model"]["cost_unknown_count"] == 1
+        assert metrics["model_call_count"] == 5
+        assert actual["qwen3.7-plus-20260828"]["inference_count"] == 3
+        assert actual["qwen3.7-plus-20260828"]["error_count"] == 1
+        assert actual["qwen3.7-plus-20260828"]["cache_hit_rate"] == pytest.approx(1 / 3)
+        session.rollback()
+
+
+def test_fail_fast_model_error_commits_sanitized_trace_without_observation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    marker = secrets.token_hex(6)
+    request_id = f"model-fail-trace-{marker}"
+    settings = get_settings().model_copy(
+        update={
+            "knowledge_llm_api_key": "integration-placeholder",
+            "knowledge_llm_base_url": "https://models.invalid",
+            "knowledge_llm_model": "gpt-5.6-luna",
+            "knowledge_llm_models": "gpt-5.6-luna,qwen3.7-plus",
+        }
+    )
+
+    class FailingGateway:
+        provider = "integration-provider"
+        model = "gpt-5.6-luna"
+        model_version = "integration-deployment"
+        catalog_revision = "integration-catalog"
+
+        def infer(self, prompt: object) -> None:
+            del prompt
+            raise GatewayError("model_timeout")
+
+    monkeypatch.setattr(knowledge_router_module, "get_settings", lambda: settings)
+    monkeypatch.setattr(
+        knowledge_service_module,
+        "gateway",
+        lambda selected_settings, model=None: FailingGateway(),
+    )
+
+    with TestClient(app) as client:
+        tenant, admin = _bootstrap(client, marker)
+        response = client.post(
+            "/api/v2/knowledge/v1/runtime/resolve",
+            headers=admin,
+            json={
+                "request_id": request_id,
+                "namespace": "integration",
+                "domain": "source/type-fixture",
+                "task": "classify",
+                "items": [{"id": "forum", "value": "unlisted-forum"}],
+                "context": {},
+                "policy": "llm_required",
+                "policy_id": "fail-fast-trace-integration",
+                "policy_version": "1",
+                "model": "gpt-5.6-luna",
+                "allow_external_model": True,
+                "on_model_failure": "fail",
+            },
+        )
+    assert response.status_code == 503, response.text
+    assert response.json()["error"]["code"] == "model_timeout"
+
+    with SessionLocal() as session:
+        trace = (
+            session.query(InferenceTrace)
+            .filter_by(
+                tenant_pub_id=tenant,
+                request_id=request_id,
+            )
+            .one()
+        )
+        assert trace.requested_model_name == "gpt-5.6-luna"
+        assert trace.model_name is None
+        assert trace.model_call_attempted is True
+        assert trace.degradation == ["model_timeout"]
+        assert trace.input_hash.startswith("sha256:")
+        assert "unlisted-forum" not in str(trace.__dict__)

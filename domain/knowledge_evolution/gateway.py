@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -23,6 +24,15 @@ def _base_url(value: str) -> str:
     return normalized if normalized.endswith("/v1") else f"{normalized}/v1"
 
 
+def _provider_resolved_model(document: Mapping[str, Any], requested: str) -> tuple[str, str]:
+    value = document.get("model")
+    if isinstance(value, str):
+        candidate = value.strip()
+        if len(candidate) <= 120 and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]*", candidate):
+            return candidate, "provider_response"
+    return requested, "requested_fallback"
+
+
 class OpenAICompatibleGateway:
     def __init__(
         self,
@@ -33,6 +43,7 @@ class OpenAICompatibleGateway:
         provider: str,
         model: str,
         model_version: str,
+        catalog_revision: str = "unversioned",
         timeout_seconds: float = 60.0,
         max_retries: int = 1,
         tool_handlers: Mapping[str, Callable[[Mapping[str, Any]], Mapping[str, Any]]] | None = None,
@@ -54,6 +65,7 @@ class OpenAICompatibleGateway:
         self.provider = provider
         self.model = model
         self.model_version = model_version
+        self.catalog_revision = catalog_revision
         self.timeout_seconds = timeout_seconds
         self.max_retries = max_retries
         self.tool_handlers = dict(tool_handlers or {})
@@ -219,10 +231,11 @@ class OpenAICompatibleGateway:
                 raise GatewayError("model_invalid_json") from exc
             if not isinstance(payload, dict):
                 raise GatewayError("model_invalid_shape")
+            resolved_model, identity_source = _provider_resolved_model(document, self.model)
             return GatewayResult(
                 payload=payload,
                 provider=self.provider,
-                model=self.model,
+                model=resolved_model,
                 model_version=self.model_version,
                 latency_ms=int((time.perf_counter() - started) * 1000),
                 input_tokens=total_input_tokens if saw_input_usage else None,
@@ -231,6 +244,8 @@ class OpenAICompatibleGateway:
                 # unknown unless a deployment adapter supplies a priced result.
                 cost_usd=None,
                 tool_summary=tuple(tool_summary),
+                requested_model=self.model,
+                model_identity_source=identity_source,
             )
         raise GatewayError(f"model_unavailable:{type(last_error).__name__}")
 

@@ -6,6 +6,7 @@
 
 | 能力          | 端点                                                            | 权限                |
 | ------------- | --------------------------------------------------------------- | ------------------- |
+| 推理模型目录  | `GET /models`                                                   | read/resolve        |
 | 运行时解析    | `POST /runtime/resolve`                                         | `knowledge:resolve` |
 | 批量观察      | `POST /observations:ingest`                                     | `knowledge:observe` |
 | 候选列表/重开 | `GET /candidates`、`POST /candidates/{id}/reopen`               | read/review         |
@@ -26,13 +27,21 @@
 
 调用方必须给出 namespace、domain、task、items、policy id/version 和数据分级。跨系统共享品牌反馈使用 `namespace=shared`；旧 `geo-brandrank` 观察由脱敏迁移工具幂等复制，不再形成项目孤岛。默认策略是 `deterministic_only`，默认不允许外部模型，默认不采用模型推理。
 
+`GET /models` 是知识任务专用的无凭据目录。服务端运维通过 `GEO_KNOWLEDGE_LLM_MODELS` 维护允许清单，通过 `GEO_KNOWLEDGE_LLM_MODEL` 指定默认项；默认项必须位于清单中。清单中的每个选项还必须存在严格知识 Schema 的实测准入记录。目录返回模型标识、供应商分组、部署版本、能力、验证时间、价格快照或 `unknown`、默认/推荐标记和 `catalog_revision`，不返回 key、base URL、Authorization 或供应商账户。没有网关凭据、配置含未准入模型或旧单模型尚未完成准入时，目录返回 `status=unavailable` 和空选项；确定性判断不受影响。旧部署只设置单值模型时仍可由既有服务端调用方使用，但未验证的旧模型不会出现在浏览器目录。
+
+模型策略请求可带可选 `model`。空值解析为服务端默认模型；显式值不在允许清单时返回 422 `knowledge_model_not_allowed`，绝不静默换成默认模型。`deterministic_only` 不调用模型，且与显式 `model` 冲突时返回 422 `knowledge_model_not_applicable`。浏览器不能提交 endpoint、key 或 provider 配置。Operations Web 的正式入口是 `/platform/operations/knowledge-runtime`，复用共享 `ModelSelect`，并只在该操作专用 localStorage key 中记住模型标识。
+
 模型采用需要三个显式条件：模型策略允许调用、`allow_external_model=true`、`adopt_model_inferred=true`。返回值分别包含 effective `decisions` 和未必采用的 `model_hypotheses`。每个 decision 带 release、policy、prompt、model、tool、evidence、confidence、status、scope 和 adopted 标识。
+
+响应和 decision 都区分 `requested_model_name` 与 `model_name`。前者是允许清单解析后的本次请求模型，后者优先采用供应商响应中通过字符/长度校验的实际模型标识；供应商不返回可信标识时，实际模型回退为请求模型，同时 `model_identity_source=requested_fallback`，不能伪装成更具体的部署版本。顶层还返回 `model_catalog_revision`、`model_inference_used`、`model_inference_adopted` 和 `provider_call_attempted`。缓存命中保留第一次的实际模型与标识来源，但本次 `provider_call_attempted=false`，新增 token、费用和供应商时延为零。
 
 `on_model_failure=degrade` 返回确定性结果和稳定 degradation code。`on_model_failure=fail` 返回 503。超时、非法 JSON、工具错误、工具越权、工具轮次上限和 provider 不可用都有独立错误码。
 
 `llm_assisted` 只把 unresolved input 交给模型并只允许这些 input 被采用。`confidential/restricted` 不允许外发。gateway 的 `GEO_KNOWLEDGE_LLM_MAX_RETRIES` 缺省为 1，覆盖 408、429、5xx 和传输失败；备用 endpoint 在单端点重试耗尽后使用。设置 max cost 但 provider 未返回可核验费用时，结果披露 `cost_budget_unverifiable` 且不采用。
 
-cache read/write、observation 和 trace 失败分别披露 `semantic_cache_read_failed`、`semantic_cache_write_failed`、`observation_persistence_failed` 和 `trace_persistence_failed`。这些可选反馈故障不改变已经得到的当次 decision。调用方不能把 degradation 当成持久化成功回执。
+cache key 包含请求模型、模型部署版本、模型目录版本、知识 release/hash、policy、prompt、tool、输入和必要上下文；切换模型或目录版本不会复用旧项。只有通过领域输出校验的结果才写 cache；命中项的请求/实际模型与工具摘要也会重新校验，损坏项按 miss 重取并披露 `invalid_semantic_cache_entry`。cache read/write、observation 和 trace 失败分别披露 `semantic_cache_read_failed`、`semantic_cache_write_failed`、`observation_persistence_failed` 和 `trace_persistence_failed`。这些可选反馈故障不改变已经得到的当次 decision。调用方不能把 degradation 当成持久化成功回执。
+
+`GET /metrics` 的 `requested_model_metrics` 与 `actual_model_metrics` 分别按请求模型和供应商实际模型聚合推理数、真实供应商调用数、错误数、缓存命中数/命中率、供应商平均时延、token、可核验费用和费用未知次数。未知费用不是零费用。
 
 ## 客户端最后验证副本
 

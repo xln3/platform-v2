@@ -126,6 +126,9 @@ class Settings(BaseSettings):
     knowledge_llm_base_url_fallback: str = ""
     knowledge_llm_provider: str = "openai-compatible"
     knowledge_llm_model: str = ""
+    # 知识推理专用允许清单（GEO_KNOWLEDGE_LLM_MODELS，逗号分隔）。空值保留旧部署
+    # 的单模型兼容路径；非空时只有通过知识严格结构输出准入的目录项才可用。
+    knowledge_llm_models: str = ""
     knowledge_llm_model_version: str = "deployment"
     knowledge_llm_timeout_seconds: float = 60.0
     knowledge_llm_max_retries: int = 1

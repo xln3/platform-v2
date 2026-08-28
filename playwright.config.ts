@@ -25,7 +25,7 @@ if (!Number.isSafeInteger(e2eWorkers) || e2eWorkers < 1) {
 const customerResponsive =
   /customer-(?:accessibility|account|shared-shell|state-matrix|visual)\.spec\.ts/;
 const operationsResponsive =
-  /operations-(?:accessibility|readonly-pagination|shared-shell|visual)\.spec\.ts/;
+  /operations-(?:accessibility|knowledge-runtime|readonly-pagination|shared-shell|visual)\.spec\.ts/;
 const reportsResponsive = /reports-(?:accessibility|shared-shell|studio|visual)\.spec\.ts/;
 const intelligenceResponsive =
   /intelligence-(?:accessibility|shared-shell|visual|workbench)\.spec\.ts/;

@@ -4,25 +4,25 @@
 
 ## 核心对象
 
-| 对象                          | 用途                                       | 关键字段                                                                                                      | 历史语义                                                      |
-| ----------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
-| `observation`                 | 保存一次安全、幂等的业务观察               | task、surface form、normalized key、source type、source ref hash、idempotency key、classification、visibility | append-only                                                   |
-| `candidate`                   | 按租户、namespace、domain 和规范键聚合观察 | variants、observation/source count、priority、state、policy/evidence version                                  | 可更新 read model                                             |
-| `candidate_observation`       | 保存候选与观察的多对多血缘                 | candidate id、observation id                                                                                  | append-only                                                   |
-| `proposal`                    | 建议新增、修改、合并、拆分或退役知识       | target、payload、alternatives、confidence、model/prompt/policy provenance                                     | 追加提案；状态只按工作流推进                                  |
-| `evidence`                    | 保存支持、反对或中立证据                   | URI、content hash、publisher、claim、summary、trust tier、classification                                      | append-only                                                   |
-| `adjudication`                | 保存一次批准、拒绝或延期决定               | before/after、reason、policy version、decider                                                                 | append-only，不覆盖旧裁决                                     |
-| `change_set`                  | 表达相对 base release 的结构化变更         | changes、dependencies、conflicts、visibility、creator、approver                                               | 审批后不可静默改写                                            |
-| `knowledge_object`            | 当前可查询的稳定对象版本                   | stable id、type、attributes、origin、review/visibility/sync status、validity、version                         | 相同 stable id 每次变化增加版本；旧行由 trigger 禁止更新/删除 |
-| `assertion`                   | 表达带范围和证据的关系或属性               | assertion key、subject、predicate、object/value、scope、evidence refs、epistemic status、confidence、version  | 相同 assertion key 追加版本；旧行由 trigger 禁止更新/删除     |
-| `knowledge_release`           | 记录不可变发布产物                         | release id、parent、schema、content hash、artifact URI、quality report                                        | append-only                                                   |
-| `knowledge_release_object`    | 冻结一个 release 包含的对象版本            | release、knowledge object row、stable id                                                                      | append-only；回滚读取该集合，不取全局最新行                   |
-| `knowledge_release_assertion` | 冻结一个 release 包含的断言版本            | release、assertion row、assertion key                                                                         | append-only；允许后继 release 退役旧断言                      |
-| `release_activation`          | 记录激活或回滚                             | release、previous release、action、actor                                                                      | append-only                                                   |
-| `connector_run`               | 记录 import/export/publish/reconcile       | adapter、operation、base/upstream/local release、cursor、result、error                                        | 每次运行一行                                                  |
-| `inference_trace`             | 保存脱敏的推理血缘和计量                   | request/input hash、policy、release、prompt/model/tool、adoption、latency、token/cost、cache、degradation     | append-only                                                   |
-| `semantic_cache`              | 保存版本化语义缓存                         | full cache key、structured value、hit count                                                                   | release/policy/prompt/model/tool 变化即失效                   |
-| `audit_event`                 | 保存安全审计事实并投影为事件               | actor、action、resource、bounded receipt、occurred at                                                         | append-only                                                   |
+| 对象                          | 用途                                       | 关键字段                                                                                                                                                  | 历史语义                                                      |
+| ----------------------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| `observation`                 | 保存一次安全、幂等的业务观察               | task、surface form、normalized key、source type、source ref hash、idempotency key、classification、visibility                                             | append-only                                                   |
+| `candidate`                   | 按租户、namespace、domain 和规范键聚合观察 | variants、observation/source count、priority、state、policy/evidence version                                                                              | 可更新 read model                                             |
+| `candidate_observation`       | 保存候选与观察的多对多血缘                 | candidate id、observation id                                                                                                                              | append-only                                                   |
+| `proposal`                    | 建议新增、修改、合并、拆分或退役知识       | target、payload、alternatives、confidence、model/prompt/policy provenance                                                                                 | 追加提案；状态只按工作流推进                                  |
+| `evidence`                    | 保存支持、反对或中立证据                   | URI、content hash、publisher、claim、summary、trust tier、classification                                                                                  | append-only                                                   |
+| `adjudication`                | 保存一次批准、拒绝或延期决定               | before/after、reason、policy version、decider                                                                                                             | append-only，不覆盖旧裁决                                     |
+| `change_set`                  | 表达相对 base release 的结构化变更         | changes、dependencies、conflicts、visibility、creator、approver                                                                                           | 审批后不可静默改写                                            |
+| `knowledge_object`            | 当前可查询的稳定对象版本                   | stable id、type、attributes、origin、review/visibility/sync status、validity、version                                                                     | 相同 stable id 每次变化增加版本；旧行由 trigger 禁止更新/删除 |
+| `assertion`                   | 表达带范围和证据的关系或属性               | assertion key、subject、predicate、object/value、scope、evidence refs、epistemic status、confidence、version                                              | 相同 assertion key 追加版本；旧行由 trigger 禁止更新/删除     |
+| `knowledge_release`           | 记录不可变发布产物                         | release id、parent、schema、content hash、artifact URI、quality report                                                                                    | append-only                                                   |
+| `knowledge_release_object`    | 冻结一个 release 包含的对象版本            | release、knowledge object row、stable id                                                                                                                  | append-only；回滚读取该集合，不取全局最新行                   |
+| `knowledge_release_assertion` | 冻结一个 release 包含的断言版本            | release、assertion row、assertion key                                                                                                                     | append-only；允许后继 release 退役旧断言                      |
+| `release_activation`          | 记录激活或回滚                             | release、previous release、action、actor                                                                                                                  | append-only                                                   |
+| `connector_run`               | 记录 import/export/publish/reconcile       | adapter、operation、base/upstream/local release、cursor、result、error                                                                                    | 每次运行一行                                                  |
+| `inference_trace`             | 保存脱敏的推理血缘和计量                   | request/input hash、policy、release、prompt、请求/实际 model、identity source、catalog、调用标记、tool、adoption、latency、token/cost、cache、degradation | append-only                                                   |
+| `semantic_cache`              | 保存版本化语义缓存                         | full cache key、structured value、请求/实际 model 血缘、hit count                                                                                         | release/policy/prompt/model/catalog/tool 变化即失效           |
+| `audit_event`                 | 保存安全审计事实并投影为事件               | actor、action、resource、bounded receipt、occurred at                                                                                                     | append-only                                                   |
 
 ## 认识状态
 
@@ -60,3 +60,7 @@ release 的 `content_hash` 覆盖按 domain 排序并规范化编码的全部领
 公开知识只允许公开表面名称、公开关系、公开证据 URL 和必要摘要。客户项目名、原始问题、完整回答、tenant、prompt、credential 和未脱敏上下文不能进入公共 connector export。
 
 运行时观察只保存不可逆 source reference、短安全上下文和受限 payload。`confidential` 或 `restricted` 请求不能发送给外部模型。模型 provider 错误只保存稳定错误码，不保存响应体、密钥或异常详情。
+
+`inference_trace.requested_model_name` 保存允许清单解析后的请求模型；`model_name` 保存供应商实际返回并通过安全校验的标识，缺失时回退请求模型；`model_identity_source` 明示 `provider_response`、`requested_fallback` 或旧缓存来源。`model_catalog_revision` 固定本次允许清单/部署边界，`model_call_attempted` 只表示本次确实向供应商发起调用，缓存命中为 false。请求模型和实际模型各有租户前缀索引，用于不混淆的指标与审计。
+
+模型观察 payload 只保存上述模型/提示词/目录版本血缘和受控业务字段。它不能保存 API key、base URL、供应商响应体、客户项目 ID、客户名、完整问题、完整回答或未脱敏上下文。费用不可核验时 `cost_microusd` 保持 NULL，并通过指标中的 `cost_unknown_count` 披露，不能写成零。

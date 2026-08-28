@@ -285,6 +285,12 @@ class SourceTypeFixturePack:
                         "knowledge_status": decision.knowledge_status.value,
                         "confidence": decision.confidence,
                         "policy_version": self.policy_version,
+                        "model_provider": decision.model_provider,
+                        "requested_model": decision.requested_model_name,
+                        "model": decision.model_name,
+                        "model_identity_source": decision.model_identity_source,
+                        "model_catalog_revision": request.model_catalog_revision,
+                        "prompt_version": decision.prompt_version,
                     },
                 )
             )

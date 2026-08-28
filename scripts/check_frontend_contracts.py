@@ -52,6 +52,7 @@ page_coverage = {
             "sop",
             "onboarding",
             "post-analysis",
+            "knowledge-runtime",
             "service-visibility",
             "service-outbound-risk",
             "service-inbound-risk",
@@ -1733,9 +1734,9 @@ for fragment in (
 ):
     if fragment not in api_client:
         errors.append(f"@geo/api-client browser identity type is missing {fragment}")
-if api_client.count("client: ProjectedApiClientOverride = apiClient") != 147:
+if api_client.count("client: ProjectedApiClientOverride = apiClient") != 149:
     errors.append(
-        "@geo/api-client must keep all 147 projected wrapper overrides free of the raw "
+        "@geo/api-client must keep all 149 projected wrapper overrides free of the raw "
         "generated client type"
     )
 projected_client_unwraps = len(
@@ -1744,7 +1745,7 @@ projected_client_unwraps = len(
         api_client,
     )
 ) + api_client.count("const api = projectedApiClient(client);")
-if projected_client_unwraps != 147:
+if projected_client_unwraps != 149:
     errors.append(
         "@geo/api-client must unwrap every projected wrapper override only inside its "
         "generated request implementation"
@@ -1926,9 +1927,13 @@ for projector_name in (
     "projectEvaluationRunPage",
     "projectModelAdmissionView",
     "projectModelAdmissionPage",
+    "projectKnowledgeModel",
+    "projectKnowledgeModelCatalog",
+    "projectKnowledgeDecision",
+    "projectKnowledgeRuntime",
 ):
     unknown_entry = re.compile(
-        rf"(?:export function {projector_name}\s*\(\s*value: unknown|"
+        rf"(?:(?:export )?function {projector_name}\s*\(\s*value: unknown|"
         rf"const {projector_name}\s*=\s*\(\s*value: unknown)"
     )
     if not unknown_entry.search(api_client):

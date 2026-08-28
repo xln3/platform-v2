@@ -1048,6 +1048,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/collection-accounts/{pub_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Patch Collection Account
+         * @description 修改手机号备注；空字符串与 ``null`` 都表示清空备注。
+         */
+        patch: operations["patch_collection_account_api_v2_collection_accounts__pub_id__patch"];
+        trace?: never;
+    };
     "/api/v2/collection-accounts/{pub_id}/platform-accounts": {
         parameters: {
             query?: never;
@@ -5203,6 +5223,23 @@ export interface paths {
          * @description Deprecated V1-derived extraction/aggregation view for explicit audit only.
          */
         get: operations["brand_visibility_api_v2_projects__project_pub_id__brand_visibility_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/knowledge/v1/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Inference Model Catalog */
+        get: operations["inference_model_catalog_api_v2_knowledge_v1_models_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -9430,6 +9467,10 @@ export interface components {
             model_name: string | null;
             /** Model Version */
             model_version: string | null;
+            /** Requested Model Name */
+            requested_model_name?: string | null;
+            /** Model Identity Source */
+            model_identity_source?: string | null;
             /** Prompt Id */
             prompt_id: string | null;
             /** Prompt Version */
@@ -11048,6 +11089,80 @@ export interface components {
             /** Payload Hash */
             payload_hash: string;
         };
+        /** KnowledgeModelCatalogView */
+        KnowledgeModelCatalogView: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ready" | "unavailable";
+            /** Catalog Revision */
+            catalog_revision: string;
+            /** Default Model */
+            default_model: string | null;
+            /** Models */
+            models: components["schemas"]["KnowledgeModelOptionView"][];
+            /** Unavailable Reason */
+            unavailable_reason: string | null;
+        };
+        /** KnowledgeModelOptionView */
+        KnowledgeModelOptionView: {
+            /** Model */
+            model: string;
+            /** Label */
+            label: string;
+            /** Provider */
+            provider: string;
+            /** Model Version */
+            model_version: string;
+            /** Capability */
+            capability: string;
+            /** Strict Output Verified */
+            strict_output_verified: boolean;
+            /**
+             * Tool Capability Status
+             * @enum {string}
+             */
+            tool_capability_status: "verified" | "not_required" | "not_verified";
+            /** Verified At */
+            verified_at: string | null;
+            /** Verification Reference */
+            verification_reference: string | null;
+            /** Input Usd Per Million Tokens */
+            input_usd_per_million_tokens: number | null;
+            /** Output Usd Per Million Tokens */
+            output_usd_per_million_tokens: number | null;
+            /**
+             * Pricing Status
+             * @enum {string}
+             */
+            pricing_status: "catalog_snapshot" | "unknown";
+            /**
+             * Pricing Currency
+             * @constant
+             */
+            pricing_currency: "USD";
+            /**
+             * Token Price Unit
+             * @constant
+             */
+            token_price_unit: "per_million_tokens";
+            /** Pricing Observed At */
+            pricing_observed_at: string | null;
+            /** Pricing Source Url */
+            pricing_source_url: string | null;
+            /**
+             * Pricing Notice
+             * @constant
+             */
+            pricing_notice: "catalog_snapshot_provider_invoice_authoritative";
+            /** Catalog Revision */
+            catalog_revision: string;
+            /** Is Default */
+            is_default: boolean;
+            /** Recommended */
+            recommended: boolean;
+        };
         /**
          * KnowledgeStatus
          * @enum {string}
@@ -11513,6 +11628,10 @@ export interface components {
             connector_last_success_at: string | null;
             /** Export Lag Seconds */
             export_lag_seconds: number | null;
+            /** Requested Model Metrics */
+            requested_model_metrics?: components["schemas"]["ModelMetricView"][];
+            /** Actual Model Metrics */
+            actual_model_metrics?: components["schemas"]["ModelMetricView"][];
         };
         /** ModelAdmissionCreate */
         ModelAdmissionCreate: {
@@ -11547,6 +11666,31 @@ export interface components {
             admitted_at: string;
             /** Revoked At */
             revoked_at: string | null;
+        };
+        /** ModelMetricView */
+        ModelMetricView: {
+            /** Model */
+            model: string;
+            /** Inference Count */
+            inference_count: number;
+            /** Provider Call Count */
+            provider_call_count: number;
+            /** Error Count */
+            error_count: number;
+            /** Cache Hit Count */
+            cache_hit_count: number;
+            /** Cache Hit Rate */
+            cache_hit_rate: number;
+            /** Provider Latency Avg Ms */
+            provider_latency_avg_ms: number | null;
+            /** Input Tokens */
+            input_tokens: number;
+            /** Output Tokens */
+            output_tokens: number;
+            /** Cost Usd */
+            cost_usd: number;
+            /** Cost Unknown Count */
+            cost_unknown_count: number;
         };
         /** NativeLoginRequest */
         NativeLoginRequest: {
@@ -12199,6 +12343,11 @@ export interface components {
             phone: string;
             /** Owner Note */
             owner_note?: string | null;
+        };
+        /** PhoneAccountPatch */
+        PhoneAccountPatch: {
+            /** Owner Note */
+            owner_note: string | null;
         };
         /**
          * PhoneAccountRow
@@ -14075,6 +14224,8 @@ export interface components {
              * @default false
              */
             allow_external_model: boolean;
+            /** Model */
+            model?: string | null;
             /** Max Latency Ms */
             max_latency_ms?: number | null;
             /** Max Cost Usd */
@@ -14108,6 +14259,27 @@ export interface components {
             model_name: string | null;
             /** Model Version */
             model_version: string | null;
+            /** Requested Model Name */
+            requested_model_name?: string | null;
+            /** Model Identity Source */
+            model_identity_source?: string | null;
+            /** Model Catalog Revision */
+            model_catalog_revision?: string | null;
+            /**
+             * Model Inference Used
+             * @default false
+             */
+            model_inference_used: boolean;
+            /**
+             * Model Inference Adopted
+             * @default false
+             */
+            model_inference_adopted: boolean;
+            /**
+             * Provider Call Attempted
+             * @default false
+             */
+            provider_call_attempted: boolean;
             /** Latency Ms */
             latency_ms: number;
             /** Cache Status */
@@ -21727,6 +21899,78 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccountQuotaObservationView"][];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_collection_account_api_v2_collection_accounts__pub_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PhoneAccountPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PhoneAccountRow"];
                 };
             };
             /** @description Bad Request */
@@ -40827,6 +41071,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    inference_model_catalog_api_v2_knowledge_v1_models_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeModelCatalogView"];
                 };
             };
             /** @description Bad Request */

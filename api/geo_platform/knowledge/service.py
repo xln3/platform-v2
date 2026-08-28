@@ -13,9 +13,15 @@ from domain.knowledge_evolution.domains.source_type_fixture import SourceTypeFix
 from domain.knowledge_evolution.gateway import OpenAICompatibleGateway
 from domain.knowledge_evolution.registry import DomainRegistry
 from domain.knowledge_evolution.release import KnowledgeReleaseError, KnowledgeReleaseStore
-from domain.knowledge_evolution.runtime import ReasoningEngine
+from domain.knowledge_evolution.runtime import ReasoningEngine, ReasoningError
 
 from ..config import Settings
+from .inference_models import (
+    KnowledgeModelError,
+    KnowledgeModelNotApplicable,
+    catalog_revision,
+    resolve_model,
+)
 from .models import Assertion, KnowledgeObject, KnowledgeRelease
 from .repository import KnowledgeConflict, KnowledgeRepository
 from .schemas import ReleaseCreate, RuntimeResolveRequest
@@ -33,20 +39,24 @@ def registry(settings: Settings) -> DomainRegistry:
     return value
 
 
-def gateway(settings: Settings) -> OpenAICompatibleGateway | None:
+def gateway(settings: Settings, model: str | None = None) -> OpenAICompatibleGateway | None:
     api_key = settings.knowledge_llm_api_key or settings.research_llm_api_key
     base_url = settings.knowledge_llm_base_url or settings.research_llm_base_url
     fallback = settings.knowledge_llm_base_url_fallback or settings.research_llm_base_url_fallback
-    model = settings.knowledge_llm_model or settings.research_llm_model
-    if not api_key or not base_url or not model:
+    try:
+        resolved_model = resolve_model(settings, model)
+    except KnowledgeModelError:
+        return None
+    if not api_key or not base_url or not resolved_model:
         return None
     return OpenAICompatibleGateway(
         api_key=api_key,
         base_url=base_url,
         base_url_fallback=fallback,
         provider=settings.knowledge_llm_provider,
-        model=model,
+        model=resolved_model,
         model_version=settings.knowledge_llm_model_version,
+        catalog_revision=catalog_revision(settings),
         timeout_seconds=settings.knowledge_llm_timeout_seconds,
         max_retries=settings.knowledge_llm_max_retries,
     )
@@ -60,6 +70,12 @@ def resolve(
     request_id: str,
     body: RuntimeResolveRequest,
 ) -> dict[str, Any]:
+    if body.policy.value == "deterministic_only" and body.model is not None:
+        raise KnowledgeModelNotApplicable()
+    selected_model = (
+        None if body.policy.value == "deterministic_only" else resolve_model(settings, body.model)
+    )
+    selected_catalog_revision = catalog_revision(settings) if selected_model is not None else None
     repository = KnowledgeRepository(
         session,
         tenant_pub_id,
@@ -84,8 +100,20 @@ def resolve(
         allow_external_model=body.allow_external_model,
         max_latency_ms=body.max_latency_ms,
         max_cost_usd=body.max_cost_usd,
+        model=selected_model,
+        model_catalog_revision=selected_catalog_revision,
     )
-    response = ReasoningEngine(registry(settings), repository, gateway(settings)).decide(runtime)
+    try:
+        response = ReasoningEngine(
+            registry(settings),
+            repository,
+            gateway(settings, selected_model) if selected_model is not None else None,
+        ).decide(runtime)
+    except ReasoningError:
+        # Fail-fast model policy still produces a sanitized inference trace. The
+        # router's subsequent rollback must not erase that operational evidence.
+        session.commit()
+        raise
     session.commit()
     return asdict(response)
 

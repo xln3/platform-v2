@@ -2,6 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-08-27
+- 补充决定：2026-08-28（请求级模型准入与血缘）
 - 决策者：GEO Platform 工程与知识治理责任人
 
 ## 背景
@@ -31,9 +32,13 @@ GEO 请求、AI 回答抽取、人工纠错和外部知识源会持续产生新�
 
 模型结果与确定性结果分开返回。调用方只有同时启用外部模型、选择允许模型的策略并设置 `adopt_model_inferred=true` 时，模型结果才能影响当次请求。采用后的状态仍是 `model_inferred`，作用域仍是 `request`。它不会修改主数据、变更集或 release。
 
+模型选择是请求级参数，不是浏览器可编辑的网关配置。服务端维护知识任务独立允许清单，只有通过当前严格 JSON Schema 和领域校验的模型才进入公开目录。请求未指定模型时使用服务端默认项；指定未允许模型时拒绝，不做静默替换。确定性策略与显式模型互斥。现有只配置一个模型的部署保持服务端兼容，但未准入模型不向浏览器宣传。
+
+请求模型和供应商实际模型是两条不同血缘。供应商返回可信模型标识时保存其值；否则保存请求模型并标记为回退来源。两者连同目录版本进入 append-only inference trace、响应、观察和按模型指标。浏览器只接收目录元数据并提交模型 ID，凭据与 endpoint 始终保留在服务端。
+
 `llm_assisted` 只允许模型处理确定性结果中的未决项，不能用模型覆盖已发布判断。`confidential/restricted` 请求即使误传 `allow_external_model=true` 也会被外部 gateway 拒绝。gateway 对 408、429、5xx 和传输错误做有界重试并支持备用端点；输出、工具和异常都经过结构与泄露边界校验。费用预算存在但 provider 未返回可核验费用时，结果标为 `cost_budget_unverifiable`，不能被采用。
 
-缓存键包含租户、领域、任务、输入、必要上下文、release hash、policy、prompt、model 和 tool 版本。缓存命中保留模型血缘，但新增 token、费用和 provider latency 记为零。
+缓存键包含租户、领域、任务、输入、必要上下文、release hash、policy、prompt、请求模型、模型部署版本、目录版本和 tool 版本。缓存命中保留请求/实际模型血缘，但新增 token、费用和 provider latency 记为零。目录、模型或知识版本任一变化都会形成新的缓存边界。
 
 cache、observation 和 inference trace 写入属于可降级的运行反馈边界。数据库实现用 savepoint 隔离这些写入；失败时当前有效判断仍返回，并披露稳定 degradation code。候选聚合、证据和发布仍由持久治理事务完成，不能因为反馈降级而伪造已持久化回执。
 

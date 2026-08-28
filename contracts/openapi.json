@@ -15803,6 +15803,217 @@
         }
       }
     },
+    "/api/v2/collection-accounts/{pub_id}": {
+      "patch": {
+        "tags": [
+          "collection-account-governance"
+        ],
+        "summary": "Patch Collection Account",
+        "description": "修改手机号备注；空字符串与 ``null`` 都表示清空备注。",
+        "operationId": "patch_collection_account_api_v2_collection_accounts__pub_id__patch",
+        "parameters": [
+          {
+            "name": "pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pub Id"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PhoneAccountPatch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneAccountRow"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/collection-accounts/{pub_id}/platform-accounts": {
       "post": {
         "tags": [
@@ -70757,6 +70968,197 @@
         }
       }
     },
+    "/api/v2/knowledge/v1/models": {
+      "get": {
+        "tags": [
+          "knowledge-evolution-v1"
+        ],
+        "summary": "Inference Model Catalog",
+        "operationId": "inference_model_catalog_api_v2_knowledge_v1_models_get",
+        "parameters": [
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeModelCatalogView"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v2/knowledge/v1/runtime/resolve": {
       "post": {
         "tags": [
@@ -89697,6 +90099,28 @@
             ],
             "title": "Model Version"
           },
+          "requested_model_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested Model Name"
+          },
+          "model_identity_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Identity Source"
+          },
           "prompt_id": {
             "anyOf": [
               {
@@ -94394,6 +94818,224 @@
         ],
         "title": "KnowledgeEventView"
       },
+      "KnowledgeModelCatalogView": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "unavailable"
+            ],
+            "title": "Status"
+          },
+          "catalog_revision": {
+            "type": "string",
+            "title": "Catalog Revision"
+          },
+          "default_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Model"
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeModelOptionView"
+            },
+            "type": "array",
+            "title": "Models"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "status",
+          "catalog_revision",
+          "default_model",
+          "models",
+          "unavailable_reason"
+        ],
+        "title": "KnowledgeModelCatalogView"
+      },
+      "KnowledgeModelOptionView": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "model_version": {
+            "type": "string",
+            "title": "Model Version"
+          },
+          "capability": {
+            "type": "string",
+            "title": "Capability"
+          },
+          "strict_output_verified": {
+            "type": "boolean",
+            "title": "Strict Output Verified"
+          },
+          "tool_capability_status": {
+            "type": "string",
+            "enum": [
+              "verified",
+              "not_required",
+              "not_verified"
+            ],
+            "title": "Tool Capability Status"
+          },
+          "verified_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified At"
+          },
+          "verification_reference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verification Reference"
+          },
+          "input_usd_per_million_tokens": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Usd Per Million Tokens"
+          },
+          "output_usd_per_million_tokens": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Usd Per Million Tokens"
+          },
+          "pricing_status": {
+            "type": "string",
+            "enum": [
+              "catalog_snapshot",
+              "unknown"
+            ],
+            "title": "Pricing Status"
+          },
+          "pricing_currency": {
+            "type": "string",
+            "const": "USD",
+            "title": "Pricing Currency"
+          },
+          "token_price_unit": {
+            "type": "string",
+            "const": "per_million_tokens",
+            "title": "Token Price Unit"
+          },
+          "pricing_observed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pricing Observed At"
+          },
+          "pricing_source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pricing Source Url"
+          },
+          "pricing_notice": {
+            "type": "string",
+            "const": "catalog_snapshot_provider_invoice_authoritative",
+            "title": "Pricing Notice"
+          },
+          "catalog_revision": {
+            "type": "string",
+            "title": "Catalog Revision"
+          },
+          "is_default": {
+            "type": "boolean",
+            "title": "Is Default"
+          },
+          "recommended": {
+            "type": "boolean",
+            "title": "Recommended"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "model",
+          "label",
+          "provider",
+          "model_version",
+          "capability",
+          "strict_output_verified",
+          "tool_capability_status",
+          "verified_at",
+          "verification_reference",
+          "input_usd_per_million_tokens",
+          "output_usd_per_million_tokens",
+          "pricing_status",
+          "pricing_currency",
+          "token_price_unit",
+          "pricing_observed_at",
+          "pricing_source_url",
+          "pricing_notice",
+          "catalog_revision",
+          "is_default",
+          "recommended"
+        ],
+        "title": "KnowledgeModelOptionView"
+      },
       "KnowledgeStatus": {
         "type": "string",
         "enum": [
@@ -95716,6 +96358,20 @@
               }
             ],
             "title": "Export Lag Seconds"
+          },
+          "requested_model_metrics": {
+            "items": {
+              "$ref": "#/components/schemas/ModelMetricView"
+            },
+            "type": "array",
+            "title": "Requested Model Metrics"
+          },
+          "actual_model_metrics": {
+            "items": {
+              "$ref": "#/components/schemas/ModelMetricView"
+            },
+            "type": "array",
+            "title": "Actual Model Metrics"
           }
         },
         "additionalProperties": false,
@@ -95843,6 +96499,77 @@
           "revoked_at"
         ],
         "title": "ModelAdmissionView"
+      },
+      "ModelMetricView": {
+        "properties": {
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "inference_count": {
+            "type": "integer",
+            "title": "Inference Count"
+          },
+          "provider_call_count": {
+            "type": "integer",
+            "title": "Provider Call Count"
+          },
+          "error_count": {
+            "type": "integer",
+            "title": "Error Count"
+          },
+          "cache_hit_count": {
+            "type": "integer",
+            "title": "Cache Hit Count"
+          },
+          "cache_hit_rate": {
+            "type": "number",
+            "title": "Cache Hit Rate"
+          },
+          "provider_latency_avg_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Latency Avg Ms"
+          },
+          "input_tokens": {
+            "type": "integer",
+            "title": "Input Tokens"
+          },
+          "output_tokens": {
+            "type": "integer",
+            "title": "Output Tokens"
+          },
+          "cost_usd": {
+            "type": "number",
+            "title": "Cost Usd"
+          },
+          "cost_unknown_count": {
+            "type": "integer",
+            "title": "Cost Unknown Count"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "model",
+          "inference_count",
+          "provider_call_count",
+          "error_count",
+          "cache_hit_count",
+          "cache_hit_rate",
+          "provider_latency_avg_ms",
+          "input_tokens",
+          "output_tokens",
+          "cost_usd",
+          "cost_unknown_count"
+        ],
+        "title": "ModelMetricView"
       },
       "NativeLoginRequest": {
         "properties": {
@@ -97573,7 +98300,8 @@
           "owner_note": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 200
               },
               {
                 "type": "null"
@@ -97588,6 +98316,28 @@
           "phone"
         ],
         "title": "PhoneAccountCreate"
+      },
+      "PhoneAccountPatch": {
+        "properties": {
+          "owner_note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Note"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "owner_note"
+        ],
+        "title": "PhoneAccountPatch"
       },
       "PhoneAccountRow": {
         "properties": {
@@ -103024,6 +103774,20 @@
             "title": "Allow External Model",
             "default": false
           },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120,
+                "minLength": 1,
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
           "max_latency_ms": {
             "anyOf": [
               {
@@ -103157,6 +103921,54 @@
               }
             ],
             "title": "Model Version"
+          },
+          "requested_model_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested Model Name"
+          },
+          "model_identity_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Identity Source"
+          },
+          "model_catalog_revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Catalog Revision"
+          },
+          "model_inference_used": {
+            "type": "boolean",
+            "title": "Model Inference Used",
+            "default": false
+          },
+          "model_inference_adopted": {
+            "type": "boolean",
+            "title": "Model Inference Adopted",
+            "default": false
+          },
+          "provider_call_attempted": {
+            "type": "boolean",
+            "title": "Provider Call Attempted",
+            "default": false
           },
           "latency_ms": {
             "type": "integer",

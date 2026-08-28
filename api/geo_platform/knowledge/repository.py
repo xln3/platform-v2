@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from functools import wraps
 from typing import Any
 
-from sqlalchemy import Text, distinct, func, select
+from sqlalchemy import Text, and_, case, distinct, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -219,8 +219,12 @@ class KnowledgeRepository:
                 prompt_id=trace.get("prompt_id"),
                 prompt_version=trace.get("prompt_version"),
                 model_provider=trace.get("model_provider"),
+                requested_model_name=trace.get("requested_model"),
                 model_name=trace.get("model"),
                 model_version=trace.get("model_version"),
+                model_identity_source=trace.get("model_identity_source"),
+                model_catalog_revision=trace.get("model_catalog_revision"),
+                model_call_attempted=bool(trace.get("model_call_attempted")),
                 tool_version=str(trace["tool_version"]),
                 adopt_model_inferred=bool(trace["adopt_model_inferred"]),
                 adopted_model_decisions=int(trace["adopted_model_decisions"]),
@@ -1220,6 +1224,93 @@ class KnowledgeRepository:
     def metrics(self) -> dict[str, Any]:
         tenant = self.tenant_pub_id
         now = datetime.now(UTC)
+        degradation_text = InferenceTrace.degradation.cast(Text)
+        model_error = or_(
+            degradation_text.like('%"model\\_%', escape="\\"),
+            degradation_text.like('%"knowledge_model\\_%', escape="\\"),
+            degradation_text.like('%"invalid_model_output"%'),
+            degradation_text.like('%"tool\\_%', escape="\\"),
+        )
+        # Rows written before the lineage migration have no requested model or
+        # explicit call bit.  Preserve their former metrics semantics without
+        # miscounting known cache hits as fresh provider calls.
+        provider_call = or_(
+            InferenceTrace.model_call_attempted.is_(True),
+            and_(
+                InferenceTrace.requested_model_name.is_(None),
+                InferenceTrace.model_provider.is_not(None),
+                InferenceTrace.model_name.is_not(None),
+                InferenceTrace.cache_status != "hit",
+            ),
+        )
+
+        def model_metrics(column: Any) -> list[dict[str, Any]]:
+            rows = self.session.execute(
+                select(
+                    column.label("model"),
+                    func.count().label("inference_count"),
+                    func.coalesce(
+                        func.sum(case((provider_call, 1), else_=0)),
+                        0,
+                    ).label("provider_call_count"),
+                    func.coalesce(func.sum(case((model_error, 1), else_=0)), 0).label(
+                        "error_count"
+                    ),
+                    func.coalesce(
+                        func.sum(case((InferenceTrace.cache_status == "hit", 1), else_=0)),
+                        0,
+                    ).label("cache_hit_count"),
+                    func.avg(
+                        case(
+                            (
+                                provider_call,
+                                InferenceTrace.model_latency_ms,
+                            ),
+                            else_=None,
+                        )
+                    ).label("provider_latency_avg_ms"),
+                    func.coalesce(func.sum(InferenceTrace.input_tokens), 0).label("input_tokens"),
+                    func.coalesce(func.sum(InferenceTrace.output_tokens), 0).label("output_tokens"),
+                    func.coalesce(func.sum(InferenceTrace.cost_microusd), 0).label("cost_microusd"),
+                    func.coalesce(
+                        func.sum(
+                            case(
+                                (
+                                    provider_call & InferenceTrace.cost_microusd.is_(None),
+                                    1,
+                                ),
+                                else_=0,
+                            )
+                        ),
+                        0,
+                    ).label("cost_unknown_count"),
+                )
+                .where(InferenceTrace.tenant_pub_id == tenant, column.is_not(None))
+                .group_by(column)
+                .order_by(column)
+            ).all()
+            return [
+                {
+                    "model": str(row.model),
+                    "inference_count": int(row.inference_count or 0),
+                    "provider_call_count": int(row.provider_call_count or 0),
+                    "error_count": int(row.error_count or 0),
+                    "cache_hit_count": int(row.cache_hit_count or 0),
+                    "cache_hit_rate": float(row.cache_hit_count or 0)
+                    / int(row.inference_count or 1),
+                    "provider_latency_avg_ms": (
+                        float(row.provider_latency_avg_ms)
+                        if row.provider_latency_avg_ms is not None
+                        else None
+                    ),
+                    "input_tokens": int(row.input_tokens or 0),
+                    "output_tokens": int(row.output_tokens or 0),
+                    "cost_usd": float(row.cost_microusd or 0) / 1_000_000,
+                    "cost_unknown_count": int(row.cost_unknown_count or 0),
+                }
+                for row in rows
+            ]
+
         observations = self.session.scalar(
             select(func.count()).select_from(Observation).where(Observation.tenant_pub_id == tenant)
         )
@@ -1255,7 +1346,7 @@ class KnowledgeRepository:
             .select_from(InferenceTrace)
             .where(
                 InferenceTrace.tenant_pub_id == tenant,
-                InferenceTrace.degradation.cast(Text).like('%"model\\_%', escape="\\"),
+                model_error,
             )
         )
         cache_hits = self.session.scalar(
@@ -1298,16 +1389,14 @@ class KnowledgeRepository:
             )
         )
         model_calls = self.session.scalar(
-            select(func.count())
-            .select_from(InferenceTrace)
-            .where(
+            select(func.coalesce(func.sum(case((provider_call, 1), else_=0)), 0)).where(
                 InferenceTrace.tenant_pub_id == tenant,
-                InferenceTrace.model_provider.is_not(None),
             )
         )
         model_latency = self.session.scalar(
             select(func.avg(InferenceTrace.model_latency_ms)).where(
                 InferenceTrace.tenant_pub_id == tenant,
+                provider_call,
                 InferenceTrace.model_latency_ms.is_not(None),
             )
         )
@@ -1351,6 +1440,8 @@ class KnowledgeRepository:
             "connector_last_attempt_at": last_attempt,
             "connector_last_success_at": last_success,
             "export_lag_seconds": export_lag,
+            "requested_model_metrics": model_metrics(InferenceTrace.requested_model_name),
+            "actual_model_metrics": model_metrics(InferenceTrace.model_name),
         }
 
 

@@ -70,6 +70,9 @@ class KnowledgeHttpClient:
     def _body(request: RuntimeRequest) -> dict[str, Any]:
         body = asdict(request)
         body.pop("tenant", None)
+        # The server derives the catalog revision after allow-list resolution;
+        # callers submit only the public model identifier.
+        body.pop("model_catalog_revision", None)
         body["policy"] = request.policy.value
         body["items"] = list(request.items)
         return body

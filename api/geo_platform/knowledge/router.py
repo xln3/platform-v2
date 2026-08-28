@@ -23,6 +23,7 @@ from ..tenancy.database import get_db
 from ..tenancy.ids import new_pub_id
 from ..tenancy.repository import TenantRepository
 from . import service
+from .inference_models import KnowledgeModelError, model_catalog
 from .models import Candidate, Evidence, Proposal
 from .repository import KnowledgeConflict, KnowledgeNotFound, KnowledgeRepository
 from .schemas import (
@@ -41,6 +42,7 @@ from .schemas import (
     EvidenceView,
     IngestReceipt,
     KnowledgeEventView,
+    KnowledgeModelCatalogView,
     MetricsView,
     ObservationBatchRequest,
     ProposalCreate,
@@ -189,6 +191,8 @@ def _connector_view(row: Any) -> ConnectorRunView:
 
 def _translate_error(exc: Exception) -> HTTPException:
     code = str(exc)
+    if isinstance(exc, KnowledgeModelError):
+        return HTTPException(status_code=422, detail={"code": exc.code})
     if isinstance(exc, KnowledgeNotFound | KeyError):
         return HTTPException(status_code=404, detail={"code": code.strip("'")})
     if isinstance(exc, KnowledgeConflict):
@@ -199,6 +203,15 @@ def _translate_error(exc: Exception) -> HTTPException:
         status = 503 if code.startswith(("model_", "invalid_model", "tool_", "provider_")) else 409
         return HTTPException(status_code=status, detail={"code": code})
     return HTTPException(status_code=422, detail={"code": code})
+
+
+@router.get("/models", response_model=KnowledgeModelCatalogView)
+def inference_model_catalog(
+    principal: Principal = Depends(get_principal),
+) -> KnowledgeModelCatalogView:
+    if not principal.allows("knowledge:read"):
+        principal.require("knowledge:resolve")
+    return KnowledgeModelCatalogView.model_validate(model_catalog(get_settings()))
 
 
 @router.post("/runtime/resolve", response_model=RuntimeResolveResponse)

@@ -92,6 +92,13 @@ export const operationsNav = [
     group: '分析',
   },
   {
+    id: 'knowledge-runtime',
+    label: '知识判断工作区',
+    href: '/platform/operations/knowledge-runtime',
+    projectAware: true,
+    group: '分析',
+  },
+  {
     id: 'sop',
     label: '信源 SOP',
     href: '/platform/operations/sop',

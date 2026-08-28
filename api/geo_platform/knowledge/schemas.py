@@ -34,6 +34,12 @@ class RuntimeResolveRequest(StrictModel):
     expected_release_id: str | None = Field(default=None, min_length=1, max_length=128)
     data_classification: Literal["public", "internal", "confidential", "restricted"] = "internal"
     allow_external_model: bool = False
+    model: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=120,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:/-]*$",
+    )
     max_latency_ms: int | None = Field(default=None, ge=1, le=600_000)
     max_cost_usd: float | None = Field(default=None, ge=0, le=100)
 
@@ -54,6 +60,37 @@ class ReleaseRefView(StrictModel):
     degraded: bool
 
 
+class KnowledgeModelOptionView(StrictModel):
+    model: str
+    label: str
+    provider: str
+    model_version: str
+    capability: str
+    strict_output_verified: bool
+    tool_capability_status: Literal["verified", "not_required", "not_verified"]
+    verified_at: str | None
+    verification_reference: str | None
+    input_usd_per_million_tokens: float | None
+    output_usd_per_million_tokens: float | None
+    pricing_status: Literal["catalog_snapshot", "unknown"]
+    pricing_currency: Literal["USD"]
+    token_price_unit: Literal["per_million_tokens"]
+    pricing_observed_at: str | None
+    pricing_source_url: str | None
+    pricing_notice: Literal["catalog_snapshot_provider_invoice_authoritative"]
+    catalog_revision: str
+    is_default: bool
+    recommended: bool
+
+
+class KnowledgeModelCatalogView(StrictModel):
+    status: Literal["ready", "unavailable"]
+    catalog_revision: str
+    default_model: str | None
+    models: list[KnowledgeModelOptionView]
+    unavailable_reason: str | None
+
+
 class DecisionView(StrictModel):
     input_id: str
     input_value: str
@@ -69,6 +106,8 @@ class DecisionView(StrictModel):
     model_provider: str | None
     model_name: str | None
     model_version: str | None
+    requested_model_name: str | None = None
+    model_identity_source: str | None = None
     prompt_id: str | None
     prompt_version: str | None
     knowledge_release_id: str | None
@@ -93,6 +132,12 @@ class RuntimeResolveResponse(StrictModel):
     model_provider: str | None
     model_name: str | None
     model_version: str | None
+    requested_model_name: str | None = None
+    model_identity_source: str | None = None
+    model_catalog_revision: str | None = None
+    model_inference_used: bool = False
+    model_inference_adopted: bool = False
+    provider_call_attempted: bool = False
     latency_ms: int
     cache_status: str
     degradation: list[str]
@@ -366,6 +411,20 @@ class ServiceStatus(StrictModel):
     checks: dict[str, str]
 
 
+class ModelMetricView(StrictModel):
+    model: str
+    inference_count: int
+    provider_call_count: int
+    error_count: int
+    cache_hit_count: int
+    cache_hit_rate: float
+    provider_latency_avg_ms: float | None
+    input_tokens: int
+    output_tokens: int
+    cost_usd: float
+    cost_unknown_count: int
+
+
 class MetricsView(StrictModel):
     observations: int
     candidate_backlog: int
@@ -383,6 +442,8 @@ class MetricsView(StrictModel):
     connector_last_attempt_at: datetime | None
     connector_last_success_at: datetime | None
     export_lag_seconds: int | None
+    requested_model_metrics: list[ModelMetricView] = Field(default_factory=list)
+    actual_model_metrics: list[ModelMetricView] = Field(default_factory=list)
 
 
 class AuditEventView(StrictModel):
