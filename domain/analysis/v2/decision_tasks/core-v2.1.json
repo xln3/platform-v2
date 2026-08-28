@@ -90,7 +90,8 @@
       },
       "required_slices": ["zh", "multi_intent", "prompt_injection"]
     },
-    "status": "experimental",
+    "status": "published",
+    "published_at": "2026-08-28T00:00:00Z",
     "created_at": "2026-08-27T00:00:00Z"
   },
   {
@@ -212,7 +213,8 @@
       },
       "required_slices": ["alias", "open_surface", "ambiguous"]
     },
-    "status": "experimental",
+    "status": "published",
+    "published_at": "2026-08-28T00:00:00Z",
     "created_at": "2026-08-27T00:00:00Z"
   },
   {
@@ -347,7 +349,8 @@
       },
       "required_slices": ["pronoun", "omission", "multi_brand"]
     },
-    "status": "experimental",
+    "status": "published",
+    "published_at": "2026-08-28T00:00:00Z",
     "created_at": "2026-08-27T00:00:00Z"
   },
   {
@@ -468,7 +471,8 @@
       },
       "required_slices": ["prompt_echo", "quoted_body", "citation_metadata"]
     },
-    "status": "experimental",
+    "status": "published",
+    "published_at": "2026-08-28T00:00:00Z",
     "created_at": "2026-08-27T00:00:00Z"
   },
   {
@@ -602,7 +606,8 @@
       },
       "required_slices": ["conditional", "negation", "coreference", "prompt_injection"]
     },
-    "status": "experimental",
+    "status": "published",
+    "published_at": "2026-08-28T00:00:00Z",
     "created_at": "2026-08-27T00:00:00Z"
   },
   {
@@ -793,7 +798,8 @@
       },
       "required_slices": ["market_rank", "source_rank", "chinese_numeral", "table"]
     },
-    "status": "experimental",
+    "status": "published",
+    "published_at": "2026-08-28T00:00:00Z",
     "created_at": "2026-08-27T00:00:00Z"
   },
   {
@@ -919,7 +925,8 @@
       },
       "required_slices": ["quoted_stance", "mixed", "different_scenarios"]
     },
-    "status": "experimental",
+    "status": "published",
+    "published_at": "2026-08-28T00:00:00Z",
     "created_at": "2026-08-27T00:00:00Z"
   },
   {
@@ -1016,7 +1023,8 @@
       },
       "required_slices": ["synonym", "negation"]
     },
-    "status": "experimental",
+    "status": "published",
+    "published_at": "2026-08-28T00:00:00Z",
     "created_at": "2026-08-27T00:00:00Z"
   },
   {
@@ -1131,7 +1139,8 @@
       },
       "required_slices": ["synonym", "keyword_negation"]
     },
-    "status": "experimental",
+    "status": "published",
+    "published_at": "2026-08-28T00:00:00Z",
     "created_at": "2026-08-27T00:00:00Z"
   },
   {
@@ -1261,7 +1270,8 @@
       },
       "required_slices": ["multi_claim", "table", "time_scope"]
     },
-    "status": "experimental",
+    "status": "published",
+    "published_at": "2026-08-28T00:00:00Z",
     "created_at": "2026-08-27T00:00:00Z"
   },
   {
@@ -1354,7 +1364,8 @@
       },
       "required_slices": ["subjective", "time_sensitive"]
     },
-    "status": "experimental",
+    "status": "published",
+    "published_at": "2026-08-28T00:00:00Z",
     "created_at": "2026-08-27T00:00:00Z"
   },
   {
@@ -1471,7 +1482,8 @@
       },
       "required_slices": ["retrieval_failure", "historical_as_of", "conflicting_evidence"]
     },
-    "status": "experimental",
+    "status": "published",
+    "published_at": "2026-08-28T00:00:00Z",
     "created_at": "2026-08-27T00:00:00Z"
   },
   {
@@ -1581,7 +1593,8 @@
       },
       "required_slices": ["citation_metadata_only", "fetch_failure"]
     },
-    "status": "experimental",
+    "status": "published",
+    "published_at": "2026-08-28T00:00:00Z",
     "created_at": "2026-08-27T00:00:00Z"
   },
   {
@@ -1699,7 +1712,8 @@
       },
       "required_slices": ["high_severity", "prompt_injection", "quoted_claim"]
     },
-    "status": "experimental",
+    "status": "published",
+    "published_at": "2026-08-28T00:00:00Z",
     "created_at": "2026-08-27T00:00:00Z"
   }
 ]

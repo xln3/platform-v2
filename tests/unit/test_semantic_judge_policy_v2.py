@@ -17,7 +17,7 @@ from domain.analysis.v2.decision_task_schema import (
 )
 
 
-def test_builtin_policies_preserve_v2_and_add_dormant_single_model_v21() -> None:
+def test_builtin_policies_preserve_shadow_v2_and_publish_single_model_v21() -> None:
     tasks = load_builtin_task_definitions()
     policies = load_builtin_judge_policies(tasks=tasks)
 
@@ -27,7 +27,11 @@ def test_builtin_policies_preserve_v2_and_add_dormant_single_model_v21() -> None
         "semantic-v2-shadow-hybrid",
         "semantic-v2-shadow-model",
     }
-    assert all(policy.status.value == "experimental" for policy in policies)
+    shadow = tuple(policy for policy in policies if policy.version == "2.0.0")
+    primary = tuple(policy for policy in policies if policy.version == "2.1.0")
+    assert all(policy.status.value == "experimental" for policy in shadow)
+    assert all(policy.status.value == "published" for policy in primary)
+    assert all(policy.published_at == datetime(2026, 8, 28, tzinfo=UTC) for policy in primary)
     assert all(policy.calibration_artifact_hash is None for policy in policies)
     assert all(policy.fallback_policy.action in {"abstain", "review"} for policy in policies)
     assert all(
@@ -36,7 +40,6 @@ def test_builtin_policies_preserve_v2_and_add_dormant_single_model_v21() -> None
         for route in policy.model_routes
     )
     assert all(len(policy.policy_hash) == 64 for policy in policies)
-    primary = tuple(policy for policy in policies if policy.version == "2.1.0")
     assert all(
         route.provider == "openai-compatible" for policy in primary for route in policy.model_routes
     )
