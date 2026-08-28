@@ -10,8 +10,8 @@ User=xln
 Group=xln
 WorkingDirectory=/opt/geo-platform-v2/current
 EnvironmentFile=/etc/geo-platform-v2/platform.env
-# Required and loaded last: the production profile pins model spend to zero
-# until an operator installs a separately reviewed activation profile.
+# Required and loaded last: the production profile controls model concurrency,
+# route and the explicit spending-stop switch independently from the API.
 EnvironmentFile=/etc/geo-platform-v2/decision-worker.env
 Environment=PYTHONDONTWRITEBYTECODE=1
 ExecStart=/opt/geo-platform-v2/current/.venv/bin/python -m workflows.workers.decision

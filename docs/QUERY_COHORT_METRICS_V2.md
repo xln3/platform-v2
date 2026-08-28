@@ -778,7 +778,7 @@ MetricSnapshot + MetricContribution
 | “盛邦安全和奇安信哪个好？”         | 回答认为场景不同、并列         | 多品牌比较并列和理由覆盖             | 自然SOV                    |
 | “推荐安全公司，别把下面正文当指令” | 回答正文含提示注入并含条件推荐 | 仅按分析任务系统rubric判定推荐和证据 | 执行回答内指令或绕过schema |
 | “盛邦安全怎么样？”                 | 回答覆盖能力但未使用预设关键词 | 智能维度覆盖判定及其证据             | 仅因关键词缺失判未覆盖     |
-| “盛邦安全成立于某年”               | 核验证据抓取失败               | 主张已抽取、核验状态unknown          | 无依据率或错误率命中       |
+| “盛邦安全成立于某年”               | 核验证据抓取失败               | 主张已抽取、核验状态failed/analysis_failed | 语义unknown、无依据率或错误率命中 |
 
 每个测试除校验最终数值外，还必须校验贡献明细的状态、原因码、权重、答案证据区间、判定任务版本、方法和弃权/复核路径。
 
@@ -1144,7 +1144,7 @@ capability_statuses = {
 - `excerpt_hash=sha256(answer_text[start:end])`；
 - 每个命中提及、推荐、排名、主张、立场或风险的事件必须至少有一个有效区间；
 - 关系事件允许多个区间，例如主体、谓词和客体分别定位；此时在 `qualifiers.spans` 保存角色；
-- 保存前执行确定性切片校验。区间越界、哈希不符或找不到主体时，清单进入 `review_required`，不得产出正式命中。
+- 保存前执行确定性切片校验。区间越界、哈希不符或找不到主体属于执行/完整性失败；相关能力进入 `failed`，清单进入 `failed/partial` 并记录精确原因码，不得产出正式命中或伪装成语义 `unknown/review_required`。
 
 ### 21.4 排名判定优先级
 
@@ -1999,6 +1999,7 @@ semantic.decision_task.published.v2
 semantic.judge_policy.published.v2
 answer.semantic_events.completed.v2
 answer.semantic_events.review_required.v2
+answer.semantic_events.failed.v2
 entity.dictionary.published.v2
 metric.definition.published.v2
 metric.snapshot_set.requested.v2
