@@ -5,7 +5,7 @@
   },
   "v2_include": {
     "path": "deploy/production/nginx-v2-locations.conf",
-    "sha256": "fbdc8ff296dd467b95966c0fa4b8a85f7354cc02195ab7b8adbf174125a99044"
+    "sha256": "d36b0ae84bf4ea64e23d138d8bba7936aa839de2d3e741225c4b8782b1c1b32f"
   },
   "customer_answer_http": {
     "path": "deploy/production/geo-platform-v2-customer-answer-http.conf",
