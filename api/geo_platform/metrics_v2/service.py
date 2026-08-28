@@ -293,6 +293,7 @@ class MetricsV2Service:
         decision_pub_id: str,
         request: DecisionOverrideRequest,
         actor_pub_id: str,
+        allow_official_publication: bool,
     ) -> DecisionOverrideView:
         try:
             result = self.repository.create_override(
@@ -304,6 +305,7 @@ class MetricsV2Service:
                 reason_codes=request.reason_codes,
                 expected_decision_hash=request.expected_decision_hash,
                 actor_pub_id=actor_pub_id,
+                allow_official_publication=allow_official_publication,
             )
         except RuntimeError as exc:
             raise MetricsV2Conflict(str(exc)) from exc

@@ -295,6 +295,7 @@ export type SemanticDecisionOverrideReceipt = {
   supersedesPubId: string;
   decisionHash: string;
   recomputeJobPubId: string;
+  recomputeJobPubIds: string[];
 };
 export type SemanticDecisionOverrideResult =
   | { kind: 'ready'; data: SemanticDecisionOverrideReceipt }
@@ -3980,13 +3981,20 @@ function projectSemanticDecisionOverrideReceipt(
 ): SemanticDecisionOverrideReceipt | null {
   if (!isBrowserRecord(value)) return null;
   const response = value as SemanticDecisionOverrideContractResponse;
+  const recomputeJobPubIds = response.recompute_job_pub_ids ?? [response.recompute_job_pub_id];
   if (
     response.schema_version !== 'semantic-decision-override-v2' ||
     !/^sdr_[A-Za-z0-9_-]{1,116}$/u.test(response.decision_pub_id) ||
     response.decision_pub_id === expectedSupersedesPubId ||
     response.supersedes_pub_id !== expectedSupersedesPubId ||
     !safeHash(response.decision_hash) ||
-    !/^mrj_[A-Za-z0-9_-]{1,116}$/u.test(response.recompute_job_pub_id)
+    !/^mrj_[A-Za-z0-9_-]{1,116}$/u.test(response.recompute_job_pub_id) ||
+    !Array.isArray(recomputeJobPubIds) ||
+    recomputeJobPubIds.length < 1 ||
+    recomputeJobPubIds.length > 100 ||
+    new Set(recomputeJobPubIds).size !== recomputeJobPubIds.length ||
+    !recomputeJobPubIds.includes(response.recompute_job_pub_id) ||
+    recomputeJobPubIds.some((jobPubId) => !/^mrj_[A-Za-z0-9_-]{1,116}$/u.test(jobPubId))
   ) {
     return null;
   }
@@ -3995,6 +4003,7 @@ function projectSemanticDecisionOverrideReceipt(
     supersedesPubId: response.supersedes_pub_id,
     decisionHash: response.decision_hash,
     recomputeJobPubId: response.recompute_job_pub_id,
+    recomputeJobPubIds,
   };
 }
 

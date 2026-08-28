@@ -52,6 +52,14 @@ def _is_retryable_llm_failure(reason_code: str) -> bool:
     return reason_code in _RETRYABLE_LLM_FAILURE_CODES
 
 
+def _semantic_manifest_event_type(status: str) -> str:
+    if status == "failed":
+        return "answer.semantic_events.failed.v2"
+    if status == "review_required":
+        return "answer.semantic_events.review_required.v2"
+    return "answer.semantic_events.completed.v2"
+
+
 _TABLE_PREFIX = {
     "metric_snapshot_set_v2": "mss",
     "metric_snapshot_v2": "msn",
@@ -261,6 +269,42 @@ def _canonical_json(value: object) -> str:
 
 def _canonical_hash(value: object) -> str:
     return sha256(_canonical_json(value).encode()).hexdigest()
+
+
+def _override_recompute_work_items(
+    affected_scopes: Sequence[Mapping[str, Any]],
+    *,
+    allow_official_publication: bool,
+) -> dict[tuple[str, str | None], tuple[dict[str, Any], dict[str, Any] | None]]:
+    """Build recompute work without granting override callers publish rights."""
+
+    work_items: dict[
+        tuple[str, str | None], tuple[dict[str, Any], dict[str, Any] | None]
+    ] = {}
+    for annotated_scope in affected_scopes:
+        scope = {key: value for key, value in annotated_scope.items() if not key.startswith("_")}
+        scope_hash = _canonical_hash(scope)
+        raw_targets = annotated_scope.get("_publication_targets")
+        targets = list(raw_targets) if isinstance(raw_targets, list) else []
+        eligible_targets = [
+            dict(target)
+            for target in targets
+            if isinstance(target, Mapping)
+            and (
+                target.get("publication_channel") == "shadow"
+                or (
+                    target.get("publication_channel") == "official"
+                    and allow_official_publication
+                )
+            )
+        ]
+        if not eligible_targets:
+            work_items[(scope_hash, None)] = (scope, None)
+            continue
+        for target in eligible_targets:
+            channel = str(target["publication_channel"])
+            work_items[(scope_hash, channel)] = (scope, target)
+    return work_items
 
 
 def _wire_value(value: object) -> Any:
@@ -1849,7 +1893,11 @@ class MetricsV2Repository:
             project_pub_id=project_pub_id,
             decision_pub_id=decision_pub_id,
         )
-        return scopes[0] if scopes else None
+        return (
+            {key: value for key, value in scopes[0].items() if not key.startswith("_")}
+            if scopes
+            else None
+        )
 
     @staticmethod
     def _affected_snapshot_scopes(
@@ -1867,6 +1915,7 @@ class MetricsV2Repository:
               SELECT snapshot_set.window_start,snapshot_set.window_end,
                      snapshot_set.focal_entity_ids,snapshot_set.filters,
                      snapshot_set.aggregation_method,snapshot_set.design_basis,
+                     snapshot_set.scope_hash,source_job.scope AS original_scope,
                      snapshot_set.as_of,snapshot_set.created_at,snapshot_set.pub_id,
                      row_number() OVER (
                        PARTITION BY snapshot_set.scope_hash
@@ -1874,6 +1923,15 @@ class MetricsV2Repository:
                                 snapshot_set.pub_id DESC
                      ) AS scope_rank
               FROM analytics.metric_snapshot_set_v2 snapshot_set
+              LEFT JOIN LATERAL (
+                SELECT job.scope
+                FROM analytics.metric_recompute_job_v2 job
+                WHERE job.tenant_pub_id=snapshot_set.tenant_pub_id
+                  AND job.project_pub_id=snapshot_set.project_pub_id
+                  AND job.snapshot_set_pub_id=snapshot_set.pub_id
+                  AND job.status='succeeded'
+                ORDER BY job.completed_at DESC,job.pub_id DESC LIMIT 1
+              ) source_job ON true
               WHERE snapshot_set.tenant_pub_id=%s
                 AND snapshot_set.project_pub_id=%s
                 AND snapshot_set.state IN ('ready','partial')
@@ -1901,8 +1959,32 @@ class MetricsV2Repository:
                 return value.date().isoformat()
             return str(value)
 
-        return tuple(
-            {
+        publication_rows = connection.execute(
+            """
+            SELECT scope_hash,publication_channel,generation
+            FROM analytics.metric_publication_v2
+            WHERE tenant_pub_id=%s AND project_pub_id=%s
+              AND scope_hash=ANY(%s::text[])
+            ORDER BY scope_hash,publication_channel
+            """,
+            (tenant_pub_id, project_pub_id, [str(row["scope_hash"]) for row in rows]),
+        ).fetchall()
+        publications_by_scope: dict[str, list[dict[str, Any]]] = {}
+        for publication in publication_rows:
+            publications_by_scope.setdefault(
+                str(publication["scope_hash"]), []
+            ).append(
+                {
+                    "publication_channel": str(publication["publication_channel"]),
+                    "expected_generation": int(publication["generation"]),
+                }
+            )
+        answer: list[dict[str, Any]] = []
+        for row in rows:
+            original_scope = _json_object(row.get("original_scope"))
+            scope = original_scope or {
+                "tenant_pub_id": tenant_pub_id,
+                "project_pub_id": project_pub_id,
                 "window": {
                     "start": date_boundary(row["window_start"]),
                     "end": date_boundary(row["window_end"]),
@@ -1910,10 +1992,19 @@ class MetricsV2Repository:
                 "filters": _json_object(row.get("filters")),
                 "focal_entity_ids": list(map(str, row.get("focal_entity_ids") or ())),
                 "aggregation_method": str(row["aggregation_method"]),
-                "design_basis": str(row["design_basis"]),
+                "publication_channel": "shadow",
             }
-            for row in rows
-        )
+            if _canonical_hash(scope) != str(row["scope_hash"]):
+                raise RuntimeError("metrics_v2_historical_scope_reconstruction_mismatch")
+            answer.append(
+                scope
+                | {
+                    "_publication_targets": publications_by_scope.get(
+                        str(row["scope_hash"]), []
+                    )
+                }
+            )
+        return tuple(answer)
 
     @staticmethod
     def _affected_semantic_scope(
@@ -1981,14 +2072,16 @@ class MetricsV2Repository:
         if not focal_entity_ids:
             return None
         return {
+            "tenant_pub_id": tenant_pub_id,
+            "project_pub_id": project_pub_id,
             "window": {
                 "start": answer_rows["window_start"].isoformat(),
                 "end": answer_rows["window_end"].isoformat(),
             },
-            "filters": {},
+            "filters": {"model": [], "region": [], "mode": []},
             "focal_entity_ids": focal_entity_ids,
             "aggregation_method": "query_macro",
-            "design_basis": "planned_cells",
+            "publication_channel": "shadow",
         }
 
     @classmethod
@@ -3388,11 +3481,7 @@ class MetricsV2Repository:
                 events=events,
             )
             status = str(manifest_values.get("status"))
-            event_type = (
-                "answer.semantic_events.review_required.v2"
-                if status in {"review_required", "failed"}
-                else "answer.semantic_events.completed.v2"
-            )
+            event_type = _semantic_manifest_event_type(status)
             subject_hash = str(
                 result.get("event_set_hash") or manifest_values.get("decision_set_hash")
             )
@@ -4530,6 +4619,7 @@ class MetricsV2Repository:
         reason_codes: Sequence[str],
         expected_decision_hash: str,
         actor_pub_id: str,
+        allow_official_publication: bool = False,
     ) -> dict[str, Any]:
         """Create a human successor through the API's constrained DB command."""
 
@@ -4647,9 +4737,12 @@ class MetricsV2Repository:
                 )
                 if derived_scope is not None:
                     affected_scopes.append(derived_scope)
-            scopes_by_hash = {_canonical_hash(scope): scope for scope in affected_scopes}
+            work_items = _override_recompute_work_items(
+                affected_scopes,
+                allow_official_publication=allow_official_publication,
+            )
             recompute_job_pub_ids: list[str] = []
-            if not scopes_by_hash:
+            if not work_items:
                 no_op_scope = {
                     "reason": "semantic_decision_override_no_impacted_metric_scope",
                     "decision_pub_id": new_decision_pub_id,
@@ -4683,8 +4776,11 @@ class MetricsV2Repository:
                 )
                 recompute_job_pub_ids.append(recompute_pub_id)
             else:
-                for index, (recompute_scope_hash, recompute_scope) in enumerate(
-                    scopes_by_hash.items()
+                for index, (
+                    (recompute_scope_hash, publication_channel),
+                    (recompute_scope, publication_target),
+                ) in enumerate(
+                    work_items.items()
                 ):
                     scope_job_pub_id = (
                         recompute_pub_id
@@ -4693,6 +4789,7 @@ class MetricsV2Repository:
                         + _canonical_hash(
                             {
                                 "decision_pub_id": new_decision_pub_id,
+                                "publication_channel": publication_channel,
                                 "scope_hash": recompute_scope_hash,
                             }
                         )[:26]
@@ -4715,6 +4812,7 @@ class MetricsV2Repository:
                                     "decision_hash": decision_hash,
                                     "decision_pub_id": new_decision_pub_id,
                                     "operation": "semantic_override_recompute",
+                                    "publication_channel": publication_channel,
                                     "scope_hash": recompute_scope_hash,
                                 }
                             ),
@@ -4733,19 +4831,30 @@ class MetricsV2Repository:
                             "causation_id": new_decision_pub_id,
                         },
                     )
+                    workflow_payload: dict[str, Any] = {
+                        "tenant_pub_id": tenant_pub_id,
+                        "project_pub_id": project_pub_id,
+                        "job_pub_id": scope_job_pub_id,
+                        "scope": recompute_scope,
+                        "as_of": datetime.now(UTC).isoformat(),
+                    }
+                    if publication_target is not None:
+                        workflow_payload.update(
+                            {
+                                "publication_channel": publication_channel,
+                                "expected_generation": int(
+                                    publication_target["expected_generation"]
+                                ),
+                                "published_by": actor_pub_id,
+                            }
+                        )
                     self._insert_workflow_start(
                         connection,
                         tenant_pub_id=tenant_pub_id,
                         workflow_type="metric_snapshot_set_v2",
                         workflow_id=f"metrics-v2:{scope_job_pub_id}",
                         task_queue="geo-platform-v2-metrics",
-                        payload={
-                            "tenant_pub_id": tenant_pub_id,
-                            "project_pub_id": project_pub_id,
-                            "job_pub_id": scope_job_pub_id,
-                            "scope": recompute_scope,
-                            "as_of": datetime.now(UTC).isoformat(),
-                        },
+                        payload=workflow_payload,
                     )
                     recompute_job_pub_ids.append(scope_job_pub_id)
         return {

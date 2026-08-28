@@ -8,6 +8,7 @@ from uuid import uuid4
 import psycopg
 import pytest
 from geo_platform.metrics_v2.repository import MetricsV2Repository
+from geo_platform.metrics_v2.repository import _canonical_hash as repository_hash
 
 from domain.analysis.v2 import load_builtin_task_definitions
 from domain.analysis.v2.decision_models import SemanticDecisionRecord, subject_key_for
@@ -339,7 +340,6 @@ def test_official_publication_rejects_a_missing_supporting_decision_reference() 
             }
         ],
     )
-
     with pytest.raises(RuntimeError, match="metrics_v2_official_dependency_not_published"):
         repository.publish_snapshot_set_cas(
             tenant_pub_id=tenant,
@@ -659,7 +659,17 @@ def test_decision_request_and_completion_are_atomic_and_idempotent() -> None:
         },
         events=[],
     )
+    recompute_scope = {
+        "tenant_pub_id": tenant,
+        "project_pub_id": project,
+        "window": {"start": "2026-08-01", "end": "2026-08-02"},
+        "filters": {"model": [], "region": [], "mode": []},
+        "focal_entity_ids": [entity],
+        "aggregation_method": "query_macro",
+        "publication_channel": "shadow",
+    }
     set_row = snapshot_set_row(token)
+    set_row["scope_hash"] = repository_hash(recompute_scope)
     metric_row = snapshot_row(token)
     repository.persist_snapshot_set_atomic(
         tenant_pub_id=tenant,
@@ -701,6 +711,15 @@ def test_decision_request_and_completion_are_atomic_and_idempotent() -> None:
             }
         ],
     )
+    publication = repository.publish_snapshot_set_cas(
+        tenant_pub_id=tenant,
+        set_pub_id=str(set_row["pub_id"]),
+        publication_channel="shadow",
+        expected_generation=0,
+        expected_snapshot_set_hash=str(set_row["snapshot_set_hash"]),
+        published_by=f"usr_{token}",
+    )
+    assert publication["generation"] == 1
     correction = {
         **accepted_result,
         "substantive": False,
@@ -789,18 +808,15 @@ def test_decision_request_and_completion_are_atomic_and_idempotent() -> None:
     assert successor == ("human", "accepted", correction, decision_pub_id)
     assert recompute is not None
     assert recompute[0] == "pending"
-    assert recompute[1] == {
-        "window": {"start": "2026-08-01", "end": "2026-08-02"},
-        "filters": {"model": [], "region": [], "mode": []},
-        "focal_entity_ids": [entity],
-        "aggregation_method": "query_macro",
-        "design_basis": "planned_cells",
-    }
+    assert recompute[1] == recompute_scope
     assert recompute[2] == f"usr_{token}"
     assert workflow is not None
     assert workflow[:2] == ("metric_snapshot_set_v2", "geo-platform-v2-metrics")
     assert workflow[2]["project_pub_id"] == project
     assert workflow[2]["scope"] == recompute[1]
+    assert workflow[2]["publication_channel"] == "shadow"
+    assert workflow[2]["expected_generation"] == 1
+    assert workflow[2]["published_by"] == f"usr_{token}"
     assert refreshed_manifest is not None
     assert refreshed_manifest[1] == [override["decision_pub_id"]]
     assert refreshed_manifest[2] != decision_set_hash

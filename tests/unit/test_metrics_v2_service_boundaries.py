@@ -13,7 +13,11 @@ from geo_platform.analytics import router as analytics_router
 from geo_platform.brandrank import router as brandrank_router
 from geo_platform.identity.policy import Principal, Role, get_principal
 from geo_platform.metrics_v2 import router as metrics_router
-from geo_platform.metrics_v2.repository import MetricsV2Repository
+from geo_platform.metrics_v2.repository import (
+    MetricsV2Repository,
+    _canonical_hash,
+    _override_recompute_work_items,
+)
 from geo_platform.metrics_v2.service import MetricsV2Service
 from geo_platform.sop import router as sop_router
 from geo_platform.variants import router as variants_router
@@ -94,6 +98,146 @@ def test_snapshot_loader_projects_query_and_answer_decisions_together() -> None:
     assert "context_decision_pub_ids" in source
     assert "bound_decision_ids" in source
     assert "reason_codes" in source
+
+
+class _Rows:
+    def __init__(self, rows: list[dict[str, Any]]) -> None:
+        self.rows = rows
+
+    def fetchall(self) -> list[dict[str, Any]]:
+        return self.rows
+
+
+class _AffectedScopeConnection:
+    def __init__(
+        self,
+        snapshot_rows: list[dict[str, Any]],
+        publication_rows: list[dict[str, Any]],
+    ) -> None:
+        self.responses = [snapshot_rows, publication_rows]
+
+    def execute(self, _statement: str, _parameters: object) -> _Rows:
+        return _Rows(self.responses.pop(0))
+
+
+def test_affected_scope_reuses_exact_historical_scope_and_current_pointer_cas() -> None:
+    scope = {
+        "tenant_pub_id": "tnt_scope",
+        "project_pub_id": "prj_scope",
+        "window": {"start": "2026-08-01", "end": "2026-08-28"},
+        "filters": {"model": ["model-a"], "region": [], "mode": []},
+        "focal_entity_ids": ["brand_target"],
+        "aggregation_method": "query_macro",
+        "publication_channel": "shadow",
+    }
+    scope_hash = _canonical_hash(scope)
+    connection = _AffectedScopeConnection(
+        [
+            {
+                "pub_id": "mss_new_unpublished",
+                "scope_hash": scope_hash,
+                "original_scope": scope,
+                "window_start": datetime(2026, 8, 1, tzinfo=UTC),
+                "window_end": datetime(2026, 8, 28, tzinfo=UTC),
+                "filters": scope["filters"],
+                "focal_entity_ids": scope["focal_entity_ids"],
+                "aggregation_method": "query_macro",
+            }
+        ],
+        [
+            {
+                # A scope pointer can still reference an older set. Its CAS
+                # identity is scope_hash + channel, not the ranked set id.
+                "scope_hash": scope_hash,
+                "publication_channel": "official",
+                "generation": 4,
+            }
+        ],
+    )
+
+    annotated = MetricsV2Repository._affected_snapshot_scopes(  # type: ignore[arg-type]
+        connection,
+        tenant_pub_id="tnt_scope",
+        project_pub_id="prj_scope",
+        decision_pub_id="sdr_original",
+    )[0]
+    rebuilt = {key: value for key, value in annotated.items() if not key.startswith("_")}
+
+    assert rebuilt == scope
+    assert _canonical_hash(rebuilt) == scope_hash
+    assert annotated["_publication_targets"] == [
+        {"publication_channel": "official", "expected_generation": 4}
+    ]
+
+
+def test_affected_scope_fails_closed_when_historical_identity_cannot_be_rebuilt() -> None:
+    connection = _AffectedScopeConnection(
+        [
+            {
+                "pub_id": "mss_scope",
+                "scope_hash": "f" * 64,
+                "original_scope": {},
+                "window_start": datetime(2026, 8, 1, tzinfo=UTC),
+                "window_end": datetime(2026, 8, 28, tzinfo=UTC),
+                "filters": {"model": [], "region": [], "mode": []},
+                "focal_entity_ids": ["brand_target"],
+                "aggregation_method": "query_macro",
+            }
+        ],
+        [],
+    )
+
+    with pytest.raises(
+        RuntimeError, match="metrics_v2_historical_scope_reconstruction_mismatch"
+    ):
+        MetricsV2Repository._affected_snapshot_scopes(  # type: ignore[arg-type]
+            connection,
+            tenant_pub_id="tnt_scope",
+            project_pub_id="prj_scope",
+            decision_pub_id="sdr_original",
+        )
+
+
+def test_override_recompute_carries_existing_publication_pointer_cas() -> None:
+    source = inspect.getsource(MetricsV2Repository.create_override)
+
+    assert '"publication_channel": publication_channel' in source
+    assert 'publication_target["expected_generation"]' in source
+    assert '"published_by": actor_pub_id' in source
+    assert "semantic_decision_override_no_impacted_metric_scope" in source
+
+
+def test_customer_override_recomputes_without_advancing_official_pointer() -> None:
+    scope = {
+        "tenant_pub_id": "tnt_scope",
+        "project_pub_id": "prj_scope",
+        "window": {"start": "2026-08-01", "end": "2026-08-28"},
+        "filters": {"model": [], "region": [], "mode": []},
+        "focal_entity_ids": ["brand_target"],
+        "aggregation_method": "query_macro",
+        "publication_channel": "shadow",
+    }
+    annotated = scope | {
+        "_publication_targets": [
+            {"publication_channel": "official", "expected_generation": 7}
+        ]
+    }
+
+    customer_items = _override_recompute_work_items(
+        [annotated], allow_official_publication=False
+    )
+    publisher_items = _override_recompute_work_items(
+        [annotated], allow_official_publication=True
+    )
+    scope_hash = _canonical_hash(scope)
+
+    assert customer_items == {(scope_hash, None): (scope, None)}
+    assert publisher_items == {
+        (scope_hash, "official"): (
+            scope,
+            {"publication_channel": "official", "expected_generation": 7},
+        )
+    }
 
 
 def test_s02_worker_does_not_register_formal_analysis_or_report_workflows() -> None:
@@ -187,6 +331,7 @@ class _OverrideRepository:
             "supersedes_pub_id": "sdr_original",
             "decision_hash": "b" * 64,
             "recompute_job_pub_id": "mrj_corrected",
+            "recompute_job_pub_ids": ["mrj_corrected", "mrj_official"],
         }
 
 
@@ -225,9 +370,14 @@ def test_customer_can_submit_project_scoped_exception_correction(
 
     assert response.status_code == 201
     assert response.json()["decision_pub_id"] == "sdr_corrected"
+    assert response.json()["recompute_job_pub_ids"] == [
+        "mrj_corrected",
+        "mrj_official",
+    ]
     assert repository.calls[0]["tenant_pub_id"] == "tnt_customer"
     assert repository.calls[0]["project_pub_id"] == "prj_customer"
     assert repository.calls[0]["actor_pub_id"] == "usr_customer"
+    assert repository.calls[0]["allow_official_publication"] is False
 
 
 def test_override_compare_and_swap_conflict_is_http_409(
