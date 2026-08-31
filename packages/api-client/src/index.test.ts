@@ -41,6 +41,7 @@ import {
   getCustomerDashboardV2,
   getCustomerMetricTraceV2,
   getCustomerFiveServices,
+  getCustomerSamplingProgress,
   getCustomerMetricCatalog,
   getEvidenceAssetContent,
   getHealth,
@@ -91,6 +92,7 @@ import {
   listResponsibleMembers,
   listSopProjects,
   logoutIdentitySession,
+  overrideSemanticDecisionV2,
   publishReport,
   projectCustomerAccountView,
   projectCustomerAnswerLibraryDetailBoundary,
@@ -1928,7 +1930,9 @@ describe('generated client', () => {
       state: 'ready',
       metric_version: 'metric-v1',
       scorer_version: 'scorer-v1',
-      filter_hash: 'a'.repeat(64),
+      // Contains the phone-shaped decimal run "15028174947". A filter digest
+      // is public contract metadata and must not be rejected as a phone number.
+      filter_hash: '3f9f2646c5abb30a0e701a698af915028174947bb778e2319aaa03ee59c0dce7',
       trace_tokens: ['Bearer analytics-trace-canary'],
       ...extension,
     });
@@ -1940,7 +1944,7 @@ describe('generated client', () => {
             metric('average_rank'),
             metric('top3_rate'),
             metric('citation_coverage', { state: 'Cookie=overview-state-canary' }),
-            metric('mention_rate', { token: 'Bearer overview-limit-canary' }),
+            metric('top10_rate', { token: 'Bearer overview-limit-canary' }),
           ]
         : pathname.endsWith('/breakdown')
           ? [
@@ -2047,7 +2051,7 @@ describe('generated client', () => {
 
     expect(overview).toMatchObject({
       kind: 'ready',
-      data: { projection: { total: 5, shown: 3, invalid: true } },
+      data: { projection: { total: 5, shown: 4, invalid: true } },
     });
     expect(overview.kind === 'ready' ? overview.data.data[0] : null).not.toHaveProperty(
       'trace_tokens',
@@ -5325,6 +5329,7 @@ describe('generated client', () => {
       candidate_answer_count: 2,
       known_answer_count: 2,
       unknown_answer_count: 0,
+      failed_answer_count: 0,
       not_applicable_answer_count: 0,
       excluded_answer_count: 0,
       design_cell_count: 2,
@@ -5474,12 +5479,15 @@ describe('generated client', () => {
             supporting_decisions: [
               {
                 decision_pub_id: 'sdr_customer_safe',
+                decision_hash: 'd'.repeat(64),
                 task: 'substantive-entity-mention',
                 version: '2.0.0',
                 method: 'hybrid',
                 status: 'accepted',
                 calibrated_confidence: 0.98,
                 rubric_hash: hash,
+                result: { mention_kind: 'substantive', mentioned: true },
+                reason_codes: ['substantive_entity_mention'],
                 evidence_refs: [{ event_pub_id: 'ase_customer_safe', relation: 'supports' }],
                 rationale_summary: '回答正文对目标品牌有实质描述。',
               },
@@ -5577,6 +5585,88 @@ describe('generated client', () => {
       '/snapshot-sets/mss_customer_safe/snapshots/msn_customer_safe/trace',
     );
     expect(traceUrl.searchParams.get('snapshot_set_hash')).toBe(hash);
+  });
+
+  it('submits a tenant-scoped semantic correction with the frozen decision CAS hash', async () => {
+    const originalDecisionHash = 'd'.repeat(64);
+    const successorDecisionHash = 'e'.repeat(64);
+    const request = vi.fn(
+      async (_input: RequestInfo | URL) =>
+        new Response(
+          JSON.stringify({
+            schema_version: 'semantic-decision-override-v2',
+            decision_pub_id: 'sdr_customer_successor',
+            supersedes_pub_id: 'sdr_customer_original',
+            decision_hash: successorDecisionHash,
+            recompute_job_pub_id: 'mrj_customer_correction',
+          }),
+          { status: 201, headers: { 'content-type': 'application/json' } },
+        ),
+    );
+    vi.stubGlobal('fetch', request);
+    const client = createGeoApiClient('http://127.0.0.1:45200');
+    const headers: IdentitySessionHeaders = {
+      'X-Tenant-Id': 'tnt_customer_safe',
+      'X-Actor-Id': 'usr_customer_safe',
+      'X-Actor-Role': 'customer',
+    };
+    await expect(
+      overrideSemanticDecisionV2(
+        'prj_customer_safe',
+        'sdr_customer_original',
+        {
+          result: { rankable: true, target_rank: 2 },
+          rationale_summary: ' 原文是并列第二，不是第三。 ',
+          reason_codes: ['customer_correction'],
+          expected_decision_hash: originalDecisionHash,
+        },
+        headers,
+        client,
+      ),
+    ).resolves.toEqual({
+      kind: 'ready',
+      data: {
+        decisionPubId: 'sdr_customer_successor',
+        supersedesPubId: 'sdr_customer_original',
+        decisionHash: successorDecisionHash,
+        recomputeJobPubId: 'mrj_customer_correction',
+      },
+    });
+    const sent = request.mock.calls[0]?.[0] as Request;
+    expect(sent.method).toBe('POST');
+    expect(new URL(sent.url).pathname).toBe(
+      '/api/v2/metrics/operations/semantic-decisions/sdr_customer_original/overrides',
+    );
+    await expect(sent.clone().json()).resolves.toEqual({
+      project_pub_id: 'prj_customer_safe',
+      result: { rankable: true, target_rank: 2 },
+      rationale_summary: '原文是并列第二，不是第三。',
+      reason_codes: ['customer_correction'],
+      expected_decision_hash: originalDecisionHash,
+    });
+
+    const conflict = vi.fn(
+      async (_input: RequestInfo | URL) =>
+        new Response(JSON.stringify({ detail: { code: 'metrics_v2_decision_hash_conflict' } }), {
+          status: 409,
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+    vi.stubGlobal('fetch', conflict);
+    await expect(
+      overrideSemanticDecisionV2(
+        'prj_customer_safe',
+        'sdr_customer_original',
+        {
+          result: { rankable: false },
+          rationale_summary: '判定已改变。',
+          reason_codes: ['customer_correction'],
+          expected_decision_hash: originalDecisionHash,
+        },
+        headers,
+        client,
+      ),
+    ).resolves.toEqual({ kind: 'conflict' });
   });
 
   it('projects customer answer pages with complete public answer text and exact pagination', async () => {
@@ -9555,6 +9645,60 @@ describe('UVW security-domain projections', () => {
     await expect(getCustomerFiveServices(headers, projectPubId, client)).resolves.toEqual({
       kind: 'unavailable',
     });
+  });
+
+  it('loads every sampling-progress page and removes answer identifiers from the customer view', async () => {
+    const requestedPages: string[] = [];
+    const rows = Array.from({ length: 30 }, (_, index) => ({
+      appendix: null,
+      group: `G${String(index + 1).padStart(2, '0')}`,
+      group_name: `问题组 ${index + 1}`,
+      expression: '原词',
+      query_text: `客户问题 ${index + 1}`,
+      cells: [],
+    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const request = input instanceof Request ? input : new Request(input);
+        const url = new URL(request.url);
+        const page = Number(url.searchParams.get('page'));
+        const pageSize = Number(url.searchParams.get('page_size'));
+        requestedPages.push(`${page}:${pageSize}`);
+        return jsonResponse({
+          project_pub_id: projectPubId,
+          config_revision_start: 4,
+          config_revision_end: 6,
+          columns: [
+            {
+              key: 'doubao-beijing-normal',
+              model: 'doubao',
+              region: '北京',
+              mode: 'normal',
+              modes: ['normal'],
+            },
+          ],
+          rows: rows.slice((page - 1) * pageSize, page * pageSize),
+          page: { page, page_size: pageSize, total_count: 30, total_pages: 2 },
+          observed_cells: 0,
+          total_cells: 30,
+          answer_count: 0,
+          latest_capture_time: null,
+          live_runs: 0,
+        });
+      }),
+    );
+    const client = createGeoApiClient('http://127.0.0.1:45200');
+
+    const result = await getCustomerSamplingProgress(headers, projectPubId, client);
+
+    expect(result.kind).toBe('ready');
+    if (result.kind === 'ready') {
+      expect(result.data.rows).toHaveLength(30);
+      expect(result.data.rows[29]?.queryText).toBe('客户问题 30');
+      expect(JSON.stringify(result.data)).not.toContain('answer_pub_ids');
+    }
+    expect(requestedPages).toEqual(['1:25', '2:25']);
   });
 
   it('preserves repeated URL occurrences and projects unobserved V as unknown', async () => {

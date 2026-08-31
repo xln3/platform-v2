@@ -255,6 +255,8 @@ type WorkflowAccepted =
 export type CustomerRevocationSafeReceipt = { accepted: true };
 type AnalyticsOverviewResponse =
   paths['/api/v2/analytics/overview']['get']['responses']['200']['content']['application/json'];
+type SamplingProgressContractResponse =
+  paths['/api/v2/analytics/sampling-progress']['get']['responses']['200']['content']['application/json'];
 type AnalyticsOverviewContractMetric = AnalyticsOverviewResponse[number];
 export type AnalyticsOverviewMetric = Pick<
   AnalyticsOverviewContractMetric,
@@ -274,8 +276,12 @@ type CustomerDashboardV2ContractResponse =
   paths['/api/v2/customer-dashboard/projects/{project_pub_id}/dashboard-v2']['get']['responses']['200']['content']['application/json'];
 type CustomerMetricTraceV2ContractResponse =
   paths['/api/v2/customer-dashboard/projects/{project_pub_id}/dashboard-v2/snapshot-sets/{snapshot_set_pub_id}/snapshots/{snapshot_pub_id}/trace']['get']['responses']['200']['content']['application/json'];
-export type SemanticDecisionOverrideRequest =
+type SemanticDecisionOverrideContractRequest =
   paths['/api/v2/metrics/operations/semantic-decisions/{decision_pub_id}/overrides']['post']['requestBody']['content']['application/json'];
+export type SemanticDecisionOverrideRequest = Omit<
+  SemanticDecisionOverrideContractRequest,
+  'project_pub_id'
+>;
 type SemanticDecisionOverrideContractResponse =
   paths['/api/v2/metrics/operations/semantic-decisions/{decision_pub_id}/overrides']['post']['responses']['201']['content']['application/json'];
 export type CustomerBusinessViewV2 = CustomerDashboardV2ContractResponse['business_view'];
@@ -305,7 +311,8 @@ export type CustomerMetricTraceV2Query = {
     | 'included_miss'
     | 'excluded'
     | 'not_applicable'
-    | 'analysis_unknown';
+    | 'analysis_unknown'
+    | 'analysis_failed';
   reason_code?: string;
   query?: string;
   model?: string;
@@ -1368,6 +1375,10 @@ export type AnalyticsCompetitorSafeView = {
   mention_rate: number;
   mention_count: number;
   answer_count: number;
+  average_rank: number | null;
+  top1_rate: number | null;
+  top3_rate: number | null;
+  top10_rate: number | null;
 };
 export type AnalyticsCompetitorSafeResponse = AnalyticsCompetitorSafeView[];
 export type AnalyticsCompetitorProjection = ProjectedCollection<AnalyticsCompetitorSafeView>;
@@ -1544,7 +1555,10 @@ export const customerGovernanceProjectionLimits = {
 } as const;
 
 export const customerAnalyticsProjectionLimits = {
-  overview: 4,
+  // The overview endpoint currently exposes seven governed metrics. Keep a
+  // defensive browser boundary without silently discarding valid metrics when
+  // the catalog grows beyond the original four-card dashboard.
+  overview: 20,
   delta: 4,
   competitors: 50,
   day: 90,
@@ -2297,6 +2311,7 @@ export async function getCustomerMetricTraceV2(
  * correction.
  */
 export async function overrideSemanticDecisionV2(
+  projectPubId: string,
   decisionPubId: string,
   request: SemanticDecisionOverrideRequest,
   headers: IdentitySessionHeaders,
@@ -2306,6 +2321,7 @@ export async function overrideSemanticDecisionV2(
   const rationale = request.rationale_summary.trim();
   const reasonCodes = request.reason_codes.map((reason) => reason.trim());
   if (
+    !/^prj_[A-Za-z0-9_-]{1,116}$/u.test(projectPubId) ||
     !/^sdr_[A-Za-z0-9_-]{1,116}$/u.test(decisionPubId) ||
     !result ||
     !safeBrowserString(rationale, 2_000) ||
@@ -2323,6 +2339,7 @@ export async function overrideSemanticDecisionV2(
       {
         params: { path: { decision_pub_id: decisionPubId }, header: headers },
         body: {
+          project_pub_id: projectPubId,
           result,
           rationale_summary: rationale,
           reason_codes: reasonCodes,
@@ -3516,6 +3533,7 @@ export const projectCustomerMetricV2Boundary = (
     value.candidate_answer_count,
     value.known_answer_count,
     value.unknown_answer_count,
+    value.failed_answer_count,
     value.not_applicable_answer_count,
     value.excluded_answer_count,
     value.design_cell_count,
@@ -3524,6 +3542,7 @@ export const projectCustomerMetricV2Boundary = (
   if (
     Number(value.known_answer_count) +
       Number(value.unknown_answer_count) +
+      Number(value.failed_answer_count) +
       Number(value.not_applicable_answer_count) +
       Number(value.excluded_answer_count) !==
     Number(value.candidate_answer_count)
@@ -3665,6 +3684,7 @@ const validMetricTraceContribution = (
     'excluded',
     'not_applicable',
     'analysis_unknown',
+    'analysis_failed',
   ] as const);
   const detailHref = safeBrowserString(value.answer_detail_href, 4_000);
   let detailUrl: URL | null = null;
@@ -3768,6 +3788,7 @@ const validMetricTraceContribution = (
     if (
       !isBrowserRecord(decision) ||
       !safeBrowserString(decision.decision_pub_id, 120) ||
+      !safeHash(decision.decision_hash) ||
       !safeBrowserString(decision.task, 200) ||
       !safeBrowserString(decision.version, 80) ||
       !safeBrowserEnum(decision.method, ['deterministic', 'model', 'hybrid', 'human'] as const) ||
@@ -3778,6 +3799,8 @@ const validMetricTraceContribution = (
         'failed',
       ] as const) ||
       !safeHash(decision.rubric_hash) ||
+      !projectSafeStructuredRecord(decision.result) ||
+      !safeStringList(decision.reason_codes, 20, 200) ||
       safeRatioOrNull(decision.calibrated_confidence) === undefined ||
       !Array.isArray(decision.evidence_refs) ||
       decision.evidence_refs.length > 200 ||
@@ -4829,7 +4852,14 @@ const projectAnalyticsOverviewBoundary = (value: unknown): AnalyticsOverviewMetr
   const state = safeBrowserString(value.state, 30);
   const metricVersion = safeBrowserString(value.metric_version, 120);
   const scorerVersion = safeBrowserString(value.scorer_version, 120);
-  const filterHash = safeBrowserString(value.filter_hash, 160);
+  // A SHA-256 digest may legitimately contain an 11-digit decimal run. The
+  // generic browser-string secret detector treats that shape as a phone
+  // number, so validate this public analytics digest by its exact contract
+  // instead of probabilistically dropping every metric in the window.
+  const filterHash =
+    typeof value.filter_hash === 'string' && /^[0-9a-f]{64}$/u.test(value.filter_hash)
+      ? value.filter_hash
+      : null;
   return metric &&
     metricValue !== undefined &&
     numerator !== undefined &&
@@ -4961,12 +4991,24 @@ const projectAnalyticsCompetitorBoundary = (value: unknown): AnalyticsCompetitor
       : null;
   const mentionCount = safeCount(value.mention_count);
   const answerCount = safeCount(value.answer_count);
+  const optionalNonnegative = (candidate: unknown): number | null =>
+    typeof candidate === 'number' && Number.isFinite(candidate) && candidate >= 0
+      ? candidate
+      : null;
+  const optionalRate = (candidate: unknown): number | null => {
+    const projected = optionalNonnegative(candidate);
+    return projected !== null && projected <= 1 ? projected : null;
+  };
   return competitor && mentionRate !== null && mentionCount !== null && answerCount !== null
     ? {
         competitor,
         mention_rate: mentionRate,
         mention_count: mentionCount,
         answer_count: answerCount,
+        average_rank: optionalNonnegative(value.average_rank),
+        top1_rate: optionalRate(value.top1_rate),
+        top3_rate: optionalRate(value.top3_rate),
+        top10_rate: optionalRate(value.top10_rate),
       }
     : null;
 };
@@ -16436,6 +16478,52 @@ export type CustomerFiveServices = {
   services: CustomerFiveService[];
 };
 
+export type CustomerSamplingProgressColumn = {
+  key: string;
+  model: string;
+  region: string;
+  mode: string;
+  modes: string[];
+};
+
+export type CustomerSamplingProgressModeBreakdown = {
+  mode: string;
+  completedSamples: number;
+  latestCaptureTime: string;
+};
+
+export type CustomerSamplingProgressCell = {
+  columnKey: string;
+  completedSamples: number;
+  latestCaptureTime: string;
+  modeBreakdown: CustomerSamplingProgressModeBreakdown[];
+};
+
+export type CustomerSamplingProgressRow = {
+  appendix: string | null;
+  group: string;
+  groupName: string;
+  expression: string;
+  queryText: string;
+  cells: CustomerSamplingProgressCell[];
+};
+
+export type CustomerSamplingProgress = {
+  projectPubId: string;
+  configRevisionStart: number | null;
+  configRevisionEnd: number | null;
+  columns: CustomerSamplingProgressColumn[];
+  rows: CustomerSamplingProgressRow[];
+  observedCells: number;
+  totalCells: number;
+  answerCount: number;
+  latestCaptureTime: string | null;
+  liveRuns: number;
+};
+
+const customerSamplingProgressPageSize = 25;
+const customerSamplingProgressMaxRows = 1_000;
+
 const uvwObservations = ['observed', 'partial', 'unobserved'] as const;
 const customerWObservations = [...uvwObservations, 'not_applicable'] as const;
 const uvwUStates = ['observed', 'unobserved'] as const;
@@ -16908,6 +16996,154 @@ const projectCustomerFiveService = (value: unknown): CustomerFiveService | null 
   };
 };
 
+const projectCustomerSamplingProgress = (
+  value: unknown,
+  expectedProjectPubId: string,
+): CustomerSamplingProgress | null => {
+  if (!isBrowserRecord(value) || value.project_pub_id !== expectedProjectPubId) return null;
+  const configRevisionStart = projectNullableCount(value.config_revision_start);
+  const configRevisionEnd = projectNullableCount(value.config_revision_end);
+  const observedCells = safeCount(value.observed_cells);
+  const totalCells = safeCount(value.total_cells);
+  const answerCount = safeCount(value.answer_count);
+  const latestCaptureTime = projectNullableTimestamp(value.latest_capture_time);
+  const liveRuns = safeCount(value.live_runs);
+  if (
+    configRevisionStart === undefined ||
+    configRevisionEnd === undefined ||
+    observedCells === null ||
+    totalCells === null ||
+    answerCount === null ||
+    latestCaptureTime === undefined ||
+    liveRuns === null ||
+    !Array.isArray(value.columns) ||
+    !Array.isArray(value.rows) ||
+    value.columns.length > 100 ||
+    value.rows.length > customerSamplingProgressMaxRows
+  ) {
+    return null;
+  }
+
+  const columns = value.columns.map((candidate): CustomerSamplingProgressColumn | null => {
+    if (!isBrowserRecord(candidate) || !Array.isArray(candidate.modes)) return null;
+    const key = projectInternalText(candidate.key, 500);
+    const model = projectInternalText(candidate.model, 120);
+    const region = projectInternalText(candidate.region, 120);
+    const mode = projectInternalText(candidate.mode, 80);
+    const modes = candidate.modes.map((item) => projectInternalText(item, 80));
+    return key &&
+      model &&
+      region &&
+      mode &&
+      modes.length >= 1 &&
+      modes.length <= 10 &&
+      modes.every((item) => item !== null) &&
+      new Set(modes).size === modes.length
+      ? { key, model, region, mode, modes: modes as string[] }
+      : null;
+  });
+  if (
+    columns.some((column) => column === null) ||
+    new Set(columns.map((column) => column?.key)).size !== columns.length
+  ) {
+    return null;
+  }
+  const safeColumns = columns as CustomerSamplingProgressColumn[];
+  const columnKeys = new Set(safeColumns.map((column) => column.key));
+
+  const rows = value.rows.map((candidate): CustomerSamplingProgressRow | null => {
+    if (!isBrowserRecord(candidate) || !Array.isArray(candidate.cells)) return null;
+    const appendix = projectNullableText(candidate.appendix, 80);
+    const group = projectInternalText(candidate.group, 80);
+    const groupName = projectInternalText(candidate.group_name, 500);
+    const expression = projectInternalText(candidate.expression, 500);
+    const queryText = projectInternalText(candidate.query_text, 20_000);
+    if (
+      appendix === undefined ||
+      !group ||
+      !groupName ||
+      !expression ||
+      !queryText ||
+      candidate.cells.length > safeColumns.length
+    ) {
+      return null;
+    }
+    const cells = candidate.cells.map((cell): CustomerSamplingProgressCell | null => {
+      if (!isBrowserRecord(cell) || !Array.isArray(cell.mode_breakdown)) return null;
+      const columnKey = projectInternalText(cell.column_key, 500);
+      const completedSamples = safeCount(cell.completed_samples);
+      const cellLatestCaptureTime = projectSafeIsoTimestamp(cell.latest_capture_time);
+      const modeBreakdown = cell.mode_breakdown.map(
+        (item): CustomerSamplingProgressModeBreakdown | null => {
+          if (!isBrowserRecord(item)) return null;
+          const itemMode = projectInternalText(item.mode, 80);
+          const itemCompletedSamples = safeCount(item.completed_samples);
+          const itemLatestCaptureTime = projectSafeIsoTimestamp(item.latest_capture_time);
+          return itemMode && itemCompletedSamples !== null && itemLatestCaptureTime
+            ? {
+                mode: itemMode,
+                completedSamples: itemCompletedSamples,
+                latestCaptureTime: itemLatestCaptureTime,
+              }
+            : null;
+        },
+      );
+      return columnKey &&
+        columnKeys.has(columnKey) &&
+        completedSamples !== null &&
+        cellLatestCaptureTime &&
+        modeBreakdown.length >= 1 &&
+        modeBreakdown.every((item) => item !== null) &&
+        modeBreakdown.reduce((sum, item) => sum + item!.completedSamples, 0) === completedSamples
+        ? {
+            columnKey,
+            completedSamples,
+            latestCaptureTime: cellLatestCaptureTime,
+            modeBreakdown: modeBreakdown as CustomerSamplingProgressModeBreakdown[],
+          }
+        : null;
+    });
+    if (
+      cells.some((cell) => cell === null) ||
+      new Set(cells.map((cell) => cell?.columnKey)).size !== cells.length
+    ) {
+      return null;
+    }
+    return {
+      appendix,
+      group,
+      groupName,
+      expression,
+      queryText,
+      cells: cells as CustomerSamplingProgressCell[],
+    };
+  });
+  if (rows.some((row) => row === null)) return null;
+  const safeRows = rows as CustomerSamplingProgressRow[];
+  if (
+    observedCells > totalCells ||
+    totalCells !== safeRows.length * safeColumns.length ||
+    safeRows.reduce(
+      (sum, row) => sum + row.cells.reduce((cellSum, cell) => cellSum + cell.completedSamples, 0),
+      0,
+    ) !== answerCount
+  ) {
+    return null;
+  }
+  return {
+    projectPubId: expectedProjectPubId,
+    configRevisionStart,
+    configRevisionEnd,
+    columns: safeColumns,
+    rows: safeRows,
+    observedCells,
+    totalCells,
+    answerCount,
+    latestCaptureTime,
+    liveRuns,
+  };
+};
+
 export async function getCustomerFiveServices(
   headers: IdentitySessionHeaders,
   projectPubId: string,
@@ -16935,6 +17171,74 @@ export async function getCustomerFiveServices(
       return { kind: 'unavailable' };
     }
     return { kind: 'ready', data: { projectPubId, services: services as CustomerFiveService[] } };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+export async function getCustomerSamplingProgress(
+  headers: IdentitySessionHeaders,
+  projectPubId: string,
+  client: ProjectedApiClientOverride = apiClient,
+): Promise<ProjectResourceResult<CustomerSamplingProgress>> {
+  try {
+    if (!projectAnalyticsPubId(projectPubId, 'prj_')) return { kind: 'unavailable' };
+    const loadPage = (page: number) =>
+      projectedApiClient(client).GET('/api/v2/analytics/sampling-progress', {
+        params: {
+          query: {
+            project_pub_id: projectPubId,
+            page,
+            page_size: customerSamplingProgressPageSize,
+          },
+          header: headers,
+        },
+      });
+    const firstResult = await loadPage(1);
+    if (!firstResult.data) return classifyResourceFailure(firstResult.response.status);
+    const first = firstResult.data;
+    const totalCount = safeCount(first.page.total_count);
+    const totalPages = safeCount(first.page.total_pages);
+    const expectedPages =
+      totalCount === null ? null : Math.ceil(totalCount / customerSamplingProgressPageSize);
+    if (
+      totalCount === null ||
+      totalPages === null ||
+      expectedPages === null ||
+      totalCount > customerSamplingProgressMaxRows ||
+      totalPages !== expectedPages ||
+      first.page.page !== 1 ||
+      first.page.page_size !== customerSamplingProgressPageSize
+    ) {
+      return { kind: 'unavailable' };
+    }
+    const remainingResults = await Promise.all(
+      Array.from({ length: totalPages > 1 ? totalPages - 1 : 0 }, (_, index) =>
+        loadPage(index + 2),
+      ),
+    );
+    const failed = remainingResults.find((result) => !result.data);
+    if (failed) return classifyResourceFailure(failed.response.status);
+    const pages = [first, ...remainingResults.map((result) => result.data!)];
+    if (
+      pages.some(
+        (page, index) =>
+          page.project_pub_id !== projectPubId ||
+          page.page.page !== index + 1 ||
+          page.page.page_size !== customerSamplingProgressPageSize ||
+          page.page.total_count !== totalCount ||
+          page.page.total_pages !== totalPages ||
+          page.config_revision_start !== first.config_revision_start ||
+          page.config_revision_end !== first.config_revision_end,
+      )
+    ) {
+      return { kind: 'unavailable' };
+    }
+    const rows = pages.flatMap((page) => page.rows);
+    if (rows.length !== totalCount) return { kind: 'unavailable' };
+    const combined: SamplingProgressContractResponse = { ...first, rows };
+    const projected = projectCustomerSamplingProgress(combined, projectPubId);
+    return projected ? { kind: 'ready', data: projected } : { kind: 'unavailable' };
   } catch {
     return { kind: 'unavailable' };
   }

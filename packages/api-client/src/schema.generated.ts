@@ -1048,6 +1048,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/collection-accounts/{pub_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Patch Collection Account
+         * @description 修改手机号备注；空字符串与 ``null`` 都表示清空备注。
+         */
+        patch: operations["patch_collection_account_api_v2_collection_accounts__pub_id__patch"];
+        trace?: never;
+    };
     "/api/v2/collection-accounts/{pub_id}/platform-accounts": {
         parameters: {
             query?: never;
@@ -6252,7 +6272,7 @@ export interface components {
              * Eligibility Status
              * @enum {string}
              */
-            eligibility_status: "included_hit" | "included_miss" | "excluded" | "not_applicable" | "analysis_unknown";
+            eligibility_status: "included_hit" | "included_miss" | "excluded" | "not_applicable" | "analysis_unknown" | "analysis_failed";
             /** Reason Codes */
             reason_codes: string[];
             /** Outcome Value */
@@ -8850,6 +8870,11 @@ export interface components {
             known_answer_count: number;
             /** Unknown Answer Count */
             unknown_answer_count: number;
+            /**
+             * Failed Answer Count
+             * @default 0
+             */
+            failed_answer_count: number;
             /** Not Applicable Answer Count */
             not_applicable_answer_count: number;
             /** Excluded Answer Count */
@@ -9347,6 +9372,8 @@ export interface components {
         };
         /** DecisionOverrideRequest */
         DecisionOverrideRequest: {
+            /** Project Pub Id */
+            project_pub_id: string;
             /** Result */
             result: {
                 [key: string]: unknown;
@@ -9374,6 +9401,8 @@ export interface components {
             decision_hash: string;
             /** Recompute Job Pub Id */
             recompute_job_pub_id: string;
+            /** Recompute Job Pub Ids */
+            recompute_job_pub_ids?: string[];
         };
         /**
          * DecisionScope
@@ -11342,6 +11371,11 @@ export interface components {
             known_answer_count: number;
             /** Unknown Answer Count */
             unknown_answer_count: number;
+            /**
+             * Failed Answer Count
+             * @default 0
+             */
+            failed_answer_count: number;
             /** Not Applicable Answer Count */
             not_applicable_answer_count: number;
             /** Excluded Answer Count */
@@ -11425,6 +11459,11 @@ export interface components {
             known_answer_count: number;
             /** Unknown Answer Count */
             unknown_answer_count: number;
+            /**
+             * Failed Answer Count
+             * @default 0
+             */
+            failed_answer_count: number;
             /** Not Applicable Answer Count */
             not_applicable_answer_count: number;
             /** Excluded Answer Count */
@@ -12179,6 +12218,11 @@ export interface components {
             phone: string;
             /** Owner Note */
             owner_note?: string | null;
+        };
+        /** PhoneAccountPatch */
+        PhoneAccountPatch: {
+            /** Owner Note */
+            owner_note: string | null;
         };
         /**
          * PhoneAccountRow
@@ -15114,6 +15158,8 @@ export interface components {
         SupportingDecisionView: {
             /** Decision Pub Id */
             decision_pub_id: string;
+            /** Decision Hash */
+            decision_hash: string;
             /** Task */
             task: string;
             /** Version */
@@ -15128,6 +15174,12 @@ export interface components {
              * @enum {string}
              */
             status: "accepted" | "abstained" | "review_required" | "failed";
+            /** Result */
+            result: {
+                [key: string]: unknown;
+            };
+            /** Reason Codes */
+            reason_codes?: string[];
             /** Calibrated Confidence */
             calibrated_confidence?: number | null;
             /** Rubric Hash */
@@ -19069,7 +19121,7 @@ export interface operations {
                 exposure_role: "brand_neutral" | "focal_named_only" | "other_brand_named" | "focal_named_with_others";
                 cursor?: string | null;
                 limit?: number;
-                eligibility_status?: ("included_hit" | "included_miss" | "excluded" | "not_applicable" | "analysis_unknown") | null;
+                eligibility_status?: ("included_hit" | "included_miss" | "excluded" | "not_applicable" | "analysis_unknown" | "analysis_failed") | null;
                 reason_code?: string | null;
                 query?: string | null;
                 model?: string | null;
@@ -21701,6 +21753,78 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccountQuotaObservationView"][];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_collection_account_api_v2_collection_accounts__pub_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Tenant-Id"?: string | null;
+                "X-Actor-Id"?: string | null;
+                "X-Actor-Role"?: string | null;
+                "X-Service-Token"?: string | null;
+                Authorization?: string | null;
+            };
+            path: {
+                pub_id: string;
+            };
+            cookie?: {
+                "__Host-geo_session"?: string | null;
+                geo_session?: string | null;
+                "__Host-geo_oidc"?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PhoneAccountPatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PhoneAccountRow"];
                 };
             };
             /** @description Bad Request */
@@ -30918,7 +31042,7 @@ export interface operations {
             query?: {
                 cursor?: string | null;
                 limit?: number;
-                eligibility_status?: ("included_hit" | "included_miss" | "excluded" | "not_applicable" | "analysis_unknown") | null;
+                eligibility_status?: ("included_hit" | "included_miss" | "excluded" | "not_applicable" | "analysis_unknown" | "analysis_failed") | null;
                 reason_code?: string | null;
                 query?: string | null;
                 model?: string | null;

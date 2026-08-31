@@ -6940,7 +6940,8 @@
                     "included_miss",
                     "excluded",
                     "not_applicable",
-                    "analysis_unknown"
+                    "analysis_unknown",
+                    "analysis_failed"
                   ],
                   "type": "string"
                 },
@@ -15756,6 +15757,217 @@
                     "$ref": "#/components/schemas/AccountQuotaObservationView"
                   },
                   "title": "Response List Collection Account Quota Observations Api V2 Collection Account Quota Observations Get"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/collection-accounts/{pub_id}": {
+      "patch": {
+        "tags": [
+          "collection-account-governance"
+        ],
+        "summary": "Patch Collection Account",
+        "description": "修改手机号备注；空字符串与 ``null`` 都表示清空备注。",
+        "operationId": "patch_collection_account_api_v2_collection_accounts__pub_id__patch",
+        "parameters": [
+          {
+            "name": "pub_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pub Id"
+            }
+          },
+          {
+            "name": "X-Tenant-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Tenant-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Id"
+            }
+          },
+          {
+            "name": "X-Actor-Role",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Actor-Role"
+            }
+          },
+          {
+            "name": "X-Service-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Service-Token"
+            }
+          },
+          {
+            "name": "Authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "__Host-geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Session"
+            }
+          },
+          {
+            "name": "geo_session",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Geo Session"
+            }
+          },
+          {
+            "name": "__Host-geo_oidc",
+            "in": "cookie",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "  Host-Geo Oidc"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PhoneAccountPatch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhoneAccountRow"
                 }
               }
             }
@@ -42051,7 +42263,8 @@
                     "included_miss",
                     "excluded",
                     "not_applicable",
-                    "analysis_unknown"
+                    "analysis_unknown",
+                    "analysis_failed"
                   ],
                   "type": "string"
                 },
@@ -79990,7 +80203,8 @@
               "included_miss",
               "excluded",
               "not_applicable",
-              "analysis_unknown"
+              "analysis_unknown",
+              "analysis_failed"
             ],
             "title": "Eligibility Status"
           },
@@ -87762,6 +87976,12 @@
             "minimum": 0.0,
             "title": "Unknown Answer Count"
           },
+          "failed_answer_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Failed Answer Count",
+            "default": 0
+          },
           "not_applicable_answer_count": {
             "type": "integer",
             "minimum": 0.0,
@@ -89293,6 +89513,13 @@
       },
       "DecisionOverrideRequest": {
         "properties": {
+          "project_pub_id": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 5,
+            "pattern": "^[a-z][a-z0-9]*_[A-Za-z0-9_-]+$",
+            "title": "Project Pub Id"
+          },
           "result": {
             "additionalProperties": true,
             "type": "object",
@@ -89300,7 +89527,7 @@
           },
           "rationale_summary": {
             "type": "string",
-            "maxLength": 2000,
+            "maxLength": 1000,
             "minLength": 1,
             "title": "Rationale Summary"
           },
@@ -89322,6 +89549,7 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
+          "project_pub_id",
           "result",
           "rationale_summary",
           "reason_codes",
@@ -89362,6 +89590,16 @@
             "minLength": 5,
             "pattern": "^[a-z][a-z0-9]*_[A-Za-z0-9_-]+$",
             "title": "Recompute Job Pub Id"
+          },
+          "recompute_job_pub_ids": {
+            "items": {
+              "type": "string",
+              "maxLength": 120,
+              "minLength": 5,
+              "pattern": "^[a-z][a-z0-9]*_[A-Za-z0-9_-]+$"
+            },
+            "type": "array",
+            "title": "Recompute Job Pub Ids"
           }
         },
         "additionalProperties": false,
@@ -94998,6 +95236,12 @@
             "minimum": 0.0,
             "title": "Unknown Answer Count"
           },
+          "failed_answer_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Failed Answer Count",
+            "default": 0
+          },
           "not_applicable_answer_count": {
             "type": "integer",
             "minimum": 0.0,
@@ -95244,6 +95488,12 @@
             "type": "integer",
             "minimum": 0.0,
             "title": "Unknown Answer Count"
+          },
+          "failed_answer_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Failed Answer Count",
+            "default": 0
           },
           "not_applicable_answer_count": {
             "type": "integer",
@@ -97350,7 +97600,8 @@
           "owner_note": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 200
               },
               {
                 "type": "null"
@@ -97365,6 +97616,28 @@
           "phone"
         ],
         "title": "PhoneAccountCreate"
+      },
+      "PhoneAccountPatch": {
+        "properties": {
+          "owner_note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Note"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "owner_note"
+        ],
+        "title": "PhoneAccountPatch"
       },
       "PhoneAccountRow": {
         "properties": {
@@ -106000,6 +106273,11 @@
             "pattern": "^[a-z][a-z0-9]*_[A-Za-z0-9_-]+$",
             "title": "Decision Pub Id"
           },
+          "decision_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Decision Hash"
+          },
           "task": {
             "type": "string",
             "title": "Task"
@@ -106027,6 +106305,18 @@
               "failed"
             ],
             "title": "Status"
+          },
+          "result": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Result"
+          },
+          "reason_codes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reason Codes"
           },
           "calibrated_confidence": {
             "anyOf": [
@@ -106071,10 +106361,12 @@
         "type": "object",
         "required": [
           "decision_pub_id",
+          "decision_hash",
           "task",
           "version",
           "method",
           "status",
+          "result",
           "rubric_hash"
         ],
         "title": "SupportingDecisionView"
