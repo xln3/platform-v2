@@ -84,6 +84,21 @@ class MetricView(StrictModel):
     trace_tokens: list[str]
 
 
+class CompetitorView(StrictModel):
+    competitor: str
+    mention_count: int
+    answer_count: int
+    average_rank: float
+    top1_count: int
+    top3_count: int
+    top10_count: int
+    mention_rate: float
+    top1_rate: float
+    top3_rate: float
+    top10_rate: float
+    metric_version: str
+
+
 class AnswerView(StrictModel):
     pub_id: str
     project_pub_id: str
@@ -1998,7 +2013,7 @@ def get_run_comparison(
     return {**entity, "result": result}
 
 
-@router.get("/competitors")
+@router.get("/competitors", response_model=list[CompetitorView])
 def competitors(
     project_pub_id: str,
     start: date,
