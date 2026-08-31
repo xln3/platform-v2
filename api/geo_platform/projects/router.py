@@ -25,6 +25,12 @@ from .models import Customer, MonitoringConfig, MonitoringConfigVersion, Project
 
 router = APIRouter(prefix="/api/v2/projects", tags=["projects"])
 
+# Legacy collection slices and project-wide plans share the v1 version table.
+# Urgent/project-wide backfills mark the plan explicitly until the canonical v2
+# configuration store owns this projection.  Once a project has such a marker,
+# run-sized slices must never become its displayed "current configuration".
+_PROJECT_MASTER_FREQUENCY_FRAGMENT = '"frequency":"project_master"'
+
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -470,8 +476,13 @@ def current_config(
             MonitoringConfig.project_id == project.id,
         )
     )
+    project_master_base = base.where(
+        MonitoringConfigVersion.snapshot_json.contains(_PROJECT_MASTER_FREQUENCY_FRAGMENT)
+    )
+    has_project_master = bool(session.scalar(select(project_master_base.exists())))
+    current_base = project_master_base if has_project_master else base
     effective = session.scalar(
-        base.where(MonitoringConfigVersion.effective_at <= now)
+        current_base.where(MonitoringConfigVersion.effective_at <= now)
         .order_by(
             MonitoringConfigVersion.effective_at.desc(),
             MonitoringConfigVersion.revision.desc(),
@@ -479,7 +490,7 @@ def current_config(
         .limit(1)
     )
     pending = session.scalar(
-        base.where(MonitoringConfigVersion.effective_at > now)
+        current_base.where(MonitoringConfigVersion.effective_at > now)
         .order_by(
             MonitoringConfigVersion.effective_at.asc(),
             MonitoringConfigVersion.revision.asc(),

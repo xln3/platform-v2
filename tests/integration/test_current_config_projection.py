@@ -41,6 +41,7 @@ def _freeze(
     *,
     marker: str,
     effective_at: datetime,
+    frequency: str = "manual",
 ) -> dict[str, object]:
     response = client.post(
         f"/api/v2/projects/{project_pub_id}/config/freeze",
@@ -55,7 +56,7 @@ def _freeze(
             "regions": ["北京"],
             "models": ["doubao"],
             "modes": ["normal"],
-            "frequency": "manual",
+            "frequency": frequency,
             "effective_at": effective_at.isoformat(),
         },
     )
@@ -126,3 +127,35 @@ def test_current_config_resolves_time_semantics_preserves_snapshot_and_is_tenant
         headers=headers_b,
     )
     assert cross_tenant.status_code == 404
+
+
+def test_current_config_prefers_project_master_over_newer_execution_slice() -> None:
+    client = TestClient(app)
+    marker = secrets.token_hex(5)
+    _, headers = _bootstrap(client, f"current-project-master-{marker}")
+    project_pub_id = _create_project(client, headers, marker)
+    now = datetime.now(UTC)
+
+    project_master = _freeze(
+        client,
+        headers,
+        project_pub_id,
+        marker=f"master-{marker}",
+        effective_at=now - timedelta(hours=2),
+        frequency="project_master",
+    )
+    execution_slice = _freeze(
+        client,
+        headers,
+        project_pub_id,
+        marker=f"slice-{marker}",
+        effective_at=now - timedelta(hours=1),
+    )
+
+    response = client.get(
+        f"/api/v2/projects/{project_pub_id}/config/current",
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["effective"]["pub_id"] == project_master["pub_id"]
+    assert response.json()["effective"]["pub_id"] != execution_slice["pub_id"]
