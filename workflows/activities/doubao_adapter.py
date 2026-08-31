@@ -151,6 +151,7 @@ import re
 import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field, replace
+from hashlib import sha256
 from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import urlsplit
@@ -161,7 +162,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from domain.collection.uvw import normalize_retrieval_events, retrieval_events_from_trace_path
-from workflows.activities.answer_dom_anchor import capture_answer_evidence
+from workflows.activities.answer_dom_anchor import capture_answer_evidence, recognize_image_text
 from workflows.activities.browser_driver import load_sync_browser_driver
 from workflows.activities.browser_router import resolve_batch_instance
 from workflows.activities.collection import (
@@ -173,7 +174,7 @@ from workflows.activities.collection import (
     CollectionTaskInput,
     CollectionTaskResult,
 )
-from workflows.activities.doubao_share_bridge import capture_share_link
+from workflows.activities.doubao_share_bridge import capture_share_image, capture_share_link
 from workflows.activities.human_like import (
     human_click,
     human_move_to,
@@ -181,7 +182,11 @@ from workflows.activities.human_like import (
     human_read_pause,
     human_type,
 )
-from workflows.activities.official_share import probe_official_share_url, write_share_link_manifest
+from workflows.activities.official_share import (
+    probe_official_share_url,
+    recover_png_from_export_audit,
+    write_share_link_manifest,
+)
 from workflows.activities.raw_capture import dump_raw_evidence_refs, maybe_raw_capture
 from workflows.activities.resident_browser import (
     BrowserBusyError,
@@ -2087,7 +2092,43 @@ class _PlaywrightDoubaoSession:
             # 大量裸 mouse.click / locator.click：包一层 facade 换成拟人化路径。
             human_page = _HumanizedPageFacade(page, self._rng, start=self._mouse_pos)
             share_image_path = self._evidence_dir / f"{spec.file_stem}-share.png"
+            share_image_audit: dict[str, Any]
             share_link_audit: dict[str, Any]
+            try:
+                share_image_audit = capture_share_image(human_page, share_image_path)
+            except Exception as exc:
+                share_image_audit = {
+                    "ok": False,
+                    "capture_method": "share_image",
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            share_image_ok = _verify_doubao_generated_share_image(
+                share_image_path,
+                share_image_audit,
+                expected_question=spec.query,
+                expected_answer=answer_text,
+            )
+            if not share_image_ok:
+                first_image_audit = share_image_audit
+                try:
+                    share_image_audit = capture_share_image(human_page, share_image_path)
+                except Exception as exc:
+                    share_image_audit = {
+                        "ok": False,
+                        "capture_method": "share_image",
+                        "error": f"{type(exc).__name__}: {exc}",
+                    }
+                share_image_audit["content_retry_of"] = {
+                    "error": first_image_audit.get("error"),
+                    "channel": first_image_audit.get("channel"),
+                    "content_verification": first_image_audit.get("content_verification"),
+                }
+                share_image_ok = _verify_doubao_generated_share_image(
+                    share_image_path,
+                    share_image_audit,
+                    expected_question=spec.query,
+                    expected_answer=answer_text,
+                )
             try:
                 share_link_audit = capture_share_link(human_page)
             except Exception as exc:
@@ -2097,25 +2138,44 @@ class _PlaywrightDoubaoSession:
                 }
             share_url = _validated_doubao_share_url(share_link_audit.get("url"))
             share_link_ok = bool(share_link_audit.get("ok")) and share_url is not None
-            if share_link_ok and share_url is not None:
-                # 豆包 2026-08-17 新版「分享图片」预览会让 renderer 长时间卡在
-                # 生成态；公开 /thread 链接仍是平台官方产物且完整 SSR 问答。优先
-                # 截取并校验该官方分享页，既保留官方图证，也避免完整答案因旧入口
-                # 漂移被误记 incomplete。
-                share_image_audit = _capture_official_share_page(
-                    context,
-                    share_url,
-                    share_image_path,
-                    expected_question=spec.query,
-                    expected_answer=answer_text,
-                )
-            else:
-                share_image_audit = {
-                    "ok": False,
-                    "channel": "official_share_page_screenshot",
-                    "error": "validated share URL unavailable",
-                }
-            share_image_ok = bool(share_image_audit.get("ok"))
+            share_verification_path = (
+                self._evidence_dir / f"{spec.file_stem}-share-verification.json"
+            )
+            if share_image_ok:
+                try:
+                    image_bytes = share_image_path.read_bytes()
+                    with Image.open(io.BytesIO(image_bytes)) as verified_image:
+                        verified_image.load()
+                        verified_dimensions = {
+                            "width": verified_image.width,
+                            "height": verified_image.height,
+                        }
+                    share_verification_path.write_text(
+                        json.dumps(
+                            {
+                                "answer_sha256": sha256(answer_text.encode()).hexdigest(),
+                                "capture_method": share_image_audit.get("capture_method"),
+                                "channel": share_image_audit.get("channel"),
+                                "content_verification": share_image_audit.get(
+                                    "content_verification"
+                                ),
+                                "dimensions": verified_dimensions,
+                                "image_sha256": sha256(image_bytes).hexdigest(),
+                                "platform": "doubao",
+                                "question_sha256": sha256(spec.query.encode()).hexdigest(),
+                                "schema_version": "official-share-verification-v1",
+                            },
+                            ensure_ascii=False,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        ),
+                        encoding="utf-8",
+                    )
+                except (OSError, UnidentifiedImageError, ValueError) as exc:
+                    share_image_ok = False
+                    share_image_audit["verification_manifest_error"] = (
+                        f"{type(exc).__name__}: {exc}"
+                    )
             if share_image_ok:
                 evidence.append(
                     CollectionEvidenceRef(
@@ -2123,6 +2183,15 @@ class _PlaywrightDoubaoSession:
                         path=str(share_image_path),
                         relation_type="official_share_image",
                         mime_type="image/png",
+                        source_url=share_url,
+                    )
+                )
+                evidence.append(
+                    CollectionEvidenceRef(
+                        kind="share_verification",
+                        path=str(share_verification_path),
+                        relation_type="official_share_verification",
+                        mime_type="application/json",
                         source_url=share_url,
                     )
                 )
@@ -2362,6 +2431,92 @@ def _validated_doubao_share_url(value: object) -> str | None:
     return url
 
 
+def _share_text_compact(value: str) -> str:
+    """Normalize Markdown/OCR punctuation while retaining semantic characters."""
+
+    return re.sub(r"[^0-9A-Za-z\u3400-\u9fff]+", "", value).lower()
+
+
+def _share_answer_sequence_coverage(
+    expected_answer: str,
+    recognized_text: str,
+    *,
+    chunk_width: int = 10,
+) -> tuple[float, bool, bool, int, int]:
+    """Measure ordered OCR coverage and explicit head/tail presence."""
+
+    expected = _share_text_compact(expected_answer)
+    recognized = _share_text_compact(recognized_text)
+    if not expected or not recognized:
+        return 0.0, False, False, 0, 0
+    chunks = tuple(
+        expected[index : index + chunk_width]
+        for index in range(0, len(expected), chunk_width)
+    )
+    cursor = 0
+    matched_indices: list[int] = []
+    for index, chunk in enumerate(chunks):
+        position = recognized.find(chunk, cursor)
+        if position < 0:
+            continue
+        matched_indices.append(index)
+        cursor = position + len(chunk)
+    matched = set(matched_indices)
+    edge_span = min(2, len(chunks))
+    head_ok = any(index in matched for index in range(edge_span))
+    tail_ok = any(index in matched for index in range(len(chunks) - edge_span, len(chunks)))
+    return len(matched) / len(chunks), head_ok, tail_ok, len(matched), len(chunks)
+
+
+def _verify_doubao_generated_share_image(
+    path: Path,
+    audit: dict[str, Any],
+    *,
+    expected_question: str,
+    expected_answer: str,
+) -> bool:
+    """Prove an exported PNG contains this turn, including its answer tail."""
+
+    transport_ok = (
+        bool(audit.get("ok"))
+        and audit.get("capture_method") == "share_image"
+        and audit.get("channel") in {"download", "cdp_download_path", "blob", "data"}
+        and recover_png_from_export_audit(path, audit)
+    )
+    verification: dict[str, Any] = {
+        "transport_ok": transport_ok,
+        "question_verified": False,
+        "answer_coverage": 0.0,
+        "answer_head_verified": False,
+        "answer_tail_verified": False,
+    }
+    audit["content_verification"] = verification
+    if not transport_ok:
+        return False
+    recognized = recognize_image_text(path)
+    if not recognized:
+        verification["error"] = "share_image_ocr_unavailable_or_empty"
+        return False
+    compact_ocr = _share_text_compact(recognized)
+    compact_question = _share_text_compact(expected_question)
+    question_ok = bool(compact_question) and compact_question in compact_ocr
+    coverage, head_ok, tail_ok, matched_chunks, total_chunks = _share_answer_sequence_coverage(
+        expected_answer, recognized
+    )
+    verification.update(
+        {
+            "ocr_text_length": len(recognized),
+            "question_verified": question_ok,
+            "answer_coverage": round(coverage, 4),
+            "answer_head_verified": head_ok,
+            "answer_tail_verified": tail_ok,
+            "answer_chunks_verified": matched_chunks,
+            "answer_chunks_total": total_chunks,
+        }
+    )
+    return question_ok and coverage >= 0.85 and head_ok and tail_ok
+
+
 def _capture_official_share_page(
     context: Any,
     share_url: str,
@@ -2390,7 +2545,12 @@ def _capture_official_share_page(
     def _compact(value: str) -> str:
         # SSE 正文保留 Markdown（#、**、列表符），官方分享页呈现的是渲染后
         # 可见文本；比较前移除纯格式符，语义文字仍须逐字对应。
-        without_markdown = re.sub(r"[#*_>`~\[\]()]", "", value)
+        # 豆包的有序列表序号由 CSS 绘制，不会进入 ``inner_text``；先移除
+        # Markdown 行首列表标记，避免把同一官方正文误判成链接串题。
+        without_list_markers = re.sub(
+            r"(?m)^\s*(?:[-+*]|\d+[.)、])\s+", "", value
+        )
+        without_markdown = re.sub(r"[#*_>`~\[\]()]", "", without_list_markers)
         return re.sub(r"\s+", "", without_markdown)
 
     try:
@@ -2964,6 +3124,10 @@ class _DoubaoScopedCaptureError(RuntimeError):
     """The current one-question Doubao answer could not be captured exactly."""
 
 
+class _DoubaoCaptureLayoutChanged(_DoubaoScopedCaptureError):
+    """The same answer is still hydrating and its measured layout moved."""
+
+
 def _capture_number(value: Any, name: str) -> float:
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise _DoubaoScopedCaptureError(f"capture metric {name} was not numeric")
@@ -3038,7 +3202,9 @@ def _assert_doubao_capture_stable(
     requested_scroll_top: float,
 ) -> None:
     if abs(actual["scroll_top"] - requested_scroll_top) > 1:
-        raise _DoubaoScopedCaptureError("Doubao chat scroller did not settle at the requested tile")
+        raise _DoubaoCaptureLayoutChanged(
+            "Doubao chat scroller did not settle at the requested tile"
+        )
     for key in (
         "scroll_height",
         "max_scroll",
@@ -3049,14 +3215,16 @@ def _assert_doubao_capture_stable(
         "capture_height",
     ):
         if abs(actual[key] - expected[key]) > 1:
-            raise _DoubaoScopedCaptureError(f"Doubao chat layout changed during capture ({key})")
+            raise _DoubaoCaptureLayoutChanged(
+                f"Doubao chat layout changed during capture ({key})"
+            )
     for expected_block, actual_block in zip(expected["blocks"], actual["blocks"], strict=True):
         role = expected_block["role"]
         if actual_block["fingerprint"] != expected_block["fingerprint"]:
             raise _DoubaoScopedCaptureError(f"Doubao {role} text changed during screenshot capture")
         for key in ("top", "bottom", "left", "right"):
             if abs(actual_block[key] - expected_block[key]) > 1:
-                raise _DoubaoScopedCaptureError(
+                raise _DoubaoCaptureLayoutChanged(
                     f"Doubao {role} bounds changed during screenshot capture"
                 )
 
@@ -3200,6 +3368,59 @@ def _capture_doubao_message_block(
         raise
 
 
+def _compose_doubao_message_capture(
+    page: Any,
+    *,
+    expected_question: str,
+    expected: dict[str, Any],
+) -> tuple[Image.Image, int]:
+    """Capture one stable layout snapshot and close all intermediate tiles."""
+
+    block_images: list[Image.Image] = []
+    try:
+        tile_count = 0
+        for block in expected["blocks"]:
+            image, count = _capture_doubao_message_block(
+                page,
+                expected_question=expected_question,
+                expected=expected,
+                block=block,
+            )
+            block_images.append(image)
+            tile_count += count
+        widths = {image.width for image in block_images}
+        if len(widths) != 1:
+            raise _DoubaoScopedCaptureError(
+                "Doubao question and answer screenshot widths differed"
+            )
+        final_image = Image.new(
+            "RGB",
+            (block_images[0].width, sum(image.height for image in block_images)),
+            "white",
+        )
+        paste_y = 0
+        for image in block_images:
+            final_image.paste(image, (0, paste_y))
+            paste_y += image.height
+        return final_image, tile_count
+    finally:
+        for image in block_images:
+            image.close()
+
+
+def _restore_doubao_capture_scroll(page: Any, scroll_top: float) -> None:
+    restored = page.evaluate(_DOUBAO_CAPTURE_RESTORE_JS, scroll_top)
+    if not isinstance(restored, dict) or restored.get("ok") is not True:
+        reason = (
+            str(restored.get("error") or restored.get("actual_scroll_top"))
+            if isinstance(restored, dict)
+            else "no restore result"
+        )
+        raise _DoubaoScopedCaptureError(
+            f"Doubao chat scroll position could not be restored: {reason}"
+        )
+
+
 def _capture_full_page(page: Any, out_path: Path, *, expected_question: str) -> dict[str, Any]:
     """Capture only the current question and answer content from Doubao.
 
@@ -3213,52 +3434,43 @@ def _capture_full_page(page: Any, out_path: Path, *, expected_question: str) -> 
 
     initial = _read_doubao_capture_state(page, expected_question=expected_question)
     original_scroll_top = initial["scroll_top"]
-    block_images: list[Image.Image] = []
     final_image: Image.Image | None = None
     tile_count = 0
+    layout_attempts = 0
     capture_error: BaseException | None = None
     restore_error: BaseException | None = None
     try:
-        for block in initial["blocks"]:
-            image, count = _capture_doubao_message_block(
-                page,
-                expected_question=expected_question,
-                expected=initial,
-                block=block,
-            )
-            block_images.append(image)
-            tile_count += count
-        widths = {image.width for image in block_images}
-        if len(widths) != 1:
-            raise _DoubaoScopedCaptureError("Doubao question and answer screenshot widths differed")
-        final_image = Image.new(
-            "RGB",
-            (block_images[0].width, sum(image.height for image in block_images)),
-            "white",
-        )
-        paste_y = 0
-        for image in block_images:
-            final_image.paste(image, (0, paste_y))
-            paste_y += image.height
+        expected = initial
+        for attempt in range(1, 4):
+            layout_attempts = attempt
+            try:
+                final_image, tile_count = _compose_doubao_message_capture(
+                    page,
+                    expected_question=expected_question,
+                    expected=expected,
+                )
+                break
+            except _DoubaoCaptureLayoutChanged:
+                if attempt >= 3:
+                    raise
+                # Related cards and videos hydrate after the answer stream closes.
+                # Re-measure the same fingerprint from the original position and
+                # retry the whole tile set; never mix tiles from different layouts.
+                _restore_doubao_capture_scroll(page, original_scroll_top)
+                page.wait_for_timeout(300)
+                expected = _read_doubao_capture_state(
+                    page,
+                    expected_question=expected_question,
+                    scroll_top=original_scroll_top,
+                )
     except BaseException as exc:
         capture_error = exc
     finally:
         try:
-            restored = page.evaluate(_DOUBAO_CAPTURE_RESTORE_JS, original_scroll_top)
-            if not isinstance(restored, dict) or restored.get("ok") is not True:
-                reason = (
-                    str(restored.get("error") or restored.get("actual_scroll_top"))
-                    if isinstance(restored, dict)
-                    else "no restore result"
-                )
-                raise _DoubaoScopedCaptureError(
-                    f"Doubao chat scroll position could not be restored: {reason}"
-                )
+            _restore_doubao_capture_scroll(page, original_scroll_top)
         except BaseException as exc:
             restore_error = exc
 
-    for image in block_images:
-        image.close()
     if capture_error is not None:
         if final_image is not None:
             final_image.close()
@@ -3284,6 +3496,7 @@ def _capture_full_page(page: Any, out_path: Path, *, expected_question: str) -> 
         "tile_count": tile_count,
         "block_count": 2,
         "restored_scroll_top": original_scroll_top,
+        "layout_attempts": layout_attempts,
     }
 
 

@@ -246,6 +246,27 @@ def preflight_answer_evidence_ocr(ocr_engine: OcrEngine | None = None) -> str:
     return engine_version
 
 
+def recognize_image_text(
+    image_path: Path,
+    *,
+    ocr_engine: OcrEngine | None = None,
+) -> str | None:
+    """Return validated visible OCR text for an exported image, or fail closed."""
+
+    engine = ocr_engine or _default_ocr_engine()
+    if engine is None:
+        return None
+    try:
+        spans = tuple(engine.recognize(image_path.read_bytes()))
+    except (OSError, RuntimeError, ValueError):
+        _LOGGER.warning("exported image OCR inference failed", exc_info=True)
+        return None
+    if not _validate_protocol_spans(spans):
+        return None
+    visible = [span.text.strip() for span in spans if span.confidence >= _MIN_OCR_CONFIDENCE]
+    return "\n".join(text for text in visible if text) or None
+
+
 def _compact_with_offsets(text: str) -> tuple[str, list[int]]:
     compact: list[str] = []
     offsets: list[int] = []

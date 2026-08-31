@@ -310,6 +310,7 @@ _EVIDENCE_KINDS = {
     "answer_excerpt_screenshot",
     "share_image",
     "share_link",
+    "share_verification",
     "source_screenshot",
     "sse",
     # 原始流量留痕（2026-08-10 起，用户拍板默认开）：sse_raw=completion 端点
@@ -323,6 +324,7 @@ _EVIDENCE_RELATIONS = {
     "answer_evidence_excerpt",
     "official_share_image",
     "official_share_link",
+    "official_share_verification",
     "cited_source_snapshot",
     "ai_opened_source_preview",
     "answer_sse_trace",

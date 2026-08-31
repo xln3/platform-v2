@@ -68,6 +68,7 @@ class _ScopedCapturePage:
         *,
         fail_screenshot_at: int | None = None,
         mutate_fingerprint_at: int | None = None,
+        mutate_layout_at: int | None = None,
         state_error_at: int | None = None,
         restore_ok: bool = True,
     ) -> None:
@@ -75,6 +76,7 @@ class _ScopedCapturePage:
         self.initial_scroll_top = self.scroll_top
         self.fail_screenshot_at = fail_screenshot_at
         self.mutate_fingerprint_at = mutate_fingerprint_at
+        self.mutate_layout_at = mutate_layout_at
         self.state_error_at = state_error_at
         self.restore_ok = restore_ok
         self.screenshot_calls = 0
@@ -82,12 +84,17 @@ class _ScopedCapturePage:
         self.evaluations: list[tuple[str, Any]] = []
 
     @staticmethod
-    def _state(scroll_top: float, *, answer_fingerprint: str = "1265:answer") -> dict[str, Any]:
+    def _state(
+        scroll_top: float,
+        *,
+        answer_fingerprint: str = "1265:answer",
+        layout_offset: float = 0,
+    ) -> dict[str, Any]:
         return {
             "ok": True,
             "scroll_top": scroll_top,
-            "scroll_height": 1864,
-            "max_scroll": 1314,
+            "scroll_height": 1864 + layout_offset,
+            "max_scroll": 1314 + layout_offset,
             "viewport_height": 550,
             "capture_height": 454,
             "clip_x": 296,
@@ -105,7 +112,7 @@ class _ScopedCapturePage:
                 {
                     "role": "answer",
                     "top": 166,
-                    "bottom": 1616,
+                    "bottom": 1616 + layout_offset,
                     "left": 296,
                     "right": 1239,
                     "fingerprint": answer_fingerprint,
@@ -129,10 +136,20 @@ class _ScopedCapturePage:
         fingerprint = "1265:answer"
         if self.mutate_fingerprint_at == self.probe_calls:
             fingerprint = "1266:changed"
-        return self._state(self.scroll_top, answer_fingerprint=fingerprint)
+        layout_offset = (
+            200
+            if self.mutate_layout_at is not None
+            and self.probe_calls >= self.mutate_layout_at
+            else 0
+        )
+        return self._state(
+            self.scroll_top,
+            answer_fingerprint=fingerprint,
+            layout_offset=layout_offset,
+        )
 
     def wait_for_timeout(self, timeout: int) -> None:
-        assert timeout == 75
+        assert timeout in {75, 300}
 
     def screenshot(self, *, clip: dict[str, float], timeout: int) -> bytes:
         self.screenshot_calls += 1
@@ -157,6 +174,7 @@ def test_scoped_capture_tiles_only_question_and_answer_content(tmp_path: Path) -
         "tile_count": 5,
         "block_count": 2,
         "restored_scroll_top": 178.0,
+        "layout_attempts": 1,
     }
     assert page.scroll_top == 178.0
     assert page.screenshot_calls == 5
@@ -211,6 +229,18 @@ def test_scoped_capture_fails_closed_when_virtual_message_changes(tmp_path: Path
 
     assert page.scroll_top == page.initial_scroll_top
     assert not (tmp_path / "changed.png").exists()
+
+
+def test_scoped_capture_restarts_after_same_answer_layout_hydrates(tmp_path: Path) -> None:
+    page = _ScopedCapturePage(mutate_layout_at=4)
+    out_path = tmp_path / "hydrated.png"
+
+    audit = _capture_full_page(page, out_path, expected_question="本次问题")
+
+    assert audit["layout_attempts"] == 2
+    assert audit["tile_count"] > 0
+    assert page.scroll_top == page.initial_scroll_top
+    assert out_path.exists()
 
 
 def test_scoped_capture_fails_closed_on_ambiguous_message_nodes(tmp_path: Path) -> None:
@@ -902,17 +932,17 @@ def _install_fake_browser(monkeypatch: pytest.MonkeyPatch, page: _FakePage) -> N
 
     monkeypatch.setattr(doubao_adapter, "_capture_full_page", _fake_answer_capture)
 
-    def _fake_official_share_page(
-        _context: Any,
-        _url: str,
-        out_path: Path,
-        *,
-        expected_question: str,
-        expected_answer: str,
-    ) -> dict[str, Any]:
-        assert expected_question and expected_answer
-        out_path.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01")
-        return {"ok": True, "channel": "fake-official-share-page"}
+    def _fake_share_image(pg: Any, out_path: Path) -> dict[str, Any]:
+        pg.events.append(("share_image_export",))
+        image = Image.new("RGB", (640, 800), "white")
+        image.save(out_path, format="PNG")
+        image.close()
+        return {
+            "ok": True,
+            "capture_method": "share_image",
+            "channel": "download",
+            "path": str(out_path),
+        }
 
     def _fake_share_link(pg: Any) -> dict[str, Any]:
         pg.mouse.click(500.0, 500.0)  # 无业务区坐标（避开「新对话」等业务按钮）
@@ -922,8 +952,17 @@ def _install_fake_browser(monkeypatch: pytest.MonkeyPatch, page: _FakePage) -> N
             "url": "https://www.doubao.com/thread/fakeTestShare123",
         }
 
-    monkeypatch.setattr(doubao_adapter, "_capture_official_share_page", _fake_official_share_page)
+    monkeypatch.setattr(doubao_adapter, "capture_share_image", _fake_share_image)
     monkeypatch.setattr(doubao_adapter, "capture_share_link", _fake_share_link)
+    monkeypatch.setattr(
+        doubao_adapter,
+        "recognize_image_text",
+        lambda _path: (
+            "中意人寿的重疾险有哪些\n"
+            "第1题的重疾险有哪些\n第2题的重疾险有哪些\n第3题的重疾险有哪些\n"
+            "这是答案"
+        ),
+    )
 
 
 def _make_pace(page: _FakePage, rng: random.Random) -> Callable[[float, float], float]:
@@ -1333,10 +1372,70 @@ def test_task_result_prefers_official_share_image_as_screenshot_ref(tmp_path: Pa
     assert result.screenshot_ref == f"file://{official}"
 
 
+def test_generated_share_image_rejects_blank_downloaded_card(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "blank-share.png"
+    path.write_bytes(_png_bytes(560, 389, (255, 255, 255)))
+    audit = {"ok": True, "capture_method": "share_image", "channel": "download"}
+    monkeypatch.setattr(
+        doubao_adapter,
+        "recognize_image_text",
+        lambda _path: "分享对话\n豆包\n你的AI助手，助力每日工作学习",
+    )
+
+    assert doubao_adapter._verify_doubao_generated_share_image(
+        path,
+        audit,
+        expected_question="中英人寿怎么加入做代理人？",
+        expected_answer="中英人寿代理人需要完成培训并通过考试。",
+    ) is False
+    assert audit["content_verification"]["question_verified"] is False
+
+
+def test_generated_share_image_requires_question_and_answer_head_middle_tail(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "complete-share.png"
+    path.write_bytes(_png_bytes(560, 1600, (255, 255, 255)))
+    question = "中英人寿怎么加入做代理人？"
+    answer = (
+        "申请人先了解保险代理关系和基本准入条件，然后联系当地中英人寿机构。"
+        "通过面试后参加监管要求和公司安排的培训，完成考试与执业登记。"
+        "正式签约前还应核对佣金、考核、退出机制和客户服务责任。"
+    )
+    audit = {
+        "ok": True,
+        "capture_method": "share_image",
+        "channel": "cdp_download_path",
+    }
+    monkeypatch.setattr(
+        doubao_adapter,
+        "recognize_image_text",
+        lambda _path: f"分享对话\n{question}\n{answer}\n豆包",
+    )
+
+    assert doubao_adapter._verify_doubao_generated_share_image(
+        path,
+        audit,
+        expected_question=question,
+        expected_answer=answer,
+    ) is True
+    assert audit["content_verification"]["answer_coverage"] == 1.0
+    assert audit["content_verification"]["answer_tail_verified"] is True
+
+
 def test_official_share_page_capture_verifies_current_qa_and_writes_png(tmp_path: Path) -> None:
     question = "安全研究人员选择国内空间搜索引擎应考虑哪些因素"
-    answer = "# 评估因素\n应从**数据质量**、指纹能力、检索语法和 API 自动化等维度评估。"
-    rendered_answer = "评估因素\n应从数据质量、指纹能力、检索语法和 API 自动化等维度评估。"
+    answer = (
+        "# 评估因素\n应从**数据质量**、指纹能力、检索语法和 API 自动化等维度评估。\n"
+        "1. **股东背景**需要核验。"
+    )
+    # 豆包官方分享页的列表序号由 CSS 绘制，不会进入 inner_text。
+    rendered_answer = (
+        "评估因素\n应从数据质量、指纹能力、检索语法和 API 自动化等维度评估。\n"
+        "股东背景需要核验。"
+    )
     output = tmp_path / "official-thread.png"
 
     class _VisibleText:
