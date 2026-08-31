@@ -86,6 +86,11 @@ class GeoCollectionInput:
     retry_not_before: str | None = None
     retry_depth: int = 0
     retry_capability_keys: list[str] = field(default_factory=list)
+    # New production runs execute one query per browser activity and persist it
+    # before starting the next query.  Keep the default False so histories that
+    # predate this field replay with their published batch semantics; the start
+    # outbox explicitly enables it for every newly staged collection run.
+    itemwise_persistence: bool = False
 
 
 @dataclass
@@ -283,6 +288,23 @@ def plan_versioned_batch_segments(
     if not patched_mode_v3:
         return plan_batch_segments(patched_v2, tasks)
     return [(key[0], items) for key, items in plan_mode_instance_segments(tasks)]
+
+
+def plan_persistence_segments(
+    itemwise_persistence: bool,
+    segments: list[tuple[str, list[CollectionTaskInput]]],
+) -> list[tuple[str, list[CollectionTaskInput]]]:
+    """Split live-adapter segments at the durable progress boundary.
+
+    A batch activity returns only after every item in the segment has finished,
+    so persistence cannot expose intermediate progress and an activity timeout
+    discards all answers collected by that attempt.  New runs therefore pass
+    ``itemwise_persistence=True`` and receive one-item activities.  Historical
+    inputs omit the field and retain the old segment shape for replay safety.
+    """
+    if not itemwise_persistence:
+        return segments
+    return [(slug, [item]) for slug, items in segments for item in items]
 
 
 def task_result_from_batch_item(item_result: CollectionBatchItemResult) -> CollectionTaskResult:
@@ -527,6 +549,7 @@ class GeoCollectionWorkflow:
             retry_not_before=data.retry_not_before,
             retry_depth=data.retry_depth,
             retry_capability_keys=data.retry_capability_keys,
+            itemwise_persistence=data.itemwise_persistence,
         )
 
     async def _collect_tasks_batched(self, data: GeoCollectionInput) -> GeoCollectionResult | None:
@@ -642,10 +665,10 @@ class GeoCollectionWorkflow:
         processed = 0
         patched_v2 = workflow.patched("adapter-batch-collect-v2")
         patched_mode_v3 = workflow.patched(ADAPTER_BATCH_MODE_SEGMENTS_PATCH)
-        for slug, segment_items in plan_versioned_batch_segments(
-            patched_v2,
-            patched_mode_v3,
-            data.tasks,
+        segments = plan_versioned_batch_segments(patched_v2, patched_mode_v3, data.tasks)
+        for slug, segment_items in plan_persistence_segments(
+            data.itemwise_persistence,
+            segments,
         ):
             if slug in BATCH_CAPABLE_ADAPTERS:
                 await workflow.wait_condition(lambda: not self._paused or self._cancelled)

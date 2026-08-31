@@ -268,6 +268,10 @@ def stage_collection_run(
             "retry_trigger": retry_trigger if retry_of_run_pub_id else None,
             "retry_not_before": retry_not_before,
             "retry_depth": retry_plans[0].retry_depth if retry_plans else 0,
+            # One query is the durable progress boundary.  The workflow persists
+            # its result before opening the next query, so a browser/worker fault
+            # cannot turn visible progress back into an all-or-nothing 0/N batch.
+            "itemwise_persistence": True,
             "retry_capability_keys": sorted({plan.capability_key for plan in retry_plans}),
             "activity_timeout_minutes": get_settings().collection_activity_timeout_minutes,
             "inter_task_delay_min_s": get_settings().collection_inter_task_delay_min_s,

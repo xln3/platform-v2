@@ -17,6 +17,7 @@ from workflows.definitions.collection import (
     plan_collection_segments,
     plan_instance_segments,
     plan_mode_instance_segments,
+    plan_persistence_segments,
     plan_versioned_batch_segments,
     task_result_from_batch_item,
 )
@@ -259,3 +260,18 @@ def test_versioned_batch_segments_preserves_v1_v2_and_enables_v3() -> None:
         ["d"],
         ["s"],
     ]
+
+
+def test_plan_persistence_segments_splits_every_query_without_changing_order() -> None:
+    tasks = [
+        _region_task("a", "doubao", "CN-BJ", "normal"),
+        _region_task("b", "doubao", "CN-BJ", "normal"),
+        _region_task("c", "deepseek", "CN-SH", "normal"),
+    ]
+    segments = [("doubao", tasks[:2]), ("deepseek", tasks[2:])]
+
+    assert plan_persistence_segments(False, segments) == segments
+    assert [
+        (slug, [item.business_key for item in items])
+        for slug, items in plan_persistence_segments(True, segments)
+    ] == [("doubao", ["a"]), ("doubao", ["b"]), ("deepseek", ["c"])]

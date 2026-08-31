@@ -636,6 +636,7 @@ class WorkflowStartOutbox:
                         retry_capability_keys=[
                             str(item) for item in payload.get("retry_capability_keys", [])
                         ],
+                        itemwise_persistence=bool(payload.get("itemwise_persistence", False)),
                     )
                     handle = await self.temporal.start_workflow(
                         GeoCollectionWorkflow.run,
