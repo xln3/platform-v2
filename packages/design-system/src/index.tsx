@@ -2620,6 +2620,7 @@ export function ProductShell({
   nav,
   additionalSectionIds = [],
   currentNavId,
+  allowProjectSwitching = true,
   children,
   probe,
   logout = logoutPlatformSession,
@@ -2630,6 +2631,7 @@ export function ProductShell({
   nav: NavItem[];
   additionalSectionIds?: readonly string[];
   currentNavId?: string;
+  allowProjectSwitching?: boolean;
   children: (active: string) => ReactNode;
   probe: () => Promise<{ status: string }>;
   logout?: () => Promise<void>;
@@ -2774,16 +2776,24 @@ export function ProductShell({
         </aside>
         <div className="content-frame">
           <header className="topbar">
-            <button
-              className="project-switcher"
-              aria-expanded={contextOpen}
-              onClick={() => setContextOpen(true)}
-            >
-              {experience
-                ? `${experience.tenantLabel} · ${experience.projectLabel}`
-                : '未登录 · 未选择项目'}{' '}
-              <span>⌄</span>
-            </button>
+            {allowProjectSwitching ? (
+              <button
+                className="project-switcher"
+                aria-expanded={contextOpen}
+                onClick={() => setContextOpen(true)}
+              >
+                {experience
+                  ? `${experience.tenantLabel} · ${experience.projectLabel}`
+                  : '未登录 · 未选择项目'}{' '}
+                <span>⌄</span>
+              </button>
+            ) : (
+              <div className="project-switcher project-switcher-static" aria-label="当前项目">
+                {experience
+                  ? `${experience.tenantLabel} · ${experience.projectLabel}`
+                  : '未登录 · 未选择项目'}
+              </div>
+            )}
             <div className="top-actions">
               <button
                 aria-label="通知"
@@ -2821,7 +2831,7 @@ export function ProductShell({
           </main>
         </div>
       </div>
-      {contextOpen ? (
+      {allowProjectSwitching && contextOpen ? (
         <Dialog
           title="当前项目上下文"
           eyebrow={product}

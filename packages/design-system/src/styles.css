@@ -196,6 +196,11 @@ button {
   min-height: 44px;
   border-radius: 8px;
 }
+.project-switcher-static {
+  display: flex;
+  align-items: center;
+  cursor: default;
+}
 .top-actions button {
   min-width: 24px;
 }
