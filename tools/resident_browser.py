@@ -3,7 +3,8 @@
 真人浏览器长期开着，采集 attach 而不是冷启动——本进程就是那个长期开着的
 浏览器：patchright ``launch_persistent_context`` 带 ``--remote-debugging-port``
 启动 headed Chromium，打 CDP URL 与健康日志后阻塞保活（定期 ``page.title``
-探活），SIGTERM/SIGINT 时 ``context.close()`` 优雅退出（写回 exit_type=Normal）。
+探活，并由独立线程给探活设置进程级硬截止），SIGTERM/SIGINT 时
+``context.close()`` 优雅退出（写回 exit_type=Normal）。
 
 - 由 systemd 模板单元 ``geo-platform-v2-browser@.service`` 拉起（2026-08-09 起
   浏览器矩阵化：一实例一进程，实例 = 平台 × 地域 × 账号；env 文件
@@ -50,9 +51,12 @@ ENV_PROFILE_DIR = "RESIDENT_PROFILE_DIR"
 ENV_PROXY_URL = "RESIDENT_PROXY_URL"
 ENV_CDP_PORT = "RESIDENT_CDP_PORT"
 ENV_DISPLAY = "RESIDENT_DISPLAY"
+ENV_HEALTH_INTERVAL_S = "RESIDENT_HEALTH_INTERVAL_SECONDS"
+ENV_HEALTH_TIMEOUT_S = "RESIDENT_HEALTH_TIMEOUT_SECONDS"
 
 _DEFAULT_DISPLAY = ":1"
-_HEALTH_INTERVAL_S = 60.0
+_HEALTH_INTERVAL_S = 15.0
+_HEALTH_TIMEOUT_S = 15.0
 _PLATFORM_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 
 
@@ -66,6 +70,7 @@ class ResidentBrowserConfig:
     cdp_port: int
     display: str = _DEFAULT_DISPLAY
     health_interval_s: float = _HEALTH_INTERVAL_S
+    health_timeout_s: float = _HEALTH_TIMEOUT_S
 
     @classmethod
     def from_env(cls, environ: dict[str, str] | None = None) -> ResidentBrowserConfig:
@@ -105,12 +110,29 @@ class ResidentBrowserConfig:
         if not 1024 <= cdp_port <= 65535:
             raise ValueError(f"{ENV_CDP_PORT} must be within [1024, 65535]: {cdp_port}")
         display = env.get(ENV_DISPLAY, "").strip() or _DEFAULT_DISPLAY
+
+        def _positive_seconds(name: str, default: float) -> float:
+            raw = env.get(name, "").strip()
+            if not raw:
+                return default
+            try:
+                value = float(raw)
+            except ValueError:
+                raise ValueError(f"{name} is not a number: {raw!r}") from None
+            if value <= 0:
+                raise ValueError(f"{name} must be positive: {raw!r}")
+            return value
+
         return cls(
             platform=platform,
             profile_dir=profile_dir,
             proxy_url=proxy_url,
             cdp_port=cdp_port,
             display=display,
+            health_interval_s=_positive_seconds(
+                ENV_HEALTH_INTERVAL_S, _HEALTH_INTERVAL_S
+            ),
+            health_timeout_s=_positive_seconds(ENV_HEALTH_TIMEOUT_S, _HEALTH_TIMEOUT_S),
         )
 
     @property
@@ -131,16 +153,44 @@ def _close_gracefully(context: Any, *, platform: str) -> None:
         )
 
 
+def _abort_hung_health_probe(
+    *,
+    probe_finished: threading.Event,
+    probe_timed_out: threading.Event,
+    timeout_s: float,
+    bound_log: Any,
+    fatal_exit: Callable[[int], None],
+) -> None:
+    """在 Playwright 所在线程之外执行硬截止；生产超时后绝不返回。"""
+    if probe_finished.wait(timeout_s):
+        return
+    probe_timed_out.set()
+    bound_log.critical(
+        "resident_browser_health_timeout",
+        timeout_seconds=timeout_s,
+    )
+    # 不能在这里 context.close()：同步 Playwright 对象属于主线程，而且主线程正
+    # 卡在同一条 CDP 调用。硬退出交给 systemd 回收整个 cgroup。
+    fatal_exit(1)
+
+
 def run_resident_browser(
     config: ResidentBrowserConfig,
     *,
     driver_loader: Callable[[], tuple[str, Any, Any]] = load_sync_browser_driver,
     stop_event: threading.Event | None = None,
+    fatal_exit: Callable[[int], None] = os._exit,
 ) -> int:
     """启动常驻浏览器并阻塞保活。返回进程退出码（0=优雅退出，1=故障）。
 
     ``stop_event`` 缺省时自行创建并挂 SIGTERM/SIGINT（优雅退出语义）；
     测试注入自己的 event 以驱动退出路径。
+
+    Playwright 的同步 ``page.title()`` 在 Chromium 主线程/CDP 卡死时不会遵守
+    locator 默认超时，甚至可能永远不返回。每次探活因此由独立 daemon 线程计时；
+    超过 ``health_timeout_s`` 后直接非零终止 supervisor，让 systemd 按 cgroup
+    回收整棵 Chromium 进程树并重启。生产 ``fatal_exit`` 必须保持 ``os._exit``；
+    参数仅用于无真浏览器的单元测试。
     """
     driver, sync_playwright, _pw_timeout = driver_loader()
     bound = log.bind(platform=config.platform, cdp_url=config.cdp_url, driver=driver)
@@ -199,9 +249,27 @@ def run_resident_browser(
                 profile_dir=str(config.profile_dir),
                 proxy=mask_proxy_url(config.proxy_url),
                 display=config.display,
+                health_interval_seconds=config.health_interval_s,
+                health_timeout_seconds=config.health_timeout_s,
             )
             page = context.pages[0] if context.pages else context.new_page()
             while not stop.wait(config.health_interval_s):
+                probe_finished = threading.Event()
+                probe_timed_out = threading.Event()
+
+                watchdog = threading.Thread(
+                    target=_abort_hung_health_probe,
+                    kwargs={
+                        "probe_finished": probe_finished,
+                        "probe_timed_out": probe_timed_out,
+                        "timeout_s": config.health_timeout_s,
+                        "bound_log": bound,
+                        "fatal_exit": fatal_exit,
+                    },
+                    name=f"resident-browser-health-watchdog-{config.platform}",
+                    daemon=True,
+                )
+                watchdog.start()
                 try:
                     title = page.title()
                 except Exception as exc:
@@ -210,6 +278,14 @@ def run_resident_browser(
                         "resident_browser_unhealthy",
                         error=safe_exception_summary(exc),
                     )
+                    _close_gracefully(context, platform=config.platform)
+                    return 1
+                finally:
+                    probe_finished.set()
+                    watchdog.join(timeout=0.1)
+                # 生产 fatal_exit 不返回；此分支让测试替身以及意外返回的实现仍
+                # fail-closed，避免把超时后的迟到 title 误记为健康。
+                if probe_timed_out.is_set():
                     _close_gracefully(context, platform=config.platform)
                     return 1
                 bound.info("resident_browser_health", title=title[:120] or None)

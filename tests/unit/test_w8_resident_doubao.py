@@ -276,16 +276,22 @@ def test_resident_config_from_env_valid_and_defaults(tmp_path: Path) -> None:
     assert config.proxy_url is None
     assert config.cdp_port == 19222
     assert config.display == ":1"  # 缺省
+    assert config.health_interval_s == 15.0
+    assert config.health_timeout_s == 15.0
     assert config.cdp_url == "http://127.0.0.1:19222"
     with_proxy = ResidentBrowserConfig.from_env(
         _env(
             RESIDENT_PROFILE_DIR=str(tmp_path),
             RESIDENT_PROXY_URL="http://user:pass@proxy.example:3128",
             RESIDENT_DISPLAY=":0",
+            RESIDENT_HEALTH_INTERVAL_SECONDS="8.5",
+            RESIDENT_HEALTH_TIMEOUT_SECONDS="3",
         )
     )
     assert with_proxy.proxy_url == "http://user:pass@proxy.example:3128"
     assert with_proxy.display == ":0"
+    assert with_proxy.health_interval_s == 8.5
+    assert with_proxy.health_timeout_s == 3.0
 
 
 @pytest.mark.parametrize(
@@ -299,6 +305,8 @@ def test_resident_config_from_env_valid_and_defaults(tmp_path: Path) -> None:
         {"RESIDENT_PROXY_URL": "not-a-url"},
         {"RESIDENT_PROFILE_DIR": "/nonexistent/geo-w8-profile"},
         {"RESIDENT_PROFILE_DIR": ""},
+        {"RESIDENT_HEALTH_INTERVAL_SECONDS": "0"},
+        {"RESIDENT_HEALTH_TIMEOUT_SECONDS": "not-a-number"},
     ],
 )
 def test_resident_config_from_env_invalid(overrides: dict[str, str]) -> None:
@@ -360,6 +368,7 @@ def _launcher_config(tmp_path: Path, **overrides: Any) -> ResidentBrowserConfig:
         "proxy_url": "http://user:pass@proxy.example:3128",
         "cdp_port": 19222,
         "health_interval_s": 0.01,
+        "health_timeout_s": 0.1,
     }
     kwargs.update(overrides)
     return ResidentBrowserConfig(**kwargs)
@@ -449,6 +458,39 @@ def test_resident_launcher_unhealthy_probe_returns_nonzero(tmp_path: Path) -> No
     )
 
     assert rc == 1
+    assert page.title_calls == 1
+    assert context.closed is True
+
+
+def test_resident_launcher_hung_probe_hits_hard_deadline(tmp_path: Path) -> None:
+    """page.title 永不主动返回时，独立 watchdog 触发 fatal exit；迟到结果不算健康。"""
+    stop = threading.Event()
+    release_probe = threading.Event()
+    fatal_codes: list[int] = []
+
+    class _HungPage(_LauncherFakePage):
+        def title(self) -> str:
+            self.title_calls += 1
+            assert release_probe.wait(timeout=1.0)
+            return "迟到的标题"
+
+    def _fake_fatal_exit(code: int) -> None:
+        fatal_codes.append(code)
+        release_probe.set()
+
+    page = _HungPage()
+    context = _LauncherFakeContext(page)
+    chromium = _LauncherFakeChromium(context)
+
+    rc = resident_browser.run_resident_browser(
+        _launcher_config(tmp_path, health_interval_s=0.001, health_timeout_s=0.02),
+        driver_loader=_fake_driver_loader(chromium),
+        stop_event=stop,
+        fatal_exit=_fake_fatal_exit,
+    )
+
+    assert rc == 1
+    assert fatal_codes == [1]
     assert page.title_calls == 1
     assert context.closed is True
 
