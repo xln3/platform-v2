@@ -43,8 +43,10 @@
 | deepseek_sh | runtime/profiles/deepseek-sh | relay@sh :19323（上海） | 19231    | active（20260810 人工手动登录+batch live 验收） |
 | yiyan_bj    | runtime/profiles/yiyan-bj    | relay@bj :19325（北京） | 19232    | active（20260810 开户+live 验收）               |
 | deepseek_bj | runtime/profiles/deepseek-bj | relay@bj :19325（北京） | 19233    | active（20260810 开户+live 验收）               |
+| yuanbao_bj  | runtime/profiles/yuanbao-bj  | relay@bj :19325（北京） | 19234    | 待开户；未登录前不得加入 worker 清单            |
+| yuanbao_sh  | runtime/profiles/yuanbao-sh  | relay@sh :19323（上海） | 19235    | 待开户；未登录前不得加入 worker 清单            |
 
-CDP 端口分配：19222-19227、19230-19233 已分配（见表；新实例接着 19234
+CDP 端口分配：19222-19227、19230-19235 已分配（见表；新实例接着 19236
 起分配并登记本表）。
 
 worker 侧清单（`/etc/geo-platform-v2/worker-adapters.env`）：
