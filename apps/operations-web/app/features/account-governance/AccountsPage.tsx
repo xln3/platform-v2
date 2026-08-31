@@ -27,7 +27,7 @@ import {
   type ToastMessage,
 } from './shared';
 
-const TOTAL_COLS = 3 + COLLECTION_PLATFORMS.length * 3 + 1;
+const TOTAL_COLS = 4 + COLLECTION_PLATFORMS.length * 3 + 1;
 const POLL_MS = 15_000;
 
 type RegionChangeRequest = {
@@ -50,6 +50,7 @@ export function AccountsPage({ session }: { session: SessionContext }) {
   const [eventsOpenId, setEventsOpenId] = useState<string | null>(null);
   const [regionChange, setRegionChange] = useState<RegionChangeRequest | null>(null);
   const [quotaEdit, setQuotaEdit] = useState<QuotaEditRequest | null>(null);
+  const [noteEditRow, setNoteEditRow] = useState<CollectionAccountRow | null>(null);
   const [smsTestRow, setSmsTestRow] = useState<CollectionAccountRow | null>(null);
   const [addAccountOpen, setAddAccountOpen] = useState(false);
   const [addRegionOpen, setAddRegionOpen] = useState(false);
@@ -141,7 +142,11 @@ export function AccountsPage({ session }: { session: SessionContext }) {
       <header className="acct-gov-heading">
         <div>
           <h1>采集账号管理</h1>
-          <p>行 = 手机号；五平台格分别维护地域绑定、采集额度与运行状态。每 15 秒自动刷新。</p>
+          <p>
+            行 =
+            手机号；备注标记手机号和手机当前由谁保管，五平台格分别维护地域绑定、采集额度与运行状态。每
+            15 秒自动刷新。
+          </p>
         </div>
         <div className="acct-gov-actions">
           {session.role === 'operator' || session.role === 'admin' ? (
@@ -175,6 +180,7 @@ export function AccountsPage({ session }: { session: SessionContext }) {
               <thead>
                 <tr>
                   <th rowSpan={2}>手机号</th>
+                  <th rowSpan={2}>备注</th>
                   <th rowSpan={2}>转码</th>
                   <th rowSpan={2}>接管</th>
                   {COLLECTION_PLATFORMS.map((platform) => (
@@ -208,6 +214,7 @@ export function AccountsPage({ session }: { session: SessionContext }) {
                       setRegionChange({ row, platform, cell, to })
                     }
                     onQuotaEdit={(platform, cell) => setQuotaEdit({ row, platform, cell })}
+                    onEditNote={() => setNoteEditRow(row)}
                     onSmsTest={() => setSmsTestRow(row)}
                     onPushTest={() => void runPushTest(row)}
                   />
@@ -257,6 +264,19 @@ export function AccountsPage({ session }: { session: SessionContext }) {
           session={session}
           onClose={() => {
             setSmsTestRow(null);
+            void refresh();
+          }}
+        />
+      ) : null}
+      {noteEditRow ? (
+        <NoteEditDialog
+          key={noteEditRow.phone_account_pub_id}
+          row={noteEditRow}
+          session={session}
+          onClose={() => setNoteEditRow(null)}
+          onDone={(text) => {
+            setNoteEditRow(null);
+            if (text) pushToast('positive', text);
             void refresh();
           }}
         />
@@ -460,6 +480,7 @@ function AccountRow({
   onToggleEvents,
   onRegionChange,
   onQuotaEdit,
+  onEditNote,
   onSmsTest,
   onPushTest,
 }: {
@@ -475,6 +496,7 @@ function AccountRow({
     to: string | null,
   ) => void;
   onQuotaEdit: (platform: CollectionPlatform, cell: PlatformAccountCell) => void;
+  onEditNote: () => void;
   onSmsTest: () => void;
   onPushTest: () => void;
 }) {
@@ -482,9 +504,19 @@ function AccountRow({
     <>
       <tr id={`acct-${row.phone_account_pub_id}`}>
         <td data-label="手机号">
-          <span title={row.owner_note ?? undefined}>{accountPhoneLabel(row)}</span>
+          <span>{accountPhoneLabel(row)}</span>
           {row.state !== 'active' ? (
             <span className="acct-gov-badge neutral">{row.state}</span>
+          ) : null}
+        </td>
+        <td data-label="备注" className="acct-gov-owner-note">
+          <span className={row.owner_note ? undefined : 'acct-gov-muted'}>
+            {row.owner_note ?? '未填写'}
+          </span>
+          {session.role === 'operator' || session.role === 'admin' ? (
+            <button aria-label={`修改 ${accountPhoneLabel(row)} 的备注`} onClick={onEditNote}>
+              修改
+            </button>
           ) : null}
         </td>
         <td data-label="转码">
@@ -941,6 +973,70 @@ function AccountEventsPanel({
         label="账号事件分页"
       />
     </>
+  );
+}
+
+function NoteEditDialog({
+  row,
+  session,
+  onClose,
+  onDone,
+}: {
+  row: CollectionAccountRow;
+  session: SessionContext;
+  onClose: () => void;
+  onDone: (message?: string) => void;
+}) {
+  const [ownerNote, setOwnerNote] = useState(row.owner_note ?? '');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    setBusy(true);
+    setError(null);
+    try {
+      const normalized = ownerNote.trim() || null;
+      await accountGovApi.patchAccountNote(session, row.phone_account_pub_id, normalized);
+      onDone(
+        normalized
+          ? `账号 ${accountPhoneLabel(row)} 的备注已更新`
+          : `账号 ${accountPhoneLabel(row)} 的备注已清空`,
+      );
+    } catch (cause) {
+      setError(describeApiError(cause));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog title={`修改备注 · ${accountPhoneLabel(row)}`} closeLabel="关闭" onClose={onClose}>
+      <div className="acct-gov-dialog-body">
+        <label className="acct-gov-field">
+          <span>备注</span>
+          <textarea
+            value={ownerNote}
+            maxLength={200}
+            rows={3}
+            placeholder="例如：张杰"
+            onChange={(event) => setOwnerNote(event.target.value)}
+          />
+        </label>
+        <p className="acct-gov-note">用于标记这个手机号和手机当前由谁保管；留空可清除备注。</p>
+        {error ? (
+          <p className="acct-gov-error" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <div className="acct-gov-actions">
+          <button onClick={onClose} disabled={busy}>
+            取消
+          </button>
+          <button className="primary" onClick={() => void submit()} disabled={busy}>
+            {busy ? '保存中…' : '保存'}
+          </button>
+        </div>
+      </div>
+    </Dialog>
   );
 }
 

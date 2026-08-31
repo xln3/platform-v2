@@ -266,6 +266,17 @@ export const accountGovApi = {
       { phone: input.phone, ...(input.owner_note ? { owner_note: input.owner_note } : {}) },
       `collection-account-create-${crypto.randomUUID()}`,
     ),
+  patchAccountNote: (
+    session: SessionContext,
+    phoneAccountPubId: string,
+    ownerNote: string | null,
+  ) =>
+    govSend<CollectionAccountRow>(
+      session,
+      'PATCH',
+      `/api/v2/collection-accounts/${phoneAccountPubId}`,
+      { owner_note: ownerNote },
+    ),
   syncOtpRegistry: (session: SessionContext) =>
     govSend<OtpRegistrySyncResult>(
       session,
