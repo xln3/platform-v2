@@ -143,9 +143,11 @@ def select_sampling_campaign(
     region, then add nested or disjoint small top-up configs. Other short-lived campaigns can
     be interleaved before collection returns to that plan, so an unrelated revision must not
     poison the whole backward search. Starting from the newest config, follow only nested
-    supersets until the canonical full plan is found, then retain only revisions whose queries
-    are contained by that plan. Older adjacent copies of the exact plan are its other sampling
-    legs. Mode changes remain valid within a campaign (for example, 豆包专家额度耗尽后改走快速).
+    supersets until the canonical full plan is found, then retain revisions whose queries are
+    contained by that plan. Older formal legs may be separated by small canary/top-up configs,
+    so the backward walk crosses those revisions and stops only when it reaches another
+    full-sized plan. Mode changes remain valid within a campaign (for example, 豆包专家额度
+    耗尽后改走快速).
     """
 
     if not configs:
@@ -177,12 +179,21 @@ def select_sampling_campaign(
         if candidate.query_texts.issubset(baseline.query_texts)
     ]
     for candidate in configs[baseline_index + 1 :]:
-        if (
-            frozenset(candidate.modes) != baseline_modes
-            or candidate.query_texts != baseline.query_texts
-        ):
+        candidate_queries = candidate.query_texts
+        if candidate_queries == baseline.query_texts:
+            if frozenset(candidate.modes) != baseline_modes:
+                break
+            selected.append(candidate)
+            continue
+        if candidate_queries < baseline.query_texts:
+            selected.append(candidate)
+            continue
+        # A small unrelated canary may be interleaved between formal legs. It must not
+        # hide an older platform/region leg for the same complete query plan. A candidate
+        # at least as large as the baseline is the first deterministic boundary available
+        # to legacy projects that do not have an explicit answer-library catalog.
+        if len(candidate_queries) >= len(baseline.query_texts):
             break
-        selected.append(candidate)
     return baseline, selected
 
 

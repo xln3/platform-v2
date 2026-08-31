@@ -169,6 +169,37 @@ def test_select_sampling_campaign_ignores_interleaved_independent_configs() -> N
     ]
 
 
+def test_select_sampling_campaign_merges_older_full_legs_across_canaries() -> None:
+    queries = [f"问题{index:02d}" for index in range(24)]
+    old_queries = [f"旧批次问题{index:02d}" for index in range(24)]
+    configs = parse_sampling_configs(
+        [
+            _row(11, queries, model="yiyan", region="北京", mode="normal"),
+            _row(10, [queries[0]], model="yiyan", region="北京", mode="normal"),
+            _row(9, [queries[0]], model="yuanbao", region="北京", mode="normal"),
+            _row(8, [queries[0]], model="doubao", region="北京", mode="normal"),
+            _row(7, queries, model="tongyi", region="北京", mode="normal"),
+            _row(6, queries, model="deepseek", region="北京", mode="normal"),
+            _row(5, ["独立 canary"], model="doubao", region="上海", mode="normal"),
+            _row(4, old_queries, model="deepseek", region="上海", mode="normal"),
+        ]
+    )
+
+    baseline, campaign = select_sampling_campaign(configs)
+
+    assert baseline is not None
+    assert baseline.revision == 11
+    assert [config.revision for config in campaign] == [11, 10, 9, 8, 7, 6]
+    assert [
+        (column.model, column.region, column.mode)
+        for column in sampling_columns(campaign, baseline=baseline)
+    ] == [
+        ("deepseek", "北京", "normal"),
+        ("yiyan", "北京", "normal"),
+        ("tongyi", "北京", "normal"),
+    ]
+
+
 def test_select_sampling_campaign_uses_explicit_catalog_definition() -> None:
     configs = parse_sampling_configs(
         [
