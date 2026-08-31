@@ -23,6 +23,7 @@ env（``RESIDENT_*``）见 ``ResidentBrowserConfig.from_env`` 的校验逻辑。
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import signal
@@ -32,6 +33,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.request import ProxyHandler, Request, build_opener
 
 import structlog
 
@@ -129,9 +131,7 @@ class ResidentBrowserConfig:
             proxy_url=proxy_url,
             cdp_port=cdp_port,
             display=display,
-            health_interval_s=_positive_seconds(
-                ENV_HEALTH_INTERVAL_S, _HEALTH_INTERVAL_S
-            ),
+            health_interval_s=_positive_seconds(ENV_HEALTH_INTERVAL_S, _HEALTH_INTERVAL_S),
             health_timeout_s=_positive_seconds(ENV_HEALTH_TIMEOUT_S, _HEALTH_TIMEOUT_S),
         )
 
@@ -174,10 +174,37 @@ def _abort_hung_health_probe(
     fatal_exit(1)
 
 
+def _probe_cdp_health(cdp_url: str, timeout_s: float) -> str:
+    """Probe the browser process without issuing commands to the active page.
+
+    Collectors use a separate CDP connection and may legitimately keep the page
+    renderer busy while exporting a long screenshot.  A supervisor-side
+    ``page.title()`` competed with that work and could block long enough for the
+    watchdog to kill a healthy browser mid-export.  ``/json/version`` is the
+    browser-level DevTools endpoint: it proves the CDP process is accepting
+    requests without touching the page target owned by the collector.
+    """
+
+    request = Request(f"{cdp_url.rstrip('/')}/json/version", method="GET")
+    # Ignore inherited proxy variables explicitly.  CDP is a loopback-only
+    # control plane and must never be sent to an HTTP proxy.
+    opener = build_opener(ProxyHandler({}))
+    with opener.open(request, timeout=timeout_s) as response:  # noqa: S310
+        if response.status != 200:
+            raise RuntimeError(f"CDP health endpoint returned HTTP {response.status}")
+        payload = json.load(response)
+    browser = str(payload.get("Browser") or "").strip()
+    websocket_url = str(payload.get("webSocketDebuggerUrl") or "").strip()
+    if not browser or not websocket_url.startswith("ws://127.0.0.1:"):
+        raise RuntimeError("CDP health endpoint returned an invalid browser descriptor")
+    return browser
+
+
 def run_resident_browser(
     config: ResidentBrowserConfig,
     *,
     driver_loader: Callable[[], tuple[str, Any, Any]] = load_sync_browser_driver,
+    health_probe: Callable[[str, float], str] = _probe_cdp_health,
     stop_event: threading.Event | None = None,
     fatal_exit: Callable[[int], None] = os._exit,
 ) -> int:
@@ -186,11 +213,10 @@ def run_resident_browser(
     ``stop_event`` 缺省时自行创建并挂 SIGTERM/SIGINT（优雅退出语义）；
     测试注入自己的 event 以驱动退出路径。
 
-    Playwright 的同步 ``page.title()`` 在 Chromium 主线程/CDP 卡死时不会遵守
-    locator 默认超时，甚至可能永远不返回。每次探活因此由独立 daemon 线程计时；
-    超过 ``health_timeout_s`` 后直接非零终止 supervisor，让 systemd 按 cgroup
-    回收整棵 Chromium 进程树并重启。生产 ``fatal_exit`` 必须保持 ``os._exit``；
-    参数仅用于无真浏览器的单元测试。
+    探活只请求浏览器级 ``/json/version``，不向采集正在使用的 page target 发
+    命令。每次探活仍由独立 daemon 线程计时；超过 ``health_timeout_s`` 后直接
+    非零终止 supervisor，让 systemd 按 cgroup 回收整棵 Chromium 进程树并重启。
+    生产 ``fatal_exit`` 必须保持 ``os._exit``；参数仅用于无真浏览器的单元测试。
     """
     driver, sync_playwright, _pw_timeout = driver_loader()
     bound = log.bind(platform=config.platform, cdp_url=config.cdp_url, driver=driver)
@@ -252,7 +278,6 @@ def run_resident_browser(
                 health_interval_seconds=config.health_interval_s,
                 health_timeout_seconds=config.health_timeout_s,
             )
-            page = context.pages[0] if context.pages else context.new_page()
             while not stop.wait(config.health_interval_s):
                 probe_finished = threading.Event()
                 probe_timed_out = threading.Event()
@@ -271,7 +296,7 @@ def run_resident_browser(
                 )
                 watchdog.start()
                 try:
-                    title = page.title()
+                    browser = health_probe(config.cdp_url, config.health_timeout_s)
                 except Exception as exc:
                     # 浏览器崩溃/卡死——探活失败即死，让 systemd 重启出新浏览器。
                     bound.error(
@@ -284,11 +309,11 @@ def run_resident_browser(
                     probe_finished.set()
                     watchdog.join(timeout=0.1)
                 # 生产 fatal_exit 不返回；此分支让测试替身以及意外返回的实现仍
-                # fail-closed，避免把超时后的迟到 title 误记为健康。
+                # fail-closed，避免把超时后的迟到响应误记为健康。
                 if probe_timed_out.is_set():
                     _close_gracefully(context, platform=config.platform)
                     return 1
-                bound.info("resident_browser_health", title=title[:120] or None)
+                bound.info("resident_browser_health", browser=browser[:120])
             _close_gracefully(context, platform=config.platform)
             bound.info("resident_browser_stopped")
             return 0

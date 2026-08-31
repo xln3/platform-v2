@@ -34,6 +34,11 @@ v1 边界（20260810 deep_think 解锁）：
   关=``ci-model-button-inactive``/``is_open:"0"``。chip 态账号级粘滞——
   每题发送前显式确保目标态（幂等，已在目标态零点击）；点击后读不回
   目标态 → ``mode_toggle_failed`` non_retryable，绝不按错误口径采。
+- 20260831 文心新版首页把旧 chip 替换为
+  ``[data-testid="chat-mode-selector"]`` 回答模式下拉。``normal`` 明确映射为
+  ``data-chat-mode="fast"``（页面文案「快速」），``deep_think`` 按产品口径映射为
+  ``data-chat-mode="task"``（页面文案「任务 / 专业技能」）；每题发送前均显式
+  读回确认，仍保留旧 chip 兼容。
 - deep_think 思考链落证据：思考步在 ``div.ai-thinking-steps``（答案
   generate 块内部，header「深度思考完成/中」）——逐 step ``main`` 叶节点
   原文拼装，落 trace JSON（kind="sse"，transport="dom"：文心 SW 中转抓不到
@@ -163,6 +168,7 @@ from workflows.activities.human_like import (
     human_type,
 )
 from workflows.activities.official_share import (
+    YIYAN_OFFICIAL_SHARE_HOSTS,
     OfficialShareExportError,
     capture_yiyan_official_share,
     probe_official_share_url,
@@ -207,6 +213,31 @@ _DEEP_THINK_CHIP_STATE_JS = r"""() => {
     active: cls.includes('ci-model-button-active'),
     inactive: cls.includes('ci-model-button-inactive'),
     is_open: m ? m[1] : null,
+  };
+}"""
+
+# 20260831 live 校准（yiyan_bj，Chrome 147）：旧 deep-think chip 被回答模式
+# 下拉替换。按钮与选项带稳定 testid/data-chat-mode；文案仅作交叉校验。
+# 产品口径：normal=fast（快速），deep_think=task（任务 / 专业技能）。
+_ANSWER_MODE_SELECTOR = '[data-testid="chat-mode-selector"]'
+_ANSWER_MODE_FAST_ITEM_SELECTOR = '[role="menuitemradio"][data-chat-mode="fast"]'
+_ANSWER_MODE_TASK_ITEM_SELECTOR = '[role="menuitemradio"][data-chat-mode="task"]'
+_ANSWER_MODE_STATE_JS = r"""() => {
+  const button = document.querySelector('[data-testid="chat-mode-selector"]');
+  if (!button || button.offsetParent === null) return null;
+  const label = (button.querySelector('.ci-input-mode-button-text')?.innerText ||
+    button.innerText || '').trim();
+  const checked = document.querySelector(
+    '[role="menuitemradio"][data-chat-mode][aria-checked="true"]'
+  );
+  let mode = checked?.getAttribute('data-chat-mode') || '';
+  if (!mode && label === '快速') mode = 'fast';
+  if (!mode && label === '任务') mode = 'task';
+  return {
+    surface: 'answer_mode_selector',
+    mode,
+    label,
+    expanded: button.getAttribute('aria-expanded') === 'true',
   };
 }"""
 
@@ -290,6 +321,13 @@ _LOADING_HINTS: tuple[str, ...] = (
     '[class*="markdown-loading"]:visible',
     '[class*="thinking-loading"]:visible',
 )
+
+# 新版「任务 / 专业技能」先把研究过程写入普通答案容器，但此时最终答案和分享
+# 控件都尚未生成。稳定类名 thinking-steps-title-text 的标题「任务执行中」是页面
+# 明示的未完成事实；该标题消失后，页面才开始输出最终答案。
+_TASK_STATUS_TITLE_SELECTOR = ".thinking-steps-title-text"
+_TASK_RUNNING_TEXT = "任务执行中"
+_TASK_COMPLETED_TEXT = "任务执行完成"
 
 # 「新对话」入口（新会话纪律；命中第一个可见者即点，顺序即优先级）。
 # 2026-08-07 headed live 校准（wenxin.baidu.com）：新建入口 = 侧边栏顶部
@@ -477,8 +515,10 @@ _YIYAN_CAPTURE_STATE_JS = r"""async (request) => {
   const scrollers = Array.from(document.querySelectorAll('#conversation-flow-container'))
     .filter((el) => {
       const cs = getComputedStyle(el);
-      return visible(el) && (cs.overflowY === 'auto' || cs.overflowY === 'scroll')
-        && el.scrollHeight > el.clientHeight + 50;
+      // Short answers may leave less than one tile of overflow (20260831 live:
+      // 580px scrollHeight / 556px clientHeight). It is still the authoritative
+      // chat pane and page_capture deliberately supports a one-tile capture.
+      return visible(el) && (cs.overflowY === 'auto' || cs.overflowY === 'scroll');
     });
   if (scrollers.length !== 1) return fail(`chat_scroller_count:${scrollers.length}`);
   const scroller = scrollers[0];
@@ -558,11 +598,32 @@ _YIYAN_CAPTURE_STATE_JS = r"""async (request) => {
   // The control is intentionally display:none when already at the bottom, so its
   // bounding box cannot define a stable band on every tile.  Its live layout is a
   // 38px circle in the bottom 58px. Wenxin also paints a scroll-edge fade above
-  // it; reserve the bottom 116px so seams never contain that fade or the control.
+  // it; reserve the bottom 116px on repeat tiles so seams never contain that fade
+  // or the control. At max scroll the control/fade disappear and the final answer
+  // tail is visible down to the composer panel; expose that larger terminal band
+  // separately so page_capture can include the last message pixels.
   const captureHeight = scrollerRect.height - 116;
+  const composerPanels = Array.from(document.querySelectorAll('.ci-panel-list'))
+    .filter(visible)
+    .map((el) => el.getBoundingClientRect())
+    .filter((rect) => rect.left < captureRight && rect.right > captureX);
+  const terminalBottom = Math.min(
+    scrollerRect.bottom,
+    ...composerPanels.map((rect) => rect.top)
+  );
+  const terminalCaptureHeight = Math.max(
+    captureHeight,
+    terminalBottom - scrollerRect.top - 4
+  );
+  const maxScroll = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
   if (bottomButtonRect && bottomButtonRect.width > 0 && bottomButtonRect.height > 0
       && bottomButtonRect.top < scrollerRect.top + captureHeight) {
     return fail('scroll_to_bottom_inside_capture_band');
+  }
+  if (scrollTop >= maxScroll - 1 && bottomButtonRect
+      && bottomButtonRect.width > 0 && bottomButtonRect.height > 0
+      && bottomButtonRect.top < scrollerRect.top + terminalCaptureHeight) {
+    return fail('scroll_to_bottom_inside_terminal_capture_band');
   }
   const floatingThinkingHeaders = Array.from(
     answer.querySelectorAll('.fixed-header-container')
@@ -570,7 +631,6 @@ _YIYAN_CAPTURE_STATE_JS = r"""async (request) => {
   if (floatingThinkingHeaders.some((el) => (
     el.getBoundingClientRect().bottom > scrollerRect.top + captureTopInset
   ))) return fail('floating_thinking_header_inside_capture_band');
-  const maxScroll = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
   if (captureX < 0 || captureRight > window.innerWidth + 1 || captureWidth <= 0
       || captureTopInset < 0 || captureHeight - captureTopInset < 200) {
     return fail('capture_band_invalid');
@@ -590,6 +650,7 @@ _YIYAN_CAPTURE_STATE_JS = r"""async (request) => {
     capture_width: captureWidth,
     capture_top_inset: captureTopInset,
     capture_height: captureHeight,
+    terminal_capture_height: terminalCaptureHeight,
     blocks,
   };
 }"""
@@ -629,7 +690,9 @@ _YIYAN_CAPTURE_UNSTICKY_JS = r"""() => {
     const style = document.createElement('style');
     style.id = STYLE_ID;
     style.textContent =
-      'div.chat-search-answer-generate .fixed-header-container{display:none!important}';
+      'div.chat-search-answer-generate .fixed-header-container,' +
+      'div.chat-search-answer-generate .cs-answer-hover-menu-container' +
+      '{display:none!important}';
     document.head.appendChild(style);
   }
   const headers = Array.from(document.querySelectorAll(
@@ -757,7 +820,7 @@ class _IncompleteCapture(RuntimeError):
 
 
 class _ModeToggleFailed(RuntimeError):
-    """深度思考 chip 无法确认到目标态（non_retryable；绝不按错误口径采）。"""
+    """回答模式无法确认到目标态（non_retryable；绝不按错误口径采）。"""
 
     def __init__(self, message: str, evidence_path: Path | None = None) -> None:
         super().__init__(message)
@@ -794,6 +857,68 @@ def _deep_think_chip_state(page: Any) -> bool | None:
     return None  # class 与 is_open 不一致 → 不可观测，诚实 None
 
 
+def _answer_mode_state(page: Any) -> str | None:
+    """读新版回答模式：normal / task / unknown；旧 UI/不可见返回 None。"""
+    try:
+        state = page.evaluate(_ANSWER_MODE_STATE_JS)
+    except Exception:
+        return None
+    if not isinstance(state, dict) or state.get("surface") != "answer_mode_selector":
+        return None
+    mode = str(state.get("mode") or "").strip().lower()
+    label = str(state.get("label") or "").strip()
+    if mode == "fast" and label in {"", "快速"}:
+        return "normal"
+    if mode == "task" and label in {"", "任务"}:
+        return "task"
+    return "unknown"
+
+
+def _ensure_new_answer_mode(
+    page: Any,
+    rng: random.Random,
+    *,
+    target: str,
+    shot: Callable[[str], Path | None],
+    mouse_pos: tuple[float, float] | None = None,
+) -> tuple[float, float] | None:
+    """把新版回答模式显式确保到 normal/fast 或 task；目标态时零点击。"""
+    target_selector = {
+        "normal": _ANSWER_MODE_FAST_ITEM_SELECTOR,
+        "task": _ANSWER_MODE_TASK_ITEM_SELECTOR,
+    }.get(target)
+    if target_selector is None:  # pragma: no cover - internal contract guard
+        raise ValueError(f"unsupported new Wenxin answer mode target: {target}")
+    for _attempt in range(2):
+        if _answer_mode_state(page) == target:
+            return mouse_pos
+        try:
+            target_item = page.locator(target_selector).first
+            try:
+                target_visible = target_item.is_visible(timeout=300)
+            except Exception:
+                target_visible = False
+            if not target_visible:
+                selector = page.locator(_ANSWER_MODE_SELECTOR).first
+                clicked_at = human_click(selector, page, rng, start=mouse_pos)
+                if clicked_at is not None:
+                    mouse_pos = clicked_at
+                page.wait_for_timeout(300)
+                target_item = page.locator(target_selector).first
+            clicked_at = human_click(target_item, page, rng, start=mouse_pos)
+            if clicked_at is not None:
+                mouse_pos = clicked_at
+        except Exception:
+            pass
+        page.wait_for_timeout(500)
+        if _answer_mode_state(page) == target:
+            return mouse_pos
+    raise _ModeToggleFailed(
+        f"new answer-mode selector could not be confirmed as target={target}",
+        shot("mode_toggle"),
+    )
+
+
 def _ensure_deep_think(
     page: Any,
     rng: random.Random,
@@ -802,11 +927,22 @@ def _ensure_deep_think(
     shot: Callable[[str], Path | None],
     mouse_pos: tuple[float, float] | None = None,
 ) -> tuple[float, float] | None:
-    """把深度思考 chip 确保到目标态（幂等：已在目标态零点击）。
+    """把页面回答模式确保到目标态（幂等：已在目标态零点击）。
 
-    chip 态账号级粘滞——每题发送前显式确保，防止上一 run 的残留态污染本题
-    口径。最多两次点击尝试；读不回目标态 → _ModeToggleFailed（存证截图）。
+    新版回答模式下拉优先：normal=fast，deep_think=task（任务 / 专业技能）。
+    未发现新版控件时回退旧 chip 兼容。
     """
+    answer_mode = _answer_mode_state(page)
+    if answer_mode is not None:
+        return _ensure_new_answer_mode(
+            page,
+            rng,
+            target="task" if engaged else "normal",
+            shot=shot,
+            mouse_pos=mouse_pos,
+        )
+
+    # 旧 chip 态账号级粘滞——每题发送前显式确保，防止上一 run 的残留态污染。
     for _attempt in range(2):
         state = _deep_think_chip_state(page)
         if state is not None and state == engaged:
@@ -1742,6 +1878,7 @@ class _PlaywrightYiyanSession:
             shot=_shot,
             mouse_pos=self._mouse_pos,
         )
+        task_mode_selected = spec.mode == "deep_think" and _answer_mode_state(page) == "task"
 
         on_stage("typing")
         # 页面就绪：真人先端详一眼再动手（零停顿直点输入框是机器人指纹）。
@@ -1799,6 +1936,7 @@ class _PlaywrightYiyanSession:
                 _CHAT_TIMEOUT_DEEP_THINK_S if spec.mode == "deep_think" else _CHAT_TIMEOUT_S
             ),
             quiet_s=_DEEP_THINK_QUIET_S if spec.mode == "deep_think" else 2.5,
+            require_task_completed=task_mode_selected,
         )
         answer_text = ""
         references: list[dict[str, Any]] = []
@@ -1973,7 +2111,7 @@ class _PlaywrightYiyanSession:
                 channel="clipboard",
                 verification=probe_official_share_url(
                     share.share_url,
-                    allowed_hosts={"mr.baidu.com", "wenxin.baidu.com"},
+                    allowed_hosts=YIYAN_OFFICIAL_SHARE_HOSTS,
                 ),
             )
         except (OfficialShareExportError, OSError) as exc:
@@ -2050,6 +2188,36 @@ def _loading_visible(page: Any) -> bool:
     return False
 
 
+def _task_execution_state(page: Any) -> str:
+    """读取新版任务模式的显式状态：running / completed / unknown。"""
+    try:
+        titles = page.locator(_TASK_STATUS_TITLE_SELECTOR).all()
+    except Exception:
+        return "unknown"
+    observed: set[str] = set()
+    for title in titles:
+        try:
+            if not title.is_visible(timeout=200):
+                continue
+            text = " ".join((title.inner_text(timeout=500) or "").split())
+            if _TASK_COMPLETED_TEXT in text:
+                observed.add("completed")
+            if _TASK_RUNNING_TEXT in text:
+                observed.add("running")
+        except Exception:
+            continue
+    if observed == {"completed"}:
+        return "completed"
+    if "running" in observed:
+        return "running"
+    return "unknown"
+
+
+def _task_execution_running(page: Any) -> bool:
+    """兼容调用点：只有页面明确显示「任务执行中」才返回真。"""
+    return _task_execution_state(page) == "running"
+
+
 def _last_answer_text(page: Any) -> str:
     """最后一个答案容器的正文（容器常驻，最后一个才是本轮答案）。"""
     try:
@@ -2081,6 +2249,7 @@ def _wait_dom_stream(
     timeout_s: float,
     quiet_s: float = 2.5,
     poll_ms: int = 500,
+    require_task_completed: bool = False,
 ) -> dict[str, Any]:
     """文心流式完成等待（DOM 观测版）。
 
@@ -2088,7 +2257,10 @@ def _wait_dom_stream(
     页面装 Service Worker（wenxin.baidu.com/sw.js），completion 请求被 SW 中转，
     CDP Network 层抓不到事件流——故流信号改为 DOM 观测，语义等价：
     答案容器（div.conversation-flow-answer-container）出现 = 流开始；
-    「生成中」瞬态指示器消失且正文连续 quiet_s 不变 = 流结束。
+    「生成中」瞬态指示器消失且正文连续 quiet_s 不变 = 普通回答流结束。
+    新版「任务 / 专业技能」会让研究过程长时间稳定，并且会在研究步骤切换时
+    短暂移除运行标题。任务模式必须读到平台明确显示的「任务执行完成」，不能
+    根据「任务执行中」暂时消失来猜测完成；最终正文随后还要连续 quiet_s 不变。
     零合成：正文即 DOM 实渲染文本，绝不从协议猜测拼装。
     """
     t0 = time.monotonic()
@@ -2111,7 +2283,13 @@ def _wait_dom_stream(
     while time.monotonic() < overall_deadline:
         page.wait_for_timeout(poll_ms)
         cur = _last_answer_text(page)
-        if _loading_visible(page) or cur != last_text:
+        task_state = _task_execution_state(page)
+        if (
+            _loading_visible(page)
+            or (require_task_completed and task_state != "completed")
+            or (not require_task_completed and task_state == "running")
+            or cur != last_text
+        ):
             last_text = cur
             stable_since = time.monotonic()
             continue
@@ -2385,12 +2563,39 @@ def _extract_response_text(page: Any, query: str = "") -> str:
 def _extract_references(page: Any) -> list[dict[str, Any]]:
     """参考来源 DOM best-effort 抽取：含「参考/来源」字样容器内的 http 锚点。
 
+    20260831 新版 normal 页面把来源渲染为 ``li[data-long-press-ext-info]``，
+    真实 URL/title 位于该属性的 JSON ``link``/``linkTitle`` 字段而非 ``a``；
+    先读取这一平台原始 DOM 事实，再回退旧版锚点。
     首选 ``div.cosd-note-card a[href^="http"]``（20260810 deep_think live 校准：
     信源卡片，锚文本为「标题\n站点名」两行，逐行拆开）；其余容器为兜底。
     零合成：抽不到即空列表，绝不从正文猜链接。
     """
     out: list[dict[str, Any]] = []
     seen: set[str] = set()
+    try:
+        reference_items = page.locator("div.ai-thinking-steps li[data-long-press-ext-info]").all()
+    except Exception:
+        reference_items = []
+    for item in reference_items:
+        try:
+            raw = item.get_attribute("data-long-press-ext-info", timeout=500) or ""
+            payload = json.loads(raw)
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        url = str(payload.get("link") or "").strip()
+        if not url.startswith(("http://", "https://")):
+            continue
+        key = url.split("#", 1)[0]
+        if key in seen:
+            continue
+        seen.add(key)
+        title = str(payload.get("linkTitle") or "").strip() or None
+        out.append({"url": url, "title": title, "sitename": None})
+    if out:
+        return out
+
     containers = (
         'div.cosd-note-card a[href^="http"]',
         'div.cosd-note-list a[href^="http"]',

@@ -548,6 +548,63 @@ def test_sse_assembly_normal_stream_has_empty_thinking() -> None:
     assert rich["deep_think_active"] is False
 
 
+def test_sse_new_search_protocol_resolves_only_cited_result_cards() -> None:
+    """20260831 新协议：SEARCH + cite_index + [citation:N] 精确恢复最终引用。"""
+    body = (
+        'data: {"v":{"response":{"search_enabled":true,"fragments":['
+        '{"id":2,"type":"SEARCH","queries":[{"query":"果汁 配料"}],"results":[]}'
+        ']}}}\n\n'
+        'data: {"p":"response/fragments/-1/results","v":['
+        '{"url":"https://example.com/a","title":"来源A","snippet":"摘要A","cite_index":1},'
+        '{"url":"https://example.com/b","title":"来源B","snippet":"摘要B","cite_index":2},'
+        '{"url":"https://example.com/c","title":"未引用候选","cite_index":3}'
+        ']}\n\n'
+        'data: {"p":"response/fragments","o":"APPEND","v":['
+        '{"id":3,"type":"RESPONSE","content":"结论","references":[]}'
+        ']}\n\n'
+        'data: {"v":"一[citation:2]，补充[citation:1]。再次[citation:2]"}\n\n'
+    )
+
+    rich = _rich_record_from_sse(body)
+
+    assert rich is not None
+    assert rich["answer_text"] == "结论一，补充。再次"
+    assert rich["search_queries"] == [{"query": "果汁 配料", "ordinal": 1}]
+    assert rich["citation_indexes"] == [2, 1]
+    assert rich["unresolved_citation_indexes"] == []
+    assert [row["url"] for row in rich["search_results"]] == [
+        "https://example.com/a",
+        "https://example.com/b",
+        "https://example.com/c",
+    ]
+    assert rich["references"] == [
+        {
+            "url": "https://example.com/b",
+            "title": "来源B",
+            "sitename": None,
+            "summary": "摘要B",
+            "platform_ordinal": 2,
+            "ordinal_base": 1,
+        },
+        {
+            "url": "https://example.com/a",
+            "title": "来源A",
+            "sitename": None,
+            "summary": "摘要A",
+            "platform_ordinal": 1,
+            "ordinal_base": 1,
+        },
+    ]
+    assert [row["url"] for row in rich["retrieval_events"][0]["final_references"]] == [
+        "https://example.com/b",
+        "https://example.com/a",
+    ]
+    assert [
+        row["final_reference_ordinal"]
+        for row in rich["retrieval_events"][0]["final_references"]
+    ] == [2, 1]
+
+
 def test_build_sse_trace_shape() -> None:
     """trace record 词表对齐豆包（trace 回放端点消费 thinking_chain/search_blocks）。"""
     rich = _rich_record_from_sse(_DEEP_THINK_STREAM)

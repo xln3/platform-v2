@@ -138,8 +138,7 @@ class _ScopedCapturePage:
             fingerprint = "1266:changed"
         layout_offset = (
             200
-            if self.mutate_layout_at is not None
-            and self.probe_calls >= self.mutate_layout_at
+            if self.mutate_layout_at is not None and self.probe_calls >= self.mutate_layout_at
             else 0
         )
         return self._state(
@@ -954,14 +953,38 @@ def _install_fake_browser(monkeypatch: pytest.MonkeyPatch, page: _FakePage) -> N
 
     monkeypatch.setattr(doubao_adapter, "capture_share_image", _fake_share_image)
     monkeypatch.setattr(doubao_adapter, "capture_share_link", _fake_share_link)
+
+    def _fake_verify_share_image(
+        path: Path,
+        audit: dict[str, Any],
+        *,
+        expected_question: str,
+        expected_answer: str,
+    ) -> bool:
+        """Keep generic browser-flow tests independent from the OCR model.
+
+        Content matching itself has dedicated tests below.  The shared fake only
+        models its successful postcondition so tests with custom queries/answers
+        do not accidentally depend on one hard-coded OCR transcript.
+        """
+
+        assert path.is_file()
+        assert expected_question.strip()
+        assert expected_answer.strip()
+        audit["content_verification"] = {
+            "transport_ok": True,
+            "question_verified": True,
+            "answer_coverage": 1.0,
+            "answer_head_verified": True,
+            "answer_tail_verified": True,
+            "failure_reasons": [],
+        }
+        return True
+
     monkeypatch.setattr(
         doubao_adapter,
-        "recognize_image_text",
-        lambda _path: (
-            "中意人寿的重疾险有哪些\n"
-            "第1题的重疾险有哪些\n第2题的重疾险有哪些\n第3题的重疾险有哪些\n"
-            "这是答案"
-        ),
+        "_verify_doubao_generated_share_image",
+        _fake_verify_share_image,
     )
 
 
@@ -1080,6 +1103,147 @@ async def test_session_fails_when_official_share_link_is_missing(
 
     assert exc_info.value.type == "answer_capture_incomplete"
     assert "official-share-export-incomplete" in str(exc_info.value)
+
+
+async def test_session_quarantines_content_incomplete_official_share_image(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
+    monkeypatch.setenv("GEO_DOUBAO_PROFILE_DIR", str(tmp_path))
+    monkeypatch.setenv("GEO_DOUBAO_EVIDENCE_DIR", str(evidence))
+    monkeypatch.setenv("GEO_DOUBAO_HEADLESS", "1")
+    page = _FakePage(messages=0)
+    _install_fake_browser(monkeypatch, page)
+
+    def _reject_content(
+        _path: Path,
+        audit: dict[str, Any],
+        *,
+        expected_question: str,
+        expected_answer: str,
+    ) -> bool:
+        assert expected_question and expected_answer
+        audit["content_verification"] = {
+            "failure_reasons": ["answer_tail_missing"],
+        }
+        return False
+
+    monkeypatch.setattr(
+        doubao_adapter,
+        "_verify_doubao_generated_share_image",
+        _reject_content,
+    )
+    monkeypatch.setattr(
+        doubao_adapter,
+        "_capture_official_share_page",
+        lambda *_args, **_kwargs: {
+            "ok": False,
+            "channel": "official_share_page_screenshot",
+            "error": "official page fallback remained incomplete",
+            "content_verification": {
+                "failure_reasons": ["answer_tail_missing"],
+            },
+        },
+    )
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await run_doubao_collection(
+            _item(),
+            session_factory=_PlaywrightDoubaoSession,
+            heartbeat=lambda _payload: None,
+        )
+
+    assert exc_info.value.type == "answer_capture_incomplete"
+    assert not (evidence / "run-7-task-3-a1-share.png").exists()
+    assert (evidence / "run-7-task-3-a1-share-rejected.png").is_file()
+
+
+async def test_session_uses_verified_official_share_page_when_generated_card_is_clipped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
+    monkeypatch.setenv("GEO_DOUBAO_PROFILE_DIR", str(tmp_path))
+    monkeypatch.setenv("GEO_DOUBAO_EVIDENCE_DIR", str(evidence))
+    monkeypatch.setenv("GEO_DOUBAO_HEADLESS", "1")
+    page = _FakePage(messages=0)
+    _install_fake_browser(monkeypatch, page)
+
+    def _reject_generated_card(
+        _path: Path,
+        audit: dict[str, Any],
+        *,
+        expected_question: str,
+        expected_answer: str,
+    ) -> bool:
+        assert expected_question and expected_answer
+        audit["content_verification"] = {
+            "answer_coverage": 0.58,
+            "failure_reasons": ["answer_coverage_below_threshold"],
+        }
+        return False
+
+    fallback_calls: list[str] = []
+
+    def _verified_official_page(
+        _context: Any,
+        share_url: str,
+        output_path: Path,
+        *,
+        expected_question: str,
+        expected_answer: str,
+    ) -> dict[str, Any]:
+        assert share_url == "https://www.doubao.com/thread/fakeTestShare123"
+        assert expected_question == _item().query
+        assert expected_answer == "这是答案"
+        fallback_calls.append(share_url)
+        image = Image.new("RGB", (1440, 1800), "white")
+        image.save(output_path, format="PNG")
+        image.close()
+        return {
+            "ok": True,
+            "capture_method": "official_share_page_screenshot",
+            "page_capture_method": "cdp_capture_beyond_viewport",
+            "channel": "official_share_page_screenshot",
+            "content_verification": {
+                "transport_ok": True,
+                "question_verified": True,
+                "answer_coverage": 1.0,
+                "answer_head_verified": True,
+                "answer_tail_verified": True,
+                "failure_reasons": [],
+            },
+        }
+
+    monkeypatch.setattr(
+        doubao_adapter,
+        "_verify_doubao_generated_share_image",
+        _reject_generated_card,
+    )
+    monkeypatch.setattr(
+        doubao_adapter,
+        "_capture_official_share_page",
+        _verified_official_page,
+    )
+
+    result = await run_doubao_collection(
+        _item(),
+        session_factory=_PlaywrightDoubaoSession,
+        heartbeat=lambda _payload: None,
+    )
+
+    assert result.quality_state == "live_valid"
+    assert fallback_calls == ["https://www.doubao.com/thread/fakeTestShare123"]
+    assert (evidence / "run-7-task-3-a1-share-rejected.png").is_file()
+    assert (evidence / "run-7-task-3-a1-share.png").is_file()
+    manifest = json.loads(
+        (evidence / "run-7-task-3-a1-share-verification.json").read_text(encoding="utf-8")
+    )
+    assert manifest["capture_method"] == "official_share_page_screenshot"
+    assert manifest["page_capture_method"] == "cdp_capture_beyond_viewport"
+    assert manifest["content_verification"]["answer_coverage"] == 1.0
+    assert any(ref.relation_type == "official_share_image" for ref in result.evidence)
 
 
 def test_deep_think_toggle_uses_human_pacing() -> None:
@@ -1384,13 +1548,22 @@ def test_generated_share_image_rejects_blank_downloaded_card(
         lambda _path: "分享对话\n豆包\n你的AI助手，助力每日工作学习",
     )
 
-    assert doubao_adapter._verify_doubao_generated_share_image(
-        path,
-        audit,
-        expected_question="中英人寿怎么加入做代理人？",
-        expected_answer="中英人寿代理人需要完成培训并通过考试。",
-    ) is False
+    assert (
+        doubao_adapter._verify_doubao_generated_share_image(
+            path,
+            audit,
+            expected_question="中英人寿怎么加入做代理人？",
+            expected_answer="中英人寿代理人需要完成培训并通过考试。",
+        )
+        is False
+    )
     assert audit["content_verification"]["question_verified"] is False
+    assert audit["content_verification"]["failure_reasons"] == [
+        "question_mismatch",
+        "answer_coverage_below_threshold",
+        "answer_head_missing",
+        "answer_tail_missing",
+    ]
 
 
 def test_generated_share_image_requires_question_and_answer_head_middle_tail(
@@ -1415,17 +1588,135 @@ def test_generated_share_image_requires_question_and_answer_head_middle_tail(
         lambda _path: f"分享对话\n{question}\n{answer}\n豆包",
     )
 
-    assert doubao_adapter._verify_doubao_generated_share_image(
-        path,
-        audit,
-        expected_question=question,
-        expected_answer=answer,
-    ) is True
+    assert (
+        doubao_adapter._verify_doubao_generated_share_image(
+            path,
+            audit,
+            expected_question=question,
+            expected_answer=answer,
+        )
+        is True
+    )
     assert audit["content_verification"]["answer_coverage"] == 1.0
     assert audit["content_verification"]["answer_tail_verified"] is True
+    assert audit["content_verification"]["failure_reasons"] == []
 
 
-def test_official_share_page_capture_verifies_current_qa_and_writes_png(tmp_path: Path) -> None:
+def test_generated_share_image_tolerates_sparse_ocr_substitutions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "ocr-substitutions-share.png"
+    path.write_bytes(_png_bytes(560, 1600, (255, 255, 255)))
+    question = "适合日常饮用的果汁应该怎么选择？"
+    answer = "".join(
+        (
+            "配料表应优先选择百分之百果汁并留意复原果汁标识",
+            "储存时按照包装要求冷藏并在开启后尽快饮用完毕",
+            "比较价格时应换算每升单价同时考虑实际饮用频率",
+            "纸盒和小瓶包装适合不同家庭人数与携带使用场景",
+        )
+    )
+    compact_answer = doubao_adapter._share_text_compact(answer)
+    # 模拟长图 OCR 每约二十字出现一个错字。旧的十字精确分块算法会把
+    # 每个错字所在整块全部判丢；字符级有序覆盖应只扣真实错字。
+    substitutions = set(range(19, len(compact_answer), 20))
+    recognized_answer = "".join(
+        "误" if index in substitutions else character
+        for index, character in enumerate(compact_answer)
+    )
+    audit = {"ok": True, "capture_method": "share_image", "channel": "download"}
+    monkeypatch.setattr(
+        doubao_adapter,
+        "recognize_image_text",
+        lambda _path: f"分享对话\n{question}\n{recognized_answer}\n豆包",
+    )
+
+    assert (
+        doubao_adapter._verify_doubao_generated_share_image(
+            path,
+            audit,
+            expected_question=question,
+            expected_answer=answer,
+        )
+        is True
+    )
+    verification = audit["content_verification"]
+    assert verification["answer_coverage"] >= 0.9
+    assert verification["answer_head_verified"] is True
+    assert verification["answer_tail_verified"] is True
+    assert verification["failure_reasons"] == []
+
+
+def test_share_answer_sequence_coverage_rejects_material_truncation() -> None:
+    answer = "".join(
+        (
+            "第一部分用于确认回答开头已经出现在官方分享图片中",
+            "第二部分包含用于判断主体内容完整性的连续正文信息",
+            "第三部分用于确认回答结尾没有因为长图生成而被截断",
+        )
+    )
+    truncated = answer[: len(answer) // 2] + answer[-12:]
+
+    coverage, head_ok, tail_ok, _matched, _total = doubao_adapter._share_answer_sequence_coverage(
+        answer, truncated
+    )
+
+    assert coverage < 0.85
+    assert head_ok is True
+    assert tail_ok is True
+
+
+def test_official_share_page_allows_table_ocr_floor_without_relaxing_generated_card(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "official-thread.png"
+    path.write_bytes(_png_bytes(1440, 2200, (255, 255, 255)))
+    question = "请推荐百分之百果汁品牌并比较标签规格和价格"
+    answer = "完整答案正文"
+    monkeypatch.setattr(
+        doubao_adapter,
+        "recognize_image_text",
+        lambda _path: f"{question}\n{answer}",
+    )
+    monkeypatch.setattr(
+        doubao_adapter,
+        "_share_answer_sequence_coverage",
+        lambda *_args, **_kwargs: (0.82, True, True, 82, 100),
+    )
+
+    official_audit = {"channel": "official_share_page_screenshot"}
+    assert (
+        doubao_adapter._verify_share_image_ocr_content(
+            path,
+            official_audit,
+            expected_question=question,
+            expected_answer=answer,
+            transport_ok=True,
+        )
+        is True
+    )
+    assert official_audit["content_verification"]["answer_coverage_threshold"] == 0.80
+
+    generated_audit = {"channel": "download"}
+    assert (
+        doubao_adapter._verify_share_image_ocr_content(
+            path,
+            generated_audit,
+            expected_question=question,
+            expected_answer=answer,
+            transport_ok=True,
+        )
+        is False
+    )
+    assert generated_audit["content_verification"]["answer_coverage_threshold"] == 0.85
+    assert generated_audit["content_verification"]["failure_reasons"] == [
+        "answer_coverage_below_threshold"
+    ]
+
+
+def test_official_share_page_capture_verifies_current_qa_and_writes_png(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     question = "安全研究人员选择国内空间搜索引擎应考虑哪些因素"
     answer = (
         "# 评估因素\n应从**数据质量**、指纹能力、检索语法和 API 自动化等维度评估。\n"
@@ -1433,8 +1724,7 @@ def test_official_share_page_capture_verifies_current_qa_and_writes_png(tmp_path
     )
     # 豆包官方分享页的列表序号由 CSS 绘制，不会进入 inner_text。
     rendered_answer = (
-        "评估因素\n应从数据质量、指纹能力、检索语法和 API 自动化等维度评估。\n"
-        "股东背景需要核验。"
+        "评估因素\n应从数据质量、指纹能力、检索语法和 API 自动化等维度评估。\n股东背景需要核验。"
     )
     output = tmp_path / "official-thread.png"
 
@@ -1456,24 +1746,39 @@ def test_official_share_page_capture_verifies_current_qa_and_writes_png(tmp_path
         def goto(self, *_a: Any, **_kw: Any) -> Any:
             return SimpleNamespace(status=200)
 
-        def get_by_text(self, text: str, **_kw: Any) -> _VisibleText:
-            assert text == question
-            return _VisibleText()
+        def wait_for_function(self, _script: str, arg: str, **_kw: Any) -> None:
+            assert arg == doubao_adapter._share_text_compact(question)
 
         def locator(self, selector: str) -> _Body:
             assert selector == "body"
             return _Body()
-
-        def screenshot(self, *, path: str, **_kw: Any) -> None:
-            image = Image.new("RGB", (640, 480), "white")
-            image.save(path, format="PNG")
-            image.close()
 
         def close(self) -> None:
             self.closed = True
 
     page = _SharePage()
     context = SimpleNamespace(new_page=lambda: page)
+    capture_calls: list[str] = []
+
+    def _capture(capture_page: Any, path: Path, *, flatten_script: str) -> dict[str, Any]:
+        assert capture_page is page
+        assert ".mdbox-table-scroll-container" in flatten_script
+        assert "scrollWidth" in flatten_script
+        capture_calls.append(flatten_script)
+        image = Image.new("RGB", (640, 480), "white")
+        image.save(path, format="PNG")
+        image.close()
+        return {
+            "method": "cdp_capture_beyond_viewport",
+            "metrics": {"expanded_table_count": 1},
+        }
+
+    monkeypatch.setattr(doubao_adapter, "capture_full_page_safely", _capture)
+    monkeypatch.setattr(
+        doubao_adapter,
+        "recognize_image_text",
+        lambda _path: f"{question}\n{rendered_answer}",
+    )
 
     audit = doubao_adapter._capture_official_share_page(
         context,
@@ -1487,6 +1792,10 @@ def test_official_share_page_capture_verifies_current_qa_and_writes_png(tmp_path
     assert audit["question_verified"] is True
     assert audit["answer_verified"] is True
     assert audit["dims"] == {"width": 640, "height": 480}
+    assert audit["capture_method"] == "official_share_page_screenshot"
+    assert audit["page_capture_method"] == "cdp_capture_beyond_viewport"
+    assert audit["content_verification"]["answer_coverage"] >= 0.85
+    assert len(capture_calls) == 1
     assert output.is_file()
     assert page.closed is True
 

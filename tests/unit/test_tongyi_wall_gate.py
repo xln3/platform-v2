@@ -183,6 +183,25 @@ def test_softban_scan_excludes_answer_text(tmp_path: Path, monkeypatch: pytest.M
     assert "请求频率过高" in outcomes[0].answer.answer_text
 
 
+def test_login_phrases_inside_normal_answer_do_not_trigger_wall(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """登录词只出现在答案气泡时不是墙；墙判定必须有可见模态/iframe 证据。"""
+    answer = (
+        "请登录后使用账号管理功能；页面也可能显示“立即登录”或“登录以继续”，"
+        "这些都是本文正在解释的界面文案。"
+    )
+    page = _ScriptedAnswerPage([answer], messages=0)
+    page.body_text = answer
+    session = w8t._make_session(tmp_path, monkeypatch, page)
+
+    outcomes = session.collect_batch([_spec(1)], on_stage=lambda s: None)
+
+    assert [o.status for o in outcomes] == ["ok"]
+    assert outcomes[0].answer is not None
+    assert outcomes[0].answer.answer_text == answer
+
+
 # ---------------------------------------------------------------------------
 # 3) batch 连坐三语义
 # ---------------------------------------------------------------------------

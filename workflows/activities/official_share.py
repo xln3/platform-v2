@@ -7,7 +7,7 @@ import io
 import json
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from hashlib import sha256
@@ -24,6 +24,10 @@ _MAX_SHARE_VERIFICATION_BYTES = 2 * 1024 * 1024
 _MAX_SHARE_REDIRECTS = 5
 SHARE_PROBE_VERSION = "official-share-http-v1"
 _HTTP_URL_RE = re.compile(r"https://[^\s<>\]\[\"'，。；]+")
+YIYAN_OFFICIAL_SHARE_HOSTS = frozenset(
+    {"mr.baidu.com", "mbd.baidu.com", "chat.baidu.com", "wenxin.baidu.com"}
+)
+TONGYI_OFFICIAL_SHARE_HOSTS = frozenset({"qianwen.my.cn"})
 
 
 class OfficialShareExportError(RuntimeError):
@@ -120,7 +124,7 @@ def _frame_policy(headers: httpx.Headers) -> tuple[str, str | None, str | None, 
 def probe_official_share_url(
     share_url: str,
     *,
-    allowed_hosts: set[str],
+    allowed_hosts: Collection[str],
     client: httpx.Client | None = None,
 ) -> ShareLinkVerification:
     """Verify one official URL without following a redirect outside its allowlist."""
@@ -352,7 +356,7 @@ def write_share_link_manifest(
 
 
 def validated_yiyan_share_url(value: object) -> str | None:
-    return _validated_share_url(value, hosts={"mr.baidu.com", "wenxin.baidu.com"})
+    return _validated_share_url(value, hosts=YIYAN_OFFICIAL_SHARE_HOSTS)
 
 
 def validated_deepseek_share_url(value: object) -> str | None:
@@ -362,7 +366,21 @@ def validated_deepseek_share_url(value: object) -> str | None:
     return url
 
 
-def _validated_share_url(value: object, *, hosts: set[str]) -> str | None:
+def validated_tongyi_share_url(value: object) -> str | None:
+    """Accept only Qianwen's public one-round share URLs."""
+
+    url = _validated_share_url(value, hosts=TONGYI_OFFICIAL_SHARE_HOSTS)
+    if url is None:
+        return None
+    parsed = urlsplit(url)
+    if parsed.port not in {None, 443} or parsed.query or parsed.fragment:
+        return None
+    if re.fullmatch(r"/share/chat/[A-Fa-f0-9]{32}", parsed.path) is None:
+        return None
+    return url
+
+
+def _validated_share_url(value: object, *, hosts: Collection[str]) -> str | None:
     if not isinstance(value, str) or len(value) > 2_048:
         return None
     candidate = value.strip().rstrip(".,;，。；")
@@ -587,6 +605,29 @@ def _urls_from_text(value: object) -> list[str]:
     return _HTTP_URL_RE.findall(str(value or ""))
 
 
+def _resolve_tongyi_share_url(
+    api_payload: object,
+    clipboard_text: object,
+) -> str | None:
+    """Resolve Qianwen's public URL from the create API, then the clipboard."""
+
+    share_id: object = None
+    if isinstance(api_payload, dict) and (
+        api_payload.get("success") is True or api_payload.get("code") == 0
+    ):
+        data = api_payload.get("data")
+        if isinstance(data, dict):
+            share_id = data.get("share_id")
+    if isinstance(share_id, str) and re.fullmatch(r"[A-Fa-f0-9]{32}", share_id):
+        candidate = validated_tongyi_share_url(f"https://qianwen.my.cn/share/chat/{share_id}")
+        if candidate:
+            return candidate
+    for candidate in _urls_from_text(clipboard_text):
+        if url := validated_tongyi_share_url(candidate):
+            return url
+    return None
+
+
 def _resolve_deepseek_share_url(
     api_payload: object,
     dom_text: object,
@@ -788,6 +829,338 @@ def _dismiss_deepseek_share_ui(page: Any) -> None:
                 break
     except Exception:
         pass
+
+
+_PREPARE_TONGYI_SHARE_JS = r"""() => {
+  document.querySelectorAll('[data-geo-tongyi-share]').forEach((el) =>
+    el.removeAttribute('data-geo-tongyi-share'));
+  const scroller = document.querySelector('#message-list-scroller');
+  if (scroller) {
+    scroller.scrollTop = scroller.scrollHeight;
+    scroller.scrollLeft = 0;
+  }
+  const answers = Array.from(document.querySelectorAll('.answer-common-card'));
+  const answer = answers.length ? answers[answers.length - 1] : null;
+  if (!answer) return {found: false, reason: 'answer_missing'};
+  let wrapper = answer;
+  while (wrapper && wrapper !== document.body
+         && !String(wrapper.className || '').includes('message-select-wrapper-answer')) {
+    wrapper = wrapper.parentElement;
+  }
+  if (!wrapper || wrapper === document.body) {
+    return {found: false, reason: 'answer_wrapper_missing'};
+  }
+  // The action row is icon-only.  This path is Qianwen's live share-arrow
+  // signature; copy/regenerate/more icons have different path data.
+  const path = Array.from(wrapper.querySelectorAll('svg path')).find((candidate) =>
+    String(candidate.getAttribute('d') || '').startsWith('M512 119.168c0-49.024'));
+  const control = path ? path.closest('div.cursor-pointer') : null;
+  if (!control || !wrapper.contains(control)) {
+    return {found: false, reason: 'share_icon_missing'};
+  }
+  control.setAttribute('data-geo-tongyi-share', 'true');
+  const rect = control.getBoundingClientRect();
+  return {found: true, visible: rect.width > 0 && rect.height > 0};
+}"""
+
+
+def _prepare_tongyi_share_button(page: Any, *, timeout_ms: int = 15_000) -> Any:
+    """Reveal and identify the latest Qianwen answer's unlabeled share control."""
+
+    deadline = time.monotonic() + timeout_ms / 1_000
+    while time.monotonic() < deadline:
+        try:
+            page.evaluate(_PREPARE_TONGYI_SHARE_JS)
+            controls = page.locator('[data-geo-tongyi-share="true"]')
+            for index in range(controls.count() - 1, -1, -1):
+                control = controls.nth(index)
+                if control.is_visible(timeout=200):
+                    return control
+        except Exception:
+            pass
+        page.wait_for_timeout(250)
+    raise OfficialShareExportError(
+        "Qianwen latest completed answer share control was not visible after scrolling"
+    )
+
+
+_TONGYI_SELECTED_ROUND_JS = r"""() => {
+  const selected = (kind) => Array.from(
+    document.querySelectorAll(`[class*="share-selection-${kind}"]`)
+  ).filter((el) =>
+    el.querySelector('[data-icon-type="qwpcicon-checkboxChecked"]')).length;
+  return {questions: selected('question'), answers: selected('answer')};
+}"""
+
+
+_FLATTEN_TONGYI_PUBLIC_SHARE_JS = r"""() => {
+  const scroller = document.querySelector('#message-list-scroller');
+  const content = document.querySelector('.message-list-content-container');
+  if (!scroller || !content) return null;
+
+  // Table export controls are authenticated-page UI, not answer content.  They
+  // can also hydrate on the public page, so remove them from the cloned share
+  // presentation before measuring and capturing it.
+  for (const toolbar of content.querySelectorAll('.qk-md-table-action')) {
+    toolbar.remove();
+  }
+  for (const footer of document.querySelectorAll('[class*="shareFooter-"]')) {
+    footer.style.setProperty('display', 'none', 'important');
+  }
+  scroller.scrollTop = 0;
+  scroller.scrollLeft = 0;
+  for (const descendant of content.querySelectorAll('*')) {
+    if (descendant.scrollLeft) descendant.scrollLeft = 0;
+  }
+  const contentHeight = Math.ceil(Math.max(
+    content.scrollHeight, content.getBoundingClientRect().height));
+  scroller.style.setProperty('height', contentHeight + 'px', 'important');
+  scroller.style.setProperty('max-height', 'none', 'important');
+  scroller.style.setProperty('overflow', 'visible', 'important');
+  let ancestor = scroller.parentElement;
+  while (ancestor) {
+    ancestor.style.setProperty('height', 'auto', 'important');
+    ancestor.style.setProperty('max-height', 'none', 'important');
+    ancestor.style.setProperty('overflow', 'visible', 'important');
+    if (ancestor === document.documentElement) break;
+    ancestor = ancestor.parentElement;
+  }
+  document.body.style.setProperty('min-height', (contentHeight + 220) + 'px', 'important');
+  document.documentElement.style.setProperty(
+    'min-height', (contentHeight + 220) + 'px', 'important');
+  void document.body.offsetHeight;
+  const rect = content.getBoundingClientRect();
+  return {
+    x: rect.x,
+    y: rect.y,
+    width: rect.width,
+    height: rect.height,
+    viewportWidth: window.innerWidth,
+    viewportHeight: window.innerHeight
+  };
+}"""
+
+
+def _capture_tongyi_public_share_card(page: Any, out_path: Path) -> None:
+    """Capture Qianwen's complete public content outside its clipped scroller."""
+
+    raw_clip = page.evaluate(_FLATTEN_TONGYI_PUBLIC_SHARE_JS)
+    if not isinstance(raw_clip, dict):
+        raise OfficialShareExportError("Qianwen public share content was not found")
+    page.wait_for_timeout(300)
+    try:
+        raw_clip = (
+            page.evaluate(
+                """() => {
+              const content = document.querySelector('.message-list-content-container');
+              if (!content) return null;
+              const rect = content.getBoundingClientRect();
+              return {
+                x: rect.x, y: rect.y, width: rect.width, height: rect.height,
+                viewportWidth: window.innerWidth, viewportHeight: window.innerHeight
+              };
+            }"""
+            )
+            or raw_clip
+        )
+    except Exception:
+        pass
+    try:
+        clip = {
+            "x": float(raw_clip["x"]),
+            "y": float(raw_clip["y"]),
+            "width": float(raw_clip["width"]),
+            "height": float(raw_clip["height"]),
+        }
+        viewport_width = float(raw_clip["viewportWidth"])
+        viewport_height = float(raw_clip["viewportHeight"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise OfficialShareExportError("Qianwen public share bounds were invalid") from exc
+    if (
+        clip["x"] < 0
+        or clip["y"] < 0
+        or clip["width"] <= 0
+        or clip["height"] <= 0
+        or clip["width"] > 5_000
+        or clip["height"] > 50_000
+        or viewport_width <= 0
+        or viewport_width > 5_000
+    ):
+        raise OfficialShareExportError("Qianwen public share bounds were unsafe")
+
+    full_clip = {
+        "x": 0,
+        "y": 0,
+        "width": viewport_width,
+        "height": max(viewport_height, clip["y"] + clip["height"]),
+        "scale": 1,
+    }
+    cdp = page.context.new_cdp_session(page)
+    try:
+        result = cdp.send(
+            "Page.captureScreenshot",
+            {
+                "format": "png",
+                "captureBeyondViewport": True,
+                "fromSurface": True,
+                "clip": full_clip,
+            },
+        )
+    finally:
+        try:
+            cdp.detach()
+        except Exception:
+            pass
+    payload = result.get("data") if isinstance(result, dict) else None
+    if not isinstance(payload, str) or not payload:
+        raise OfficialShareExportError("Qianwen public share screenshot was empty")
+    try:
+        full_bytes = base64.b64decode(payload, validate=True)
+        with Image.open(io.BytesIO(full_bytes)) as image:
+            image.load()
+            scale_x = image.width / full_clip["width"]
+            scale_y = image.height / full_clip["height"]
+            crop_box = (
+                round(clip["x"] * scale_x),
+                round(clip["y"] * scale_y),
+                round((clip["x"] + clip["width"]) * scale_x),
+                round((clip["y"] + clip["height"]) * scale_y),
+            )
+            if (
+                crop_box[0] < 0
+                or crop_box[1] < 0
+                or crop_box[2] > image.width
+                or crop_box[3] > image.height
+                or crop_box[2] <= crop_box[0]
+                or crop_box[3] <= crop_box[1]
+            ):
+                raise ValueError("crop is outside captured page")
+            image.crop(crop_box).save(out_path, format="PNG")
+        if out_path.stat().st_size > _MAX_SHARE_IMAGE_BYTES:
+            raise ValueError("image exceeds maximum size")
+    except (OSError, UnidentifiedImageError, ValueError) as exc:
+        raise OfficialShareExportError("Qianwen public share screenshot was invalid") from exc
+
+
+def _dismiss_tongyi_share_ui(page: Any) -> None:
+    """Leave the resident Qianwen tab outside share-selection mode."""
+
+    try:
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(150)
+    except Exception:
+        pass
+    for selector in ('button:has-text("取消")', '[role="button"]:has-text("取消")'):
+        try:
+            controls = page.locator(selector)
+            for index in range(controls.count() - 1, -1, -1):
+                control = controls.nth(index)
+                if control.is_visible(timeout=100):
+                    control.click(timeout=1_000)
+                    return
+        except Exception:
+            continue
+
+
+def capture_tongyi_official_share(
+    page: Any,
+    out_path: Path,
+    *,
+    click: Callable[[Any], None] | None = None,
+) -> OfficialShareArtifacts:
+    """Create a Qianwen public link and capture that clean official share page."""
+
+    click_control = click or (lambda locator: locator.click(timeout=8_000))
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    _grant_clipboard(page)
+    public_page: Any | None = None
+    try:
+        click_control(_prepare_tongyi_share_button(page))
+        try:
+            selected = page.evaluate(_TONGYI_SELECTED_ROUND_JS)
+        except Exception as exc:
+            raise OfficialShareExportError(
+                "Qianwen share selection state could not be read"
+            ) from exc
+        if (
+            not isinstance(selected, dict)
+            or selected.get("questions") != 1
+            or selected.get("answers") != 1
+        ):
+            raise OfficialShareExportError(
+                "Qianwen share selection did not contain exactly one question and answer"
+            )
+
+        copy_link = _first_enabled(
+            page,
+            (
+                'button:has-text("复制链接")',
+                '[role="button"]:has-text("复制链接")',
+            ),
+        )
+        create_response: Any | None = None
+        copy_clicked = False
+        try:
+            with page.expect_response(
+                lambda response: (
+                    "/api/v1/share/create" in str(response.url)
+                    and str(response.request.method).upper() == "POST"
+                ),
+                timeout=15_000,
+            ) as response_info:
+                click_control(copy_link)
+                copy_clicked = True
+            create_response = response_info.value
+        except Exception:
+            if not copy_clicked:
+                click_control(copy_link)
+        page.wait_for_timeout(500)
+        api_payload: object = None
+        if create_response is not None:
+            try:
+                api_payload = create_response.json()
+            except Exception:
+                api_payload = None
+        try:
+            clipboard_text: object = page.evaluate(
+                "async () => await navigator.clipboard.readText()"
+            )
+        except Exception:
+            clipboard_text = ""
+        share_url = _resolve_tongyi_share_url(api_payload, clipboard_text)
+        if share_url is None:
+            raise OfficialShareExportError(
+                "Qianwen official share URL was absent from the create API and clipboard"
+            )
+
+        public_page = page.context.new_page()
+        public_page.goto(share_url, wait_until="domcontentloaded", timeout=25_000)
+        _first_visible(public_page, (".answer-common-card",), timeout_ms=15_000)
+        _first_visible(
+            public_page,
+            (".message-list-content-container",),
+            timeout_ms=15_000,
+        )
+        public_page.wait_for_timeout(1_500)
+        _capture_tongyi_public_share_card(public_page, out_path)
+        if not valid_png(out_path):
+            raise OfficialShareExportError("Qianwen public share page is not a valid PNG")
+        return OfficialShareArtifacts(
+            out_path,
+            share_url,
+            {
+                "platform": "tongyi",
+                "image_source": "official_public_share_page",
+                "image_bytes": out_path.stat().st_size,
+            },
+        )
+    finally:
+        if public_page is not None:
+            try:
+                public_page.close()
+            except Exception:
+                pass
+        _dismiss_tongyi_share_ui(page)
 
 
 def _largest_visible(page: Any, selector: str) -> Any:

@@ -141,6 +141,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import difflib
 import io
 import ipaddress
 import json
@@ -187,6 +188,7 @@ from workflows.activities.official_share import (
     recover_png_from_export_audit,
     write_share_link_manifest,
 )
+from workflows.activities.page_capture import capture_full_page_safely
 from workflows.activities.raw_capture import dump_raw_evidence_refs, maybe_raw_capture
 from workflows.activities.resident_browser import (
     BrowserBusyError,
@@ -225,6 +227,103 @@ _USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 )
+
+# Official ``/thread`` pages keep the answer in an inner vertical scroller and
+# Markdown tables in a second horizontal scroller.  ``full_page=True`` expands
+# neither one.  The shared capture helper snapshots every inline style before
+# running this script and restores it in ``finally``, so these temporary layout
+# changes cannot leak into another task on the resident browser.
+_DOUBAO_OFFICIAL_SHARE_FLATTEN_JS = r"""() => {
+  const body = document.body;
+  const doc = document.documentElement;
+  const beforeBodyClientH = body ? body.clientHeight : 0;
+  const beforeBodyScrollH = body ? body.scrollHeight : 0;
+
+  const verticalCandidates = [];
+  for (const el of document.querySelectorAll('div, main, section, article')) {
+    const cs = getComputedStyle(el);
+    if ((cs.overflowY === 'auto' || cs.overflowY === 'scroll')
+        && el.scrollHeight > el.clientHeight + 100) {
+      verticalCandidates.push(el);
+    }
+  }
+  verticalCandidates.sort((a, b) => b.scrollHeight - a.scrollHeight);
+  const main = verticalCandidates[0] || null;
+  const fullHeight = main ? main.scrollHeight : 0;
+  if (main) {
+    let cur = main;
+    while (cur) {
+      if (cur === main) cur.style.setProperty('height', fullHeight + 'px', 'important');
+      else cur.style.setProperty('height', 'auto', 'important');
+      cur.style.setProperty('max-height', 'none', 'important');
+      cur.style.setProperty('min-height', '0', 'important');
+      cur.style.setProperty('overflow-y', 'visible', 'important');
+      cur.style.setProperty('flex', '0 0 auto', 'important');
+      cur.style.setProperty('transform', 'none', 'important');
+      cur.style.setProperty('contain', 'none', 'important');
+      if (cur === doc) break;
+      cur = cur.parentElement;
+    }
+  }
+
+  let expandedTableCount = 0;
+  let widestTable = 0;
+  for (const tableScroller of document.querySelectorAll('.mdbox-table-scroll-container')) {
+    if (tableScroller.scrollWidth <= tableScroller.clientWidth + 1) continue;
+    const tableWidth = Math.ceil(tableScroller.scrollWidth);
+    widestTable = Math.max(widestTable, tableWidth);
+    expandedTableCount += 1;
+    tableScroller.style.setProperty('width', tableWidth + 'px', 'important');
+    tableScroller.style.setProperty('min-width', tableWidth + 'px', 'important');
+    tableScroller.style.setProperty('max-width', 'none', 'important');
+    tableScroller.style.setProperty('overflow-x', 'visible', 'important');
+    let cur = tableScroller.parentElement;
+    while (cur && cur !== body && cur !== doc) {
+      cur.style.setProperty('width', 'max-content', 'important');
+      cur.style.setProperty('min-width', 'max-content', 'important');
+      cur.style.setProperty('max-width', 'none', 'important');
+      cur.style.setProperty('overflow-x', 'visible', 'important');
+      cur.style.setProperty('contain', 'none', 'important');
+      cur = cur.parentElement;
+    }
+  }
+
+  for (const el of document.querySelectorAll('*')) {
+    const cs = getComputedStyle(el);
+    if (cs.transform && cs.transform !== 'none') {
+      el.style.setProperty('transform', 'none', 'important');
+    }
+    if (cs.position === 'fixed') {
+      // Floating “continue in Doubao” buttons otherwise get frozen over a table
+      // cell in the beyond-viewport image. They are page chrome, not evidence.
+      el.style.setProperty('display', 'none', 'important');
+    }
+  }
+  const targetH = Math.max(fullHeight, beforeBodyScrollH, beforeBodyClientH);
+  const targetW = Math.max(widestTable + 160, window.innerWidth);
+  if (body) {
+    body.style.setProperty('height', 'auto', 'important');
+    body.style.setProperty('min-height', targetH + 'px', 'important');
+    body.style.setProperty('min-width', targetW + 'px', 'important');
+    body.style.setProperty('overflow', 'visible', 'important');
+  }
+  if (doc) {
+    doc.style.setProperty('height', 'auto', 'important');
+    doc.style.setProperty('min-height', targetH + 'px', 'important');
+    doc.style.setProperty('min-width', targetW + 'px', 'important');
+    doc.style.setProperty('overflow', 'visible', 'important');
+  }
+  if (body) void body.offsetHeight;
+  return {
+    ok: !!main,
+    scroller_full_height: fullHeight,
+    expanded_table_count: expandedTableCount,
+    widest_table: widestTable,
+    body_scroll_height_after: body ? body.scrollHeight : 0,
+    doc_scroll_height_after: doc ? doc.scrollHeight : 0,
+    viewport_height: window.innerHeight
+  };
+}"""
 
 # 聊天输入框（Semi UI textarea；placeholder 是最稳定信号，scripts/inspect_via_proxy.py 发现）
 _INPUT_SELECTORS: tuple[str, ...] = (
@@ -2129,6 +2228,23 @@ class _PlaywrightDoubaoSession:
                     expected_question=spec.query,
                     expected_answer=answer_text,
                 )
+            if not share_image_ok:
+                # A syntactically valid PNG can still be Doubao's half-hydrated
+                # card (for example, answer head only).  Never leave that payload
+                # at the canonical ``*-share.png`` path where an operator or a
+                # later filesystem scan could mistake it for admitted evidence.
+                rejected_path = share_image_path.with_name(
+                    f"{share_image_path.stem}-rejected{share_image_path.suffix}"
+                )
+                try:
+                    rejected_path.unlink(missing_ok=True)
+                    share_image_path.replace(rejected_path)
+                except OSError as exc:
+                    share_image_audit["rejected_image_quarantine_error"] = (
+                        f"{type(exc).__name__}: {exc}"
+                    )
+                else:
+                    share_image_audit["rejected_image_path"] = str(rejected_path)
             try:
                 share_link_audit = capture_share_link(human_page)
             except Exception as exc:
@@ -2138,6 +2254,37 @@ class _PlaywrightDoubaoSession:
                 }
             share_url = _validated_doubao_share_url(share_link_audit.get("url"))
             share_link_ok = bool(share_link_audit.get("ok")) and share_url is not None
+            if not share_image_ok and share_link_ok and share_url:
+                generated_failure = {
+                    "capture_method": share_image_audit.get("capture_method"),
+                    "channel": share_image_audit.get("channel"),
+                    "content_verification": share_image_audit.get("content_verification"),
+                    "error": share_image_audit.get("error"),
+                    "rejected_image_path": share_image_audit.get("rejected_image_path"),
+                }
+                fallback_audit = _capture_official_share_page(
+                    context,
+                    share_url,
+                    share_image_path,
+                    expected_question=spec.query,
+                    expected_answer=answer_text,
+                )
+                fallback_audit["fallback_of"] = generated_failure
+                share_image_audit = fallback_audit
+                share_image_ok = bool(fallback_audit.get("ok"))
+                if not share_image_ok and share_image_path.exists():
+                    page_rejected_path = share_image_path.with_name(
+                        f"{share_image_path.stem}-page-rejected{share_image_path.suffix}"
+                    )
+                    try:
+                        page_rejected_path.unlink(missing_ok=True)
+                        share_image_path.replace(page_rejected_path)
+                    except OSError as exc:
+                        share_image_audit["rejected_image_quarantine_error"] = (
+                            f"{type(exc).__name__}: {exc}"
+                        )
+                    else:
+                        share_image_audit["rejected_image_path"] = str(page_rejected_path)
             share_verification_path = (
                 self._evidence_dir / f"{spec.file_stem}-share-verification.json"
             )
@@ -2156,6 +2303,7 @@ class _PlaywrightDoubaoSession:
                                 "answer_sha256": sha256(answer_text.encode()).hexdigest(),
                                 "capture_method": share_image_audit.get("capture_method"),
                                 "channel": share_image_audit.get("channel"),
+                                "page_capture_method": share_image_audit.get("page_capture_method"),
                                 "content_verification": share_image_audit.get(
                                     "content_verification"
                                 ),
@@ -2226,11 +2374,20 @@ class _PlaywrightDoubaoSession:
                         )
                     )
             if not share_image_ok or not share_link_ok:
+                image_verification = share_image_audit.get("content_verification")
+                image_failure_reasons = (
+                    image_verification.get("failure_reasons")
+                    if isinstance(image_verification, dict)
+                    else None
+                )
                 log.warning(
                     "doubao_share_export_incomplete",
                     business_key=spec.business_key,
                     image_ok=share_image_ok,
-                    image_error=str(share_image_audit.get("error") or "")[:300],
+                    image_error=str(
+                        share_image_audit.get("error")
+                        or ",".join(str(reason) for reason in image_failure_reasons or ())
+                    )[:300],
                     link_ok=share_link_ok,
                     link_error=str(
                         share_link_audit.get("error")
@@ -2443,29 +2600,38 @@ def _share_answer_sequence_coverage(
     *,
     chunk_width: int = 10,
 ) -> tuple[float, bool, bool, int, int]:
-    """Measure ordered OCR coverage and explicit head/tail presence."""
+    """Measure ordered OCR character coverage and explicit head/tail presence.
+
+    OCR commonly substitutes one glyph inside an otherwise correct run (for
+    example ``1``/``l`` or a CJK homograph).  Requiring every fixed-width chunk
+    to match exactly amplified one such substitution into ten missing
+    characters and rejected complete official share cards.  SequenceMatcher's
+    ordered exact blocks count only characters that remain in answer order, so
+    it tolerates sparse OCR substitutions without admitting reordered or
+    materially truncated content.
+
+    ``chunk_width`` now defines the head/tail probe span and remains a keyword
+    argument for callers that used the previous fixed-chunk implementation.
+    """
 
     expected = _share_text_compact(expected_answer)
     recognized = _share_text_compact(recognized_text)
     if not expected or not recognized:
         return 0.0, False, False, 0, 0
-    chunks = tuple(
-        expected[index : index + chunk_width]
-        for index in range(0, len(expected), chunk_width)
+    matcher = difflib.SequenceMatcher(None, expected, recognized, autojunk=False)
+    blocks = tuple(block for block in matcher.get_matching_blocks() if block.size)
+    matched_characters = sum(block.size for block in blocks)
+    edge_span = min(max(chunk_width * 2, 1), len(expected))
+    head_ok = any(block.a < edge_span for block in blocks)
+    tail_start = len(expected) - edge_span
+    tail_ok = any(block.a + block.size > tail_start for block in blocks)
+    return (
+        matched_characters / len(expected),
+        head_ok,
+        tail_ok,
+        matched_characters,
+        len(expected),
     )
-    cursor = 0
-    matched_indices: list[int] = []
-    for index, chunk in enumerate(chunks):
-        position = recognized.find(chunk, cursor)
-        if position < 0:
-            continue
-        matched_indices.append(index)
-        cursor = position + len(chunk)
-    matched = set(matched_indices)
-    edge_span = min(2, len(chunks))
-    head_ok = any(index in matched for index in range(edge_span))
-    tail_ok = any(index in matched for index in range(len(chunks) - edge_span, len(chunks)))
-    return len(matched) / len(chunks), head_ok, tail_ok, len(matched), len(chunks)
 
 
 def _verify_doubao_generated_share_image(
@@ -2483,38 +2649,80 @@ def _verify_doubao_generated_share_image(
         and audit.get("channel") in {"download", "cdp_download_path", "blob", "data"}
         and recover_png_from_export_audit(path, audit)
     )
+    return _verify_share_image_ocr_content(
+        path,
+        audit,
+        expected_question=expected_question,
+        expected_answer=expected_answer,
+        transport_ok=transport_ok,
+    )
+
+
+def _verify_share_image_ocr_content(
+    path: Path,
+    audit: dict[str, Any],
+    *,
+    expected_question: str,
+    expected_answer: str,
+    transport_ok: bool,
+) -> bool:
+    """Apply the same fail-closed OCR contract to every official image channel."""
+
     verification: dict[str, Any] = {
         "transport_ok": transport_ok,
         "question_verified": False,
         "answer_coverage": 0.0,
         "answer_head_verified": False,
         "answer_tail_verified": False,
+        "failure_reasons": [],
     }
     audit["content_verification"] = verification
     if not transport_ok:
+        verification["failure_reasons"] = ["transport_unverified"]
         return False
     recognized = recognize_image_text(path)
     if not recognized:
         verification["error"] = "share_image_ocr_unavailable_or_empty"
+        verification["failure_reasons"] = ["ocr_unavailable_or_empty"]
         return False
     compact_ocr = _share_text_compact(recognized)
     compact_question = _share_text_compact(expected_question)
     question_ok = bool(compact_question) and compact_question in compact_ocr
-    coverage, head_ok, tail_ok, matched_chunks, total_chunks = _share_answer_sequence_coverage(
+    coverage, head_ok, tail_ok, matched_chars, total_chars = _share_answer_sequence_coverage(
         expected_answer, recognized
+    )
+    # The official public thread is rendered as a wide HTML table before the
+    # full-page screenshot is OCRed.  Column-wise OCR can reorder or omit a
+    # small part of the middle even when the screenshot visibly contains the
+    # complete answer.  Keep generated cards on the stricter threshold; only
+    # the independently URL-bound official page may use the measured 80%
+    # floor, and it must still prove the exact question plus answer head/tail.
+    coverage_threshold = (
+        0.80 if audit.get("channel") == "official_share_page_screenshot" else 0.85
     )
     verification.update(
         {
             "ocr_text_length": len(recognized),
             "question_verified": question_ok,
             "answer_coverage": round(coverage, 4),
+            "answer_coverage_threshold": coverage_threshold,
             "answer_head_verified": head_ok,
             "answer_tail_verified": tail_ok,
-            "answer_chunks_verified": matched_chunks,
-            "answer_chunks_total": total_chunks,
+            "answer_characters_verified": matched_chars,
+            "answer_characters_total": total_chars,
         }
     )
-    return question_ok and coverage >= 0.85 and head_ok and tail_ok
+    failure_reasons: list[str] = []
+    if not question_ok:
+        failure_reasons.append("question_mismatch")
+    if coverage < coverage_threshold:
+        failure_reasons.append("answer_coverage_below_threshold")
+    if not head_ok:
+        failure_reasons.append("answer_head_missing")
+    if not tail_ok:
+        failure_reasons.append("answer_tail_missing")
+    verification["failure_reasons"] = failure_reasons
+    return not failure_reasons
 
 
 def _capture_official_share_page(
@@ -2527,13 +2735,16 @@ def _capture_official_share_page(
 ) -> dict[str, Any]:
     """把豆包官方 ``/thread`` 分享页存为 PNG，并校验它确属当前问答。
 
-    分享 URL 本身已通过 host/path 白名单；这里再以当前问题和答案前缀校验可见
-    DOM，防止剪贴板残留把上一题链接挂到本题。使用临时 tab，不改变采集主页面。
+    分享 URL 本身已通过 host/path 白名单；这里先以当前问题和答案前缀校验可见
+    DOM，防止剪贴板残留把上一题链接挂到本题。随后展开官方页面的纵向内容和
+    横向表格，截图后再执行与生成卡完全相同的 OCR 覆盖/首尾校验。使用临时
+    tab，不改变采集主页面。
     """
 
     audit: dict[str, Any] = {
         "ok": False,
         "channel": "official_share_page_screenshot",
+        "capture_method": "official_share_page_screenshot",
         "url": share_url,
         "path": str(output_path),
         "error": None,
@@ -2547,9 +2758,7 @@ def _capture_official_share_page(
         # 可见文本；比较前移除纯格式符，语义文字仍须逐字对应。
         # 豆包的有序列表序号由 CSS 绘制，不会进入 ``inner_text``；先移除
         # Markdown 行首列表标记，避免把同一官方正文误判成链接串题。
-        without_list_markers = re.sub(
-            r"(?m)^\s*(?:[-+*]|\d+[.)、])\s+", "", value
-        )
+        without_list_markers = re.sub(r"(?m)^\s*(?:[-+*]|\d+[.)、])\s+", "", value)
         without_markdown = re.sub(r"[#*_>`~\[\]()]", "", without_list_markers)
         return re.sub(r"\s+", "", without_markdown)
 
@@ -2561,15 +2770,18 @@ def _capture_official_share_page(
         if isinstance(status, int) and status >= 400:
             raise RuntimeError(f"official share page returned HTTP {status}")
 
-        # SSR shell 会先到，问答正文随后水合。等待当前问题实际可见，而不是只在
-        # hydration JSON 中搜字符串；当前 live 页面通常在 2–20s 内完成。
-        share_page.get_by_text(expected_question, exact=True).first.wait_for(
-            state="visible", timeout=25_000
+        # SSR shell 会先到，问答正文随后水合。轮询可见 body 文本，不依赖豆包
+        # 对问题节点的拆分方式（长问题可能被多个 span 分段）。
+        compact_question = _compact(expected_question)
+        share_page.wait_for_function(
+            """question => String(document.body?.innerText || '')
+              .replace(/\\s+/g, '').includes(question)""",
+            arg=compact_question,
+            timeout=25_000,
         )
         body_text = str(share_page.locator("body").inner_text(timeout=10_000) or "")
         audit["body_text_length"] = len(body_text)
         compact_body = _compact(body_text)
-        compact_question = _compact(expected_question)
         compact_answer = _compact(expected_answer)
         # 取足以区分题目的答案前缀，同时避免长正文因 UI 插入工具条而精确串失败。
         answer_probe = compact_answer[:80]
@@ -2579,8 +2791,13 @@ def _capture_official_share_page(
         if not audit["question_verified"] or not audit["answer_verified"]:
             raise RuntimeError("official share page content does not match the current Q&A")
 
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        share_page.screenshot(path=str(output_path), full_page=True, timeout=45_000)
+        capture = capture_full_page_safely(
+            share_page,
+            output_path,
+            flatten_script=_DOUBAO_OFFICIAL_SHARE_FLATTEN_JS,
+        )
+        audit["page_capture_method"] = capture.get("method")
+        audit["layout_metrics"] = capture.get("metrics")
         with Image.open(output_path) as image:
             image.load()
             if image.format != "PNG" or image.width < 320 or image.height < 240:
@@ -2590,6 +2807,19 @@ def _capture_official_share_page(
                 )
             audit["dims"] = {"width": image.width, "height": image.height}
         audit["size"] = output_path.stat().st_size
+        image_ok = _verify_share_image_ocr_content(
+            output_path,
+            audit,
+            expected_question=expected_question,
+            expected_answer=expected_answer,
+            transport_ok=True,
+        )
+        if not image_ok:
+            reasons = audit["content_verification"].get("failure_reasons") or ()
+            raise RuntimeError(
+                "official share page screenshot failed content verification: "
+                + ",".join(str(reason) for reason in reasons)
+            )
         audit["ok"] = True
         return audit
     except Exception as exc:
@@ -3215,9 +3445,7 @@ def _assert_doubao_capture_stable(
         "capture_height",
     ):
         if abs(actual[key] - expected[key]) > 1:
-            raise _DoubaoCaptureLayoutChanged(
-                f"Doubao chat layout changed during capture ({key})"
-            )
+            raise _DoubaoCaptureLayoutChanged(f"Doubao chat layout changed during capture ({key})")
     for expected_block, actual_block in zip(expected["blocks"], actual["blocks"], strict=True):
         role = expected_block["role"]
         if actual_block["fingerprint"] != expected_block["fingerprint"]:
@@ -3390,9 +3618,7 @@ def _compose_doubao_message_capture(
             tile_count += count
         widths = {image.width for image in block_images}
         if len(widths) != 1:
-            raise _DoubaoScopedCaptureError(
-                "Doubao question and answer screenshot widths differed"
-            )
+            raise _DoubaoScopedCaptureError("Doubao question and answer screenshot widths differed")
         final_image = Image.new(
             "RGB",
             (block_images[0].width, sum(image.height for image in block_images)),

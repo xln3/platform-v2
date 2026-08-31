@@ -15,9 +15,10 @@ from temporalio.exceptions import ApplicationError
 
 from domain.evidence.dlp import assert_secret_free
 from workflows.activities import yuanbao_adapter as yuanbao_module
-from workflows.activities.collection import CollectionTaskInput
+from workflows.activities.collection import CollectionEvidenceRef, CollectionTaskInput
 from workflows.activities.yuanbao_adapter import (
     _BODY_TEXT_JS,
+    _COMBINED_MENU_STATE_JS,
     _COMBINED_MODE_STATE_JS,
     CollectedAnswer,
     YuanbaoAdapterConfig,
@@ -28,6 +29,7 @@ from workflows.activities.yuanbao_adapter import (
     _extract_thinking_text,
     _task_result_from_collected,
     _WallError,
+    _yuanbao_record_from_sse,
     run_yuanbao_collection,
 )
 
@@ -112,6 +114,15 @@ async def test_success_maps_result_fields(adapter_env: Path) -> None:
     assert result.answer_text == "我是腾讯元宝，一个 AI 助手。"
     assert result.screenshot_ref == f"file://{shot}"
     assert result.screenshot_ref.startswith("file://")
+    assert result.citations == [
+        {
+            "url": "https://example.com/about/1",
+            "title": "介绍页",
+            "cited_text": None,
+            "platform_ordinal": 1,
+            "ordinal_base": 1,
+        }
+    ]
     assert result.quality_state == "live_valid"
     assert beats and beats[0]["business_key"] == "run-9-task-5"
 
@@ -129,6 +140,135 @@ async def test_login_wall_is_non_retryable(adapter_env: Path) -> None:
     assert exc_info.value.type == "wall_login_required"
     assert exc_info.value.non_retryable is True
     assert "evidence=" in str(exc_info.value)
+
+
+def _mojibake(value: str) -> str:
+    return value.encode().decode("latin-1")
+
+
+def test_new_sse_keeps_all_candidates_but_only_cited_cards() -> None:
+    raw = "\n\n".join(
+        [
+            "data: "
+            + yuanbao_module.json.dumps(
+                {
+                    "type": "searchGuid",
+                    "docs": [
+                        {
+                            "index": 1,
+                            "url": "https://example.com/a",
+                            "title": _mojibake("来源甲"),
+                            "quote": _mojibake("摘要甲"),
+                        },
+                        {
+                            "index": 2,
+                            "url": "https://example.com/b",
+                            "title": _mojibake("来源乙"),
+                            "quote": _mojibake("摘要乙"),
+                        },
+                        {
+                            "index": 3,
+                            "url": "https://example.com/c",
+                            "title": _mojibake("来源丙"),
+                        },
+                    ],
+                },
+                ensure_ascii=False,
+            ),
+            'data: {"type":"text","msg":"正文[citation:2]"}',
+            'data: {"type":"text","msg":"补充[citation:2][citation:1][citation:4]"}',
+        ]
+    )
+
+    record = _yuanbao_record_from_sse(raw)
+
+    assert record is not None
+    assert record["answer_text"] == "正文补充"
+    assert record["search_guid_observed"] is True
+    assert record["candidate_count"] == 3
+    assert record["citation_indexes"] == [2, 1, 4]
+    assert record["unresolved_citation_indexes"] == [4]
+    assert [row["platform_ordinal"] for row in record["references"]] == [2, 1]
+    assert [row["title"] for row in record["references"]] == ["来源乙", "来源甲"]
+    event = record["retrieval_events"][0]
+    assert [row["url"] for row in event["candidates"]] == [
+        "https://example.com/a",
+        "https://example.com/b",
+        "https://example.com/c",
+    ]
+    assert [row["final_reference_ordinal"] for row in event["final_references"]] == [
+        2,
+        1,
+    ]
+
+
+def test_sse_answer_does_not_require_search_guid() -> None:
+    raw = (
+        'event: message\r\ndata: {"type":"text","msg":"普通"}\r\n\r\n'
+        'data: {"type":"text","msg":"回答"}\r\n\r\n'
+        "data: [DONE]\r\n\r\n"
+    )
+
+    record = _yuanbao_record_from_sse(raw)
+
+    assert record is not None
+    assert record["answer_text"] == "普通回答"
+    assert record["search_guid_observed"] is False
+    assert record["references"] == []
+    assert record["retrieval_events"] == []
+
+
+def test_sse_preserves_identical_protocol_delta_chunks() -> None:
+    raw = "\n\n".join(
+        [
+            'data: {"type":"text","msg":"0123456789"}',
+            'data: {"type":"text","msg":"0123456789"}',
+        ]
+    )
+
+    record = _yuanbao_record_from_sse(raw)
+
+    assert record is not None
+    assert record["answer_text"] == "01234567890123456789"
+
+
+def test_task_result_recovers_citations_from_existing_raw_sse(tmp_path: Path) -> None:
+    shot = tmp_path / "answer.png"
+    shot.write_bytes(b"\x89PNG-fake")
+    raw_path = tmp_path / "answer-sse-raw.txt"
+    raw_path.write_text(
+        'data: {"type":"searchGuid","docs":['
+        '{"index":1,"url":"https://example.com/a","title":"来源A","quote":"摘录A"},'
+        '{"index":2,"url":"https://example.com/b","title":"来源B","quote":"摘录B"}'
+        ']}\n\ndata: {"type":"text","msg":"答案[citation:2]"}\n\n',
+        encoding="utf-8",
+    )
+    collected = CollectedAnswer(
+        answer_text="答案",
+        references=[{"url": None, "title": "DOM 只有标题"}],
+        screenshot_path=shot,
+        raw_evidence=[
+            CollectionEvidenceRef(
+                kind="sse_raw",
+                path=str(raw_path),
+                relation_type="answer_sse_raw",
+                mime_type="text/event-stream",
+            )
+        ],
+    )
+
+    result = _task_result_from_collected(_item(), collected)
+
+    assert result.citations == [
+        {
+            "url": "https://example.com/b",
+            "title": "来源B",
+            "cited_text": "摘录B",
+            "platform_ordinal": 2,
+            "ordinal_base": 1,
+        }
+    ]
+    assert len(result.retrieval_events[0]["candidates"]) == 2
 
 
 async def test_captcha_wall_is_non_retryable(adapter_env: Path) -> None:
@@ -210,44 +350,85 @@ def test_default_evidence_dir_points_at_adapter_evidence() -> None:
 
 
 class _CombinedModeLocator:
-    def __init__(self, page: _CombinedModePage, kind: str, *, present: bool = True) -> None:
+    def __init__(self, page: _CombinedModePage, kind: str) -> None:
         self.page = page
         self.kind = kind
-        self.present = present
 
     @property
     def first(self) -> _CombinedModeLocator:
         return self
 
     def count(self) -> int:
-        return int(self.present)
+        return int(self._visible())
 
     def is_visible(self, timeout: int = 0) -> bool:
         del timeout
-        return self.present and (self.kind == "trigger" or self.page.menu_open)
+        return self._visible()
+
+    def _visible(self) -> bool:
+        if not self.page.control_present:
+            return False
+        if self.kind == "trigger":
+            return True
+        if self.kind == "model_menu":
+            return self.page.menu in {"main", "models"}
+        if self.kind == "hy3":
+            return self.page.menu == "models" and self.page.has_hy3
+        if self.kind in {"normal", "deep_think"}:
+            return self.page.menu == "main" and self.page.model == "hy3"
+        return False
 
     def click(self) -> None:
         self.page.clicks.append(self.kind)
         if self.kind == "trigger":
-            self.page.menu_open = True
-        else:
+            self.page.menu = "main" if self.page.menu == "closed" else "closed"
+        elif self.kind == "model_menu":
+            self.page.menu = "models"
+        elif self.kind == "hy3":
+            self.page.model = "hy3"
+            self.page.menu = "main"
+        elif self.kind in {"normal", "deep_think"}:
             self.page.mode = self.kind
             self.page.label = "快速回答" if self.kind == "normal" else "深度思考"
-            self.page.menu_open = False
+            self.page.menu = "closed"
 
 
 class _CombinedModePage:
-    def __init__(self, mode: str | None, label: str) -> None:
+    def __init__(
+        self,
+        mode: str | None,
+        label: str,
+        *,
+        model: str = "hy3",
+        control_present: bool = True,
+        has_hy3: bool = True,
+    ) -> None:
         self.mode = mode
         self.label = label
-        self.menu_open = False
+        self.model = model
+        self.control_present = control_present
+        self.has_hy3 = has_hy3
+        self.menu = "closed"
         self.clicks: list[str] = []
 
     def evaluate(self, script: str) -> dict[str, object]:
-        assert script == _COMBINED_MODE_STATE_JS
-        return {"found": True, "mode": self.mode, "label": self.label}
+        if script == _COMBINED_MODE_STATE_JS:
+            return {
+                "found": self.control_present,
+                "mode": self.mode,
+                "label": self.label,
+                "expanded": self.menu != "closed",
+            }
+        assert script == _COMBINED_MENU_STATE_JS
+        if self.menu == "closed":
+            return {"found": False}
+        return {"found": True, "model": self.model, "label": f"模型 {self.model}"}
 
     def locator(self, selector: str) -> _CombinedModeLocator:
+        if "选择模型" in selector:
+            return _CombinedModeLocator(self, "model_menu")
+        if "Hy3" in selector:
+            return _CombinedModeLocator(self, "hy3")
         if "menuitemradio" in selector:
             kind = "normal" if "快速回答" in selector else "deep_think"
             return _CombinedModeLocator(self, kind)
@@ -257,10 +438,18 @@ class _CombinedModePage:
         del timeout
 
 
-def test_combined_mode_normal_is_confirmed_without_click() -> None:
+def test_combined_mode_normal_verifies_hy3_and_closes_menu(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     page = _CombinedModePage("normal", "快速回答")
+    monkeypatch.setattr(
+        yuanbao_module,
+        "human_click",
+        lambda locator, _page, _rng: locator.click(),
+    )
     assert _ensure_combined_mode(page, random.Random(1), "normal") is True
-    assert page.clicks == []
+    assert page.clicks == ["trigger", "trigger"]
+    assert page.menu == "closed"
 
 
 def test_combined_mode_switches_to_deep_think(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -275,9 +464,65 @@ def test_combined_mode_switches_to_deep_think(monkeypatch: pytest.MonkeyPatch) -
     assert page.mode == "deep_think"
 
 
-def test_combined_mode_unknown_label_fails_closed() -> None:
+def test_combined_mode_recovers_hy4_expert_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    page = _CombinedModePage("expert", "专家模式", model="hy4")
+    monkeypatch.setattr(
+        yuanbao_module,
+        "human_click",
+        lambda locator, _page, _rng: locator.click(),
+    )
+    assert _ensure_combined_mode(page, random.Random(1), "normal") is True
+    assert page.clicks == ["trigger", "model_menu", "hy3", "normal"]
+    assert page.model == "hy3"
+    assert page.mode == "normal"
+    assert page.menu == "closed"
+
+
+def test_combined_mode_unknown_label_can_be_repaired(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     page = _CombinedModePage(None, "全新实验模式")
+    monkeypatch.setattr(
+        yuanbao_module,
+        "human_click",
+        lambda locator, _page, _rng: locator.click(),
+    )
+    assert _ensure_combined_mode(page, random.Random(1), "normal") is True
+    assert page.clicks == ["trigger", "normal"]
+
+
+def test_combined_mode_unknown_model_can_be_repaired(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    page = _CombinedModePage(None, "全新实验模式", model="hy5")
+    monkeypatch.setattr(
+        yuanbao_module,
+        "human_click",
+        lambda locator, _page, _rng: locator.click(),
+    )
+    assert _ensure_combined_mode(page, random.Random(1), "normal") is True
+    assert page.clicks == ["trigger", "model_menu", "hy3", "normal"]
+    assert page.model == "hy3"
+
+
+def test_combined_mode_missing_hy3_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    page = _CombinedModePage("expert", "专家模式", model="hy4", has_hy3=False)
+    monkeypatch.setattr(
+        yuanbao_module,
+        "human_click",
+        lambda locator, _page, _rng: locator.click(),
+    )
     assert _ensure_combined_mode(page, random.Random(1), "normal") is False
+    assert page.clicks == ["trigger", "model_menu"]
+
+
+def test_combined_mode_absent_allows_legacy_fallback() -> None:
+    page = _CombinedModePage(None, "", control_present=False)
+    assert _ensure_combined_mode(page, random.Random(1), "normal") is None
     assert page.clicks == []
 
 
@@ -397,3 +642,15 @@ def test_body_text_js_serializes_tables_as_markdown() -> None:
     assert "querySelectorAll('th,td')" in _BODY_TEXT_JS
     assert "'---'" in _BODY_TEXT_JS
     assert "replaceWith" in _BODY_TEXT_JS
+
+
+def test_trim_response_preserves_noise_words_inside_answer_prose() -> None:
+    text = "腾讯元宝可帮助用户解答问题、处理文件及进行联网搜索等。"
+
+    assert yuanbao_module._trim_response(text) == text
+
+
+def test_trim_response_removes_only_standalone_trailing_ui_line() -> None:
+    text = "正文提到深度思考和联网搜索能力。\n联网搜索\n继续追问"
+
+    assert yuanbao_module._trim_response(text) == "正文提到深度思考和联网搜索能力。"

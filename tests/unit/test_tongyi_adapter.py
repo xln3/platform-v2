@@ -14,7 +14,7 @@ import pytest
 from temporalio.exceptions import ApplicationError
 
 from domain.evidence.dlp import assert_secret_free
-from workflows.activities.collection import CollectionTaskInput
+from workflows.activities.collection import CollectionEvidenceRef, CollectionTaskInput
 from workflows.activities.tongyi_adapter import (
     _ANSWER_EXTRACT_JS,
     _ELEMENT_TEXT_JS,
@@ -109,6 +109,13 @@ async def test_success_maps_result_fields(adapter_env: Path) -> None:
     assert result.answer_text == "我是通义千问，由阿里巴巴开发的 AI 助手。"
     assert result.screenshot_ref == f"file://{shot}"
     assert result.quality_state == "live_valid"
+    assert result.citations == [
+        {
+            "url": "https://example.com/article/1",
+            "title": "产品页",
+            "cited_text": None,
+        }
+    ]
     assert beats and beats[0]["business_key"] == "run-9-task-2"
 
 
@@ -426,6 +433,32 @@ def test_task_result_without_trace_has_no_evidence(tmp_path: Path) -> None:
     assert result.evidence == []
 
 
+def test_task_result_prefers_official_share_image_as_screenshot_ref(tmp_path: Path) -> None:
+    runtime = tmp_path / "runtime.png"
+    runtime.write_bytes(b"runtime")
+    official = tmp_path / "official-share.png"
+    official.write_bytes(b"official")
+    collected = CollectedAnswer(
+        answer_text="正文",
+        references=[],
+        screenshot_path=runtime,
+        evidence=[
+            CollectionEvidenceRef(
+                kind="share_image",
+                path=str(official),
+                relation_type="official_share_image",
+                mime_type="image/png",
+                source_url=("https://qianwen.my.cn/share/chat/0123456789abcdef0123456789abcdef"),
+            )
+        ],
+    )
+
+    result = _task_result_from_collected(_item(), collected)
+
+    assert result.screenshot_ref == f"file://{official}"
+    assert result.evidence == collected.evidence
+
+
 def test_extract_js_serializes_tables_as_markdown() -> None:
     # 20260812 锚定（W3 表格碎片证据根治，yiyan 同款）：容器级走查与旧选择器链
     # 兜底两路都必须把 <table> 序列化为 markdown 管道行，防回退 innerText 直出。
@@ -435,3 +468,5 @@ def test_extract_js_serializes_tables_as_markdown() -> None:
         assert "querySelectorAll('th,td')" in js
         assert "'---'" in js
         assert "replaceWith" in js
+        assert ".qk-md-table-action" in js
+        assert "toolbar.remove()" in js

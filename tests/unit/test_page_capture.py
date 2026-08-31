@@ -90,10 +90,16 @@ class _ScopedPage:
         *,
         screenshot_error_at: int | None = None,
         drift_after_probe: int | None = None,
+        capture_height: float = 200,
+        terminal_capture_height: float | None = None,
+        answer_bottom: float = 500,
     ) -> None:
         self.scroll_top = 33.0
         self.screenshot_error_at = screenshot_error_at
         self.drift_after_probe = drift_after_probe
+        self.capture_height = capture_height
+        self.terminal_capture_height = terminal_capture_height
+        self.answer_bottom = answer_bottom
         self.probe_count = 0
         self.screenshot_count = 0
         self.calls: list[tuple[Any, ...]] = []
@@ -109,7 +115,7 @@ class _ScopedPage:
                 if self.drift_after_probe is not None and self.probe_count >= self.drift_after_probe
                 else "answer-stable"
             )
-            return {
+            state = {
                 "ok": True,
                 "scroll_top": self.scroll_top,
                 "scroll_height": 600,
@@ -118,7 +124,7 @@ class _ScopedPage:
                 "capture_y": 5,
                 "capture_width": 100,
                 "capture_top_inset": 20,
-                "capture_height": 200,
+                "capture_height": self.capture_height,
                 "blocks": [
                     {
                         "role": "question",
@@ -131,13 +137,16 @@ class _ScopedPage:
                     {
                         "role": "answer",
                         "top": 80,
-                        "bottom": 500,
+                        "bottom": self.answer_bottom,
                         "left": 10,
                         "right": 110,
                         "fingerprint": answer_fingerprint,
                     },
                 ],
             }
+            if self.terminal_capture_height is not None:
+                state["terminal_capture_height"] = self.terminal_capture_height
+            return state
         if script == "restore":
             self.scroll_top = float(arg)
             return {"ok": True, "actual_scroll_top": self.scroll_top}
@@ -206,6 +215,30 @@ def test_scoped_capture_screenshot_failure_still_restores_scroll(tmp_path: Path)
 
     assert page.scroll_top == 33.0
     assert ("evaluate", "restore", 33.0) in page.calls
+
+
+def test_scoped_capture_uses_larger_terminal_band_for_message_tail(tmp_path: Path) -> None:
+    page = _ScopedPage(
+        capture_height=160,
+        terminal_capture_height=198,
+        answer_bottom=590,
+    )
+    path = tmp_path / "terminal-tail.png"
+
+    result = capture_scoped_chat_tiles(
+        page,
+        path,
+        probe_script="probe",
+        restore_script="restore",
+        expected_question="current question",
+    )
+
+    assert result["block_count"] == 2
+    assert page.scroll_top == 33.0
+    clips = [call[1] for call in page.calls if call[0] == "screenshot"]
+    assert any(clip["height"] == 178 for clip in clips)
+    with Image.open(path) as image:
+        assert image.size == (100, 560)
 
 
 def test_scoped_capture_fails_closed_when_answer_text_changes(tmp_path: Path) -> None:

@@ -69,6 +69,10 @@ from workflows.activities.analysis_jobs import (
     enqueue_analysis_job,
 )
 from workflows.activities.browser_router import account_governance_enabled
+from workflows.activities.official_share import (
+    TONGYI_OFFICIAL_SHARE_HOSTS,
+    YIYAN_OFFICIAL_SHARE_HOSTS,
+)
 
 log = structlog.get_logger()
 
@@ -921,9 +925,10 @@ def _persist_evidence_assets(
 _OFFICIAL_SHARE_HOSTS: dict[str, frozenset[str]] = {
     "deepseek": frozenset({"chat.deepseek.com"}),
     "doubao": frozenset({"doubao.com", "www.doubao.com"}),
-    "yiyan": frozenset({"mr.baidu.com", "wenxin.baidu.com"}),
+    "tongyi": TONGYI_OFFICIAL_SHARE_HOSTS,
+    "yiyan": YIYAN_OFFICIAL_SHARE_HOSTS,
 }
-_OFFICIAL_SHARE_UNSUPPORTED = frozenset({"tongyi", "yuanbao"})
+_OFFICIAL_SHARE_UNSUPPORTED = frozenset({"yuanbao"})
 _SHARE_AVAILABILITY = frozenset({"reachable", "redirected", "blocked", "unreachable", "unchecked"})
 _SHARE_EMBED_STATUSES = frozenset({"allowed", "blocked", "unknown"})
 
@@ -942,6 +947,8 @@ def _official_share_url(value: object, platform: str) -> str | None:
     if platform == "deepseek" and not parsed.path.startswith("/share/"):
         return None
     if platform == "doubao" and not parsed.path.startswith("/thread/"):
+        return None
+    if platform == "tongyi" and re.fullmatch(r"/share/chat/[A-Fa-f0-9]{32}", parsed.path) is None:
         return None
     return url
 

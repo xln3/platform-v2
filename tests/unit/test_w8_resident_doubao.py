@@ -412,20 +412,32 @@ def test_resident_launcher_launch_kwargs_and_graceful_stop(
 
 
 def test_resident_launcher_health_probe_runs_until_stop(tmp_path: Path) -> None:
-    """健康探活：title() 定期调用，stop 后优雅退出 0。"""
+    """健康探活：只探测浏览器级 CDP 端点，stop 后优雅退出 0。"""
     stop = threading.Event()
-    page = _LauncherFakePage(stop=stop)
+    page = _LauncherFakePage()
     context = _LauncherFakeContext(page)
     chromium = _LauncherFakeChromium(context)
+    probe_calls: list[tuple[str, float]] = []
+
+    def _healthy_probe(url: str, timeout_s: float) -> str:
+        probe_calls.append((url, timeout_s))
+        if len(probe_calls) >= 2:
+            stop.set()
+        return "Chrome/test"
 
     rc = resident_browser.run_resident_browser(
         _launcher_config(tmp_path),
         driver_loader=_fake_driver_loader(chromium),
+        health_probe=_healthy_probe,
         stop_event=stop,
     )
 
     assert rc == 0
-    assert page.title_calls >= 2  # 探活真的在跑
+    assert probe_calls == [
+        ("http://127.0.0.1:19222", 0.1),
+        ("http://127.0.0.1:19222", 0.1),
+    ]
+    assert page.title_calls == 0  # 不与采集连接争用 page target
     assert context.closed is True
 
 
@@ -447,51 +459,54 @@ def test_resident_launcher_launch_failure_returns_nonzero(tmp_path: Path) -> Non
 
 def test_resident_launcher_unhealthy_probe_returns_nonzero(tmp_path: Path) -> None:
     """探活发现浏览器崩溃 → 尝试优雅 close 后非零退出。"""
-    page = _LauncherFakePage(fail=True)
+    page = _LauncherFakePage()
     context = _LauncherFakeContext(page)
     chromium = _LauncherFakeChromium(context)
+
+    def _failed_probe(_url: str, _timeout_s: float) -> str:
+        raise RuntimeError("CDP endpoint unavailable")
 
     rc = resident_browser.run_resident_browser(
         _launcher_config(tmp_path),
         driver_loader=_fake_driver_loader(chromium),
+        health_probe=_failed_probe,
         stop_event=threading.Event(),
     )
 
     assert rc == 1
-    assert page.title_calls == 1
+    assert page.title_calls == 0
     assert context.closed is True
 
 
 def test_resident_launcher_hung_probe_hits_hard_deadline(tmp_path: Path) -> None:
-    """page.title 永不主动返回时，独立 watchdog 触发 fatal exit；迟到结果不算健康。"""
+    """CDP 探活不返回时，独立 watchdog 触发 fatal exit；迟到结果不算健康。"""
     stop = threading.Event()
     release_probe = threading.Event()
     fatal_codes: list[int] = []
-
-    class _HungPage(_LauncherFakePage):
-        def title(self) -> str:
-            self.title_calls += 1
-            assert release_probe.wait(timeout=1.0)
-            return "迟到的标题"
 
     def _fake_fatal_exit(code: int) -> None:
         fatal_codes.append(code)
         release_probe.set()
 
-    page = _HungPage()
+    def _hung_probe(_url: str, _timeout_s: float) -> str:
+        assert release_probe.wait(timeout=1.0)
+        return "Chrome/late"
+
+    page = _LauncherFakePage()
     context = _LauncherFakeContext(page)
     chromium = _LauncherFakeChromium(context)
 
     rc = resident_browser.run_resident_browser(
         _launcher_config(tmp_path, health_interval_s=0.001, health_timeout_s=0.02),
         driver_loader=_fake_driver_loader(chromium),
+        health_probe=_hung_probe,
         stop_event=stop,
         fatal_exit=_fake_fatal_exit,
     )
 
     assert rc == 1
     assert fatal_codes == [1]
-    assert page.title_calls == 1
+    assert page.title_calls == 0
     assert context.closed is True
 
 

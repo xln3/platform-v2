@@ -83,18 +83,19 @@ class _FakeCDP:
     起的 RawTrafficCapture）各自 on 注册——handlers 为名单，emit 广播给全部。
 
     emit_chat_stream 的 response 带 event-stream mime、getResponseBody 有 body：
-    既有 capture 判形只看 method+URL、从不取 body（零行为变化），
-    RawTrafficCapture 据此命中 body 抓取（sse_raw 证据）。"""
+    答案 capture 与 RawTrafficCapture 都在 loadingFinished 时同步读取。"""
 
     def __init__(self, page: _FakePage) -> None:
         self._page = page
         self.handlers: dict[str, list[Callable[[dict[str, Any]], None]]] = {}
         self.detached = 0
         self._emitted = 0
+        self.commands: list[str] = []
 
     def send(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        self.commands.append(method)
         if method == "Network.getResponseBody":
-            return {"body": "data: {}\n\n", "base64Encoded": False}
+            return {"body": self._page.sse_body, "base64Encoded": False}
         return {}
 
     def on(self, name: str, fn: Callable[[dict[str, Any]], None]) -> None:
@@ -255,6 +256,7 @@ class _FakePage:
         deep_think_on: bool = False,
         has_think_toggle: bool = True,
         has_model_switch: bool = True,
+        sse_body: str = "data: {}\n\n",
     ) -> None:
         self.clock = _FakeClock()
         self.events: list[tuple] = []
@@ -280,6 +282,7 @@ class _FakePage:
         self.deep_think_on = deep_think_on
         self.has_think_toggle = has_think_toggle
         self.has_model_switch = has_model_switch
+        self.sse_body = sse_body
         self.dropdown_open = False
 
     def classify(self, selector: str) -> tuple[str, bool, dict[str, float] | None]:
@@ -544,6 +547,50 @@ async def test_session_collect_full_humanized_flow(
     assert prefs["profile"]["exit_type"] == "Normal"
     assert prefs["profile"]["exited_cleanly"] is True
     assert prefs["other_key"] == 1
+
+
+def test_session_uses_current_chat_sse_as_answer_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    page = _FakePage(
+        messages=0,
+        sse_body=(
+            'data: {"type":"text","msg":"来自 SSE 的"}\n\n'
+            'data: {"type":"text","msg":"完整回答[citation:1]"}\n\n'
+        ),
+    )
+    session = _make_session(tmp_path, monkeypatch, page)
+
+    outcomes = session.collect_batch(_batch_specs(1), on_stage=lambda _stage: None)
+
+    answer = outcomes[0].answer
+    assert answer is not None
+    assert answer.answer_text == "来自 SSE 的完整回答"
+    assert answer.answer_text != page.answer_text
+    assert answer.meta["answer_transport"] == "sse"
+    assert page.cdp.commands.count("Network.getResponseBody") >= 1
+
+
+def test_session_uses_dom_when_sse_protocol_parser_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    page = _FakePage(
+        messages=0,
+        sse_body='data: {"type":"text","msg":"协议正文"}\n\n',
+    )
+    session = _make_session(tmp_path, monkeypatch, page)
+    monkeypatch.setattr(
+        yuanbao_adapter,
+        "_yuanbao_record_from_sse",
+        lambda _body: (_ for _ in ()).throw(ValueError("protocol drift")),
+    )
+
+    outcomes = session.collect_batch(_batch_specs(1), on_stage=lambda _stage: None)
+
+    answer = outcomes[0].answer
+    assert answer is not None
+    assert answer.answer_text == _ANSWER_TEXT
+    assert answer.meta["answer_transport"] == "dom_fallback"
 
 
 # ---------------------------------------------------------------------------

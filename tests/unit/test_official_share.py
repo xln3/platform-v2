@@ -11,13 +11,16 @@ from typing import Any
 import httpx
 import pytest
 
-from workflows.activities import official_share
+from workflows.activities import collection, official_share
 from workflows.activities.official_share import (
+    TONGYI_OFFICIAL_SHARE_HOSTS,
+    YIYAN_OFFICIAL_SHARE_HOSTS,
     OfficialShareExportError,
     probe_official_share_url,
     recover_png_from_export_audit,
     valid_png,
     validated_deepseek_share_url,
+    validated_tongyi_share_url,
     validated_yiyan_share_url,
 )
 
@@ -62,6 +65,33 @@ def test_share_probe_rejects_redirect_outside_platform_allowlist() -> None:
     assert result.availability_status == "unreachable"
     assert not result.allowlist_valid
     assert result.failure_reason == "redirect_allowlist_rejected"
+
+
+def test_yiyan_share_probe_accepts_current_official_redirect_chain() -> None:
+    routes = {
+        "mr.baidu.com": "https://mbd.baidu.com/ug_share/mbox",
+        "mbd.baidu.com": "https://chat.baidu.com/csaitab/history",
+        "chat.baidu.com": "https://wenxin.baidu.com/csaitab/history",
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        location = routes.get(request.url.host)
+        if location is not None:
+            return httpx.Response(302, headers={"Location": location})
+        return httpx.Response(200, content=b"shared Wenxin answer")
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        result = probe_official_share_url(
+            "https://mr.baidu.com/r/abc",
+            allowed_hosts=YIYAN_OFFICIAL_SHARE_HOSTS,
+            client=client,
+        )
+
+    assert result.availability_status == "redirected"
+    assert result.http_status == 200
+    assert result.final_url == "https://wenxin.baidu.com/csaitab/history"
+    assert result.allowlist_valid is True
+    assert len(result.redirect_chain) == 3
 
 
 def test_share_manifest_always_carries_normalized_verification(tmp_path: Path) -> None:
@@ -407,7 +437,43 @@ def test_share_url_validators_are_platform_scoped() -> None:
     )
     assert validated_deepseek_share_url("https://chat.deepseek.com/a/chat/s/abc") is None
     assert validated_yiyan_share_url("https://mr.baidu.com/r/abc") == "https://mr.baidu.com/r/abc"
+    assert (
+        validated_yiyan_share_url("https://mbd.baidu.com/ug_share/mbox")
+        == "https://mbd.baidu.com/ug_share/mbox"
+    )
+    assert (
+        validated_yiyan_share_url("https://chat.baidu.com/csaitab/history")
+        == "https://chat.baidu.com/csaitab/history"
+    )
     assert validated_yiyan_share_url("https://evil.example/r/abc") is None
+    tongyi_url = "https://qianwen.my.cn/share/chat/0123456789abcdef0123456789abcdef"
+    assert validated_tongyi_share_url(tongyi_url) == tongyi_url
+    assert validated_tongyi_share_url(tongyi_url + "?from=evil") is None
+    assert (
+        validated_tongyi_share_url("https://qianwen.my.cn/chat/0123456789abcdef0123456789abcdef")
+        is None
+    )
+    assert (
+        validated_tongyi_share_url(
+            "https://evil.example/share/chat/0123456789abcdef0123456789abcdef"
+        )
+        is None
+    )
+    assert TONGYI_OFFICIAL_SHARE_HOSTS == frozenset({"qianwen.my.cn"})
+
+
+def test_collection_treats_valid_tongyi_share_as_supported() -> None:
+    share_url = "https://qianwen.my.cn/share/chat/0123456789abcdef0123456789abcdef"
+
+    assert collection._official_share_url(share_url, "tongyi") == share_url
+    assert "tongyi" not in collection._OFFICIAL_SHARE_UNSUPPORTED
+    assert (
+        collection._official_share_url(
+            "https://qianwen.my.cn/share/not-chat/0123456789abcdef0123456789abcdef",
+            "tongyi",
+        )
+        is None
+    )
 
 
 def test_yiyan_scrolls_conversation_to_bottom_before_discovering_share_button() -> None:
@@ -498,6 +564,41 @@ def test_deepseek_share_url_resolution_prefers_api_then_dom_then_clipboard(
         official_share._resolve_deepseek_share_url(api_payload, dom_text, clipboard_text)
         == expected
     )
+
+
+@pytest.mark.parametrize(
+    ("api_payload", "clipboard_text", "expected"),
+    [
+        pytest.param(
+            {
+                "code": 0,
+                "success": True,
+                "data": {"share_id": "0123456789abcdef0123456789abcdef"},
+            },
+            ("https://qianwen.my.cn/share/chat/ffffffffffffffffffffffffffffffff"),
+            ("https://qianwen.my.cn/share/chat/0123456789abcdef0123456789abcdef"),
+            id="api-share-id-wins",
+        ),
+        pytest.param(
+            {"code": 1, "success": False, "data": {"share_id": "bad"}},
+            ("已复制 https://qianwen.my.cn/share/chat/ffffffffffffffffffffffffffffffff"),
+            ("https://qianwen.my.cn/share/chat/ffffffffffffffffffffffffffffffff"),
+            id="clipboard-fallback",
+        ),
+        pytest.param(
+            {"code": 0, "success": True, "data": {"share_id": "not-a-share-id"}},
+            "https://evil.example/share/chat/0123456789abcdef0123456789abcdef",
+            None,
+            id="invalid-candidates",
+        ),
+    ],
+)
+def test_tongyi_share_url_resolution_prefers_create_api_then_clipboard(
+    api_payload: object,
+    clipboard_text: str,
+    expected: str | None,
+) -> None:
+    assert official_share._resolve_tongyi_share_url(api_payload, clipboard_text) == expected
 
 
 class _YiyanDownloadRoute:

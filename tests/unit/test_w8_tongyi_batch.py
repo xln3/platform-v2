@@ -25,7 +25,7 @@ from typing import Any
 import pytest
 from temporalio.exceptions import ApplicationError
 
-from workflows.activities import tongyi_adapter
+from workflows.activities import official_share, tongyi_adapter
 from workflows.activities.collection import CollectionEvidenceRef, CollectionTaskInput
 from workflows.activities.human_like import human_pause
 from workflows.activities.tongyi_adapter import (
@@ -90,7 +90,7 @@ class _FakeCDP:
     """共享总线 fake：同页多个 CDP session（既有 _EventStreamCapture + 2026-08-10
     起的 RawTrafficCapture）各自 on 注册——handlers 为名单，emit 广播给全部。
 
-    emit_stream 带 requestWillBeSent（tongyi.com completion URL）+ getResponseBody
+    emit_stream 带 requestWillBeSent（qianwen chat v2 URL）+ getResponseBody
     有 body：既有 capture 不订阅前者、不调后者（零行为变化），RawTrafficCapture
     据此命中 body 抓取（sse_raw 证据）。"""
 
@@ -120,7 +120,10 @@ class _FakeCDP:
             "Network.requestWillBeSent",
             {
                 "requestId": rid,
-                "request": {"url": "https://www.tongyi.com/api/chat/completion", "method": "POST"},
+                "request": {
+                    "url": "https://chat2.qianwen.com/api/v2/chat",
+                    "method": "POST",
+                },
             },
         )
         self._emit(
@@ -452,6 +455,25 @@ def _install_fake_browser(monkeypatch: pytest.MonkeyPatch, page: _FakePage) -> N
         return real_clean(profile_dir)
 
     monkeypatch.setattr(tongyi_adapter, "_clean_profile_crash_state", _clean_spy)
+
+    def _fake_official_share(_page: Any, out_path: Path, **_kwargs: Any) -> SimpleNamespace:
+        out_path.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01")
+        return SimpleNamespace(
+            image_path=out_path,
+            share_url="https://qianwen.my.cn/share/chat/0123456789abcdef0123456789abcdef",
+            audit={"fake": True},
+        )
+
+    monkeypatch.setattr(
+        tongyi_adapter,
+        "capture_tongyi_official_share",
+        _fake_official_share,
+    )
+    monkeypatch.setattr(
+        tongyi_adapter,
+        "probe_official_share_url",
+        lambda share_url, **_kwargs: official_share.unchecked_share_verification(share_url),
+    )
 
 
 def _make_pace(page: _FakePage, rng: random.Random) -> Callable[[float, float], float]:
@@ -986,6 +1008,21 @@ def test_browser_session_resident_attach_skips_close_and_profile_clean(
 
     monkeypatch.setattr(tongyi_adapter, "_clean_profile_crash_state", _clean_forbidden)
 
+    def _fake_official_share(_page: Any, out_path: Path, **_kwargs: Any) -> SimpleNamespace:
+        out_path.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01")
+        return SimpleNamespace(
+            image_path=out_path,
+            share_url="https://qianwen.my.cn/share/chat/0123456789abcdef0123456789abcdef",
+            audit={"fake": True},
+        )
+
+    monkeypatch.setattr(tongyi_adapter, "capture_tongyi_official_share", _fake_official_share)
+    monkeypatch.setattr(
+        tongyi_adapter,
+        "probe_official_share_url",
+        lambda share_url, **_kwargs: official_share.unchecked_share_verification(share_url),
+    )
+
     config = TongyiAdapterConfig.from_env()
     session = _PlaywrightTongyiSession(config, evidence, "resident-stem")
     answer = session.collect("你好", on_stage=lambda s: None)
@@ -1029,6 +1066,11 @@ async def test_session_collect_full_humanized_flow(
 
     assert result.answer_text == "这是答案"
     assert result.quality_state == "live_valid"
+    assert result.screenshot_ref == f"file://{evidence / 'run-9-task-2-a1-share.png'}"
+    assert {ref.relation_type for ref in result.evidence} >= {
+        "official_share_image",
+        "official_share_link",
+    }
     events = page.events
 
     # 1) 逐字输入：key 事件数 == 字符数，内容零污染
@@ -1076,6 +1118,33 @@ async def test_session_collect_full_humanized_flow(
     assert prefs["profile"]["exit_type"] == "Normal"
     assert prefs["profile"]["exited_cleanly"] is True
     assert prefs["other_key"] == 1
+
+
+async def test_session_fails_when_official_share_page_is_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
+    monkeypatch.setenv("GEO_TONGYI_PROFILE_DIR", str(tmp_path))
+    monkeypatch.setenv("GEO_ADAPTER_EVIDENCE_DIR", str(evidence))
+    monkeypatch.setenv("GEO_TONGYI_HEADLESS", "1")
+    page = _FakePage(messages=0)
+    _install_fake_browser(monkeypatch, page)
+
+    def _missing_share(*_args: Any, **_kwargs: Any) -> Any:
+        raise tongyi_adapter.OfficialShareExportError("share page unavailable")
+
+    monkeypatch.setattr(tongyi_adapter, "capture_tongyi_official_share", _missing_share)
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await tongyi_adapter.run_tongyi_collection(
+            _item(),
+            session_factory=_PlaywrightTongyiSession,
+            heartbeat=lambda _payload: None,
+        )
+
+    assert exc_info.value.type == "answer_capture_incomplete"
+    assert "official-share-export-incomplete" in str(exc_info.value)
 
 
 def test_overlay_cleanup_clicks_only_visible_overlay() -> None:
@@ -1270,7 +1339,7 @@ def test_collect_batch_ok_item_carries_raw_evidence(
         har = json.loads(har_path.read_text(encoding="utf-8"))
         assert har["log"]["creator"]["name"] == "geo-tongyi-adapter"
         urls = [entry["request"]["url"] for entry in har["log"]["entries"]]
-        assert any("tongyi.com" in url for url in urls)
+        assert any("chat2.qianwen.com/api/v2/chat" in url for url in urls)
 
 
 def test_batch_item_result_maps_raw_evidence_refs() -> None:

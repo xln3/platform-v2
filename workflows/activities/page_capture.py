@@ -191,6 +191,10 @@ def _read_scoped_capture_state(
             raw.get("capture_top_inset", 0), "capture_top_inset"
         ),
         "capture_height": _finite_capture_number(raw.get("capture_height"), "capture_height"),
+        "terminal_capture_height": _finite_capture_number(
+            raw.get("terminal_capture_height", raw.get("capture_height")),
+            "terminal_capture_height",
+        ),
         "blocks": blocks,
     }
     if state["capture_x"] < 0 or state["capture_y"] < 0:
@@ -199,6 +203,11 @@ def _read_scoped_capture_state(
         raise ScopedChatCaptureError("scoped capture width was unsafe")
     if state["capture_height"] <= 0 or state["capture_height"] > 5_000:
         raise ScopedChatCaptureError("scoped capture safe band was unsafe")
+    if (
+        state["terminal_capture_height"] < state["capture_height"]
+        or state["terminal_capture_height"] > 5_000
+    ):
+        raise ScopedChatCaptureError("scoped capture terminal band was unsafe")
     if state["capture_top_inset"] < 0 or state["capture_top_inset"] >= state["capture_height"] - 1:
         raise ScopedChatCaptureError("scoped capture top inset was unsafe")
     if state["max_scroll"] < 0 or state["scroll_height"] < state["capture_height"]:
@@ -225,6 +234,7 @@ def _assert_scoped_capture_stable(
         "capture_width",
         "capture_top_inset",
         "capture_height",
+        "terminal_capture_height",
     ):
         if abs(actual[key] - expected[key]) > 1:
             raise ScopedChatCaptureError(f"chat layout changed during capture ({key})")
@@ -303,8 +313,13 @@ def _capture_scoped_block_tiles(
                 requested_scroll_top=state["scroll_top"],
             )
 
+            active_capture_height = (
+                expected["terminal_capture_height"]
+                if state["scroll_top"] >= expected["max_scroll"] - 1
+                else capture_height
+            )
             inset = base_top_inset + (0.0 if first_tile else repeat_top_inset_css_px)
-            tile_css_height = capture_height - inset
+            tile_css_height = active_capture_height - inset
             raw_png = page.screenshot(
                 clip={
                     "x": expected["capture_x"],
@@ -347,7 +362,7 @@ def _capture_scoped_block_tiles(
 
                 visible_start = max(state["scroll_top"] + inset, block["top"])
                 visible_end = min(
-                    state["scroll_top"] + capture_height,
+                    state["scroll_top"] + active_capture_height,
                     block["bottom"],
                 )
                 segment_start = max(visible_start, painted_until)

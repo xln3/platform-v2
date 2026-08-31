@@ -351,6 +351,7 @@ class _FakePage:
                 "capture_width": 880,
                 "capture_top_inset": 48,
                 "capture_height": 534,
+                "terminal_capture_height": 534,
                 "blocks": [
                     {
                         "role": "question",
@@ -605,6 +606,8 @@ def test_scoped_capture_probe_is_semantic_and_does_not_mutate_styles() -> None:
     script = yiyan_adapter._YIYAN_CAPTURE_STATE_JS
 
     assert "#conversation-flow-container" in script
+    # 短回答也必须允许单 tile 落证据；不能要求滚动溢出超过固定像素。
+    assert "scrollHeight > el.clientHeight + 50" not in script
     assert ".chat-qa-container" in script
     assert ".conversation-flow-question-container" in script
     assert "div.chat-search-answer-generate" in script
@@ -612,6 +615,7 @@ def test_scoped_capture_probe_is_semantic_and_does_not_mutate_styles() -> None:
     assert ".cs-scroll-to-bottom-btn" in script
     assert "capture_top_inset" in script
     assert "capture_height" in script
+    assert "terminal_capture_height" in script
     assert "question_text_mismatch" in script
     assert ".style" not in script
     assert "setAttribute('style'" not in script

@@ -41,8 +41,9 @@ v2 边界（与豆包适配器对齐）：
   拒答 → ``wall_quota``/``wall_muted``/``wall_refusal`` non_retryable；batch
   连坐按 wall_type 细化（muted 全连坐、quota 只连坐同 mode、refusal 不
   连坐，见 ``collect_batch`` docstring）。
-- 成功判据（零合成）：``/api/chat/`` 流真正 loadingFinished 且 DOM 抽取到非空正文
-  且无墙特征——缺一都不得返回成功。流未出现/截断/空答案 →
+- 成功判据（零合成）：``/api/chat/`` 流真正 loadingFinished，优先从该请求的 SSE
+  响应体组装非空正文；协议解析失败时才读取 DOM 备用正文。两条路径都必须通过墙
+  检查——缺一都不得返回成功。流未出现/截断/空答案 →
   ``answer_capture_incomplete``（可重试的诚实失败）。
 
 拟人化口径（2026-08-06 起，与豆包同标准——自动化交互序列本身即指纹）：
@@ -106,7 +107,7 @@ import structlog
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from domain.collection.uvw import retrieval_events_from_trace_path
+from domain.collection.uvw import normalize_retrieval_events, retrieval_events_from_trace_path
 from workflows.activities.answer_dom_anchor import capture_answer_evidence
 from workflows.activities.browser_driver import load_sync_browser_driver
 from workflows.activities.browser_router import resolve_batch_instance
@@ -228,13 +229,28 @@ _MODEL_SWITCH_SELECTORS: tuple[str, ...] = (
     "div[aria-label='模型选择']",
 )
 
-# 20260828 live 校准：新版元宝把旧「Hy3 模型选择器 + 深度思考 toggle」合并成
+# 20260831 live 校准：新版元宝把旧「Hy3 模型选择器 + 深度思考 toggle」合并成
 # 一个按钮。触发器带稳定语义属性 ``data-thinking-mode-switcher-trigger`` / aria-label
-# 「切换模型」，按钮文本直接显示当前口径（快速回答 / 深度思考）；弹层选项使用
-# ``role=menuitemradio`` + ``aria-checked``。旧 DOM 仍保留在后面的兼容路径中。
+# 「切换模型」，按钮文本直接显示当前口径（快速回答 / 深度思考 / 专家模式）；
+# 弹层先展示当前模型与回答模式，模型行的二级菜单再列 Hy4 preview / Hy3 /
+# DeepSeek。账号默认可能漂到「Hy4 preview + 专家模式」，而 Hy4 只支持专家模式，
+# 所以不能只按触发器文案切回答模式：必须先在二级菜单确保 Hy3，再选快速回答或
+# 深度思考。弹层选项使用 ``role=menuitemradio`` + ``aria-checked``。旧 DOM 仍保留
+# 在后面的兼容路径中。
 _COMBINED_MODE_TRIGGER_SELECTORS: tuple[str, ...] = (
     "button[data-thinking-mode-switcher-trigger='true']",
     "button[aria-label='切换模型']",
+)
+
+_COMBINED_MODEL_MENU_SELECTORS: tuple[str, ...] = (
+    "button[role='menuitem'][aria-label='选择模型']",
+    "[role='menuitem'][aria-label='选择模型']",
+)
+
+_COMBINED_HY3_OPTION_SELECTORS: tuple[str, ...] = (
+    "button[role='menuitemradio']:has(span:text-is('Hy3'))",
+    "button[role='menuitemradio']:has-text('Hy3')",
+    "[role='menuitemradio']:has-text('Hy3')",
 )
 
 _COMBINED_MODE_OPTION_SELECTORS: dict[str, tuple[str, ...]] = {
@@ -257,8 +273,33 @@ _COMBINED_MODE_STATE_JS = r"""() => {
   const label = (el.innerText || el.textContent || "").replace(/\s+/g, " ").trim();
   const mode = label.includes("快速回答")
     ? "normal"
-    : (label.includes("深度思考") ? "deep_think" : null);
-  return {found: true, label, mode};
+    : (label.includes("深度思考")
+      ? "deep_think"
+      : (label.includes("专家模式") ? "expert" : null));
+  return {
+    found: true,
+    label,
+    mode,
+    expanded: el.getAttribute("aria-expanded") === "true",
+  };
+}"""
+
+_COMBINED_MENU_STATE_JS = r"""() => {
+  const rows = Array.from(document.querySelectorAll(
+    "button[role='menuitem'][aria-label='选择模型'], [role='menuitem'][aria-label='选择模型']"
+  ));
+  const el = rows.find((row) => {
+    const r = row.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  });
+  if (!el) return {found: false};
+  const label = (el.innerText || el.textContent || "").replace(/\s+/g, " ").trim();
+  const model = label.includes("Hy4")
+    ? "hy4"
+    : (/(^|\s)Hy3($|\s)/.test(label)
+      ? "hy3"
+      : (label.toLowerCase().includes("deepseek") ? "deepseek" : null));
+  return {found: true, label, model};
 }"""
 
 # 模型下拉 Hy3 选项（下拉弹出后可见；:text-is 精确匹配防未来多 Hy 选项歧义）
@@ -428,7 +469,9 @@ _REALNAME_DOM_PHRASES: tuple[str, ...] = (
     "实名验证",
 )
 
-# DOM 兜底抽取后裁剪尾部 UI 噪声（建议 chips / 工具栏 / 输入区占位）
+# DOM 兜底抽取后裁剪尾部 UI 噪声（建议 chips / 工具栏 / 输入区占位）。
+# 这些词也可能合法出现在答案正文里，因此 _trim_response 只能裁掉独立 UI
+# 行，不能对子串做全文 find。
 _TRAILING_NOISE_MARKERS: tuple[str, ...] = (
     "继续追问",
     "你可能想问",
@@ -976,7 +1019,31 @@ def _task_result_from_collected(
 ) -> CollectionTaskResult:
     """CollectedAnswer → CollectionTaskResult 映射（answer 组装/出界 DLP 自检）。
     run_yuanbao_collection 与 batch per-item ok 映射共用。"""
-    answer_text = _compose_answer_text(collected.answer_text, collected.references)
+    raw_record = _yuanbao_record_from_raw_evidence(collected.raw_evidence)
+    use_raw_sources = raw_record is not None and bool(
+        raw_record.get("search_guid_observed")
+    )
+    references = (
+        list(raw_record.get("references") or [])
+        if use_raw_sources
+        else collected.references
+    )
+    answer_text = _compose_answer_text(collected.answer_text, references)
+    citations = [
+        {
+            "url": str(ref["url"]),
+            "title": str(ref["title"]).strip() if ref.get("title") else None,
+            "cited_text": (
+                str(ref["summary"]).strip() if ref.get("summary") else None
+            ),
+            "platform_ordinal": ref.get("platform_ordinal", index),
+            "ordinal_base": ref.get("ordinal_base", 1),
+        }
+        for index, ref in enumerate(references, 1)
+        if isinstance(ref, dict)
+        and isinstance(ref.get("url"), str)
+        and ref["url"].startswith(("http://", "https://"))
+    ]
     screenshot_ref = f"file://{collected.screenshot_path}"
     evidence: list[CollectionEvidenceRef] = []
     if collected.trace_path is not None:
@@ -999,9 +1066,195 @@ def _task_result_from_collected(
         answer_text=answer_text,
         screenshot_ref=screenshot_ref,
         quality_state="live_valid",
+        citations=citations,
         evidence=evidence,
-        retrieval_events=retrieval_events_from_trace_path(collected.trace_path),
+        retrieval_events=(
+            list(raw_record.get("retrieval_events") or [])
+            if use_raw_sources
+            else retrieval_events_from_trace_path(collected.trace_path)
+        ),
     )
+
+
+_YUANBAO_CITATION_RE = re.compile(r"\[citation:(\d+)\]", re.IGNORECASE)
+_YUANBAO_MOJIBAKE_HINTS = frozenset("ÃÂâæçåéèäöü")
+
+
+def _repair_yuanbao_mojibake(value: Any) -> Any:
+    if not isinstance(value, str) or not any(ch in value for ch in _YUANBAO_MOJIBAKE_HINTS):
+        return value
+    try:
+        output = bytearray()
+        for char in value:
+            try:
+                output.extend(char.encode("cp1252"))
+            except UnicodeEncodeError:
+                codepoint = ord(char)
+                if codepoint < 256:
+                    output.append(codepoint)
+                else:
+                    output.extend(char.encode())
+        decoded = output.decode("utf-8", "replace")
+    except Exception:
+        return value
+    has_cjk = any(0x3400 <= ord(char) <= 0x9FFF for char in decoded)
+    return decoded if has_cjk and decoded.count("�") <= value.count("�") else value
+
+
+def _yuanbao_record_from_sse(raw_sse: str) -> dict[str, Any] | None:
+    """组装元宝 ``/api/chat/`` SSE 正文及搜索来源。
+
+    2026-08-31 已有实现只在出现 ``searchGuid`` 时返回来源记录，不能用于普通
+    问答正文。实测协议的 ``type=text`` / ``msg`` 是按到达顺序发送的文本增量；
+    此处按协议字段顺序拼接，不使用字符块相似度或重叠猜测规则。引用锚点只用于
+    关联来源卡片，返回正文前将其移除，与页面实际渲染语义一致。
+    """
+    docs: list[dict[str, Any]] = []
+    answer_parts: list[str] = []
+    search_guid_observed = False
+    for block in re.split(r"\r?\n\r?\n", raw_sse):
+        data_lines = [
+            line[len("data:") :].strip()
+            for line in block.splitlines()
+            if line.startswith("data:")
+        ]
+        if not data_lines:
+            continue
+        try:
+            payload = json.loads("\n".join(data_lines))
+        except ValueError:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        if payload.get("type") == "searchGuid":
+            search_guid_observed = True
+            source_docs = payload.get("docs")
+            if isinstance(source_docs, list):
+                docs.extend(row for row in source_docs if isinstance(row, dict))
+        elif payload.get("type") == "text" and isinstance(payload.get("msg"), str):
+            part = _repair_yuanbao_mojibake(payload["msg"])
+            answer_parts.append(str(part))
+    if not search_guid_observed and not answer_parts:
+        return None
+
+    raw_answer_text = "".join(answer_parts)
+    answer_text = _YUANBAO_CITATION_RE.sub("", raw_answer_text).strip()
+
+    cards_by_index: dict[int, dict[str, Any]] = {}
+    collided_indexes: set[int] = set()
+    candidates: list[dict[str, Any]] = []
+    for position, doc in enumerate(docs, 1):
+        raw_index = doc.get("index", position)
+        index = (
+            int(raw_index)
+            if isinstance(raw_index, int) and not isinstance(raw_index, bool) and raw_index >= 1
+            else position
+        )
+        url = doc.get("url")
+        title = _repair_yuanbao_mojibake(doc.get("title"))
+        summary = _repair_yuanbao_mojibake(doc.get("quote"))
+        card = {
+            "url": url,
+            "title": str(title).strip() if isinstance(title, str) and title.strip() else None,
+            "summary": (
+                str(summary).strip()
+                if isinstance(summary, str) and summary.strip()
+                else None
+            ),
+            "platform_ordinal": index,
+            "ordinal_base": 1,
+        }
+        prior = cards_by_index.get(index)
+        if prior is not None and prior != card:
+            collided_indexes.add(index)
+        else:
+            cards_by_index[index] = card
+        if isinstance(url, str) and url.startswith(("http://", "https://")):
+            candidates.append(
+                {
+                    "url": url,
+                    "title": card["title"],
+                    "summary": card["summary"],
+                    "u_rank": position,
+                }
+            )
+
+    citation_indexes = list(
+        dict.fromkeys(
+            int(value) for value in _YUANBAO_CITATION_RE.findall("".join(answer_parts))
+        )
+    )
+    references: list[dict[str, Any]] = []
+    unresolved: list[int] = []
+    for index in citation_indexes:
+        card = cards_by_index.get(index)
+        if (
+            index in collided_indexes
+            or card is None
+            or not isinstance(card.get("url"), str)
+            or not card["url"].startswith(("http://", "https://"))
+        ):
+            unresolved.append(index)
+            continue
+        references.append(card)
+    final_references = [
+        {
+            "url": ref["url"],
+            "title": ref.get("title"),
+            "summary": ref.get("summary"),
+            "final_reference_ordinal": ref["platform_ordinal"],
+        }
+        for ref in references
+    ]
+    retrieval_events = (
+        normalize_retrieval_events(
+            [
+                {
+                    "ordinal": 1,
+                    "queries": [],
+                    "u_observation": "observed",
+                    "v_observation": "unobserved",
+                    "final_reference_observation": "observed",
+                    "candidates": candidates,
+                    "opened_pages": [],
+                    "final_references": final_references,
+                    "evidence_relation": "answer_sse_raw",
+                }
+            ]
+        )
+        if search_guid_observed
+        else []
+    )
+    return {
+        "answer_text": answer_text,
+        "raw_answer_text": raw_answer_text,
+        "search_guid_observed": search_guid_observed,
+        "references": references,
+        "citation_indexes": citation_indexes,
+        "unresolved_citation_indexes": unresolved,
+        "candidate_count": len(candidates),
+        "source_card_count": len(docs),
+        "retrieval_events": retrieval_events,
+    }
+
+
+def _yuanbao_record_from_raw_evidence(
+    evidence: list[CollectionEvidenceRef],
+) -> dict[str, Any] | None:
+    paths = [
+        Path(item.path)
+        for item in evidence
+        if item.kind == "sse_raw" and item.relation_type == "answer_sse_raw"
+    ]
+    if len(paths) != 1:
+        return None
+    try:
+        return _yuanbao_record_from_sse(paths[0].read_text(encoding="utf-8"))
+    except (OSError, UnicodeError):
+        return None
+    except Exception:
+        log.warning("yuanbao_raw_sse_parse_failed", path=str(paths[0]), exc_info=True)
+        return None
 
 
 _SAFE_STEM_RE = re.compile(r"[^A-Za-z0-9._-]+")
@@ -1440,9 +1693,39 @@ class _PlaywrightYuanbaoSession:
                     _CHAT_TIMEOUT_DEEP_THINK_S if spec.mode == "deep_think" else _CHAT_TIMEOUT_S
                 ),
             )
-            # 元宝答案正文以渲染 DOM 为准（旧链 confirmed 路径）：等气泡文本静默
-            answer_text = _wait_answer_stable(page, max_seconds=30.0, quiet_seconds=2.5)
-            references = _references_from_dom(page)
+            sse_body = capture.latest_body()
+            try:
+                sse_record = _yuanbao_record_from_sse(sse_body) if sse_body else None
+            except Exception:
+                # 协议漂移不能越过已经存在的 DOM 备用路径。原始响应仍由
+                # RawTrafficCapture 保存，日志只记录异常类型，不打印响应体。
+                log.warning(
+                    "yuanbao_sse_parse_failed",
+                    business_key=spec.business_key,
+                    exc_info=True,
+                )
+                sse_record = None
+            sse_answer = (
+                str(sse_record.get("answer_text") or "").strip()
+                if sse_record is not None
+                else ""
+            )
+            if sse_answer:
+                # ``/api/chat/`` 是本次请求的机器响应真相源。DOM 仍承担页面截图、
+                # 墙扫描和协议漂移时的备用抽取，不再无条件决定答案正文。
+                answer_text = sse_answer
+                answer_transport = "sse"
+                references = (
+                    list(sse_record.get("references") or [])
+                    if sse_record.get("search_guid_observed")
+                    else _references_from_dom(page)
+                )
+            else:
+                answer_text = _wait_answer_stable(
+                    page, max_seconds=30.0, quiet_seconds=2.5
+                )
+                answer_transport = "dom_fallback"
+                references = _references_from_dom(page)
             on_stage("answer_extracted")
 
             # 软墙/实名扫描无条件执行（2026-08-14 起，对齐豆包——曾被
@@ -1479,8 +1762,8 @@ class _PlaywrightYuanbaoSession:
                 )
             if not answer_text:
                 raise _IncompleteCapture(
-                    "answer-empty-after-finished-stream: DOM extraction produced no "
-                    "answer text after stream finished",
+                    "answer-empty-after-finished-stream: neither SSE assembly nor DOM "
+                    "fallback produced answer text",
                     _shot("empty_answer"),
                 )
 
@@ -1508,15 +1791,21 @@ class _PlaywrightYuanbaoSession:
             # 编造证据）。deep_think_active 以实际抽到思考块为准（证据为正才标
             # true；toggle 已确保但块缺失时如实 false）。
             thinking_text = _extract_thinking_text(page) if spec.mode == "deep_think" else ""
+            trace_references = (
+                []
+                if sse_record is not None
+                and sse_record.get("search_guid_observed")
+                else references
+            )
             trace_path: Path | None = None
-            if thinking_text or references:
+            if thinking_text or trace_references:
                 trace_candidate = self._evidence_dir / f"{spec.file_stem}-sse-trace.json"
                 try:
                     trace_candidate.write_text(
                         json.dumps(
-                            _build_yuanbao_trace(
-                                thinking_text,
-                                references,
+                                _build_yuanbao_trace(
+                                    thinking_text,
+                                    trace_references,
                                 deep_think_active=bool(thinking_text),
                             ),
                             ensure_ascii=False,
@@ -1569,6 +1858,7 @@ class _PlaywrightYuanbaoSession:
                 meta={
                     "stream": meta,
                     "driver": driver,
+                    "answer_transport": answer_transport,
                 },
                 trace_path=trace_path,
                 raw_evidence=raw_evidence,
@@ -1618,12 +1908,10 @@ class _PlaywrightYuanbaoSession:
 
 
 class _ChatStreamCapture:
-    """CDP Network 层捕获 POST /api/chat/ 事件流（元宝流式回答的完成度 ground-truth）。
+    """捕获 POST ``/api/chat/`` SSE，并在流完成时同步读取响应体。
 
-    只把流当「完成信号 + 字节计数」：requestWillBeSent/responseReceived 识别流、
-    dataReceived 累加字节、loadingFinished/loadingFailed 判完成——不读取响应体
-    （无 getResponseBody 调用；结构化 trace 的思考链/引用走 DOM 探针，见
-    _extract_thinking_text / _references_from_dom）。正文以渲染 DOM 为准。
+    Chromium 只短暂保留已完成请求的 body，因此 ``loadingFinished`` 处理器必须
+    立即调用 ``Network.getResponseBody``。读取或协议解析失败时，上层才回退 DOM。
     """
 
     def __init__(self, context: Any, page: Any) -> None:
@@ -1635,6 +1923,7 @@ class _ChatStreamCapture:
         self._loading_finished: set[str] = set()
         self._loading_failed: set[str] = set()
         self._bytes: dict[str, int] = {}
+        self._bodies: dict[str, str] = {}
         for name in (
             "Network.requestWillBeSent",
             "Network.responseReceived",
@@ -1662,13 +1951,21 @@ class _ChatStreamCapture:
                 self._url_by_request_id[req_id] = req.get("url", "")
                 self._method_by_request_id[req_id] = req.get("method", "")
             elif name == "Network.responseReceived":
+                response = payload.get("response") or {}
                 url = self._url_by_request_id.get(req_id, "")
                 method = self._method_by_request_id.get(req_id, "")
-                if "/api/chat/" in url and method == "POST":
+                mime_type = str(response.get("mimeType") or "").lower()
+                if (
+                    "/api/chat/" in url
+                    and method == "POST"
+                    and "event-stream" in mime_type
+                ):
                     if req_id not in self._stream_request_ids:
                         self._stream_request_ids.append(req_id)
             elif name == "Network.loadingFinished":
                 self._loading_finished.add(req_id)
+                if req_id in self._stream_request_ids:
+                    self._fetch_body(req_id)
             elif name == "Network.loadingFailed":
                 self._loading_failed.add(req_id)
             elif name == "Network.dataReceived":
@@ -1678,8 +1975,30 @@ class _ChatStreamCapture:
         except Exception:
             pass
 
+    def _fetch_body(self, req_id: str) -> None:
+        if req_id in self._bodies:
+            return
+        try:
+            result = self._cdp.send("Network.getResponseBody", {"requestId": req_id})
+        except Exception:
+            return
+        body = result.get("body", "") or ""
+        if result.get("base64Encoded"):
+            try:
+                body = base64.b64decode(body).decode("utf-8", "replace")
+            except Exception:
+                return
+        self._bodies[req_id] = str(_repair_yuanbao_mojibake(body))
+
     def has_stream_started(self) -> bool:
         return bool(self._stream_request_ids)
+
+    def latest_body(self) -> str:
+        """返回本题最后一个已完成 ``/api/chat/`` SSE 响应体。"""
+        for req_id in reversed(self._stream_request_ids):
+            if req_id in self._bodies:
+                return self._bodies[req_id]
+        return ""
 
     def wait_finish(
         self,
@@ -1705,6 +2024,7 @@ class _ChatStreamCapture:
                 "finished": False,
                 "failed": False,
                 "bytes_received": 0,
+                "body_captured": False,
                 "elapsed_ms": int((time.monotonic() - t0) * 1000),
             }
         while time.monotonic() < overall_deadline:
@@ -1717,6 +2037,7 @@ class _ChatStreamCapture:
             "finished": target in self._loading_finished,
             "failed": target in self._loading_failed,
             "bytes_received": self._bytes.get(target, 0),
+            "body_captured": target in self._bodies,
             "elapsed_ms": int((time.monotonic() - t0) * 1000),
         }
 
@@ -1911,6 +2232,54 @@ def _combined_mode_state(page: Any) -> dict[str, Any] | None:
     return state
 
 
+def _combined_menu_model(page: Any) -> str | None:
+    """新版合并弹层里当前模型（hy3/hy4/deepseek）；弹层未打开或文案未知
+    返回 None。模型行是当前 UI 唯一可观察的模型 ground-truth。"""
+    try:
+        state = page.evaluate(_COMBINED_MENU_STATE_JS)
+    except Exception:
+        return None
+    if not isinstance(state, dict) or not state.get("found"):
+        return None
+    model = state.get("model")
+    return model if isinstance(model, str) else None
+
+
+def _open_combined_menu(page: Any, rng: random.Random) -> Any | None:
+    """打开新版合并菜单并返回触发器；弹层模型行不可观察即失败。"""
+    trigger = _first_visible(page, _COMBINED_MODE_TRIGGER_SELECTORS)
+    if trigger is None:
+        return None
+    state = _combined_mode_state(page)
+    if not state or not state.get("expanded"):
+        try:
+            human_click(trigger, page, rng)
+        except Exception:
+            return None
+        page.wait_for_timeout(300)
+    # 当前模型可能是未来新增的 Hy5 等未知值；只要模型行真实可见，调用方仍可
+    # 进入二级菜单显式选择 Hy3。这里不能把「未知模型」误判成「菜单没打开」。
+    if _first_visible(page, _COMBINED_MODEL_MENU_SELECTORS) is None:
+        return None
+    return trigger
+
+
+def _close_combined_menu(page: Any, rng: random.Random, trigger: Any) -> bool:
+    """关闭仍展开的合并菜单，避免弹层截获后续输入；已关闭则幂等成功。"""
+    state = _combined_mode_state(page)
+    if state is None:
+        return False
+    if not state.get("expanded"):
+        return True
+    try:
+        human_click(trigger, page, rng)
+    except Exception:
+        return False
+    page.wait_for_timeout(200)
+    state = _combined_mode_state(page)
+    return bool(state is not None and not state.get("expanded"))
+
+
 def _ensure_combined_mode(page: Any, rng: random.Random, mode: str) -> bool | None:
     """确保新版合并模式按钮到目标态。
 
@@ -1920,18 +2289,47 @@ def _ensure_combined_mode(page: Any, rng: random.Random, mode: str) -> bool | No
     state = _combined_mode_state(page)
     if state is None:
         return None
-    if state.get("mode") == mode:
-        return True
-    if state.get("mode") not in {"normal", "deep_think"}:
-        return False
-    trigger = _first_visible(page, _COMBINED_MODE_TRIGGER_SELECTORS)
+
+    # 触发器只证明回答模式，不能证明模型：DeepSeek 也可能显示「深度思考」，
+    # 账号默认还可能漂到仅支持专家模式的 Hy4。每题都打开菜单读取模型行，确保
+    # 真正落在测量口径要求的 Hy3。
+    trigger = _open_combined_menu(page, rng)
     if trigger is None:
         return False
-    try:
-        human_click(trigger, page, rng)
-    except Exception:
+    current_model = _combined_menu_model(page)
+    if current_model != "hy3":
+        model_menu = _first_visible(page, _COMBINED_MODEL_MENU_SELECTORS)
+        if model_menu is None:
+            return False
+        try:
+            human_click(model_menu, page, rng)
+        except Exception:
+            return False
+        page.wait_for_timeout(250)
+        hy3 = _first_visible(page, _COMBINED_HY3_OPTION_SELECTORS)
+        if hy3 is None:
+            return False
+        try:
+            human_click(hy3, page, rng)
+        except Exception:
+            return False
+        page.wait_for_timeout(400)
+        # 当前版本选 Hy3 后主菜单保持展开；未来若改为自动收起，则重开后再验。
+        if _combined_menu_model(page) is None:
+            trigger = _open_combined_menu(page, rng)
+            if trigger is None:
+                return False
+        if _combined_menu_model(page) != "hy3":
+            page.wait_for_timeout(400)
+            if _combined_menu_model(page) != "hy3":
+                return False
+
+    state = _combined_mode_state(page)
+    if state is None:
         return False
-    page.wait_for_timeout(300)
+    if state.get("mode") == mode:
+        return _close_combined_menu(page, rng, trigger)
+
     option = _first_visible(page, _COMBINED_MODE_OPTION_SELECTORS[mode])
     if option is None:
         return False
@@ -1941,10 +2339,10 @@ def _ensure_combined_mode(page: Any, rng: random.Random, mode: str) -> bool | No
         return False
     page.wait_for_timeout(400)
     state = _combined_mode_state(page)
-    if state is None or state.get("mode") != mode:
+    if state is None or state.get("mode") != mode or state.get("expanded"):
         page.wait_for_timeout(400)
         state = _combined_mode_state(page)
-        if state is None or state.get("mode") != mode:
+        if state is None or state.get("mode") != mode or state.get("expanded"):
             return False
     return True
 
@@ -2188,8 +2586,9 @@ def _build_yuanbao_trace(
     """思考链 + 引用卡片 → trace record（kind="sse" 证据内容，词表对齐文心/
     DeepSeek：collection router 的 build_task_trace_view 消费同一词表）。
 
-    transport="dom" 如实标注：元宝 /api/chat/ 流只当完成信号（CDP 不读 body），
-    思考链来自 DOM 实渲染。references 单独保存为 ``answer_reference_pages``，
+    transport="dom" 只描述本 trace 中思考链的来源：思考链来自 DOM 实渲染。
+    答案正文另由 ``/api/chat/`` SSE 组装。references 单独保存为
+    ``answer_reference_pages``，
     不能冒充完整 U 候选（检索词和 V 均未暴露）。思考文本单块截
     _THINKING_TEXT_LIMIT 字符（对齐豆包水位）。
     """
@@ -2240,10 +2639,16 @@ def _wait_answer_stable(page: Any, *, max_seconds: float, quiet_seconds: float =
 
 
 def _trim_response(text: str) -> str:
+    """裁掉抽取容器末尾混入的独立 UI 行，保留正文内同词。
+
+    2026-08-31 live 回归曾把“支持…联网搜索等。”从“联网搜索”开始误删：
+    旧实现用 str.find 在全文找 UI 标签，没有区分行内正文。真实工具栏/chip
+    在 innerText 中以独立行出现，所以只在标记词占满整行且前面已有正文时裁剪。
+    """
     for marker in _TRAILING_NOISE_MARKERS:
-        idx = text.find(marker)
-        if 0 < idx < len(text):
-            text = text[:idx].rstrip()
+        match = re.search(rf"(?m)^[ \t]*{re.escape(marker)}[ \t]*$", text)
+        if match is not None and match.start() > 0:
+            text = text[: match.start()].rstrip()
     return text.strip()
 
 

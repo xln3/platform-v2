@@ -148,6 +148,14 @@ run 级会话复用（2026-08-06 起，``collect_tongyi_batch``，治本反风�
   ``.answer-common-card`` 的直接子节点——markdown 段（可多段）+ 非 markdown
   富文本卡片段（供应商卡片类挂件，Python 侧过滤工具栏/按钮噪声后拼接）；无容器
   时兜底页面最后一个 .qk-markdown，再不行回退旧猜测选择器链。
+- 2026-08-31 分享链路 live 校准：答案操作区的无标签箭头进入单轮分享选择，
+  「复制链接」调用 ``/api/v1/share/create``，官方公共页为
+  ``https://qianwen.my.cn/share/chat/<32 hex>``。正式结果必须同时保存公共链接与
+  公共页完整截图；任一缺失均 ``answer_capture_incomplete``，不再用运行页截图
+  冒充分享图。公共页截图实测 896×1838，问题、正文、来源卡片均完整。
+- 2026-08-31 正文污染 live 校准：表格插件把「表格 / 下载为表格 / 导出为图片」
+  工具栏嵌在 ``.qk-markdown`` 内。抽取时只从 clone 删除精确根
+  ``.qk-md-table-action``，再把真实 ``<table>`` 转 Markdown，页面 DOM 不动。
 """
 
 from __future__ import annotations
@@ -190,6 +198,13 @@ from workflows.activities.human_like import (
     human_pause,
     human_read_pause,
     human_type,
+)
+from workflows.activities.official_share import (
+    TONGYI_OFFICIAL_SHARE_HOSTS,
+    OfficialShareExportError,
+    capture_tongyi_official_share,
+    probe_official_share_url,
+    write_share_link_manifest,
 )
 from workflows.activities.raw_capture import dump_raw_evidence_refs, maybe_raw_capture
 from workflows.activities.resident_browser import platform_browser, resident_cdp_url
@@ -340,15 +355,6 @@ _LOGIN_WALL_HINTS: tuple[str, ...] = (
     'div[class*="login-modal"]:visible',
     'div[class*="LoginModal"]:visible',
     'iframe[src*="login"]',
-)
-
-# 登录墙文本特征（未登录时发送/访问出现）
-_LOGIN_TEXT_MARKERS: tuple[str, ...] = (
-    "登录后使用",
-    "登录后继续",
-    "立即登录",
-    "请登录",
-    "登录以继续",
 )
 
 # 验证码组件（阿里滑块 / 智能验证通用特征）
@@ -662,6 +668,9 @@ class CollectedAnswer:
     # 原始流量证据 ref（2026-08-10 起：sse_raw/har；GEO_RAW_CAPTURE=0 或写盘
     # 失败为空——诚实缺省）。_task_result_from_collected 并入 evidence。
     raw_evidence: list[CollectionEvidenceRef] = field(default_factory=list)
+    # 官方公开分享图/链接。正式结果以官方分享图为 screenshot_ref；缺失时采集
+    # 在 session 层诚实失败，不把运行页截图冒充分享图。
+    evidence: list[CollectionEvidenceRef] = field(default_factory=list)
     # Clean answer-only image plus verified DOM/OCR rectangles for report evidence cards.
     answer_evidence: CollectionEvidenceRef | None = None
 
@@ -1059,8 +1068,18 @@ def _task_result_from_collected(
     """CollectedAnswer → CollectionTaskResult 映射（answer 组装/出界 DLP 自检）。
     run_tongyi_collection 与 batch per-item ok 映射共用。"""
     answer_text = _compose_answer_text(collected.answer_text, collected.references)
-    screenshot_ref = f"file://{collected.screenshot_path}"
-    evidence: list[CollectionEvidenceRef] = []
+    citations = [
+        {
+            "url": str(ref["url"]),
+            "title": str(ref["title"]).strip() if ref.get("title") else None,
+            "cited_text": None,
+        }
+        for ref in collected.references
+        if isinstance(ref, dict)
+        and isinstance(ref.get("url"), str)
+        and ref["url"].startswith(("http://", "https://"))
+    ]
+    evidence: list[CollectionEvidenceRef] = list(collected.evidence)
     if collected.trace_path is not None:
         evidence.append(
             CollectionEvidenceRef(
@@ -1075,12 +1094,22 @@ def _task_result_from_collected(
     evidence.extend(collected.raw_evidence)
     if collected.answer_evidence is not None:
         evidence.append(collected.answer_evidence)
+    official_share_image = next(
+        (
+            ref.path
+            for ref in evidence
+            if ref.kind == "share_image" and ref.relation_type == "official_share_image"
+        ),
+        None,
+    )
+    screenshot_ref = f"file://{official_share_image or collected.screenshot_path}"
     # DLP 统一由 persist 层脱敏处理（单一权威边界，2026-08-06 起）。
     return CollectionTaskResult(
         business_key=item.business_key,
         answer_text=answer_text,
         screenshot_ref=screenshot_ref,
         quality_state="live_valid",
+        citations=citations,
         evidence=evidence,
         search_queries=collected.search_queries,
         retrieval_events=retrieval_events_from_trace_path(collected.trace_path),
@@ -1424,7 +1453,7 @@ class _PlaywrightTongyiSession:
         raw = maybe_raw_capture(
             context,
             page,
-            body_url_hints=("tongyi.com",),
+            body_url_hints=("chat2.qianwen.com/api/v2/chat",),
             creator="geo-tongyi-adapter",
         )
         raw_evidence: list[CollectionEvidenceRef] = []
@@ -1639,10 +1668,13 @@ class _PlaywrightTongyiSession:
                     "answer text after confirmed stream completion",
                     _shot("empty_answer"),
                 )
-            if any(marker in answer_text for marker in _LOGIN_TEXT_MARKERS):
+            # 回答正文中的“请登录/立即登录”等词可以是问题本身的正常内容，不能
+            # 证明账号遇到了登录墙。只接受可见登录模态/登录 iframe 这类页面级
+            # 结构证据；这里再检查一次，用于捕获答案抽取期间迟到挂载的登录墙。
+            if _detect_login_wall(page):
                 raise _WallError(
                     "wall_login_required",
-                    "login-required text marker inside extracted answer",
+                    "visible structural login wall after answer extraction",
                     _shot("login"),
                 )
 
@@ -1667,11 +1699,6 @@ class _PlaywrightTongyiSession:
                 on_stage("thinking_extract")
                 thinking = _extract_tongyi_thinking(page)
 
-            on_stage("screenshot")
-            shot_path = self._evidence_dir / f"{spec.file_stem}.png"
-            _capture_full_page(page, shot_path)
-            if not shot_path.exists():
-                raise _IncompleteCapture("evidence-screenshot-failed: no file written")
             # 结构化 trace 落盘进证据链（kind="sse"，transport="dom"；词表对齐
             # 其余四平台）：deep_think 时思考链/检索词/检索结果折叠自思考流程卡，
             # 引用卡片折叠照常保留；normal 无引用不出空证据（诚实缺省）。写盘失败
@@ -1734,14 +1761,81 @@ class _PlaywrightTongyiSession:
                 if answer_capture is not None and answer_capture.anchors
                 else None
             )
+
+            # 千问没有原生「下载分享图片」动作；其官方链路是生成 qianwen.my.cn
+            # 公共页。先在未扁平化的运行页创建链接，再截取该公共页的完整内容，
+            # 两者缺一均诚实失败，不能把带工具栏的运行页截图冒充正式分享图。
+            on_stage("share_export")
+            share_image_path = self._evidence_dir / f"{spec.file_stem}-share.png"
+
+            def _share_click(locator: Any) -> None:
+                clicked_at = human_click(locator, page, self._rng, start=self._mouse_pos)
+                if clicked_at is not None:
+                    self._mouse_pos = clicked_at
+
+            try:
+                share = capture_tongyi_official_share(
+                    page,
+                    share_image_path,
+                    click=_share_click,
+                )
+                share_link_path = self._evidence_dir / f"{spec.file_stem}-share-link.json"
+                write_share_link_manifest(
+                    share_link_path,
+                    share_url=share.share_url,
+                    platform="tongyi",
+                    channel="copy-link",
+                    verification=probe_official_share_url(
+                        share.share_url,
+                        allowed_hosts=TONGYI_OFFICIAL_SHARE_HOSTS,
+                    ),
+                )
+            except (OfficialShareExportError, OSError) as exc:
+                raise _IncompleteCapture(
+                    "official-share-export-incomplete: Qianwen must provide its "
+                    "public share URL and a clean image of that official share page "
+                    f"({type(exc).__name__}: {exc})",
+                    _shot("share_export"),
+                ) from exc
+            except Exception as exc:
+                raise _IncompleteCapture(
+                    "official-share-export-incomplete: unexpected Qianwen share UI "
+                    f"failure ({type(exc).__name__}: {exc})",
+                    _shot("share_export"),
+                ) from exc
+            evidence = [
+                CollectionEvidenceRef(
+                    kind="share_image",
+                    path=str(share.image_path),
+                    relation_type="official_share_image",
+                    mime_type="image/png",
+                    source_url=share.share_url,
+                ),
+                CollectionEvidenceRef(
+                    kind="share_link",
+                    path=str(share_link_path),
+                    relation_type="official_share_link",
+                    mime_type="application/json",
+                    source_url=share.share_url,
+                ),
+            ]
+
+            # 运行页截图仍保留作采集现场证据，但在分享动作完成后再扁平化页面；
+            # 正式 screenshot_ref 在结果映射层优先指向上面的官方分享图。
+            on_stage("screenshot")
+            shot_path = self._evidence_dir / f"{spec.file_stem}.png"
+            _capture_full_page(page, shot_path)
+            if not shot_path.exists():
+                raise _IncompleteCapture("evidence-screenshot-failed: no file written")
             answer = CollectedAnswer(
                 answer_text=answer_text,
                 references=references,
                 screenshot_path=shot_path,
-                meta={"stream": meta, "driver": driver},
+                meta={"stream": meta, "driver": driver, "share": share.audit},
                 trace_path=trace_path,
                 search_queries=search_queries,
                 raw_evidence=raw_evidence,
+                evidence=evidence,
                 answer_evidence=answer_evidence,
             )
         except (_WallError, _IncompleteCapture, _ModeToggleFailed, _ModeUnconfirmed) as exc:
@@ -2304,8 +2398,17 @@ _ANSWER_EXTRACT_JS = r"""() => {
       t.replaceWith(pre);
     }
   };
+  const removePageChrome = (rootEl) => {
+    // 20260831 live 校准：表格插件把「表格 / 下载为表格 / 导出为图片」
+    // 放在 qk-markdown 内部，Python 的 widget 过滤看不到。仅从 clone 删除
+    // 已确认的工具栏根，保留下方真实 <table>，不修改页面 DOM。
+    for (const toolbar of rootEl.querySelectorAll('.qk-md-table-action')) {
+      toolbar.remove();
+    }
+  };
   const textOf = (el) => {
     const c = el.cloneNode(true);
+    removePageChrome(c);
     tableMd(c);
     return (c.innerText || '').trim();
   };
@@ -2358,6 +2461,9 @@ _ANSWER_EXTRACT_JS = r"""() => {
 # 20260812 表格保结构：clone 内 <table>→markdown 管道行再取 innerText，原 DOM 不动）。
 _ELEMENT_TEXT_JS = r"""(el) => {
   const c = el.cloneNode(true);
+  for (const toolbar of c.querySelectorAll('.qk-md-table-action')) {
+    toolbar.remove();
+  }
   for (const t of c.querySelectorAll('table')) {
     const rows = [];
     let cols = 0;

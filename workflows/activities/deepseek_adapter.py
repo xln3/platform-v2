@@ -1050,6 +1050,15 @@ def _task_result_from_collected(
             "url": str(ref["url"]),
             "title": str(ref["title"]).strip() if ref.get("title") else None,
             "cited_text": None,
+            **(
+                {
+                    "platform_ordinal": ref["platform_ordinal"],
+                    "ordinal_base": ref.get("ordinal_base", 1),
+                }
+                if isinstance(ref.get("platform_ordinal"), int)
+                and not isinstance(ref.get("platform_ordinal"), bool)
+                else {}
+            ),
         }
         for ref in collected.references
         if isinstance(ref, dict) and _is_real_url(ref.get("url"))
@@ -2676,9 +2685,11 @@ def _walk_references(node: Any, sink: list[dict[str, Any]], seen_urls: set[str])
             _walk_references(item, sink, seen_urls)
 
 
-# 引用锚点（[reference:N]）：渲染层 chip 的机器锚点，不是正文文本——剔除（引用
-# 本身进 references；DOM 兜底路径本就不含这些字面量，两个抽取口径对齐）。
-_REFERENCE_ANCHOR_RE = re.compile(r"\s*\[reference:\d+\]")
+# 引用锚点（旧协议 ``[reference:N]`` / 2026-08-31 新协议
+# ``[citation:N]``）：渲染层 chip 的机器锚点，不是正文文本——剔除。新协议的
+# N 同时是 SEARCH.results[].cite_index，组装器在剔除前用它精确恢复最终引用。
+_REFERENCE_ANCHOR_RE = re.compile(r"\s*\[(?:reference|citation):\d+\]", re.I)
+_CITATION_ANCHOR_RE = re.compile(r"\[citation:(\d+)\]", re.I)
 
 
 def _assemble_deepseek_record(events: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -2728,6 +2739,7 @@ def _assemble_deepseek_record(events: list[dict[str, Any]]) -> dict[str, Any] | 
     frag_ids: list[str | None] = []
     search_events: list[dict[str, Any]] = []
     search_event_by_fragment_index: dict[int, dict[str, Any]] = {}
+    citation_card_by_index: dict[int, dict[str, Any] | None] = {}
 
     def _card(value: Any) -> dict[str, Any] | None:
         cards: list[dict[str, Any]] = []
@@ -2748,6 +2760,30 @@ def _assemble_deepseek_record(events: list[dict[str, Any]]) -> dict[str, Any] | 
             for child in value:
                 cards.extend(_all_cards(child))
         return cards
+
+    def _record_citation_cards(value: Any) -> None:
+        """Index new-protocol SEARCH cards without guessing on index collisions."""
+
+        if isinstance(value, dict):
+            raw_index = value.get("cite_index")
+            card = _card(value)
+            if (
+                isinstance(raw_index, int)
+                and not isinstance(raw_index, bool)
+                and raw_index >= 1
+                and card is not None
+            ):
+                prior = citation_card_by_index.get(raw_index, ...)
+                if prior is ...:
+                    citation_card_by_index[raw_index] = dict(card)
+                elif prior is not None and prior.get("url") != card.get("url"):
+                    # 同一个锚点若指向两个 URL 就不可判定；宁可不补也不猜。
+                    citation_card_by_index[raw_index] = None
+            for child in value.values():
+                _record_citation_cards(child)
+        elif isinstance(value, list):
+            for child in value:
+                _record_citation_cards(child)
 
     def _record_answer_references(value: Any) -> None:
         if not isinstance(value, list):
@@ -2791,7 +2827,7 @@ def _assemble_deepseek_record(events: list[dict[str, Any]]) -> dict[str, Any] | 
                 parts.append(content)
             elif frag_types[-1] == "THINK" and isinstance(content, str) and content:
                 thinking_parts.append(content)
-            elif frag_types[-1] == "TOOL_SEARCH":
+            elif frag_types[-1] in {"TOOL_SEARCH", "SEARCH"}:
                 source_activity_observed = True
                 event_queries: list[str] = []
                 for query in frag.get("queries") or []:
@@ -2825,6 +2861,7 @@ def _assemble_deepseek_record(events: list[dict[str, Any]]) -> dict[str, Any] | 
                 }
                 search_events.append(retrieval_event)
                 search_event_by_fragment_index[len(frag_types) - 1] = retrieval_event
+                _record_citation_cards(frag.get("results"))
                 _walk_references(frag.get("results"), search_results, seen_search_urls)
             elif frag_types[-1] == "TOOL_OPEN":
                 _record_opened(frag.get("result"), fragment_id)
@@ -2876,6 +2913,7 @@ def _assemble_deepseek_record(events: list[dict[str, Any]]) -> dict[str, Any] | 
         target_idx = _target_index(p) if "fragments/" in p else None
         if p.rstrip("/").endswith("/results"):
             source_activity_observed = True
+            _record_citation_cards(v)
             search_event = search_event_by_fragment_index.get(
                 target_idx if target_idx is not None else -1
             )
@@ -2920,7 +2958,11 @@ def _assemble_deepseek_record(events: list[dict[str, Any]]) -> dict[str, Any] | 
         elif o is None and not p:
             _accept(len(frag_types) - 1 if frag_types else None, v)
 
-    answer_text = _REFERENCE_ANCHOR_RE.sub("", _recover_mojibake("".join(parts))).strip()
+    raw_answer_text = _recover_mojibake("".join(parts))
+    citation_indexes = list(
+        dict.fromkeys(int(value) for value in _CITATION_ANCHOR_RE.findall(raw_answer_text))
+    )
+    answer_text = _REFERENCE_ANCHOR_RE.sub("", raw_answer_text).strip()
     if not answer_text:
         return None
     references = list(direct_answer_references)
@@ -2928,6 +2970,17 @@ def _assemble_deepseek_record(events: list[dict[str, Any]]) -> dict[str, Any] | 
         opened = opened_by_fragment_id.get(fragment_id)
         if opened is not None:
             references.append(dict(opened))
+    for citation_index in citation_indexes:
+        card = citation_card_by_index.get(citation_index)
+        if card is None:
+            continue
+        references.append(
+            {
+                **card,
+                "platform_ordinal": citation_index,
+                "ordinal_base": 1,
+            }
+        )
     opened_rows = [
         {
             "url": row["url"],
@@ -2942,7 +2995,7 @@ def _assemble_deepseek_record(events: list[dict[str, Any]]) -> dict[str, Any] | 
             "url": row["url"],
             "title": row.get("title"),
             "summary": row.get("summary"),
-            "final_reference_ordinal": index,
+            "final_reference_ordinal": row.get("platform_ordinal", index),
         }
         for index, row in enumerate(references, 1)
     ]
@@ -2966,6 +3019,10 @@ def _assemble_deepseek_record(events: list[dict[str, Any]]) -> dict[str, Any] | 
     return {
         "answer_text": answer_text,
         "references": references,
+        "citation_indexes": citation_indexes,
+        "unresolved_citation_indexes": [
+            index for index in citation_indexes if citation_card_by_index.get(index) is None
+        ],
         "search_results": search_results,
         "opened_pages": opened_pages,
         # taxonomy v2 parsed the complete captured stream, therefore an empty list

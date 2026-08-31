@@ -15,14 +15,23 @@ from temporalio.exceptions import ApplicationError
 from domain.evidence.dlp import assert_secret_free
 from workflows.activities.collection import CollectionEvidenceRef, CollectionTaskInput
 from workflows.activities.yiyan_adapter import (
+    _ANSWER_MODE_FAST_ITEM_SELECTOR,
+    _ANSWER_MODE_SELECTOR,
+    _ANSWER_MODE_STATE_JS,
+    _ANSWER_MODE_TASK_ITEM_SELECTOR,
     _STRIP_THINKING_JS,
     CollectedAnswer,
     YiyanAdapterConfig,
+    _answer_mode_state,
     _build_yiyan_trace,
     _deep_think_chip_state,
     _ensure_deep_think,
+    _extract_references,
     _ModeToggleFailed,
+    _task_execution_running,
+    _task_execution_state,
     _task_result_from_collected,
+    _wait_dom_stream,
     _WallError,
     run_yiyan_collection,
 )
@@ -289,6 +298,241 @@ def test_ensure_deep_think_unconfirmable_fails() -> None:
     page = _ChipFakePage(None)  # 永远读不出
     with pytest.raises(_ModeToggleFailed):
         _ensure_deep_think(page, __import__("random").Random(0), engaged=True, shot=lambda s: None)
+
+
+class _NewModeLocator:
+    def __init__(self, page: _NewModePage, selector: str) -> None:
+        self._page = page
+        self._selector = selector
+
+    @property
+    def first(self) -> _NewModeLocator:
+        return self
+
+    def is_visible(self, timeout: int | None = None) -> bool:
+        return (
+            self._selector
+            in {
+                _ANSWER_MODE_FAST_ITEM_SELECTOR,
+                _ANSWER_MODE_TASK_ITEM_SELECTOR,
+            }
+            and self._page.expanded
+        )
+
+    def scroll_into_view_if_needed(self, timeout: int | None = None) -> None:
+        return None
+
+    def bounding_box(self) -> None:
+        return None
+
+    def click(self, **kw: object) -> None:
+        if self._selector == _ANSWER_MODE_SELECTOR:
+            self._page.expanded = True
+            self._page.selector_clicks += 1
+        elif self._selector == _ANSWER_MODE_FAST_ITEM_SELECTOR and self._page.expanded:
+            self._page.mode = "fast"
+            self._page.expanded = False
+            self._page.fast_clicks += 1
+        elif self._selector == _ANSWER_MODE_TASK_ITEM_SELECTOR and self._page.expanded:
+            self._page.mode = "task"
+            self._page.expanded = False
+            self._page.task_clicks += 1
+        else:  # pragma: no cover - defensive fake contract
+            raise RuntimeError(f"unexpected click: {self._selector}")
+
+
+class _NewModePage:
+    """20260831 新回答模式下拉 fake：normal=fast，deep_think=task。"""
+
+    def __init__(self, mode: str) -> None:
+        self.mode = mode
+        self.expanded = False
+        self.selector_clicks = 0
+        self.fast_clicks = 0
+        self.task_clicks = 0
+
+    def evaluate(self, script: str) -> object:
+        if script == _ANSWER_MODE_STATE_JS:
+            labels = {"fast": "快速", "task": "任务"}
+            return {
+                "surface": "answer_mode_selector",
+                "mode": self.mode,
+                "label": labels.get(self.mode, "未知"),
+                "expanded": self.expanded,
+            }
+        return None  # 旧 deep-think chip 不存在
+
+    def locator(self, selector: str) -> _NewModeLocator:
+        return _NewModeLocator(self, selector)
+
+    def wait_for_timeout(self, ms: int) -> None:
+        return None
+
+
+def test_new_answer_mode_state_parse() -> None:
+    assert _answer_mode_state(_NewModePage("fast")) == "normal"
+    assert _answer_mode_state(_NewModePage("task")) == "task"
+    assert _answer_mode_state(_NewModePage("future-mode")) == "unknown"
+
+
+def test_new_fast_mode_is_idempotent_for_normal() -> None:
+    page = _NewModePage("fast")
+    _ensure_deep_think(page, __import__("random").Random(0), engaged=False, shot=lambda s: None)
+    assert page.selector_clicks == 0
+    assert page.fast_clicks == 0
+    assert page.task_clicks == 0
+
+
+def test_new_task_mode_switches_to_fast_for_normal() -> None:
+    page = _NewModePage("task")
+    _ensure_deep_think(page, __import__("random").Random(0), engaged=False, shot=lambda s: None)
+    assert page.mode == "fast"
+    assert page.selector_clicks == 1
+    assert page.fast_clicks == 1
+    assert page.task_clicks == 0
+
+
+def test_new_task_mode_is_idempotent_for_deep_think() -> None:
+    page = _NewModePage("task")
+    _ensure_deep_think(page, __import__("random").Random(0), engaged=True, shot=lambda s: None)
+    assert page.selector_clicks == 0
+    assert page.fast_clicks == 0
+    assert page.task_clicks == 0
+
+
+def test_new_fast_mode_switches_to_task_for_deep_think() -> None:
+    page = _NewModePage("fast")
+    _ensure_deep_think(page, __import__("random").Random(0), engaged=True, shot=lambda s: None)
+    assert page.mode == "task"
+    assert page.selector_clicks == 1
+    assert page.fast_clicks == 0
+    assert page.task_clicks == 1
+
+
+class _TaskStatusTitle:
+    def __init__(self, text: str, *, visible: bool = True) -> None:
+        self._text = text
+        self._visible = visible
+
+    def is_visible(self, timeout: int | None = None) -> bool:
+        return self._visible
+
+    def inner_text(self, timeout: int | None = None) -> str:
+        return self._text
+
+
+class _TaskStatusLocator:
+    def __init__(self, titles: list[_TaskStatusTitle]) -> None:
+        self._titles = titles
+
+    def all(self) -> list[_TaskStatusTitle]:
+        return self._titles
+
+
+class _TaskStatusPage:
+    def __init__(self, titles: list[_TaskStatusTitle]) -> None:
+        self._titles = titles
+
+    def locator(self, selector: str) -> _TaskStatusLocator:
+        assert selector == ".thinking-steps-title-text"
+        return _TaskStatusLocator(self._titles)
+
+
+def test_task_execution_running_reads_explicit_platform_status() -> None:
+    assert _task_execution_running(_TaskStatusPage([_TaskStatusTitle("任务执行中")])) is True
+    assert _task_execution_running(_TaskStatusPage([_TaskStatusTitle("任务已完成")])) is False
+    assert _task_execution_state(_TaskStatusPage([_TaskStatusTitle("任务执行完成")])) == "completed"
+    assert _task_execution_state(_TaskStatusPage([])) == "unknown"
+    assert (
+        _task_execution_running(_TaskStatusPage([_TaskStatusTitle("任务执行中", visible=False)]))
+        is False
+    )
+
+
+class _TaskWaitPage:
+    def __init__(self, clock: object) -> None:
+        self.clock = clock
+        self.polls = 0
+
+    def wait_for_timeout(self, milliseconds: int) -> None:
+        self.polls += 1
+        self.clock.now += milliseconds / 1000  # type: ignore[attr-defined]
+
+
+def test_dom_stream_does_not_finish_while_task_status_is_running(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    clock = type("Clock", (), {"now": 1_000.0})()
+    page = _TaskWaitPage(clock)
+    monkeypatch.setattr("workflows.activities.yiyan_adapter.time.monotonic", lambda: clock.now)
+    monkeypatch.setattr("workflows.activities.yiyan_adapter._dom_stream_started", lambda _p: True)
+    monkeypatch.setattr("workflows.activities.yiyan_adapter._loading_visible", lambda _p: False)
+    monkeypatch.setattr(
+        "workflows.activities.yiyan_adapter._task_execution_state",
+        lambda p: "running" if p.polls < 4 else ("unknown" if p.polls < 8 else "completed"),
+    )
+    monkeypatch.setattr(
+        "workflows.activities.yiyan_adapter._last_answer_text",
+        lambda p: "研究过程" if p.polls < 4 else "最终答案",
+    )
+
+    result = _wait_dom_stream(
+        page,
+        appearance_timeout_s=1.0,
+        timeout_s=10.0,
+        quiet_s=1.0,
+        poll_ms=500,
+        require_task_completed=True,
+    )
+
+    assert result["finished"] is True
+    assert result["bytes_received"] == len("最终答案")
+    assert page.polls >= 9
+
+
+class _ReferenceItem:
+    def __init__(self, payload: str) -> None:
+        self._payload = payload
+
+    def get_attribute(self, name: str, timeout: int | None = None) -> str:
+        assert name == "data-long-press-ext-info"
+        return self._payload
+
+
+class _ReferenceLocator:
+    def __init__(self, items: list[_ReferenceItem]) -> None:
+        self._items = items
+
+    def all(self) -> list[_ReferenceItem]:
+        return self._items
+
+
+class _ReferencePage:
+    def __init__(self, payloads: list[str]) -> None:
+        self._items = [_ReferenceItem(payload) for payload in payloads]
+
+    def locator(self, selector: str) -> _ReferenceLocator:
+        if selector == "div.ai-thinking-steps li[data-long-press-ext-info]":
+            return _ReferenceLocator(self._items)
+        return _ReferenceLocator([])
+
+
+def test_new_reference_list_reads_platform_dom_payload() -> None:
+    page = _ReferencePage(
+        [
+            '{"link":"https://example.com/a?id=1","linkTitle":"来源 A"}',
+            '{"link":"https://example.com/a?id=1#dup","linkTitle":"重复来源"}',
+            '{"link":"javascript:alert(1)","linkTitle":"无效来源"}',
+            "not-json",
+        ]
+    )
+    assert _extract_references(page) == [
+        {
+            "url": "https://example.com/a?id=1",
+            "title": "来源 A",
+            "sitename": None,
+        }
+    ]
 
 
 def test_build_yiyan_trace_shape() -> None:
