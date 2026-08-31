@@ -1684,7 +1684,10 @@ def test_official_share_page_allows_table_ocr_floor_without_relaxing_generated_c
         lambda *_args, **_kwargs: (0.82, True, True, 82, 100),
     )
 
-    official_audit = {"channel": "official_share_page_screenshot"}
+    official_audit = {
+        "channel": "official_share_page_screenshot",
+        "dom_content_verification": {"ok": True, "answer_coverage": 0.99},
+    }
     assert (
         doubao_adapter._verify_share_image_ocr_content(
             path,
@@ -1696,6 +1699,23 @@ def test_official_share_page_allows_table_ocr_floor_without_relaxing_generated_c
         is True
     )
     assert official_audit["content_verification"]["answer_coverage_threshold"] == 0.80
+    assert official_audit["content_verification"]["dom_content_verified"] is True
+
+    unproven_official_audit = {"channel": "official_share_page_screenshot"}
+    assert (
+        doubao_adapter._verify_share_image_ocr_content(
+            path,
+            unproven_official_audit,
+            expected_question=question,
+            expected_answer=answer,
+            transport_ok=True,
+        )
+        is False
+    )
+    assert (
+        unproven_official_audit["content_verification"]["answer_coverage_threshold"]
+        == 0.85
+    )
 
     generated_audit = {"channel": "download"}
     assert (
@@ -1791,6 +1811,8 @@ def test_official_share_page_capture_verifies_current_qa_and_writes_png(
     assert audit["ok"] is True
     assert audit["question_verified"] is True
     assert audit["answer_verified"] is True
+    assert audit["dom_content_verification"]["ok"] is True
+    assert audit["dom_content_verification"]["answer_coverage"] >= 0.95
     assert audit["dims"] == {"width": 640, "height": 480}
     assert audit["capture_method"] == "official_share_page_screenshot"
     assert audit["page_capture_method"] == "cdp_capture_beyond_viewport"

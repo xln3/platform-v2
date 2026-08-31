@@ -2694,11 +2694,18 @@ def _verify_share_image_ocr_content(
     # The official public thread is rendered as a wide HTML table before the
     # full-page screenshot is OCRed.  Column-wise OCR can reorder or omit a
     # small part of the middle even when the screenshot visibly contains the
-    # complete answer.  Keep generated cards on the stricter threshold; only
-    # the independently URL-bound official page may use the measured 80%
-    # floor, and it must still prove the exact question plus answer head/tail.
+    # complete answer.  Keep generated cards on the stricter threshold.  The
+    # measured 80% floor is available only when the independently URL-bound
+    # official page has already passed the separate high-coverage DOM proof;
+    # setting the channel name alone must never relax image admission.
+    dom_verification = audit.get("dom_content_verification")
+    official_dom_verified = (
+        audit.get("channel") == "official_share_page_screenshot"
+        and isinstance(dom_verification, dict)
+        and dom_verification.get("ok") is True
+    )
     coverage_threshold = (
-        0.80 if audit.get("channel") == "official_share_page_screenshot" else 0.85
+        0.80 if official_dom_verified else 0.85
     )
     verification.update(
         {
@@ -2706,6 +2713,7 @@ def _verify_share_image_ocr_content(
             "question_verified": question_ok,
             "answer_coverage": round(coverage, 4),
             "answer_coverage_threshold": coverage_threshold,
+            "dom_content_verified": official_dom_verified,
             "answer_head_verified": head_ok,
             "answer_tail_verified": tail_ok,
             "answer_characters_verified": matched_chars,
@@ -2787,8 +2795,29 @@ def _capture_official_share_page(
         answer_probe = compact_answer[:80]
         audit["answer_probe_length"] = len(answer_probe)
         audit["question_verified"] = bool(compact_question) and compact_question in compact_body
-        audit["answer_verified"] = bool(answer_probe) and answer_probe in compact_body
-        if not audit["question_verified"] or not audit["answer_verified"]:
+        audit["answer_probe_verified"] = bool(answer_probe) and answer_probe in compact_body
+        dom_coverage, dom_head_ok, dom_tail_ok, dom_matched, dom_total = (
+            _share_answer_sequence_coverage(expected_answer, body_text)
+        )
+        dom_threshold = 0.95
+        dom_ok = (
+            audit["question_verified"]
+            and audit["answer_probe_verified"]
+            and dom_coverage >= dom_threshold
+            and dom_head_ok
+            and dom_tail_ok
+        )
+        audit["dom_content_verification"] = {
+            "ok": dom_ok,
+            "answer_coverage": round(dom_coverage, 4),
+            "answer_coverage_threshold": dom_threshold,
+            "answer_head_verified": dom_head_ok,
+            "answer_tail_verified": dom_tail_ok,
+            "answer_characters_verified": dom_matched,
+            "answer_characters_total": dom_total,
+        }
+        audit["answer_verified"] = dom_ok
+        if not dom_ok:
             raise RuntimeError("official share page content does not match the current Q&A")
 
         capture = capture_full_page_safely(
