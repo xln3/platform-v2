@@ -261,10 +261,11 @@ def _mark_analysis_job(item: AnalysisJobStateInput) -> dict[str, Any]:
                 text(
                     """
                 UPDATE platform.analysis_job
-                SET state=:state,
+                SET state=CAST(:state AS varchar),
                     attempt_count=attempt_count+CASE
-                      WHEN :state='running' AND state<>'running' THEN 1 ELSE 0 END,
-                    started_at=CASE WHEN :state='running' THEN COALESCE(started_at,now())
+                      WHEN CAST(:state AS varchar)='running' AND state<>'running' THEN 1 ELSE 0 END,
+                    started_at=CASE WHEN CAST(:state AS varchar)='running'
+                                    THEN COALESCE(started_at,now())
                                     ELSE started_at END,
                     completed_at=CASE WHEN :terminal THEN COALESCE(completed_at,now())
                                       ELSE completed_at END,
