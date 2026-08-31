@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import random
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -13,14 +14,17 @@ import pytest
 from temporalio.exceptions import ApplicationError
 
 from domain.evidence.dlp import assert_secret_free
+from workflows.activities import yuanbao_adapter as yuanbao_module
 from workflows.activities.collection import CollectionTaskInput
 from workflows.activities.yuanbao_adapter import (
     _BODY_TEXT_JS,
+    _COMBINED_MODE_STATE_JS,
     CollectedAnswer,
     YuanbaoAdapterConfig,
     YuanbaoBatchItemOutcome,
     _batch_item_result,
     _build_yuanbao_trace,
+    _ensure_combined_mode,
     _extract_thinking_text,
     _task_result_from_collected,
     _WallError,
@@ -203,6 +207,78 @@ def test_default_evidence_dir_points_at_adapter_evidence() -> None:
     assert _DEFAULT_EVIDENCE_DIR.name == "yuanbao"
     assert _DEFAULT_EVIDENCE_DIR.parent.name == "adapter-evidence"
     assert _DEFAULT_EVIDENCE_DIR.parent.parent.name == "runtime"
+
+
+class _CombinedModeLocator:
+    def __init__(self, page: _CombinedModePage, kind: str, *, present: bool = True) -> None:
+        self.page = page
+        self.kind = kind
+        self.present = present
+
+    @property
+    def first(self) -> _CombinedModeLocator:
+        return self
+
+    def count(self) -> int:
+        return int(self.present)
+
+    def is_visible(self, timeout: int = 0) -> bool:
+        del timeout
+        return self.present and (self.kind == "trigger" or self.page.menu_open)
+
+    def click(self) -> None:
+        self.page.clicks.append(self.kind)
+        if self.kind == "trigger":
+            self.page.menu_open = True
+        else:
+            self.page.mode = self.kind
+            self.page.label = "快速回答" if self.kind == "normal" else "深度思考"
+            self.page.menu_open = False
+
+
+class _CombinedModePage:
+    def __init__(self, mode: str | None, label: str) -> None:
+        self.mode = mode
+        self.label = label
+        self.menu_open = False
+        self.clicks: list[str] = []
+
+    def evaluate(self, script: str) -> dict[str, object]:
+        assert script == _COMBINED_MODE_STATE_JS
+        return {"found": True, "mode": self.mode, "label": self.label}
+
+    def locator(self, selector: str) -> _CombinedModeLocator:
+        if "menuitemradio" in selector:
+            kind = "normal" if "快速回答" in selector else "deep_think"
+            return _CombinedModeLocator(self, kind)
+        return _CombinedModeLocator(self, "trigger")
+
+    def wait_for_timeout(self, timeout: int) -> None:
+        del timeout
+
+
+def test_combined_mode_normal_is_confirmed_without_click() -> None:
+    page = _CombinedModePage("normal", "快速回答")
+    assert _ensure_combined_mode(page, random.Random(1), "normal") is True
+    assert page.clicks == []
+
+
+def test_combined_mode_switches_to_deep_think(monkeypatch: pytest.MonkeyPatch) -> None:
+    page = _CombinedModePage("normal", "快速回答")
+    monkeypatch.setattr(
+        yuanbao_module,
+        "human_click",
+        lambda locator, _page, _rng: locator.click(),
+    )
+    assert _ensure_combined_mode(page, random.Random(1), "deep_think") is True
+    assert page.clicks == ["trigger", "deep_think"]
+    assert page.mode == "deep_think"
+
+
+def test_combined_mode_unknown_label_fails_closed() -> None:
+    page = _CombinedModePage(None, "全新实验模式")
+    assert _ensure_combined_mode(page, random.Random(1), "normal") is False
+    assert page.clicks == []
 
 
 # ---------------------------------------------------------------------------

@@ -228,6 +228,39 @@ _MODEL_SWITCH_SELECTORS: tuple[str, ...] = (
     "div[aria-label='模型选择']",
 )
 
+# 20260828 live 校准：新版元宝把旧「Hy3 模型选择器 + 深度思考 toggle」合并成
+# 一个按钮。触发器带稳定语义属性 ``data-thinking-mode-switcher-trigger`` / aria-label
+# 「切换模型」，按钮文本直接显示当前口径（快速回答 / 深度思考）；弹层选项使用
+# ``role=menuitemradio`` + ``aria-checked``。旧 DOM 仍保留在后面的兼容路径中。
+_COMBINED_MODE_TRIGGER_SELECTORS: tuple[str, ...] = (
+    "button[data-thinking-mode-switcher-trigger='true']",
+    "button[aria-label='切换模型']",
+)
+
+_COMBINED_MODE_OPTION_SELECTORS: dict[str, tuple[str, ...]] = {
+    "normal": (
+        "button[role='menuitemradio']:has-text('快速回答')",
+        "[role='menuitemradio']:has-text('快速回答')",
+    ),
+    "deep_think": (
+        "button[role='menuitemradio']:has-text('深度思考')",
+        "[role='menuitemradio']:has-text('深度思考')",
+    ),
+}
+
+_COMBINED_MODE_STATE_JS = r"""() => {
+  const el = document.querySelector("button[data-thinking-mode-switcher-trigger='true']")
+    || document.querySelector("button[aria-label='切换模型']");
+  if (!el) return {found: false};
+  const r = el.getBoundingClientRect();
+  if (r.width === 0 || r.height === 0) return {found: false};
+  const label = (el.innerText || el.textContent || "").replace(/\s+/g, " ").trim();
+  const mode = label.includes("快速回答")
+    ? "normal"
+    : (label.includes("深度思考") ? "deep_think" : null);
+  return {found: true, label, mode};
+}"""
+
 # 模型下拉 Hy3 选项（下拉弹出后可见；:text-is 精确匹配防未来多 Hy 选项歧义）
 _HY3_OPTION_SELECTORS: tuple[str, ...] = (
     "div.ybc-model-select-dropdown-item-name:text-is('Hy3')",
@@ -1866,6 +1899,56 @@ def _model_family(page: Any) -> str | None:
     return family if isinstance(family, str) else None
 
 
+def _combined_mode_state(page: Any) -> dict[str, Any] | None:
+    """新版合并模式按钮的可观察状态；控件不存在返回 None，存在但标签未知时
+    保留 ``mode=None``，调用方必须 fail-closed，不能猜测当前口径。"""
+    try:
+        state = page.evaluate(_COMBINED_MODE_STATE_JS)
+    except Exception:
+        return None
+    if not isinstance(state, dict) or not state.get("found"):
+        return None
+    return state
+
+
+def _ensure_combined_mode(page: Any, rng: random.Random, mode: str) -> bool | None:
+    """确保新版合并模式按钮到目标态。
+
+    None 表示新版控件不存在，允许调用方走旧 Hy3/toggle 兼容路径；False 表示
+    新版控件存在但无法确认或切换，必须诚实失败，不能再用旧 DOM 猜测。
+    """
+    state = _combined_mode_state(page)
+    if state is None:
+        return None
+    if state.get("mode") == mode:
+        return True
+    if state.get("mode") not in {"normal", "deep_think"}:
+        return False
+    trigger = _first_visible(page, _COMBINED_MODE_TRIGGER_SELECTORS)
+    if trigger is None:
+        return False
+    try:
+        human_click(trigger, page, rng)
+    except Exception:
+        return False
+    page.wait_for_timeout(300)
+    option = _first_visible(page, _COMBINED_MODE_OPTION_SELECTORS[mode])
+    if option is None:
+        return False
+    try:
+        human_click(option, page, rng)
+    except Exception:
+        return False
+    page.wait_for_timeout(400)
+    state = _combined_mode_state(page)
+    if state is None or state.get("mode") != mode:
+        page.wait_for_timeout(400)
+        state = _combined_mode_state(page)
+        if state is None or state.get("mode") != mode:
+            return False
+    return True
+
+
 def _ensure_default_model(page: Any, rng: random.Random) -> bool:
     """确保模型族 = Hy3（账号默认全能模型）。已在 Hy3 → 零点击 True；在 DeepSeek
     族 → 拟人打开模型下拉点 Hy3 选项 + 后置校验；不可观测/点了不变 → False。"""
@@ -1927,6 +2010,9 @@ def _set_collection_mode(page: Any, rng: random.Random, mode: str) -> bool:
     """测量口径：``normal`` = Hy3 + 深度思考关；``deep_think`` = Hy3 + 深度思考开
     （联网检索为平台自动行为，无开关可确保）。先模型族后开关（切模型可能重置
     开关态）；全部后置校验确认才 True；确认不了 False。"""
+    combined = _ensure_combined_mode(page, rng, mode)
+    if combined is not None:
+        return combined
     if not _ensure_default_model(page, rng):
         return False
     return _ensure_deep_think(page, rng, mode == "deep_think")
